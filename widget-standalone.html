@@ -166,7 +166,17 @@
       } else {
         /* XML, PDF, Excel, Word, ZIP — solo icono + descarga, sin abrir */
         var icon = document.createElement("span");
-        icon.textContent = mt === "application/pdf" ? "📄" : mt.includes("xml") ? "🗂️" : mt.includes("sheet") || mt.includes("excel") ? "📊" : "📁";
+        var iconChar =
+          mt === "application/pdf" ? "📄" :
+          mt.includes("xml") ? "🗂️" :
+          mt.includes("sheet") || mt.includes("excel") || mt.includes("spreadsheet") ? "📊" :
+          mt.includes("word") || mt.includes("document") ? "�" :
+          mt.includes("presentation") || mt.includes("powerpoint") ? "📊" :
+          mt.includes("zip") || mt.includes("rar") || mt.includes("7z") || mt.includes("tar") || mt.includes("gzip") ? "📦" :
+          mt.includes("text") || mt.includes("csv") ? "📃" :
+          mt.includes("json") ? "📦" :
+          "�📁";
+        icon.textContent = iconChar;
         icon.style.cssText = "font-size:22px;display:block;margin-bottom:4px;";
         txt.appendChild(icon);
       }

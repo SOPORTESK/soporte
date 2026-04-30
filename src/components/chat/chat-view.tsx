@@ -367,7 +367,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
             ref={fileInputRef}
             type="file"
             className="hidden"
-            accept="image/*,video/*,audio/*,.pdf,.xml,.xlsx,.xls,.doc,.docx,.txt,.csv"
+            accept="image/*,video/*,audio/*,.pdf,.xml,.xlsx,.xls,.xlsm,.doc,.docx,.ppt,.pptx,.pps,.ppsx,.txt,.csv,.json,.zip,.rar,.7z,.tar,.gz"
             onChange={handleFile}
           />
           <button
