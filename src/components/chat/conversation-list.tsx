@@ -31,17 +31,25 @@ export function ConversationList({
     return map;
   }, [cases]);
 
-  const filtered = cases.filter(c => {
-    if (filter !== "all" && (c.canal ? String(c.canal).toLowerCase() : "") !== filter) return false;
-    if (!query.trim()) return true;
-    const q = query.toLowerCase();
-    const ci = clienteInfo(c.cliente);
-    return ci.nombre.toLowerCase().includes(q)
-      || ci.telefono.toLowerCase().includes(q)
-      || ci.cuenta.toLowerCase().includes(q)
-      || asText(c.title).toLowerCase().includes(q)
-      || asText(c.last_message_preview).toLowerCase().includes(q);
-  });
+  const filtered = React.useMemo(() => {
+    const list = cases.filter(c => {
+      if (filter !== "all" && (c.canal ? String(c.canal).toLowerCase() : "") !== filter) return false;
+      if (!query.trim()) return true;
+      const q = query.toLowerCase();
+      const ci = clienteInfo(c.cliente);
+      return ci.nombre.toLowerCase().includes(q)
+        || ci.telefono.toLowerCase().includes(q)
+        || ci.cuenta.toLowerCase().includes(q)
+        || asText(c.title).toLowerCase().includes(q)
+        || asText(c.last_message_preview).toLowerCase().includes(q);
+    });
+    /* Ordenar: el más reciente primero */
+    return list.sort((a, b) => {
+      const ta = lastMessage(a)?.time || a.last_message_at || a.updated_at || a.created_at || "";
+      const tb = lastMessage(b)?.time || b.last_message_at || b.updated_at || b.created_at || "";
+      return new Date(tb).getTime() - new Date(ta).getTime();
+    });
+  }, [cases, filter, query]);
 
   const emptyMsg = React.useMemo(() => {
     if (cases.length === 0) return "Aún no hay casos. Cuando un cliente escriba, aparecerá aquí.";
