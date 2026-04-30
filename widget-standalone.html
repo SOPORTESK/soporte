@@ -108,67 +108,72 @@
 
   function $id(id) { return document.getElementById(id); }
 
-  /* ── Render mensajes ── */
-  var renderedIds = new Set();
-  var allMsgs = [];
-
-  function renderMsg(m) {
-    if (renderedIds.has(m.id)) return;
-    renderedIds.add(m.id);
-    allMsgs.push(m);
-
+  /* ── Render completo (reemplaza todo el DOM de mensajes) ── */
+  function makeBubble(role, content, time) {
     var wrap = document.createElement("div");
-    wrap.className = "bubble-wrap " + (m.role === "user" ? "user" : "agent");
-
+    wrap.className = "bubble-wrap " + (role === "user" ? "user" : "agent");
     var bubble = document.createElement("div");
     var cls = "bubble ";
-    if (m.role === "user") cls += "user";
-    else if (m.role === "assistant") cls += "ia";
+    if (role === "user") cls += "user";
+    else if (role === "assistant") cls += "ia";
     else cls += "agent";
     bubble.className = cls;
-
-    if (m.role !== "user") {
+    if (role !== "user") {
       var lbl = document.createElement("div");
       lbl.className = "bubble-label";
-      lbl.textContent = m.role === "assistant" ? "🤖 Asistente" : "💬 Agente";
+      lbl.textContent = role === "assistant" ? "🤖 Asistente" : "💬 Agente";
       bubble.appendChild(lbl);
     }
-
     var txt = document.createElement("div");
     txt.className = "bubble-text";
-    txt.textContent = m.content || "";
+    txt.textContent = content || "";
     bubble.appendChild(txt);
-
-    var time = document.createElement("div");
-    time.className = "bubble-time";
-    time.textContent = fmt(m.time);
-    bubble.appendChild(time);
-
+    var t = document.createElement("div");
+    t.className = "bubble-time";
+    t.textContent = fmt(time);
+    bubble.appendChild(t);
     wrap.appendChild(bubble);
-    $id("messages").appendChild(wrap);
-    $id("messages").scrollTop = $id("messages").scrollHeight;
+    return wrap;
   }
 
   function renderAll(histcliente, histtecnico) {
     var all = [];
-    (histcliente || []).forEach(function(e, i) { all.push({ id: "c" + i, role: e.role || "user", content: e.content, time: e.time }); });
-    (histtecnico || []).forEach(function(e, i) { all.push({ id: "t" + i, role: "tecnico", content: e.content, time: e.time }); });
+    (histcliente || []).forEach(function(e) { all.push({ role: e.role || "user", content: e.content, time: e.time }); });
+    (histtecnico || []).forEach(function(e) { all.push({ role: e.role === "nota" ? "nota" : "tecnico", content: e.content, time: e.time }); });
     all.sort(function(a,b){ return new Date(a.time) - new Date(b.time); });
-    all.forEach(renderMsg);
+
+    var container = $id("messages");
+    /* Preservar mensajes optimistas pendientes */
+    var optimistas = [];
+    container.querySelectorAll(".optimista").forEach(function(el) { optimistas.push(el); });
+
+    container.innerHTML = "";
+
+    if (all.length === 0) {
+      var bienvenida = makeBubble("assistant", "¡Hola! 👋 Somos el equipo de soporte de Sekunet. ¿En qué podemos ayudarte hoy?", new Date().toISOString());
+      container.appendChild(bienvenida);
+    }
+
+    all.forEach(function(m) { container.appendChild(makeBubble(m.role, m.content, m.time)); });
+
+    /* Re-agregar optimistas que aún no tienen respaldo en DB */
+    optimistas.forEach(function(el) { container.appendChild(el); });
+
+    container.scrollTop = container.scrollHeight;
   }
 
-  /* ── Polling de respuestas del agente ── */
-  var pollTimer = null;
-  function startPolling() {
-    if (pollTimer) clearInterval(pollTimer);
-    pollTimer = setInterval(async function () {
-      if (!sessionId) return;
-      var res = await db.from("sek_cases")
-        .select("histcliente, histtecnico")
-        .eq("id", sessionId)
-        .maybeSingle();
-      if (res.data) renderAll(res.data.histcliente, res.data.histtecnico);
-    }, 4000);
+  /* ── Realtime Supabase ── */
+  var realtimeChannel = null;
+  function startRealtime() {
+    if (realtimeChannel) { db.removeChannel(realtimeChannel); }
+    realtimeChannel = db.channel("widget-case-" + sessionId)
+      .on("postgres_changes", {
+        event: "UPDATE", schema: "public", table: "sek_cases",
+        filter: "id=eq." + sessionId
+      }, function(payload) {
+        if (payload.new) renderAll(payload.new.histcliente, payload.new.histtecnico);
+      })
+      .subscribe();
   }
 
   /* ── Mostrar chat ── */
@@ -180,13 +185,8 @@
     cs.style.flex = "1";
     cs.style.minHeight = "0";
     cs.style.overflow = "hidden";
-
-    if (!histcliente || histcliente.length === 0) {
-      renderMsg({ id: "welcome", role: "assistant", content: "¡Hola! 👋 Somos el equipo de soporte de Sekunet. ¿En qué podemos ayudarte hoy?", time: new Date().toISOString() });
-    } else {
-      renderAll(histcliente, histtecnico);
-    }
-    startPolling();
+    renderAll(histcliente, histtecnico);
+    startRealtime();
   }
 
   /* ── Iniciar sesión ── */
@@ -234,14 +234,19 @@
     $id("btn-send").disabled = true;
     $id("txt-msg").value = "";
 
-    /* Optimista */
-    renderMsg({ id: "opt-" + Date.now(), role: "user", content: txt, time: new Date().toISOString() });
+    /* Burbuja optimista con clase para preservarla */
+    var optWrap = makeBubble("user", txt, new Date().toISOString());
+    optWrap.classList.add("optimista");
+    var container = $id("messages");
+    container.appendChild(optWrap);
+    container.scrollTop = container.scrollHeight;
 
     /* Leer historial actual y agregar entrada */
     var res = await db.from("sek_cases").select("histcliente").eq("id", sessionId).maybeSingle();
     var hist = (res.data && Array.isArray(res.data.histcliente)) ? res.data.histcliente : [];
     hist.push({ role: "user", time: new Date().toISOString(), content: txt });
     await db.from("sek_cases").update({ histcliente: hist }).eq("id", sessionId);
+    /* Realtime disparará renderAll y eliminará el optimista automáticamente */
     $id("btn-send").disabled = false;
   }
 
