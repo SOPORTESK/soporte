@@ -210,25 +210,37 @@
     }
   }
 
-  /* ── Realtime Supabase ── */
+  /* ── Realtime + polling de respaldo ── */
   var realtimeChannel = null;
   var presenceChannel = null;
   var typingTimer = null;
+  var pollTimer = null;
+
+  async function fetchAndRender() {
+    if (!sessionId) return;
+    var res = await db.from("sek_cases").select("histcliente,histtecnico").eq("id", sessionId).maybeSingle();
+    if (res.data) renderAll(res.data.histcliente, res.data.histtecnico);
+  }
 
   function startRealtime() {
-    if (realtimeChannel) { db.removeChannel(realtimeChannel); }
-    if (presenceChannel) { db.removeChannel(presenceChannel); }
+    if (realtimeChannel) { try { db.removeChannel(realtimeChannel); } catch(e){} }
+    if (presenceChannel) { try { db.removeChannel(presenceChannel); } catch(e){} }
+    if (pollTimer) clearInterval(pollTimer);
 
-    realtimeChannel = db.channel("widget-case-" + sessionId)
+    /* Canal de mensajes */
+    realtimeChannel = db.channel("wgt-msgs-" + sessionId)
       .on("postgres_changes", {
         event: "UPDATE", schema: "public", table: "sek_cases",
         filter: "id=eq." + sessionId
       }, function(payload) {
         if (payload.new) renderAll(payload.new.histcliente, payload.new.histtecnico);
       })
-      .subscribe();
+      .subscribe(function(status) {
+        console.log("[widget] realtime status:", status);
+      });
 
-    presenceChannel = db.channel("typing-" + sessionId, { config: { presence: { key: "cliente" } } })
+    /* Canal de presence (escritura) — clave distinta */
+    presenceChannel = db.channel("wgt-typing-" + sessionId, { config: { presence: { key: "cli-" + sessionId.slice(0,8) } } })
       .on("presence", { event: "sync" }, function() {
         var state = presenceChannel.presenceState();
         var entries = Object.values(state).flat();
@@ -236,6 +248,9 @@
         showAgentTyping(agentTyping);
       })
       .subscribe();
+
+    /* Polling de respaldo cada 5s por si Realtime falla */
+    pollTimer = setInterval(fetchAndRender, 5000);
   }
 
   function emitTyping() {
