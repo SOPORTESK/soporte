@@ -1,0 +1,112 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* =====================================================================
+   SEKUNET CHAT - Tema accesible (WCAG AA/AAA)
+   Paleta basada en logo: azul Sekunet + naranja.
+   La pareja azul/naranja es una de las más seguras para personas con
+   deuteranopía y protanopía (tipos más comunes de daltonismo).
+   Se evita rojo/verde como único distintivo de estado.
+===================================================================== */
+
+@layer base {
+  :root {
+    --radius: 0.75rem;
+
+    /* Brand azul Sekunet */
+    --brand-50:  214 100% 97%;
+    --brand-100: 214 95% 93%;
+    --brand-200: 213 97% 87%;
+    --brand-300: 212 96% 78%;
+    --brand-400: 213 94% 68%;
+    --brand-500: 217 91% 60%;
+    --brand-600: 221 83% 53%;
+    --brand-700: 224 76% 45%;   /* azul Sekunet principal */
+    --brand-800: 226 71% 37%;
+    --brand-900: 224 64% 30%;
+
+    /* Naranja del logo */
+    --accent-50:  33 100% 96%;
+    --accent-100: 34 100% 92%;
+    --accent-300: 31 97% 72%;
+    --accent-500: 25 95% 53%;   /* naranja principal */
+    --accent-600: 21 90% 48%;
+    --accent-700: 17 88% 40%;
+
+    /* Neutrales tema claro */
+    --background: 210 20% 98%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --muted: 210 16% 93%;
+    --muted-foreground: 215 16% 40%;
+    --border: 214 20% 88%;
+    --input: 214 20% 88%;
+    --ring: 224 76% 45%;
+
+    /* Estados - SIEMPRE acompañados de icono/forma además del color
+       para no depender solo del color (accesibilidad daltónica) */
+    --success: 173 80% 36%;  /* teal en lugar de verde puro */
+    --warning: 38 92% 50%;   /* ámbar */
+    --danger:  340 82% 52%;  /* magenta-rojizo, distinguible del naranja */
+  }
+
+  .dark {
+    --background: 222 47% 7%;
+    --foreground: 210 40% 98%;
+    --card: 222 47% 10%;
+    --card-foreground: 210 40% 98%;
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 70%;
+    --border: 217 33% 20%;
+    --input: 217 33% 20%;
+    --ring: 213 94% 68%;
+
+    --success: 173 70% 50%;
+    --warning: 38 92% 60%;
+    --danger:  340 80% 65%;
+  }
+
+  * { @apply border-border; }
+
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  /* Foco siempre visible (accesibilidad) */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+
+  /* Respetar preferencia de movimiento reducido */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.001ms !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
+
+  /* Scrollbar sutil */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { @apply bg-muted rounded-full; }
+  ::-webkit-scrollbar-thumb:hover { @apply bg-border; }
+}
+
+@layer utilities {
+  .gradient-brand {
+    background: linear-gradient(135deg, hsl(var(--brand-700)) 0%, hsl(var(--accent-500)) 100%);
+  }
+  .text-gradient-brand {
+    background: linear-gradient(135deg, hsl(var(--brand-700)), hsl(var(--accent-500)));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .glass {
+    @apply bg-card/70 backdrop-blur-xl border border-border/60;
+  }
+}
