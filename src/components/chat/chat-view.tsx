@@ -77,8 +77,12 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   const [plantillas, setPlantillas] = React.useState<any[]>([]);
   const [uploadingFile, setUploadingFile] = React.useState(false);
   const [showActions, setShowActions] = React.useState(false);
+  const [clienteTyping, setClienteTyping] = React.useState(false);
+  const [agentTyping, setAgentTyping] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const scrollerRef = React.useRef<HTMLDivElement>(null);
+  const typingTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const presenceChannelRef = React.useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   React.useEffect(() => { setSekCase(initialCase); }, [initialCase]);
   React.useEffect(() => { setMessages(unifyMessages(sekCase)); }, [sekCase]);
@@ -112,7 +116,18 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       })
       .subscribe();
 
-    return () => { mounted = false; supabase.removeChannel(channel); };
+    /* Presence para indicador de escritura */
+    const presenceCh = supabase.channel(`typing-${initialCase.id}`, { config: { presence: { key: "agent" } } })
+      .on("presence", { event: "sync" }, () => {
+        const state = presenceCh.presenceState<{ role: string; typing: boolean }>();
+        const entries = Object.values(state).flat();
+        setClienteTyping(entries.some((e: any) => e.role === "cliente" && e.typing));
+        setAgentTyping(entries.some((e: any) => e.role === "agente" && e.typing));
+      })
+      .subscribe();
+    presenceChannelRef.current = presenceCh;
+
+    return () => { mounted = false; supabase.removeChannel(channel); supabase.removeChannel(presenceCh); };
   }, [initialCase.id, supabase]);
 
   React.useEffect(() => {
@@ -193,6 +208,14 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
   }
 
+  function onTyping() {
+    const ch = presenceChannelRef.current;
+    if (!ch) return;
+    ch.track({ role: "agente", typing: true });
+    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    typingTimerRef.current = setTimeout(() => ch.track({ role: "agente", typing: false }), 2000);
+  }
+
   const canalKind = (sekCase.canal as ChannelKind) || "web";
   const ci = clienteInfo(sekCase.cliente);
   const display = ci.nombre || ci.telefono || asText(sekCase.title) || "Cliente";
@@ -271,6 +294,19 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
             </React.Fragment>
           );
         })}
+        {/* Indicador cliente escribiendo */}
+        {clienteTyping && (
+          <div className="flex justify-start animate-fade-in">
+            <div className="bg-card border border-border rounded-2xl rounded-bl-sm px-4 py-2 shadow-sm">
+              <div className="flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce" style={{animationDelay:"0ms"}} />
+                <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce" style={{animationDelay:"150ms"}} />
+                <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce" style={{animationDelay:"300ms"}} />
+                <span className="text-[10px] text-muted-foreground ml-1">Cliente escribiendo…</span>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── Plantillas popup ── */}
@@ -350,7 +386,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
 
           <Textarea
             value={draft}
-            onChange={e => setDraft(e.target.value)}
+            onChange={e => { setDraft(e.target.value); onTyping(); }}
             onKeyDown={onKeyDown}
             placeholder={mode === "nota" ? "Escribe una nota interna (solo visible para el equipo)…" : "Escribe un mensaje al cliente… (Enter envía)"}
             rows={1}
@@ -456,7 +492,8 @@ function Bubble({ m, clienteName }: { m: UnifiedMessage; clienteName: string }) 
           isCliente ? "text-muted-foreground" : "text-white/75 justify-end"
         )}>
           <span>{formatTime(m.time)}</span>
-          {m.status === "pending" && <span>⏳</span>}
+          {isTecnico && m.status === "pending" && <span className="opacity-60">✓</span>}
+          {isTecnico && m.status === "sent" && <span className="opacity-90">✓✓</span>}
           {m.status === "error" && <span className="text-red-400">❌</span>}
         </div>
       </div>
