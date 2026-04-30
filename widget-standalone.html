@@ -464,10 +464,23 @@
     renderAll(histcliente, histtecnico);
   }
 
+  function lockChat() {
+    $id("txt-msg").disabled = true;
+    $id("txt-msg").placeholder = "Esta conversación está cerrada.";
+    $id("btn-send").disabled = true;
+    $id("btn-attach").disabled = true;
+    $id("btn-camera").disabled = true;
+    $id("btn-mic").disabled = true;
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+
   async function fetchAndRender() {
     if (!sessionId) return;
-    var res = await db.from("sek_cases").select("histcliente,histtecnico").eq("id", sessionId).maybeSingle();
-    if (res.data) renderAllIfChanged(res.data.histcliente, res.data.histtecnico);
+    var res = await db.from("sek_cases").select("histcliente,histtecnico,estado").eq("id", sessionId).maybeSingle();
+    if (!res.data) return;
+    renderAllIfChanged(res.data.histcliente, res.data.histtecnico);
+    var est = String(res.data.estado || "").toLowerCase();
+    if (est === "cerrado" || est === "resuelto") lockChat();
   }
 
   function startRealtime() {
@@ -481,7 +494,10 @@
         event: "UPDATE", schema: "public", table: "sek_cases",
         filter: "id=eq." + sessionId
       }, function(payload) {
-        if (payload.new) renderAllIfChanged(payload.new.histcliente, payload.new.histtecnico);
+        if (!payload.new) return;
+        renderAllIfChanged(payload.new.histcliente, payload.new.histtecnico);
+        var est = String(payload.new.estado || "").toLowerCase();
+        if (est === "cerrado" || est === "resuelto") lockChat();
       })
       .subscribe(function(status) {
         console.log("[widget] realtime status:", status);
