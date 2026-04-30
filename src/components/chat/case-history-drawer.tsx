@@ -35,20 +35,30 @@ export function CaseHistoryDrawer({ isOpen, onClose, currentCase }: CaseHistoryD
   async function loadCases() {
     setLoading(true);
     try {
-      // Buscar por correo o teléfono para obtener todos los casos del cliente
-      const baseQuery = supabase
-        .from("sek_cases")
-        .select("*")
-        .neq("id", currentCase._group?.targetCaseId ?? currentCase.id);
+      // IDs a excluir: el caso actual y todos los del grupo si hay agrupamiento
+      const excludeIds = currentCase._group?.caseIds || [currentCase.id];
+      
+      console.log(`[History] Buscando historial para: ${ci.nombre || ci.correo || ci.telefono}`);
+      console.log(`[History] Excluyendo IDs:`, excludeIds);
+      console.log(`[History] Filtro: correo=${ci.correo}, telefono=${ci.telefono || currentCase.customer_phone}`);
 
-      let query;
+      // Buscar por correo o teléfono para obtener todos los casos del cliente
+      let query = supabase
+        .from("sek_cases")
+        .select("*");
+      
+      // Excluir IDs
+      excludeIds.forEach(id => {
+        query = query.neq("id", id);
+      });
+
+      // Aplicar filtro por cliente
       if (ci.correo) {
-        query = baseQuery.filter("cliente->>correo", "eq", ci.correo);
+        query = query.filter("cliente->>correo", "eq", ci.correo);
       } else if (ci.telefono || currentCase.customer_phone) {
-        query = baseQuery.eq("customer_phone", ci.telefono || currentCase.customer_phone);
+        query = query.eq("customer_phone", ci.telefono || currentCase.customer_phone);
       } else {
-        // Fallback: buscar por nombre exacto (menos preciso)
-        query = baseQuery.filter("cliente->>nombre", "eq", ci.nombre);
+        query = query.filter("cliente->>nombre", "eq", ci.nombre);
       }
 
       const { data, error } = await query
@@ -58,6 +68,9 @@ export function CaseHistoryDrawer({ isOpen, onClose, currentCase }: CaseHistoryD
       if (error) throw error;
       
       const newCases = (data || []) as CaseWithDetails[];
+      console.log(`[History] Encontrados ${newCases.length} casos historicos`);
+      newCases.forEach(c => console.log(`[History]  - Caso #${c.id}: ${JSON.stringify(c.cliente)}`));
+      
       setCases(newCases);
       setHasMore(newCases.length === PAGE_SIZE * page);
     } catch (err) {
