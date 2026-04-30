@@ -198,10 +198,10 @@ export function InboxClient({
             .limit(100);
           if (!data) return;
           const newCases = data as SekCase[];
-          setCases(newCases);
+          const filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail);
+          setCases(filteredNewCases);
 
           /* Detectar mensajes nuevos comparando los GRUPOS de cliente (filtrados) */
-          const filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail);
           const newMerged = mergeGroups(filteredNewCases);
           const changed = newMerged.find(ng => {
             if (String(ng.id) === selectedId) return false;
@@ -270,7 +270,7 @@ export function InboxClient({
       const newTotal = filteredNewCases.length;
       const newMsgs = filteredNewCases.reduce((s, c) => s + (c.histcliente?.length || 0), 0);
       if (newTotal !== prevTotal || newMsgs !== prevMsgs) {
-        setCases(newCases);
+        setCases(filteredNewCases);
         prevCasesRef.current = filteredNewCases;
         prevMergedRef.current = mergeGroups(filteredNewCases);
       }
