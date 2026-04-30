@@ -160,6 +160,11 @@ export function ConversationList({
                     )}
                     {c.prioridad === "urgente" && <Badge variant="danger" className="text-[10px]">Urgente</Badge>}
                     {c.prioridad === "alta" && <Badge variant="warning" className="text-[10px]">Alta</Badge>}
+                    {(() => {
+                      const tags = Array.isArray(c.tags) ? c.tags : [];
+                      const hasN2 = tags.some((t: string) => t.toLowerCase().includes("n2"));
+                      return hasN2 ? <Badge variant="danger" className="text-[10px] bg-red-600 text-white hover:bg-red-700">N2</Badge> : null;
+                    })()}
                     {c.unread_count > 0 && <Badge variant="default" className="text-[10px]">{c.unread_count}</Badge>}
                   </div>
                 </div>
