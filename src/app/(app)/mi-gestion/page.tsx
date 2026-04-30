@@ -6,9 +6,19 @@ export const dynamic = "force-dynamic";
 export default async function MiGestionPage({ searchParams }: { searchParams: { c?: string } }) {
   const supabase = createClient();
   
-  // Obtener usuario actual para filtrar casos donde participó
+  // Obtener usuario actual y su nombre de agente
   const { data: { user } } = await supabase.auth.getUser();
   const agentEmail = user?.email;
+  
+  // Buscar nombre del agente en la config
+  const { data: agentConfig } = await supabase
+    .from("sek_agent_config")
+    .select("nombre,apellido")
+    .ilike("email", agentEmail || "")
+    .maybeSingle();
+  
+  const agentName = agentConfig?.nombre || "";
+  const agentFullName = [agentConfig?.nombre, agentConfig?.apellido].filter(Boolean).join(" ").toLowerCase();
   
   if (!agentEmail) {
     return (
@@ -21,7 +31,6 @@ export default async function MiGestionPage({ searchParams }: { searchParams: { 
   }
   
   // Buscar casos donde el agente haya enviado mensajes (histtecnico)
-  // Filtramos en el cliente porque Supabase no soporta filtro JSONB anidado fácilmente
   const { data: allCases, error } = await supabase
     .from("sek_cases")
     .select("*")
@@ -30,20 +39,21 @@ export default async function MiGestionPage({ searchParams }: { searchParams: { 
   
   if (error) console.error("[mi-gestion] sek_cases error:", error.message);
   
-  // Filtrar casos donde el agente actual haya participado
+  // Filtrar casos donde el agente actual haya participado (por email o nombre)
   const myCases = (allCases || []).filter(c => {
     const histtecnico = Array.isArray(c.histtecnico) ? c.histtecnico : [];
     const hasMyMessage = histtecnico.some((e: any) => {
       const author = String(e?.author || "").toLowerCase();
-      return author === agentEmail.toLowerCase() || author.includes(agentEmail.toLowerCase());
+      // Buscar por email o por nombre
+      return author === agentEmail.toLowerCase() || 
+             author.includes(agentEmail.toLowerCase()) ||
+             (agentName && author.includes(agentName.toLowerCase())) ||
+             (agentFullName && author.includes(agentFullName));
     });
-    // Log para diagnóstico
-    if (hasMyMessage) {
-      console.log(`[mi-gestion] Caso gestionado por ${agentEmail}: #${c.id} - ${histtecnico.length} mensajes técnicos`);
-    }
     return hasMyMessage;
   });
-  console.log(`[mi-gestion] Agente: ${agentEmail}, Total casos: ${allCases?.length || 0}, Mis casos: ${myCases.length}`);
+  
+  console.log(`[mi-gestion] Agente: ${agentEmail} (${agentFullName}), Total casos: ${allCases?.length || 0}, Mis casos: ${myCases.length}`);
   
   const selectedId = searchParams.c || (myCases?.[0]?.id ? String(myCases[0].id) : null);
 

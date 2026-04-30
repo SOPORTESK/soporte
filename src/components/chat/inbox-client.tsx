@@ -10,7 +10,7 @@ import { toast } from "sonner";
 import { clienteInfo, asText, customerKey } from "@/lib/utils";
 
 /* ── Filtrar casos según el tipo de contenedor ── */
-function filterCasesByContainer(cases: SekCase[], containerType: string | undefined, currentAgentEmail: string | null): SekCase[] {
+function filterCasesByContainer(cases: SekCase[], containerType: string | undefined, currentAgentEmail: string | null, currentAgentName: string | null): SekCase[] {
   if (!containerType || containerType === "inbox") return cases;
   
   if (containerType === "soporte-avanzado") {
@@ -21,12 +21,14 @@ function filterCasesByContainer(cases: SekCase[], containerType: string | undefi
   }
   
   if (containerType === "mi-gestion") {
-    if (!currentAgentEmail) return [];
     return cases.filter(c => {
       const histtecnico = Array.isArray(c.histtecnico) ? c.histtecnico : [];
       return histtecnico.some((e: any) => {
         const author = String(e?.author || "").toLowerCase();
-        return author === currentAgentEmail.toLowerCase() || author.includes(currentAgentEmail.toLowerCase());
+        // Buscar por email o por nombre
+        const emailMatch = currentAgentEmail && (author === currentAgentEmail.toLowerCase() || author.includes(currentAgentEmail.toLowerCase()));
+        const nameMatch = currentAgentName && (author.includes(currentAgentName.toLowerCase()));
+        return emailMatch || nameMatch;
       });
     });
   }
@@ -154,25 +156,38 @@ export function InboxClient({
   const [selectedId, setSelectedId] = React.useState<string | null>(initialSelectedId);
   const [unreadTotal, setUnreadTotal] = React.useState(0);
   const [agentEmail, setAgentEmail] = React.useState<string | null>(null);
+  const [agentName, setAgentName] = React.useState<string | null>(null);
   const supabase = React.useMemo(() => createClient(), []);
   const prevCasesRef = React.useRef<SekCase[]>(initialCases);
 
-  /* Obtener email del agente actual para filtrar Mi Gestion */
+  /* Obtener email y nombre del agente actual para filtrar Mi Gestion */
   React.useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      if (data?.user?.email) setAgentEmail(data.user.email);
+    supabase.auth.getUser().then(async ({ data }) => {
+      if (data?.user?.email) {
+        setAgentEmail(data.user.email);
+        // Buscar nombre del agente en config
+        const { data: agent } = await supabase
+          .from("sek_agent_config")
+          .select("nombre,apellido")
+          .ilike("email", data.user.email)
+          .maybeSingle();
+        if (agent) {
+          const fullName = [agent.nombre, agent.apellido].filter(Boolean).join(" ");
+          setAgentName(fullName);
+          console.log(`[Mi Gestion] Agente identificado: ${fullName}`);
+        }
+      }
     });
   }, [supabase]);
 
-  /* Casos filtrados según containerType 
-     NOTA: Para Mi Gestion, si agentEmail aún no carga, usamos initialCases (ya filtrados por SSR) */
+  /* Casos filtrados según containerType */
   const filteredCases = React.useMemo(() => {
-    // Si es Mi Gestion y aún no tenemos email, confiar en el filtro del servidor (initialCases)
-    if (containerType === "mi-gestion" && !agentEmail && cases === initialCases) {
+    // Si es Mi Gestion y aún no tenemos datos, confiar en el filtro del servidor (initialCases)
+    if (containerType === "mi-gestion" && !agentName && !agentEmail && cases === initialCases) {
       return cases;
     }
-    return filterCasesByContainer(cases, containerType, agentEmail);
-  }, [cases, containerType, agentEmail, initialCases]);
+    return filterCasesByContainer(cases, containerType, agentEmail, agentName);
+  }, [cases, containerType, agentEmail, agentName, initialCases]);
 
   /* Casos agrupados por cliente (un solo chat por cliente, varios casos dentro) */
   const mergedCases = React.useMemo(() => mergeGroups(filteredCases), [filteredCases]);
@@ -202,7 +217,7 @@ export function InboxClient({
             .limit(100);
           if (!data) return;
           const newCases = data as SekCase[];
-          const filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail);
+          const filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail, agentName);
           setCases(filteredNewCases);
 
           /* Detectar mensajes nuevos comparando los GRUPOS de cliente (filtrados) */
@@ -268,7 +283,7 @@ export function InboxClient({
         .limit(100);
       if (!data) return;
       const newCases = data as SekCase[];
-      const filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail);
+      const filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail, agentName);
       const prevTotal = prevCasesRef.current.length;
       const prevMsgs = prevCasesRef.current.reduce((s, c) => s + (c.histcliente?.length || 0), 0);
       const newTotal = filteredNewCases.length;
@@ -281,7 +296,7 @@ export function InboxClient({
     }, 5000);
 
     return () => { clearInterval(poll); supabase.removeChannel(channel); };
-  }, [supabase, selectedId, containerType, agentEmail]);
+  }, [supabase, selectedId, containerType, agentEmail, agentName]);
 
   function selectCase(id: string) {
     setSelectedId(id);
