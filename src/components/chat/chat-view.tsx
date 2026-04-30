@@ -96,14 +96,16 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   React.useEffect(() => {
     let mounted = true;
     (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!mounted || !user?.email) return;
-      setAgentEmail(user.email);
-      const { data: agent } = await supabase
-        .from("sek_agent_config").select("nombre,apellido").ilike("email", user.email).maybeSingle();
-      if (!mounted) return;
-      const a: any = agent;
-      setAgentName([a?.nombre, a?.apellido].filter(Boolean).join(" ") || user.email);
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!mounted || !user?.email) return;
+        setAgentEmail(user.email);
+        const { data: agent } = await supabase
+          .from("sek_agent_config").select("nombre,apellido").ilike("email", user.email).maybeSingle();
+        if (!mounted) return;
+        const a: any = agent;
+        setAgentName([a?.nombre, a?.apellido].filter(Boolean).join(" ") || user.email);
+      } catch { /* lock timeout en dev - ignorar */ }
     })();
 
     const channel = supabase
@@ -116,8 +118,8 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       })
       .subscribe();
 
-    /* Presence para indicador de escritura */
-    const presenceCh = supabase.channel(`typing-${initialCase.id}`, { config: { presence: { key: "agent" } } })
+    /* Presence para indicador de escritura — mismo canal que widget */
+    const presenceCh = supabase.channel(`wgt-typing-${initialCase.id}`, { config: { presence: { key: "agent" } } })
       .on("presence", { event: "sync" }, () => {
         const state = presenceCh.presenceState<{ role: string; typing: boolean }>();
         const entries = Object.values(state).flat();
