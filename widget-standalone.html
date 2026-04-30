@@ -335,18 +335,28 @@
         dl.textContent = "⬇ Descargar";
         bubble.appendChild(dl);
       } else if (isVid) {
-        var vid = document.createElement("video");
-        vid.controls = true; vid.preload = "metadata"; vid.playsInline = true;
-        vid.style.cssText = "max-width:100%;border-radius:12px;display:block;margin-bottom:8px;background:#000;";
-        var vsrc = document.createElement("source"); vsrc.src = mediaUrl; vsrc.type = mt;
-        vid.appendChild(vsrc);
-        vid.onerror = function() { vid.style.display = "none"; };
-        bubble.appendChild(vid);
-        var vdl = document.createElement("a");
-        vdl.href = mediaUrl; vdl.target = "_blank";
-        vdl.className = "file-card-dl";
-        vdl.textContent = "⬇ Descargar — " + fname;
-        bubble.appendChild(vdl);
+        /* Card de video con botón de descarga — más estable que <video> en widget embebido */
+        var vcard = document.createElement("div");
+        vcard.className = "file-card";
+        var vcIcon = document.createElement("div");
+        vcIcon.className = "file-card-icon"; vcIcon.textContent = "🎬";
+        var vcInfo = document.createElement("div");
+        vcInfo.className = "file-card-info";
+        var vcName = document.createElement("div");
+        vcName.className = "file-card-name"; vcName.textContent = fname;
+        var vcPlay = document.createElement("a");
+        vcPlay.className = "file-card-dl"; vcPlay.textContent = "▶ Abrir / Reproducir";
+        vcPlay.href = mediaUrl; vcPlay.target = "_blank"; vcPlay.rel = "noopener";
+        var vcDl = document.createElement("a");
+        vcDl.className = "file-card-dl"; vcDl.textContent = " · ⬇ Descargar";
+        vcDl.href = "#";
+        vcDl.onclick = function(ev) { ev.preventDefault(); forceDownload(mediaUrl, fname); };
+        vcInfo.appendChild(vcName);
+        vcInfo.appendChild(vcPlay);
+        vcInfo.appendChild(vcDl);
+        vcard.appendChild(vcIcon);
+        vcard.appendChild(vcInfo);
+        bubble.appendChild(vcard);
       } else if (isAud) {
         var aud = document.createElement("audio");
         aud.controls = true; aud.preload = "metadata";
