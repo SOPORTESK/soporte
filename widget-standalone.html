@@ -412,6 +412,14 @@
     var optimistas = [];
     container.querySelectorAll(".optimista").forEach(function(el) { optimistas.push(el); });
 
+    /* Set de mensajes de usuario ya confirmados en BD para descartar optimistas duplicados */
+    var confirmados = new Set();
+    (histcliente || []).forEach(function(e) {
+      if ((e.role || "user") === "user") {
+        confirmados.add("c:" + (e.content || "") + "|m:" + (e.mediaUrl || ""));
+      }
+    });
+
     container.innerHTML = "";
 
     if (all.length === 0) {
@@ -421,8 +429,11 @@
 
     all.forEach(function(m) { container.appendChild(makeBubble(m.role, m.content, m.time, m.mediaUrl, m.mediaType, m.fileName)); });
 
-    /* Re-agregar optimistas que aún no tienen respaldo en DB */
-    optimistas.forEach(function(el) { container.appendChild(el); });
+    /* Re-agregar solo optimistas cuyo mensaje aún NO está en la BD */
+    optimistas.forEach(function(el) {
+      var key = "c:" + (el.dataset.optContent || "") + "|m:" + (el.dataset.optMedia || "");
+      if (!confirmados.has(key)) container.appendChild(el);
+    });
 
     container.scrollTop = container.scrollHeight;
   }
@@ -720,6 +731,8 @@
     /* Burbuja optimista */
     var optWrap = makeBubble("user", entry.content, entry.time, entry.mediaUrl, entry.mediaType, entry.fileName);
     optWrap.classList.add("optimista");
+    optWrap.dataset.optContent = entry.content || "";
+    optWrap.dataset.optMedia = entry.mediaUrl || "";
     var container = $id("messages");
     container.appendChild(optWrap);
     container.scrollTop = container.scrollHeight;

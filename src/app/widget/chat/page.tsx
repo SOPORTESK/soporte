@@ -42,6 +42,16 @@ export default function WidgetPage() {
     if (saved) {
       setSessionId(saved);
       setStep("chat");
+      (async () => {
+        try {
+          const res = await fetch(`${BASE}/api/widget/messages?session_id=${saved}`);
+          if (!res.ok) {
+            try { sessionStorage.removeItem("sek_widget_session"); } catch {}
+            setSessionId(null);
+            setStep("form");
+          }
+        } catch {}
+      })();
     }
   }, []);
 
@@ -58,7 +68,14 @@ export default function WidgetPage() {
     const poll = async () => {
       try {
         const res = await fetch(`${BASE}/api/widget/messages?session_id=${sessionId}`);
-        if (!res.ok) return;
+        if (!res.ok) {
+          if (res.status === 404) {
+            try { sessionStorage.removeItem("sek_widget_session"); } catch {}
+            setSessionId(null);
+            setStep("form");
+          }
+          return;
+        }
         const data = await res.json();
         const hist: ChatMsg[] = [];
         (data.histcliente ?? []).forEach((e: any, i: number) => {
@@ -68,7 +85,20 @@ export default function WidgetPage() {
           hist.push({ id: `t-${i}`, role: "tecnico", content: e.content ?? "", time: e.time ?? "" });
         });
         hist.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
-        setMsgs(hist.map(m => ({ ...m, status: "sent" })));
+        if (hist.length === 0) {
+          setMsgs(prev => {
+            if (prev.some(m => m.id === "welcome")) return prev;
+            return [{
+              id: "welcome",
+              role: "assistant",
+              content: `¡Hola${nombre ? " " + nombre : ""}! 👋 Somos el equipo de soporte de Sekunet. ¿En qué podemos ayudarte hoy?`,
+              time: new Date().toISOString(),
+              status: "sent",
+            }];
+          });
+        } else {
+          setMsgs(hist.map(m => ({ ...m, status: "sent" })));
+        }
       } catch {}
     };
 
@@ -129,7 +159,15 @@ export default function WidgetPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ session_id: sessionId, content: body, role: "user" }),
       });
-      if (!res.ok) throw new Error("Error al enviar");
+      if (!res.ok) {
+        if (res.status === 404) {
+          try { sessionStorage.removeItem("sek_widget_session"); } catch {}
+          setSessionId(null);
+          setStep("form");
+          throw new Error("Sesión expirada. Por favor, inicia el chat de nuevo.");
+        }
+        throw new Error("Error al enviar");
+      }
       setMsgs(p => p.map(m => m.id === optimistic.id ? { ...m, status: "sent" } : m));
     } catch {
       setMsgs(p => p.map(m => m.id === optimistic.id ? { ...m, status: "error" } : m));
