@@ -454,10 +454,26 @@
   var typingTimer = null;
   var pollTimer = null;
 
+  var lastRenderHash = "";
+  function hashHist(hc, ht) {
+    var hca = (hc || []);
+    var hta = (ht || []);
+    return String(hca.length) + "|" + String(hta.length) + "|" +
+      (hca.length ? hca[hca.length-1].time : "") + "|" +
+      (hta.length ? hta[hta.length-1].time : "");
+  }
+
+  function renderAllIfChanged(histcliente, histtecnico) {
+    var h = hashHist(histcliente, histtecnico);
+    if (h === lastRenderHash) return;
+    lastRenderHash = h;
+    renderAll(histcliente, histtecnico);
+  }
+
   async function fetchAndRender() {
     if (!sessionId) return;
     var res = await db.from("sek_cases").select("histcliente,histtecnico").eq("id", sessionId).maybeSingle();
-    if (res.data) renderAll(res.data.histcliente, res.data.histtecnico);
+    if (res.data) renderAllIfChanged(res.data.histcliente, res.data.histtecnico);
   }
 
   function startRealtime() {
@@ -471,7 +487,7 @@
         event: "UPDATE", schema: "public", table: "sek_cases",
         filter: "id=eq." + sessionId
       }, function(payload) {
-        if (payload.new) renderAll(payload.new.histcliente, payload.new.histtecnico);
+        if (payload.new) renderAllIfChanged(payload.new.histcliente, payload.new.histtecnico);
       })
       .subscribe(function(status) {
         console.log("[widget] realtime status:", status);
