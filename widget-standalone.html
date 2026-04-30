@@ -541,6 +541,13 @@
     cs.style.minHeight = "0";
     cs.style.overflow = "hidden";
     if (cliente) clienteData = cliente;
+
+    /* Detectar si estaba esperando equipo */
+    var hc = histcliente || [];
+    var lastMsg = hc.length > 0 ? hc[hc.length - 1] : null;
+    var soloMsgBot = hc.length === 1 && lastMsg && (lastMsg.role === "tecnico" || lastMsg.role === "assistant");
+    esperandoEquipo = soloMsgBot;
+
     renderAll(histcliente, histtecnico);
     startRealtime();
     var est = String(estado || "").toLowerCase();
