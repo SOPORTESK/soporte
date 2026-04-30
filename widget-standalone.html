@@ -620,7 +620,7 @@
     /* Si tiene datos personales, pedir equipo primero */
     if (clienteData && clienteData.nombre) {
       esperandoEquipo = true;
-      var botMsg = { role: "tecnico", author: "Soporte Sekunet", time: new Date().toISOString(), content: "¡Hola " + clienteData.nombre + "! 👋 Para avanzar con el soporte, ¿nos podrías indicar la marca y modelo de tu equipo a consultar?\n\nEjemplo: Hikvision DS-2CD2143" };
+      var botMsg = { role: "tecnico", author: "Soporte Sekunet", time: new Date().toISOString(), content: "¡Hola " + clienteData.nombre + "! 👋 Para poder avanzar con el soporte, ¿nos podrías indicar la marca y modelo de tu equipo a consultar?\n\nEjemplo: Hikvision DS-2CD2143" };
       var hc = [botMsg];
       await db.from("sek_cases").update({ histcliente: hc }).eq("id", sessionId);
       lastRenderHash = "";

@@ -82,7 +82,8 @@ Deno.serve(async (req) => {
     /* Guardar equipo y activar caso */
     const clienteActualizado = { ...(existing.cliente as any), equipo: body, flujo: "activo" };
     const bienvenida = {
-      role: "assistant",
+      role: "tecnico",
+      author: "Soporte Sekunet",
       time: new Date().toISOString(),
       content: `✅ ¡Listo! Un agente de Soporte Sekunet te atenderá en breve.\n\nEquipo registrado: *${body}*`,
     };
@@ -104,7 +105,7 @@ Deno.serve(async (req) => {
     const parts = body.split("|").map((s: string) => s.trim());
     if (parts.length < 3 || !parts[0] || !parts[1] || !parts[2]) {
       await sendWA(from,
-        "No pude entender el formato. Por favor responde así:\n\n" +
+        "Por favor responde con tus datos en el siguiente formato:\n\n" +
         "*Nombre | Correo | Empresa*\n\n" +
         "Ejemplo: Juan Pérez | juan@empresa.com | Sekunet"
       );
@@ -117,7 +118,7 @@ Deno.serve(async (req) => {
     };
     await db.from("sek_cases").update({ cliente: clienteActualizado }).eq("id", existing.id);
     await sendWA(from,
-      `Gracias ${parts[0]} 👍\n\nAhora dime:\n¿*Marca y modelo* del equipo que necesita soporte?\n\nEjemplo: Hikvision DS-2CD2143`
+      `Gracias por la información ${parts[0]} 👍\n\nPara poder avanzar con el soporte, ¿nos podrías indicar la marca y modelo de tu equipo a consultar?\n\nEjemplo: Hikvision DS-2CD2143`
     );
     return new Response("ok", { status: 200 });
   }
@@ -151,8 +152,7 @@ Deno.serve(async (req) => {
     }).select("id").single();
 
     await sendWA(from,
-      `¡Hola ${clientePrevio.nombre}! 👋 Bienvenido de nuevo a *Soporte Sekunet*.\n\n` +
-      `¿*Marca y modelo* del equipo que necesita soporte?\n\nEjemplo: Hikvision DS-2CD2143`
+      `¡Hola ${clientePrevio.nombre}! 👋 Bienvenido de nuevo a *Soporte Sekunet*.\n\nPara poder avanzar con el soporte, ¿nos podrías indicar la marca y modelo de tu equipo a consultar?\n\nEjemplo: Hikvision DS-2CD2143`
     );
   } else {
     /* Número nuevo, pedir datos personales */
@@ -169,9 +169,9 @@ Deno.serve(async (req) => {
 
     await sendWA(from,
       "¡Hola! 👋 Bienvenido a *Soporte Sekunet*.\n\n" +
-      "Para atenderte, necesito algunos datos.\nResponde en este formato:\n\n" +
-      "*Nombre | Correo | Empresa*\n\n" +
-      "Ejemplo: Juan Pérez | juan@empresa.com | Sekunet"
+      "Para atenderte de la mejor manera, ocupamos que nos indique algunos datos.\nResponda en este formato:\n\n" +
+      "*Nombre | Correo | Teléfono / Empresa*\n\n" +
+      "Ejemplo: Juan Pérez | juan@empresa.com | 8888-8888 / Sekunet"
     );
   }
 
