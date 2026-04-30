@@ -33,11 +33,17 @@ export default async function MiGestionPage({ searchParams }: { searchParams: { 
   // Filtrar casos donde el agente actual haya participado
   const myCases = (allCases || []).filter(c => {
     const histtecnico = Array.isArray(c.histtecnico) ? c.histtecnico : [];
-    return histtecnico.some((e: any) => {
+    const hasMyMessage = histtecnico.some((e: any) => {
       const author = String(e?.author || "").toLowerCase();
       return author === agentEmail.toLowerCase() || author.includes(agentEmail.toLowerCase());
     });
+    // Log para diagnóstico
+    if (hasMyMessage) {
+      console.log(`[mi-gestion] Caso gestionado por ${agentEmail}: #${c.id} - ${histtecnico.length} mensajes técnicos`);
+    }
+    return hasMyMessage;
   });
+  console.log(`[mi-gestion] Agente: ${agentEmail}, Total casos: ${allCases?.length || 0}, Mis casos: ${myCases.length}`);
   
   const selectedId = searchParams.c || (myCases?.[0]?.id ? String(myCases[0].id) : null);
 

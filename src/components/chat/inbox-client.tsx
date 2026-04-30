@@ -164,11 +164,15 @@ export function InboxClient({
     });
   }, [supabase]);
 
-  /* Casos filtrados según containerType */
-  const filteredCases = React.useMemo(() => 
-    filterCasesByContainer(cases, containerType, agentEmail),
-    [cases, containerType, agentEmail]
-  );
+  /* Casos filtrados según containerType 
+     NOTA: Para Mi Gestion, si agentEmail aún no carga, usamos initialCases (ya filtrados por SSR) */
+  const filteredCases = React.useMemo(() => {
+    // Si es Mi Gestion y aún no tenemos email, confiar en el filtro del servidor (initialCases)
+    if (containerType === "mi-gestion" && !agentEmail && cases === initialCases) {
+      return cases;
+    }
+    return filterCasesByContainer(cases, containerType, agentEmail);
+  }, [cases, containerType, agentEmail, initialCases]);
 
   /* Casos agrupados por cliente (un solo chat por cliente, varios casos dentro) */
   const mergedCases = React.useMemo(() => mergeGroups(filteredCases), [filteredCases]);
