@@ -4,7 +4,7 @@ import {
   ArrowLeft, MoreVertical, Phone, Send, Paperclip, Bot,
   Mail, Building2, User, StickyNote, Zap, CheckCircle2,
   XCircle, Image as ImageIcon, FileText, Music, Video,
-  Download, X, ChevronDown
+  Download, X, ChevronDown, History
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Avatar, Badge } from "@/components/ui/avatar";
@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn, formatTime, asText, clienteInfo } from "@/lib/utils";
 import { toast } from "sonner";
+import { CaseHistoryDrawer } from "./case-history-drawer";
 import type { SekCase, SekHistEntry, ChannelKind } from "@/lib/types";
 
 type UnifiedMessage = {
@@ -78,6 +79,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   const [plantillas, setPlantillas] = React.useState<any[]>([]);
   const [uploadingFile, setUploadingFile] = React.useState(false);
   const [showActions, setShowActions] = React.useState(false);
+  const [showHistory, setShowHistory] = React.useState(false);
   const [clienteTyping, setClienteTyping] = React.useState(false);
   const [agentTyping, setAgentTyping] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -285,6 +287,16 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
               {ci.cuenta && <span className="inline-flex items-center gap-1"><Building2 className="h-3 w-3" />{ci.cuenta}</span>}
             </div>
           </div>
+          {/* Historial */}
+          <button
+            onClick={() => setShowHistory(true)}
+            className="p-2 rounded-md hover:bg-muted"
+            aria-label="Ver historial de conversaciones"
+            title="Historial de conversaciones"
+          >
+            <History className="h-4 w-4" />
+          </button>
+
           {/* Acciones rápidas */}
           <div className="relative">
             <button
@@ -463,6 +475,13 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
           </Button>
         </div>
       </div>
+
+      {/* Drawer de historial */}
+      <CaseHistoryDrawer
+        isOpen={showHistory}
+        onClose={() => setShowHistory(false)}
+        currentCase={sekCase}
+      />
     </div>
   );
 }
