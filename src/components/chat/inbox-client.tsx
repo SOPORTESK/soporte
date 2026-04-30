@@ -103,6 +103,23 @@ function playNotif() {
   } catch {}
 }
 
+function playN2Alert() {
+  try {
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    // Tres tonos ascendentes para alerta importante
+    [523, 659, 784].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.frequency.setValueAtTime(freq, ctx.currentTime + i * 0.15);
+      gain.gain.setValueAtTime(0.4, ctx.currentTime + i * 0.15);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.15 + 0.3);
+      osc.start(ctx.currentTime + i * 0.15);
+      osc.stop(ctx.currentTime + i * 0.15 + 0.3);
+    });
+  } catch {}
+}
+
 export function InboxClient({
   initialCases, initialSelectedId, containerType
 }: { initialCases: SekCase[]; initialSelectedId: string | null; containerType?: "inbox" | "soporte-avanzado" | "mi-gestion" }) {
@@ -167,6 +184,34 @@ export function InboxClient({
             setUnreadTotal(p => p + 1);
           }
 
+          /* 🔔 Alerta especial para Soporte Avanzado: nuevo caso con etiqueta n2 */
+          if (containerType === "soporte-avanzado" && payload.eventType === "UPDATE") {
+            const newCase = payload.new as SekCase;
+            const oldCase = payload.old as SekCase;
+            const newTags = Array.isArray(newCase?.tags) ? newCase.tags : [];
+            const oldTags = Array.isArray(oldCase?.tags) ? oldCase.tags : [];
+            
+            // Verificar si se agregó etiqueta n2
+            const hasN2Now = newTags.some((t: string) => t.toLowerCase() === "n2" || t.toLowerCase() === "soporte-n2");
+            const hadN2Before = oldTags.some((t: string) => t.toLowerCase() === "n2" || t.toLowerCase() === "soporte-n2");
+            
+            if (hasN2Now && !hadN2Before) {
+              // Alerta visual y sonora especial
+              playN2Alert();
+              const ci2 = clienteInfo(newCase.cliente);
+              const name2 = ci2.nombre || ci2.telefono || asText(newCase.title) || "Cliente";
+              
+              toast.success("🔧 Nueva solicitud de soporte avanzado", {
+                description: `${name2} ha sido etiquetado como N2`,
+                duration: 8000,
+                action: { 
+                  label: "Ver caso", 
+                  onClick: () => selectCase(String(newCase.id)) 
+                }
+              });
+            }
+          }
+
           prevCasesRef.current = newCases;
           prevMergedRef.current = newMerged;
         })
@@ -190,7 +235,7 @@ export function InboxClient({
     }, 5000);
 
     return () => { clearInterval(poll); supabase.removeChannel(channel); };
-  }, [supabase, selectedId]);
+  }, [supabase, selectedId, containerType]);
 
   function selectCase(id: string) {
     setSelectedId(id);

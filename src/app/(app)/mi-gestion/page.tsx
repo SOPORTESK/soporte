@@ -6,21 +6,44 @@ export const dynamic = "force-dynamic";
 export default async function MiGestionPage({ searchParams }: { searchParams: { c?: string } }) {
   const supabase = createClient();
   
-  // TODO: Aplicar segmentación específica para Mi Bandeja de Gestión
-  // Por ahora muestra todos los casos (misma lógica que bandeja)
-  const { data: cases, error } = await supabase
+  // Obtener usuario actual para filtrar casos donde participó
+  const { data: { user } } = await supabase.auth.getUser();
+  const agentEmail = user?.email;
+  
+  if (!agentEmail) {
+    return (
+      <InboxClient
+        initialCases={[]}
+        initialSelectedId={null}
+        containerType={"mi-gestion" as const}
+      />
+    );
+  }
+  
+  // Buscar casos donde el agente haya enviado mensajes (histtecnico)
+  // Filtramos en el cliente porque Supabase no soporta filtro JSONB anidado fácilmente
+  const { data: allCases, error } = await supabase
     .from("sek_cases")
     .select("*")
     .order("created_at", { ascending: false })
-    .limit(100);
+    .limit(200);
   
   if (error) console.error("[mi-gestion] sek_cases error:", error.message);
-
-  const selectedId = searchParams.c || (cases?.[0]?.id ? String(cases[0].id) : null);
+  
+  // Filtrar casos donde el agente actual haya participado
+  const myCases = (allCases || []).filter(c => {
+    const histtecnico = Array.isArray(c.histtecnico) ? c.histtecnico : [];
+    return histtecnico.some((e: any) => {
+      const author = String(e?.author || "").toLowerCase();
+      return author === agentEmail.toLowerCase() || author.includes(agentEmail.toLowerCase());
+    });
+  });
+  
+  const selectedId = searchParams.c || (myCases?.[0]?.id ? String(myCases[0].id) : null);
 
   return (
     <InboxClient
-      initialCases={(cases as any[]) || []}
+      initialCases={(myCases as any[]) || []}
       initialSelectedId={selectedId}
       containerType={"mi-gestion" as const}
     />
