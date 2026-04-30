@@ -138,23 +138,58 @@
     if (mediaUrl) {
       var mt = mediaType || "";
       var fname = fileName || decodeURIComponent(mediaUrl.split("/").pop().split("?")[0]) || "archivo";
-      if (mt.startsWith("image/")) {
+      var isImage = mt.startsWith("image/");
+      var isVideo = mt.startsWith("video/");
+      var isAudio = mt.startsWith("audio/");
+
+      if (isImage) {
         var img = document.createElement("img");
-        img.src = mediaUrl; img.style.cssText = "max-width:100%;border-radius:8px;display:block;margin-bottom:6px;"; img.alt = fname;
+        img.src = mediaUrl;
+        img.style.cssText = "max-width:100%;border-radius:8px;display:block;margin-bottom:6px;cursor:pointer;";
+        img.alt = fname;
+        img.onclick = function() { window.open(mediaUrl, "_blank"); };
         txt.appendChild(img);
-      } else if (mt.startsWith("video/")) {
+      } else if (isVideo) {
         var vid = document.createElement("video");
-        vid.src = mediaUrl; vid.controls = true; vid.style.cssText = "max-width:100%;border-radius:8px;display:block;margin-bottom:6px;";
+        vid.src = mediaUrl;
+        vid.controls = true;
+        vid.preload = "metadata";
+        vid.style.cssText = "max-width:100%;border-radius:8px;display:block;margin-bottom:6px;";
         txt.appendChild(vid);
-      } else if (mt.startsWith("audio/")) {
+      } else if (isAudio) {
         var aud = document.createElement("audio");
-        aud.src = mediaUrl; aud.controls = true; aud.style.cssText = "width:100%;margin-bottom:6px;";
+        aud.src = mediaUrl;
+        aud.controls = true;
+        aud.preload = "metadata";
+        aud.style.cssText = "width:100%;margin-bottom:6px;";
         txt.appendChild(aud);
+      } else {
+        /* XML, PDF, Excel, Word, ZIP — solo icono + descarga, sin abrir */
+        var icon = document.createElement("span");
+        icon.textContent = mt === "application/pdf" ? "📄" : mt.includes("xml") ? "🗂️" : mt.includes("sheet") || mt.includes("excel") ? "📊" : "📁";
+        icon.style.cssText = "font-size:22px;display:block;margin-bottom:4px;";
+        txt.appendChild(icon);
       }
+
+      /* Botón descarga para TODOS los archivos */
       var dlLink = document.createElement("a");
-      dlLink.href = mediaUrl; dlLink.download = fname; dlLink.target = "_blank";
-      dlLink.style.cssText = "display:inline-flex;align-items:center;gap:5px;font-size:11px;color:inherit;opacity:.9;text-decoration:underline;";
-      dlLink.textContent = "⬇ " + fname;
+      dlLink.href = mediaUrl;
+      dlLink.download = fname;
+      /* Para XML/PDF/otros forzar descarga sin abrir nueva pestaña */
+      if (!isImage && !isVideo && !isAudio) {
+        dlLink.onclick = function(ev) {
+          ev.preventDefault();
+          fetch(mediaUrl).then(function(r){ return r.blob(); }).then(function(blob){
+            var bUrl = URL.createObjectURL(blob);
+            var a = document.createElement("a"); a.href = bUrl; a.download = fname; a.click();
+            setTimeout(function(){ URL.revokeObjectURL(bUrl); }, 2000);
+          });
+        };
+      } else {
+        dlLink.target = "_blank";
+      }
+      dlLink.style.cssText = "display:inline-flex;align-items:center;gap:5px;font-size:11px;color:inherit;opacity:.9;text-decoration:underline;margin-top:2px;";
+      dlLink.textContent = "⬇ Descargar — " + fname;
       txt.appendChild(dlLink);
     } else {
       txt.textContent = content || "";
