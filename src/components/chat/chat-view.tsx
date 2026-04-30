@@ -130,7 +130,17 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       .subscribe();
     presenceChannelRef.current = presenceCh;
 
-    return () => { mounted = false; supabase.removeChannel(channel); supabase.removeChannel(presenceCh); };
+    /* Polling de respaldo cada 3s por si Realtime falla */
+    const poll = setInterval(async () => {
+      const { data } = await supabase.from("sek_cases").select("*").eq("id", initialCase.id).maybeSingle();
+      if (data && mounted) setSekCase(prev => {
+        const prevLen = (prev.histcliente?.length || 0) + (prev.histtecnico?.length || 0);
+        const newLen = (data.histcliente?.length || 0) + (data.histtecnico?.length || 0);
+        return newLen !== prevLen ? { ...prev, ...data } : prev;
+      });
+    }, 3000);
+
+    return () => { mounted = false; clearInterval(poll); supabase.removeChannel(channel); supabase.removeChannel(presenceCh); };
   }, [initialCase.id, supabase]);
 
   React.useEffect(() => {

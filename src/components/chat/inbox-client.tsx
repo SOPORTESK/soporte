@@ -87,7 +87,25 @@ export function InboxClient({
           prevCasesRef.current = newCases;
         })
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    /* Polling de respaldo cada 5s */
+    const poll = setInterval(async () => {
+      const { data } = await supabase
+        .from("sek_cases").select("*")
+        .order("created_at", { ascending: false })
+        .limit(100);
+      if (!data) return;
+      const newCases = data as SekCase[];
+      const prevTotal = prevCasesRef.current.length;
+      const prevMsgs = prevCasesRef.current.reduce((s, c) => s + (c.histcliente?.length || 0), 0);
+      const newTotal = newCases.length;
+      const newMsgs = newCases.reduce((s, c) => s + (c.histcliente?.length || 0), 0);
+      if (newTotal !== prevTotal || newMsgs !== prevMsgs) {
+        setCases(newCases);
+        prevCasesRef.current = newCases;
+      }
+    }, 5000);
+
+    return () => { clearInterval(poll); supabase.removeChannel(channel); };
   }, [supabase, selectedId]);
 
   function selectCase(id: string) {
