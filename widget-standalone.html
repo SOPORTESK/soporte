@@ -98,7 +98,7 @@
   var db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 
   var sessionId = null;
-  try { sessionId = sessionStorage.getItem("sek_session"); } catch(e){}
+  try { sessionId = localStorage.getItem("sek_session"); } catch(e){}
 
   /* ── Helpers ── */
   function fmt(iso) {
@@ -223,7 +223,7 @@
     }
 
     sessionId = String(ins.data.id);
-    try { sessionStorage.setItem("sek_session", sessionId); } catch(e){}
+    try { localStorage.setItem("sek_session", sessionId); } catch(e){}
     showChat(ins.data.histcliente, ins.data.histtecnico);
   });
 
@@ -253,10 +253,16 @@
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMsg(); }
   });
 
-  /* ── Restaurar sesión previa ── */
+  /* ── Restaurar sesión previa automáticamente ── */
   if (sessionId) {
-    db.from("sek_cases").select("id,histcliente,histtecnico").eq("id", sessionId).eq("canal","widget").maybeSingle().then(function(res) {
-      if (res.data) showChat(res.data.histcliente, res.data.histtecnico);
+    db.from("sek_cases").select("id,histcliente,histtecnico,estado").eq("id", sessionId).eq("canal","widget").maybeSingle().then(function(res) {
+      if (res.data) {
+        showChat(res.data.histcliente, res.data.histtecnico);
+      } else {
+        /* Sesión expirada o eliminada — limpiar */
+        try { localStorage.removeItem("sek_session"); } catch(e){}
+        sessionId = null;
+      }
     });
   }
 })();
