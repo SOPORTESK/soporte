@@ -117,7 +117,7 @@
   function $id(id) { return document.getElementById(id); }
 
   /* ── Render completo (reemplaza todo el DOM de mensajes) ── */
-  function makeBubble(role, content, time) {
+  function makeBubble(role, content, time, mediaUrl, mediaType, fileName) {
     var wrap = document.createElement("div");
     wrap.className = "bubble-wrap " + (role === "user" ? "user" : "agent");
     var bubble = document.createElement("div");
@@ -134,32 +134,32 @@
     }
     var txt = document.createElement("div");
     txt.className = "bubble-text";
-    /* Detectar si el contenido es una URL de archivo */
-    var urlMatch = (content || "").match(/^https?:\/\/.+\.(mp4|mov|avi|webm|mp3|ogg|wav|m4a|jpg|jpeg|png|gif|webp|pdf|xml|xlsx|xls|csv|doc|docx|zip)(\?.*)?$/i);
-    if (urlMatch) {
-      var ext = urlMatch[1].toLowerCase();
-      var fname = decodeURIComponent(content.split("/").pop().split("?")[0]) || ("archivo." + ext);
-      if (/^(jpg|jpeg|png|gif|webp)$/.test(ext)) {
+
+    if (mediaUrl) {
+      var mt = mediaType || "";
+      var fname = fileName || decodeURIComponent(mediaUrl.split("/").pop().split("?")[0]) || "archivo";
+      if (mt.startsWith("image/")) {
         var img = document.createElement("img");
-        img.src = content; img.style.cssText = "max-width:100%;border-radius:8px;display:block;margin-bottom:4px;"; img.alt = fname;
+        img.src = mediaUrl; img.style.cssText = "max-width:100%;border-radius:8px;display:block;margin-bottom:6px;"; img.alt = fname;
         txt.appendChild(img);
-      } else if (/^(mp4|mov|avi|webm)$/.test(ext)) {
+      } else if (mt.startsWith("video/")) {
         var vid = document.createElement("video");
-        vid.src = content; vid.controls = true; vid.style.cssText = "max-width:100%;border-radius:8px;display:block;";
+        vid.src = mediaUrl; vid.controls = true; vid.style.cssText = "max-width:100%;border-radius:8px;display:block;margin-bottom:6px;";
         txt.appendChild(vid);
-      } else if (/^(mp3|ogg|wav|m4a)$/.test(ext)) {
+      } else if (mt.startsWith("audio/")) {
         var aud = document.createElement("audio");
-        aud.src = content; aud.controls = true; aud.style.cssText = "width:100%;margin-bottom:4px;";
+        aud.src = mediaUrl; aud.controls = true; aud.style.cssText = "width:100%;margin-bottom:6px;";
         txt.appendChild(aud);
       }
-      var link = document.createElement("a");
-      link.href = content; link.download = fname; link.target = "_blank";
-      link.style.cssText = "display:inline-flex;align-items:center;gap:5px;font-size:11px;color:inherit;opacity:.85;text-decoration:underline;margin-top:4px;";
-      link.textContent = "⬇ " + fname;
-      txt.appendChild(link);
+      var dlLink = document.createElement("a");
+      dlLink.href = mediaUrl; dlLink.download = fname; dlLink.target = "_blank";
+      dlLink.style.cssText = "display:inline-flex;align-items:center;gap:5px;font-size:11px;color:inherit;opacity:.9;text-decoration:underline;";
+      dlLink.textContent = "⬇ " + fname;
+      txt.appendChild(dlLink);
     } else {
       txt.textContent = content || "";
     }
+
     bubble.appendChild(txt);
     var t = document.createElement("div");
     t.className = "bubble-time";
@@ -171,8 +171,8 @@
 
   function renderAll(histcliente, histtecnico) {
     var all = [];
-    (histcliente || []).forEach(function(e) { all.push({ role: e.role || "user", content: e.mediaUrl || e.content, time: e.time }); });
-    (histtecnico || []).forEach(function(e) { all.push({ role: e.role === "nota" ? "nota" : "tecnico", content: e.mediaUrl || e.content, time: e.time }); });
+    (histcliente || []).forEach(function(e) { all.push({ role: e.role || "user", content: e.content, mediaUrl: e.mediaUrl, mediaType: e.mediaType, fileName: e.fileName, time: e.time }); });
+    (histtecnico || []).forEach(function(e) { if (e.role === "nota") return; all.push({ role: "tecnico", content: e.content, mediaUrl: e.mediaUrl, mediaType: e.mediaType, fileName: e.fileName, time: e.time }); });
     all.sort(function(a,b){ return new Date(a.time) - new Date(b.time); });
 
     var container = $id("messages");
@@ -187,7 +187,7 @@
       container.appendChild(bienvenida);
     }
 
-    all.forEach(function(m) { container.appendChild(makeBubble(m.role, m.content, m.time)); });
+    all.forEach(function(m) { container.appendChild(makeBubble(m.role, m.content, m.time, m.mediaUrl, m.mediaType, m.fileName)); });
 
     /* Re-agregar optimistas que aún no tienen respaldo en DB */
     optimistas.forEach(function(el) { container.appendChild(el); });
