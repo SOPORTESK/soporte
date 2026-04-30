@@ -679,12 +679,14 @@
       esperandoEquipo = false;
       $id("btn-send").disabled = true;
       $id("txt-msg").value = "";
-      var res0 = await db.from("sek_cases").select("histcliente,cliente").eq("id", sessionId).maybeSingle();
+      var res0 = await db.from("sek_cases").select("histcliente,histtecnico,cliente").eq("id", sessionId).maybeSingle();
       var hcE = res0.data ? (res0.data.histcliente || []) : [];
       hcE.push({ role: "user", time: new Date().toISOString(), content: txt });
       var clienteActual = res0.data ? (res0.data.cliente || {}) : {};
       clienteActual.equipo = txt;
       await db.from("sek_cases").update({ histcliente: hcE, cliente: clienteActual, title: "Chat web — " + (clienteData ? clienteData.nombre : "Cliente") + " — " + txt }).eq("id", sessionId);
+      lastRenderHash = "";
+      renderAll(hcE, res0.data ? (res0.data.histtecnico || []) : []);
       $id("btn-send").disabled = false;
       return;
     }
