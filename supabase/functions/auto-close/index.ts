@@ -39,15 +39,16 @@ Deno.serve(async () => {
 
     /* Agregar mensaje de cierre al historial del cliente */
     const closeEntry = {
-      role: "assistant",
+      role: "tecnico",
       content: CLOSE_MSG,
       time: new Date().toISOString(),
+      author: "Soporte Sekunet",
     };
-    const newHist = [...(caso.histcliente ?? []), closeEntry];
+    const newHist = [...(caso.histtecnico ?? []), closeEntry];
 
     const { error: updateErr } = await db
       .from("sek_cases")
-      .update({ estado: "cerrado", histcliente: newHist })
+      .update({ estado: "cerrado", histtecnico: newHist })
       .eq("id", caso.id);
 
     if (updateErr) {
