@@ -286,7 +286,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
               onClick={() => { send(p.texto); setShowPlantillas(false); }}
               className="w-full text-left px-4 py-2.5 hover:bg-muted transition-colors border-b border-border/50 last:border-0"
             >
-              <p className="text-xs font-semibold text-brand-700">{p.nombre}</p>
+              <p className="text-xs font-semibold">{p.nombre}</p>
               <p className="text-xs text-muted-foreground truncate mt-0.5">{p.texto}</p>
             </button>
           ))}
