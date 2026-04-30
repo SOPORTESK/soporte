@@ -151,10 +151,17 @@
         txt.appendChild(img);
       } else if (isVideo) {
         var vid = document.createElement("video");
-        vid.src = mediaUrl;
         vid.controls = true;
         vid.preload = "metadata";
-        vid.style.cssText = "max-width:100%;border-radius:8px;display:block;margin-bottom:6px;";
+        vid.playsInline = true;
+        vid.style.cssText = "max-width:100%;border-radius:8px;display:block;margin-bottom:6px;background:#000;";
+        var src = document.createElement("source");
+        src.src = mediaUrl;
+        src.type = mt;
+        vid.appendChild(src);
+        vid.onerror = function() {
+          vid.style.display = "none";
+        };
         txt.appendChild(vid);
       } else if (isAudio) {
         var aud = document.createElement("audio");
