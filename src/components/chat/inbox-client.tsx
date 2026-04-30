@@ -6,6 +6,24 @@ import type { SekCase } from "@/lib/types";
 import { ConversationList } from "./conversation-list";
 import { ChatView } from "./chat-view";
 import { Inbox as InboxIcon } from "lucide-react";
+import { toast } from "sonner";
+import { clienteInfo, asText } from "@/lib/utils";
+
+const BASE_TITLE = "Sekunet Chat";
+
+function playNotif() {
+  try {
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.setValueAtTime(660, ctx.currentTime + 0.1);
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.35);
+  } catch {}
+}
 
 export function InboxClient({
   initialCases, initialSelectedId
@@ -14,7 +32,9 @@ export function InboxClient({
   const params = useSearchParams();
   const [cases, setCases] = React.useState<SekCase[]>(initialCases);
   const [selectedId, setSelectedId] = React.useState<string | null>(initialSelectedId);
+  const [unreadTotal, setUnreadTotal] = React.useState(0);
   const supabase = React.useMemo(() => createClient(), []);
+  const prevCasesRef = React.useRef<SekCase[]>(initialCases);
 
   React.useEffect(() => {
     const c = params.get("c");
@@ -22,19 +42,53 @@ export function InboxClient({
   }, [params]);
 
   React.useEffect(() => {
+    if (unreadTotal > 0) {
+      document.title = `(${unreadTotal}) ${BASE_TITLE}`;
+    } else {
+      document.title = BASE_TITLE;
+    }
+  }, [unreadTotal]);
+
+  React.useEffect(() => {
     const channel = supabase
       .channel("cases-list")
       .on("postgres_changes", { event: "*", schema: "public", table: "sek_cases" },
-        async () => {
+        async (payload) => {
           const { data } = await supabase
             .from("sek_cases").select("*")
             .order("created_at", { ascending: false })
             .limit(100);
-          if (data) setCases(data as any);
+          if (!data) return;
+          const newCases = data as SekCase[];
+          setCases(newCases);
+
+          /* Detectar mensajes nuevos del cliente */
+          const changed = newCases.find(nc => {
+            if (String(nc.id) === selectedId) return false;
+            const prev = prevCasesRef.current.find(p => String(p.id) === String(nc.id));
+            const prevLen = (Array.isArray(prev?.histcliente) ? prev!.histcliente.length : 0);
+            const newLen = (Array.isArray(nc.histcliente) ? nc.histcliente.length : 0);
+            return newLen > prevLen;
+          });
+
+          if (changed) {
+            playNotif();
+            const ci = clienteInfo(changed.cliente);
+            const name = ci.nombre || ci.telefono || asText(changed.title) || "Cliente";
+            const hist = Array.isArray(changed.histcliente) ? changed.histcliente : [];
+            const last = hist[hist.length - 1];
+            toast.info(`💬 Nuevo mensaje de ${name}`, {
+              description: asText(last?.content).slice(0, 80),
+              action: { label: "Ver", onClick: () => selectCase(String(changed.id)) }
+            });
+            setUnreadTotal(p => p + 1);
+          }
+
+          prevCasesRef.current = newCases;
         })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [supabase]);
+  }, [supabase, selectedId]);
 
   function selectCase(id: string) {
     setSelectedId(id);

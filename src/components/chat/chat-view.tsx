@@ -1,6 +1,11 @@
 "use client";
 import * as React from "react";
-import { ArrowLeft, MoreVertical, Phone, Send, Paperclip, Bot, Mail, Building2, User } from "lucide-react";
+import {
+  ArrowLeft, MoreVertical, Phone, Send, Paperclip, Bot,
+  Mail, Building2, User, StickyNote, Zap, CheckCircle2,
+  XCircle, Image as ImageIcon, FileText, Music, Video,
+  Download, X, ChevronDown
+} from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Avatar, Badge } from "@/components/ui/avatar";
 import { Textarea } from "@/components/ui/input";
@@ -11,11 +16,14 @@ import type { SekCase, SekHistEntry, ChannelKind } from "@/lib/types";
 
 type UnifiedMessage = {
   id: string;
-  source: "user" | "assistant" | "tecnico";
+  source: "user" | "assistant" | "tecnico" | "nota";
   content: string;
   time: string;
   authorName?: string;
   status?: "pending" | "sent" | "error";
+  mediaUrl?: string;
+  mediaType?: string;
+  fileName?: string;
 };
 
 function unifyMessages(c: SekCase): UnifiedMessage[] {
@@ -30,19 +38,26 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
       source: role === "assistant" ? "assistant" : "user",
       content: asText(e.content),
       time: e.time || c.created_at,
-      authorName: role === "assistant" ? "IA · Armando Zonas" : undefined,
-      status: "sent"
+      authorName: role === "assistant" ? "IA · Asistente" : undefined,
+      status: "sent",
+      mediaUrl: e.mediaUrl as string | undefined,
+      mediaType: e.mediaType as string | undefined,
+      fileName: e.fileName as string | undefined,
     });
   });
 
   fromTecnico.forEach((e, i) => {
+    const isNota = e.role === "nota";
     out.push({
       id: `t-${i}`,
-      source: "tecnico",
+      source: isNota ? "nota" : "tecnico",
       content: asText(e.content),
       time: e.time || c.created_at,
       authorName: asText(e.author) || undefined,
-      status: "sent"
+      status: "sent",
+      mediaUrl: e.mediaUrl as string | undefined,
+      mediaType: e.mediaType as string | undefined,
+      fileName: e.fileName as string | undefined,
     });
   });
 
@@ -57,10 +72,22 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   const [sending, setSending] = React.useState(false);
   const [agentEmail, setAgentEmail] = React.useState<string | null>(null);
   const [agentName, setAgentName] = React.useState<string | null>(null);
+  const [mode, setMode] = React.useState<"reply" | "nota">("reply");
+  const [showPlantillas, setShowPlantillas] = React.useState(false);
+  const [plantillas, setPlantillas] = React.useState<any[]>([]);
+  const [uploadingFile, setUploadingFile] = React.useState(false);
+  const [showActions, setShowActions] = React.useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
   const scrollerRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => { setSekCase(initialCase); }, [initialCase]);
   React.useEffect(() => { setMessages(unifyMessages(sekCase)); }, [sekCase]);
+
+  /* Cargar plantillas */
+  React.useEffect(() => {
+    supabase.from("sek_plantillas").select("id,nombre,texto,cat").limit(30)
+      .then(({ data }) => { if (data) setPlantillas(data); });
+  }, [supabase]);
 
   React.useEffect(() => {
     let mounted = true;
@@ -93,26 +120,29 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages.length]);
 
-  async function send() {
-    const body = draft.trim();
-    if (!body || sending || !agentEmail) return;
+  async function send(overrideContent?: string, mediaUrl?: string, mediaType?: string, fileName?: string) {
+    const body = (overrideContent ?? draft).trim();
+    if ((!body && !mediaUrl) || sending || !agentEmail) return;
     setSending(true);
+    const isNota = mode === "nota" && !overrideContent;
     const entry: SekHistEntry = {
-      role: "tecnico",
+      role: isNota ? "nota" : "tecnico",
       time: new Date().toISOString(),
-      content: body,
-      author: agentName || agentEmail
+      content: body || (fileName ?? "Archivo adjunto"),
+      author: agentName || agentEmail,
+      ...(mediaUrl ? { mediaUrl, mediaType, fileName } : {})
     };
     const optimisticMsg: UnifiedMessage = {
       id: `temp-${Date.now()}`,
-      source: "tecnico",
-      content: body,
+      source: isNota ? "nota" : "tecnico",
+      content: entry.content,
       time: entry.time,
-      authorName: entry.author,
-      status: "pending"
+      authorName: entry.author as string,
+      status: "pending",
+      mediaUrl, mediaType, fileName
     };
     setMessages(prev => [...prev, optimisticMsg]);
-    setDraft("");
+    if (!overrideContent) setDraft("");
 
     try {
       const newHist = [...(sekCase.histtecnico || []), entry];
@@ -124,9 +154,39 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       if (error) throw error;
       setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...m, status: "sent" } : m));
     } catch (e: any) {
-      toast.error("No se pudo enviar el mensaje", { description: e?.message });
+      toast.error("No se pudo enviar", { description: (e as any)?.message });
       setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...m, status: "error" } : m));
     } finally { setSending(false); }
+  }
+
+  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !agentEmail) return;
+    setUploadingFile(true);
+    try {
+      const ext = file.name.split(".").pop();
+      const path = `cases/${sekCase.id}/${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage
+        .from("attachments")
+        .upload(path, file, { upsert: true });
+      if (upErr) throw upErr;
+      const { data: urlData } = supabase.storage.from("attachments").getPublicUrl(path);
+      await send("", urlData.publicUrl, file.type, file.name);
+    } catch (err: any) {
+      toast.error("Error al subir archivo", { description: err?.message });
+    } finally {
+      setUploadingFile(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  async function toggleCaso() {
+    const newEstado = cerrado ? "abierto" : "cerrado";
+    const { error } = await supabase.from("sek_cases").update({ estado: newEstado }).eq("id", sekCase.id);
+    if (error) { toast.error("Error al cambiar estado"); return; }
+    setSekCase(prev => ({ ...prev, estado: newEstado }));
+    toast.success(`Caso ${newEstado}`);
+    setShowActions(false);
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -141,12 +201,13 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      <header className="px-4 py-3 border-b border-border bg-card">
+      {/* ── Header ── */}
+      <header className="px-4 py-3 border-b border-border bg-card flex-shrink-0">
         <div className="flex items-center gap-3">
           <button onClick={onBack} className="md:hidden p-2 -ml-2 rounded-md hover:bg-muted" aria-label="Volver">
             <ArrowLeft className="h-5 w-5" />
           </button>
-          <Avatar name={display} channel={canalKind} size={44} />
+          <Avatar name={display} channel={canalKind as any} size={44} />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
               <p className="font-semibold truncate">{display}</p>
@@ -158,19 +219,38 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
                 <Badge variant={sekCase.prioridad === "urgente" ? "danger" : sekCase.prioridad === "alta" ? "warning" : "muted"} className="capitalize text-[10px]">{sekCase.prioridad}</Badge>
               )}
             </div>
-            {asText(sekCase.title) && (
-              <p className="text-sm text-muted-foreground truncate mt-0.5">{asText(sekCase.title)}</p>
-            )}
-            <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground flex-wrap">
+            <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground flex-wrap">
               {ci.telefono && <span className="inline-flex items-center gap-1"><Phone className="h-3 w-3" />{ci.telefono}</span>}
               {ci.correo && <span className="inline-flex items-center gap-1"><Mail className="h-3 w-3" />{ci.correo}</span>}
               {ci.cuenta && <span className="inline-flex items-center gap-1"><Building2 className="h-3 w-3" />{ci.cuenta}</span>}
             </div>
           </div>
-          <button className="p-2 rounded-md hover:bg-muted" aria-label="Más opciones"><MoreVertical className="h-4 w-4" /></button>
+          {/* Acciones rápidas */}
+          <div className="relative">
+            <button
+              onClick={() => setShowActions(p => !p)}
+              className="p-2 rounded-md hover:bg-muted"
+              aria-label="Acciones"
+            >
+              <MoreVertical className="h-4 w-4" />
+            </button>
+            {showActions && (
+              <div className="absolute right-0 top-10 z-50 w-48 rounded-xl border border-border bg-card shadow-xl py-1">
+                <button
+                  onClick={toggleCaso}
+                  className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-muted transition-colors"
+                >
+                  {cerrado
+                    ? <><CheckCircle2 className="h-4 w-4 text-green-500" /> Reabrir caso</>  
+                    : <><XCircle className="h-4 w-4 text-red-500" /> Cerrar caso</>}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
+      {/* ── Mensajes ── */}
       <div ref={scrollerRef} className="flex-1 overflow-y-auto p-4 space-y-2 bg-muted/20">
         {messages.length === 0 && (
           <p className="text-center text-sm text-muted-foreground py-12">Sin mensajes en este caso.</p>
@@ -193,23 +273,103 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
         })}
       </div>
 
-      <div className="p-3 border-t border-border bg-card">
-        {cerrado && (
-          <p className="text-xs text-center text-muted-foreground mb-2">
-            Caso <strong>{sekCase.estado}</strong> · Tu mensaje quedará registrado en histtecnico.
-          </p>
-        )}
-        <div className="flex items-end gap-2">
-          <button className="h-10 w-10 grid place-items-center rounded-lg text-muted-foreground hover:bg-muted" aria-label="Adjuntar" title="Adjuntar (próximamente)">
-            <Paperclip className="h-4 w-4" />
+      {/* ── Plantillas popup ── */}
+      {showPlantillas && plantillas.length > 0 && (
+        <div className="border-t border-border bg-card max-h-48 overflow-y-auto flex-shrink-0">
+          <div className="flex items-center justify-between px-4 py-2 border-b border-border">
+            <span className="text-xs font-semibold text-muted-foreground">Respuestas rápidas</span>
+            <button onClick={() => setShowPlantillas(false)}><X className="h-3.5 w-3.5" /></button>
+          </div>
+          {plantillas.map((p: any) => (
+            <button
+              key={p.id}
+              onClick={() => { send(p.texto); setShowPlantillas(false); }}
+              className="w-full text-left px-4 py-2.5 hover:bg-muted transition-colors border-b border-border/50 last:border-0"
+            >
+              <p className="text-xs font-semibold text-brand-700">{p.nombre}</p>
+              <p className="text-xs text-muted-foreground truncate mt-0.5">{p.texto}</p>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* ── Input bar ── */}
+      <div className="flex-shrink-0 border-t border-border bg-card">
+        {/* Modo: Responder / Nota interna */}
+        <div className="flex items-center gap-1 px-3 pt-2">
+          <button
+            onClick={() => setMode("reply")}
+            className={cn(
+              "inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-colors",
+              mode === "reply" ? "bg-brand-700 text-white" : "text-muted-foreground hover:bg-muted"
+            )}
+          >
+            <Send className="h-3 w-3" /> Responder
           </button>
-          <Textarea
-            value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={onKeyDown}
-            placeholder="Escribe un mensaje al cliente… (Enter envía, Shift+Enter nueva línea)"
-            rows={1} aria-label="Mensaje" className="flex-1 max-h-40"
+          <button
+            onClick={() => setMode("nota")}
+            className={cn(
+              "inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-colors",
+              mode === "nota" ? "bg-amber-500 text-white" : "text-muted-foreground hover:bg-muted"
+            )}
+          >
+            <StickyNote className="h-3 w-3" /> Nota interna
+          </button>
+          <div className="flex-1" />
+          <button
+            onClick={() => setShowPlantillas(p => !p)}
+            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium text-muted-foreground hover:bg-muted transition-colors"
+            title="Respuestas rápidas"
+          >
+            <Zap className="h-3 w-3" /> Plantillas
+          </button>
+        </div>
+
+        <div className="flex items-end gap-2 p-2">
+          {/* Adjuntar archivo */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="hidden"
+            accept="image/*,video/*,audio/*,.pdf,.xml,.xlsx,.xls,.doc,.docx,.txt,.csv"
+            onChange={handleFile}
           />
-          <Button onClick={send} loading={sending} disabled={!draft.trim()} aria-label="Enviar">
-            <Send className="h-4 w-4" /> <span className="hidden sm:inline">Enviar</span>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploadingFile}
+            className="h-10 w-10 grid place-items-center rounded-lg text-muted-foreground hover:bg-muted disabled:opacity-50"
+            aria-label="Adjuntar archivo"
+            title="Adjuntar archivo"
+          >
+            {uploadingFile ? (
+              <span className="h-4 w-4 border-2 border-brand-700 border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <Paperclip className="h-4 w-4" />
+            )}
+          </button>
+
+          <Textarea
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            onKeyDown={onKeyDown}
+            placeholder={mode === "nota" ? "Escribe una nota interna (solo visible para el equipo)…" : "Escribe un mensaje al cliente… (Enter envía)"}
+            rows={1}
+            aria-label="Mensaje"
+            className={cn(
+              "flex-1 max-h-40 transition-colors",
+              mode === "nota" && "border-amber-400 focus-visible:ring-amber-400/30"
+            )}
+          />
+
+          <Button
+            onClick={() => send()}
+            loading={sending}
+            disabled={!draft.trim() && !uploadingFile}
+            aria-label="Enviar"
+            className={cn(mode === "nota" && "bg-amber-500 hover:bg-amber-600")}
+          >
+            <Send className="h-4 w-4" />
+            <span className="hidden sm:inline">{mode === "nota" ? "Anotar" : "Enviar"}</span>
           </Button>
         </div>
       </div>
@@ -217,10 +377,56 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   );
 }
 
+function MediaPreview({ url, type, name }: { url: string; type?: string; name?: string }) {
+  if (!url) return null;
+  const t = type || "";
+  if (t.startsWith("image/")) {
+    return (
+      <a href={url} target="_blank" rel="noopener noreferrer" className="block mt-1">
+        <img src={url} alt={name || "imagen"} className="max-w-[240px] max-h-48 rounded-lg object-cover border border-white/20" />
+      </a>
+    );
+  }
+  if (t.startsWith("video/")) {
+    return <video src={url} controls className="max-w-[240px] rounded-lg mt-1" />;
+  }
+  if (t.startsWith("audio/")) {
+    return <audio src={url} controls className="mt-1 w-full max-w-[240px]" />;
+  }
+  const ext = (name || url).split(".").pop()?.toLowerCase();
+  const Icon = ext === "xml" || ext === "csv" || ext === "txt" ? FileText
+    : ext === "pdf" ? FileText : Download;
+  return (
+    <a
+      href={url} target="_blank" rel="noopener noreferrer" download={name}
+      className="mt-1 inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white/15 hover:bg-white/25 transition-colors text-xs font-medium"
+    >
+      <Icon className="h-4 w-4 shrink-0" />
+      <span className="truncate max-w-[160px]">{name || "Archivo"}</span>
+      <Download className="h-3 w-3 shrink-0 opacity-70" />
+    </a>
+  );
+}
+
 function Bubble({ m, clienteName }: { m: UnifiedMessage; clienteName: string }) {
   const isCliente = m.source === "user";
   const isIA = m.source === "assistant";
   const isTecnico = m.source === "tecnico";
+  const isNota = m.source === "nota";
+
+  if (isNota) {
+    return (
+      <div className="flex justify-center animate-fade-in">
+        <div className="max-w-[85%] rounded-xl px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200">
+          <div className="flex items-center gap-1.5 text-[10px] font-semibold mb-0.5 opacity-75">
+            <StickyNote className="h-3 w-3" /> Nota interna · {m.authorName || "Agente"}
+          </div>
+          <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{m.content}</p>
+          <p className="text-[10px] mt-1 opacity-60 text-right">{formatTime(m.time)}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={cn("flex animate-fade-in", isCliente ? "justify-start" : "justify-end")}>
@@ -240,7 +446,10 @@ function Bubble({ m, clienteName }: { m: UnifiedMessage; clienteName: string }) 
           {isTecnico && <><User className="h-3 w-3" /> {m.authorName || "Técnico"}</>}
         </div>
 
-        <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{m.content}</p>
+        {m.mediaUrl
+          ? <MediaPreview url={m.mediaUrl} type={m.mediaType} name={m.fileName} />
+          : <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{m.content}</p>
+        }
 
         <div className={cn(
           "flex items-center gap-2 text-[10px] mt-1",
@@ -248,7 +457,7 @@ function Bubble({ m, clienteName }: { m: UnifiedMessage; clienteName: string }) 
         )}>
           <span>{formatTime(m.time)}</span>
           {m.status === "pending" && <span>⏳</span>}
-          {m.status === "error" && <span className="text-[hsl(var(--danger))]">❌</span>}
+          {m.status === "error" && <span className="text-red-400">❌</span>}
         </div>
       </div>
     </div>
