@@ -6,7 +6,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { LogoutButton } from "@/components/logout-button";
 import { Avatar } from "@/components/ui/avatar";
 import { SidebarLink } from "@/components/sidebar-link";
-import { Inbox, ShieldCheck, ChevronRight } from "lucide-react";
+import { Inbox, ShieldCheck, ChevronRight, Wrench, FolderKanban } from "lucide-react";
 import type { SekAgent } from "@/lib/types";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -72,6 +72,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
         <nav className="flex-1 p-3 space-y-1">
           <SidebarLink href="/inbox" icon={<Inbox className="h-4 w-4" />}>Bandeja</SidebarLink>
+          <SidebarLink href="/soporte-avanzado" icon={<Wrench className="h-4 w-4" />}>Soporte Avanzado</SidebarLink>
+          <SidebarLink href="/mi-gestion" icon={<FolderKanban className="h-4 w-4" />}>Mi Bandeja de Gestión</SidebarLink>
         </nav>
 
         <div className="p-3 border-t border-border space-y-3">

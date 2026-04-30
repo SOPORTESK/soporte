@@ -104,8 +104,8 @@ function playNotif() {
 }
 
 export function InboxClient({
-  initialCases, initialSelectedId
-}: { initialCases: SekCase[]; initialSelectedId: string | null }) {
+  initialCases, initialSelectedId, containerType
+}: { initialCases: SekCase[]; initialSelectedId: string | null; containerType?: "inbox" | "soporte-avanzado" | "mi-gestion" }) {
   const router = useRouter();
   const params = useSearchParams();
   const [cases, setCases] = React.useState<SekCase[]>(initialCases);
