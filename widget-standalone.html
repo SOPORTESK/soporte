@@ -569,6 +569,22 @@
 
     clienteData = { nombre: nombre, correo: correo, telefono: tel, cuenta: empresa };
 
+    /* Buscar caso abierto existente por correo para evitar duplicados */
+    var existing = await db.from("sek_cases")
+      .select("id,histcliente,histtecnico,estado,cliente")
+      .eq("canal", "widget")
+      .not("estado", "in", '("cerrado","resuelto")')
+      .filter("cliente->>correo", "eq", correo)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (existing.data) {
+      sessionId = String(existing.data.id);
+      try { localStorage.setItem("sek_session", sessionId); } catch(e){}
+      showChat(existing.data.histcliente, existing.data.histtecnico, existing.data.estado, existing.data.cliente);
+      return;
+    }
+
     /* Crear nuevo caso */
     var ins = await db.from("sek_cases").insert({
       title: "Chat web — " + nombre,
@@ -576,6 +592,7 @@
       estado: "abierto",
       prioridad: "media",
       cliente: clienteData,
+      customer_phone: tel,
       histcliente: [],
       histtecnico: []
     }).select("id,histcliente,histtecnico,estado").single();
@@ -607,6 +624,7 @@
       estado: "abierto",
       prioridad: "media",
       cliente: clienteData || {},
+      customer_phone: clienteData ? clienteData.telefono : null,
       histcliente: [],
       histtecnico: []
     }).select("id,histcliente,histtecnico").single();
