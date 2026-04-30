@@ -61,6 +61,15 @@ export interface SekCase {
   channel_id: string | null;
   customer_phone: string | null;
   updated_at: string;
+  /** Metadatos del agrupamiento por cliente (varios casos como un solo chat) */
+  _group?: {
+    caseIds: Array<string | number>;
+    targetCaseId: string | number;
+    targetHisttecnico: SekHistEntry[];
+    targetEstado: string | null;
+    totalCases: number;
+    openCases: number;
+  };
 }
 
 export interface SekMessage {

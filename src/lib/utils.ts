@@ -48,6 +48,25 @@ export function asText(value: unknown, fallback = ""): string {
   return fallback;
 }
 
+/** Clave estable para identificar un mismo cliente entre múltiples casos.
+ *  Prioriza correo → teléfono → customer_phone → nombre. Si nada existe, usa el id del caso (anónimo). */
+export function customerKey(c: {
+  cliente?: unknown;
+  customer_phone?: string | null;
+  id?: string | number | null;
+  canal?: string | null;
+}): string {
+  const ci = clienteInfo(c.cliente);
+  const correo = (ci.correo || "").trim().toLowerCase();
+  if (correo) return `mail:${correo}`;
+  const tel = (ci.telefono || c.customer_phone || "").trim();
+  if (tel) return `tel:${tel}`;
+  const nombre = (ci.nombre || "").trim().toLowerCase();
+  const canal = (c.canal || "").toLowerCase();
+  if (nombre) return `nom:${canal}:${nombre}`;
+  return `case:${c.id ?? Math.random().toString(36).slice(2)}`;
+}
+
 export function initials(name: unknown): string {
   const s = String(name ?? "").trim();
   if (!s) return "?";

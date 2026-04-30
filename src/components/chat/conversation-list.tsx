@@ -143,7 +143,12 @@ export function ConversationList({
                   <p className="text-sm text-muted-foreground truncate mt-0.5">{preview}</p>
                   <div className="flex items-center gap-1 mt-1.5 flex-wrap">
                     {ci.cuenta && <Badge variant="muted" className="text-[10px]">{ci.cuenta}</Badge>}
-                    {/* Etiqueta de estado siempre visible */}
+                    {/* Etiqueta de estado y conteo de casos agrupados */}
+                    {c._group && c._group.totalCases > 1 && (
+                      <Badge variant="muted" className="text-[10px]">
+                        {c._group.totalCases} casos{c._group.openCases > 0 ? ` · ${c._group.openCases} abierto${c._group.openCases > 1 ? 's' : ''}` : ''}
+                      </Badge>
+                    )}
                     {(estadoLower === "cerrado" || estadoLower === "resuelto") && (
                       <Badge variant="success" className="text-[10px]">Cerrado</Badge>
                     )}

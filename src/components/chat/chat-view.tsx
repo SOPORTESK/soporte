@@ -94,6 +94,11 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       .then(({ data }) => { if (data) setPlantillas(data); });
   }, [supabase]);
 
+  const isGrouped = !!initialCase._group;
+  const targetId = initialCase._group?.targetCaseId ?? initialCase.id;
+  const targetHisttecnico = initialCase._group?.targetHisttecnico ?? (Array.isArray(initialCase.histtecnico) ? initialCase.histtecnico : []);
+  const targetEstado = initialCase._group?.targetEstado ?? initialCase.estado;
+
   React.useEffect(() => {
     let mounted = true;
     (async () => {
@@ -109,18 +114,33 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       } catch { /* lock timeout en dev - ignorar */ }
     })();
 
+    /* Si es agrupado, el padre (InboxClient) ya maneja polling/realtime de todos los casos */
+    if (isGrouped) {
+      /* Solo presence para typing indicator usando el targetId */
+      const presenceCh = supabase.channel(`wgt-typing-${targetId}`, { config: { presence: { key: "agent" } } })
+        .on("presence", { event: "sync" }, () => {
+          const state = presenceCh.presenceState<{ role: string; typing: boolean }>();
+          const entries = Object.values(state).flat();
+          setClienteTyping(entries.some((e: any) => e.role === "cliente" && e.typing));
+          setAgentTyping(entries.some((e: any) => e.role === "agente" && e.typing));
+        })
+        .subscribe();
+      presenceChannelRef.current = presenceCh;
+      return () => { mounted = false; supabase.removeChannel(presenceCh); };
+    }
+
     const channel = supabase
-      .channel(`case-${initialCase.id}`)
+      .channel(`case-${targetId}`)
       .on("postgres_changes", {
         event: "UPDATE", schema: "public", table: "sek_cases",
-        filter: `id=eq.${initialCase.id}`
+        filter: `id=eq.${targetId}`
       }, (payload) => {
         setSekCase(prev => ({ ...prev, ...(payload.new as any) }));
       })
       .subscribe();
 
     /* Presence para indicador de escritura — mismo canal que widget */
-    const presenceCh = supabase.channel(`wgt-typing-${initialCase.id}`, { config: { presence: { key: "agent" } } })
+    const presenceCh = supabase.channel(`wgt-typing-${targetId}`, { config: { presence: { key: "agent" } } })
       .on("presence", { event: "sync" }, () => {
         const state = presenceCh.presenceState<{ role: string; typing: boolean }>();
         const entries = Object.values(state).flat();
@@ -132,7 +152,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
 
     /* Polling de respaldo cada 3s por si Realtime falla */
     const poll = setInterval(async () => {
-      const { data } = await supabase.from("sek_cases").select("*").eq("id", initialCase.id).maybeSingle();
+      const { data } = await supabase.from("sek_cases").select("*").eq("id", targetId).maybeSingle();
       if (data && mounted) setSekCase(prev => {
         const prevLen = (prev.histcliente?.length || 0) + (prev.histtecnico?.length || 0);
         const newLen = (data.histcliente?.length || 0) + (data.histtecnico?.length || 0);
@@ -141,7 +161,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     }, 3000);
 
     return () => { mounted = false; clearInterval(poll); supabase.removeChannel(channel); supabase.removeChannel(presenceCh); };
-  }, [initialCase.id, supabase]);
+  }, [targetId, supabase, isGrouped]);
 
   React.useEffect(() => {
     const el = scrollerRef.current;
@@ -173,12 +193,16 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     if (!overrideContent) setDraft("");
 
     try {
-      const newHist = [...(sekCase.histtecnico || []), entry];
+      const baseHist = targetHisttecnico;
+      const newHist = [...baseHist, entry];
       setSekCase(prev => ({ ...prev, histtecnico: newHist }));
+      const updates: Record<string, unknown> = { histtecnico: newHist };
+      const targetCerrado = String(targetEstado || "").toLowerCase() === "cerrado" || String(targetEstado || "").toLowerCase() === "resuelto";
+      if (targetCerrado && !isNota) updates.estado = "abierto";
       const { error } = await supabase
         .from("sek_cases")
-        .update({ histtecnico: newHist })
-        .eq("id", sekCase.id);
+        .update(updates)
+        .eq("id", targetId);
       if (error) throw error;
       setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...m, status: "sent" } : m));
     } catch (e: any) {
@@ -193,7 +217,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     setUploadingFile(true);
     try {
       const ext = file.name.split(".").pop();
-      const path = `cases/${sekCase.id}/${Date.now()}.${ext}`;
+      const path = `cases/${targetId}/${Date.now()}.${ext}`;
       const { error: upErr } = await supabase.storage
         .from("attachments")
         .upload(path, file, { upsert: true });
@@ -210,7 +234,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
 
   async function toggleCaso() {
     const newEstado = cerrado ? "abierto" : "cerrado";
-    const { error } = await supabase.from("sek_cases").update({ estado: newEstado }).eq("id", sekCase.id);
+    const { error } = await supabase.from("sek_cases").update({ estado: newEstado }).eq("id", targetId);
     if (error) { toast.error("Error al cambiar estado"); return; }
     setSekCase(prev => ({ ...prev, estado: newEstado }));
     toast.success(`Caso ${newEstado}`);
@@ -332,7 +356,24 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
           {plantillas.map((p: any) => (
             <button
               key={p.id}
-              onClick={() => { send(p.texto); setShowPlantillas(false); }}
+              onClick={() => {
+                const tieneCorchetes = /\[[^\]]+\]/.test(p.texto || "");
+                if (tieneCorchetes) {
+                  setDraft(p.texto);
+                  setShowPlantillas(false);
+                  setTimeout(() => {
+                    const ta = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Mensaje"]');
+                    if (ta) {
+                      ta.focus();
+                      const match = /\[[^\]]+\]/.exec(ta.value);
+                      if (match) ta.setSelectionRange(match.index, match.index + match[0].length);
+                    }
+                  }, 0);
+                } else {
+                  send(p.texto);
+                  setShowPlantillas(false);
+                }
+              }}
               className="w-full text-left px-4 py-2.5 hover:bg-muted transition-colors border-b border-border/50 last:border-0"
             >
               <p className="text-xs font-semibold">{p.nombre}</p>
