@@ -9,6 +9,31 @@ import { Inbox as InboxIcon } from "lucide-react";
 import { toast } from "sonner";
 import { clienteInfo, asText, customerKey } from "@/lib/utils";
 
+/* ── Filtrar casos según el tipo de contenedor ── */
+function filterCasesByContainer(cases: SekCase[], containerType: string | undefined, currentAgentEmail: string | null): SekCase[] {
+  if (!containerType || containerType === "inbox") return cases;
+  
+  if (containerType === "soporte-avanzado") {
+    return cases.filter(c => {
+      const tags = Array.isArray(c.tags) ? c.tags : [];
+      return tags.some((t: string) => t.toLowerCase() === "n2" || t.toLowerCase() === "soporte-n2");
+    });
+  }
+  
+  if (containerType === "mi-gestion") {
+    if (!currentAgentEmail) return [];
+    return cases.filter(c => {
+      const histtecnico = Array.isArray(c.histtecnico) ? c.histtecnico : [];
+      return histtecnico.some((e: any) => {
+        const author = String(e?.author || "").toLowerCase();
+        return author === currentAgentEmail.toLowerCase() || author.includes(currentAgentEmail.toLowerCase());
+      });
+    });
+  }
+  
+  return cases;
+}
+
 /* ── Agrupar casos por cliente (un solo chat por cliente, varios casos dentro) ── */
 function mergeGroups(rawCases: SekCase[]): SekCase[] {
   const groups = new Map<string, SekCase[]>();
@@ -128,11 +153,25 @@ export function InboxClient({
   const [cases, setCases] = React.useState<SekCase[]>(initialCases);
   const [selectedId, setSelectedId] = React.useState<string | null>(initialSelectedId);
   const [unreadTotal, setUnreadTotal] = React.useState(0);
+  const [agentEmail, setAgentEmail] = React.useState<string | null>(null);
   const supabase = React.useMemo(() => createClient(), []);
   const prevCasesRef = React.useRef<SekCase[]>(initialCases);
 
-  /* Casos agrupados por cliente (un solo chat con varios casos dentro) */
-  const mergedCases = React.useMemo(() => mergeGroups(cases), [cases]);
+  /* Obtener email del agente actual para filtrar Mi Gestion */
+  React.useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data?.user?.email) setAgentEmail(data.user.email);
+    });
+  }, [supabase]);
+
+  /* Casos filtrados según containerType */
+  const filteredCases = React.useMemo(() => 
+    filterCasesByContainer(cases, containerType, agentEmail),
+    [cases, containerType, agentEmail]
+  );
+
+  /* Casos agrupados por cliente (un solo chat por cliente, varios casos dentro) */
+  const mergedCases = React.useMemo(() => mergeGroups(filteredCases), [filteredCases]);
   const prevMergedRef = React.useRef<SekCase[]>(mergedCases);
 
   React.useEffect(() => {
@@ -161,8 +200,9 @@ export function InboxClient({
           const newCases = data as SekCase[];
           setCases(newCases);
 
-          /* Detectar mensajes nuevos comparando los GRUPOS de cliente */
-          const newMerged = mergeGroups(newCases);
+          /* Detectar mensajes nuevos comparando los GRUPOS de cliente (filtrados) */
+          const filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail);
+          const newMerged = mergeGroups(filteredNewCases);
           const changed = newMerged.find(ng => {
             if (String(ng.id) === selectedId) return false;
             const prev = prevMergedRef.current.find(p => String(p.id) === String(ng.id));
@@ -212,7 +252,7 @@ export function InboxClient({
             }
           }
 
-          prevCasesRef.current = newCases;
+          prevCasesRef.current = filteredNewCases;
           prevMergedRef.current = newMerged;
         })
       .subscribe();
@@ -224,18 +264,20 @@ export function InboxClient({
         .limit(100);
       if (!data) return;
       const newCases = data as SekCase[];
+      const filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail);
       const prevTotal = prevCasesRef.current.length;
       const prevMsgs = prevCasesRef.current.reduce((s, c) => s + (c.histcliente?.length || 0), 0);
-      const newTotal = newCases.length;
-      const newMsgs = newCases.reduce((s, c) => s + (c.histcliente?.length || 0), 0);
+      const newTotal = filteredNewCases.length;
+      const newMsgs = filteredNewCases.reduce((s, c) => s + (c.histcliente?.length || 0), 0);
       if (newTotal !== prevTotal || newMsgs !== prevMsgs) {
         setCases(newCases);
-        prevCasesRef.current = newCases;
+        prevCasesRef.current = filteredNewCases;
+        prevMergedRef.current = mergeGroups(filteredNewCases);
       }
     }, 5000);
 
     return () => { clearInterval(poll); supabase.removeChannel(channel); };
-  }, [supabase, selectedId, containerType]);
+  }, [supabase, selectedId, containerType, agentEmail]);
 
   function selectCase(id: string) {
     setSelectedId(id);
