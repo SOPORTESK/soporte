@@ -33,12 +33,13 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
 
   fromCliente.forEach((e, i) => {
     const role = String(e.role || "user");
+    const isAgente = role === "assistant" || role === "tecnico" || role === "nota";
     out.push({
       id: `c-${i}`,
-      source: role === "assistant" ? "assistant" : "user",
+      source: isAgente ? "tecnico" : "user",
       content: asText(e.content),
       time: e.time || c.created_at,
-      authorName: role === "assistant" ? "IA · Asistente" : undefined,
+      authorName: isAgente ? (asText(e.author) || "Soporte Sekunet") : undefined,
       status: "sent",
       mediaUrl: e.mediaUrl as string | undefined,
       mediaType: e.mediaType as string | undefined,

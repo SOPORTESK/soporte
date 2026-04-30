@@ -593,7 +593,10 @@
   });
 
   /* ── Crear nuevo caso cuando el anterior está cerrado ── */
+  var creandoCaso = false;
   async function crearNuevoCaso(primerMensaje) {
+    if (creandoCaso) return;
+    creandoCaso = true;
     casoCerrado = false;
     esperandoEquipo = false;
     lastRenderHash = "";
@@ -631,6 +634,7 @@
       lastRenderHash = "";
       renderAll(hc2, []);
     }
+    creandoCaso = false;
   }
 
   /* ── Enviar mensaje ── */
