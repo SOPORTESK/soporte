@@ -2,7 +2,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const INACTIVITY_MINUTES = 5;
+const INACTIVITY_MINUTES = 30;
 const CLOSE_MSG = "Debido a que no hemos recibido respuesta, vamos a cerrar esta conversación. Si necesita ayuda, con gusto le atendemos. ¡Que tenga un buen día!";
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY);

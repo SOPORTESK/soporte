@@ -684,6 +684,9 @@
       hcE.push({ role: "user", time: new Date().toISOString(), content: txt });
       var clienteActual = res0.data ? (res0.data.cliente || {}) : {};
       clienteActual.equipo = txt;
+      /* Mensaje de confirmación */
+      var confirmMsg = { role: "tecnico", author: "Soporte Sekunet", time: new Date().toISOString(), content: "✅ ¡Listo! Un agente de Soporte Sekunet te atenderá en breve.\n\nEquipo registrado: " + txt };
+      hcE.push(confirmMsg);
       await db.from("sek_cases").update({ histcliente: hcE, cliente: clienteActual, title: "Chat web — " + (clienteData ? clienteData.nombre : "Cliente") + " — " + txt }).eq("id", sessionId);
       lastRenderHash = "";
       renderAll(hcE, res0.data ? (res0.data.histtecnico || []) : []);
