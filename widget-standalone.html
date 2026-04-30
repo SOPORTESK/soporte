@@ -67,10 +67,14 @@
   <div class="form" id="form-section">
     <p class="form-title">¡Hola! 👋 Antes de comenzar</p>
     <p class="form-sub">Ingresa tus datos para conectarte con un agente.</p>
-    <label for="inp-nombre">Nombre *</label>
-    <input id="inp-nombre" placeholder="Tu nombre" autocomplete="name" />
-    <label for="inp-correo">Correo (opcional)</label>
+    <label for="inp-nombre">Nombre y apellido *</label>
+    <input id="inp-nombre" placeholder="Nombre completo" autocomplete="name" />
+    <label for="inp-correo">Correo electrónico *</label>
     <input id="inp-correo" type="email" placeholder="tu@correo.com" autocomplete="email" />
+    <label for="inp-tel">Número de contacto *</label>
+    <input id="inp-tel" type="tel" placeholder="+506 8888-8888" autocomplete="tel" />
+    <label for="inp-empresa">Empresa registrada *</label>
+    <input id="inp-empresa" placeholder="Nombre de su empresa" autocomplete="organization" />
     <p class="err" id="form-err"></p>
     <button class="btn-primary" id="btn-start">Iniciar chat →</button>
   </div>
@@ -126,7 +130,32 @@
     }
     var txt = document.createElement("div");
     txt.className = "bubble-text";
-    txt.textContent = content || "";
+    /* Detectar si el contenido es una URL de archivo */
+    var urlMatch = (content || "").match(/^https?:\/\/.+\.(mp4|mov|avi|webm|mp3|ogg|wav|m4a|jpg|jpeg|png|gif|webp|pdf|xml|xlsx|xls|csv|doc|docx|zip)(\?.*)?$/i);
+    if (urlMatch) {
+      var ext = urlMatch[1].toLowerCase();
+      var fname = decodeURIComponent(content.split("/").pop().split("?")[0]) || ("archivo." + ext);
+      if (/^(jpg|jpeg|png|gif|webp)$/.test(ext)) {
+        var img = document.createElement("img");
+        img.src = content; img.style.cssText = "max-width:100%;border-radius:8px;display:block;margin-bottom:4px;"; img.alt = fname;
+        txt.appendChild(img);
+      } else if (/^(mp4|mov|avi|webm)$/.test(ext)) {
+        var vid = document.createElement("video");
+        vid.src = content; vid.controls = true; vid.style.cssText = "max-width:100%;border-radius:8px;display:block;";
+        txt.appendChild(vid);
+      } else if (/^(mp3|ogg|wav|m4a)$/.test(ext)) {
+        var aud = document.createElement("audio");
+        aud.src = content; aud.controls = true; aud.style.cssText = "width:100%;margin-bottom:4px;";
+        txt.appendChild(aud);
+      }
+      var link = document.createElement("a");
+      link.href = content; link.download = fname; link.target = "_blank";
+      link.style.cssText = "display:inline-flex;align-items:center;gap:5px;font-size:11px;color:inherit;opacity:.85;text-decoration:underline;margin-top:4px;";
+      link.textContent = "⬇ " + fname;
+      txt.appendChild(link);
+    } else {
+      txt.textContent = content || "";
+    }
     bubble.appendChild(txt);
     var t = document.createElement("div");
     t.className = "bubble-time";
@@ -138,8 +167,8 @@
 
   function renderAll(histcliente, histtecnico) {
     var all = [];
-    (histcliente || []).forEach(function(e) { all.push({ role: e.role || "user", content: e.content, time: e.time }); });
-    (histtecnico || []).forEach(function(e) { all.push({ role: e.role === "nota" ? "nota" : "tecnico", content: e.content, time: e.time }); });
+    (histcliente || []).forEach(function(e) { all.push({ role: e.role || "user", content: e.mediaUrl || e.content, time: e.time }); });
+    (histtecnico || []).forEach(function(e) { all.push({ role: e.role === "nota" ? "nota" : "tecnico", content: e.mediaUrl || e.content, time: e.time }); });
     all.sort(function(a,b){ return new Date(a.time) - new Date(b.time); });
 
     var container = $id("messages");
@@ -191,9 +220,14 @@
 
   /* ── Iniciar sesión ── */
   $id("btn-start").addEventListener("click", async function () {
-    var nombre = $id("inp-nombre").value.trim();
-    var correo = $id("inp-correo").value.trim();
-    if (!nombre) { $id("form-err").textContent = "Por favor ingresa tu nombre."; return; }
+    var nombre  = $id("inp-nombre").value.trim();
+    var correo  = $id("inp-correo").value.trim();
+    var tel     = $id("inp-tel").value.trim();
+    var empresa = $id("inp-empresa").value.trim();
+    if (!nombre)  { $id("form-err").textContent = "Por favor ingresa tu nombre y apellido."; return; }
+    if (!correo)  { $id("form-err").textContent = "Por favor ingresa tu correo."; return; }
+    if (!tel)     { $id("form-err").textContent = "Por favor ingresa tu número de contacto."; return; }
+    if (!empresa) { $id("form-err").textContent = "Por favor ingresa el nombre de tu empresa."; return; }
     $id("form-err").textContent = "";
     $id("btn-start").disabled = true;
     $id("btn-start").textContent = "Conectando…";
@@ -210,7 +244,7 @@
       canal: "widget",
       estado: "abierto",
       prioridad: "media",
-      cliente: { nombre: nombre, correo: correo },
+      cliente: { nombre: nombre, correo: correo, telefono: tel, cuenta: empresa },
       histcliente: [],
       histtecnico: []
     }).select("id,histcliente,histtecnico").single();
