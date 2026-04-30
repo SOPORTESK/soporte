@@ -611,19 +611,24 @@
     if (ins.error) { alert("Error al reconectar: " + ins.error.message); return; }
     sessionId = String(ins.data.id);
     try { localStorage.setItem("sek_session", sessionId); } catch(e){}
+
+    /* Limpiar mensajes y reiniciar realtime al nuevo caso */
+    $id("messages").innerHTML = "";
+    lastRenderHash = "";
     startRealtime();
 
     /* Si tiene datos personales, pedir equipo primero */
     if (clienteData && clienteData.nombre) {
       esperandoEquipo = true;
-      var botMsg = { role: "assistant", time: new Date().toISOString(), content: "¡Hola " + clienteData.nombre + "! 👋 ¿Cuál es la *marca y modelo* del equipo que necesita soporte?\n\nEjemplo: Hikvision DS-2CD2143" };
+      var botMsg = { role: "assistant", time: new Date().toISOString(), content: "¡Hola " + clienteData.nombre + "! 👋 ¿Cuál es la marca y modelo del equipo que necesita soporte?\n\nEjemplo: Hikvision DS-2CD2143" };
       var hc = [botMsg];
       await db.from("sek_cases").update({ histcliente: hc }).eq("id", sessionId);
+      lastRenderHash = "";
       renderAll(hc, []);
     } else if (primerMensaje) {
-      /* Sin datos, enviar mensaje directo */
       var hc2 = [{ role: "user", time: new Date().toISOString(), content: primerMensaje }];
       await db.from("sek_cases").update({ histcliente: hc2 }).eq("id", sessionId);
+      lastRenderHash = "";
       renderAll(hc2, []);
     }
   }
