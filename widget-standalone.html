@@ -464,14 +464,19 @@
     renderAll(histcliente, histtecnico);
   }
 
+  var casoCerrado = false;
+  var clienteData = null; /* datos personales guardados */
+  var esperandoEquipo = false;
+
   function lockChat() {
-    $id("txt-msg").disabled = true;
-    $id("txt-msg").placeholder = "Esta conversación está cerrada.";
-    $id("btn-send").disabled = true;
-    $id("btn-attach").disabled = true;
-    $id("btn-camera").disabled = true;
-    $id("btn-mic").disabled = true;
+    casoCerrado = true;
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    $id("txt-msg").placeholder = "Escribe para iniciar una nueva conversación…";
+    $id("txt-msg").disabled = false;
+    $id("btn-send").disabled = false;
+    $id("btn-attach").disabled = false;
+    $id("btn-camera").disabled = false;
+    $id("btn-mic").disabled = false;
   }
 
   async function fetchAndRender() {
@@ -527,7 +532,7 @@
   }
 
   /* ── Mostrar chat ── */
-  function showChat(histcliente, histtecnico) {
+  function showChat(histcliente, histtecnico, estado, cliente) {
     $id("form-section").style.display = "none";
     var cs = $id("chat-section");
     cs.style.display = "flex";
@@ -535,8 +540,11 @@
     cs.style.flex = "1";
     cs.style.minHeight = "0";
     cs.style.overflow = "hidden";
+    if (cliente) clienteData = cliente;
     renderAll(histcliente, histtecnico);
     startRealtime();
+    var est = String(estado || "").toLowerCase();
+    if (est === "cerrado" || est === "resuelto") lockChat();
   }
 
   /* ── Iniciar sesión ── */
@@ -555,9 +563,11 @@
 
     /* Si ya hay sesión, recuperarla */
     if (sessionId) {
-      var check = await db.from("sek_cases").select("id,histcliente,histtecnico").eq("id", sessionId).eq("canal","widget").maybeSingle();
-      if (check.data) { showChat(check.data.histcliente, check.data.histtecnico); return; }
+      var check = await db.from("sek_cases").select("id,histcliente,histtecnico,estado,cliente").eq("id", sessionId).eq("canal","widget").maybeSingle();
+      if (check.data) { showChat(check.data.histcliente, check.data.histtecnico, check.data.estado, check.data.cliente); return; }
     }
+
+    clienteData = { nombre: nombre, correo: correo, telefono: tel, cuenta: empresa };
 
     /* Crear nuevo caso */
     var ins = await db.from("sek_cases").insert({
@@ -565,10 +575,10 @@
       canal: "widget",
       estado: "abierto",
       prioridad: "media",
-      cliente: { nombre: nombre, correo: correo, telefono: tel, cuenta: empresa },
+      cliente: clienteData,
       histcliente: [],
       histtecnico: []
-    }).select("id,histcliente,histtecnico").single();
+    }).select("id,histcliente,histtecnico,estado").single();
 
     if (ins.error) {
       $id("form-err").textContent = "Error al conectar: " + ins.error.message;
@@ -579,13 +589,72 @@
 
     sessionId = String(ins.data.id);
     try { localStorage.setItem("sek_session", sessionId); } catch(e){}
-    showChat(ins.data.histcliente, ins.data.histtecnico);
+    showChat(ins.data.histcliente, ins.data.histtecnico, ins.data.estado, clienteData);
   });
+
+  /* ── Crear nuevo caso cuando el anterior está cerrado ── */
+  async function crearNuevoCaso(primerMensaje) {
+    casoCerrado = false;
+    esperandoEquipo = false;
+    lastRenderHash = "";
+
+    var ins = await db.from("sek_cases").insert({
+      title: "Chat web — " + (clienteData ? clienteData.nombre : "Cliente"),
+      canal: "widget",
+      estado: "abierto",
+      prioridad: "media",
+      cliente: clienteData || {},
+      histcliente: [],
+      histtecnico: []
+    }).select("id,histcliente,histtecnico").single();
+
+    if (ins.error) { alert("Error al reconectar: " + ins.error.message); return; }
+    sessionId = String(ins.data.id);
+    try { localStorage.setItem("sek_session", sessionId); } catch(e){}
+    startRealtime();
+
+    /* Si tiene datos personales, pedir equipo primero */
+    if (clienteData && clienteData.nombre) {
+      esperandoEquipo = true;
+      var botMsg = { role: "assistant", time: new Date().toISOString(), content: "¡Hola " + clienteData.nombre + "! 👋 ¿Cuál es la *marca y modelo* del equipo que necesita soporte?\n\nEjemplo: Hikvision DS-2CD2143" };
+      var hc = [botMsg];
+      await db.from("sek_cases").update({ histcliente: hc }).eq("id", sessionId);
+      renderAll(hc, []);
+    } else if (primerMensaje) {
+      /* Sin datos, enviar mensaje directo */
+      var hc2 = [{ role: "user", time: new Date().toISOString(), content: primerMensaje }];
+      await db.from("sek_cases").update({ histcliente: hc2 }).eq("id", sessionId);
+      renderAll(hc2, []);
+    }
+  }
 
   /* ── Enviar mensaje ── */
   async function sendMsg() {
     var txt = $id("txt-msg").value.trim();
     if ((!txt && !pendingFile) || !sessionId) return;
+
+    /* Caso cerrado: crear nuevo caso */
+    if (casoCerrado) {
+      $id("txt-msg").value = "";
+      await crearNuevoCaso(txt);
+      return;
+    }
+
+    /* Esperando equipo: guardar equipo y activar */
+    if (esperandoEquipo) {
+      esperandoEquipo = false;
+      $id("btn-send").disabled = true;
+      $id("txt-msg").value = "";
+      var res0 = await db.from("sek_cases").select("histcliente,cliente").eq("id", sessionId).maybeSingle();
+      var hcE = res0.data ? (res0.data.histcliente || []) : [];
+      hcE.push({ role: "user", time: new Date().toISOString(), content: txt });
+      var clienteActual = res0.data ? (res0.data.cliente || {}) : {};
+      clienteActual.equipo = txt;
+      await db.from("sek_cases").update({ histcliente: hcE, cliente: clienteActual, title: "Chat web — " + (clienteData ? clienteData.nombre : "Cliente") + " — " + txt }).eq("id", sessionId);
+      $id("btn-send").disabled = false;
+      return;
+    }
+
     $id("btn-send").disabled = true;
     $id("txt-msg").value = "";
 
@@ -722,9 +791,9 @@
 
   /* ── Restaurar sesión previa automáticamente ── */
   if (sessionId) {
-    db.from("sek_cases").select("id,histcliente,histtecnico,estado").eq("id", sessionId).eq("canal","widget").maybeSingle().then(function(res) {
+    db.from("sek_cases").select("id,histcliente,histtecnico,estado,cliente").eq("id", sessionId).eq("canal","widget").maybeSingle().then(function(res) {
       if (res.data) {
-        showChat(res.data.histcliente, res.data.histtecnico);
+        showChat(res.data.histcliente, res.data.histtecnico, res.data.estado, res.data.cliente);
       } else {
         /* Sesión expirada o eliminada — limpiar */
         try { localStorage.removeItem("sek_session"); } catch(e){}
