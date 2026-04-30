@@ -15,10 +15,10 @@ export default async function SoporteAvanzadoPage({ searchParams }: { searchPara
   
   if (error) console.error("[soporte-avanzado] sek_cases error:", error.message);
   
-  // Filtrar casos con etiqueta "n2"
+  // Filtrar casos con etiqueta "n2" (case-insensitive, busca cualquier tag que contenga "n2")
   const n2Cases = (allCases || []).filter(c => {
     const tags = Array.isArray(c.tags) ? c.tags : [];
-    const hasN2 = tags.some((t: string) => t.toLowerCase() === "n2" || t.toLowerCase() === "soporte-n2");
+    const hasN2 = tags.some((t: string) => t.toLowerCase().includes("n2"));
     // Log para diagnóstico
     if (hasN2) {
       console.log(`[soporte-avanzado] Caso con etiqueta n2: #${c.id} - ${JSON.stringify(c.tags)}`);

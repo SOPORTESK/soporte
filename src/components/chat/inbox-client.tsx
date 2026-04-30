@@ -16,7 +16,7 @@ function filterCasesByContainer(cases: SekCase[], containerType: string | undefi
   if (containerType === "soporte-avanzado") {
     return cases.filter(c => {
       const tags = Array.isArray(c.tags) ? c.tags : [];
-      return tags.some((t: string) => t.toLowerCase() === "n2" || t.toLowerCase() === "soporte-n2");
+      return tags.some((t: string) => t.toLowerCase().includes("n2"));
     });
   }
   
