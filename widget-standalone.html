@@ -2,83 +2,228 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Soporte Sekunet</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f8fafc; }
+    html, body { height: 100%; height: -webkit-fill-available; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #eef2f7; overflow: hidden; }
 
-    .root { display: flex; flex-direction: column; height: 100vh; max-width: 420px; margin: 0 auto; background: #fff; box-shadow: 0 0 40px rgba(0,0,0,.12); }
+    .root {
+      display: flex; flex-direction: column;
+      height: 100vh; height: -webkit-fill-available;
+      max-width: 480px; margin: 0 auto;
+      background: #fff;
+      box-shadow: 0 8px 60px rgba(0,0,0,.18);
+    }
 
-    /* Header */
-    .header { background: linear-gradient(135deg,#1d4ed8,#2563eb); padding: 14px 16px; display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-    .header-avatar { width: 38px; height: 38px; border-radius: 50%; background: rgba(255,255,255,.2); color: #fff; font-weight: 700; font-size: 16px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-    .header-title { color: #fff; font-weight: 700; font-size: 15px; }
-    .header-sub { color: rgba(255,255,255,.8); font-size: 11px; display: flex; align-items: center; gap: 4px; margin-top: 1px; }
-    .dot { width: 7px; height: 7px; border-radius: 50%; background: #4ade80; display: inline-block; }
+    /* ── Header ── */
+    .header {
+      background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 60%, #3b82f6 100%);
+      padding: 14px 16px 14px;
+      display: flex; align-items: center; gap: 12px;
+      flex-shrink: 0;
+      position: relative;
+    }
+    .header-avatar {
+      width: 44px; height: 44px; border-radius: 50%;
+      background: rgba(255,255,255,.18); border: 2px solid rgba(255,255,255,.35);
+      color: #fff; font-weight: 800; font-size: 18px;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .header-info { flex: 1; min-width: 0; }
+    .header-title { color: #fff; font-weight: 700; font-size: 15px; letter-spacing: -.2px; }
+    .header-sub { color: rgba(255,255,255,.75); font-size: 11px; display: flex; align-items: center; gap: 5px; margin-top: 2px; }
+    .status-dot { width: 7px; height: 7px; border-radius: 50%; background: #4ade80; display: inline-block; box-shadow: 0 0 0 2px rgba(74,222,128,.35); }
 
-    /* Form */
-    .form { flex: 1; overflow-y: auto; padding: 24px 20px; display: flex; flex-direction: column; gap: 10px; }
-    .form-title { font-size: 16px; font-weight: 700; color: #0f172a; }
-    .form-sub { font-size: 13px; color: #64748b; margin-bottom: 4px; }
-    label { font-size: 12px; font-weight: 600; color: #374151; }
-    input { border: 1.5px solid #e2e8f0; border-radius: 8px; padding: 10px 12px; font-size: 14px; outline: none; font-family: inherit; color: #0f172a; width: 100%; transition: border-color .15s; }
-    input:focus { border-color: #2563eb; }
-    .err { color: #dc2626; font-size: 12px; }
-    .btn-primary { margin-top: 6px; padding: 12px; border-radius: 10px; background: linear-gradient(135deg,#1d4ed8,#2563eb); color: #fff; border: none; cursor: pointer; font-weight: 600; font-size: 14px; font-family: inherit; transition: opacity .15s; }
+    /* ── Form ── */
+    .form-section {
+      flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+      padding: 28px 22px 24px; display: flex; flex-direction: column; gap: 0;
+      background: #fff;
+    }
+    .form-hero { text-align: center; margin-bottom: 24px; }
+    .form-hero-icon { font-size: 42px; display: block; margin-bottom: 10px; }
+    .form-title { font-size: 18px; font-weight: 800; color: #0f172a; margin-bottom: 4px; }
+    .form-sub { font-size: 13px; color: #64748b; line-height: 1.5; }
+    .field { margin-bottom: 14px; }
+    .field label { display: block; font-size: 12px; font-weight: 700; color: #374151; margin-bottom: 5px; text-transform: uppercase; letter-spacing: .4px; }
+    .field input {
+      width: 100%; border: 1.5px solid #e2e8f0; border-radius: 12px;
+      padding: 12px 14px; font-size: 15px; outline: none;
+      font-family: inherit; color: #0f172a;
+      transition: border-color .15s, box-shadow .15s;
+      background: #f8fafc;
+    }
+    .field input:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,.12); background: #fff; }
+    .err { color: #dc2626; font-size: 12px; margin-top: -8px; margin-bottom: 8px; font-weight: 600; }
+    .btn-primary {
+      width: 100%; margin-top: 6px; padding: 14px;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #1e3a8a, #2563eb);
+      color: #fff; border: none; cursor: pointer;
+      font-weight: 700; font-size: 15px; font-family: inherit;
+      transition: opacity .15s, transform .1s;
+      box-shadow: 0 4px 16px rgba(37,99,235,.35);
+      letter-spacing: .2px;
+    }
+    .btn-primary:active { transform: scale(.98); }
     .btn-primary:disabled { opacity: .6; cursor: not-allowed; }
 
-    /* Messages */
-    .messages { flex: 1; overflow-y: auto; padding: 12px 14px; background: #f8fafc; display: flex; flex-direction: column; gap: 8px; }
-    .empty { text-align: center; color: #94a3b8; font-size: 13px; margin-top: 40px; }
+    /* ── Mensajes ── */
+    .messages {
+      flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+      padding: 14px 14px 8px;
+      background: #f1f5f9;
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .date-sep {
+      text-align: center; font-size: 11px; color: #94a3b8; font-weight: 600;
+      margin: 8px 0; letter-spacing: .3px;
+    }
 
-    /* Bubbles */
-    .bubble-wrap { display: flex; }
+    /* ── Burbujas ── */
+    .bubble-wrap { display: flex; align-items: flex-end; gap: 6px; animation: fadeUp .18s ease; }
     .bubble-wrap.user { justify-content: flex-end; }
     .bubble-wrap.agent { justify-content: flex-start; }
-    .bubble { max-width: 78%; border-radius: 18px; padding: 9px 13px; font-size: 13px; line-height: 1.5; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
-    .bubble.user { background: linear-gradient(135deg,#1d4ed8,#2563eb); color: #fff; border-radius: 18px 18px 4px 18px; }
-    .bubble.agent { background: linear-gradient(135deg,#065f46,#059669); color: #fff; border-radius: 18px 18px 18px 4px; }
-    .bubble.ia { background: linear-gradient(135deg,#6d28d9,#7c3aed); color: #fff; border-radius: 18px 18px 18px 4px; }
-    .bubble-label { font-size: 10px; font-weight: 700; opacity: .85; margin-bottom: 3px; }
-    .bubble-text { white-space: pre-wrap; word-break: break-word; }
-    .bubble-time { font-size: 10px; opacity: .7; text-align: right; margin-top: 4px; }
+    @keyframes fadeUp { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
 
-    /* Input bar */
-    .input-bar { display: flex; align-items: flex-end; gap: 8px; padding: 10px 12px; border-top: 1px solid #e2e8f0; background: #fff; flex-shrink: 0; }
-    textarea { flex: 1; border: 1.5px solid #e2e8f0; border-radius: 10px; padding: 9px 12px; font-size: 13px; resize: none; font-family: inherit; outline: none; color: #0f172a; max-height: 100px; overflow-y: auto; transition: border-color .15s; }
-    textarea:focus { border-color: #2563eb; }
-    .send-btn { width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg,#1d4ed8,#2563eb); color: #fff; border: none; cursor: pointer; font-size: 18px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: opacity .15s; }
-    .send-btn:disabled { opacity: .45; cursor: not-allowed; }
-    .powered { text-align: center; font-size: 10px; color: #94a3b8; padding: 4px 0 6px; background: #fff; }
+    .bubble {
+      max-width: 80%; border-radius: 20px; padding: 10px 14px;
+      font-size: 14px; line-height: 1.55;
+      box-shadow: 0 1px 3px rgba(0,0,0,.08);
+      word-break: break-word;
+    }
+    .bubble.user {
+      background: linear-gradient(135deg, #1e3a8a, #2563eb);
+      color: #fff; border-radius: 20px 20px 5px 20px;
+    }
+    .bubble.agent {
+      background: #fff; color: #0f172a;
+      border: 1px solid #e2e8f0;
+      border-radius: 20px 20px 20px 5px;
+    }
+    .bubble.ia {
+      background: linear-gradient(135deg, #6d28d9, #7c3aed);
+      color: #fff; border-radius: 20px 20px 20px 5px;
+    }
+    .bubble-label { font-size: 10px; font-weight: 700; opacity: .75; margin-bottom: 3px; display: flex; align-items: center; gap: 4px; }
+    .bubble-text { white-space: pre-wrap; }
+    .bubble-time { font-size: 10px; opacity: .6; text-align: right; margin-top: 5px; }
 
-    /* Indicador de escritura */
-    @keyframes dotBounce { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-6px)} }
-    .dot-bounce { display:inline-block; width:7px; height:7px; border-radius:50%; background:rgba(255,255,255,0.8); animation:dotBounce 1.2s infinite ease-in-out; }
+    /* ── Input bar ── */
+    .input-bar {
+      display: flex; align-items: flex-end; gap: 8px;
+      padding: 10px 12px;
+      border-top: 1px solid #e2e8f0;
+      background: #fff; flex-shrink: 0;
+    }
+    .attach-btn {
+      width: 40px; height: 40px; border-radius: 50%;
+      background: #f1f5f9; border: none; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; color: #64748b; font-size: 18px;
+      transition: background .15s;
+    }
+    .attach-btn:active { background: #e2e8f0; }
+    .attach-btn:disabled { opacity: .45; }
+    textarea {
+      flex: 1; border: 1.5px solid #e2e8f0; border-radius: 20px;
+      padding: 10px 14px; font-size: 14px; resize: none;
+      font-family: inherit; outline: none; color: #0f172a;
+      max-height: 120px; overflow-y: auto; line-height: 1.4;
+      transition: border-color .15s;
+      background: #f8fafc;
+    }
+    textarea:focus { border-color: #2563eb; background: #fff; }
+    .send-btn {
+      width: 40px; height: 40px; border-radius: 50%;
+      background: linear-gradient(135deg, #1e3a8a, #2563eb);
+      color: #fff; border: none; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; transition: opacity .15s, transform .1s;
+      box-shadow: 0 2px 8px rgba(37,99,235,.4);
+      font-size: 16px;
+    }
+    .send-btn:active { transform: scale(.92); }
+    .send-btn:disabled { opacity: .4; cursor: not-allowed; box-shadow: none; }
+
+    /* ── Upload preview ── */
+    .upload-preview {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 14px; background: #eff6ff;
+      border-top: 1px solid #bfdbfe; flex-shrink: 0;
+    }
+    .upload-preview-icon { font-size: 22px; }
+    .upload-preview-name { font-size: 12px; color: #1e40af; font-weight: 600; flex: 1; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
+    .upload-preview-cancel { background: none; border: none; cursor: pointer; color: #64748b; font-size: 18px; line-height: 1; }
+    .upload-progress { height: 3px; background: #bfdbfe; border-radius: 2px; overflow: hidden; }
+    .upload-progress-bar { height: 100%; background: #2563eb; border-radius: 2px; transition: width .3s; }
+
+    /* ── Archivo en burbuja ── */
+    .file-card {
+      background: rgba(255,255,255,.15); border-radius: 12px;
+      padding: 10px 12px; margin-bottom: 4px;
+      display: flex; align-items: center; gap: 10px;
+      border: 1px solid rgba(255,255,255,.2);
+    }
+    .bubble.agent .file-card { background: #f8fafc; border-color: #e2e8f0; }
+    .file-card-icon { font-size: 26px; flex-shrink: 0; }
+    .file-card-info { flex: 1; min-width: 0; }
+    .file-card-name { font-size: 12px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .file-card-dl {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 11px; opacity: .8; text-decoration: none;
+      color: inherit; margin-top: 3px;
+    }
+
+    /* ── Powered ── */
+    .powered { text-align: center; font-size: 10px; color: #cbd5e1; padding: 5px 0 7px; background: #fff; flex-shrink: 0; }
+
+    /* ── Typing dots ── */
+    @keyframes dotBounce { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-5px)} }
+    .dot-bounce { display:inline-block; width:6px; height:6px; border-radius:50%; background:#94a3b8; animation:dotBounce 1.2s infinite ease-in-out; }
+
+    /* ── Scrollbar ── */
+    .messages::-webkit-scrollbar { width: 4px; }
+    .messages::-webkit-scrollbar-track { background: transparent; }
+    .messages::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
   </style>
 </head>
 <body>
 <div class="root">
+
+  <!-- HEADER -->
   <div class="header">
     <div class="header-avatar">S</div>
-    <div>
+    <div class="header-info">
       <div class="header-title">Soporte Sekunet</div>
-      <div class="header-sub"><span class="dot"></span> En línea</div>
+      <div class="header-sub"><span class="status-dot"></span> En línea · Respuesta inmediata</div>
     </div>
   </div>
 
   <!-- FORM -->
-  <div class="form" id="form-section">
-    <p class="form-title">¡Hola! 👋 Antes de comenzar</p>
-    <p class="form-sub">Ingresa tus datos para conectarte con un agente.</p>
-    <label for="inp-nombre">Nombre y apellido *</label>
-    <input id="inp-nombre" placeholder="Nombre completo" autocomplete="name" />
-    <label for="inp-correo">Correo electrónico *</label>
-    <input id="inp-correo" type="email" placeholder="tu@correo.com" autocomplete="email" />
-    <label for="inp-tel">Número de contacto *</label>
-    <input id="inp-tel" type="tel" placeholder="+506 8888-8888" autocomplete="tel" />
-    <label for="inp-empresa">Empresa registrada *</label>
-    <input id="inp-empresa" placeholder="Nombre de su empresa" autocomplete="organization" />
+  <div class="form-section" id="form-section">
+    <div class="form-hero">
+      <span class="form-hero-icon">👋</span>
+      <p class="form-title">¡Hola! Antes de comenzar</p>
+      <p class="form-sub">Ingresa tus datos para conectarte con un agente de soporte.</p>
+    </div>
+    <div class="field">
+      <label for="inp-nombre">Nombre y apellido</label>
+      <input id="inp-nombre" placeholder="Tu nombre completo" autocomplete="name" />
+    </div>
+    <div class="field">
+      <label for="inp-correo">Correo electrónico</label>
+      <input id="inp-correo" type="email" placeholder="tu@correo.com" autocomplete="email" />
+    </div>
+    <div class="field">
+      <label for="inp-tel">Número de contacto</label>
+      <input id="inp-tel" type="tel" placeholder="+506 8888-8888" autocomplete="tel" />
+    </div>
+    <div class="field">
+      <label for="inp-empresa">Empresa registrada</label>
+      <input id="inp-empresa" placeholder="Nombre de su empresa" autocomplete="organization" />
+    </div>
     <p class="err" id="form-err"></p>
     <button class="btn-primary" id="btn-start">Iniciar chat →</button>
   </div>
@@ -86,12 +231,24 @@
   <!-- CHAT -->
   <div id="chat-section" style="display:none;flex:1;flex-direction:column;min-height:0;overflow:hidden;">
     <div class="messages" id="messages"></div>
+    <!-- Preview archivo seleccionado -->
+    <div id="upload-preview-bar" style="display:none;" class="upload-preview">
+      <span class="upload-preview-icon" id="up-icon">📎</span>
+      <span class="upload-preview-name" id="up-name"></span>
+      <button class="upload-preview-cancel" id="up-cancel">✕</button>
+    </div>
+    <div id="upload-progress-wrap" style="display:none;" class="upload-progress"><div class="upload-progress-bar" id="upload-bar" style="width:0%"></div></div>
+    <!-- Input -->
     <div class="input-bar">
-      <textarea id="txt-msg" rows="1" placeholder="Escribe un mensaje… (Enter envía)"></textarea>
+      <input type="file" id="file-input" style="display:none"
+        accept="image/*,video/*,audio/*,.pdf,.xml,.xlsx,.xls,.xlsm,.doc,.docx,.ppt,.pptx,.pps,.ppsx,.txt,.csv,.json,.zip,.rar,.7z,.tar,.gz" />
+      <button class="attach-btn" id="btn-attach" title="Adjuntar archivo">📎</button>
+      <textarea id="txt-msg" rows="1" placeholder="Escribe un mensaje…"></textarea>
       <button class="send-btn" id="btn-send" disabled>➤</button>
     </div>
     <div class="powered">Powered by <strong>Sekunet</strong></div>
   </div>
+
 </div>
 
 <!-- Supabase JS directo desde CDN — sin servidor -->
@@ -116,103 +273,122 @@
 
   function $id(id) { return document.getElementById(id); }
 
-  /* ── Render completo (reemplaza todo el DOM de mensajes) ── */
+  /* ── Icono por tipo ── */
+  function fileIcon(mt) {
+    if (!mt) return "📁";
+    if (mt.startsWith("image/")) return "🖼️";
+    if (mt.startsWith("video/")) return "🎬";
+    if (mt.startsWith("audio/")) return "🎵";
+    if (mt === "application/pdf") return "📄";
+    if (mt.includes("xml")) return "🗂️";
+    if (mt.includes("sheet") || mt.includes("excel") || mt.includes("spreadsheet")) return "📊";
+    if (mt.includes("word") || mt.includes("document")) return "📝";
+    if (mt.includes("presentation") || mt.includes("powerpoint")) return "📊";
+    if (mt.includes("zip") || mt.includes("rar") || mt.includes("7z") || mt.includes("tar") || mt.includes("gzip")) return "📦";
+    if (mt.includes("text") || mt.includes("csv")) return "📃";
+    if (mt.includes("json")) return "📦";
+    return "📁";
+  }
+
+  function forceDownload(url, fname) {
+    fetch(url).then(function(r){ return r.blob(); }).then(function(blob){
+      var bUrl = URL.createObjectURL(blob);
+      var a = document.createElement("a"); a.href = bUrl; a.download = fname; a.click();
+      setTimeout(function(){ URL.revokeObjectURL(bUrl); }, 2000);
+    });
+  }
+
+  /* ── Render burbuja premium ── */
   function makeBubble(role, content, time, mediaUrl, mediaType, fileName) {
+    var isUser = role === "user";
     var wrap = document.createElement("div");
-    wrap.className = "bubble-wrap " + (role === "user" ? "user" : "agent");
+    wrap.className = "bubble-wrap " + (isUser ? "user" : "agent");
+
     var bubble = document.createElement("div");
-    var cls = "bubble ";
-    if (role === "user") cls += "user";
-    else if (role === "assistant") cls += "ia";
-    else cls += "agent";
-    bubble.className = cls;
-    if (role !== "user") {
+    bubble.className = "bubble " + (isUser ? "user" : role === "assistant" ? "ia" : "agent");
+
+    /* Label agente/ia */
+    if (!isUser) {
       var lbl = document.createElement("div");
       lbl.className = "bubble-label";
       lbl.textContent = role === "assistant" ? "🤖 Asistente" : "💬 Agente";
       bubble.appendChild(lbl);
     }
-    var txt = document.createElement("div");
-    txt.className = "bubble-text";
 
     if (mediaUrl) {
       var mt = mediaType || "";
       var fname = fileName || decodeURIComponent(mediaUrl.split("/").pop().split("?")[0]) || "archivo";
-      var isImage = mt.startsWith("image/");
-      var isVideo = mt.startsWith("video/");
-      var isAudio = mt.startsWith("audio/");
+      var isImg = mt.startsWith("image/");
+      var isVid = mt.startsWith("video/");
+      var isAud = mt.startsWith("audio/");
 
-      if (isImage) {
+      if (isImg) {
         var img = document.createElement("img");
         img.src = mediaUrl;
-        img.style.cssText = "max-width:100%;border-radius:8px;display:block;margin-bottom:6px;cursor:pointer;";
-        img.alt = fname;
+        img.style.cssText = "max-width:100%;border-radius:12px;display:block;margin-bottom:8px;cursor:pointer;";
         img.onclick = function() { window.open(mediaUrl, "_blank"); };
-        txt.appendChild(img);
-      } else if (isVideo) {
+        bubble.appendChild(img);
+        /* descarga bajo imagen */
+        var dl = document.createElement("a");
+        dl.href = mediaUrl; dl.target = "_blank";
+        dl.className = "file-card-dl";
+        dl.textContent = "⬇ Descargar";
+        bubble.appendChild(dl);
+      } else if (isVid) {
         var vid = document.createElement("video");
-        vid.controls = true;
-        vid.preload = "metadata";
-        vid.playsInline = true;
-        vid.style.cssText = "max-width:100%;border-radius:8px;display:block;margin-bottom:6px;background:#000;";
-        var src = document.createElement("source");
-        src.src = mediaUrl;
-        src.type = mt;
-        vid.appendChild(src);
-        vid.onerror = function() {
-          vid.style.display = "none";
-        };
-        txt.appendChild(vid);
-      } else if (isAudio) {
+        vid.controls = true; vid.preload = "metadata"; vid.playsInline = true;
+        vid.style.cssText = "max-width:100%;border-radius:12px;display:block;margin-bottom:8px;background:#000;";
+        var vsrc = document.createElement("source"); vsrc.src = mediaUrl; vsrc.type = mt;
+        vid.appendChild(vsrc);
+        vid.onerror = function() { vid.style.display = "none"; };
+        bubble.appendChild(vid);
+        var vdl = document.createElement("a");
+        vdl.href = mediaUrl; vdl.target = "_blank";
+        vdl.className = "file-card-dl";
+        vdl.textContent = "⬇ Descargar — " + fname;
+        bubble.appendChild(vdl);
+      } else if (isAud) {
         var aud = document.createElement("audio");
-        aud.src = mediaUrl;
-        aud.controls = true;
-        aud.preload = "metadata";
-        aud.style.cssText = "width:100%;margin-bottom:6px;";
-        txt.appendChild(aud);
+        aud.controls = true; aud.preload = "metadata";
+        aud.style.cssText = "width:100%;margin-bottom:8px;";
+        var asrc = document.createElement("source"); asrc.src = mediaUrl; asrc.type = mt;
+        aud.appendChild(asrc);
+        bubble.appendChild(aud);
+        var adl = document.createElement("a");
+        adl.href = mediaUrl; adl.target = "_blank";
+        adl.className = "file-card-dl";
+        adl.textContent = "⬇ Descargar — " + fname;
+        bubble.appendChild(adl);
       } else {
-        /* XML, PDF, Excel, Word, ZIP — solo icono + descarga, sin abrir */
-        var icon = document.createElement("span");
-        var iconChar =
-          mt === "application/pdf" ? "📄" :
-          mt.includes("xml") ? "🗂️" :
-          mt.includes("sheet") || mt.includes("excel") || mt.includes("spreadsheet") ? "📊" :
-          mt.includes("word") || mt.includes("document") ? "�" :
-          mt.includes("presentation") || mt.includes("powerpoint") ? "📊" :
-          mt.includes("zip") || mt.includes("rar") || mt.includes("7z") || mt.includes("tar") || mt.includes("gzip") ? "📦" :
-          mt.includes("text") || mt.includes("csv") ? "📃" :
-          mt.includes("json") ? "📦" :
-          "�📁";
-        icon.textContent = iconChar;
-        icon.style.cssText = "font-size:22px;display:block;margin-bottom:4px;";
-        txt.appendChild(icon);
+        /* File card para docs, xml, pdf, zip etc */
+        var card = document.createElement("div");
+        card.className = "file-card";
+        var cardIcon = document.createElement("div");
+        cardIcon.className = "file-card-icon";
+        cardIcon.textContent = fileIcon(mt);
+        var cardInfo = document.createElement("div");
+        cardInfo.className = "file-card-info";
+        var cardName = document.createElement("div");
+        cardName.className = "file-card-name";
+        cardName.textContent = fname;
+        var cardDl = document.createElement("a");
+        cardDl.className = "file-card-dl";
+        cardDl.textContent = "⬇ Descargar";
+        cardDl.href = "#";
+        cardDl.onclick = function(ev) { ev.preventDefault(); forceDownload(mediaUrl, fname); };
+        cardInfo.appendChild(cardName);
+        cardInfo.appendChild(cardDl);
+        card.appendChild(cardIcon);
+        card.appendChild(cardInfo);
+        bubble.appendChild(card);
       }
-
-      /* Botón descarga para TODOS los archivos */
-      var dlLink = document.createElement("a");
-      dlLink.href = mediaUrl;
-      dlLink.download = fname;
-      /* Para XML/PDF/otros forzar descarga sin abrir nueva pestaña */
-      if (!isImage && !isVideo && !isAudio) {
-        dlLink.onclick = function(ev) {
-          ev.preventDefault();
-          fetch(mediaUrl).then(function(r){ return r.blob(); }).then(function(blob){
-            var bUrl = URL.createObjectURL(blob);
-            var a = document.createElement("a"); a.href = bUrl; a.download = fname; a.click();
-            setTimeout(function(){ URL.revokeObjectURL(bUrl); }, 2000);
-          });
-        };
-      } else {
-        dlLink.target = "_blank";
-      }
-      dlLink.style.cssText = "display:inline-flex;align-items:center;gap:5px;font-size:11px;color:inherit;opacity:.9;text-decoration:underline;margin-top:2px;";
-      dlLink.textContent = "⬇ Descargar — " + fname;
-      txt.appendChild(dlLink);
     } else {
+      var txt = document.createElement("div");
+      txt.className = "bubble-text";
       txt.textContent = content || "";
+      bubble.appendChild(txt);
     }
 
-    bubble.appendChild(txt);
     var t = document.createElement("div");
     t.className = "bubble-time";
     t.textContent = fmt(time);
@@ -373,29 +549,86 @@
   /* ── Enviar mensaje ── */
   async function sendMsg() {
     var txt = $id("txt-msg").value.trim();
-    if (!txt || !sessionId) return;
+    if ((!txt && !pendingFile) || !sessionId) return;
     $id("btn-send").disabled = true;
     $id("txt-msg").value = "";
 
-    /* Burbuja optimista con clase para preservarla */
-    var optWrap = makeBubble("user", txt, new Date().toISOString());
+    var entry = { role: "user", time: new Date().toISOString(), content: txt || "Archivo adjunto" };
+
+    /* Si hay archivo pendiente, subirlo primero */
+    if (pendingFile) {
+      var file = pendingFile;
+      pendingFile = null;
+      $id("upload-preview-bar").style.display = "none";
+      try {
+        var uploaded = await uploadFile(file);
+        entry.mediaUrl  = uploaded.url;
+        entry.mediaType = uploaded.type;
+        entry.fileName  = uploaded.name;
+        entry.content   = txt || "";
+      } catch(err) {
+        alert("Error al subir archivo: " + err.message);
+        $id("btn-send").disabled = false;
+        return;
+      }
+    }
+
+    /* Burbuja optimista */
+    var optWrap = makeBubble("user", entry.content, entry.time, entry.mediaUrl, entry.mediaType, entry.fileName);
     optWrap.classList.add("optimista");
     var container = $id("messages");
     container.appendChild(optWrap);
     container.scrollTop = container.scrollHeight;
 
-    /* Leer historial actual y agregar entrada */
+    /* Guardar en DB */
     var res = await db.from("sek_cases").select("histcliente").eq("id", sessionId).maybeSingle();
     var hist = (res.data && Array.isArray(res.data.histcliente)) ? res.data.histcliente : [];
-    hist.push({ role: "user", time: new Date().toISOString(), content: txt });
+    hist.push(entry);
     await db.from("sek_cases").update({ histcliente: hist }).eq("id", sessionId);
-    /* Realtime disparará renderAll y eliminará el optimista automáticamente */
     $id("btn-send").disabled = false;
+  }
+
+  /* ── Adjuntar archivo desde el cliente ── */
+  var pendingFile = null;
+
+  $id("btn-attach").addEventListener("click", function() { $id("file-input").click(); });
+
+  $id("file-input").addEventListener("change", function() {
+    var file = this.files && this.files[0];
+    if (!file) return;
+    pendingFile = file;
+    $id("up-icon").textContent = fileIcon(file.type);
+    $id("up-name").textContent = file.name + " (" + (file.size > 1048576 ? (file.size/1048576).toFixed(1)+"MB" : (file.size/1024).toFixed(0)+"KB") + ")";
+    $id("upload-preview-bar").style.display = "flex";
+    $id("btn-send").disabled = false;
+    this.value = "";
+  });
+
+  $id("up-cancel").addEventListener("click", function() {
+    pendingFile = null;
+    $id("upload-preview-bar").style.display = "none";
+    $id("btn-send").disabled = !$id("txt-msg").value.trim();
+  });
+
+  async function uploadFile(file) {
+    var ext = file.name.split(".").pop();
+    var path = "cases/" + sessionId + "/" + Date.now() + "." + ext;
+    $id("upload-progress-wrap").style.display = "block";
+    $id("upload-bar").style.width = "30%";
+
+    var { error, data } = await db.storage.from("attachments").upload(path, file, { upsert: true });
+    $id("upload-bar").style.width = "80%";
+    if (error) { $id("upload-progress-wrap").style.display = "none"; throw error; }
+
+    var { data: urlData } = db.storage.from("attachments").getPublicUrl(path);
+    $id("upload-bar").style.width = "100%";
+    setTimeout(function(){ $id("upload-progress-wrap").style.display = "none"; $id("upload-bar").style.width = "0%"; }, 400);
+    return { url: urlData.publicUrl, type: file.type, name: file.name };
   }
 
   $id("btn-send").addEventListener("click", sendMsg);
   $id("txt-msg").addEventListener("input", function() {
-    $id("btn-send").disabled = !this.value.trim();
+    $id("btn-send").disabled = !this.value.trim() && !pendingFile;
     emitTyping();
   });
   $id("txt-msg").addEventListener("keydown", function(e) {
