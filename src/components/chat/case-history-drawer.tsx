@@ -53,12 +53,12 @@ export function CaseHistoryDrawer({ isOpen, onClose, currentCase }: CaseHistoryD
 
       if (error) throw error;
       
-      // IDs del grupo actual a excluir
-      const currentGroupIds = currentCase._group?.caseIds?.map(String) || [String(currentCase.id)];
-      console.log(`[History] IDs del grupo actual:`, currentGroupIds);
+      // Solo excluir el caso actual (no todos los del grupo)
+      const currentId = String(currentCase.id);
+      console.log(`[History] Excluyendo caso actual: ${currentId}`);
       
-      // Filtrar: quedarnos solo con casos que NO están en el grupo actual
-      const otherCases = (data || []).filter(c => !currentGroupIds.includes(String(c.id)));
+      // Filtrar: quedarnos solo con casos que no son el actual
+      const otherCases = (data || []).filter(c => String(c.id) !== currentId);
       
       console.log(`[History] Total casos del cliente: ${(data || []).length}, Otros casos: ${otherCases.length}`);
       otherCases.forEach(c => console.log(`[History]  - Caso historico #${c.id}: ${c.title}`));
