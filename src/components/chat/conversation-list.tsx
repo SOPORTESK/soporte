@@ -143,11 +143,15 @@ export function ConversationList({
                   <p className="text-sm text-muted-foreground truncate mt-0.5">{preview}</p>
                   <div className="flex items-center gap-1 mt-1.5 flex-wrap">
                     {ci.cuenta && <Badge variant="muted" className="text-[10px]">{ci.cuenta}</Badge>}
-                    {estadoLower && estadoLower !== "abierto" && (
-                      <Badge
-                        variant={estadoLower === "cerrado" || estadoLower === "resuelto" ? "success" : "muted"}
-                        className="text-[10px] capitalize"
-                      >{c.estado}</Badge>
+                    {/* Etiqueta de estado siempre visible */}
+                    {(estadoLower === "cerrado" || estadoLower === "resuelto") && (
+                      <Badge variant="success" className="text-[10px]">Cerrado</Badge>
+                    )}
+                    {(estadoLower === "abierto" || estadoLower === "asignado") && (
+                      <Badge variant="warning" className="text-[10px]">En proceso</Badge>
+                    )}
+                    {(estadoLower === "pendiente" || estadoLower === "" || !estadoLower) && (
+                      <Badge variant="default" className="text-[10px]">Nuevo</Badge>
                     )}
                     {c.prioridad === "urgente" && <Badge variant="danger" className="text-[10px]">Urgente</Badge>}
                     {c.prioridad === "alta" && <Badge variant="warning" className="text-[10px]">Alta</Badge>}
