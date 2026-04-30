@@ -240,9 +240,14 @@
     <div id="upload-progress-wrap" style="display:none;" class="upload-progress"><div class="upload-progress-bar" id="upload-bar" style="width:0%"></div></div>
     <!-- Input -->
     <div class="input-bar">
+      <!-- Archivos -->
       <input type="file" id="file-input" style="display:none"
         accept="image/*,video/*,audio/*,.pdf,.xml,.xlsx,.xls,.xlsm,.doc,.docx,.ppt,.pptx,.pps,.ppsx,.txt,.csv,.json,.zip,.rar,.7z,.tar,.gz" />
+      <!-- Cámara video -->
+      <input type="file" id="camera-input" style="display:none" accept="video/*" capture="environment" />
       <button class="attach-btn" id="btn-attach" title="Adjuntar archivo">📎</button>
+      <button class="attach-btn" id="btn-camera" title="Grabar video">🎥</button>
+      <button class="attach-btn" id="btn-mic" title="Grabar audio">🎤</button>
       <textarea id="txt-msg" rows="1" placeholder="Escribe un mensaje…"></textarea>
       <button class="send-btn" id="btn-send" disabled>➤</button>
     </div>
@@ -607,6 +612,55 @@
   var pendingFile = null;
 
   $id("btn-attach").addEventListener("click", function() { $id("file-input").click(); });
+  $id("btn-camera").addEventListener("click", function() { $id("camera-input").click(); });
+
+  $id("camera-input").addEventListener("change", function() {
+    var file = this.files && this.files[0];
+    if (!file) return;
+    pendingFile = file;
+    $id("up-icon").textContent = "🎥";
+    $id("up-name").textContent = file.name + " (" + (file.size > 1048576 ? (file.size/1048576).toFixed(1)+"MB" : (file.size/1024).toFixed(0)+"KB") + ")";
+    $id("upload-preview-bar").style.display = "flex";
+    $id("btn-send").disabled = false;
+    this.value = "";
+  });
+
+  /* ── Grabación de audio con MediaRecorder ── */
+  var mediaRecorder = null;
+  var audioChunks = [];
+  var isRecording = false;
+
+  $id("btn-mic").addEventListener("click", async function() {
+    if (isRecording) {
+      mediaRecorder.stop();
+      return;
+    }
+    try {
+      var stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunks = [];
+      mediaRecorder = new MediaRecorder(stream);
+      mediaRecorder.ondataavailable = function(e) { if (e.data.size > 0) audioChunks.push(e.data); };
+      mediaRecorder.onstop = function() {
+        stream.getTracks().forEach(function(t){ t.stop(); });
+        var blob = new Blob(audioChunks, { type: "audio/webm" });
+        var file = new File([blob], "nota-voz-" + Date.now() + ".webm", { type: "audio/webm" });
+        pendingFile = file;
+        $id("up-icon").textContent = "🎤";
+        $id("up-name").textContent = file.name + " (" + (blob.size/1024).toFixed(0) + "KB)";
+        $id("upload-preview-bar").style.display = "flex";
+        $id("btn-send").disabled = false;
+        $id("btn-mic").textContent = "🎤";
+        $id("btn-mic").style.background = "";
+        isRecording = false;
+      };
+      mediaRecorder.start();
+      isRecording = true;
+      $id("btn-mic").textContent = "⏹";
+      $id("btn-mic").style.background = "#fee2e2";
+    } catch(err) {
+      alert("No se pudo acceder al micrófono: " + err.message);
+    }
+  });
 
   $id("file-input").addEventListener("change", function() {
     var file = this.files && this.files[0];
