@@ -35,44 +35,36 @@ export function CaseHistoryDrawer({ isOpen, onClose, currentCase }: CaseHistoryD
   async function loadCases() {
     setLoading(true);
     try {
-      // IDs a excluir: el caso actual y todos los del grupo si hay agrupamiento
-      const excludeIds = currentCase._group?.caseIds || [currentCase.id];
-      
+      // Buscar todos los casos del mismo cliente por correo o teléfono
+      // Luego filtraremos los que ya están en el grupo actual
       console.log(`[History] Buscando historial para: ${ci.nombre || ci.correo || ci.telefono}`);
-      console.log(`[History] Excluyendo IDs:`, excludeIds);
-      console.log(`[History] Filtro: correo=${ci.correo}, telefono=${ci.telefono || currentCase.customer_phone}`);
 
-      // Buscar por correo o teléfono para obtener todos los casos del cliente
-      let query = supabase
-        .from("sek_cases")
-        .select("*");
-      
-      // Excluir IDs
-      excludeIds.forEach(id => {
-        query = query.neq("id", id);
-      });
-
-      // Aplicar filtro por cliente
+      // Primero obtenemos todos los casos del cliente
+      let query;
       if (ci.correo) {
-        query = query.filter("cliente->>correo", "eq", ci.correo);
+        query = supabase.from("sek_cases").select("*").filter("cliente->>correo", "eq", ci.correo);
       } else if (ci.telefono || currentCase.customer_phone) {
-        query = query.eq("customer_phone", ci.telefono || currentCase.customer_phone);
+        query = supabase.from("sek_cases").select("*").eq("customer_phone", ci.telefono || currentCase.customer_phone);
       } else {
-        query = query.filter("cliente->>nombre", "eq", ci.nombre);
+        query = supabase.from("sek_cases").select("*").filter("cliente->>nombre", "eq", ci.nombre);
       }
 
-      const { data, error } = await query
-        .order("created_at", { ascending: false })
-        .limit(PAGE_SIZE * page);
+      const { data, error } = await query.order("created_at", { ascending: false }).limit(50);
 
       if (error) throw error;
       
-      const newCases = (data || []) as CaseWithDetails[];
-      console.log(`[History] Encontrados ${newCases.length} casos historicos`);
-      newCases.forEach(c => console.log(`[History]  - Caso #${c.id}: ${JSON.stringify(c.cliente)}`));
+      // IDs del grupo actual a excluir
+      const currentGroupIds = currentCase._group?.caseIds?.map(String) || [String(currentCase.id)];
+      console.log(`[History] IDs del grupo actual:`, currentGroupIds);
       
-      setCases(newCases);
-      setHasMore(newCases.length === PAGE_SIZE * page);
+      // Filtrar: quedarnos solo con casos que NO están en el grupo actual
+      const otherCases = (data || []).filter(c => !currentGroupIds.includes(String(c.id)));
+      
+      console.log(`[History] Total casos del cliente: ${(data || []).length}, Otros casos: ${otherCases.length}`);
+      otherCases.forEach(c => console.log(`[History]  - Caso historico #${c.id}: ${c.title}`));
+      
+      setCases(otherCases as CaseWithDetails[]);
+      setHasMore(otherCases.length === PAGE_SIZE * page);
     } catch (err) {
       console.error("Error loading case history:", err);
     } finally {
