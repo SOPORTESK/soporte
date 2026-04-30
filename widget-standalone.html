@@ -110,10 +110,12 @@
 
   /* ── Render mensajes ── */
   var renderedIds = new Set();
+  var allMsgs = [];
 
   function renderMsg(m) {
     if (renderedIds.has(m.id)) return;
     renderedIds.add(m.id);
+    allMsgs.push(m);
 
     var wrap = document.createElement("div");
     wrap.className = "bubble-wrap " + (m.role === "user" ? "user" : "agent");
@@ -237,7 +239,7 @@
 
     /* Leer historial actual y agregar entrada */
     var res = await db.from("sek_cases").select("histcliente").eq("id", sessionId).maybeSingle();
-    var hist = Array.isArray(res.data && res.data.histcliente) ? res.data.histcliente : [];
+    var hist = (res.data && Array.isArray(res.data.histcliente)) ? res.data.histcliente : [];
     hist.push({ role: "user", time: new Date().toISOString(), content: txt });
     await db.from("sek_cases").update({ histcliente: hist }).eq("id", sessionId);
     $id("btn-send").disabled = false;
