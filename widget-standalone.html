@@ -55,6 +55,14 @@
       background: #f8fafc;
     }
     .field input:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,.12); background: #fff; }
+    .field input.valid { border-color: #16a34a; }
+    .field input.invalid { border-color: #dc2626; }
+    .cedula-wrap { position: relative; }
+    .cedula-wrap input { padding-right: 38px; }
+    .cedula-status { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font-size: 16px; line-height: 1; }
+    .cedula-result { font-size: 11px; margin: -4px 0 6px 2px; line-height: 1.4; }
+    .cedula-result.ok { color: #16a34a; }
+    .cedula-result.fail { color: #dc2626; }
     .err { color: #dc2626; font-size: 12px; margin-top: -8px; margin-bottom: 8px; font-weight: 600; }
     .btn-primary {
       width: 100%; margin-top: 6px; padding: 14px;
@@ -209,7 +217,15 @@
       <p class="form-sub">Ingresa tus datos para conectarte con un agente de soporte.</p>
     </div>
     <div class="field">
-      <label for="inp-nombre">Nombre y apellido</label>
+      <label for="inp-cedula">Cédula / DIMEX *</label>
+      <div class="cedula-wrap">
+        <input id="inp-cedula" inputmode="numeric" maxlength="12" placeholder="Ej: 101230456" autocomplete="off" />
+        <span class="cedula-status" id="cedula-icon"></span>
+      </div>
+      <div class="cedula-result" id="cedula-result"></div>
+    </div>
+    <div class="field">
+      <label for="inp-nombre">Nombre y apellido *</label>
       <input id="inp-nombre" placeholder="Tu nombre completo" autocomplete="name" />
     </div>
     <div class="field">
@@ -265,10 +281,24 @@
   var SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt6Y3l4ZXJhY3ZmeHluZGR5amxkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1MTE5NTQsImV4cCI6MjA5MTA4Nzk1NH0.DvEnK-g5rMxzFec4Fl3rJ5VDYVJ7-ua9ssqf3s-QKtU";
   /* ─────────────────────────────────────────────────────────── */
 
+  var SESSION_VERSION = "2"; // Incrementar para forzar re-login de todos los usuarios
+  var HACIENDA_URL = "https://api.hacienda.go.cr/fe/ae";
+
   var db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 
   var sessionId = null;
-  try { sessionId = localStorage.getItem("sek_session"); } catch(e){}
+  var cedulaValid = false;
+  var cedulaTimer = null;
+  try {
+    var savedVer = localStorage.getItem("sek_session_ver");
+    if (savedVer !== SESSION_VERSION) {
+      localStorage.removeItem("sek_session");
+      localStorage.removeItem("sek_session_ver");
+      sessionId = null;
+    } else {
+      sessionId = localStorage.getItem("sek_session");
+    }
+  } catch(e){}
 
   /* ── Helpers ── */
   function fmt(iso) {
@@ -566,11 +596,83 @@
   }
 
   /* ── Iniciar sesión ── */
+  /* ── Validación de cédula contra Hacienda ── */
+  function validateCedulaFormat(id) {
+    if (!/^\d+$/.test(id)) return null;
+    var len = id.length;
+    if (len === 9) return "fisica";
+    if (len === 10 && id[0] === "3") return "juridica";
+    if (len === 10 && id.substring(0,2) === "10") return "nite";
+    if (len === 11 || len === 12) return "dimex";
+    return null;
+  }
+
+  function onCedulaInput() {
+    var raw = $id("inp-cedula").value.replace(/[^\d]/g, "");
+    $id("inp-cedula").value = raw;
+    cedulaValid = false;
+    $id("btn-start").disabled = true;
+    $id("cedula-result").textContent = "";
+    $id("cedula-result").className = "cedula-result";
+    $id("inp-cedula").className = "";
+    $id("cedula-icon").textContent = "";
+
+    if (cedulaTimer) clearTimeout(cedulaTimer);
+    if (!raw || raw.length < 9) return;
+
+    var tipo = validateCedulaFormat(raw);
+    if (!tipo) {
+      $id("cedula-icon").textContent = "❌";
+      $id("inp-cedula").className = "invalid";
+      $id("cedula-result").className = "cedula-result fail";
+      $id("cedula-result").textContent = "Formato inválido. Se esperan 9 (física), 10 (jurídica/NITE), 11-12 (DIMEX).";
+      return;
+    }
+
+    $id("cedula-icon").textContent = "⏳";
+    cedulaTimer = setTimeout(async function() {
+      try {
+        var res = await fetch(HACIENDA_URL + "?identificacion=" + raw);
+        if (res.ok) {
+          var data = await res.json();
+          cedulaValid = true;
+          $id("cedula-icon").textContent = "✅";
+          $id("inp-cedula").className = "valid";
+          $id("cedula-result").className = "cedula-result ok";
+          $id("cedula-result").textContent = "✓ " + (data.nombre || "Verificado") + (tipo ? " (" + tipo + ")" : "");
+          $id("btn-start").disabled = false;
+          // Auto-rellenar nombre si está vacío
+          if (!$id("inp-nombre").value.trim() && data.nombre) {
+            $id("inp-nombre").value = data.nombre;
+          }
+        } else {
+          $id("cedula-icon").textContent = "❌";
+          $id("inp-cedula").className = "invalid";
+          $id("cedula-result").className = "cedula-result fail";
+          $id("cedula-result").textContent = res.status === 404
+            ? "Cédula no encontrada en el Ministerio de Hacienda"
+            : "Error al verificar (" + res.status + ")";
+        }
+      } catch(err) {
+        $id("cedula-icon").textContent = "❌";
+        $id("inp-cedula").className = "invalid";
+        $id("cedula-result").className = "cedula-result fail";
+        $id("cedula-result").textContent = "No se pudo conectar con Hacienda. Intente de nuevo.";
+      }
+    }, 600);
+  }
+
+  $id("inp-cedula").addEventListener("input", onCedulaInput);
+
+  /* ── Iniciar sesión ── */
+  $id("btn-start").disabled = true;
   $id("btn-start").addEventListener("click", async function () {
+    var cedula  = $id("inp-cedula").value.trim();
     var nombre  = $id("inp-nombre").value.trim();
     var correo  = $id("inp-correo").value.trim();
     var tel     = $id("inp-tel").value.trim();
     var empresa = $id("inp-empresa").value.trim();
+    if (!cedulaValid) { $id("form-err").textContent = "Debe ingresar una cédula válida verificada por Hacienda."; return; }
     if (!nombre)  { $id("form-err").textContent = "Por favor ingresa tu nombre y apellido."; return; }
     if (!correo)  { $id("form-err").textContent = "Por favor ingresa tu correo."; return; }
     if (!tel)     { $id("form-err").textContent = "Por favor ingresa tu número de contacto."; return; }
@@ -585,7 +687,7 @@
       if (check.data) { showChat(check.data.histcliente, check.data.histtecnico, check.data.estado, check.data.cliente); return; }
     }
 
-    clienteData = { nombre: nombre, correo: correo, telefono: tel, cuenta: empresa };
+    clienteData = { nombre: nombre, correo: correo, telefono: tel, cuenta: empresa, cedula: cedula };
 
     /* Buscar caso abierto existente por correo para evitar duplicados */
     var existing = await db.from("sek_cases")
@@ -598,7 +700,7 @@
       .maybeSingle();
     if (existing.data) {
       sessionId = String(existing.data.id);
-      try { localStorage.setItem("sek_session", sessionId); } catch(e){}
+      try { localStorage.setItem("sek_session", sessionId); localStorage.setItem("sek_session_ver", SESSION_VERSION); } catch(e){}
       showChat(existing.data.histcliente, existing.data.histtecnico, existing.data.estado, existing.data.cliente);
       return;
     }
@@ -623,7 +725,7 @@
     }
 
     sessionId = String(ins.data.id);
-    try { localStorage.setItem("sek_session", sessionId); } catch(e){}
+    try { localStorage.setItem("sek_session", sessionId); localStorage.setItem("sek_session_ver", SESSION_VERSION); } catch(e){}
     showChat(ins.data.histcliente, ins.data.histtecnico, ins.data.estado, clienteData);
   });
 
@@ -649,7 +751,7 @@
 
     if (ins.error) { alert("Error al reconectar: " + ins.error.message); return; }
     sessionId = String(ins.data.id);
-    try { localStorage.setItem("sek_session", sessionId); } catch(e){}
+    try { localStorage.setItem("sek_session", sessionId); localStorage.setItem("sek_session_ver", SESSION_VERSION); } catch(e){}
 
     /* Limpiar mensajes y reiniciar realtime al nuevo caso */
     $id("messages").innerHTML = "";
