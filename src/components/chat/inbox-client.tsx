@@ -91,7 +91,7 @@ function mergeGroups(rawCases: SekCase[]): SekCase[] {
       id: key,
       histcliente,
       histtecnico,
-      estado: (anyOpen ? "abierto" : (last.estado ?? "cerrado")) as SekCase["estado"],
+      estado: (anyOpen ? (target.estado ?? "abierto") : (last.estado ?? "cerrado")) as SekCase["estado"],
       prioridad: (maxPrio ?? last.prioridad) as SekCase["prioridad"],
       unread_count: sorted.reduce((s, c) => s + (c.unread_count || 0), 0),
       _group: {
@@ -241,6 +241,22 @@ export function InboxClient({
               action: { label: "Ver", onClick: () => selectCase(String(changed.id)) }
             });
             setUnreadTotal(p => p + 1);
+          }
+
+          /* 🔔 Alerta para caso escalado por IA */
+          if (payload.eventType === "UPDATE") {
+            const updCase = payload.new as SekCase;
+            const oldCase2 = payload.old as SekCase;
+            if (String(updCase?.estado).toLowerCase() === "escalado" && String(oldCase2?.estado).toLowerCase() !== "escalado") {
+              playNotif();
+              const ci3 = clienteInfo(updCase.cliente);
+              const name3 = ci3.nombre || ci3.telefono || asText(updCase.title) || "Cliente";
+              toast.info(`Caso escalado: ${name3}`, {
+                description: (updCase.cliente as any)?.equipo ? `Equipo: ${(updCase.cliente as any).equipo}` : "Esperando agente",
+                duration: 10000,
+                action: { label: "Atender", onClick: () => selectCase(String(updCase.id)) }
+              });
+            }
           }
 
           /* 🔔 Alerta especial para Soporte Avanzado: nuevo caso con etiqueta n2 */

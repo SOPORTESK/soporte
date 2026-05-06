@@ -43,8 +43,12 @@ export function ConversationList({
         || asText(c.title).toLowerCase().includes(q)
         || asText(c.last_message_preview).toLowerCase().includes(q);
     });
-    /* Ordenar: el más reciente primero */
+    /* Ordenar: escalado primero, luego el más reciente primero */
     return list.sort((a, b) => {
+      const eA = String(a.estado || "").toLowerCase();
+      const eB = String(b.estado || "").toLowerCase();
+      if (eA === "escalado" && eB !== "escalado") return -1;
+      if (eB === "escalado" && eA !== "escalado") return 1;
       const ta = lastMessage(a)?.time || a.last_message_at || a.updated_at || a.created_at || "";
       const tb = lastMessage(b)?.time || b.last_message_at || b.updated_at || b.created_at || "";
       return new Date(tb).getTime() - new Date(ta).getTime();
@@ -151,6 +155,12 @@ export function ConversationList({
                     )}
                     {(estadoLower === "cerrado" || estadoLower === "resuelto") && (
                       <Badge variant="success" className="text-[10px]">Cerrado</Badge>
+                    )}
+                    {estadoLower === "escalado" && (
+                      <Badge variant="danger" className="text-[10px] animate-pulse">Esperando agente</Badge>
+                    )}
+                    {estadoLower === "ia_atendiendo" && (
+                      <Badge variant="muted" className="text-[10px]">IA atendiendo</Badge>
                     )}
                     {(estadoLower === "abierto" || estadoLower === "asignado") && (
                       <Badge variant="warning" className="text-[10px]">En proceso</Badge>

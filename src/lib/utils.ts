@@ -18,10 +18,10 @@ export function formatTime(iso: string | null | undefined): string {
 
 /** Extrae info del campo cliente (que puede ser objeto, string o null) */
 export function clienteInfo(cliente: unknown): {
-  nombre: string; telefono: string; correo: string; cuenta: string;
+  nombre: string; telefono: string; correo: string; cedula: string; cuenta: string;
 } {
   if (!cliente || typeof cliente !== "object") {
-    return { nombre: typeof cliente === "string" ? cliente : "", telefono: "", correo: "", cuenta: "" };
+    return { nombre: typeof cliente === "string" ? cliente : "", telefono: "", correo: "", cedula: "", cuenta: "" };
   }
   const c = cliente as Record<string, unknown>;
   const s = (v: unknown) => typeof v === "string" ? v : v == null ? "" : String(v);
@@ -29,6 +29,7 @@ export function clienteInfo(cliente: unknown): {
     nombre: s(c.nombre ?? c.name ?? c.full_name),
     telefono: s(c.telefono ?? c.phone ?? c.tel),
     correo: s(c.correo ?? c.email ?? c.mail),
+    cedula: s(c.cedula ?? c.identificacion ?? c.id_fiscal),
     cuenta: s(c.cuenta ?? c.account ?? c.empresa ?? c.company)
   };
 }

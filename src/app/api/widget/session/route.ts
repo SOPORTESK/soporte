@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
-    const { session_id, nombre, correo, telefono } = body as Record<string, string>;
+    const { session_id, nombre, correo, telefono, cedula } = body as Record<string, string>;
 
     const supabase = createServiceClient();
 
@@ -27,6 +27,14 @@ export async function POST(req: NextRequest) {
       nombre: nombre || "Visitante web",
       correo: correo || "",
       telefono: telefono || "",
+      cedula: cedula || "",
+    };
+
+    const welcomeMsg = {
+      role: "assistant",
+      author: "Asistente Sekunet",
+      time: new Date().toISOString(),
+      content: "Reciba un cordial saludo de parte de Soporte Sekunet, gracias por contactarnos. En que le podemos asistir hoy?",
     };
 
     const { data: newCase, error: insertErr } = await supabase
@@ -34,10 +42,10 @@ export async function POST(req: NextRequest) {
       .insert({
         title: `Chat web — ${cliente.nombre}`,
         canal: "widget",
-        estado: "abierto",
+        estado: "ia_atendiendo",
         prioridad: "media",
         cliente,
-        histcliente: [],
+        histcliente: [welcomeMsg],
         histtecnico: [],
       })
       .select("id, histcliente, histtecnico, estado, cliente")

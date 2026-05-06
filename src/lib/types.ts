@@ -1,7 +1,7 @@
 // Tipos alineados con el esquema sek_* en Supabase
 export type AgentRol = "superadmin" | "admin" | "tecnico" | "agente" | string;
 export type ChannelKind = "web" | "widget" | "whatsapp" | "messenger" | "email";
-export type CaseEstado = "abierto" | "pendiente" | "asignado" | "resuelto" | "cerrado" | string;
+export type CaseEstado = "abierto" | "pendiente" | "asignado" | "resuelto" | "cerrado" | "ia_atendiendo" | "escalado" | string;
 export type CasePrioridad = "baja" | "media" | "alta" | "urgente" | string;
 
 export interface SekAgent {
@@ -27,6 +27,7 @@ export interface SekCliente {
   nombre?: string;
   telefono?: string;
   correo?: string;
+  cedula?: string;
   cuenta?: string;
   intentosDatos?: number;
   [key: string]: unknown;

@@ -4,7 +4,7 @@ import {
   ArrowLeft, MoreVertical, Phone, Send, Paperclip, Bot,
   Mail, Building2, User, StickyNote, Zap, CheckCircle2,
   XCircle, Image as ImageIcon, FileText, Music, Video,
-  Download, X, ChevronDown, History
+  Download, X, ChevronDown, History, HandMetal
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Avatar, Badge } from "@/components/ui/avatar";
@@ -260,6 +260,26 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   const display = ci.nombre || ci.telefono || asText(sekCase.title) || "Cliente";
   const estadoLower = String(sekCase.estado || "").toLowerCase();
   const cerrado = estadoLower === "cerrado" || estadoLower === "resuelto";
+  const isEscalado = estadoLower === "escalado" || estadoLower === "ia_atendiendo";
+  const [accepting, setAccepting] = React.useState(false);
+
+  async function acceptCase() {
+    if (accepting || !agentEmail) return;
+    setAccepting(true);
+    try {
+      const { error } = await supabase.from("sek_cases").update({
+        estado: "abierto",
+        assigned_to: agentEmail,
+      }).eq("id", targetId);
+      if (error) throw error;
+      setSekCase(prev => ({ ...prev, estado: "abierto", assigned_to: agentEmail }));
+      toast.success("Caso aceptado");
+    } catch (e: any) {
+      toast.error("Error al aceptar", { description: e?.message });
+    } finally {
+      setAccepting(false);
+    }
+  }
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -392,6 +412,30 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
               <p className="text-xs text-muted-foreground truncate mt-0.5">{p.texto}</p>
             </button>
           ))}
+        </div>
+      )}
+
+      {/* ── Accept banner for escalated cases ── */}
+      {isEscalado && (
+        <div className="flex-shrink-0 border-t border-border bg-amber-50 dark:bg-amber-900/20 px-4 py-3">
+          <div className="flex items-center gap-3">
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">
+                {estadoLower === "ia_atendiendo" ? "El asistente IA esta atendiendo este caso" : "Este caso fue escalado por el asistente y espera un agente"}
+              </p>
+              <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">
+                {(sekCase.cliente as any)?.equipo ? `Equipo: ${(sekCase.cliente as any).equipo}` : ""}
+              </p>
+            </div>
+            <button
+              onClick={acceptCase}
+              disabled={accepting}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-brand-700 hover:bg-brand-800 text-white font-semibold text-sm transition-colors disabled:opacity-50 shadow-md"
+            >
+              <HandMetal className="h-4 w-4" />
+              {accepting ? "Aceptando..." : "Aceptar conversacion"}
+            </button>
+          </div>
         </div>
       )}
 
