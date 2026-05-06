@@ -94,12 +94,22 @@ async function searchInventory(query: string): Promise<any[]> {
   });
 }
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
 Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
+
   try {
     const { case_id } = await req.json();
     if (!case_id) {
       return new Response(JSON.stringify({ error: "case_id required" }), {
-        status: 400,
+        status: 400, headers: corsHeaders,
       });
     }
 
@@ -112,14 +122,14 @@ Deno.serve(async (req) => {
 
     if (fetchErr || !caso) {
       return new Response(JSON.stringify({ error: "Case not found" }), {
-        status: 404,
+        status: 404, headers: corsHeaders,
       });
     }
 
     // Only process if ia_atendiendo
     if (caso.estado !== "ia_atendiendo") {
       return new Response(JSON.stringify({ skip: true, reason: "not ia_atendiendo" }), {
-        status: 200,
+        status: 200, headers: corsHeaders,
       });
     }
 
@@ -129,7 +139,7 @@ Deno.serve(async (req) => {
 
     if (histcliente.length === 0) {
       return new Response(JSON.stringify({ skip: true, reason: "no messages" }), {
-        status: 200,
+        status: 200, headers: corsHeaders,
       });
     }
 
@@ -154,7 +164,7 @@ Deno.serve(async (req) => {
     const lastMsg = histcliente[histcliente.length - 1];
     if (lastMsg.role !== "user") {
       return new Response(JSON.stringify({ skip: true, reason: "last msg not from user" }), {
-        status: 200,
+        status: 200, headers: corsHeaders,
       });
     }
 
@@ -240,10 +250,10 @@ Deno.serve(async (req) => {
         escalated: shouldEscalate,
         closed: shouldClose,
       }),
-      { status: 200, headers: { "Content-Type": "application/json" } }
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (e: any) {
     console.error("[ia-agent] Error:", e.message);
-    return new Response(JSON.stringify({ error: e.message }), { status: 500 });
+    return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: corsHeaders });
   }
 });
