@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"/>
   <title>Soporte Sekunet</title>
   <meta name="theme-color" content="#1e3a8a"/>
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
+  <meta http-equiv="Pragma" content="no-cache"/>
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <style>
 :root{--bg:#fff;--bg2:#f8fafc;--bg-chat:#f1f5f9;--text:#0f172a;--text2:#475569;--text3:#94a3b8;--border:#e2e8f0;--primary:#2563eb;--primary-dk:#1e3a8a;--grad:linear-gradient(135deg,#1e3a8a 0%,#2563eb 60%,#3b82f6 100%);--grad-btn:linear-gradient(135deg,#1e3a8a,#2563eb);--bubble-ag:#fff;--bubble-ag-b:#e2e8f0;--success:#16a34a;--danger:#dc2626;--shadow:0 8px 60px rgba(0,0,0,.15);--shsm:0 1px 3px rgba(0,0,0,.08);--r:12px;--rl:20px;--sab:env(safe-area-inset-bottom,0px);--sat:env(safe-area-inset-top,0px)}
@@ -345,11 +347,25 @@ async function sendMsg(){
   var ow=mkBubble("user",entry.content,entry.time,entry.mediaUrl,entry.mediaType,entry.fileName);ow.classList.add("optimista");ow.dataset.optContent=entry.content||"";ow.dataset.optMedia=entry.mediaUrl||"";
   var mc=$("messages");mc.appendChild(ow);mc.scrollTop=mc.scrollHeight;haptic(15);
   var r=await db.from("sek_cases").select("histcliente,estado,assigned_to").eq("id",sid).maybeSingle();var h=(r.data&&Array.isArray(r.data.histcliente))?r.data.histcliente:[];h.push(entry);await db.from("sek_cases").update({histcliente:h}).eq("id",sid);$('btn-send').disabled=false;
-  var est=r.data?r.data.estado:"";if(est==="ia_atendiendo"||(est==="abierto"&&!r.data.assigned_to)){if(est==="abierto"){await db.from("sek_cases").update({estado:"ia_atendiendo"}).eq("id",sid)}invokeIA()}
+  var est=r.data?r.data.estado:"";console.log("[widget] sendMsg estado:",est,"assigned:",r.data?r.data.assigned_to:null);if(est==="ia_atendiendo"||(est==="abierto"&&!r.data.assigned_to)){if(est==="abierto"){await db.from("sek_cases").update({estado:"ia_atendiendo"}).eq("id",sid)}invokeIA()}else{console.log("[widget] IA NOT invoked, estado:",est)}
 }
 
 /* ═══ IA AGENT INVOCATION ═══ */
-function invokeIA(){db.functions.invoke("ia-agent",{body:{case_id:sid}}).then(function(res){if(res.data&&res.data.ok)fetchRender();else if(res.error)console.error("IA error:",res.error)}).catch(function(e){console.error("IA error:",e)})}
+function invokeIA(){
+  console.log("[widget] invokeIA called, case:",sid);
+  showTyping(true);
+  db.functions.invoke("ia-agent",{body:{case_id:sid}}).then(function(res){
+    console.log("[widget] IA response:",res);
+    showTyping(false);
+    if(res.data&&res.data.ok){fetchRender()}
+    else if(res.error){console.error("[widget] IA error:",res.error);fetchRender()}
+    else{fetchRender()}
+  }).catch(function(e){
+    console.error("[widget] IA catch error:",e);
+    showTyping(false);
+    fetchRender();
+  });
+}
 
 /* ═══ FILE HANDLING ═══ */
 $("btn-attach").addEventListener("click",function(){$("file-input").click()});
