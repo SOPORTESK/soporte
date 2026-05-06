@@ -14,7 +14,7 @@ html,body{height:100%;height:100dvh;font-family:-apple-system,BlinkMacSystemFont
 .root{display:flex;flex-direction:column;height:100%;max-width:480px;margin:0 auto;background:var(--bg);box-shadow:var(--shadow);position:relative;overflow:hidden}
 @media(max-width:480px){.root{max-width:100%;box-shadow:none}}
 @media(min-width:481px)and(max-width:768px){.root{max-width:420px;border-radius:16px;margin:12px auto;height:calc(100% - 24px)}}
-@media(min-width:769px){.root{max-width:440px;border-radius:20px;margin:20px auto;height:calc(100% - 40px);box-shadow:0 12px 80px rgba(0,0,0,.2)}}
+@media(min-width:769px){.root{max-width:400px;width:400px;height:600px;border-radius:16px;position:fixed;bottom:24px;right:24px;margin:0;box-shadow:0 12px 48px rgba(0,0,0,.2),0 0 0 1px rgba(0,0,0,.08)}}
 .header{background:var(--grad);padding:14px 16px;padding-top:calc(14px + var(--sat));display:flex;align-items:center;gap:12px;flex-shrink:0;z-index:10}
 .header-avatar{width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,.18);border:2px solid rgba(255,255,255,.35);color:#fff;font-weight:800;font-size:18px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .header-info{flex:1;min-width:0}.header-title{color:#fff;font-weight:700;font-size:15px}
