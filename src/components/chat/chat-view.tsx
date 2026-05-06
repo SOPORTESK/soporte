@@ -241,6 +241,9 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     setSekCase(prev => ({ ...prev, estado: newEstado }));
     toast.success(`Caso ${newEstado}`);
     setShowActions(false);
+    if (newEstado === "cerrado") {
+      supabase.functions.invoke("send-transcript", { body: { case_id: targetId } }).catch(() => {});
+    }
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {

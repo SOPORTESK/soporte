@@ -74,6 +74,15 @@ Deno.serve(async () => {
       continue;
     }
 
+    // Send transcript email
+    try {
+      await fetch(`${SUPABASE_URL}/functions/v1/send-transcript`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${SERVICE_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ case_id: caso.id }),
+      });
+    } catch (e) { console.error("[auto-close] transcript email error:", e); }
+
     const lastTime = allMsgs.length > 0 ? allMsgs[allMsgs.length - 1].time : caso.created_at;
     console.log(`[auto-close] Caso ${caso.id} cerrado por inactividad del cliente (${Math.round((now - new Date(lastTime).getTime()) / 60000)} min)`);
     closed++;
