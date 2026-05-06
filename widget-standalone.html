@@ -10,10 +10,8 @@
 :root{--bg:#fff;--bg2:#f8fafc;--bg-chat:#f1f5f9;--text:#0f172a;--text2:#475569;--text3:#94a3b8;--border:#e2e8f0;--primary:#2563eb;--primary-dk:#1e3a8a;--grad:linear-gradient(135deg,#1e3a8a 0%,#2563eb 60%,#3b82f6 100%);--grad-btn:linear-gradient(135deg,#1e3a8a,#2563eb);--bubble-ag:#fff;--bubble-ag-b:#e2e8f0;--success:#16a34a;--danger:#dc2626;--shadow:0 8px 60px rgba(0,0,0,.15);--shsm:0 1px 3px rgba(0,0,0,.08);--r:12px;--rl:20px;--sab:env(safe-area-inset-bottom,0px);--sat:env(safe-area-inset-top,0px)}
 @media(prefers-color-scheme:dark){:root{--bg:#0f172a;--bg2:#1e293b;--bg-chat:#0c1322;--text:#f1f5f9;--text2:#94a3b8;--text3:#64748b;--border:#334155;--bubble-ag:#1e293b;--bubble-ag-b:#334155;--shadow:0 8px 60px rgba(0,0,0,.5);--shsm:0 1px 3px rgba(0,0,0,.3)}}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%;height:100dvh;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);overflow:hidden;-webkit-font-smoothing:antialiased;display:flex;align-items:center;justify-content:center}
-.root{display:flex;flex-direction:column;height:100%;width:100%;max-width:420px;background:var(--bg);position:relative;overflow:hidden}
-@media(max-width:480px){.root{max-width:100%;border-radius:0}}
-@media(min-width:481px){.root{height:100%;max-height:100vh;border-radius:0}}
+html,body{height:100%;height:100dvh;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);overflow:hidden;-webkit-font-smoothing:antialiased}
+.root{display:flex;flex-direction:column;height:100%;width:100%;background:var(--bg);position:relative;overflow:hidden}
 .header{background:var(--grad);padding:14px 16px;padding-top:calc(14px + var(--sat));display:flex;align-items:center;gap:12px;flex-shrink:0;z-index:10}
 .header-avatar{width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,.18);border:2px solid rgba(255,255,255,.35);color:#fff;font-weight:800;font-size:18px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .header-info{flex:1;min-width:0}.header-title{color:#fff;font-weight:700;font-size:15px}
