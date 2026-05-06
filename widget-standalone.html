@@ -170,7 +170,7 @@ var HURL="https://api.hacienda.go.cr/fe/ae";
 var db=supabase.createClient(SB_URL,SB_KEY);
 
 /* ═══ STATE ═══ */
-var sid=null,clienteData=null,cedulaOk=false,cedTmr=null,casoCerrado=false,esperandoEquipo=false;
+var sid=null,clienteData=null,cedulaOk=false,cedTmr=null,casoCerrado=false;
 var creandoCaso=false,soundOff=false,lastHash="",unread=0,atBottom=true;
 var rtCh=null,presCh=null,typTmr=null,pollTmr=null,reconAttempts=0;
 var pendFile=null,mediaRec=null,audioChunks=[],isRec=false,csatDone=false;
@@ -277,8 +277,7 @@ function showChat(hc,ht,estado,cl){
   $("form-section").classList.add("hiding");
   setTimeout(function(){$("form-section").style.display="none";var cs=$("chat-section");cs.classList.add("active");cs.style.display="flex"},350);
   if(cl)clienteData=cl;
-  var hca=hc||[];var last=hca.length>0?hca[hca.length-1]:null;
-  esperandoEquipo=hca.length===1&&last&&(last.role==="tecnico"||last.role==="assistant");
+  var hca=hc||[];
   renderAll(hc,ht);startRT();
   var e=String(estado||"").toLowerCase();if(e==="cerrado"||e==="resuelto")lockChat();
 }
@@ -304,13 +303,12 @@ $("btn-start").addEventListener("click",async function(){
 
 /* ═══ CREATE NEW CASE ═══ */
 async function newCase(msg){
-  if(creandoCaso)return;creandoCaso=true;casoCerrado=false;esperandoEquipo=false;lastHash="";csatDone=false;
+  if(creandoCaso)return;creandoCaso=true;casoCerrado=false;lastHash="";csatDone=false;
   var ins=await db.from("sek_cases").insert({title:"Chat web — "+(clienteData?clienteData.nombre:"Cliente"),canal:"widget",estado:"abierto",prioridad:"media",cliente:clienteData||{},customer_phone:clienteData?clienteData.telefono:null,histcliente:[],histtecnico:[]}).select("id,histcliente,histtecnico").single();
   if(ins.error){alert("Error: "+ins.error.message);creandoCaso=false;return}
   sid=String(ins.data.id);try{localStorage.setItem("sek_session",sid);localStorage.setItem("sek_session_ver",SVER)}catch(e){}
   $("messages").innerHTML="";lastHash="";startRT();
-  if(clienteData&&clienteData.nombre){esperandoEquipo=true;var bm={role:"tecnico",author:"Soporte Sekunet",time:new Date().toISOString(),content:"¡Hola "+clienteData.nombre+"! 👋 Para poder avanzar con el soporte, ¿nos podrías indicar la marca y modelo de tu equipo?\n\nEjemplo: Hikvision DS-2CD2143"};var hc=[bm];await db.from("sek_cases").update({histcliente:hc}).eq("id",sid);lastHash="";renderAll(hc,[])}
-  else if(msg){var hc2=[{role:"user",time:new Date().toISOString(),content:msg}];await db.from("sek_cases").update({histcliente:hc2}).eq("id",sid);lastHash="";renderAll(hc2,[])}
+  if(msg){var hc2=[{role:"user",time:new Date().toISOString(),content:msg}];await db.from("sek_cases").update({histcliente:hc2}).eq("id",sid);lastHash="";renderAll(hc2,[])}
   creandoCaso=false;
 }
 
@@ -318,7 +316,6 @@ async function newCase(msg){
 async function sendMsg(){
   var txt=$("txt-msg").value.trim();if((!txt&&!pendFile)||!sid)return;
   if(casoCerrado){$("txt-msg").value="";await newCase(txt);return}
-  if(esperandoEquipo){esperandoEquipo=false;$("btn-send").disabled=true;$("txt-msg").value="";var r0=await db.from("sek_cases").select("histcliente,histtecnico,cliente").eq("id",sid).maybeSingle();var hcE=r0.data?(r0.data.histcliente||[]):[];hcE.push({role:"user",time:new Date().toISOString(),content:txt});var clA=r0.data?(r0.data.cliente||{}):{};clA.equipo=txt;hcE.push({role:"tecnico",author:"Soporte Sekunet",time:new Date().toISOString(),content:"✅ ¡Listo! Un agente te atenderá en breve.\n\nEquipo: "+txt});await db.from("sek_cases").update({histcliente:hcE,cliente:clA,title:"Chat web — "+(clienteData?clienteData.nombre:"Cliente")+" — "+txt}).eq("id",sid);lastHash="";renderAll(hcE,r0.data?(r0.data.histtecnico||[]):[]);$("btn-send").disabled=false;haptic(15);return}
   $("btn-send").disabled=true;$("txt-msg").value="";autoResize();
   var entry={role:"user",time:new Date().toISOString(),content:txt||"Archivo adjunto"};
   if(pendFile){var f=pendFile;pendFile=null;$("up-prev-bar").style.display="none";try{var up=await uploadFile(f);entry.mediaUrl=up.url;entry.mediaType=up.type;entry.fileName=up.name;entry.content=txt||""}catch(err){alert("Error al subir: "+err.message);$("btn-send").disabled=false;return}}
