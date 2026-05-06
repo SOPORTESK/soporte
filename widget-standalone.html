@@ -170,7 +170,6 @@ var SB_URL="https://kzcyxeracvfxynddyjld.supabase.co";
 var SB_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt6Y3l4ZXJhY3ZmeHluZGR5amxkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1MTE5NTQsImV4cCI6MjA5MTA4Nzk1NH0.DvEnK-g5rMxzFec4Fl3rJ5VDYVJ7-ua9ssqf3s-QKtU";
 var SVER="3";
 var HURL="https://api.hacienda.go.cr/fe/ae";
-var IA_FN=SB_URL+"/functions/v1/ia-agent";
 var db=supabase.createClient(SB_URL,SB_KEY);
 
 /* ═══ STATE ═══ */
@@ -350,7 +349,7 @@ async function sendMsg(){
 }
 
 /* ═══ IA AGENT INVOCATION ═══ */
-function invokeIA(){fetch(IA_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SB_KEY,"apikey":SB_KEY},body:JSON.stringify({case_id:sid})}).then(function(r){return r.json()}).then(function(d){if(d.ok)fetchRender()}).catch(function(e){console.error("IA error:",e)})}
+function invokeIA(){db.functions.invoke("ia-agent",{body:{case_id:sid}}).then(function(res){if(res.data&&res.data.ok)fetchRender();else if(res.error)console.error("IA error:",res.error)}).catch(function(e){console.error("IA error:",e)})}
 
 /* ═══ FILE HANDLING ═══ */
 $("btn-attach").addEventListener("click",function(){$("file-input").click()});
