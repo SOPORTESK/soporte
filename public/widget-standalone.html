@@ -2,75 +2,244 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Soporte Sekunet</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f8fafc; }
+    html, body { height: 100%; height: -webkit-fill-available; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #eef2f7; overflow: hidden; }
 
-    .root { display: flex; flex-direction: column; height: 100vh; max-width: 420px; margin: 0 auto; background: #fff; box-shadow: 0 0 40px rgba(0,0,0,.12); }
+    .root {
+      display: flex; flex-direction: column;
+      height: 100vh; height: -webkit-fill-available;
+      max-width: 480px; margin: 0 auto;
+      background: #fff;
+      box-shadow: 0 8px 60px rgba(0,0,0,.18);
+    }
 
-    /* Header */
-    .header { background: linear-gradient(135deg,#1d4ed8,#2563eb); padding: 14px 16px; display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-    .header-avatar { width: 38px; height: 38px; border-radius: 50%; background: rgba(255,255,255,.2); color: #fff; font-weight: 700; font-size: 16px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-    .header-title { color: #fff; font-weight: 700; font-size: 15px; }
-    .header-sub { color: rgba(255,255,255,.8); font-size: 11px; display: flex; align-items: center; gap: 4px; margin-top: 1px; }
-    .dot { width: 7px; height: 7px; border-radius: 50%; background: #4ade80; display: inline-block; }
+    /* ── Header ── */
+    .header {
+      background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 60%, #3b82f6 100%);
+      padding: 14px 16px 14px;
+      display: flex; align-items: center; gap: 12px;
+      flex-shrink: 0;
+      position: relative;
+    }
+    .header-avatar {
+      width: 44px; height: 44px; border-radius: 50%;
+      background: rgba(255,255,255,.18); border: 2px solid rgba(255,255,255,.35);
+      color: #fff; font-weight: 800; font-size: 18px;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .header-info { flex: 1; min-width: 0; }
+    .header-title { color: #fff; font-weight: 700; font-size: 15px; letter-spacing: -.2px; }
+    .header-sub { color: rgba(255,255,255,.75); font-size: 11px; display: flex; align-items: center; gap: 5px; margin-top: 2px; }
+    .status-dot { width: 7px; height: 7px; border-radius: 50%; background: #4ade80; display: inline-block; box-shadow: 0 0 0 2px rgba(74,222,128,.35); }
 
-    /* Form */
-    .form { flex: 1; overflow-y: auto; padding: 24px 20px; display: flex; flex-direction: column; gap: 10px; }
-    .form-title { font-size: 16px; font-weight: 700; color: #0f172a; }
-    .form-sub { font-size: 13px; color: #64748b; margin-bottom: 4px; }
-    label { font-size: 12px; font-weight: 600; color: #374151; }
-    input { border: 1.5px solid #e2e8f0; border-radius: 8px; padding: 10px 12px; font-size: 14px; outline: none; font-family: inherit; color: #0f172a; width: 100%; transition: border-color .15s; }
-    input:focus { border-color: #2563eb; }
-    .err { color: #dc2626; font-size: 12px; }
-    .btn-primary { margin-top: 6px; padding: 12px; border-radius: 10px; background: linear-gradient(135deg,#1d4ed8,#2563eb); color: #fff; border: none; cursor: pointer; font-weight: 600; font-size: 14px; font-family: inherit; transition: opacity .15s; }
+    /* ── Form ── */
+    .form-section {
+      flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+      padding: 28px 22px 24px; display: flex; flex-direction: column; gap: 0;
+      background: #fff;
+    }
+    .form-hero { text-align: center; margin-bottom: 24px; }
+    .form-hero-icon { font-size: 42px; display: block; margin-bottom: 10px; }
+    .form-title { font-size: 18px; font-weight: 800; color: #0f172a; margin-bottom: 4px; }
+    .form-sub { font-size: 13px; color: #64748b; line-height: 1.5; }
+    .field { margin-bottom: 14px; }
+    .field label { display: block; font-size: 12px; font-weight: 700; color: #374151; margin-bottom: 5px; text-transform: uppercase; letter-spacing: .4px; }
+    .field input {
+      width: 100%; border: 1.5px solid #e2e8f0; border-radius: 12px;
+      padding: 12px 14px; font-size: 15px; outline: none;
+      font-family: inherit; color: #0f172a;
+      transition: border-color .15s, box-shadow .15s;
+      background: #f8fafc;
+    }
+    .field input:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,.12); background: #fff; }
+    .field input.valid { border-color: #16a34a; }
+    .field input.invalid { border-color: #dc2626; }
+    .cedula-wrap { position: relative; }
+    .cedula-wrap input { padding-right: 38px; }
+    .cedula-status { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font-size: 16px; line-height: 1; }
+    .cedula-result { font-size: 11px; margin: -4px 0 6px 2px; line-height: 1.4; }
+    .cedula-result.ok { color: #16a34a; }
+    .cedula-result.fail { color: #dc2626; }
+    .err { color: #dc2626; font-size: 12px; margin-top: -8px; margin-bottom: 8px; font-weight: 600; }
+    .btn-primary {
+      width: 100%; margin-top: 6px; padding: 14px;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #1e3a8a, #2563eb);
+      color: #fff; border: none; cursor: pointer;
+      font-weight: 700; font-size: 15px; font-family: inherit;
+      transition: opacity .15s, transform .1s;
+      box-shadow: 0 4px 16px rgba(37,99,235,.35);
+      letter-spacing: .2px;
+    }
+    .btn-primary:active { transform: scale(.98); }
     .btn-primary:disabled { opacity: .6; cursor: not-allowed; }
 
-    /* Messages */
-    .messages { flex: 1; overflow-y: auto; padding: 12px 14px; background: #f8fafc; display: flex; flex-direction: column; gap: 8px; }
-    .empty { text-align: center; color: #94a3b8; font-size: 13px; margin-top: 40px; }
+    /* ── Mensajes ── */
+    .messages {
+      flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+      padding: 14px 14px 8px;
+      background: #f1f5f9;
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .date-sep {
+      text-align: center; font-size: 11px; color: #94a3b8; font-weight: 600;
+      margin: 8px 0; letter-spacing: .3px;
+    }
 
-    /* Bubbles */
-    .bubble-wrap { display: flex; }
+    /* ── Burbujas ── */
+    .bubble-wrap { display: flex; align-items: flex-end; gap: 6px; animation: fadeUp .18s ease; }
     .bubble-wrap.user { justify-content: flex-end; }
     .bubble-wrap.agent { justify-content: flex-start; }
-    .bubble { max-width: 78%; border-radius: 18px; padding: 9px 13px; font-size: 13px; line-height: 1.5; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
-    .bubble.user { background: linear-gradient(135deg,#1d4ed8,#2563eb); color: #fff; border-radius: 18px 18px 4px 18px; }
-    .bubble.agent { background: linear-gradient(135deg,#065f46,#059669); color: #fff; border-radius: 18px 18px 18px 4px; }
-    .bubble.ia { background: linear-gradient(135deg,#6d28d9,#7c3aed); color: #fff; border-radius: 18px 18px 18px 4px; }
-    .bubble-label { font-size: 10px; font-weight: 700; opacity: .85; margin-bottom: 3px; }
-    .bubble-text { white-space: pre-wrap; word-break: break-word; }
-    .bubble-time { font-size: 10px; opacity: .7; text-align: right; margin-top: 4px; }
+    @keyframes fadeUp { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
 
-    /* Input bar */
-    .input-bar { display: flex; align-items: flex-end; gap: 8px; padding: 10px 12px; border-top: 1px solid #e2e8f0; background: #fff; flex-shrink: 0; }
-    textarea { flex: 1; border: 1.5px solid #e2e8f0; border-radius: 10px; padding: 9px 12px; font-size: 13px; resize: none; font-family: inherit; outline: none; color: #0f172a; max-height: 100px; overflow-y: auto; transition: border-color .15s; }
-    textarea:focus { border-color: #2563eb; }
-    .send-btn { width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg,#1d4ed8,#2563eb); color: #fff; border: none; cursor: pointer; font-size: 18px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: opacity .15s; }
-    .send-btn:disabled { opacity: .45; cursor: not-allowed; }
-    .powered { text-align: center; font-size: 10px; color: #94a3b8; padding: 4px 0 6px; background: #fff; }
+    .bubble {
+      max-width: 80%; border-radius: 20px; padding: 10px 14px;
+      font-size: 14px; line-height: 1.55;
+      box-shadow: 0 1px 3px rgba(0,0,0,.08);
+      word-break: break-word;
+    }
+    .bubble.user {
+      background: linear-gradient(135deg, #1e3a8a, #2563eb);
+      color: #fff; border-radius: 20px 20px 5px 20px;
+    }
+    .bubble.agent {
+      background: #fff; color: #0f172a;
+      border: 1px solid #e2e8f0;
+      border-radius: 20px 20px 20px 5px;
+    }
+    .bubble.ia {
+      background: linear-gradient(135deg, #6d28d9, #7c3aed);
+      color: #fff; border-radius: 20px 20px 20px 5px;
+    }
+    .bubble-label { font-size: 10px; font-weight: 700; opacity: .75; margin-bottom: 3px; display: flex; align-items: center; gap: 4px; }
+    .bubble-text { white-space: pre-wrap; }
+    .bubble-time { font-size: 10px; opacity: .6; text-align: right; margin-top: 5px; }
+
+    /* ── Input bar ── */
+    .input-bar {
+      display: flex; align-items: flex-end; gap: 8px;
+      padding: 10px 12px;
+      border-top: 1px solid #e2e8f0;
+      background: #fff; flex-shrink: 0;
+    }
+    .attach-btn {
+      width: 40px; height: 40px; border-radius: 50%;
+      background: #f1f5f9; border: none; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; color: #64748b; font-size: 18px;
+      transition: background .15s;
+    }
+    .attach-btn:active { background: #e2e8f0; }
+    .attach-btn:disabled { opacity: .45; }
+    textarea {
+      flex: 1; border: 1.5px solid #e2e8f0; border-radius: 20px;
+      padding: 10px 14px; font-size: 14px; resize: none;
+      font-family: inherit; outline: none; color: #0f172a;
+      max-height: 120px; overflow-y: auto; line-height: 1.4;
+      transition: border-color .15s;
+      background: #f8fafc;
+    }
+    textarea:focus { border-color: #2563eb; background: #fff; }
+    .send-btn {
+      width: 40px; height: 40px; border-radius: 50%;
+      background: linear-gradient(135deg, #1e3a8a, #2563eb);
+      color: #fff; border: none; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; transition: opacity .15s, transform .1s;
+      box-shadow: 0 2px 8px rgba(37,99,235,.4);
+      font-size: 16px;
+    }
+    .send-btn:active { transform: scale(.92); }
+    .send-btn:disabled { opacity: .4; cursor: not-allowed; box-shadow: none; }
+
+    /* ── Upload preview ── */
+    .upload-preview {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 14px; background: #eff6ff;
+      border-top: 1px solid #bfdbfe; flex-shrink: 0;
+    }
+    .upload-preview-icon { font-size: 22px; }
+    .upload-preview-name { font-size: 12px; color: #1e40af; font-weight: 600; flex: 1; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
+    .upload-preview-cancel { background: none; border: none; cursor: pointer; color: #64748b; font-size: 18px; line-height: 1; }
+    .upload-progress { height: 3px; background: #bfdbfe; border-radius: 2px; overflow: hidden; }
+    .upload-progress-bar { height: 100%; background: #2563eb; border-radius: 2px; transition: width .3s; }
+
+    /* ── Archivo en burbuja ── */
+    .file-card {
+      background: rgba(255,255,255,.15); border-radius: 12px;
+      padding: 10px 12px; margin-bottom: 4px;
+      display: flex; align-items: center; gap: 10px;
+      border: 1px solid rgba(255,255,255,.2);
+    }
+    .bubble.agent .file-card { background: #f8fafc; border-color: #e2e8f0; }
+    .file-card-icon { font-size: 26px; flex-shrink: 0; }
+    .file-card-info { flex: 1; min-width: 0; }
+    .file-card-name { font-size: 12px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .file-card-dl {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 11px; opacity: .8; text-decoration: none;
+      color: inherit; margin-top: 3px;
+    }
+
+    /* ── Powered ── */
+    .powered { text-align: center; font-size: 10px; color: #cbd5e1; padding: 5px 0 7px; background: #fff; flex-shrink: 0; }
+
+    /* ── Typing dots ── */
+    @keyframes dotBounce { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-5px)} }
+    .dot-bounce { display:inline-block; width:6px; height:6px; border-radius:50%; background:#94a3b8; animation:dotBounce 1.2s infinite ease-in-out; }
+
+    /* ── Scrollbar ── */
+    .messages::-webkit-scrollbar { width: 4px; }
+    .messages::-webkit-scrollbar-track { background: transparent; }
+    .messages::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
   </style>
 </head>
 <body>
 <div class="root">
+
+  <!-- HEADER -->
   <div class="header">
     <div class="header-avatar">S</div>
-    <div>
+    <div class="header-info">
       <div class="header-title">Soporte Sekunet</div>
-      <div class="header-sub"><span class="dot"></span> En línea</div>
+      <div class="header-sub"><span class="status-dot"></span> En línea · Respuesta inmediata</div>
     </div>
   </div>
 
   <!-- FORM -->
-  <div class="form" id="form-section">
-    <p class="form-title">¡Hola! 👋 Antes de comenzar</p>
-    <p class="form-sub">Ingresa tus datos para conectarte con un agente.</p>
-    <label for="inp-nombre">Nombre *</label>
-    <input id="inp-nombre" placeholder="Tu nombre" autocomplete="name" />
-    <label for="inp-correo">Correo (opcional)</label>
-    <input id="inp-correo" type="email" placeholder="tu@correo.com" autocomplete="email" />
+  <div class="form-section" id="form-section">
+    <div class="form-hero">
+      <span class="form-hero-icon">👋</span>
+      <p class="form-title">¡Hola! Antes de comenzar</p>
+      <p class="form-sub">Ingresa tus datos para conectarte con un agente de soporte.</p>
+    </div>
+    <div class="field">
+      <label for="inp-cedula">Cédula / DIMEX *</label>
+      <div class="cedula-wrap">
+        <input id="inp-cedula" inputmode="numeric" maxlength="12" placeholder="Ej: 101230456" autocomplete="off" />
+        <span class="cedula-status" id="cedula-icon"></span>
+      </div>
+      <div class="cedula-result" id="cedula-result"></div>
+    </div>
+    <div class="field">
+      <label for="inp-nombre">Nombre y apellido *</label>
+      <input id="inp-nombre" placeholder="Tu nombre completo" autocomplete="name" />
+    </div>
+    <div class="field">
+      <label for="inp-correo">Correo electrónico</label>
+      <input id="inp-correo" type="email" placeholder="tu@correo.com" autocomplete="email" />
+    </div>
+    <div class="field">
+      <label for="inp-tel">Número de contacto</label>
+      <input id="inp-tel" type="tel" placeholder="+506 8888-8888" autocomplete="tel" />
+    </div>
+    <div class="field">
+      <label for="inp-empresa">Empresa registrada</label>
+      <input id="inp-empresa" placeholder="Nombre de su empresa" autocomplete="organization" />
+    </div>
     <p class="err" id="form-err"></p>
     <button class="btn-primary" id="btn-start">Iniciar chat →</button>
   </div>
@@ -78,12 +247,29 @@
   <!-- CHAT -->
   <div id="chat-section" style="display:none;flex:1;flex-direction:column;min-height:0;overflow:hidden;">
     <div class="messages" id="messages"></div>
+    <!-- Preview archivo seleccionado -->
+    <div id="upload-preview-bar" style="display:none;" class="upload-preview">
+      <span class="upload-preview-icon" id="up-icon">📎</span>
+      <span class="upload-preview-name" id="up-name"></span>
+      <button class="upload-preview-cancel" id="up-cancel">✕</button>
+    </div>
+    <div id="upload-progress-wrap" style="display:none;" class="upload-progress"><div class="upload-progress-bar" id="upload-bar" style="width:0%"></div></div>
+    <!-- Input -->
     <div class="input-bar">
-      <textarea id="txt-msg" rows="1" placeholder="Escribe un mensaje… (Enter envía)"></textarea>
+      <!-- Archivos -->
+      <input type="file" id="file-input" style="display:none"
+        accept="image/*,video/*,audio/*,.pdf,.xml,.xlsx,.xls,.xlsm,.doc,.docx,.ppt,.pptx,.pps,.ppsx,.txt,.csv,.json,.zip,.rar,.7z,.tar,.gz" />
+      <!-- Cámara video -->
+      <input type="file" id="camera-input" style="display:none" accept="video/*" capture="environment" />
+      <button class="attach-btn" id="btn-attach" title="Adjuntar archivo">📎</button>
+      <button class="attach-btn" id="btn-camera" title="Grabar video">🎥</button>
+      <button class="attach-btn" id="btn-mic" title="Grabar audio">🎤</button>
+      <textarea id="txt-msg" rows="1" placeholder="Escribe un mensaje…"></textarea>
       <button class="send-btn" id="btn-send" disabled>➤</button>
     </div>
     <div class="powered">Powered by <strong>Sekunet</strong></div>
   </div>
+
 </div>
 
 <!-- Supabase JS directo desde CDN — sin servidor -->
@@ -92,13 +278,27 @@
 (function () {
   /* ── CONFIG — estas son las únicas variables que necesitas ── */
   var SUPABASE_URL  = "https://kzcyxeracvfxynddyjld.supabase.co";
-  var SUPABASE_ANON = "REEMPLAZA_CON_TU_ANON_KEY";
+  var SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt6Y3l4ZXJhY3ZmeHluZGR5amxkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1MTE5NTQsImV4cCI6MjA5MTA4Nzk1NH0.DvEnK-g5rMxzFec4Fl3rJ5VDYVJ7-ua9ssqf3s-QKtU";
   /* ─────────────────────────────────────────────────────────── */
+
+  var SESSION_VERSION = "2"; // Incrementar para forzar re-login de todos los usuarios
+  var HACIENDA_URL = "https://api.hacienda.go.cr/fe/ae";
 
   var db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 
   var sessionId = null;
-  try { sessionId = sessionStorage.getItem("sek_session"); } catch(e){}
+  var cedulaValid = false;
+  var cedulaTimer = null;
+  try {
+    var savedVer = localStorage.getItem("sek_session_ver");
+    if (savedVer !== SESSION_VERSION) {
+      localStorage.removeItem("sek_session");
+      localStorage.removeItem("sek_session_ver");
+      sessionId = null;
+    } else {
+      sessionId = localStorage.getItem("sek_session");
+    }
+  } catch(e){}
 
   /* ── Helpers ── */
   function fmt(iso) {
@@ -108,69 +308,272 @@
 
   function $id(id) { return document.getElementById(id); }
 
-  /* ── Render mensajes ── */
-  var renderedIds = new Set();
+  /* ── Icono por tipo ── */
+  function fileIcon(mt) {
+    if (!mt) return "📁";
+    if (mt.startsWith("image/")) return "🖼️";
+    if (mt.startsWith("video/")) return "🎬";
+    if (mt.startsWith("audio/")) return "🎵";
+    if (mt === "application/pdf") return "📄";
+    if (mt.includes("xml")) return "🗂️";
+    if (mt.includes("sheet") || mt.includes("excel") || mt.includes("spreadsheet")) return "📊";
+    if (mt.includes("word") || mt.includes("document")) return "📝";
+    if (mt.includes("presentation") || mt.includes("powerpoint")) return "📊";
+    if (mt.includes("zip") || mt.includes("rar") || mt.includes("7z") || mt.includes("tar") || mt.includes("gzip")) return "📦";
+    if (mt.includes("text") || mt.includes("csv")) return "📃";
+    if (mt.includes("json")) return "📦";
+    return "📁";
+  }
 
-  function renderMsg(m) {
-    if (renderedIds.has(m.id)) return;
-    renderedIds.add(m.id);
+  function forceDownload(url, fname) {
+    fetch(url).then(function(r){ return r.blob(); }).then(function(blob){
+      var bUrl = URL.createObjectURL(blob);
+      var a = document.createElement("a"); a.href = bUrl; a.download = fname; a.click();
+      setTimeout(function(){ URL.revokeObjectURL(bUrl); }, 2000);
+    });
+  }
 
+  /* ── Render burbuja premium ── */
+  function makeBubble(role, content, time, mediaUrl, mediaType, fileName) {
+    var isUser = role === "user";
     var wrap = document.createElement("div");
-    wrap.className = "bubble-wrap " + (m.role === "user" ? "user" : "agent");
+    wrap.className = "bubble-wrap " + (isUser ? "user" : "agent");
 
     var bubble = document.createElement("div");
-    var cls = "bubble ";
-    if (m.role === "user") cls += "user";
-    else if (m.role === "assistant") cls += "ia";
-    else cls += "agent";
-    bubble.className = cls;
+    bubble.className = "bubble " + (isUser ? "user" : role === "assistant" ? "ia" : "agent");
 
-    if (m.role !== "user") {
+    /* Label agente/ia */
+    if (!isUser) {
       var lbl = document.createElement("div");
       lbl.className = "bubble-label";
-      lbl.textContent = m.role === "assistant" ? "🤖 Asistente" : "💬 Agente";
+      lbl.textContent = "💬 Soporte Sekunet";
       bubble.appendChild(lbl);
     }
 
-    var txt = document.createElement("div");
-    txt.className = "bubble-text";
-    txt.textContent = m.content || "";
-    bubble.appendChild(txt);
+    if (mediaUrl) {
+      var mt = mediaType || "";
+      var fname = fileName || decodeURIComponent(mediaUrl.split("/").pop().split("?")[0]) || "archivo";
+      var isImg = mt.startsWith("image/");
+      var isVid = mt.startsWith("video/");
+      var isAud = mt.startsWith("audio/");
 
-    var time = document.createElement("div");
-    time.className = "bubble-time";
-    time.textContent = fmt(m.time);
-    bubble.appendChild(time);
+      if (isImg) {
+        var img = document.createElement("img");
+        img.src = mediaUrl;
+        img.style.cssText = "max-width:100%;border-radius:12px;display:block;margin-bottom:8px;cursor:pointer;";
+        img.onclick = function() { window.open(mediaUrl, "_blank"); };
+        bubble.appendChild(img);
+        /* descarga bajo imagen */
+        var dl = document.createElement("a");
+        dl.href = mediaUrl; dl.target = "_blank";
+        dl.className = "file-card-dl";
+        dl.textContent = "⬇ Descargar";
+        bubble.appendChild(dl);
+      } else if (isVid) {
+        var vid = document.createElement("video");
+        vid.controls = true; vid.preload = "metadata"; vid.playsInline = true;
+        vid.style.cssText = "max-width:100%;border-radius:12px;display:block;margin-bottom:8px;background:#000;";
+        var vsrc = document.createElement("source"); vsrc.src = mediaUrl; vsrc.type = mt;
+        vid.appendChild(vsrc);
+        bubble.appendChild(vid);
+        var vdl = document.createElement("a");
+        vdl.href = "#"; vdl.className = "file-card-dl";
+        vdl.textContent = "⬇ Descargar — " + fname;
+        vdl.onclick = function(ev) { ev.preventDefault(); forceDownload(mediaUrl, fname); };
+        bubble.appendChild(vdl);
+      } else if (isAud) {
+        var aud = document.createElement("audio");
+        aud.controls = true; aud.preload = "metadata";
+        aud.style.cssText = "width:100%;margin-bottom:8px;";
+        var asrc = document.createElement("source"); asrc.src = mediaUrl; asrc.type = mt;
+        aud.appendChild(asrc);
+        bubble.appendChild(aud);
+        var adl = document.createElement("a");
+        adl.href = mediaUrl; adl.target = "_blank";
+        adl.className = "file-card-dl";
+        adl.textContent = "⬇ Descargar — " + fname;
+        bubble.appendChild(adl);
+      } else {
+        /* File card para docs, xml, pdf, zip etc */
+        var card = document.createElement("div");
+        card.className = "file-card";
+        var cardIcon = document.createElement("div");
+        cardIcon.className = "file-card-icon";
+        cardIcon.textContent = fileIcon(mt);
+        var cardInfo = document.createElement("div");
+        cardInfo.className = "file-card-info";
+        var cardName = document.createElement("div");
+        cardName.className = "file-card-name";
+        cardName.textContent = fname;
+        var cardDl = document.createElement("a");
+        cardDl.className = "file-card-dl";
+        cardDl.textContent = "⬇ Descargar";
+        cardDl.href = "#";
+        cardDl.onclick = function(ev) { ev.preventDefault(); forceDownload(mediaUrl, fname); };
+        cardInfo.appendChild(cardName);
+        cardInfo.appendChild(cardDl);
+        card.appendChild(cardIcon);
+        card.appendChild(cardInfo);
+        bubble.appendChild(card);
+      }
+    } else {
+      var txt = document.createElement("div");
+      txt.className = "bubble-text";
+      txt.textContent = content || "";
+      bubble.appendChild(txt);
+    }
 
+    var t = document.createElement("div");
+    t.className = "bubble-time";
+    t.textContent = fmt(time);
+    bubble.appendChild(t);
     wrap.appendChild(bubble);
-    $id("messages").appendChild(wrap);
-    $id("messages").scrollTop = $id("messages").scrollHeight;
+    return wrap;
   }
 
   function renderAll(histcliente, histtecnico) {
     var all = [];
-    (histcliente || []).forEach(function(e, i) { all.push({ id: "c" + i, role: e.role || "user", content: e.content, time: e.time }); });
-    (histtecnico || []).forEach(function(e, i) { all.push({ id: "t" + i, role: "tecnico", content: e.content, time: e.time }); });
+    (histcliente || []).forEach(function(e) { all.push({ role: e.role || "user", content: e.content, mediaUrl: e.mediaUrl, mediaType: e.mediaType, fileName: e.fileName, time: e.time }); });
+    (histtecnico || []).forEach(function(e) { if (e.role === "nota") return; all.push({ role: "tecnico", content: e.content, mediaUrl: e.mediaUrl, mediaType: e.mediaType, fileName: e.fileName, time: e.time }); });
     all.sort(function(a,b){ return new Date(a.time) - new Date(b.time); });
-    all.forEach(renderMsg);
+
+    var container = $id("messages");
+    /* Preservar mensajes optimistas pendientes */
+    var optimistas = [];
+    container.querySelectorAll(".optimista").forEach(function(el) { optimistas.push(el); });
+
+    /* Set de mensajes de usuario ya confirmados en BD para descartar optimistas duplicados */
+    var confirmados = new Set();
+    (histcliente || []).forEach(function(e) {
+      if ((e.role || "user") === "user") {
+        confirmados.add("c:" + (e.content || "") + "|m:" + (e.mediaUrl || ""));
+      }
+    });
+
+    container.innerHTML = "";
+
+    if (all.length === 0) {
+      var bienvenida = makeBubble("assistant", "¡Hola! 👋 Somos el equipo de soporte de Sekunet. ¿En qué podemos ayudarte hoy?", new Date().toISOString());
+      container.appendChild(bienvenida);
+    }
+
+    all.forEach(function(m) { container.appendChild(makeBubble(m.role, m.content, m.time, m.mediaUrl, m.mediaType, m.fileName)); });
+
+    /* Re-agregar solo optimistas cuyo mensaje aún NO está en la BD */
+    optimistas.forEach(function(el) {
+      var key = "c:" + (el.dataset.optContent || "") + "|m:" + (el.dataset.optMedia || "");
+      if (!confirmados.has(key)) container.appendChild(el);
+    });
+
+    container.scrollTop = container.scrollHeight;
   }
 
-  /* ── Polling de respuestas del agente ── */
+  /* ── Indicador "agente escribiendo" ── */
+  var typingEl = null;
+  function showAgentTyping(visible) {
+    var container = $id("messages");
+    if (visible && !typingEl) {
+      typingEl = document.createElement("div");
+      typingEl.className = "bubble-wrap agent typing-indicator";
+      typingEl.innerHTML = '<div class="bubble agent" style="padding:10px 14px"><div style="display:flex;gap:5px;align-items:center"><span class="dot-bounce" style="animation-delay:0ms"></span><span class="dot-bounce" style="animation-delay:150ms"></span><span class="dot-bounce" style="animation-delay:300ms"></span><span style="font-size:10px;opacity:.8;margin-left:4px">Agente escribiendo…</span></div></div>';
+      container.appendChild(typingEl);
+      container.scrollTop = container.scrollHeight;
+    } else if (!visible && typingEl) {
+      typingEl.remove(); typingEl = null;
+    }
+  }
+
+  /* ── Realtime + polling de respaldo ── */
+  var realtimeChannel = null;
+  var presenceChannel = null;
+  var typingTimer = null;
   var pollTimer = null;
-  function startPolling() {
+
+  var lastRenderHash = "";
+  function hashHist(hc, ht) {
+    var hca = (hc || []);
+    var hta = (ht || []);
+    return String(hca.length) + "|" + String(hta.length) + "|" +
+      (hca.length ? hca[hca.length-1].time : "") + "|" +
+      (hta.length ? hta[hta.length-1].time : "");
+  }
+
+  function renderAllIfChanged(histcliente, histtecnico) {
+    var h = hashHist(histcliente, histtecnico);
+    if (h === lastRenderHash) return;
+    lastRenderHash = h;
+    renderAll(histcliente, histtecnico);
+  }
+
+  var casoCerrado = false;
+  var clienteData = null; /* datos personales guardados */
+  var esperandoEquipo = false;
+
+  function lockChat() {
+    casoCerrado = true;
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    $id("txt-msg").placeholder = "Escribe para iniciar una nueva conversación…";
+    $id("txt-msg").disabled = false;
+    $id("btn-send").disabled = false;
+    $id("btn-attach").disabled = false;
+    $id("btn-camera").disabled = false;
+    $id("btn-mic").disabled = false;
+  }
+
+  async function fetchAndRender() {
+    if (!sessionId) return;
+    var res = await db.from("sek_cases").select("histcliente,histtecnico,estado").eq("id", sessionId).maybeSingle();
+    if (!res.data) return;
+    renderAllIfChanged(res.data.histcliente, res.data.histtecnico);
+    var est = String(res.data.estado || "").toLowerCase();
+    if (est === "cerrado" || est === "resuelto") lockChat();
+  }
+
+  function startRealtime() {
+    if (realtimeChannel) { try { db.removeChannel(realtimeChannel); } catch(e){} }
+    if (presenceChannel) { try { db.removeChannel(presenceChannel); } catch(e){} }
     if (pollTimer) clearInterval(pollTimer);
-    pollTimer = setInterval(async function () {
-      if (!sessionId) return;
-      var res = await db.from("sek_cases")
-        .select("histcliente, histtecnico")
-        .eq("id", sessionId)
-        .maybeSingle();
-      if (res.data) renderAll(res.data.histcliente, res.data.histtecnico);
-    }, 4000);
+
+    /* Canal de mensajes */
+    realtimeChannel = db.channel("wgt-msgs-" + sessionId)
+      .on("postgres_changes", {
+        event: "UPDATE", schema: "public", table: "sek_cases",
+        filter: "id=eq." + sessionId
+      }, function(payload) {
+        if (!payload.new) return;
+        renderAllIfChanged(payload.new.histcliente, payload.new.histtecnico);
+        var est = String(payload.new.estado || "").toLowerCase();
+        if (est === "cerrado" || est === "resuelto") lockChat();
+      })
+      .subscribe(function(status) {
+        console.log("[widget] realtime status:", status);
+      });
+
+    /* Canal de presence (escritura) — clave distinta */
+    presenceChannel = db.channel("wgt-typing-" + sessionId, { config: { presence: { key: "cli-" + sessionId.slice(0,8) } } })
+      .on("presence", { event: "sync" }, function() {
+        var state = presenceChannel.presenceState();
+        var entries = Object.values(state).flat();
+        var agentTyping = entries.some(function(e) { return e.role === "agente" && e.typing; });
+        showAgentTyping(agentTyping);
+      })
+      .subscribe();
+
+    /* Polling de respaldo cada 5s por si Realtime falla */
+    pollTimer = setInterval(fetchAndRender, 5000);
+  }
+
+  function emitTyping() {
+    if (!presenceChannel) return;
+    presenceChannel.track({ role: "cliente", typing: true });
+    clearTimeout(typingTimer);
+    typingTimer = setTimeout(function() {
+      if (presenceChannel) presenceChannel.track({ role: "cliente", typing: false });
+    }, 2000);
   }
 
   /* ── Mostrar chat ── */
-  function showChat(histcliente, histtecnico) {
+  function showChat(histcliente, histtecnico, estado, cliente) {
     $id("form-section").style.display = "none";
     var cs = $id("chat-section");
     cs.style.display = "flex";
@@ -178,28 +581,128 @@
     cs.style.flex = "1";
     cs.style.minHeight = "0";
     cs.style.overflow = "hidden";
+    if (cliente) clienteData = cliente;
 
-    if (!histcliente || histcliente.length === 0) {
-      renderMsg({ id: "welcome", role: "assistant", content: "¡Hola! 👋 Somos el equipo de soporte de Sekunet. ¿En qué podemos ayudarte hoy?", time: new Date().toISOString() });
-    } else {
-      renderAll(histcliente, histtecnico);
-    }
-    startPolling();
+    /* Detectar si estaba esperando equipo */
+    var hc = histcliente || [];
+    var lastMsg = hc.length > 0 ? hc[hc.length - 1] : null;
+    var soloMsgBot = hc.length === 1 && lastMsg && (lastMsg.role === "tecnico" || lastMsg.role === "assistant");
+    esperandoEquipo = soloMsgBot;
+
+    renderAll(histcliente, histtecnico);
+    startRealtime();
+    var est = String(estado || "").toLowerCase();
+    if (est === "cerrado" || est === "resuelto") lockChat();
   }
 
   /* ── Iniciar sesión ── */
+  /* ── Validación de cédula contra Hacienda ── */
+  function validateCedulaFormat(id) {
+    if (!/^\d+$/.test(id)) return null;
+    var len = id.length;
+    if (len === 9) return "fisica";
+    if (len === 10 && id[0] === "3") return "juridica";
+    if (len === 10 && id.substring(0,2) === "10") return "nite";
+    if (len === 11 || len === 12) return "dimex";
+    return null;
+  }
+
+  function onCedulaInput() {
+    var raw = $id("inp-cedula").value.replace(/[^\d]/g, "");
+    $id("inp-cedula").value = raw;
+    cedulaValid = false;
+    $id("btn-start").disabled = true;
+    $id("cedula-result").textContent = "";
+    $id("cedula-result").className = "cedula-result";
+    $id("inp-cedula").className = "";
+    $id("cedula-icon").textContent = "";
+
+    if (cedulaTimer) clearTimeout(cedulaTimer);
+    if (!raw || raw.length < 9) return;
+
+    var tipo = validateCedulaFormat(raw);
+    if (!tipo) {
+      $id("cedula-icon").textContent = "❌";
+      $id("inp-cedula").className = "invalid";
+      $id("cedula-result").className = "cedula-result fail";
+      $id("cedula-result").textContent = "Formato inválido. Se esperan 9 (física), 10 (jurídica/NITE), 11-12 (DIMEX).";
+      return;
+    }
+
+    $id("cedula-icon").textContent = "⏳";
+    cedulaTimer = setTimeout(async function() {
+      try {
+        var res = await fetch(HACIENDA_URL + "?identificacion=" + raw);
+        if (res.ok) {
+          var data = await res.json();
+          cedulaValid = true;
+          $id("cedula-icon").textContent = "✅";
+          $id("inp-cedula").className = "valid";
+          $id("cedula-result").className = "cedula-result ok";
+          $id("cedula-result").textContent = "✓ " + (data.nombre || "Verificado") + (tipo ? " (" + tipo + ")" : "");
+          $id("btn-start").disabled = false;
+          // Auto-rellenar nombre si está vacío
+          if (!$id("inp-nombre").value.trim() && data.nombre) {
+            $id("inp-nombre").value = data.nombre;
+          }
+        } else {
+          $id("cedula-icon").textContent = "❌";
+          $id("inp-cedula").className = "invalid";
+          $id("cedula-result").className = "cedula-result fail";
+          $id("cedula-result").textContent = res.status === 404
+            ? "Cédula no encontrada en el Ministerio de Hacienda"
+            : "Error al verificar (" + res.status + ")";
+        }
+      } catch(err) {
+        $id("cedula-icon").textContent = "❌";
+        $id("inp-cedula").className = "invalid";
+        $id("cedula-result").className = "cedula-result fail";
+        $id("cedula-result").textContent = "No se pudo conectar con Hacienda. Intente de nuevo.";
+      }
+    }, 600);
+  }
+
+  $id("inp-cedula").addEventListener("input", onCedulaInput);
+
+  /* ── Iniciar sesión ── */
+  $id("btn-start").disabled = true;
   $id("btn-start").addEventListener("click", async function () {
-    var nombre = $id("inp-nombre").value.trim();
-    var correo = $id("inp-correo").value.trim();
-    if (!nombre) { $id("form-err").textContent = "Por favor ingresa tu nombre."; return; }
+    var cedula  = $id("inp-cedula").value.trim();
+    var nombre  = $id("inp-nombre").value.trim();
+    var correo  = $id("inp-correo").value.trim();
+    var tel     = $id("inp-tel").value.trim();
+    var empresa = $id("inp-empresa").value.trim();
+    if (!cedulaValid) { $id("form-err").textContent = "Debe ingresar una cédula válida verificada por Hacienda."; return; }
+    if (!nombre)  { $id("form-err").textContent = "Por favor ingresa tu nombre y apellido."; return; }
+    if (!correo)  { $id("form-err").textContent = "Por favor ingresa tu correo."; return; }
+    if (!tel)     { $id("form-err").textContent = "Por favor ingresa tu número de contacto."; return; }
+    if (!empresa) { $id("form-err").textContent = "Por favor ingresa el nombre de tu empresa."; return; }
     $id("form-err").textContent = "";
     $id("btn-start").disabled = true;
     $id("btn-start").textContent = "Conectando…";
 
     /* Si ya hay sesión, recuperarla */
     if (sessionId) {
-      var check = await db.from("sek_cases").select("id,histcliente,histtecnico").eq("id", sessionId).eq("canal","widget").maybeSingle();
-      if (check.data) { showChat(check.data.histcliente, check.data.histtecnico); return; }
+      var check = await db.from("sek_cases").select("id,histcliente,histtecnico,estado,cliente").eq("id", sessionId).eq("canal","widget").maybeSingle();
+      if (check.data) { showChat(check.data.histcliente, check.data.histtecnico, check.data.estado, check.data.cliente); return; }
+    }
+
+    clienteData = { nombre: nombre, correo: correo, telefono: tel, cuenta: empresa, cedula: cedula };
+
+    /* Buscar caso abierto existente por correo para evitar duplicados */
+    var existing = await db.from("sek_cases")
+      .select("id,histcliente,histtecnico,estado,cliente")
+      .eq("canal", "widget")
+      .not("estado", "in", '("cerrado","resuelto")')
+      .filter("cliente->>correo", "eq", correo)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (existing.data) {
+      sessionId = String(existing.data.id);
+      try { localStorage.setItem("sek_session", sessionId); localStorage.setItem("sek_session_ver", SESSION_VERSION); } catch(e){}
+      showChat(existing.data.histcliente, existing.data.histtecnico, existing.data.estado, existing.data.cliente);
+      return;
     }
 
     /* Crear nuevo caso */
@@ -208,10 +711,11 @@
       canal: "widget",
       estado: "abierto",
       prioridad: "media",
-      cliente: { nombre: nombre, correo: correo },
+      cliente: clienteData,
+      customer_phone: tel,
       histcliente: [],
       histtecnico: []
-    }).select("id,histcliente,histtecnico").single();
+    }).select("id,histcliente,histtecnico,estado").single();
 
     if (ins.error) {
       $id("form-err").textContent = "Error al conectar: " + ins.error.message;
@@ -221,40 +725,234 @@
     }
 
     sessionId = String(ins.data.id);
-    try { sessionStorage.setItem("sek_session", sessionId); } catch(e){}
-    showChat(ins.data.histcliente, ins.data.histtecnico);
+    try { localStorage.setItem("sek_session", sessionId); localStorage.setItem("sek_session_ver", SESSION_VERSION); } catch(e){}
+    showChat(ins.data.histcliente, ins.data.histtecnico, ins.data.estado, clienteData);
   });
+
+  /* ── Crear nuevo caso cuando el anterior está cerrado ── */
+  var creandoCaso = false;
+  async function crearNuevoCaso(primerMensaje) {
+    if (creandoCaso) return;
+    creandoCaso = true;
+    casoCerrado = false;
+    esperandoEquipo = false;
+    lastRenderHash = "";
+
+    var ins = await db.from("sek_cases").insert({
+      title: "Chat web — " + (clienteData ? clienteData.nombre : "Cliente"),
+      canal: "widget",
+      estado: "abierto",
+      prioridad: "media",
+      cliente: clienteData || {},
+      customer_phone: clienteData ? clienteData.telefono : null,
+      histcliente: [],
+      histtecnico: []
+    }).select("id,histcliente,histtecnico").single();
+
+    if (ins.error) { alert("Error al reconectar: " + ins.error.message); return; }
+    sessionId = String(ins.data.id);
+    try { localStorage.setItem("sek_session", sessionId); localStorage.setItem("sek_session_ver", SESSION_VERSION); } catch(e){}
+
+    /* Limpiar mensajes y reiniciar realtime al nuevo caso */
+    $id("messages").innerHTML = "";
+    lastRenderHash = "";
+    startRealtime();
+
+    /* Si tiene datos personales, pedir equipo primero */
+    if (clienteData && clienteData.nombre) {
+      esperandoEquipo = true;
+      var botMsg = { role: "tecnico", author: "Soporte Sekunet", time: new Date().toISOString(), content: "¡Hola " + clienteData.nombre + "! 👋 Para poder avanzar con el soporte, ¿nos podrías indicar la marca y modelo de tu equipo a consultar?\n\nEjemplo: Hikvision DS-2CD2143" };
+      var hc = [botMsg];
+      await db.from("sek_cases").update({ histcliente: hc }).eq("id", sessionId);
+      lastRenderHash = "";
+      renderAll(hc, []);
+    } else if (primerMensaje) {
+      var hc2 = [{ role: "user", time: new Date().toISOString(), content: primerMensaje }];
+      await db.from("sek_cases").update({ histcliente: hc2 }).eq("id", sessionId);
+      lastRenderHash = "";
+      renderAll(hc2, []);
+    }
+    creandoCaso = false;
+  }
 
   /* ── Enviar mensaje ── */
   async function sendMsg() {
     var txt = $id("txt-msg").value.trim();
-    if (!txt || !sessionId) return;
+    if ((!txt && !pendingFile) || !sessionId) return;
+
+    /* Caso cerrado: crear nuevo caso */
+    if (casoCerrado) {
+      $id("txt-msg").value = "";
+      await crearNuevoCaso(txt);
+      return;
+    }
+
+    /* Esperando equipo: guardar equipo y activar */
+    if (esperandoEquipo) {
+      esperandoEquipo = false;
+      $id("btn-send").disabled = true;
+      $id("txt-msg").value = "";
+      var res0 = await db.from("sek_cases").select("histcliente,histtecnico,cliente").eq("id", sessionId).maybeSingle();
+      var hcE = res0.data ? (res0.data.histcliente || []) : [];
+      hcE.push({ role: "user", time: new Date().toISOString(), content: txt });
+      var clienteActual = res0.data ? (res0.data.cliente || {}) : {};
+      clienteActual.equipo = txt;
+      /* Mensaje de confirmación */
+      var confirmMsg = { role: "tecnico", author: "Soporte Sekunet", time: new Date().toISOString(), content: "✅ ¡Listo! Un agente de Soporte Sekunet te atenderá en breve.\n\nEquipo registrado: " + txt };
+      hcE.push(confirmMsg);
+      await db.from("sek_cases").update({ histcliente: hcE, cliente: clienteActual, title: "Chat web — " + (clienteData ? clienteData.nombre : "Cliente") + " — " + txt }).eq("id", sessionId);
+      lastRenderHash = "";
+      renderAll(hcE, res0.data ? (res0.data.histtecnico || []) : []);
+      $id("btn-send").disabled = false;
+      return;
+    }
+
     $id("btn-send").disabled = true;
     $id("txt-msg").value = "";
 
-    /* Optimista */
-    renderMsg({ id: "opt-" + Date.now(), role: "user", content: txt, time: new Date().toISOString() });
+    var entry = { role: "user", time: new Date().toISOString(), content: txt || "Archivo adjunto" };
 
-    /* Leer historial actual y agregar entrada */
+    /* Si hay archivo pendiente, subirlo primero */
+    if (pendingFile) {
+      var file = pendingFile;
+      pendingFile = null;
+      $id("upload-preview-bar").style.display = "none";
+      try {
+        var uploaded = await uploadFile(file);
+        entry.mediaUrl  = uploaded.url;
+        entry.mediaType = uploaded.type;
+        entry.fileName  = uploaded.name;
+        entry.content   = txt || "";
+      } catch(err) {
+        alert("Error al subir archivo: " + err.message);
+        $id("btn-send").disabled = false;
+        return;
+      }
+    }
+
+    /* Burbuja optimista */
+    var optWrap = makeBubble("user", entry.content, entry.time, entry.mediaUrl, entry.mediaType, entry.fileName);
+    optWrap.classList.add("optimista");
+    optWrap.dataset.optContent = entry.content || "";
+    optWrap.dataset.optMedia = entry.mediaUrl || "";
+    var container = $id("messages");
+    container.appendChild(optWrap);
+    container.scrollTop = container.scrollHeight;
+
+    /* Guardar en DB */
     var res = await db.from("sek_cases").select("histcliente").eq("id", sessionId).maybeSingle();
-    var hist = Array.isArray(res.data && res.data.histcliente) ? res.data.histcliente : [];
-    hist.push({ role: "user", time: new Date().toISOString(), content: txt });
+    var hist = (res.data && Array.isArray(res.data.histcliente)) ? res.data.histcliente : [];
+    hist.push(entry);
     await db.from("sek_cases").update({ histcliente: hist }).eq("id", sessionId);
     $id("btn-send").disabled = false;
   }
 
+  /* ── Adjuntar archivo desde el cliente ── */
+  var pendingFile = null;
+
+  $id("btn-attach").addEventListener("click", function() { $id("file-input").click(); });
+  $id("btn-camera").addEventListener("click", function() { $id("camera-input").click(); });
+
+  $id("camera-input").addEventListener("change", function() {
+    var file = this.files && this.files[0];
+    if (!file) return;
+    pendingFile = file;
+    $id("up-icon").textContent = "🎥";
+    $id("up-name").textContent = file.name + " (" + (file.size > 1048576 ? (file.size/1048576).toFixed(1)+"MB" : (file.size/1024).toFixed(0)+"KB") + ")";
+    $id("upload-preview-bar").style.display = "flex";
+    $id("btn-send").disabled = false;
+    this.value = "";
+  });
+
+  /* ── Grabación de audio con MediaRecorder ── */
+  var mediaRecorder = null;
+  var audioChunks = [];
+  var isRecording = false;
+
+  $id("btn-mic").addEventListener("click", async function() {
+    if (isRecording) {
+      mediaRecorder.stop();
+      return;
+    }
+    try {
+      var stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunks = [];
+      mediaRecorder = new MediaRecorder(stream);
+      mediaRecorder.ondataavailable = function(e) { if (e.data.size > 0) audioChunks.push(e.data); };
+      mediaRecorder.onstop = function() {
+        stream.getTracks().forEach(function(t){ t.stop(); });
+        var blob = new Blob(audioChunks, { type: "audio/webm" });
+        var file = new File([blob], "nota-voz-" + Date.now() + ".webm", { type: "audio/webm" });
+        pendingFile = file;
+        $id("up-icon").textContent = "🎤";
+        $id("up-name").textContent = file.name + " (" + (blob.size/1024).toFixed(0) + "KB)";
+        $id("upload-preview-bar").style.display = "flex";
+        $id("btn-send").disabled = false;
+        $id("btn-mic").textContent = "🎤";
+        $id("btn-mic").style.background = "";
+        isRecording = false;
+      };
+      mediaRecorder.start();
+      isRecording = true;
+      $id("btn-mic").textContent = "⏹";
+      $id("btn-mic").style.background = "#fee2e2";
+    } catch(err) {
+      alert("No se pudo acceder al micrófono: " + err.message);
+    }
+  });
+
+  $id("file-input").addEventListener("change", function() {
+    var file = this.files && this.files[0];
+    if (!file) return;
+    pendingFile = file;
+    $id("up-icon").textContent = fileIcon(file.type);
+    $id("up-name").textContent = file.name + " (" + (file.size > 1048576 ? (file.size/1048576).toFixed(1)+"MB" : (file.size/1024).toFixed(0)+"KB") + ")";
+    $id("upload-preview-bar").style.display = "flex";
+    $id("btn-send").disabled = false;
+    this.value = "";
+  });
+
+  $id("up-cancel").addEventListener("click", function() {
+    pendingFile = null;
+    $id("upload-preview-bar").style.display = "none";
+    $id("btn-send").disabled = !$id("txt-msg").value.trim();
+  });
+
+  async function uploadFile(file) {
+    var ext = file.name.split(".").pop();
+    var path = "cases/" + sessionId + "/" + Date.now() + "." + ext;
+    $id("upload-progress-wrap").style.display = "block";
+    $id("upload-bar").style.width = "30%";
+
+    var { error, data } = await db.storage.from("attachments").upload(path, file, { upsert: true });
+    $id("upload-bar").style.width = "80%";
+    if (error) { $id("upload-progress-wrap").style.display = "none"; throw error; }
+
+    var { data: urlData } = db.storage.from("attachments").getPublicUrl(path);
+    $id("upload-bar").style.width = "100%";
+    setTimeout(function(){ $id("upload-progress-wrap").style.display = "none"; $id("upload-bar").style.width = "0%"; }, 400);
+    return { url: urlData.publicUrl, type: file.type, name: file.name };
+  }
+
   $id("btn-send").addEventListener("click", sendMsg);
   $id("txt-msg").addEventListener("input", function() {
-    $id("btn-send").disabled = !this.value.trim();
+    $id("btn-send").disabled = !this.value.trim() && !pendingFile;
+    emitTyping();
   });
   $id("txt-msg").addEventListener("keydown", function(e) {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMsg(); }
   });
 
-  /* ── Restaurar sesión previa ── */
+  /* ── Restaurar sesión previa automáticamente ── */
   if (sessionId) {
-    db.from("sek_cases").select("id,histcliente,histtecnico").eq("id", sessionId).eq("canal","widget").maybeSingle().then(function(res) {
-      if (res.data) showChat(res.data.histcliente, res.data.histtecnico);
+    db.from("sek_cases").select("id,histcliente,histtecnico,estado,cliente").eq("id", sessionId).eq("canal","widget").maybeSingle().then(function(res) {
+      if (res.data) {
+        showChat(res.data.histcliente, res.data.histtecnico, res.data.estado, res.data.cliente);
+      } else {
+        /* Sesión expirada o eliminada — limpiar */
+        try { localStorage.removeItem("sek_session"); } catch(e){}
+        sessionId = null;
+      }
     });
   }
 })();

@@ -152,6 +152,12 @@ export function ConversationList({
                     {(estadoLower === "cerrado" || estadoLower === "resuelto") && (
                       <Badge variant="success" className="text-[10px]">Cerrado</Badge>
                     )}
+                    {estadoLower === "escalado" && (
+                      <Badge variant="danger" className="text-[10px] animate-pulse">Esperando agente</Badge>
+                    )}
+                    {estadoLower === "ia_atendiendo" && (
+                      <Badge variant="muted" className="text-[10px]">IA atendiendo</Badge>
+                    )}
                     {(estadoLower === "abierto" || estadoLower === "asignado") && (
                       <Badge variant="warning" className="text-[10px]">En proceso</Badge>
                     )}

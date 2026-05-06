@@ -27,6 +27,7 @@ export interface SekCliente {
   nombre?: string;
   telefono?: string;
   correo?: string;
+  cedula?: string;
   cuenta?: string;
   intentosDatos?: number;
   [key: string]: unknown;

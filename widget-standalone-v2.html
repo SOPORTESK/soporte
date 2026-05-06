@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"/>
+  <title>Soporte Sekunet</title>
+  <meta name="theme-color" content="#1e3a8a"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <style>
+:root{--bg:#fff;--bg2:#f8fafc;--bg-chat:#f1f5f9;--text:#0f172a;--text2:#475569;--text3:#94a3b8;--border:#e2e8f0;--primary:#2563eb;--primary-dk:#1e3a8a;--grad:linear-gradient(135deg,#1e3a8a 0%,#2563eb 60%,#3b82f6 100%);--grad-btn:linear-gradient(135deg,#1e3a8a,#2563eb);--bubble-ag:#fff;--bubble-ag-b:#e2e8f0;--success:#16a34a;--danger:#dc2626;--shadow:0 8px 60px rgba(0,0,0,.15);--shsm:0 1px 3px rgba(0,0,0,.08);--r:12px;--rl:20px;--sab:env(safe-area-inset-bottom,0px);--sat:env(safe-area-inset-top,0px)}
+@media(prefers-color-scheme:dark){:root{--bg:#0f172a;--bg2:#1e293b;--bg-chat:#0c1322;--text:#f1f5f9;--text2:#94a3b8;--text3:#64748b;--border:#334155;--bubble-ag:#1e293b;--bubble-ag-b:#334155;--shadow:0 8px 60px rgba(0,0,0,.5);--shsm:0 1px 3px rgba(0,0,0,.3)}}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;height:100dvh;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg-chat);overflow:hidden;-webkit-font-smoothing:antialiased}
+.root{display:flex;flex-direction:column;height:100%;max-width:480px;margin:0 auto;background:var(--bg);box-shadow:var(--shadow);position:relative;overflow:hidden}
+@media(max-width:480px){.root{max-width:100%;box-shadow:none}}
+@media(min-width:481px)and(max-width:768px){.root{max-width:420px;border-radius:16px;margin:12px auto;height:calc(100% - 24px)}}
+@media(min-width:769px){.root{max-width:440px;border-radius:20px;margin:20px auto;height:calc(100% - 40px);box-shadow:0 12px 80px rgba(0,0,0,.2)}}
+.header{background:var(--grad);padding:14px 16px;padding-top:calc(14px + var(--sat));display:flex;align-items:center;gap:12px;flex-shrink:0;z-index:10}
+.header-avatar{width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,.18);border:2px solid rgba(255,255,255,.35);color:#fff;font-weight:800;font-size:18px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.header-info{flex:1;min-width:0}.header-title{color:#fff;font-weight:700;font-size:15px}
+.header-sub{color:rgba(255,255,255,.75);font-size:11px;display:flex;align-items:center;gap:5px;margin-top:2px}
+.status-dot{width:7px;height:7px;border-radius:50%;display:inline-block;transition:all .3s}
+.status-dot.online{background:#4ade80;box-shadow:0 0 0 2px rgba(74,222,128,.35)}
+.status-dot.offline{background:#ef4444;box-shadow:0 0 0 2px rgba(239,68,68,.35)}
+.status-dot.reconnecting{background:#fbbf24;box-shadow:0 0 0 2px rgba(251,191,36,.35);animation:pulse 1.5s infinite}
+.hdr-btn{background:rgba(255,255,255,.15);border:none;border-radius:50%;width:34px;height:34px;color:#fff;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background .2s}
+.hdr-btn:active{background:rgba(255,255,255,.25)}.hdr-btn.muted{opacity:.5}
+.form-section{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:28px 22px 24px;padding-bottom:calc(24px + var(--sab));display:flex;flex-direction:column;background:var(--bg);transition:opacity .35s,transform .35s}
+.form-section.hiding{opacity:0;transform:translateY(-20px);pointer-events:none}
+.form-hero{text-align:center;margin-bottom:24px}.form-hero-icon{font-size:42px;display:block;margin-bottom:10px}
+.form-title{font-size:18px;font-weight:800;color:var(--text);margin-bottom:4px}
+.form-sub{font-size:13px;color:var(--text2);line-height:1.5}
+.field{margin-bottom:14px}.field label{display:block;font-size:12px;font-weight:700;color:var(--text2);margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px}
+.field input{width:100%;border:1.5px solid var(--border);border-radius:var(--r);padding:12px 14px;font-size:15px;outline:none;font-family:inherit;color:var(--text);transition:border-color .15s,box-shadow .15s;background:var(--bg2)}
+.field input:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(37,99,235,.12);background:var(--bg)}
+.field input.valid{border-color:var(--success)}.field input.invalid{border-color:var(--danger)}
+.ced-wrap{position:relative}.ced-wrap input{padding-right:38px}
+.ced-ico{position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:16px;line-height:1}
+.ced-res{font-size:11px;margin:-4px 0 6px 2px;line-height:1.4}.ced-res.ok{color:var(--success)}.ced-res.fail{color:var(--danger)}
+.err{color:var(--danger);font-size:12px;margin-top:-8px;margin-bottom:8px;font-weight:600}
+.btn-primary{width:100%;margin-top:6px;padding:14px;border-radius:14px;background:var(--grad-btn);color:#fff;border:none;cursor:pointer;font-weight:700;font-size:15px;font-family:inherit;transition:opacity .15s,transform .1s;box-shadow:0 4px 16px rgba(37,99,235,.35)}
+.btn-primary:active{transform:scale(.98)}.btn-primary:disabled{opacity:.6;cursor:not-allowed}
+.chat-section{display:none;flex:1;flex-direction:column;min-height:0;overflow:hidden;opacity:0;transition:opacity .35s}
+.chat-section.active{display:flex;opacity:1}
+.messages{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px;background:var(--bg-chat);display:flex;flex-direction:column;gap:6px;position:relative;scroll-behavior:smooth}
+.date-sep{text-align:center;margin:12px 0 6px}.date-sep span{display:inline-block;background:var(--bg2);color:var(--text3);font-size:11px;font-weight:600;padding:4px 14px;border-radius:20px;border:1px solid var(--border)}
+.skel-wrap{display:flex;flex-direction:column;gap:10px;padding:10px 0}
+.skel{border-radius:var(--rl);height:44px;animation:shimmer 1.5s infinite}
+.skel.l{width:65%;align-self:flex-start;background:linear-gradient(90deg,var(--border) 25%,var(--bg2) 50%,var(--border) 75%);background-size:200% 100%}
+.skel.r{width:50%;align-self:flex-end;background:linear-gradient(90deg,rgba(37,99,235,.08) 25%,rgba(37,99,235,.18) 50%,rgba(37,99,235,.08) 75%);background-size:200% 100%}
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+.bw{display:flex;align-items:flex-end;gap:6px;animation:fadeUp .25s cubic-bezier(.4,0,.2,1)}
+.bw.user{justify-content:flex-end}.bw.agent{justify-content:flex-start}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.b-av{width:26px;height:26px;border-radius:50%;background:var(--grad-btn);color:#fff;font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.bubble{max-width:78%;border-radius:var(--rl);padding:10px 14px;font-size:14px;line-height:1.55;box-shadow:var(--shsm);word-break:break-word}
+.bubble.user{background:var(--grad-btn);color:#fff;border-radius:20px 20px 5px 20px}
+.bubble.agent{background:var(--bubble-ag);color:var(--text);border:1px solid var(--bubble-ag-b);border-radius:20px 20px 20px 5px}
+.bubble.ia{background:linear-gradient(135deg,#6d28d9,#7c3aed);color:#fff;border-radius:20px 20px 20px 5px}
+.b-label{font-size:10px;font-weight:700;opacity:.75;margin-bottom:3px;display:flex;align-items:center;gap:4px}
+.b-text{white-space:pre-wrap}.b-foot{display:flex;align-items:center;justify-content:flex-end;gap:5px;margin-top:4px}
+.b-time{font-size:10px;opacity:.6}.b-stat{font-size:9px;opacity:.55}
+.scroll-btn{position:absolute;bottom:80px;right:16px;z-index:20;width:40px;height:40px;border-radius:50%;background:var(--bg);border:1px solid var(--border);box-shadow:0 2px 12px rgba(0,0,0,.15);color:var(--text);font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform .2s,opacity .2s;opacity:0;transform:translateY(10px);pointer-events:none}
+.scroll-btn.vis{opacity:1;transform:none;pointer-events:auto}
+.scroll-btn:active{transform:scale(.9)}
+.ubadge{position:absolute;top:-6px;right:-6px;min-width:18px;height:18px;border-radius:9px;background:var(--danger);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 5px}
+.input-bar{display:flex;align-items:flex-end;gap:6px;padding:10px 12px;padding-bottom:calc(10px + var(--sab));border-top:1px solid var(--border);background:var(--bg);flex-shrink:0}
+.att-btn{width:34px;height:34px;border-radius:50%;background:var(--bg2);border:1px solid var(--border);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--text2);font-size:15px;transition:background .15s}
+.att-btn:active{background:var(--border)}.att-btn:disabled{opacity:.45}
+.att-btn.rec{background:#fee2e2;border-color:#fca5a5}
+textarea{flex:1;border:1.5px solid var(--border);border-radius:var(--rl);padding:9px 14px;font-size:14px;resize:none;font-family:inherit;outline:none;color:var(--text);max-height:120px;overflow-y:auto;line-height:1.4;transition:border-color .15s;background:var(--bg2);min-height:38px}
+textarea:focus{border-color:var(--primary);background:var(--bg)}
+.send-btn{width:38px;height:38px;border-radius:50%;background:var(--grad-btn);color:#fff;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:opacity .15s,transform .1s;box-shadow:0 2px 8px rgba(37,99,235,.4);font-size:16px}
+.send-btn:active{transform:scale(.92)}.send-btn:disabled{opacity:.4;cursor:not-allowed;box-shadow:none}
+.up-prev{display:flex;align-items:center;gap:10px;padding:8px 14px;background:var(--bg2);border-top:1px solid var(--border);flex-shrink:0}
+.up-prev-icon{font-size:22px}.up-prev-name{font-size:12px;color:var(--primary);font-weight:600;flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.up-prev-cancel{background:none;border:none;cursor:pointer;color:var(--text3);font-size:18px}
+.up-prog{height:3px;background:var(--border);border-radius:2px;overflow:hidden;flex-shrink:0}
+.up-prog-bar{height:100%;background:var(--primary);border-radius:2px;transition:width .3s}
+.file-card{background:rgba(255,255,255,.15);border-radius:var(--r);padding:10px 12px;margin-bottom:4px;display:flex;align-items:center;gap:10px;border:1px solid rgba(255,255,255,.2)}
+.bubble.agent .file-card{background:var(--bg2);border-color:var(--border)}
+.fc-icon{font-size:26px;flex-shrink:0}.fc-info{flex:1;min-width:0}
+.fc-name{font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fc-dl{display:inline-flex;align-items:center;gap:4px;font-size:11px;opacity:.8;text-decoration:none;color:inherit;margin-top:3px;cursor:pointer}
+.drop-ov{position:absolute;inset:0;z-index:100;background:rgba(37,99,235,.85);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);display:none;align-items:center;justify-content:center;flex-direction:column}
+.drop-ov.active{display:flex}
+.drop-c{text-align:center;color:#fff}.drop-c span{font-size:56px;display:block;margin-bottom:12px;animation:bounce 1s infinite}.drop-c p{font-size:18px;font-weight:700}
+@keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+.lb{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.92);display:none;align-items:center;justify-content:center;cursor:zoom-out;backdrop-filter:blur(4px)}
+.lb.active{display:flex;animation:fadeIn .2s}
+.lb img{max-width:92%;max-height:88vh;border-radius:8px;object-fit:contain}
+.lb-x{position:absolute;top:calc(16px + var(--sat));right:16px;background:rgba(255,255,255,.15);border:none;color:#fff;width:40px;height:40px;border-radius:50%;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(8px)}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+.csat-ov{position:absolute;inset:0;z-index:150;background:rgba(0,0,0,.5);backdrop-filter:blur(6px);display:none;align-items:center;justify-content:center;padding:20px}
+.csat-ov.active{display:flex;animation:fadeIn .25s}
+.csat-card{background:var(--bg);border-radius:20px;padding:28px 24px;width:100%;max-width:340px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.2)}
+.csat-t{font-size:18px;font-weight:800;color:var(--text);margin-bottom:4px}
+.csat-s{font-size:13px;color:var(--text2);margin-bottom:20px}
+.csat-stars{display:flex;justify-content:center;gap:8px;margin-bottom:18px}
+.csat-stars button{background:none;border:none;font-size:32px;cursor:pointer;transition:transform .15s;filter:grayscale(1);opacity:.4}
+.csat-stars button.on{filter:none;opacity:1;transform:scale(1.15)}
+.csat-stars button:hover{transform:scale(1.2)}
+.csat-card textarea{width:100%;border:1.5px solid var(--border);border-radius:var(--r);padding:10px 12px;font-size:13px;resize:none;height:64px;font-family:inherit;outline:none;color:var(--text);background:var(--bg2);margin-bottom:12px}
+.csat-skip{background:none;border:none;color:var(--text3);font-size:13px;cursor:pointer;margin-top:8px;font-family:inherit}
+.typing-dots{display:flex;gap:4px;align-items:center;padding:4px 0}
+.typing-dots span{width:7px;height:7px;border-radius:50%;background:var(--text3);animation:wave 1.4s infinite ease-in-out}
+.typing-dots span:nth-child(2){animation-delay:.15s}.typing-dots span:nth-child(3){animation-delay:.3s}
+@keyframes wave{0%,60%,100%{transform:translateY(0);opacity:.4}30%{transform:translateY(-6px);opacity:1}}
+.powered{text-align:center;font-size:10px;color:var(--text3);padding:5px 0 7px;background:var(--bg);flex-shrink:0}
+.ooh-banner{background:linear-gradient(135deg,#fbbf24,#f59e0b);color:#92400e;font-size:12px;font-weight:600;text-align:center;padding:8px 14px;flex-shrink:0;display:none;line-height:1.4}
+.ooh-banner.vis{display:block}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.messages::-webkit-scrollbar{width:4px}.messages::-webkit-scrollbar-track{background:transparent}.messages::-webkit-scrollbar-thumb{background:var(--text3);border-radius:4px}
+@media(max-width:380px){.form-section{padding:20px 16px}.form-title{font-size:16px}.field input{padding:10px 12px;font-size:14px}.att-btn{width:30px;height:30px;font-size:13px}textarea{font-size:13px}}
+  </style>
+</head>
+<body>
+<div class="root" id="root">
+  <div class="header">
+    <div class="header-avatar" id="header-avatar-el">S</div>
+    <div class="header-info">
+      <div class="header-title" id="header-title">Soporte Sekunet</div>
+      <div class="header-sub"><span class="status-dot online" id="status-dot"></span><span id="status-text">En línea · Respuesta inmediata</span></div>
+    </div>
+    <button class="hdr-btn" id="btn-sound" title="Silenciar">🔔</button>
+  </div>
+  <div class="form-section" id="form-section">
+    <div class="form-hero"><span class="form-hero-icon">👋</span><p class="form-title">¡Hola! Antes de comenzar</p><p class="form-sub">Ingresa tus datos para conectarte con un agente de soporte.</p></div>
+    <div class="field"><label for="inp-cedula">Cédula / DIMEX *</label><div class="ced-wrap"><input id="inp-cedula" inputmode="numeric" maxlength="12" placeholder="Ej: 101230456" autocomplete="off"/><span class="ced-ico" id="ced-ico"></span></div><div class="ced-res" id="ced-res"></div></div>
+    <div class="field"><label for="inp-nombre">Nombre y apellido *</label><input id="inp-nombre" placeholder="Tu nombre completo" autocomplete="name"/></div>
+    <div class="field"><label for="inp-correo">Correo electrónico</label><input id="inp-correo" type="email" placeholder="tu@correo.com" autocomplete="email"/></div>
+    <div class="field"><label for="inp-tel">Número de contacto</label><input id="inp-tel" type="tel" placeholder="+506 8888-8888" autocomplete="tel"/></div>
+    <div class="field"><label for="inp-empresa">Empresa registrada</label><input id="inp-empresa" placeholder="Nombre de su empresa" autocomplete="organization"/></div>
+    <p class="err" id="form-err"></p>
+    <button class="btn-primary" id="btn-start" disabled>Iniciar chat →</button>
+  </div>
+  <div class="ooh-banner" id="ooh-banner">⏰ Nuestro horario de atención es de lunes a viernes, 7:30 AM a 5:00 PM. Puede dejar su mensaje y le responderemos lo antes posible.</div>
+  <div id="chat-section" class="chat-section">
+    <div class="messages" id="messages"></div>
+    <button class="scroll-btn" id="scroll-btn"><span class="ubadge" id="ubadge" style="display:none">0</span>↓</button>
+    <div id="up-prev-bar" style="display:none" class="up-prev"><span class="up-prev-icon" id="up-icon">📎</span><span class="up-prev-name" id="up-name"></span><button class="up-prev-cancel" id="up-cancel">✕</button></div>
+    <div id="up-prog-wrap" style="display:none" class="up-prog"><div class="up-prog-bar" id="up-bar" style="width:0%"></div></div>
+    <div class="input-bar">
+      <input type="file" id="file-input" style="display:none" accept="image/*,video/*,audio/*,.pdf,.xml,.xlsx,.xls,.xlsm,.doc,.docx,.ppt,.pptx,.txt,.csv,.json,.zip,.rar,.7z,.tar,.gz"/>
+      <input type="file" id="camera-input" style="display:none" accept="video/*" capture="environment"/>
+      <button class="att-btn" id="btn-attach" title="Adjuntar">📎</button>
+      <button class="att-btn" id="btn-camera" title="Video">🎥</button>
+      <button class="att-btn" id="btn-mic" title="Audio">🎤</button>
+      <textarea id="txt-msg" rows="1" placeholder="Escribe un mensaje…"></textarea>
+      <button class="send-btn" id="btn-send" disabled>➤</button>
+    </div>
+    <div class="powered">Powered by <strong>Sekunet</strong></div>
+  </div>
+  <div class="drop-ov" id="drop-ov"><div class="drop-c"><span>📂</span><p>Suelta el archivo aquí</p></div></div>
+  <div class="lb" id="lb"><button class="lb-x" id="lb-x">✕</button><img id="lb-img" src="" alt=""/></div>
+  <div class="csat-ov" id="csat-ov">
+    <div class="csat-card"><p class="csat-t">¿Cómo fue tu experiencia?</p><p class="csat-s">Tu opinión nos ayuda a mejorar</p>
+      <div class="csat-stars" id="csat-stars"><button data-r="1">⭐</button><button data-r="2">⭐</button><button data-r="3">⭐</button><button data-r="4">⭐</button><button data-r="5">⭐</button></div>
+      <textarea id="csat-comment" placeholder="Comentarios (opcional)"></textarea>
+      <button class="btn-primary" id="csat-submit">Enviar valoración</button>
+      <button class="csat-skip" id="csat-skip">Omitir</button>
+    </div>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script>
+(function(){
+/* ═══ CONFIG ═══ */
+var SB_URL="https://kzcyxeracvfxynddyjld.supabase.co";
+var SB_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt6Y3l4ZXJhY3ZmeHluZGR5amxkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1MTE5NTQsImV4cCI6MjA5MTA4Nzk1NH0.DvEnK-g5rMxzFec4Fl3rJ5VDYVJ7-ua9ssqf3s-QKtU";
+var SVER="3";
+var HURL="https://api.hacienda.go.cr/fe/ae";
+var IA_FN=SB_URL+"/functions/v1/ia-agent";
+var db=supabase.createClient(SB_URL,SB_KEY);
+
+/* ═══ STATE ═══ */
+var sid=null,clienteData=null,cedulaOk=false,cedTmr=null,casoCerrado=false,agenteName=null;
+var creandoCaso=false,soundOff=false,lastHash="",unread=0,atBottom=true;
+var rtCh=null,presCh=null,typTmr=null,pollTmr=null,reconAttempts=0;
+var pendFile=null,mediaRec=null,audioChunks=[],isRec=false,csatDone=false;
+
+try{
+  var sv=localStorage.getItem("sek_session_ver");
+  if(sv!==SVER){localStorage.removeItem("sek_session");localStorage.removeItem("sek_session_ver");sid=null}
+  else sid=localStorage.getItem("sek_session");
+  soundOff=localStorage.getItem("sek_mute")==="1";
+}catch(e){}
+
+/* ═══ BUSINESS HOURS ═══ */
+function isOpenNow(){var n=new Date();var utcH=n.getUTCHours(),utcM=n.getUTCMinutes();var crH=utcH-6;if(crH<0)crH+=24;var crMin=crH*60+utcM;var dow=n.getUTCDay();var dCr=dow;if(crH>utcH)dCr=(dow+6)%7;else dCr=dow;if(dCr===0||dCr===6)return false;return crMin>=450&&crMin<1020}
+function checkOOH(){var open=isOpenNow();$("ooh-banner").classList.toggle("vis",!open);if(open){$("status-text").textContent=agenteName?agenteName+" · En línea":"En línea · Respuesta inmediata";$("status-dot").className="status-dot online"}else{$("status-text").textContent="Fuera de horario · Deje su mensaje";$("status-dot").className="status-dot offline"}}
+checkOOH();setInterval(checkOOH,60000);
+
+/* ═══ BROWSER NOTIFICATIONS ═══ */
+var notifGranted=false;
+function reqNotifPerm(){if(!('Notification' in window))return;if(Notification.permission==='granted'){notifGranted=true}else if(Notification.permission!=='denied'){Notification.requestPermission().then(function(p){notifGranted=p==='granted'})}}
+function showBrowserNotif(body){if(!notifGranted||document.hasFocus())return;try{new Notification('Soporte Sekunet',{body:body.substring(0,100),icon:'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">💬</text></svg>',tag:'sek-msg'})}catch(e){}}
+function notifyParent(){try{if(window.parent!==window)window.parent.postMessage({type:'sek-unread',count:unread},'*')}catch(e){}}
+
+/* ═══ HELPERS ═══ */
+function $(id){return document.getElementById(id)}
+function fmt(iso){if(!iso)return"";return new Date(iso).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}
+function dateLabel(iso){if(!iso)return"";var d=new Date(iso),n=new Date,y=new Date(n);y.setDate(y.getDate()-1);if(d.toDateString()===n.toDateString())return"Hoy";if(d.toDateString()===y.toDateString())return"Ayer";return d.toLocaleDateString("es-CR",{day:"numeric",month:"long"})}
+function fIcon(mt){if(!mt)return"📁";if(mt.startsWith("image/"))return"🖼️";if(mt.startsWith("video/"))return"🎬";if(mt.startsWith("audio/"))return"🎵";if(mt==="application/pdf")return"📄";if(mt.includes("sheet")||mt.includes("excel"))return"📊";if(mt.includes("word"))return"📝";if(mt.includes("zip")||mt.includes("rar")||mt.includes("7z"))return"📦";return"📁"}
+function forceDl(url,fn){fetch(url).then(function(r){return r.blob()}).then(function(b){var u=URL.createObjectURL(b);var a=document.createElement("a");a.href=u;a.download=fn;a.click();setTimeout(function(){URL.revokeObjectURL(u)},2e3)})}
+function haptic(ms){try{if(navigator.vibrate)navigator.vibrate(ms||10)}catch(e){}}
+
+/* ═══ SOUND ═══ */
+function playNotif(){if(soundOff)return;try{var AC=window.AudioContext||window.webkitAudioContext;if(!AC)return;var c=new AC,o=c.createOscillator(),g=c.createGain();o.connect(g);g.connect(c.destination);o.type="sine";o.frequency.setValueAtTime(830,c.currentTime);o.frequency.setValueAtTime(1100,c.currentTime+.08);g.gain.setValueAtTime(.15,c.currentTime);g.gain.exponentialRampToValueAtTime(.001,c.currentTime+.25);o.start(c.currentTime);o.stop(c.currentTime+.25)}catch(e){}}
+if(soundOff){$("btn-sound").textContent="🔕";$("btn-sound").classList.add("muted")}
+$("btn-sound").addEventListener("click",function(){soundOff=!soundOff;this.textContent=soundOff?"🔕":"🔔";this.classList.toggle("muted",soundOff);try{localStorage.setItem("sek_mute",soundOff?"1":"0")}catch(e){};haptic(15)});
+
+/* ═══ CONNECTION ═══ */
+function connSt(s){var d=$("status-dot"),t=$("status-text");d.className="status-dot "+s;t.textContent=s==="online"?"En línea · Respuesta inmediata":s==="offline"?"Sin conexión":"Reconectando…"}
+window.addEventListener("online",function(){connSt("online");doReconnect()});
+window.addEventListener("offline",function(){connSt("offline")});
+
+/* ═══ CEDULA ═══ */
+function cedFmt(id){if(!/^\d+$/.test(id))return null;var l=id.length;if(l===9)return"física";if(l===10&&id[0]==="3")return"jurídica";if(l===10&&id.substring(0,2)==="10")return"NITE";if(l===11||l===12)return"DIMEX";return null}
+function onCedInp(){var raw=$("inp-cedula").value.replace(/[^\d]/g,"");$("inp-cedula").value=raw;cedulaOk=false;$("btn-start").disabled=true;$("ced-res").textContent="";$("ced-res").className="ced-res";$("inp-cedula").className="";$("ced-ico").textContent="";if(cedTmr)clearTimeout(cedTmr);if(!raw||raw.length<9)return;var tipo=cedFmt(raw);if(!tipo){$("ced-ico").textContent="❌";$("inp-cedula").className="invalid";$("ced-res").className="ced-res fail";$("ced-res").textContent="Formato inválido. Se esperan 9(física), 10(jurídica/NITE), 11-12(DIMEX).";return}$("ced-ico").textContent="⏳";cedTmr=setTimeout(async function(){try{var r=await fetch(HURL+"?identificacion="+raw);if(r.ok){var d=await r.json();cedulaOk=true;$("ced-ico").textContent="✅";$("inp-cedula").className="valid";$("ced-res").className="ced-res ok";$("ced-res").textContent="✓ "+(d.nombre||"Verificado")+" ("+tipo+")";$("btn-start").disabled=false;if(!$("inp-nombre").value.trim()&&d.nombre)$("inp-nombre").value=d.nombre}else{$("ced-ico").textContent="❌";$("inp-cedula").className="invalid";$("ced-res").className="ced-res fail";$("ced-res").textContent=r.status===404?"Cédula no encontrada en Hacienda":"Error ("+r.status+")"}}catch(e){$("ced-ico").textContent="❌";$("inp-cedula").className="invalid";$("ced-res").className="ced-res fail";$("ced-res").textContent="No se pudo conectar con Hacienda."}},600)}
+$("inp-cedula").addEventListener("input",onCedInp);
+
+/* ═══ RENDERING ═══ */
+function mkSkeleton(){var w=document.createElement("div");w.className="skel-wrap";for(var i=0;i<4;i++){var s=document.createElement("div");s.className="skel "+(i%2===0?"l":"r");w.appendChild(s)}return w}
+
+function mkBubble(role,content,time,mUrl,mType,fName){
+  var isU=role==="user";var wrap=document.createElement("div");wrap.className="bw "+(isU?"user":"agent");
+  if(!isU){var av=document.createElement("div");av.className="b-av";av.textContent="S";wrap.appendChild(av)}
+  var bb=document.createElement("div");bb.className="bubble "+(isU?"user":role==="assistant"?"ia":"agent");
+  if(!isU){var lbl=document.createElement("div");lbl.className="b-label";lbl.textContent="💬 Soporte Sekunet";bb.appendChild(lbl)}
+  if(mUrl){
+    var mt=mType||"",fn=fName||decodeURIComponent(mUrl.split("/").pop().split("?")[0])||"archivo";
+    if(mt.startsWith("image/")){var img=document.createElement("img");img.src=mUrl;img.style.cssText="max-width:100%;border-radius:12px;display:block;margin-bottom:8px;cursor:pointer;";img.onclick=function(){openLB(mUrl)};bb.appendChild(img);var dl=document.createElement("a");dl.href=mUrl;dl.target="_blank";dl.className="fc-dl";dl.textContent="⬇ Descargar";bb.appendChild(dl)}
+    else if(mt.startsWith("video/")){var vid=document.createElement("video");vid.controls=true;vid.preload="metadata";vid.playsInline=true;vid.style.cssText="max-width:100%;border-radius:12px;display:block;margin-bottom:8px;background:#000;";var vs=document.createElement("source");vs.src=mUrl;vs.type=mt;vid.appendChild(vs);bb.appendChild(vid);var vdl=document.createElement("a");vdl.href="#";vdl.className="fc-dl";vdl.textContent="⬇ "+fn;vdl.onclick=function(ev){ev.preventDefault();forceDl(mUrl,fn)};bb.appendChild(vdl)}
+    else if(mt.startsWith("audio/")){var aud=document.createElement("audio");aud.controls=true;aud.preload="metadata";aud.style.cssText="width:100%;margin-bottom:8px;";var as=document.createElement("source");as.src=mUrl;as.type=mt;aud.appendChild(as);bb.appendChild(aud)}
+    else{var card=document.createElement("div");card.className="file-card";var ci=document.createElement("div");ci.className="fc-icon";ci.textContent=fIcon(mt);var cinfo=document.createElement("div");cinfo.className="fc-info";var cn=document.createElement("div");cn.className="fc-name";cn.textContent=fn;var cdl=document.createElement("a");cdl.className="fc-dl";cdl.textContent="⬇ Descargar";cdl.href="#";cdl.onclick=function(ev){ev.preventDefault();forceDl(mUrl,fn)};cinfo.appendChild(cn);cinfo.appendChild(cdl);card.appendChild(ci);card.appendChild(cinfo);bb.appendChild(card)}
+  }else{var txt=document.createElement("div");txt.className="b-text";txt.textContent=content||"";bb.appendChild(txt)}
+  var foot=document.createElement("div");foot.className="b-foot";
+  if(isU){var st=document.createElement("span");st.className="b-stat";st.textContent="✓";foot.appendChild(st)}
+  var tm=document.createElement("span");tm.className="b-time";tm.textContent=fmt(time);foot.appendChild(tm);
+  bb.appendChild(foot);wrap.appendChild(bb);return wrap;
+}
+
+function renderAll(hc,ht){
+  var all=[];
+  (hc||[]).forEach(function(e){all.push({role:e.role||"user",content:e.content,mediaUrl:e.mediaUrl,mediaType:e.mediaType,fileName:e.fileName,time:e.time})});
+  (ht||[]).forEach(function(e){if(e.role==="nota")return;all.push({role:"tecnico",content:e.content,mediaUrl:e.mediaUrl,mediaType:e.mediaType,fileName:e.fileName,time:e.time})});
+  all.sort(function(a,b){return new Date(a.time)-new Date(b.time)});
+  var c=$("messages");
+  var opts=[];c.querySelectorAll(".optimista").forEach(function(el){opts.push(el)});
+  var conf=new Set();(hc||[]).forEach(function(e){if((e.role||"user")==="user")conf.add("c:"+(e.content||"")+"|m:"+(e.mediaUrl||""))});
+  c.innerHTML="";
+  if(all.length===0){c.appendChild(mkBubble("assistant","Reciba un cordial saludo de parte de Soporte Sekunet, gracias por contactarnos. En que le podemos asistir hoy?",new Date().toISOString()))}
+  var lastDate="";
+  all.forEach(function(m){var dl=dateLabel(m.time);if(dl!==lastDate){lastDate=dl;var sep=document.createElement("div");sep.className="date-sep";sep.innerHTML="<span>"+dl+"</span>";c.appendChild(sep)}c.appendChild(mkBubble(m.role,m.content,m.time,m.mediaUrl,m.mediaType,m.fileName))});
+  opts.forEach(function(el){var k="c:"+(el.dataset.optContent||"")+"|m:"+(el.dataset.optMedia||"");if(!conf.has(k))c.appendChild(el)});
+  if(atBottom)c.scrollTop=c.scrollHeight;
+}
+
+/* ═══ SCROLL MANAGEMENT ═══ */
+$("messages").addEventListener("scroll",function(){var el=this;atBottom=el.scrollHeight-el.scrollTop-el.clientHeight<60;if(atBottom){unread=0;$("ubadge").style.display="none";$("scroll-btn").classList.remove("vis")}else{$("scroll-btn").classList.add("vis")}});
+$("scroll-btn").addEventListener("click",function(){$("messages").scrollTop=$("messages").scrollHeight;atBottom=true;unread=0;$("ubadge").style.display="none";this.classList.remove("vis")});
+
+/* ═══ TYPING INDICATOR ═══ */
+var typEl=null;
+function showTyping(v){var c=$("messages");if(v&&!typEl){typEl=document.createElement("div");typEl.className="bw agent typing-indicator";typEl.innerHTML='<div class="b-av">S</div><div class="bubble agent" style="padding:10px 14px"><div class="typing-dots"><span></span><span></span><span></span></div></div>';c.appendChild(typEl);if(atBottom)c.scrollTop=c.scrollHeight}else if(!v&&typEl){typEl.remove();typEl=null}}
+
+/* ═══ REALTIME + RECONNECT ═══ */
+var hashH=function(hc,ht){var a=hc||[],b=ht||[];return a.length+"|"+b.length+"|"+(a.length?a[a.length-1].time:"")};
+function renderIfChanged(hc,ht){var h=hashH(hc,ht);if(h===lastHash)return;var isNew=lastHash&&hc&&hc.length>0;lastHash=h;renderAll(hc,ht);if(isNew){playNotif();haptic(20);var lastMsg=ht&&ht.length>0?ht[ht.length-1]:null;if(lastMsg&&lastMsg.content)showBrowserNotif(lastMsg.content);if(!atBottom){unread++;$("ubadge").textContent=unread;$("ubadge").style.display="flex";$("scroll-btn").classList.add("vis");notifyParent()}}}
+
+async function fetchRender(){if(!sid)return;var r=await db.from("sek_cases").select("histcliente,histtecnico,estado,assigned_to").eq("id",sid).maybeSingle();if(!r.data)return;renderIfChanged(r.data.histcliente,r.data.histtecnico);if(r.data.assigned_to&&!agenteName){updateAgentHeader(r.data.assigned_to)}var e=String(r.data.estado||"").toLowerCase();if(e==="cerrado"||e==="resuelto")lockChat();else if(e==="escalado")showEscalado();else if(e==="abierto"&&r.data.assigned_to&&!agenteName){updateAgentHeader(r.data.assigned_to)}}
+
+function startRT(){
+  if(rtCh)try{db.removeChannel(rtCh)}catch(e){}
+  if(presCh)try{db.removeChannel(presCh)}catch(e){}
+  if(pollTmr)clearInterval(pollTmr);
+  rtCh=db.channel("wgt-m-"+sid).on("postgres_changes",{event:"UPDATE",schema:"public",table:"sek_cases",filter:"id=eq."+sid},function(p){if(!p.new)return;renderIfChanged(p.new.histcliente,p.new.histtecnico);var e=String(p.new.estado||"").toLowerCase();if(e==="cerrado"||e==="resuelto")lockChat();else if(e==="escalado")showEscalado();else if(e==="abierto"&&p.new.assigned_to){agenteName=null;updateAgentHeader(p.new.assigned_to);$("status-dot").className="status-dot online"}}).subscribe(function(st){if(st==="SUBSCRIBED"){connSt("online");reconAttempts=0}else if(st==="CLOSED"||st==="CHANNEL_ERROR"){connSt("reconnecting");setTimeout(doReconnect,2e3)}});
+  presCh=db.channel("wgt-t-"+sid,{config:{presence:{key:"cli-"+sid.slice(0,8)}}}).on("presence",{event:"sync"},function(){var s=presCh.presenceState();var ent=Object.values(s).flat();showTyping(ent.some(function(e){return e.role==="agente"&&e.typing}))}).subscribe();
+  pollTmr=setInterval(fetchRender,5e3);
+}
+
+function updateAgentHeader(agEmail){if(!agEmail||agenteName)return;db.from("sek_agent_config").select("nombre,apellido,avatar_url").ilike("email",agEmail).maybeSingle().then(function(res){if(res.data&&res.data.nombre){agenteName=[res.data.nombre,res.data.apellido].filter(Boolean).join(" ");$("header-title").textContent=agenteName;if(res.data.avatar_url){$("header-avatar-el").innerHTML='<img src="'+res.data.avatar_url+'" style="width:100%;height:100%;border-radius:50%;object-fit:cover" alt=""/>'}if(isOpenNow())$("status-text").textContent=agenteName+" - En linea"}}).catch(function(){})}
+
+function doReconnect(){var delay=Math.min(1e3*Math.pow(2,reconAttempts),3e4);reconAttempts++;connSt("reconnecting");setTimeout(function(){startRT();fetchRender()},delay)}
+
+function emitTyping(){if(!presCh)return;presCh.track({role:"cliente",typing:true});clearTimeout(typTmr);typTmr=setTimeout(function(){if(presCh)presCh.track({role:"cliente",typing:false})},2e3)}
+
+/* ═══ LOCK CHAT (caso cerrado) ═══ */
+function lockChat(){casoCerrado=true;if(pollTmr){clearInterval(pollTmr);pollTmr=null}$("txt-msg").placeholder="Escribe para iniciar una nueva conversacion...";$("txt-msg").disabled=false;$("btn-send").disabled=false;$("btn-attach").disabled=false;$("btn-camera").disabled=false;$("btn-mic").disabled=false;if(!csatDone){csatDone=true;setTimeout(showCSAT,800)}}
+function showEscalado(){$("status-text").textContent="Conectando con un agente...";$("status-dot").className="status-dot reconnecting"}
+
+/* ═══ SHOW CHAT ═══ */
+function showChat(hc,ht,estado,cl){
+  $("form-section").classList.add("hiding");
+  setTimeout(function(){$("form-section").style.display="none";var cs=$("chat-section");cs.classList.add("active");cs.style.display="flex"},350);
+  if(cl)clienteData=cl;
+  var hca=hc||[];
+  renderAll(hc,ht);startRT();
+  var e=String(estado||"").toLowerCase();
+  if(e==="cerrado"||e==="resuelto")lockChat();
+  else if(e==="escalado")showEscalado();
+}
+
+/* ═══ START SESSION ═══ */
+$("btn-start").addEventListener("click",async function(){
+  var ced=$("inp-cedula").value.trim(),nom=$("inp-nombre").value.trim(),cor=$("inp-correo").value.trim(),tel=$("inp-tel").value.trim(),emp=$("inp-empresa").value.trim();
+  if(!cedulaOk){$("form-err").textContent="Debe ingresar una cédula válida verificada por Hacienda.";return}
+  if(!nom){$("form-err").textContent="Por favor ingresa tu nombre y apellido.";return}
+  if(!cor){$("form-err").textContent="Por favor ingresa tu correo.";return}
+  if(!tel){$("form-err").textContent="Por favor ingresa tu número de contacto.";return}
+  if(!emp){$("form-err").textContent="Por favor ingresa el nombre de tu empresa.";return}
+  $("form-err").textContent="";$("btn-start").disabled=true;$("btn-start").textContent="Conectando…";haptic(20);
+  if(sid){var ck=await db.from("sek_cases").select("id,histcliente,histtecnico,estado,cliente").eq("id",sid).eq("canal","widget").maybeSingle();if(ck.data){showChat(ck.data.histcliente,ck.data.histtecnico,ck.data.estado,ck.data.cliente);return}}
+  clienteData={nombre:nom,correo:cor,telefono:tel,cuenta:emp,cedula:ced};
+  var ex=await db.from("sek_cases").select("id,histcliente,histtecnico,estado,cliente").eq("canal","widget").not("estado","in",'("cerrado","resuelto")').filter("cliente->>correo","eq",cor).order("created_at",{ascending:false}).limit(1).maybeSingle();
+  if(ex.data){sid=String(ex.data.id);try{localStorage.setItem("sek_session",sid);localStorage.setItem("sek_session_ver",SVER)}catch(e){}showChat(ex.data.histcliente,ex.data.histtecnico,ex.data.estado,ex.data.cliente);return}
+  var welcomeMsg={role:"assistant",author:"Asistente Sekunet",time:new Date().toISOString(),content:"Reciba un cordial saludo de parte de Soporte Sekunet, gracias por contactarnos. En que le podemos asistir hoy?"};
+  var ins=await db.from("sek_cases").insert({title:"Chat web — "+nom,canal:"widget",estado:"ia_atendiendo",prioridad:"media",cliente:clienteData,customer_phone:tel,histcliente:[welcomeMsg],histtecnico:[]}).select("id,histcliente,histtecnico,estado").single();
+  if(ins.error){$("form-err").textContent="Error: "+ins.error.message;$("btn-start").disabled=false;$("btn-start").textContent="Iniciar chat →";return}
+  sid=String(ins.data.id);try{localStorage.setItem("sek_session",sid);localStorage.setItem("sek_session_ver",SVER)}catch(e){}
+  showChat(ins.data.histcliente,ins.data.histtecnico,ins.data.estado,clienteData);
+});
+
+/* ═══ CREATE NEW CASE ═══ */
+async function newCase(msg){
+  if(creandoCaso)return;creandoCaso=true;casoCerrado=false;lastHash="";csatDone=false;
+  var wm={role:"assistant",author:"Asistente Sekunet",time:new Date().toISOString(),content:"Reciba un cordial saludo de parte de Soporte Sekunet, gracias por contactarnos. En que le podemos asistir hoy?"};
+  var ins=await db.from("sek_cases").insert({title:"Chat web — "+(clienteData?clienteData.nombre:"Cliente"),canal:"widget",estado:"ia_atendiendo",prioridad:"media",cliente:clienteData||{},customer_phone:clienteData?clienteData.telefono:null,histcliente:[wm],histtecnico:[]}).select("id,histcliente,histtecnico").single();
+  if(ins.error){alert("Error: "+ins.error.message);creandoCaso=false;return}
+  sid=String(ins.data.id);try{localStorage.setItem("sek_session",sid);localStorage.setItem("sek_session_ver",SVER)}catch(e){}
+  $("messages").innerHTML="";lastHash="";startRT();
+  if(msg){var hc2=[wm,{role:"user",time:new Date().toISOString(),content:msg}];await db.from("sek_cases").update({histcliente:hc2}).eq("id",sid);lastHash="";renderAll(hc2,[]);invokeIA()}
+  creandoCaso=false;
+}
+
+/* ═══ SEND MESSAGE ═══ */
+async function sendMsg(){
+  var txt=$("txt-msg").value.trim();if((!txt&&!pendFile)||!sid)return;
+  if(casoCerrado){$("txt-msg").value="";await newCase(txt);return}
+  $("btn-send").disabled=true;$("txt-msg").value="";autoResize();
+  var entry={role:"user",time:new Date().toISOString(),content:txt||"Archivo adjunto"};
+  if(pendFile){var f=pendFile;pendFile=null;$("up-prev-bar").style.display="none";try{var up=await uploadFile(f);entry.mediaUrl=up.url;entry.mediaType=up.type;entry.fileName=up.name;entry.content=txt||""}catch(err){alert("Error al subir: "+err.message);$("btn-send").disabled=false;return}}
+  var ow=mkBubble("user",entry.content,entry.time,entry.mediaUrl,entry.mediaType,entry.fileName);ow.classList.add("optimista");ow.dataset.optContent=entry.content||"";ow.dataset.optMedia=entry.mediaUrl||"";
+  var mc=$("messages");mc.appendChild(ow);mc.scrollTop=mc.scrollHeight;haptic(15);
+  var r=await db.from("sek_cases").select("histcliente,estado").eq("id",sid).maybeSingle();var h=(r.data&&Array.isArray(r.data.histcliente))?r.data.histcliente:[];h.push(entry);await db.from("sek_cases").update({histcliente:h}).eq("id",sid);$('btn-send').disabled=false;
+  if(r.data&&r.data.estado==="ia_atendiendo"){invokeIA()}
+}
+
+/* ═══ IA AGENT INVOCATION ═══ */
+function invokeIA(){fetch(IA_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SB_KEY},body:JSON.stringify({case_id:sid})}).then(function(r){return r.json()}).then(function(d){if(d.ok)fetchRender()}).catch(function(e){console.error("IA error:",e)})}
+
+/* ═══ FILE HANDLING ═══ */
+$("btn-attach").addEventListener("click",function(){$("file-input").click()});
+$("btn-camera").addEventListener("click",function(){$("camera-input").click()});
+
+function showFilePrev(file,icon){pendFile=file;$("up-icon").textContent=icon||fIcon(file.type);$("up-name").textContent=file.name+" ("+(file.size>1048576?(file.size/1048576).toFixed(1)+"MB":(file.size/1024).toFixed(0)+"KB")+")";$("up-prev-bar").style.display="flex";$("btn-send").disabled=false}
+$("file-input").addEventListener("change",function(){if(this.files&&this.files[0])showFilePrev(this.files[0]);this.value=""});
+$("camera-input").addEventListener("change",function(){if(this.files&&this.files[0])showFilePrev(this.files[0],"🎥");this.value=""});
+$("up-cancel").addEventListener("click",function(){pendFile=null;$("up-prev-bar").style.display="none";$("btn-send").disabled=!$("txt-msg").value.trim()});
+
+$("btn-mic").addEventListener("click",async function(){
+  if(isRec){mediaRec.stop();return}
+  try{var stream=await navigator.mediaDevices.getUserMedia({audio:true});audioChunks=[];mediaRec=new MediaRecorder(stream);
+  mediaRec.ondataavailable=function(e){if(e.data.size>0)audioChunks.push(e.data)};
+  mediaRec.onstop=function(){stream.getTracks().forEach(function(t){t.stop()});var blob=new Blob(audioChunks,{type:"audio/webm"});var file=new File([blob],"nota-voz-"+Date.now()+".webm",{type:"audio/webm"});showFilePrev(file,"🎤");$("btn-mic").textContent="🎤";$("btn-mic").classList.remove("rec");isRec=false};
+  mediaRec.start();isRec=true;$("btn-mic").textContent="⏹";$("btn-mic").classList.add("rec");haptic(30)}catch(err){alert("No se pudo acceder al micrófono: "+err.message)}
+});
+
+async function uploadFile(file){var ext=file.name.split(".").pop();var path="cases/"+sid+"/"+Date.now()+"."+ext;$("up-prog-wrap").style.display="block";$("up-bar").style.width="30%";var r=await db.storage.from("attachments").upload(path,file,{upsert:true});$("up-bar").style.width="80%";if(r.error){$("up-prog-wrap").style.display="none";throw r.error}var u=db.storage.from("attachments").getPublicUrl(path);$("up-bar").style.width="100%";setTimeout(function(){$("up-prog-wrap").style.display="none";$("up-bar").style.width="0%"},400);return{url:u.data.publicUrl,type:file.type,name:file.name}}
+
+/* ═══ DRAG & DROP ═══ */
+var dragCtr=0;
+$("root").addEventListener("dragenter",function(e){e.preventDefault();dragCtr++;$("drop-ov").classList.add("active")});
+$("root").addEventListener("dragleave",function(e){e.preventDefault();dragCtr--;if(dragCtr<=0){dragCtr=0;$("drop-ov").classList.remove("active")}});
+$("root").addEventListener("dragover",function(e){e.preventDefault()});
+$("root").addEventListener("drop",function(e){e.preventDefault();dragCtr=0;$("drop-ov").classList.remove("active");if(e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0]&&sid){showFilePrev(e.dataTransfer.files[0])}});
+
+/* ═══ CLIPBOARD PASTE ═══ */
+document.addEventListener("paste",function(e){if(!sid)return;var items=e.clipboardData&&e.clipboardData.items;if(!items)return;for(var i=0;i<items.length;i++){if(items[i].type.indexOf("image/")===0){var file=items[i].getAsFile();if(file){e.preventDefault();showFilePrev(file,"🖼️");break}}}});
+
+/* ═══ TEXTAREA AUTO-RESIZE ═══ */
+function autoResize(){var ta=$("txt-msg");ta.style.height="38px";ta.style.height=Math.min(ta.scrollHeight,120)+"px"}
+$("txt-msg").addEventListener("input",function(){autoResize();$("btn-send").disabled=!this.value.trim()&&!pendFile;emitTyping()});
+
+/* ═══ SEND EVENTS ═══ */
+$("btn-send").addEventListener("click",sendMsg);
+$("txt-msg").addEventListener("keydown",function(e){if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMsg()}});
+
+/* ═══ LIGHTBOX ═══ */
+function openLB(src){$("lb-img").src=src;$("lb").classList.add("active")}
+function closeLB(){$("lb").classList.remove("active");$("lb-img").src=""}
+$("lb-x").addEventListener("click",closeLB);
+$("lb").addEventListener("click",function(e){if(e.target===$("lb"))closeLB()});
+document.addEventListener("keydown",function(e){if(e.key==="Escape")closeLB()});
+
+/* ═══ CSAT SURVEY ═══ */
+var csatRating=0;
+function showCSAT(){$("csat-ov").classList.add("active")}
+function hideCSAT(){$("csat-ov").classList.remove("active")}
+$("csat-stars").querySelectorAll("button").forEach(function(btn){
+  btn.addEventListener("click",function(){csatRating=parseInt(this.dataset.r);$("csat-stars").querySelectorAll("button").forEach(function(b){b.classList.toggle("on",parseInt(b.dataset.r)<=csatRating)});haptic(10)});
+  btn.addEventListener("mouseenter",function(){var r=parseInt(this.dataset.r);$("csat-stars").querySelectorAll("button").forEach(function(b){b.classList.toggle("on",parseInt(b.dataset.r)<=r)})});
+});
+$("csat-stars").addEventListener("mouseleave",function(){$("csat-stars").querySelectorAll("button").forEach(function(b){b.classList.toggle("on",parseInt(b.dataset.r)<=csatRating)})});
+$("csat-submit").addEventListener("click",async function(){if(!csatRating)return;var comment=$("csat-comment").value.trim();try{var r=await db.from("sek_cases").select("cliente").eq("id",sid).maybeSingle();var cl=r.data&&r.data.cliente?r.data.cliente:{};cl.csat_rating=csatRating;cl.csat_comment=comment;cl.csat_time=new Date().toISOString();await db.from("sek_cases").update({cliente:cl}).eq("id",sid)}catch(e){}hideCSAT();haptic(20)});
+$("csat-skip").addEventListener("click",hideCSAT);
+
+/* ═══ REQUEST NOTIFICATION PERMISSION ═══ */
+reqNotifPerm();
+$("txt-msg").addEventListener("focus",reqNotifPerm);
+
+/* ═══ RESTORE SESSION ═══ */
+if(sid){
+  /* Show skeleton while loading */
+  $("form-section").style.display="none";var cs=$("chat-section");cs.classList.add("active");cs.style.display="flex";cs.style.opacity="1";$("messages").appendChild(mkSkeleton());
+  db.from("sek_cases").select("id,histcliente,histtecnico,estado,cliente").eq("id",sid).eq("canal","widget").maybeSingle().then(function(res){
+    $("messages").innerHTML="";
+    if(res.data){showChat(res.data.histcliente,res.data.histtecnico,res.data.estado,res.data.cliente)}
+    else{try{localStorage.removeItem("sek_session")}catch(e){};sid=null;$("chat-section").classList.remove("active");$("chat-section").style.display="none";$("form-section").style.display="flex";$("form-section").classList.remove("hiding")}
+  });
+}
+})()
+</script>
+</body>
+</html>

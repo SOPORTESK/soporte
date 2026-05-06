@@ -13,9 +13,11 @@ interface ChatMsg {
 
 /* ─── Helpers ────────────────────────────────────────────────── */
 const BASE = ""; // mismo origen
+const SESSION_VERSION = "2"; // Incrementar para forzar re-login de todos los usuarios
 const store = {
   get: (k: string) => { try { return sessionStorage.getItem(k); } catch { return null; } },
   set: (k: string, v: string) => { try { sessionStorage.setItem(k, v); } catch {} },
+  del: (k: string) => { try { sessionStorage.removeItem(k); } catch {} },
 };
 
 function fmt(iso: string) {
@@ -28,6 +30,10 @@ export default function WidgetPage() {
   const [sessionId, setSessionId] = React.useState<string | null>(null);
   const [nombre, setNombre] = React.useState("");
   const [correo, setCorreo] = React.useState("");
+  const [cedula, setCedula] = React.useState("");
+  const [cedulaStatus, setCedulaStatus] = React.useState<"idle" | "checking" | "valid" | "invalid">("idle");
+  const [cedulaInfo, setCedulaInfo] = React.useState<{ nombre?: string; tipo?: string } | null>(null);
+  const [cedulaError, setCedulaError] = React.useState("");
   const [msgs, setMsgs] = React.useState<ChatMsg[]>([]);
   const [draft, setDraft] = React.useState("");
   const [sending, setSending] = React.useState(false);
@@ -35,10 +41,58 @@ export default function WidgetPage() {
   const [error, setError] = React.useState("");
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const pollRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  const cedulaTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  /* Restaurar sesión previa */
+  /* ── Validar cédula contra Hacienda (con debounce) ── */
+  function onCedulaChange(raw: string) {
+    const clean = raw.replace(/[^\d]/g, "");
+    setCedula(clean);
+    setCedulaInfo(null);
+    setCedulaError("");
+
+    if (cedulaTimerRef.current) clearTimeout(cedulaTimerRef.current);
+
+    if (!clean || clean.length < 9) {
+      setCedulaStatus("idle");
+      return;
+    }
+
+    setCedulaStatus("checking");
+    cedulaTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`${BASE}/api/cedula?id=${clean}`);
+        const data = await res.json();
+        if (data.valid) {
+          setCedulaStatus("valid");
+          setCedulaInfo({ nombre: data.nombre, tipo: data.tipo });
+          setCedulaError("");
+          // Auto-rellenar nombre si está vacío
+          if (!nombre.trim() && data.nombre) {
+            setNombre(data.nombre);
+          }
+        } else {
+          setCedulaStatus("invalid");
+          setCedulaError(data.error || "Cédula no válida");
+        }
+      } catch {
+        setCedulaStatus("invalid");
+        setCedulaError("Error al verificar. Intente de nuevo.");
+      }
+    }, 600);
+  }
+
+  /* Restaurar sesión previa (solo si la versión coincide) */
   React.useEffect(() => {
+    const savedVer = store.get("sek_widget_version");
     const saved = store.get("sek_widget_session");
+
+    // Si la versión cambió, invalidar sesión
+    if (savedVer !== SESSION_VERSION) {
+      store.del("sek_widget_session");
+      store.del("sek_widget_version");
+      return;
+    }
+
     if (saved) {
       setSessionId(saved);
       setStep("chat");
@@ -46,7 +100,8 @@ export default function WidgetPage() {
         try {
           const res = await fetch(`${BASE}/api/widget/messages?session_id=${saved}`);
           if (!res.ok) {
-            try { sessionStorage.removeItem("sek_widget_session"); } catch {}
+            store.del("sek_widget_session");
+            store.del("sek_widget_version");
             setSessionId(null);
             setStep("form");
           }
@@ -110,17 +165,22 @@ export default function WidgetPage() {
   /* ── Iniciar sesión ── */
   async function startSession(e: React.FormEvent) {
     e.preventDefault();
+    if (!cedula.trim() || cedulaStatus !== "valid") {
+      setError("Debe ingresar un número de cédula válido verificado por Hacienda.");
+      return;
+    }
     if (!nombre.trim()) { setError("Por favor ingresa tu nombre."); return; }
     setLoading(true); setError("");
     try {
       const res = await fetch(`${BASE}/api/widget/session`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nombre: nombre.trim(), correo: correo.trim() }),
+        body: JSON.stringify({ nombre: nombre.trim(), correo: correo.trim(), cedula: cedula.trim() }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Error al iniciar sesión");
       store.set("sek_widget_session", data.session_id);
+      store.set("sek_widget_version", SESSION_VERSION);
       setSessionId(data.session_id);
       setStep("chat");
       setMsgs([{
@@ -202,6 +262,43 @@ export default function WidgetPage() {
           <p style={S.formTitle}>¡Hola! 👋 Antes de comenzar</p>
           <p style={S.formSub}>Ingresa tus datos para conectarte con un agente.</p>
 
+          <label style={S.label}>Cédula / DIMEX *</label>
+          <div style={{ position: "relative" }}>
+            <input
+              style={{
+                ...S.input,
+                width: "100%",
+                boxSizing: "border-box" as const,
+                paddingRight: 36,
+                borderColor: cedulaStatus === "valid" ? "#16a34a"
+                  : cedulaStatus === "invalid" ? "#dc2626"
+                  : undefined,
+              }}
+              value={cedula}
+              onChange={e => onCedulaChange(e.target.value)}
+              placeholder="Ej: 101230456"
+              inputMode="numeric"
+              maxLength={12}
+              required
+              autoFocus
+            />
+            <span style={{
+              position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
+              fontSize: 16, lineHeight: 1,
+            }}>
+              {cedulaStatus === "checking" && "⏳"}
+              {cedulaStatus === "valid" && "✅"}
+              {cedulaStatus === "invalid" && "❌"}
+            </span>
+          </div>
+          {cedulaStatus === "valid" && cedulaInfo?.nombre && (
+            <p style={{ fontSize: 11, color: "#16a34a", margin: "-2px 0 0 2px" }}>
+              ✓ {cedulaInfo.nombre}
+              {cedulaInfo.tipo && <span style={{ opacity: 0.7 }}> ({cedulaInfo.tipo})</span>}
+            </p>
+          )}
+          {cedulaError && <p style={{ fontSize: 11, color: "#dc2626", margin: "-2px 0 0 2px" }}>{cedulaError}</p>}
+
           <label style={S.label}>Nombre *</label>
           <input
             style={S.input}
@@ -209,7 +306,6 @@ export default function WidgetPage() {
             onChange={e => setNombre(e.target.value)}
             placeholder="Tu nombre"
             required
-            autoFocus
           />
 
           <label style={S.label}>Correo (opcional)</label>
@@ -223,7 +319,15 @@ export default function WidgetPage() {
 
           {error && <p style={S.err}>{error}</p>}
 
-          <button type="submit" disabled={loading} style={S.btnPrimary}>
+          <button
+            type="submit"
+            disabled={loading || cedulaStatus !== "valid"}
+            style={{
+              ...S.btnPrimary,
+              opacity: (loading || cedulaStatus !== "valid") ? 0.5 : 1,
+              cursor: (loading || cedulaStatus !== "valid") ? "not-allowed" : "pointer",
+            }}
+          >
             {loading ? "Conectando…" : "Iniciar chat →"}
           </button>
         </form>

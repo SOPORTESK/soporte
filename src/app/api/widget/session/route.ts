@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
-    const { session_id, nombre, correo, telefono } = body as Record<string, string>;
+    const { session_id, nombre, correo, telefono, cedula } = body as Record<string, string>;
 
     const supabase = createServiceClient();
 
@@ -27,6 +27,7 @@ export async function POST(req: NextRequest) {
       nombre: nombre || "Visitante web",
       correo: correo || "",
       telefono: telefono || "",
+      cedula: cedula || "",
     };
 
     const { data: newCase, error: insertErr } = await supabase

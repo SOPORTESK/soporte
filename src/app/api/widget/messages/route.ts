@@ -15,13 +15,19 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await supabase
     .from("sek_cases")
-    .select("histcliente, histtecnico, estado")
+    .select("histcliente, histtecnico, estado, cliente")
     .eq("id", session_id)
     .eq("canal", "widget")
     .maybeSingle();
 
   if (error || !data) {
     return NextResponse.json({ error: "Sesión no encontrada" }, { status: 404 });
+  }
+
+  // Rechazar sesiones sin cédula (creadas antes del reset)
+  const cliente = typeof data.cliente === "object" && data.cliente ? data.cliente as Record<string, unknown> : null;
+  if (!cliente?.cedula) {
+    return NextResponse.json({ error: "Sesión requiere re-autenticación con cédula" }, { status: 404 });
   }
 
   return NextResponse.json({
