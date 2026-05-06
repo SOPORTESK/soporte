@@ -107,6 +107,8 @@ textarea:focus{border-color:var(--primary);background:var(--bg)}
 .typing-dots span:nth-child(2){animation-delay:.15s}.typing-dots span:nth-child(3){animation-delay:.3s}
 @keyframes wave{0%,60%,100%{transform:translateY(0);opacity:.4}30%{transform:translateY(-6px);opacity:1}}
 .powered{text-align:center;font-size:10px;color:var(--text3);padding:5px 0 7px;background:var(--bg);flex-shrink:0}
+.ooh-banner{background:linear-gradient(135deg,#fbbf24,#f59e0b);color:#92400e;font-size:12px;font-weight:600;text-align:center;padding:8px 14px;flex-shrink:0;display:none;line-height:1.4}
+.ooh-banner.vis{display:block}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
 .messages::-webkit-scrollbar{width:4px}.messages::-webkit-scrollbar-track{background:transparent}.messages::-webkit-scrollbar-thumb{background:var(--text3);border-radius:4px}
 @media(max-width:380px){.form-section{padding:20px 16px}.form-title{font-size:16px}.field input{padding:10px 12px;font-size:14px}.att-btn{width:30px;height:30px;font-size:13px}textarea{font-size:13px}}
@@ -115,9 +117,9 @@ textarea:focus{border-color:var(--primary);background:var(--bg)}
 <body>
 <div class="root" id="root">
   <div class="header">
-    <div class="header-avatar">S</div>
+    <div class="header-avatar" id="header-avatar-el">S</div>
     <div class="header-info">
-      <div class="header-title">Soporte Sekunet</div>
+      <div class="header-title" id="header-title">Soporte Sekunet</div>
       <div class="header-sub"><span class="status-dot online" id="status-dot"></span><span id="status-text">En línea · Respuesta inmediata</span></div>
     </div>
     <button class="hdr-btn" id="btn-sound" title="Silenciar">🔔</button>
@@ -132,6 +134,7 @@ textarea:focus{border-color:var(--primary);background:var(--bg)}
     <p class="err" id="form-err"></p>
     <button class="btn-primary" id="btn-start" disabled>Iniciar chat →</button>
   </div>
+  <div class="ooh-banner" id="ooh-banner">⏰ Nuestro horario de atención es de lunes a viernes, 7:30 AM a 5:00 PM. Puede dejar su mensaje y le responderemos lo antes posible.</div>
   <div id="chat-section" class="chat-section">
     <div class="messages" id="messages"></div>
     <button class="scroll-btn" id="scroll-btn"><span class="ubadge" id="ubadge" style="display:none">0</span>↓</button>
@@ -170,7 +173,7 @@ var HURL="https://api.hacienda.go.cr/fe/ae";
 var db=supabase.createClient(SB_URL,SB_KEY);
 
 /* ═══ STATE ═══ */
-var sid=null,clienteData=null,cedulaOk=false,cedTmr=null,casoCerrado=false;
+var sid=null,clienteData=null,cedulaOk=false,cedTmr=null,casoCerrado=false,agenteName=null;
 var creandoCaso=false,soundOff=false,lastHash="",unread=0,atBottom=true;
 var rtCh=null,presCh=null,typTmr=null,pollTmr=null,reconAttempts=0;
 var pendFile=null,mediaRec=null,audioChunks=[],isRec=false,csatDone=false;
@@ -181,6 +184,17 @@ try{
   else sid=localStorage.getItem("sek_session");
   soundOff=localStorage.getItem("sek_mute")==="1";
 }catch(e){}
+
+/* ═══ BUSINESS HOURS ═══ */
+function isOpenNow(){var n=new Date();var utcH=n.getUTCHours(),utcM=n.getUTCMinutes();var crH=utcH-6;if(crH<0)crH+=24;var crMin=crH*60+utcM;var dow=n.getUTCDay();var dCr=dow;if(crH>utcH)dCr=(dow+6)%7;else dCr=dow;if(dCr===0||dCr===6)return false;return crMin>=450&&crMin<1020}
+function checkOOH(){var open=isOpenNow();$("ooh-banner").classList.toggle("vis",!open);if(open){$("status-text").textContent=agenteName?agenteName+" · En línea":"En línea · Respuesta inmediata";$("status-dot").className="status-dot online"}else{$("status-text").textContent="Fuera de horario · Deje su mensaje";$("status-dot").className="status-dot offline"}}
+checkOOH();setInterval(checkOOH,60000);
+
+/* ═══ BROWSER NOTIFICATIONS ═══ */
+var notifGranted=false;
+function reqNotifPerm(){if(!('Notification' in window))return;if(Notification.permission==='granted'){notifGranted=true}else if(Notification.permission!=='denied'){Notification.requestPermission().then(function(p){notifGranted=p==='granted'})}}
+function showBrowserNotif(body){if(!notifGranted||document.hasFocus())return;try{new Notification('Soporte Sekunet',{body:body.substring(0,100),icon:'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">💬</text></svg>',tag:'sek-msg'})}catch(e){}}
+function notifyParent(){try{if(window.parent!==window)window.parent.postMessage({type:'sek-unread',count:unread},'*')}catch(e){}}
 
 /* ═══ HELPERS ═══ */
 function $(id){return document.getElementById(id)}
@@ -252,9 +266,9 @@ function showTyping(v){var c=$("messages");if(v&&!typEl){typEl=document.createEl
 
 /* ═══ REALTIME + RECONNECT ═══ */
 var hashH=function(hc,ht){var a=hc||[],b=ht||[];return a.length+"|"+b.length+"|"+(a.length?a[a.length-1].time:"")};
-function renderIfChanged(hc,ht){var h=hashH(hc,ht);if(h===lastHash)return;var isNew=lastHash&&hc&&hc.length>0;lastHash=h;renderAll(hc,ht);if(isNew){playNotif();haptic(20);if(!atBottom){unread++;$("ubadge").textContent=unread;$("ubadge").style.display="flex";$("scroll-btn").classList.add("vis")}}}
+function renderIfChanged(hc,ht){var h=hashH(hc,ht);if(h===lastHash)return;var isNew=lastHash&&hc&&hc.length>0;lastHash=h;renderAll(hc,ht);if(isNew){playNotif();haptic(20);var lastMsg=ht&&ht.length>0?ht[ht.length-1]:null;if(lastMsg&&lastMsg.content)showBrowserNotif(lastMsg.content);if(!atBottom){unread++;$("ubadge").textContent=unread;$("ubadge").style.display="flex";$("scroll-btn").classList.add("vis");notifyParent()}}}
 
-async function fetchRender(){if(!sid)return;var r=await db.from("sek_cases").select("histcliente,histtecnico,estado").eq("id",sid).maybeSingle();if(!r.data)return;renderIfChanged(r.data.histcliente,r.data.histtecnico);var e=String(r.data.estado||"").toLowerCase();if(e==="cerrado"||e==="resuelto")lockChat()}
+async function fetchRender(){if(!sid)return;var r=await db.from("sek_cases").select("histcliente,histtecnico,estado,assigned_to").eq("id",sid).maybeSingle();if(!r.data)return;renderIfChanged(r.data.histcliente,r.data.histtecnico);if(r.data.assigned_to&&!agenteName){updateAgentHeader(r.data.assigned_to)}var e=String(r.data.estado||"").toLowerCase();if(e==="cerrado"||e==="resuelto")lockChat()}
 
 function startRT(){
   if(rtCh)try{db.removeChannel(rtCh)}catch(e){}
@@ -264,6 +278,8 @@ function startRT(){
   presCh=db.channel("wgt-t-"+sid,{config:{presence:{key:"cli-"+sid.slice(0,8)}}}).on("presence",{event:"sync"},function(){var s=presCh.presenceState();var ent=Object.values(s).flat();showTyping(ent.some(function(e){return e.role==="agente"&&e.typing}))}).subscribe();
   pollTmr=setInterval(fetchRender,5e3);
 }
+
+function updateAgentHeader(agId){if(!agId||agenteName)return;db.from("sek_users").select("nombre,avatar_url").eq("id",agId).maybeSingle().then(function(res){if(res.data&&res.data.nombre){agenteName=res.data.nombre;$("header-title").textContent=agenteName;if(res.data.avatar_url){$("header-avatar-el").innerHTML='<img src="'+res.data.avatar_url+'" style="width:100%;height:100%;border-radius:50%;object-fit:cover" alt=""/>'}if(isOpenNow())$("status-text").textContent=agenteName+" · En línea"}}).catch(function(){})}
 
 function doReconnect(){var delay=Math.min(1e3*Math.pow(2,reconAttempts),3e4);reconAttempts++;connSt("reconnecting");setTimeout(function(){startRT();fetchRender()},delay)}
 
@@ -379,6 +395,10 @@ $("csat-stars").querySelectorAll("button").forEach(function(btn){
 $("csat-stars").addEventListener("mouseleave",function(){$("csat-stars").querySelectorAll("button").forEach(function(b){b.classList.toggle("on",parseInt(b.dataset.r)<=csatRating)})});
 $("csat-submit").addEventListener("click",async function(){if(!csatRating)return;var comment=$("csat-comment").value.trim();try{var r=await db.from("sek_cases").select("cliente").eq("id",sid).maybeSingle();var cl=r.data&&r.data.cliente?r.data.cliente:{};cl.csat_rating=csatRating;cl.csat_comment=comment;cl.csat_time=new Date().toISOString();await db.from("sek_cases").update({cliente:cl}).eq("id",sid)}catch(e){}hideCSAT();haptic(20)});
 $("csat-skip").addEventListener("click",hideCSAT);
+
+/* ═══ REQUEST NOTIFICATION PERMISSION ═══ */
+reqNotifPerm();
+$("txt-msg").addEventListener("focus",reqNotifPerm);
 
 /* ═══ RESTORE SESSION ═══ */
 if(sid){
