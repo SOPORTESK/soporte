@@ -350,7 +350,7 @@ async function sendMsg(){
 }
 
 /* ═══ IA AGENT INVOCATION ═══ */
-function invokeIA(){fetch(IA_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SB_KEY},body:JSON.stringify({case_id:sid})}).then(function(r){return r.json()}).then(function(d){if(d.ok)fetchRender()}).catch(function(e){console.error("IA error:",e)})}
+function invokeIA(){fetch(IA_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SB_KEY,"apikey":SB_KEY},body:JSON.stringify({case_id:sid})}).then(function(r){return r.json()}).then(function(d){if(d.ok)fetchRender()}).catch(function(e){console.error("IA error:",e)})}
 
 /* ═══ FILE HANDLING ═══ */
 $("btn-attach").addEventListener("click",function(){$("file-input").click()});
