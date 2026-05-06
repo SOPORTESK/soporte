@@ -313,8 +313,10 @@ $("btn-start").addEventListener("click",async function(){
   $("form-err").textContent="";$("btn-start").disabled=true;$("btn-start").textContent="Conectando…";haptic(20);
   if(sid){var ck=await db.from("sek_cases").select("id,histcliente,histtecnico,estado,cliente").eq("id",sid).eq("canal","widget").maybeSingle();if(ck.data){showChat(ck.data.histcliente,ck.data.histtecnico,ck.data.estado,ck.data.cliente);return}}
   clienteData={nombre:nom,correo:cor,telefono:tel,cuenta:emp,cedula:ced};
-  var ex=await db.from("sek_cases").select("id,histcliente,histtecnico,estado,cliente").eq("canal","widget").not("estado","in",'("cerrado","resuelto")').filter("cliente->>correo","eq",cor).order("created_at",{ascending:false}).limit(1).maybeSingle();
-  if(ex.data){sid=String(ex.data.id);try{localStorage.setItem("sek_session",sid);localStorage.setItem("sek_session_ver",SVER)}catch(e){}showChat(ex.data.histcliente,ex.data.histtecnico,ex.data.estado,ex.data.cliente);return}
+  var ex=await db.from("sek_cases").select("id,histcliente,histtecnico,estado,cliente,assigned_to").eq("canal","widget").not("estado","in",'("cerrado","resuelto")').filter("cliente->>correo","eq",cor).order("created_at",{ascending:false}).limit(1).maybeSingle();
+  if(ex.data){sid=String(ex.data.id);try{localStorage.setItem("sek_session",sid);localStorage.setItem("sek_session_ver",SVER)}catch(e){}
+  if(!ex.data.assigned_to&&ex.data.estado!=="ia_atendiendo"&&ex.data.estado!=="escalado"){await db.from("sek_cases").update({estado:"ia_atendiendo"}).eq("id",sid);ex.data.estado="ia_atendiendo"}
+  showChat(ex.data.histcliente,ex.data.histtecnico,ex.data.estado,ex.data.cliente);return}
   var welcomeMsg={role:"assistant",author:"Asistente Sekunet",time:new Date().toISOString(),content:"Reciba un cordial saludo de parte de Soporte Sekunet, gracias por contactarnos. En que le podemos asistir hoy?"};
   var ins=await db.from("sek_cases").insert({title:"Chat web — "+nom,canal:"widget",estado:"ia_atendiendo",prioridad:"media",cliente:clienteData,customer_phone:tel,histcliente:[welcomeMsg],histtecnico:[]}).select("id,histcliente,histtecnico,estado").single();
   if(ins.error){$("form-err").textContent="Error: "+ins.error.message;$("btn-start").disabled=false;$("btn-start").textContent="Iniciar chat →";return}
@@ -343,8 +345,8 @@ async function sendMsg(){
   if(pendFile){var f=pendFile;pendFile=null;$("up-prev-bar").style.display="none";try{var up=await uploadFile(f);entry.mediaUrl=up.url;entry.mediaType=up.type;entry.fileName=up.name;entry.content=txt||""}catch(err){alert("Error al subir: "+err.message);$("btn-send").disabled=false;return}}
   var ow=mkBubble("user",entry.content,entry.time,entry.mediaUrl,entry.mediaType,entry.fileName);ow.classList.add("optimista");ow.dataset.optContent=entry.content||"";ow.dataset.optMedia=entry.mediaUrl||"";
   var mc=$("messages");mc.appendChild(ow);mc.scrollTop=mc.scrollHeight;haptic(15);
-  var r=await db.from("sek_cases").select("histcliente,estado").eq("id",sid).maybeSingle();var h=(r.data&&Array.isArray(r.data.histcliente))?r.data.histcliente:[];h.push(entry);await db.from("sek_cases").update({histcliente:h}).eq("id",sid);$('btn-send').disabled=false;
-  if(r.data&&r.data.estado==="ia_atendiendo"){invokeIA()}
+  var r=await db.from("sek_cases").select("histcliente,estado,assigned_to").eq("id",sid).maybeSingle();var h=(r.data&&Array.isArray(r.data.histcliente))?r.data.histcliente:[];h.push(entry);await db.from("sek_cases").update({histcliente:h}).eq("id",sid);$('btn-send').disabled=false;
+  var est=r.data?r.data.estado:"";if(est==="ia_atendiendo"||(est==="abierto"&&!r.data.assigned_to)){if(est==="abierto"){await db.from("sek_cases").update({estado:"ia_atendiendo"}).eq("id",sid)}invokeIA()}
 }
 
 /* ═══ IA AGENT INVOCATION ═══ */
