@@ -235,7 +235,7 @@ function renderAll(hc,ht){
   var opts=[];c.querySelectorAll(".optimista").forEach(function(el){opts.push(el)});
   var conf=new Set();(hc||[]).forEach(function(e){if((e.role||"user")==="user")conf.add("c:"+(e.content||"")+"|m:"+(e.mediaUrl||""))});
   c.innerHTML="";
-  if(all.length===0){c.appendChild(mkBubble("assistant","¡Hola! 👋 Somos el equipo de soporte de Sekunet. ¿En qué podemos ayudarte hoy?",new Date().toISOString()))}
+  if(all.length===0){c.appendChild(mkBubble("assistant","Reciba un cordial saludo de parte de Soporte Sekunet, gracias por contactarnos. ¿En qué le podemos asistir hoy?",new Date().toISOString()))}
   var lastDate="";
   all.forEach(function(m){var dl=dateLabel(m.time);if(dl!==lastDate){lastDate=dl;var sep=document.createElement("div");sep.className="date-sep";sep.innerHTML="<span>"+dl+"</span>";c.appendChild(sep)}c.appendChild(mkBubble(m.role,m.content,m.time,m.mediaUrl,m.mediaType,m.fileName))});
   opts.forEach(function(el){var k="c:"+(el.dataset.optContent||"")+"|m:"+(el.dataset.optMedia||"");if(!conf.has(k))c.appendChild(el)});
