@@ -246,7 +246,27 @@ export default function WidgetPage() {
       {/* Header */}
       <div style={S.header}>
         <div style={S.headerInner}>
-          <div style={S.avatar}>S</div>
+          <div style={S.avatar}>
+            <svg viewBox="0 0 100 100" width="24" height="24" xmlns="http://www.w3.org/2000/svg">
+              {/* Hexágono azul (derecha) */}
+              <polygon points="50,8 85,28 85,72 50,92 15,72 15,28" fill="none" />
+              <polygon points="58,12 88,30 88,68 58,86 28,68 28,30" fill="#2563a8" opacity="0.9" transform="translate(6,-2) scale(0.7) translate(20,14)" />
+              {/* Forma hexagonal azul */}
+              <path d="M55 18 L80 32 L80 62 L55 76 L30 62 L30 32 Z" fill="url(#blueGrad)" />
+              {/* Ondas naranja */}
+              <path d="M44 50 Q38 42 38 50 Q38 58 44 50" fill="none" stroke="#f97316" strokeWidth="3.5" strokeLinecap="round"/>
+              <path d="M38 50 Q28 36 28 50 Q28 64 38 50" fill="none" stroke="#f97316" strokeWidth="3.5" strokeLinecap="round"/>
+              <path d="M32 50 Q18 30 18 50 Q18 70 32 50" fill="none" stroke="#ea8c0a" strokeWidth="3" strokeLinecap="round"/>
+              {/* Punto central */}
+              <circle cx="47" cy="50" r="3.5" fill="#f97316" />
+              <defs>
+                <linearGradient id="blueGrad" x1="30" y1="18" x2="80" y2="76" gradientUnits="userSpaceOnUse">
+                  <stop offset="0%" stopColor="#3b82f6"/>
+                  <stop offset="100%" stopColor="#1e3a8a"/>
+                </linearGradient>
+              </defs>
+            </svg>
+          </div>
           <div>
             <div style={S.headerTitle}>Soporte Sekunet</div>
             <div style={S.headerSub}>
