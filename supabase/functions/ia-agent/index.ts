@@ -62,7 +62,7 @@ async function callGroq(messages: ChatMessage[]): Promise<string> {
       model: "llama-3.3-70b-versatile",
       messages,
       temperature: 0.3,
-      max_tokens: 600,
+      max_tokens: 1500,
     }),
   });
 
@@ -127,23 +127,28 @@ async function callGeminiVision(mediaUrl: string, mediaType: string, userText: s
 }
 
 async function searchInventory(query: string): Promise<any[]> {
-  const terms = query
-    .toLowerCase()
-    .replace(/[^a-z0-9\s\-]/g, "")
-    .split(/\s+/)
-    .filter((t) => t.length >= 2);
+  if (!query || query.trim().length === 0) return [];
 
-  if (terms.length === 0) return [];
+  const raw = query.trim().toLowerCase();
+
+  // Normaliza separadores (/, ., _, espacio) a % para búsqueda fuzzy
+  // Ej: "IDS7208HUHIM1/S/4" → "IDS7208HUHIM1%S%4" → encuentra "HIK-IDS7208HUHIM1-S-4"
+  const normalized = raw.replace(/[\/\.\s_]+/g, "%");
+
+  // También genera versión sin separadores para búsqueda compacta
+  const compact = raw.replace(/[\/\.\s_\-]+/g, "");
+
+  const searches = [raw, normalized, compact].filter((v, i, a) => v.length >= 2 && a.indexOf(v) === i);
 
   let results: any[] = [];
 
-  for (const term of terms) {
+  for (const term of searches) {
     const pattern = `%${term}%`;
     const { data } = await db
       .from("sek_inventario")
       .select("id, codigo, nombre, marca, modelo, categoria")
       .or(
-        `marca.ilike.${pattern},modelo.ilike.${pattern},nombre.ilike.${pattern},codigo.ilike.${pattern}`
+        `codigo.ilike.${pattern},nombre.ilike.${pattern},marca.ilike.${pattern},modelo.ilike.${pattern}`
       )
       .limit(10);
 
