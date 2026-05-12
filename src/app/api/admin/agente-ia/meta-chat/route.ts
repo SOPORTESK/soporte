@@ -378,6 +378,7 @@ VEREDICTO GENERAL: [evaluación en 2 líneas]
     let summary = "";
     let blocked = false;
     let blockReason = "";
+    let patchInfo: { before: string; after: string } | null = null;
 
     // Buscar si la IA generó el bloque JSON con el nuevo prompt
     // Usamos greedy (\S[\s\S]*) para capturar el JSON completo aunque sea muy largo
@@ -388,7 +389,6 @@ VEREDICTO GENERAL: [evaluación en 2 líneas]
         const parsed = JSON.parse(jsonMatch[1]);
         const hasPatch = parsed.before_text && parsed.after_text !== undefined;
         const hasFullPrompt = !!parsed.new_prompt;
-
         if (hasPatch || hasFullPrompt) {
           summary = parsed.summary || parsed.cambio_aplicado || "Se actualizaron las reglas del agente.";
 
@@ -404,6 +404,7 @@ VEREDICTO GENERAL: [evaluación en 2 líneas]
               const afterText: string = parsed.after_text;
               if (currentPrompt.includes(beforeText)) {
                 proposed = currentPrompt.replace(beforeText, afterText);
+                patchInfo = { before: beforeText, after: afterText };
               } else {
                 // before_text no encontrado exactamente — bloquear con mensaje claro
                 blocked = true;
@@ -464,6 +465,7 @@ VEREDICTO GENERAL: [evaluación en 2 líneas]
       summary,
       blocked,
       blockReason,
+      patchInfo,
     });
 
   } catch (error: any) {

@@ -39,6 +39,7 @@ export function MetaAgentChat({ initialPrompt, isSuperadmin }: { initialPrompt: 
   const [dbHistory, setDbHistory] = useState<DbHistoryEntry[]>([]);
   const [showDbHistory, setShowDbHistory] = useState(false);
   const [showDiff, setShowDiff] = useState(false);
+  const [patchInfo, setPatchInfo] = useState<{ before: string; after: string } | null>(null);
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [restoring, setRestoring] = useState<string | null>(null);
   const [pendingApproval, setPendingApproval] = useState(false);
@@ -54,6 +55,7 @@ export function MetaAgentChat({ initialPrompt, isSuperadmin }: { initialPrompt: 
   const [analysis, setAnalysis] = useState<string>("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const simulationScrollRef = useRef<HTMLDivElement>(null);
+  const promptPanelRef = useRef<HTMLDivElement>(null);
 
   // Cargar historial persistente y prompt activo desde BD al montar
   useEffect(() => {
@@ -98,23 +100,24 @@ export function MetaAgentChat({ initialPrompt, isSuperadmin }: { initialPrompt: 
     }
   };
   
-  const renderDiff = (oldText: string, newText: string) => {
-    const oldLines = oldText.split("\n").map(l => l.trim());
-    const newLines = newText.split("\n");
-    
-    return newLines.map((line, i) => {
-      // Si la línea no existía en la versión anterior (ignorando espacios al inicio/final)
-      const isNew = !oldLines.includes(line.trim());
-      
-      return (
-        <div 
-          key={i} 
-          className={`py-0.5 px-1 rounded transition-colors ${isNew ? "bg-emerald-500/30 text-emerald-100 font-bold" : "opacity-70"}`}
-        >
-          {line || "\u00A0"}
-        </div>
-      );
-    });
+  const renderPatch = (fullPrompt: string, patch: { before: string; after: string } | null) => {
+    if (!patch) {
+      return <pre className="text-[11px] leading-relaxed whitespace-pre-wrap font-mono text-zinc-400">{fullPrompt}</pre>;
+    }
+    const idx = fullPrompt.indexOf(patch.after);
+    if (idx === -1) {
+      return <pre className="text-[11px] leading-relaxed whitespace-pre-wrap font-mono text-zinc-400">{fullPrompt}</pre>;
+    }
+    const before = fullPrompt.slice(0, idx);
+    const changed = fullPrompt.slice(idx, idx + patch.after.length);
+    const after = fullPrompt.slice(idx + patch.after.length);
+    return (
+      <pre className="text-[11px] leading-relaxed whitespace-pre-wrap font-mono text-zinc-400">
+        {before}
+        <mark className="bg-emerald-500/30 text-emerald-200 rounded px-0.5 not-italic font-bold">{changed}</mark>
+        {after}
+      </pre>
+    );
   };
 
   // Autoscroll
@@ -244,7 +247,12 @@ export function MetaAgentChat({ initialPrompt, isSuperadmin }: { initialPrompt: 
         setHistory(prev => [newEntry, ...prev].slice(0, 5));
         setPreviousPrompt(currentPrompt);
         setCurrentPrompt(data.newPrompt);
+        setPatchInfo(data.patchInfo || null);
         setShowDiff(true);
+        setTimeout(() => {
+          const mark = promptPanelRef.current?.querySelector("mark");
+          mark?.scrollIntoView({ behavior: "smooth", block: "center" });
+        }, 100);
         toast.success("¡El Sistema se ha actualizado! Las reglas de la IA han cambiado.", {
           icon: <Save className="h-4 w-4 text-emerald-500" />
         });
@@ -392,11 +400,9 @@ export function MetaAgentChat({ initialPrompt, isSuperadmin }: { initialPrompt: 
           </div>
 
           <div className="relative bg-[#0d0d0f] flex-1">
-            <div className="overflow-y-auto max-h-[400px] p-4 scrollbar-thin">
-              {showDiff && previousPrompt ? (
-                <div className="font-mono text-[11px] leading-relaxed space-y-px">
-                  {renderDiff(previousPrompt, currentPrompt)}
-                </div>
+            <div ref={promptPanelRef} className="overflow-y-auto max-h-[400px] p-4 scrollbar-thin">
+              {showDiff && patchInfo ? (
+                renderPatch(currentPrompt, patchInfo)
               ) : (
                 <pre className="text-[11px] leading-relaxed whitespace-pre-wrap font-mono text-zinc-400">
                   {currentPrompt}
