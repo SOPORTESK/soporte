@@ -40,10 +40,9 @@ export async function POST(req: NextRequest) {
   try {
     const { message, history, currentPrompt: clientPrompt, file, isSuperadminOverride } = await req.json();
     const geminiKey = process.env.GEMINI_API_KEY;
-    const groqKey = process.env.GROQ_API_KEY;
 
-    if (!geminiKey && !groqKey) {
-      return NextResponse.json({ error: "No hay API key de IA configurada (GEMINI_API_KEY o GROQ_API_KEY)" }, { status: 500 });
+    if (!geminiKey) {
+      return NextResponse.json({ error: "No hay API key de IA configurada (GEMINI_API_KEY)" }, { status: 500 });
     }
 
     // Verificar rol del usuario que llama
@@ -302,8 +301,7 @@ VEREDICTO GENERAL: [evaluación en 2 líneas]
 
 *SEKA · Modo Administrador · Sekunet*`;
 
-    // ── Llamar Gemini 2.0 Flash (1M tokens/día gratis) como motor principal del meta-chat
-    // Groq se reserva exclusivamente para los clientes (ia-agent Edge Function)
+    // ── Llamar Gemini 3.1 Flash Lite como motor principal. Fallback: Gemini 1.5 Flash (misma key)
     const recentHistory = (history || []).slice(-8);
     const baseMsg = message || (file ? `[Se adjuntó archivo: ${file.name}]` : "");
     // Si hay análisis del archivo, incluirlo en el mensaje para que SEKA lo vea y analice
@@ -339,39 +337,35 @@ VEREDICTO GENERAL: [evaluación en 2 líneas]
 
       if (!geminiRes.ok) {
         const errText = await geminiRes.text();
-        console.warn("[meta-chat] Gemini error:", geminiRes.status, errText, "| intentando fallback Groq");
-        // No lanzar excepción — dejar caer al bloque Groq debajo
+        console.warn("[meta-chat] Gemini 3.1 error:", geminiRes.status, errText, "| intentando fallback 1.5 Flash");
+        // No lanzar — cae al bloque fallback debajo
       } else {
         const geminiData = await geminiRes.json();
         replyContent = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || "";
       }
     }
 
-    // Fallback a Groq si Gemini no está configurado o falló
-    if (!replyContent && groqKey) {
-      const groqMessages = [
-        { role: "system", content: systemInstruction },
-        ...recentHistory.map((h: any) => ({ role: h.role, content: h.content })),
-        { role: "user", content: userMsg },
-      ];
-      const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${groqKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: groqMessages, temperature: 0.1, max_tokens: 1500 }),
-      });
-      if (!groqRes.ok) {
-        const errText = await groqRes.text();
-        console.error("[meta-chat] Groq fallback error:", groqRes.status, errText);
-        let friendlyError = "El servicio de IA (Groq) no está disponible en este momento.";
-        try {
-          const errJson = JSON.parse(errText);
-          if (errJson?.error?.code === "rate_limit_exceeded" || groqRes.status === 429)
-            friendlyError = "Límite de uso alcanzado en Groq (fallback). El límite diario de Gemini también fue excedido. Intenta en unos minutos o contacta al administrador.";
-        } catch { /* usar genérico */ }
-        throw new Error(friendlyError);
+    // Fallback: Gemini 1.5 Flash (misma API key, modelo anterior estable)
+    if (!replyContent) {
+      const fallbackRes = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            system_instruction: { parts: [{ text: systemInstruction }] },
+            contents: geminiContents,
+            generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
+          }),
+        }
+      );
+      if (!fallbackRes.ok) {
+        const errText = await fallbackRes.text();
+        console.error("[meta-chat] Gemini 1.5 fallback error:", fallbackRes.status, errText);
+        throw new Error("El servicio de IA no está disponible en este momento. Intente de nuevo.");
       }
-      const groqData = await groqRes.json();
-      replyContent = groqData.choices?.[0]?.message?.content || "";
+      const fallbackData = await fallbackRes.json();
+      replyContent = fallbackData.candidates?.[0]?.content?.parts?.[0]?.text || "";
     }
 
     if (!replyContent) throw new Error("No se obtuvo respuesta de la IA.");

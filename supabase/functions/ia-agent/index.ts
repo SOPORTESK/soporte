@@ -2,7 +2,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY") ?? "";
+const GEMINI_FALLBACK_MODEL = "gemini-1.5-flash";
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
@@ -145,34 +145,33 @@ async function callGeminiChat(messages: ChatMessage[]): Promise<string> {
   return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? "";
 }
 
-// ── Groq: fallback si Gemini no está disponible
-class GroqRateLimitError extends Error {
-  constructor() { super("rate_limit_exceeded"); this.name = "GroqRateLimitError"; }
-}
-
-async function callGroqFallback(messages: ChatMessage[]): Promise<string> {
-  if (!GROQ_API_KEY) throw new Error("no_groq_key");
-  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: { "Authorization": `Bearer ${GROQ_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages, temperature: 0.3, max_tokens: 600 }),
-  });
+// ── Gemini 1.5 Flash: fallback si 3.1 Flash Lite no está disponible
+async function callGeminiFallback(messages: ChatMessage[]): Promise<string> {
+  if (!GEMINI_API_KEY) throw new Error("no_gemini_key");
+  const systemMsg = messages.find(m => m.role === "system");
+  const chatMsgs = messages.filter(m => m.role !== "system");
+  const contents = chatMsgs.map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
+  const body: Record<string, unknown> = { contents, generationConfig: { temperature: 0.3, maxOutputTokens: 600 } };
+  if (systemMsg) body.system_instruction = { parts: [{ text: systemMsg.content }] };
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_FALLBACK_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+  );
   if (!res.ok) {
     const errText = await res.text();
-    console.error("[ia-agent] Groq fallback error:", res.status, errText);
-    if (res.status === 429) throw new GroqRateLimitError();
-    throw new Error(`groq_error:${res.status}`);
+    console.error("[ia-agent] Gemini fallback error:", res.status, errText);
+    throw new Error(`gemini_fallback_error:${res.status}`);
   }
   const data = await res.json();
-  return data.choices?.[0]?.message?.content?.trim() ?? "";
+  return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? "";
 }
 
 async function callAI(messages: ChatMessage[]): Promise<string> {
   try {
     return await callGeminiChat(messages);
   } catch (e: any) {
-    console.warn("[ia-agent] Gemini falló, usando Groq fallback:", e.message);
-    return await callGroqFallback(messages);
+    console.warn("[ia-agent] Gemini 3.1 falló, usando fallback 1.5 Flash:", e.message);
+    return await callGeminiFallback(messages);
   }
 }
 
@@ -620,14 +619,13 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Llamar IA principal (Gemini 1.5 Flash) con Groq como fallback
+    // Llamar IA principal (Gemini 3.1 Flash Lite) con Gemini 1.5 Flash como fallback
     let aiResponse: string;
     try {
       aiResponse = await callAI(chatMessages);
     } catch (aiErr: any) {
-      const isRateLimit = aiErr instanceof GroqRateLimitError || 
-                          aiErr instanceof GeminiRateLimitError ||
-                          aiErr.message === "rate_limit_exceeded" ||
+      const isRateLimit = aiErr instanceof GeminiRateLimitError ||
+                          aiErr.message === "gemini_rate_limit_exceeded" ||
                           aiErr.message === "gemini_rate_limit_exceeded";
       const fallbackMsg = isRateLimit
         ? "En este momento el asistente virtual tiene alta demanda y no puede atenderle. Un agente humano le atenderá en breve."

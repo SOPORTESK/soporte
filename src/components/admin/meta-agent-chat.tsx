@@ -221,9 +221,6 @@ export function MetaAgentChat({ initialPrompt, isSuperadmin }: { initialPrompt: 
 
       if (!res.ok) {
         const errorData = await res.json();
-        if (errorData.error?.includes("GROQ_API_KEY")) {
-          throw new Error("Falta configurar la GROQ_API_KEY en las variables de entorno de Vercel.");
-        }
         throw new Error(errorData.error || "Error al conectar con la IA.");
       }
 

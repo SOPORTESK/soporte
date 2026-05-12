@@ -110,7 +110,7 @@ export default async function AdminManualesPage() {
           <div className="p-4 rounded-xl bg-muted/50">
             <p className="font-semibold text-sm mb-2">3. Contexto</p>
             <p className="text-xs text-muted-foreground">
-              Los chunks encontrados se inyectan en el prompt de Groq como contexto para respuestas precisas.
+              Los chunks encontrados se inyectan en el prompt de SEKA como contexto para respuestas precisas.
             </p>
           </div>
         </div>
