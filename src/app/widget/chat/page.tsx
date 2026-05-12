@@ -24,6 +24,13 @@ const store = {
   del: (k: string) => { try { sessionStorage.removeItem(k); } catch {} },
 };
 
+// Marca de uso único cuando Hacienda falla: se guarda en localStorage
+const haciendaFallbackFlag = {
+  get: () => { try { return localStorage.getItem("sek_cedula_fallback_used"); } catch { return null; } },
+  set: () => { try { localStorage.setItem("sek_cedula_fallback_used", "1"); } catch {} },
+  clear: () => { try { localStorage.removeItem("sek_cedula_fallback_used"); } catch {} },
+};
+
 function fmt(iso: string) {
   return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
@@ -76,24 +83,37 @@ export default function WidgetPage() {
           setCedulaStatus("valid");
           setCedulaInfo({ nombre: data.nombre, tipo: data.tipo });
           setCedulaError("");
+          haciendaFallbackFlag.clear();
           // Auto-rellenar nombre si está vacío
           if (!nombre.trim() && data.nombre) {
             setNombre(data.nombre);
           }
         } else if (!res.ok && res.status >= 500) {
-          // Hacienda no responde: permitir continuar con formato válido
-          setCedulaStatus("valid");
-          setCedulaInfo({ nombre, tipo: "no verificada" });
-          setCedulaError("No pudimos verificar con Hacienda, pero puede continuar.");
+          // Hacienda no responde: permitir UNA SOLA VEZ (marcar flag)
+          if (haciendaFallbackFlag.get()) {
+            setCedulaStatus("invalid");
+            setCedulaError("Hacienda sigue sin responder. Intente más tarde.");
+          } else {
+            setCedulaStatus("valid");
+            setCedulaInfo({ nombre, tipo: "no verificada" });
+            setCedulaError("No pudimos verificar con Hacienda, pero puede continuar (uso único).");
+            haciendaFallbackFlag.set();
+          }
         } else {
           setCedulaStatus("invalid");
           setCedulaError(data.error || "Cédula no válida");
         }
       } catch {
-        // Timeout o error de red: permitir continuar
-        setCedulaStatus("valid");
-        setCedulaInfo({ nombre, tipo: "no verificada" });
-        setCedulaError("No pudimos verificar con Hacienda, pero puede continuar.");
+        // Timeout o error de red: permitir UNA SOLA VEZ (marcar flag)
+        if (haciendaFallbackFlag.get()) {
+          setCedulaStatus("invalid");
+          setCedulaError("Hacienda sigue sin responder. Intente más tarde.");
+        } else {
+          setCedulaStatus("valid");
+          setCedulaInfo({ nombre, tipo: "no verificada" });
+          setCedulaError("No pudimos verificar con Hacienda, pero puede continuar (uso único).");
+          haciendaFallbackFlag.set();
+        }
       }
     }, 600);
   }
