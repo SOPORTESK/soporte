@@ -3,7 +3,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Bot, User, Send, Loader2, Save, FileText, Paperclip, X, History, RotateCcw, ShieldAlert, ChevronDown, ChevronUp, CheckCheck, Play, Eye, MessageSquare, Sparkles } from "lucide-react";
 import { toast } from "sonner";
-import { useRouter } from "next/navigation";
 
 interface HistoryEntry {
   time: string;
@@ -45,8 +44,6 @@ export function MetaAgentChat({ initialPrompt, isSuperadmin }: { initialPrompt: 
   const [pendingApproval, setPendingApproval] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const router = useRouter();
-
   // Estados para modo SIMULACIÓN
   const [mode, setMode] = useState<"train" | "simulate">("train");
   const [simulationMessages, setSimulationMessages] = useState<Message[]>([]);
@@ -68,12 +65,12 @@ export function MetaAgentChat({ initialPrompt, isSuperadmin }: { initialPrompt: 
       .catch(() => {});
   }, []);
 
-  const reloadDbHistory = () => {
+  const reloadDbHistory = (updatePrompt = false) => {
     fetch("/api/admin/agente-ia/restore-prompt")
       .then(r => r.json())
       .then(d => {
         if (d.history) setDbHistory(d.history);
-        if (d.activePrompt) setCurrentPrompt(d.activePrompt);
+        if (updatePrompt && d.activePrompt) setCurrentPrompt(d.activePrompt);
       })
       .catch(() => {});
   };
@@ -92,7 +89,6 @@ export function MetaAgentChat({ initialPrompt, isSuperadmin }: { initialPrompt: 
       setCurrentPrompt(data.restoredPrompt);
       toast.success("Versión restaurada correctamente.");
       reloadDbHistory();
-      router.refresh();
     } catch (err: any) {
       toast.error(err.message || "Error al restaurar");
     } finally {
@@ -257,7 +253,6 @@ export function MetaAgentChat({ initialPrompt, isSuperadmin }: { initialPrompt: 
           icon: <Save className="h-4 w-4 text-emerald-500" />
         });
         reloadDbHistory();
-        router.refresh();
       }
     } catch (error: any) {
       console.error(error);
