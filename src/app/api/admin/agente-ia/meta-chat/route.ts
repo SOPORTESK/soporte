@@ -231,12 +231,14 @@ Cuando tengo una propuesta de cambio lista, la presento siempre en este formato:
   "secciones_modificadas": ["Nombre de sección"],
   "aprobado_por": "Administrador",
   "reversible": true,
-  "new_prompt": "PROMPT COMPLETO ACTUALIZADO"
+  "before_text": "FRAGMENTO EXACTO DEL PROMPT ACTUAL QUE SE REEMPLAZA (copia literal)",
+  "after_text": "FRAGMENTO NUEVO QUE LO REEMPLAZA"
 }
 \`\`\`
 
 REGLA CRÍTICA: El bloque JSON solo aparece si el mensaje anterior fue una aprobación explícita. En cualquier otro caso, NUNCA incluyas el JSON.
-El new_prompt debe contener el prompt COMPLETO con todos los bloques protegidos intactos: [BUSCAR_INVENTARIO], [BUSCAR_WEB], PROTOCOLO DE DIAGNÓSTICO, PROTOCOLO DE ESCALACIÓN.
+REGLA DE PATCH: Usa SIEMPRE before_text/after_text. NUNCA incluyas new_prompt completo. before_text debe ser una copia LITERAL y EXACTA del fragmento actual del prompt que se va a modificar (para que pueda encontrarse con indexOf). after_text es el fragmento nuevo que lo reemplaza.
+Si el cambio es agregar algo nuevo sin reemplazar nada existente, pon en before_text el fragmento justo ANTES de donde insertar, y en after_text ese mismo fragmento más el texto nuevo agregado.
 
 ---
 
@@ -384,27 +386,48 @@ VEREDICTO GENERAL: [evaluación en 2 líneas]
     if (jsonMatch) {
       try {
         const parsed = JSON.parse(jsonMatch[1]);
-        if (parsed.new_prompt) {
-          const proposed: string = parsed.new_prompt;
-          // Soportar tanto "summary" (formato anterior) como "cambio_aplicado" (formato nuevo)
+        const hasPatch = parsed.before_text && parsed.after_text !== undefined;
+        const hasFullPrompt = !!parsed.new_prompt;
+
+        if (hasPatch || hasFullPrompt) {
           summary = parsed.summary || parsed.cambio_aplicado || "Se actualizaron las reglas del agente.";
 
           // Solo aplicar si el mensaje fue una aprobación explícita
           if (!isApproval && !isSuperadminOverride) {
-            // La IA generó el JSON antes de recibir aprobación — ignorar el JSON, mantener solo el texto
             replyContent = replyContent.replace(jsonMatch[0], "").trim();
           } else {
-            // Validar edición por bloques (salvo override explícito de superadmin)
-            const canBypass = isSuperadmin && isSuperadminOverride === true;
-            const validation = canBypass ? { valid: true } : validateBlockEdit(currentPrompt, proposed);
+            let proposed: string;
 
-            if (!validation.valid) {
-              blocked = true;
-              blockReason = validation.reason!;
-              replyContent = `⚠️ **Cambio bloqueado por política de seguridad del prompt.**\n\n${blockReason}\n\nSi deseas aplicar un reemplazo completo del prompt, debes hacerlo explícitamente desde la sección de superadmin.`;
+            if (hasPatch) {
+              // PATCH: reemplazar solo el fragmento
+              const beforeText: string = parsed.before_text;
+              const afterText: string = parsed.after_text;
+              if (currentPrompt.includes(beforeText)) {
+                proposed = currentPrompt.replace(beforeText, afterText);
+              } else {
+                // before_text no encontrado exactamente — bloquear con mensaje claro
+                blocked = true;
+                blockReason = "No se pudo localizar el fragmento exacto a modificar en el prompt actual. Por favor vuelve a intentarlo.";
+                replyContent = `⚠️ **No se pudo aplicar el cambio.**\n\n${blockReason}`;
+                proposed = "";
+              }
             } else {
-              newPrompt = proposed;
-              replyContent = replyContent.replace(jsonMatch[0], "").trim();
+              // Fallback legacy: new_prompt completo
+              proposed = parsed.new_prompt;
+            }
+
+            if (!blocked && proposed) {
+              const canBypass = isSuperadmin && isSuperadminOverride === true;
+              const validation = canBypass ? { valid: true } : validateBlockEdit(currentPrompt, proposed);
+
+              if (!validation.valid) {
+                blocked = true;
+                blockReason = validation.reason!;
+                replyContent = `⚠️ **Cambio bloqueado por política de seguridad del prompt.**\n\n${blockReason}`;
+              } else {
+                newPrompt = proposed;
+                replyContent = replyContent.replace(jsonMatch[0], "").trim();
+              }
             }
           }
         }
