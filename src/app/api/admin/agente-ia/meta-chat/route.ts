@@ -334,7 +334,7 @@ VEREDICTO GENERAL: [evaluación en 2 líneas]
     if (geminiKey) {
       console.log("[meta-chat] llamando Gemini 3.1 | turns:", geminiContents.length);
       const ctrl1 = new AbortController();
-      const t1 = setTimeout(() => ctrl1.abort(), 25000);
+      const t1 = setTimeout(() => ctrl1.abort(), 15000);
       let geminiRes: Response;
       try {
         geminiRes = await fetch(
@@ -367,15 +367,14 @@ VEREDICTO GENERAL: [evaluación en 2 líneas]
       }
     }
 
-    // Fallback: gemini-2.0-flash-lite
+    // Fallback 1: gemini-2.0-flash (quota diferente a 3.1)
     if (!replyContent) {
-      console.log("[meta-chat] llamando fallback gemini-1.5-flash (v1)...");
+      console.log("[meta-chat] fallback 1: gemini-2.0-flash...");
       const ctrl2 = new AbortController();
-      const t2 = setTimeout(() => ctrl2.abort(), 25000);
-      let fallbackRes: Response;
+      const t2 = setTimeout(() => ctrl2.abort(), 15000);
       try {
-        fallbackRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
+        const r2 = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -387,20 +386,56 @@ VEREDICTO GENERAL: [evaluación en 2 líneas]
             signal: ctrl2.signal,
           }
         );
-      } catch (fetchErr: any) {
-        console.error("[meta-chat] fallback fetch error:", fetchErr.message);
-        throw new Error("El servicio de IA no está disponible en este momento. Intente de nuevo.");
+        if (r2.ok) {
+          const d2 = await r2.json();
+          replyContent = d2.candidates?.[0]?.content?.parts?.[0]?.text || "";
+          console.log("[meta-chat] fallback 1 ok | length:", replyContent.length);
+        } else {
+          const e2 = await r2.text();
+          console.warn("[meta-chat] fallback 1 error:", r2.status, e2.slice(0, 200));
+        }
+      } catch (e: any) {
+        console.warn("[meta-chat] fallback 1 fetch error:", e.message);
       } finally {
         clearTimeout(t2);
       }
-      if (!fallbackRes.ok) {
-        const errText = await fallbackRes.text();
-        console.error("[meta-chat] fallback error:", fallbackRes.status, errText);
-        throw new Error("El servicio de IA no está disponible en este momento. Intente de nuevo.");
+    }
+
+    // Fallback 2: gemini-1.5-flash en v1
+    if (!replyContent) {
+      console.log("[meta-chat] fallback 2: gemini-1.5-flash v1...");
+      const ctrl3 = new AbortController();
+      const t3 = setTimeout(() => ctrl3.abort(), 15000);
+      try {
+        const r3 = await fetch(
+          `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              system_instruction: { parts: [{ text: systemInstruction }] },
+              contents: geminiContents,
+              generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
+            }),
+            signal: ctrl3.signal,
+          }
+        );
+        if (r3.ok) {
+          const d3 = await r3.json();
+          replyContent = d3.candidates?.[0]?.content?.parts?.[0]?.text || "";
+          console.log("[meta-chat] fallback 2 ok | length:", replyContent.length);
+        } else {
+          const e3 = await r3.text();
+          console.error("[meta-chat] fallback 2 error:", r3.status, e3.slice(0, 200));
+          throw new Error("Todos los modelos de IA están saturados. Espere 1 minuto e intente de nuevo.");
+        }
+      } catch (e: any) {
+        if (e.message.includes("saturados")) throw e;
+        console.error("[meta-chat] fallback 2 fetch error:", e.message);
+        throw new Error("Todos los modelos de IA están saturados. Espere 1 minuto e intente de nuevo.");
+      } finally {
+        clearTimeout(t3);
       }
-      const fallbackData = await fallbackRes.json();
-      replyContent = fallbackData.candidates?.[0]?.content?.parts?.[0]?.text || "";
-      console.log("[meta-chat] fallback ok | reply length:", replyContent.length);
     }
 
     if (!replyContent) throw new Error("No se obtuvo respuesta de la IA.");
