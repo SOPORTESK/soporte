@@ -142,21 +142,21 @@ export default function WidgetPage() {
           return;
         }
         const data = await res.json();
-        // Detectar cierre de caso — mostrar encuesta
+        // Detectar cierre de caso — mostrar encuesta (también en la primera carga)
         const estadoActual = data.estado?.toLowerCase();
         const estaCerrado = estadoActual === "cerrado" || estadoActual === "resuelto";
-        if (estaCerrado && !casoCerradoRef.current) {
+        const yaEnBD = data.calificacion_cliente != null;
+        const encuestaGuardada = !!store.get(`sek_encuesta_${sessionId}`);
+
+        if (estaCerrado) {
+          // Marcar como cerrado en esta sesión
           casoCerradoRef.current = true;
-          // BD es fuente de verdad: si ya calificó en BD, no mostrar
-          const yaEnBD = data.calificacion_cliente != null;
-          if (yaEnBD) {
-            // Asegurar que storage refleje la BD
-            store.set(`sek_encuesta_${sessionId}`, "1");
-          } else {
-            // No calificó en BD — mostrar encuesta siempre (ignorar storage stale)
-            store.del(`sek_encuesta_${sessionId}`);
+          if (!yaEnBD && !encuestaGuardada) {
+            // No calificada en BD y no marcada en storage → mostrar encuesta
             setShowEncuesta(true);
           }
+          // Si ya está en BD, sincronizar storage para no volver a mostrar
+          if (yaEnBD) store.set(`sek_encuesta_${sessionId}`, "1");
         }
         // Si el caso se reabrió, limpiar estado de encuesta
         if (!estaCerrado && casoCerradoRef.current) {

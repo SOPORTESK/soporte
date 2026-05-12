@@ -179,18 +179,20 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   const prevEstadoRef = React.useRef<string>("");
   const modalShownRef = React.useRef(false);
   React.useEffect(() => {
-    const curr = sekCase.estado || "";
-    const prev = prevEstadoRef.current;
+    const curr = (sekCase.estado || "").toLowerCase();
+    const prev = prevEstadoRef.current.toLowerCase();
+    const isFinal = (s: string) => s === "cerrado" || s === "resuelto";
+
     // prev === "" → carga inicial, no disparar
-    // Solo disparar si cambió de un estado no-cerrado a cerrado durante esta sesión
-    if (prev !== "" && prev !== "cerrado" && curr === "cerrado" && !modalShownRef.current) {
+    // Solo disparar si cambió de un estado no-final a final durante esta sesión
+    if (prev !== "" && !isFinal(prev) && isFinal(curr) && !modalShownRef.current) {
       modalShownRef.current = true;
       const prevRating = (sekCase.cliente as any)?.calificacion_agente;
       if (prevRating) setClientRating(Number(prevRating) || 5);
       setShowRatingModal(true);
     }
     // Si el caso se reabrió, resetear para que pueda volver a dispararse
-    if (curr !== "cerrado") modalShownRef.current = false;
+    if (!isFinal(curr)) modalShownRef.current = false;
     prevEstadoRef.current = curr;
   }, [sekCase.estado]);
 
