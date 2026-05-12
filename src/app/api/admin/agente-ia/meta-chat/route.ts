@@ -339,16 +339,8 @@ VEREDICTO GENERAL: [evaluación en 2 líneas]
 
       if (!geminiRes.ok) {
         const errText = await geminiRes.text();
-        console.error("[meta-chat] Gemini error:", geminiRes.status, errText);
-        // Detectar específicamente rate limit de Gemini
-        let errorMsg = "El servicio de IA (Gemini) no está disponible en este momento. Intente de nuevo.";
-        try {
-          const errJson = JSON.parse(errText);
-          if (geminiRes.status === 429 || errJson?.error?.message?.includes("rate limit") || errJson?.error?.code?.includes("429")) {
-            errorMsg = "Se ha alcanzado el límite de uso de Gemini (2.0 Flash). Intenta en unos minutos o contacta al administrador.";
-          }
-        } catch { /* usar mensaje genérico */ }
-        throw new Error(errorMsg);
+        console.warn("[meta-chat] Gemini error:", geminiRes.status, errText, "| intentando fallback Groq");
+        // No lanzar excepción — dejar caer al bloque Groq debajo
       } else {
         const geminiData = await geminiRes.json();
         replyContent = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || "";
