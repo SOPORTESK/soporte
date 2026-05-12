@@ -385,7 +385,7 @@ var db=supabase.createClient(SB_URL,SB_KEY);
 /* ═══ STATE ═══ */
 var sid=null,clienteData=null,cedulaOk=false,cedTmr=null,casoCerrado=false,agenteName=null;
 var creandoCaso=false,soundOff=false,lastHash="",unread=0,atBottom=true;
-var rtCh=null,presCh=null,typTmr=null,pollTmr=null,reconAttempts=0;
+var rtCh=null,presCh=null,typTmr=null,pollTmr=null,reconAttempts=0,reconTmr=null,rtState="online",caseStatus="";
 var pendFile=null,mediaRec=null,audioChunks=[],isRec=false,csatDone=false;
 
 try{
@@ -397,7 +397,34 @@ try{
 
 /* ═══ BUSINESS HOURS ═══ */
 function isOpenNow(){var n=new Date();var utcH=n.getUTCHours(),utcM=n.getUTCMinutes();var crH=utcH-6;if(crH<0)crH+=24;var crMin=crH*60+utcM;var dow=n.getUTCDay();var dCr=dow;if(crH>utcH)dCr=(dow+6)%7;else dCr=dow;if(dCr===0||dCr===6)return false;return crMin>=450&&crMin<1020}
-function checkOOH(){var open=isOpenNow();$("ooh-banner").classList.toggle("vis",!open);if(open){$("status-text").textContent=agenteName?agenteName+" · En línea":"En línea · Respuesta inmediata";$("status-dot").className="status-dot online"}else{$("status-text").textContent="Fuera de horario · Deje su mensaje";$("status-dot").className="status-dot offline"}}
+function refreshHeaderStatus(){
+  var d=$("status-dot"),t=$("status-text"),open=isOpenNow();
+  $("ooh-banner").classList.toggle("vis",!open);
+  if(!navigator.onLine||rtState==="offline"){
+    d.className="status-dot offline";
+    t.textContent="Sin conexión";
+    return;
+  }
+  if(!open){
+    d.className="status-dot offline";
+    t.textContent="Fuera de horario · Deje su mensaje";
+    return;
+  }
+  if(caseStatus==="escalado"&&!agenteName){
+    d.className="status-dot reconnecting";
+    t.textContent="En espera de un agente";
+    return;
+  }
+  d.className="status-dot online";
+  if(agenteName){
+    t.textContent="Agente asignado";
+  }else if(sid){
+    t.textContent="Chat activo · Respuesta inmediata";
+  }else{
+    t.textContent="Soporte disponible";
+  }
+}
+function checkOOH(){refreshHeaderStatus()}
 checkOOH();setInterval(checkOOH,60000);
 
 /* ═══ BROWSER NOTIFICATIONS ═══ */
@@ -421,14 +448,8 @@ $("btn-sound").addEventListener("click",function(){soundOff=!soundOff;this.textC
 
 /* ═══ CONNECTION ═══ */
 function connSt(s){
-  var d = $("status-dot"), t = $("status-text");
-  d.className = "status-dot " + s;
-  // Evitar flicker de "Reconectando"; mientras reconecta muestra como en línea
-  if (s === "online" || s === "reconnecting") {
-    t.textContent = "En línea · Respuesta inmediata";
-  } else if (s === "offline") {
-    t.textContent = "Sin conexión";
-  }
+  rtState=s;
+  refreshHeaderStatus();
 }
 window.addEventListener("online",function(){connSt("online");doReconnect()});
 window.addEventListener("offline",function(){connSt("offline")});
@@ -629,26 +650,26 @@ function showTyping(v){var c=$("messages");if(v&&!typEl){typEl=document.createEl
 var hashH=function(hc,ht){var a=hc||[],b=ht||[];return a.length+"|"+b.length+"|"+(a.length?a[a.length-1].time:"")};
 function renderIfChanged(hc,ht){var h=hashH(hc,ht);if(h===lastHash)return;var isNew=lastHash&&hc&&hc.length>0;lastHash=h;renderAll(hc,ht);if(isNew){playNotif();haptic(20);var lastMsg=ht&&ht.length>0?ht[ht.length-1]:null;if(lastMsg&&lastMsg.content)showBrowserNotif(lastMsg.content);if(!atBottom){unread++;$("ubadge").textContent=unread;$("ubadge").style.display="flex";$("scroll-btn").classList.add("vis");notifyParent()}}}
 
-async function fetchRender(){if(!sid)return;var r=await db.from("sek_cases").select("histcliente,histtecnico,estado,assigned_to").eq("id",sid).maybeSingle();if(!r.data)return;renderIfChanged(r.data.histcliente,r.data.histtecnico);if(r.data.assigned_to&&!agenteName){updateAgentHeader(r.data.assigned_to)}var e=String(r.data.estado||"").toLowerCase();if(e==="cerrado"||e==="resuelto")lockChat();else if(e==="escalado")showEscalado();else if(e==="abierto"&&r.data.assigned_to&&!agenteName){updateAgentHeader(r.data.assigned_to)}}
+async function fetchRender(){if(!sid)return;var r=await db.from("sek_cases").select("histcliente,histtecnico,estado,assigned_to").eq("id",sid).maybeSingle();if(!r.data)return;renderIfChanged(r.data.histcliente,r.data.histtecnico);if(r.data.assigned_to&&!agenteName){updateAgentHeader(r.data.assigned_to)}var e=String(r.data.estado||"").toLowerCase();caseStatus=e;if(e==="cerrado"||e==="resuelto")lockChat();else if(e==="escalado")showEscalado();else if(e==="abierto"&&r.data.assigned_to&&!agenteName){updateAgentHeader(r.data.assigned_to)}else refreshHeaderStatus()}
 
 function startRT(){
   if(rtCh)try{db.removeChannel(rtCh)}catch(e){}
   if(presCh)try{db.removeChannel(presCh)}catch(e){}
   if(pollTmr)clearInterval(pollTmr);
-  rtCh=db.channel("wgt-m-"+sid).on("postgres_changes",{event:"UPDATE",schema:"public",table:"sek_cases",filter:"id=eq."+sid},function(p){if(!p.new)return;renderIfChanged(p.new.histcliente,p.new.histtecnico);var e=String(p.new.estado||"").toLowerCase();if(e==="cerrado"||e==="resuelto")lockChat();else if(e==="escalado")showEscalado();else if(e==="abierto"&&p.new.assigned_to){agenteName=null;updateAgentHeader(p.new.assigned_to);$("status-dot").className="status-dot online"}}).subscribe(function(st){if(st==="SUBSCRIBED"){connSt("online");reconAttempts=0}else if(st==="CLOSED"||st==="CHANNEL_ERROR"){connSt("reconnecting");setTimeout(doReconnect,2e3)}});
+  rtCh=db.channel("wgt-m-"+sid).on("postgres_changes",{event:"UPDATE",schema:"public",table:"sek_cases",filter:"id=eq."+sid},function(p){if(!p.new)return;renderIfChanged(p.new.histcliente,p.new.histtecnico);var e=String(p.new.estado||"").toLowerCase();caseStatus=e;if(e==="cerrado"||e==="resuelto")lockChat();else if(e==="escalado")showEscalado();else if(e==="abierto"&&p.new.assigned_to){agenteName=null;updateAgentHeader(p.new.assigned_to)}else refreshHeaderStatus()}).subscribe(function(st){if(st==="SUBSCRIBED"){if(reconTmr){clearTimeout(reconTmr);reconTmr=null}connSt("online");reconAttempts=0}else if(st==="CLOSED"||st==="CHANNEL_ERROR"){doReconnect()}});
   presCh=db.channel("wgt-t-"+sid,{config:{presence:{key:"cli-"+sid.slice(0,8)}}}).on("presence",{event:"sync"},function(){var s=presCh.presenceState();var ent=Object.values(s).flat();showTyping(ent.some(function(e){return e.role==="agente"&&e.typing}))}).subscribe();
   pollTmr=setInterval(fetchRender,5e3);
 }
 
-function updateAgentHeader(agEmail){if(!agEmail||agenteName)return;db.from("sek_agent_config").select("nombre,apellido,avatar_url").ilike("email",agEmail).maybeSingle().then(function(res){if(res.data&&res.data.nombre){agenteName=[res.data.nombre,res.data.apellido].filter(Boolean).join(" ");$("header-title").textContent=agenteName;if(res.data.avatar_url){$("header-avatar-el").innerHTML='<img src="'+res.data.avatar_url+'" style="width:100%;height:100%;border-radius:50%;object-fit:cover" alt=""/>'}if(isOpenNow())$("status-text").textContent=agenteName+" - En linea"}}).catch(function(){})}
+function updateAgentHeader(agEmail){if(!agEmail||agenteName)return;db.from("sek_agent_config").select("nombre,apellido,avatar_url").ilike("email",agEmail).maybeSingle().then(function(res){if(res.data&&res.data.nombre){agenteName=[res.data.nombre,res.data.apellido].filter(Boolean).join(" ");$("header-title").textContent=agenteName;if(res.data.avatar_url){$("header-avatar-el").innerHTML='<img src="'+res.data.avatar_url+'" style="width:100%;height:100%;border-radius:50%;object-fit:cover" alt=""/>'}refreshHeaderStatus()}}).catch(function(){})}
 
-function doReconnect(){var delay=Math.min(1e3*Math.pow(2,reconAttempts),3e4);reconAttempts++;connSt("reconnecting");setTimeout(function(){startRT();fetchRender()},delay)}
+function doReconnect(){if(reconTmr||!sid)return;var delay=Math.min(1e3*Math.pow(2,reconAttempts),3e4);reconAttempts++;rtState="reconnecting";refreshHeaderStatus();reconTmr=setTimeout(function(){reconTmr=null;startRT();fetchRender()},delay)}
 
 function emitTyping(){if(!presCh)return;presCh.track({role:"cliente",typing:true});clearTimeout(typTmr);typTmr=setTimeout(function(){if(presCh)presCh.track({role:"cliente",typing:false})},2e3)}
 
 /* ═══ LOCK CHAT (caso cerrado) ═══ */
 function lockChat(){casoCerrado=true;if(pollTmr){clearInterval(pollTmr);pollTmr=null}$("txt-msg").placeholder="Escribe para iniciar una nueva conversacion...";$("txt-msg").disabled=false;$("btn-send").disabled=false;$("btn-attach").disabled=false;$("btn-camera").disabled=false;$("btn-mic").disabled=false;if(!csatDone){csatDone=true;setTimeout(showCSAT,800)}}
-function showEscalado(){$("status-text").textContent="Conectando con un agente...";$("status-dot").className="status-dot reconnecting"}
+function showEscalado(){caseStatus="escalado";refreshHeaderStatus()}
 
 /* ═══ SHOW CHAT ═══ */
 function showChat(hc,ht,estado,cl){
@@ -659,8 +680,10 @@ function showChat(hc,ht,estado,cl){
   renderAll(hc,ht);
   if(sid)startRT();
   var e=String(estado||"").toLowerCase();
+  caseStatus=e;
   if(e==="cerrado"||e==="resuelto")lockChat();
   else if(e==="escalado")showEscalado();
+  else refreshHeaderStatus();
 }
 
 /* ═══ START SESSION (llamado tras login o registro) ═══ */
@@ -903,25 +926,21 @@ $("prof-pw-save").addEventListener("click",async function(){
   if(up.error){pmsg.textContent="Error: "+up.error.message;pmsg.style.color="var(--danger)";pmsg.style.display="block";$("prof-pw-save").disabled=false;$("prof-pw-save").textContent="Cambiar contraseña";return}
   pmsg.textContent="✓ Contraseña actualizada correctamente.";pmsg.style.color="var(--success)";pmsg.style.display="block";
   $("prof-pw-current").value="";$("prof-pw-new").value="";$("prof-pw-confirm").value="";
-  $("prof-pw-save").disabled=false;$("prof-pw-save").textContent="Cambiar contraseña";
-  haptic(20);
-  setTimeout(function(){pmsg.style.display="none"},4000);
-});
-
-$("prof-logout").addEventListener("click",function(){
   if(!confirm("¿Cerrar sesión? Volverá a la pantalla de inicio."))return;
   try{localStorage.removeItem("sek_session");localStorage.removeItem("sek_session_ver")}catch(e){}
   sid=null;clienteData=null;
   if(rtCh)try{db.removeChannel(rtCh)}catch(e){}
   if(presCh)try{db.removeChannel(presCh)}catch(e){}
   if(pollTmr){clearInterval(pollTmr);pollTmr=null}
+  if(reconTmr){clearTimeout(reconTmr);reconTmr=null}
+  agenteName=null;caseStatus="";rtState="online";
   closeProfile();
   $("chat-section").classList.remove("active");$("chat-section").style.display="none";
   $("form-section").style.display="flex";$("form-section").classList.remove("hiding");
   $("messages").innerHTML="";
   $("inp-cedula").value="";$("ced-res").textContent="";$("ced-ico").textContent="";
   $("inp-cedula").className="";$("btn-ced-next").disabled=true;
-  showStep("ced");lastHash="";
+  showStep("ced");lastHash="";$("header-title").textContent="Soporte Sekunet";$("header-avatar-el").innerHTML='<img src="iSoTienda3D.png" alt="Sekunet" style="width:100%;height:100%;object-fit:cover;border-radius:50%"/>';refreshHeaderStatus();
   haptic(20);
 });
 
