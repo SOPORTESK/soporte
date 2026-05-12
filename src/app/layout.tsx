@@ -10,7 +10,7 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "sw
 export const metadata: Metadata = {
   title: "Chat Sekunet - Atención al cliente",
   description: "Plataforma premium de atención al cliente con chat omnicanal",
-  icons: { icon: "/logoTienda3D.png", apple: "/iSoTiendaHD.png" },
+  icons: { icon: "/icon-app-512.png", apple: "/icon-app-512.png" },
   manifest: "/manifest-app.json",
   appleWebApp: {
     capable: true,
@@ -38,7 +38,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="es" suppressHydrationWarning className={inter.variable}>
       <head>
-        <link rel="apple-touch-icon" href="/iSoTiendaHD.png" />
+        <link rel="apple-touch-icon" href="/icon-app-512.png" />
       </head>
       <body className="font-sans">
         <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:bg-brand-700 focus:text-white focus:px-4 focus:py-2 focus:rounded-md">

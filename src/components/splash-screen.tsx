@@ -49,7 +49,7 @@ export function SplashScreen() {
 
       {/* Logo */}
       <div className="splash-logo-wrap">
-        <img src="/iSoTienda3D.png" alt="Sekunet" className="splash-logo-img" />
+        <img src="/icon-app-512.png" alt="Sekunet" className="splash-logo-img" />
       </div>
       <div className="splash-logo-reflection" />
 
