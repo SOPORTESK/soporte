@@ -300,7 +300,7 @@ VEREDICTO GENERAL: [evaluación en 2 líneas]
 *SEKA · Modo Administrador · Sekunet*`;
 
     // ── Llamar Gemini 3.1 Flash Lite como motor principal. Fallback: Gemini 1.5 Flash (misma key)
-    const recentHistory = (history || []).slice(-8);
+    const recentHistory = history.slice(-6);
     const baseMsg = message || (file ? `[Se adjuntó archivo: ${file.name}]` : "");
     // Si hay análisis del archivo, incluirlo en el mensaje para que SEKA lo vea y analice
     const userMsg = fileDescription
@@ -369,13 +369,13 @@ VEREDICTO GENERAL: [evaluación en 2 líneas]
 
     // Fallback: gemini-2.0-flash-lite
     if (!replyContent) {
-      console.log("[meta-chat] llamando fallback gemini-2.0-flash-lite...");
+      console.log("[meta-chat] llamando fallback gemini-1.5-flash (v1)...");
       const ctrl2 = new AbortController();
       const t2 = setTimeout(() => ctrl2.abort(), 25000);
       let fallbackRes: Response;
       try {
         fallbackRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
