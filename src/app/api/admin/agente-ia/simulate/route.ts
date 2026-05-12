@@ -62,7 +62,7 @@ FLUJO:
 
     // Llamar a Gemini 3.1 Flash-Lite (mismo modelo que usa la edge function en producción)
     const geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${geminiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
