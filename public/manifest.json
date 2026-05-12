@@ -1,13 +1,14 @@
 {
+  "id": "/widget-standalone.html",
   "name": "Soporte Sekunet",
   "short_name": "Sekunet",
   "description": "Soporte técnico y atención al cliente de Sekunet",
-  "start_url": "widget-standalone.html",
+  "start_url": "/widget-standalone.html",
   "display": "standalone",
   "background_color": "#070d1f",
   "theme_color": "#070d1f",
   "orientation": "portrait",
-  "scope": ".",
+  "scope": "/widget-standalone.html",
   "icons": [
     {
       "src": "iSoTiendaHD.png",

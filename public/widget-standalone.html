@@ -11,34 +11,9 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <meta name="apple-mobile-web-app-title" content="Soporte Sekunet"/>
   <meta name="mobile-web-app-capable" content="yes"/>
-  <link rel="manifest" id="dynamic-manifest"/>
+  <link rel="manifest" href="./manifest.json"/>
   <link rel="apple-touch-icon" href="./icon-premium-180.png"/>
   <link rel="icon" href="./icon-premium-192.png"/>
-  <script>
-    // Manifest dinámico para funcionar en cualquier dominio (GitHub, Vercel, etc.)
-    (function(){
-      var baseUrl = location.origin + location.pathname.replace(/\/[^\/]*$/, '/');
-      var manifest = {
-        id: "/widget-standalone.html?pwa=soporte-sekunet-widget",
-        name: "Soporte Sekunet",
-        short_name: "Sekunet",
-        description: "Soporte técnico y atención al cliente de Sekunet",
-        start_url: location.pathname,
-        display: "standalone",
-        background_color: "#070d1f",
-        theme_color: "#070d1f",
-        orientation: "portrait",
-        scope: baseUrl,
-        icons: [
-          { src: baseUrl + "iSoTiendaHD.png", sizes: "512x512", type: "image/png", purpose: "any" },
-          { src: baseUrl + "iSoTiendaHD.png", sizes: "192x192", type: "image/png", purpose: "any" }
-        ]
-      };
-      var blob = new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' });
-      var url = URL.createObjectURL(blob);
-      document.getElementById('dynamic-manifest').href = url;
-    })();
-  </script>
   <style>
 :root{--bg:#fff;--bg2:#f8fafc;--bg-chat:#f1f5f9;--text:#0f172a;--text2:#475569;--text3:#94a3b8;--border:#e2e8f0;--primary:#2563eb;--primary-dk:#1e3a8a;--grad:linear-gradient(135deg,#1e3a8a 0%,#2563eb 60%,#3b82f6 100%);--grad-btn:linear-gradient(135deg,#1e3a8a,#2563eb);--bubble-ag:#fff;--bubble-ag-b:#e2e8f0;--success:#16a34a;--danger:#dc2626;--shadow:0 8px 60px rgba(0,0,0,.15);--shsm:0 1px 3px rgba(0,0,0,.08);--r:12px;--rl:20px;--sab:env(safe-area-inset-bottom,0px);--sat:env(safe-area-inset-top,0px)}
 @media(prefers-color-scheme:dark){:root{--bg:#0f172a;--bg2:#1e293b;--bg-chat:#0c1322;--text:#f1f5f9;--text2:#94a3b8;--text3:#64748b;--border:#334155;--bubble-ag:#1e293b;--bubble-ag-b:#334155;--shadow:0 8px 60px rgba(0,0,0,.5);--shsm:0 1px 3px rgba(0,0,0,.3)}}
