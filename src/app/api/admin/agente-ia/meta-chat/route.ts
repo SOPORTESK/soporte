@@ -15,21 +15,12 @@ const PROTECTED_MARKERS = [
 ];
 
 function validateBlockEdit(originalPrompt: string, proposedPrompt: string): { valid: boolean; reason?: string } {
-  // Detectar si el nuevo prompt es más corto que el 70% del original → probable sustitución completa
-  const originalLen = originalPrompt.trim().length;
-  const proposedLen = proposedPrompt.trim().length;
-  if (proposedLen < originalLen * 0.7) {
-    return {
-      valid: false,
-      reason: `El prompt propuesto es demasiado corto (${proposedLen} vs ${originalLen} caracteres del original). Solo se permiten ediciones por bloques, no sustituciones completas. Solo el superadmin puede reemplazar el prompt completo.`,
-    };
-  }
-  // Verificar que ningún marcador protegido fue eliminado
+  // Solo verificar que ningún marcador protegido fue eliminado — las mejoras pueden acortar o alargar el prompt
   for (const marker of PROTECTED_MARKERS) {
     if (originalPrompt.includes(marker) && !proposedPrompt.includes(marker)) {
       return {
         valid: false,
-        reason: `La edición eliminaría el bloque protegido "${marker}". Modifique solo las secciones específicas, no elimine bloques clave del prompt.`,
+        reason: `La edición eliminaría el bloque protegido "${marker}". Este marcador es esencial para el funcionamiento de SEKA y no puede eliminarse.`,
       };
     }
   }
@@ -309,15 +300,27 @@ VEREDICTO GENERAL: [evaluación en 2 líneas]
       ? `${baseMsg}\n\n--- CONTENIDO DEL ARCHIVO (${file?.name}) ---\n${fileDescription}\n--- FIN DEL ARCHIVO ---`
       : baseMsg;
 
-    // Construir contenidos para Gemini
+    // Construir contenidos para Gemini (sin roles consecutivos duplicados)
     const geminiContents: { role: string; parts: { text: string }[] }[] = [];
     for (const h of recentHistory) {
-      geminiContents.push({
-        role: h.role === "assistant" ? "model" : "user",
-        parts: [{ text: h.content }],
-      });
+      const role = h.role === "assistant" ? "model" : "user";
+      const last = geminiContents[geminiContents.length - 1];
+      if (last && last.role === role) {
+        // Fusionar en el mismo turno en lugar de duplicar
+        last.parts[0].text += "\n" + h.content;
+      } else {
+        geminiContents.push({ role, parts: [{ text: h.content }] });
+      }
     }
-    geminiContents.push({ role: "user", parts: [{ text: userMsg }] });
+    // El último turno debe ser siempre "user"
+    const lastTurn = geminiContents[geminiContents.length - 1];
+    if (lastTurn && lastTurn.role === "user") {
+      lastTurn.parts[0].text += "\n" + userMsg;
+    } else {
+      geminiContents.push({ role: "user", parts: [{ text: userMsg }] });
+    }
+    // Si empieza con "model", descartar ese turno
+    if (geminiContents[0]?.role === "model") geminiContents.shift();
 
     let replyContent = "";
 
