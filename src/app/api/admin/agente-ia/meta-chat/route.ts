@@ -353,7 +353,7 @@ VEREDICTO GENERAL: [evaluación en 2 líneas]
     // Fallback: Gemini 1.5 Flash (misma API key, modelo anterior estable)
     if (!replyContent) {
       const fallbackRes = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${geminiKey}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
