@@ -233,9 +233,15 @@ export function InboxClient({
 
   const selectCase = React.useCallback((id: string) => {
     setSelectedId(id);
-    const url = new URL(window.location.href);
-    url.searchParams.set("c", id);
-    router.replace(url.pathname + url.search, { scroll: false });
+    // En modo PWA standalone no persistir el chat en la URL para que al reabrir
+    // la app siempre muestre la bandeja y no el último chat visitado
+    const isPwa = window.matchMedia("(display-mode: standalone)").matches ||
+      (window.navigator as any).standalone === true;
+    if (!isPwa) {
+      const url = new URL(window.location.href);
+      url.searchParams.set("c", id);
+      router.replace(url.pathname + url.search, { scroll: false });
+    }
   }, [router]);
 
   React.useEffect(() => {
