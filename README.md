@@ -71,6 +71,12 @@ NEXT_PUBLIC_SUPABASE_URL=https://kzcyxeracvfxynddyjld.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon_key>
 SUPABASE_SERVICE_ROLE_KEY=<service_role_key>
 NEXT_PUBLIC_SITE_URL=http://localhost:3000
+
+# IA - Requerido para el agente IA
+GEMINI_API_KEY=<tu_gemini_api_key>
+
+# IA - Opcional (fallback)
+GROQ_API_KEY=<tu_groq_api_key>
 ```
 
 ---

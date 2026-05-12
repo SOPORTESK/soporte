@@ -1,0 +1,22 @@
+# INSTRUCCIONES DE CONFIGURACIÓN
+# Copia el contenido de abajo y guárdalo como archivo .env.local en la raíz del proyecto
+# (El archivo .env.local está en .gitignore por seguridad, por eso se crea manualmente)
+
+# Supabase (ya configurado en tu .env.example)
+NEXT_PUBLIC_SUPABASE_URL=https://kzcyxeracvfxynddyjld.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt6Y3l4ZXJhY3ZmeHluZGR5amxkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDY2MzI3NzUsImV4cCI6MjA2MjIwODc3NX0.l4yhwNFARdJi97y2A09Y2RsaYLd6oLz3a2Z_aX-jfq0
+SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt6Y3l4ZXJhY3ZmeHluZGR5amxkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0NjYzMjc3NSwiZXhwIjoyMDYyMjA4Nzc1fQ.-s6WmB3Zyq69yNr-O1SrEkR_ryptl3-yPj3jBfPXZso
+
+# URL del sitio
+NEXT_PUBLIC_SITE_URL=http://localhost:3000
+
+# IA - Google Gemini (REQUERIDO - tu clave proporcionada)
+GEMINI_API_KEY=AIzaSyAHamKcfT-MrJfwiLFQF9z0r_efTW76-2k
+
+# IA - Groq (opcional, fallback)
+GROQ_API_KEY=gsk_tu_clave_aqui
+
+# WhatsApp (opcional - se configura desde la UI)
+WHATSAPP_VERIFY_TOKEN=tu_token_verificacion
+WHATSAPP_ACCESS_TOKEN=tu_access_token_meta
+WHATSAPP_PHONE_NUMBER_ID=tu_phone_number_id
