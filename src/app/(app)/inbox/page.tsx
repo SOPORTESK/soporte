@@ -12,7 +12,7 @@ export default async function InboxPage({ searchParams }: { searchParams: { c?: 
     .limit(100);
   if (error) console.error("[inbox] sek_cases error:", error.message);
 
-  const selectedId = searchParams.c || (cases?.[0]?.id ? String(cases[0].id) : null);
+  const selectedId = searchParams.c ?? null;
 
   return (
     <InboxClient
