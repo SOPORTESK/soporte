@@ -503,7 +503,7 @@ export function MetaAgentChat({ initialPrompt, isSuperadmin }: { initialPrompt: 
             <div>
               <p className="text-sm font-bold leading-tight">SEKA — {mode === "train" ? "Modo Admin" : "Simulación"}</p>
               <p className="text-[11px] text-muted-foreground">
-                {mode === "train" ? "Chat de Entrenamiento · Gemini 2.5 Flash" : "Cliente vs Agente · Gemini 1.5 Flash"}
+                {mode === "train" ? "Chat de Entrenamiento · Gemini 2.5 Flash" : "Cliente vs Agente · Gemini 3.1 Flash Lite"}
               </p>
             </div>
           </div>

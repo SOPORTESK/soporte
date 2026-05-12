@@ -31,7 +31,7 @@ export default async function AdminAgenteIAPage() {
 
   const capabilities = [
     { icon: FileText, title: "RAG sobre Manuales", desc: "Búsqueda semántica con embeddings", color: "violet" },
-    { icon: Globe, title: "Búsqueda Web", desc: "Gemini 2.5 Flash · Info en tiempo real", color: "blue" },
+    { icon: Globe, title: "Búsqueda Web", desc: "Gemini 3.1 Flash Lite · Info en tiempo real", color: "blue" },
     { icon: Eye, title: "Visión de Archivos", desc: "Analiza imágenes, video y documentos", color: "cyan" },
     { icon: Package, title: "Inventario Inteligente", desc: "Búsqueda fuzzy en cartera Sekunet", color: "emerald" },
     { icon: ArrowUpRight, title: "Escalación N2", desc: "Detección automática y etiquetado", color: "amber" },
@@ -68,7 +68,7 @@ export default async function AdminAgenteIAPage() {
             Agente IA — SEKA
           </h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            Sistema Experto de Conocimiento y Atención · Gemini 2.5 Flash con RAG sobre manuales
+            Sistema Experto de Conocimiento y Atención · Gemini 3.1 Flash Lite con RAG sobre manuales
           </p>
         </div>
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-xs font-semibold w-fit">
@@ -125,7 +125,7 @@ export default async function AdminAgenteIAPage() {
           <div className="flex items-start justify-between relative">
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">Motor IA</p>
-              <p className="text-lg font-black mt-2 leading-tight">Gemini<br/>2.5 Flash</p>
+              <p className="text-lg font-black mt-2 leading-tight">Gemini<br/>3.1 Flash Lite</p>
               <p className="text-xs text-muted-foreground mt-1.5 flex items-center gap-1">
                 <Zap className="h-3 w-3 text-indigo-500" /> Google AI Studio
               </p>
@@ -142,7 +142,7 @@ export default async function AdminAgenteIAPage() {
           <div className="flex items-start justify-between relative">
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">Visión</p>
-              <p className="text-lg font-black mt-2 leading-tight">Gemini<br/>2.5 Flash</p>
+              <p className="text-lg font-black mt-2 leading-tight">Gemini<br/>3.1 Flash Lite</p>
               <p className="text-xs text-muted-foreground mt-1.5 flex items-center gap-1">
                 <Eye className="h-3 w-3 text-cyan-500" /> Imágenes · Archivos
               </p>
