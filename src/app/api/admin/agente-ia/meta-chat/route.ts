@@ -96,7 +96,7 @@ export async function POST(req: NextRequest) {
         }
 
         const geminiRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -325,7 +325,7 @@ VEREDICTO GENERAL: [evaluación en 2 líneas]
 
     if (geminiKey) {
       const geminiRes = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -345,7 +345,7 @@ VEREDICTO GENERAL: [evaluación en 2 líneas]
         try {
           const errJson = JSON.parse(errText);
           if (geminiRes.status === 429 || errJson?.error?.message?.includes("rate limit") || errJson?.error?.code?.includes("429")) {
-            errorMsg = "Se ha alcanzado el límite de uso diario de Gemini (1M tokens/día para 2.5 Flash). Intenta en unos minutos o contacta al administrador.";
+            errorMsg = "Se ha alcanzado el límite de uso de Gemini (2.0 Flash). Intenta en unos minutos o contacta al administrador.";
           }
         } catch { /* usar mensaje genérico */ }
         throw new Error(errorMsg);
