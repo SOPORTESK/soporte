@@ -1,0 +1,17 @@
+PLANTILLAS/
+node_modules
+.next
+out
+.env
+.env.local
+.env*.local
+.DS_Store
+*.log
+.vercel
+.turbo
+.idea
+.vscode
+supabase/.branches
+supabase/.temp
+*.tsbuildinfo
+next-env.d.ts

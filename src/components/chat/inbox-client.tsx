@@ -1,0 +1,360 @@
+"use client";
+import * as React from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
+import type { SekCase, SekHistEntry } from "@/lib/types";
+import { ConversationList } from "./conversation-list";
+import { ChatView } from "./chat-view";
+import { Inbox as InboxIcon } from "lucide-react";
+import { toast } from "sonner";
+import { clienteInfo, asText, customerKey } from "@/lib/utils";
+
+/* ── Filtrar casos según el tipo de contenedor ── */
+function filterCasesByContainer(cases: SekCase[], containerType: string | undefined, currentAgentEmail: string | null, currentAgentName: string | null): SekCase[] {
+  if (!containerType || containerType === "inbox") return cases;
+  
+  if (containerType === "soporte-avanzado") {
+    return cases.filter(c => {
+      const tags = Array.isArray(c.tags) ? c.tags : [];
+      return tags.some((t: string) => t.toLowerCase().includes("n2"));
+    });
+  }
+  
+  if (containerType === "mi-gestion") {
+    return cases.filter(c => {
+      const histtecnico = Array.isArray(c.histtecnico) ? c.histtecnico : [];
+      return histtecnico.some((e: any) => {
+        const author = String(e?.author || "").toLowerCase();
+        // Buscar por email o por nombre
+        const emailMatch = currentAgentEmail && (author === currentAgentEmail.toLowerCase() || author.includes(currentAgentEmail.toLowerCase()));
+        const nameMatch = currentAgentName && (author.includes(currentAgentName.toLowerCase()));
+        return emailMatch || nameMatch;
+      });
+    });
+  }
+  
+  return cases;
+}
+
+/* ── Agrupar casos por cliente (un solo chat por cliente, varios casos dentro) ── */
+function mergeGroups(rawCases: SekCase[]): SekCase[] {
+  const groups = new Map<string, SekCase[]>();
+  for (const c of rawCases) {
+    const key = customerKey(c);
+    const arr = groups.get(key);
+    if (arr) arr.push(c); else groups.set(key, [c]);
+  }
+  const out: SekCase[] = [];
+  groups.forEach((items, key) => {
+    /* Ordenar casos por created_at ascendente para historial cronológico */
+    const sorted = [...items].sort((a, b) =>
+      new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    );
+    /* Caso "objetivo" para escrituras: el más reciente abierto, o si no hay, el último */
+    const openCases = sorted.filter(c => {
+      const e = String(c.estado || "").toLowerCase();
+      return e !== "cerrado" && e !== "resuelto";
+    });
+    const target = openCases[openCases.length - 1] ?? sorted[sorted.length - 1];
+    /* Combinar historiales con marcadores de inicio/fin de cada caso */
+    const histcliente: SekHistEntry[] = [];
+    const histtecnico: SekHistEntry[] = [];
+    sorted.forEach((c, idx) => {
+      const hc = Array.isArray(c.histcliente) ? c.histcliente : [];
+      const ht = Array.isArray(c.histtecnico) ? c.histtecnico : [];
+      if (idx > 0) {
+        /* Separador entre casos */
+        histtecnico.push({
+          role: "separator",
+          time: c.created_at,
+          content: `── Nueva conversación · ${new Date(c.created_at).toLocaleDateString("es-CR", { day: "2-digit", month: "short", year: "numeric" })} ──`,
+          author: "",
+          _separator: true,
+        } as SekHistEntry);
+      }
+      hc.forEach(e => histcliente.push(e));
+      ht.forEach(e => histtecnico.push(e));
+    });
+    /* Estado agregado: abierto si hay alguno abierto, si no, el del último */
+    const anyOpen = openCases.length > 0;
+    /* Prioridad agregada: máxima */
+    const prioOrder: Record<string, number> = { baja: 1, media: 2, alta: 3, urgente: 4 };
+    const maxPrio = sorted.reduce<string | null>((acc, c) => {
+      const p = String(c.prioridad || "").toLowerCase();
+      if (!acc) return p || null;
+      return (prioOrder[p] ?? 0) > (prioOrder[acc] ?? 0) ? p : acc;
+    }, null);
+
+    const ratings = sorted
+      .map(c => {
+        try {
+          const clientObj = typeof c.cliente === "string" ? JSON.parse(c.cliente) : c.cliente;
+          return Number(clientObj?.calificacion_agente);
+        } catch (e) { return NaN; }
+      })
+      .filter(r => !isNaN(r) && r > 0);
+    const avgRating = ratings.length > 0 ? (ratings.reduce((a, b) => a + b, 0) / ratings.length) : null;
+
+    const last = target;
+    const synthetic: SekCase = {
+      ...last,
+      id: key,
+      histcliente,
+      histtecnico,
+      estado: (anyOpen ? (target.estado ?? "abierto") : (last.estado ?? "cerrado")) as SekCase["estado"],
+      prioridad: (maxPrio ?? last.prioridad) as SekCase["prioridad"],
+      unread_count: sorted.reduce((s, c) => s + (c.unread_count || 0), 0),
+      _group: {
+        caseIds: sorted.map(c => c.id),
+        targetCaseId: target.id,
+        targetHisttecnico: Array.isArray(target.histtecnico) ? target.histtecnico : [],
+        targetEstado: target.estado ?? null,
+        totalCases: sorted.length,
+        openCases: openCases.length,
+        avgRating,
+      },
+    };
+    out.push(synthetic);
+  });
+  /* Ordenar grupos por última actividad */
+  out.sort((a, b) => {
+    const tA = new Date(a.last_message_at || a.updated_at || a.created_at).getTime();
+    const tB = new Date(b.last_message_at || b.updated_at || b.created_at).getTime();
+    return tB - tA;
+  });
+  return out;
+}
+
+const BASE_TITLE = "Sekunet Chat";
+
+function playNotif() {
+  try {
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.setValueAtTime(660, ctx.currentTime + 0.1);
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.35);
+  } catch {}
+}
+
+function playN2Alert() {
+  try {
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    // Tres tonos ascendentes para alerta importante
+    [523, 659, 784].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.frequency.setValueAtTime(freq, ctx.currentTime + i * 0.15);
+      gain.gain.setValueAtTime(0.4, ctx.currentTime + i * 0.15);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.15 + 0.3);
+      osc.start(ctx.currentTime + i * 0.15);
+      osc.stop(ctx.currentTime + i * 0.15 + 0.3);
+    });
+  } catch {}
+}
+
+export function InboxClient({
+  initialCases, initialSelectedId, containerType
+}: { initialCases: SekCase[]; initialSelectedId: string | null; containerType?: "inbox" | "soporte-avanzado" | "mi-gestion" }) {
+  const router = useRouter();
+  const params = useSearchParams();
+  const [cases, setCases] = React.useState<SekCase[]>(initialCases);
+  const [selectedId, setSelectedId] = React.useState<string | null>(initialSelectedId);
+  const [unreadTotal, setUnreadTotal] = React.useState(0);
+  const [agentEmail, setAgentEmail] = React.useState<string | null>(null);
+  const [agentName, setAgentName] = React.useState<string | null>(null);
+  const supabase = React.useMemo(() => createClient(), []);
+  const prevCasesRef = React.useRef<SekCase[]>(initialCases);
+
+  /* Obtener email y nombre del agente actual para filtrar Mi Gestion */
+  React.useEffect(() => {
+    supabase.auth.getUser().then(async ({ data }) => {
+      if (data?.user?.email) {
+        setAgentEmail(data.user.email);
+        // Buscar nombre del agente en config
+        const { data: agent } = await supabase
+          .from("sek_agent_config")
+          .select("nombre,apellido")
+          .ilike("email", data.user.email)
+          .maybeSingle();
+        if (agent) {
+          const fullName = [agent.nombre, agent.apellido].filter(Boolean).join(" ");
+          setAgentName(fullName);
+          console.log(`[Mi Gestion] Agente identificado: ${fullName}`);
+        }
+      }
+    });
+  }, [supabase]);
+
+  /* Casos filtrados según containerType */
+  const filteredCases = React.useMemo(() => {
+    // Si es Mi Gestion y aún no tenemos datos, confiar en el filtro del servidor (initialCases)
+    if (containerType === "mi-gestion" && !agentName && !agentEmail && cases === initialCases) {
+      return cases;
+    }
+    return filterCasesByContainer(cases, containerType, agentEmail, agentName);
+  }, [cases, containerType, agentEmail, agentName, initialCases]);
+
+  /* Casos agrupados por cliente (un solo chat por cliente, varios casos dentro) */
+  const mergedCases = React.useMemo(() => mergeGroups(filteredCases), [filteredCases]);
+  const prevMergedRef = React.useRef<SekCase[]>(mergedCases);
+
+  React.useEffect(() => {
+    const c = params.get("c");
+    if (c) setSelectedId(c);
+  }, [params]);
+
+  React.useEffect(() => {
+    if (unreadTotal > 0) {
+      document.title = `(${unreadTotal}) ${BASE_TITLE}`;
+    } else {
+      document.title = BASE_TITLE;
+    }
+  }, [unreadTotal]);
+
+  const selectCase = React.useCallback((id: string) => {
+    setSelectedId(id);
+    const url = new URL(window.location.href);
+    url.searchParams.set("c", id);
+    router.replace(url.pathname + url.search, { scroll: false });
+  }, [router]);
+
+  React.useEffect(() => {
+    const channel = supabase
+      .channel("cases-list")
+      .on("postgres_changes", { event: "*", schema: "public", table: "sek_cases" },
+        async (payload) => {
+          const { data } = await supabase
+            .from("sek_cases").select("*")
+            .order("created_at", { ascending: false })
+            .limit(100);
+          if (!data) return;
+          const newCases = data as SekCase[];
+          const filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail, agentName);
+          setCases(filteredNewCases);
+
+          /* Detectar mensajes nuevos comparando los GRUPOS de cliente (filtrados) */
+          const newMerged = mergeGroups(filteredNewCases);
+          const changed = newMerged.find(ng => {
+            if (String(ng.id) === selectedId) return false;
+            const prev = prevMergedRef.current.find(p => String(p.id) === String(ng.id));
+            const prevLen = (Array.isArray(prev?.histcliente) ? prev!.histcliente.length : 0);
+            const newLen = (Array.isArray(ng.histcliente) ? ng.histcliente.length : 0);
+            return newLen > prevLen;
+          });
+
+          if (changed) {
+            playNotif();
+            const ci = clienteInfo(changed.cliente);
+            const name = ci.nombre || ci.telefono || asText(changed.title) || "Cliente";
+            const hist = Array.isArray(changed.histcliente) ? changed.histcliente : [];
+            const last = hist[hist.length - 1];
+            toast.info(`💬 Nuevo mensaje de ${name}`, {
+              description: asText(last?.content).slice(0, 80),
+              action: { label: "Ver", onClick: () => selectCase(String(changed.id)) }
+            });
+            setUnreadTotal(p => p + 1);
+          }
+
+          /* 🔔 Alerta para caso escalado por IA */
+          if (payload.eventType === "UPDATE") {
+            const updCase = payload.new as SekCase;
+            const oldCase2 = payload.old as SekCase;
+            if (String(updCase?.estado).toLowerCase() === "escalado" && String(oldCase2?.estado).toLowerCase() !== "escalado") {
+              playNotif();
+              const ci3 = clienteInfo(updCase.cliente);
+              const name3 = ci3.nombre || ci3.telefono || asText(updCase.title) || "Cliente";
+              toast.info(`Caso escalado: ${name3}`, {
+                description: (updCase.cliente as any)?.equipo ? `Equipo: ${(updCase.cliente as any).equipo}` : "Esperando agente",
+                duration: 10000,
+                action: { label: "Atender", onClick: () => selectCase(String(updCase.id)) }
+              });
+            }
+          }
+
+          /* 🔔 Alerta especial para Soporte Avanzado: nuevo caso con etiqueta n2 */
+          if (containerType === "soporte-avanzado" && payload.eventType === "UPDATE") {
+            const newCase = payload.new as SekCase;
+            const oldCase = payload.old as SekCase;
+            const newTags = Array.isArray(newCase?.tags) ? newCase.tags : [];
+            const oldTags = Array.isArray(oldCase?.tags) ? oldCase.tags : [];
+            
+            // Verificar si se agregó etiqueta n2
+            const hasN2Now = newTags.some((t: string) => t.toLowerCase() === "n2" || t.toLowerCase() === "soporte-n2");
+            const hadN2Before = oldTags.some((t: string) => t.toLowerCase() === "n2" || t.toLowerCase() === "soporte-n2");
+            
+            if (hasN2Now && !hadN2Before) {
+              // Alerta visual y sonora especial
+              playN2Alert();
+              const ci2 = clienteInfo(newCase.cliente);
+              const name2 = ci2.nombre || ci2.telefono || asText(newCase.title) || "Cliente";
+              
+              toast.success("🔧 Nueva solicitud de soporte avanzado", {
+                description: `${name2} ha sido etiquetado como N2`,
+                duration: 8000,
+                action: { 
+                  label: "Ver caso", 
+                  onClick: () => selectCase(String(newCase.id)) 
+                }
+              });
+            }
+          }
+
+          prevCasesRef.current = filteredNewCases;
+          prevMergedRef.current = newMerged;
+        })
+      .subscribe();
+    /* Polling de respaldo cada 5s */
+    const poll = setInterval(async () => {
+      const { data } = await supabase
+        .from("sek_cases").select("*")
+        .order("created_at", { ascending: false })
+        .limit(100);
+      if (!data) return;
+      const newCases = data as SekCase[];
+      const filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail, agentName);
+      const prevTotal = prevCasesRef.current.length;
+      const prevMsgs = prevCasesRef.current.reduce((s, c) => s + (c.histcliente?.length || 0), 0);
+      const newTotal = filteredNewCases.length;
+      const newMsgs = filteredNewCases.reduce((s, c) => s + (c.histcliente?.length || 0), 0);
+      if (newTotal !== prevTotal || newMsgs !== prevMsgs) {
+        setCases(filteredNewCases);
+        prevCasesRef.current = filteredNewCases;
+        prevMergedRef.current = mergeGroups(filteredNewCases);
+      }
+    }, 5000);
+
+    return () => { clearInterval(poll); supabase.removeChannel(channel); };
+  }, [supabase, selectedId, containerType, agentEmail, agentName, selectCase]);
+
+  const selected =
+    mergedCases.find(c => String(c.id) === selectedId)
+    || mergedCases.find(c => c._group?.caseIds.some(cid => String(cid) === selectedId))
+    || null;
+
+  return (
+    <div className="grid flex-1 grid-cols-1 md:grid-cols-[340px_1fr] overflow-hidden">
+      <ConversationList cases={mergedCases} selectedId={selectedId} onSelect={selectCase} />
+      <div className={`min-h-0 ${selected ? "flex" : "hidden md:flex"} flex-col bg-background`}>
+        {selected ? (
+          <ChatView sekCase={selected} onBack={() => setSelectedId(null)} />
+        ) : (
+          <div className="flex-1 grid place-items-center text-center p-8">
+            <div className="max-w-sm">
+              <div className="mx-auto h-16 w-16 rounded-full bg-brand-100 dark:bg-brand-900/40 grid place-items-center text-brand-700 dark:text-brand-300 mb-4">
+                <InboxIcon className="h-8 w-8" />
+              </div>
+              <h2 className="text-xl font-semibold">Selecciona una conversación</h2>
+              <p className="text-muted-foreground mt-2">Elige un caso de la lista para comenzar a responder.</p>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

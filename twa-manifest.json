@@ -1,0 +1,36 @@
+{
+  "packageId": "com.sekunet.soporte",
+  "host": "kachat.vercel.app",
+  "name": "Soporte Sekunet",
+  "launcherName": "Sekunet",
+  "display": "standalone",
+  "themeColor": "#070d1f",
+  "navigationColor": "#070d1f",
+  "backgroundColor": "#070d1f",
+  "enableNotifications": true,
+  "shortcuts": [],
+  "iconPath": "public/iSoTiendaHD.png",
+  "maskableIconPath": "public/iSoTiendaHD.png",
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": {
+    "path": "",
+    "alias": ""
+  },
+  "appVersion": "1.0.0",
+  "appVersionCode": 1,
+  "fullScopeUrl": "https://kachat.vercel.app/",
+  "minSdkVersion": 21,
+  "orientation": "portrait",
+  "enableSiteSettingsShortcut": true,
+  "features": {
+    "playBilling": {
+      "enabled": false
+    },
+    "locationDelegation": {
+      "enabled": true
+    }
+  },
+  "alphaDependencies": {
+    "enabled": false
+  }
+}

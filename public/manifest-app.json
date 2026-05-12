@@ -1,0 +1,19 @@
+{
+  "id": "?source=chat-sekunet-agentes",
+  "name": "Chat Sekunet - Panel de Agentes",
+  "short_name": "Chat Sekunet",
+  "description": "Panel de soporte técnico especializado de Sekunet para agentes",
+  "start_url": "/inbox?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#070d1f",
+  "theme_color": "#070d1f",
+  "lang": "es",
+  "icons": [
+    { "src": "/iSoTiendaHD.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/iSoTiendaHD.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/iSoTienda3D.png", "sizes": "180x180", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "categories": ["business", "productivity", "utilities"]
+}

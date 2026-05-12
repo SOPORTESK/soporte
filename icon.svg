@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <filter id="shadow">
+      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#000" flood-opacity="0.35"/>
+    </filter>
+    <linearGradient id="gOrange" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fbbf24"/>
+      <stop offset="100%" stop-color="#ea580c"/>
+    </linearGradient>
+    <linearGradient id="gBlue" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#1e3a8a"/>
+    </linearGradient>
+    <linearGradient id="gDark" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e40af"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Cubo izquierda (cara frontal naranja) -->
+  <polygon points="256,160 156,216 156,328 256,384 256,272" fill="url(#gOrange)" filter="url(#shadow)"/>
+  <!-- Cubo derecha (cara lateral azul) -->
+  <polygon points="256,160 356,216 356,328 256,384 256,272" fill="url(#gBlue)"/>
+  <!-- Cubo top -->
+  <polygon points="256,100 356,156 256,212 156,156" fill="url(#gOrange)" opacity="0.85"/>
+
+  <!-- Ondas wifi (izquierda arriba) -->
+  <g fill="none" stroke="#fbbf24" stroke-linecap="round">
+    <path d="M180,210 Q156,186 156,156" stroke-width="14" opacity="0.9"/>
+    <path d="M200,230 Q156,196 156,140" stroke-width="12" opacity="0.7"/>
+    <path d="M165,245 Q110,205 110,156" stroke-width="10" opacity="0.5"/>
+  </g>
+</svg>

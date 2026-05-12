@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Sekunet Chat Launcher</title>
+<style>
+/* ═══ LAUNCHER BUBBLE ═══ */
+#sek-launcher{
+  position:fixed;bottom:24px;right:24px;z-index:999999;
+  width:64px;height:64px;border-radius:50%;
+  background:linear-gradient(135deg,#f97316,#ea580c);
+  box-shadow:0 4px 20px rgba(249,115,22,.45),0 0 0 0 rgba(249,115,22,.4);
+  cursor:pointer;display:flex;align-items:center;justify-content:center;
+  transition:transform .25s cubic-bezier(.4,0,.2,1),box-shadow .25s;
+  animation:sek-pulse 2.5s ease-in-out infinite;
+  border:none;outline:none;
+}
+#sek-launcher:hover{transform:scale(1.1);box-shadow:0 6px 28px rgba(249,115,22,.55)}
+#sek-launcher:active{transform:scale(.95)}
+#sek-launcher.open{animation:none;background:linear-gradient(135deg,#64748b,#475569)}
+
+@keyframes sek-pulse{
+  0%,100%{box-shadow:0 4px 20px rgba(249,115,22,.45),0 0 0 0 rgba(249,115,22,.4)}
+  50%{box-shadow:0 4px 20px rgba(249,115,22,.45),0 0 0 14px rgba(249,115,22,0)}
+}
+
+/* Icons */
+#sek-launcher .ico-chat,#sek-launcher .ico-close{
+  width:28px;height:28px;fill:#fff;transition:opacity .2s,transform .2s;position:absolute;
+}
+#sek-launcher .ico-close{opacity:0;transform:rotate(-90deg) scale(.5)}
+#sek-launcher.open .ico-chat{opacity:0;transform:rotate(90deg) scale(.5)}
+#sek-launcher.open .ico-close{opacity:1;transform:rotate(0) scale(1)}
+
+/* Badge */
+#sek-badge{
+  position:absolute;top:-4px;right:-4px;
+  min-width:22px;height:22px;border-radius:11px;
+  background:#ef4444;color:#fff;font:700 12px/22px system-ui;
+  text-align:center;padding:0 6px;
+  display:none;box-shadow:0 2px 6px rgba(0,0,0,.3);
+  animation:sek-badge-in .3s cubic-bezier(.4,0,.2,1);
+}
+@keyframes sek-badge-in{from{transform:scale(0)}to{transform:scale(1)}}
+
+/* Tooltip */
+#sek-tooltip{
+  position:absolute;bottom:76px;right:0;
+  background:#1e293b;color:#f1f5f9;font:500 14px/1.4 system-ui;
+  padding:10px 16px;border-radius:12px;white-space:nowrap;
+  box-shadow:0 8px 24px rgba(0,0,0,.2);
+  opacity:0;transform:translateY(8px);
+  transition:opacity .3s,transform .3s;pointer-events:none;
+}
+#sek-tooltip::after{
+  content:'';position:absolute;bottom:-6px;right:24px;
+  border-left:6px solid transparent;border-right:6px solid transparent;
+  border-top:6px solid #1e293b;
+}
+#sek-tooltip.vis{opacity:1;transform:translateY(0)}
+
+/* ═══ IFRAME CONTAINER ═══ */
+#sek-frame-wrap{
+  position:fixed;bottom:100px;right:24px;z-index:999998;
+  width:400px;height:600px;max-width:calc(100vw - 32px);max-height:calc(100vh - 120px);
+  border-radius:16px;overflow:hidden;
+  box-shadow:0 12px 48px rgba(0,0,0,.2),0 0 0 1px rgba(0,0,0,.08);
+  opacity:0;transform:translateY(20px) scale(.95);
+  transition:opacity .3s cubic-bezier(.4,0,.2,1),transform .3s cubic-bezier(.4,0,.2,1);
+  pointer-events:none;
+}
+#sek-frame-wrap.open{opacity:1;transform:translateY(0) scale(1);pointer-events:auto}
+#sek-frame-wrap iframe{width:100%;height:100%;border:none;border-radius:16px}
+
+/* Mobile fullscreen */
+@media(max-width:480px){
+  #sek-frame-wrap{
+    bottom:0;right:0;left:0;top:0;
+    width:100%;height:100%;max-width:100%;max-height:100%;
+    border-radius:0;
+  }
+  #sek-frame-wrap iframe{border-radius:0}
+  #sek-launcher{bottom:16px;right:16px;width:56px;height:56px}
+}
+</style>
+</head>
+<body>
+
+<!-- Tooltip -->
+<div id="sek-tooltip">💬 ¿Necesita ayuda?</div>
+
+<!-- Launcher button -->
+<button id="sek-launcher" aria-label="Abrir chat de soporte">
+  <svg class="ico-chat" viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.17L4 17.17V4h16v12z"/><path d="M7 9h2v2H7zm4 0h2v2h-2zm4 0h2v2h-2z"/></svg>
+  <svg class="ico-close" viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+  <span id="sek-badge">0</span>
+</button>
+
+<!-- Chat iframe -->
+<div id="sek-frame-wrap">
+  <iframe id="sek-frame" src="" allow="microphone;camera;clipboard-write" loading="lazy"></iframe>
+</div>
+
+<script>
+(function(){
+  var WIDGET_URL = "https://soportesk.github.io/soporte/widget-standalone.html";
+  var btn = document.getElementById("sek-launcher");
+  var wrap = document.getElementById("sek-frame-wrap");
+  var frame = document.getElementById("sek-frame");
+  var badge = document.getElementById("sek-badge");
+  var tooltip = document.getElementById("sek-tooltip");
+  var isOpen = false;
+  var loaded = false;
+  var unread = 0;
+
+  // Show tooltip after 3s
+  setTimeout(function(){ tooltip.classList.add("vis"); }, 3000);
+  // Hide tooltip after 10s
+  setTimeout(function(){ tooltip.classList.remove("vis"); }, 10000);
+
+  btn.addEventListener("click", function(){
+    isOpen = !isOpen;
+    if(isOpen){
+      tooltip.classList.remove("vis");
+      if(!loaded){ frame.src = WIDGET_URL; loaded = true; }
+      wrap.classList.add("open");
+      btn.classList.add("open");
+      unread = 0;
+      badge.style.display = "none";
+    } else {
+      wrap.classList.remove("open");
+      btn.classList.remove("open");
+    }
+  });
+
+  // Listen for messages from iframe (unread count)
+  window.addEventListener("message", function(e){
+    if(!e.data || e.data.type !== "sek-unread") return;
+    if(isOpen) return;
+    unread = e.data.count || (unread + 1);
+    badge.textContent = unread;
+    badge.style.display = unread > 0 ? "flex" : "none";
+  });
+})();
+</script>
+</body>
+</html>

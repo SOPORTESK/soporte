@@ -1,0 +1,19 @@
+{
+  "id": "?source=sekunet-widget-cliente",
+  "name": "Soporte Sekunet",
+  "short_name": "Sekunet",
+  "description": "Canal de soporte técnico especializado de Sekunet",
+  "start_url": "./widget-standalone.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#070d1f",
+  "theme_color": "#070d1f",
+  "lang": "es",
+  "icons": [
+    { "src": "./iSoTiendaHD.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./iSoTiendaHD.png", "sizes": "192x192", "type": "image/png", "purpose": "any" }
+  ],
+  "categories": ["business", "utilities"],
+  "screenshots": []
+}
