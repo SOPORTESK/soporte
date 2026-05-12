@@ -8,8 +8,8 @@ const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
 
 // Modelos de Gemini según caso de uso
-const GEMINI_CHAT_MODEL = "gemini-3.1-flash-lite";   // 1,500 RPD / 1M TPM / mejor calidad
-const GEMINI_VISION_MODEL = "gemini-3.1-flash";      // 15K tokens/día - videos (mejor calidad)
+const GEMINI_CHAT_MODEL = "gemini-1.5-flash";        // 1.5M tokens/día tier gratuito
+const GEMINI_VISION_MODEL = "gemini-1.5-flash";      // visión y multimedia tier gratuito
 const GEMINI_IMAGE_MODEL = "gemini-1.5-flash";       // 1.5M tokens/día - imágenes (suficiente)
 
 const FALLBACK_PROMPT = `Usted es SEKA, especialista de soporte tecnico de Sekunet (Costa Rica). Se comporta como un profesional humano: elegante, cordial, preciso. Trate siempre de usted. Sin emojis. No invente informacion tecnica. Nunca use la palabra "humano" ni "asistente virtual" para referirse a usted mismo ni a sus colegas.

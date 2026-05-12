@@ -62,7 +62,7 @@ FLUJO:
 
     // Llamar a Gemini 3.1 Flash-Lite (mismo modelo que usa la edge function en producción)
     const geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${geminiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -77,16 +77,7 @@ FLUJO:
     if (!geminiRes.ok) {
       const errText = await geminiRes.text();
       console.error("[simulate] Gemini error:", geminiRes.status, errText);
-      
-      let errorMsg = "El servicio de IA no está disponible";
-      try {
-        const errJson = JSON.parse(errText);
-        if (geminiRes.status === 429 || errJson?.error?.message?.includes("rate limit")) {
-          errorMsg = "Límite de uso alcanzado. Intenta en unos minutos.";
-        }
-      } catch {}
-      
-      return NextResponse.json({ error: errorMsg }, { status: 500 });
+      return NextResponse.json({ error: `Gemini ${geminiRes.status}: ${errText}` }, { status: 500 });
     }
 
     const geminiData = await geminiRes.json();
