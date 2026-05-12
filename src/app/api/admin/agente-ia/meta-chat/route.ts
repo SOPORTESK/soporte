@@ -29,7 +29,9 @@ function validateBlockEdit(originalPrompt: string, proposedPrompt: string): { va
 
 export async function POST(req: NextRequest) {
   try {
+    console.log("[meta-chat] POST recibido");
     const { message, history, currentPrompt: clientPrompt, file, isSuperadminOverride } = await req.json();
+    console.log("[meta-chat] body parseado ok | msg length:", message?.length, "| history:", history?.length);
     const geminiKey = process.env.GEMINI_API_KEY;
 
     if (!geminiKey) {
@@ -37,11 +39,14 @@ export async function POST(req: NextRequest) {
     }
 
     // Verificar rol del usuario que llama
+    console.log("[meta-chat] verificando auth...");
     const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError) console.error("[meta-chat] auth error:", authError.message);
     if (!user) {
       return NextResponse.json({ error: "No autorizado" }, { status: 401 });
     }
+    console.log("[meta-chat] user ok:", user.email);
     const { data: agentRow } = await supabase
       .from("sek_agent_config")
       .select("rol")
@@ -327,50 +332,75 @@ VEREDICTO GENERAL: [evaluación en 2 líneas]
     let replyContent = "";
 
     if (geminiKey) {
-      const geminiRes = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${geminiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            system_instruction: { parts: [{ text: systemInstruction }] },
-            contents: geminiContents,
-            generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
-          }),
-        }
-      );
+      console.log("[meta-chat] llamando Gemini 3.1 | turns:", geminiContents.length);
+      const ctrl1 = new AbortController();
+      const t1 = setTimeout(() => ctrl1.abort(), 25000);
+      let geminiRes: Response;
+      try {
+        geminiRes = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${geminiKey}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              system_instruction: { parts: [{ text: systemInstruction }] },
+              contents: geminiContents,
+              generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
+            }),
+            signal: ctrl1.signal,
+          }
+        );
+      } catch (fetchErr: any) {
+        console.warn("[meta-chat] Gemini 3.1 fetch error:", fetchErr.message);
+        geminiRes = new Response(null, { status: 503 });
+      } finally {
+        clearTimeout(t1);
+      }
 
       if (!geminiRes.ok) {
-        const errText = await geminiRes.text();
-        console.warn("[meta-chat] Gemini 3.1 error:", geminiRes.status, errText, "| intentando fallback 1.5 Flash");
-        // No lanzar — cae al bloque fallback debajo
+        const errText = geminiRes.status !== 503 ? await geminiRes.text() : "(timeout/abort)";
+        console.warn("[meta-chat] Gemini 3.1 error:", geminiRes.status, errText, "| intentando fallback");
       } else {
         const geminiData = await geminiRes.json();
         replyContent = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        console.log("[meta-chat] Gemini 3.1 ok | reply length:", replyContent.length);
       }
     }
 
-    // Fallback: Gemini 1.5 Flash (misma API key, modelo anterior estable)
+    // Fallback: gemini-2.0-flash-lite
     if (!replyContent) {
-      const fallbackRes = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${geminiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            system_instruction: { parts: [{ text: systemInstruction }] },
-            contents: geminiContents,
-            generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
-          }),
-        }
-      );
+      console.log("[meta-chat] llamando fallback gemini-2.0-flash-lite...");
+      const ctrl2 = new AbortController();
+      const t2 = setTimeout(() => ctrl2.abort(), 25000);
+      let fallbackRes: Response;
+      try {
+        fallbackRes = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${geminiKey}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              system_instruction: { parts: [{ text: systemInstruction }] },
+              contents: geminiContents,
+              generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
+            }),
+            signal: ctrl2.signal,
+          }
+        );
+      } catch (fetchErr: any) {
+        console.error("[meta-chat] fallback fetch error:", fetchErr.message);
+        throw new Error("El servicio de IA no está disponible en este momento. Intente de nuevo.");
+      } finally {
+        clearTimeout(t2);
+      }
       if (!fallbackRes.ok) {
         const errText = await fallbackRes.text();
-        console.error("[meta-chat] Gemini 1.5 fallback error:", fallbackRes.status, errText);
+        console.error("[meta-chat] fallback error:", fallbackRes.status, errText);
         throw new Error("El servicio de IA no está disponible en este momento. Intente de nuevo.");
       }
       const fallbackData = await fallbackRes.json();
       replyContent = fallbackData.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      console.log("[meta-chat] fallback ok | reply length:", replyContent.length);
     }
 
     if (!replyContent) throw new Error("No se obtuvo respuesta de la IA.");

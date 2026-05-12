@@ -661,8 +661,8 @@ export function MetaAgentChat({ initialPrompt, isSuperadmin }: { initialPrompt: 
                   onKeyDown={handleKeyDown}
                   onPaste={handlePaste}
                   placeholder='Ej: "Sé más casual" o "Agrega una regla para no hablar de precios"'
-                  className="flex-1 resize-none bg-transparent py-2 px-1 text-sm focus:outline-none max-h-32 placeholder:text-muted-foreground/60"
-                  rows={1}
+                  className="flex-1 resize-none bg-transparent py-2 px-1 text-sm focus:outline-none max-h-64 placeholder:text-muted-foreground/60"
+                  rows={2}
                 />
                 <button
                   type="submit"
