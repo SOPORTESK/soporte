@@ -420,7 +420,16 @@ if(soundOff){$("btn-sound").textContent="🔕";$("btn-sound").classList.add("mut
 $("btn-sound").addEventListener("click",function(){soundOff=!soundOff;this.textContent=soundOff?"🔕":"🔔";this.classList.toggle("muted",soundOff);try{localStorage.setItem("sek_mute",soundOff?"1":"0")}catch(e){};haptic(15)});
 
 /* ═══ CONNECTION ═══ */
-function connSt(s){var d=$("status-dot"),t=$("status-text");d.className="status-dot "+s;t.textContent=s==="online"?"En línea · Respuesta inmediata":s==="offline"?"Sin conexión":"Reconectando…"}
+function connSt(s){
+  var d = $("status-dot"), t = $("status-text");
+  d.className = "status-dot " + s;
+  // Evitar flicker de "Reconectando"; mientras reconecta muestra como en línea
+  if (s === "online" || s === "reconnecting") {
+    t.textContent = "En línea · Respuesta inmediata";
+  } else if (s === "offline") {
+    t.textContent = "Sin conexión";
+  }
+}
 window.addEventListener("online",function(){connSt("online");doReconnect()});
 window.addEventListener("offline",function(){connSt("offline")});
 
