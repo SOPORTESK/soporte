@@ -702,7 +702,7 @@ export function MetaAgentChat({ initialPrompt, isSuperadmin }: { initialPrompt: 
               <div className="flex flex-col items-center justify-center h-full text-center py-8 gap-3 text-muted-foreground">
                 <Play className="h-12 w-12 text-emerald-500/30" />
                 <p className="text-sm">Inicia la simulación escribiendo como un cliente</p>
-                <p className="text-xs opacity-70">Ej: "Hola, tengo un problema con mi cámara"</p>
+                <p className="text-xs opacity-70">Ej: &quot;Hola, tengo un problema con mi cámara&quot;</p>
               </div>
             )}
 
