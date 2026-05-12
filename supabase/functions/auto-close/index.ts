@@ -2,11 +2,58 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
 const INACTIVITY_MINUTES_DEFAULT = 5;   // canales humanos (whatsapp, etc.)
 const INACTIVITY_MINUTES_IA = 15;       // widget atendido por IA — el cliente puede tardar más
 const CLOSE_MSG = "Debido a que no hemos recibido respuesta, vamos a cerrar esta conversación. Si necesita ayuda, no dude en ponerse en contacto, con gusto le atendemos. ¡Que tenga un buen día!";
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
+
+// Aprendizaje: genera resumen de la conversación y lo guarda en RAG
+async function learnFromCase(caso: any): Promise<void> {
+  if (!GEMINI_API_KEY) return;
+  try {
+    const hist: { role: string; content: string }[] = [];
+    for (const m of (caso.histcliente ?? [])) {
+      if (m?.content) hist.push({ role: m.role || "user", content: m.content });
+    }
+    for (const m of (caso.histtecnico ?? [])) {
+      if (m?.content && m.role !== "nota") hist.push({ role: m.role || "tecnico", content: m.content });
+    }
+    if (hist.length < 4) return;
+
+    const conversationText = hist
+      .slice(-20)
+      .map(m => `${m.role === "user" ? "CLIENTE" : "AGENTE"}: ${m.content}`)
+      .join("\n");
+
+    const prompt = `Analiza esta conversación de soporte técnico y genera un resumen CONCISO (max 200 palabras) que incluya: EQUIPO, PROBLEMA, RESOLUCIÓN o motivo de escalado, y LECCIÓN APRENDIDA para futuros casos similares.\n\nConversación:\n${conversationText}`;
+
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.2, maxOutputTokens: 400 },
+        }),
+      }
+    );
+    if (!res.ok) return;
+    const data = await res.json();
+    const summary = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    if (!summary || summary.length < 50) return;
+
+    await db.from("sek_doc_chunks").insert({
+      doc_id: null,
+      doc_name: `Aprendizaje auto-close: caso ${caso.id}`.substring(0, 200),
+      content: summary.substring(0, 3000),
+      source_label: "Aprendizaje de conversación",
+    });
+    console.log(`[auto-close] Aprendizaje guardado para caso ${caso.id}`);
+  } catch (_e) { /* no bloquea */ }
+}
 
 Deno.serve(async () => {
   const { data: casos, error } = await db
@@ -82,6 +129,9 @@ Deno.serve(async () => {
       console.error("[auto-close] Error cerrando caso", caso.id, updateErr.message);
       continue;
     }
+
+    // Aprendizaje: generar resumen antes de pasar al siguiente caso
+    learnFromCase(caso).catch(() => {});
 
     // Send transcript email
     try {

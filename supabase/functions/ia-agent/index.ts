@@ -413,6 +413,60 @@ async function searchInventory(query: string): Promise<any[]> {
   });
 }
 
+// ── Aprendizaje: al cerrar un caso, SEKA genera un resumen y lo guarda en RAG ──
+async function learnFromConversation(caso: any, histcliente: any[]): Promise<void> {
+  try {
+    // Solo aprender si la conversación tiene al menos 4 mensajes (ida y vuelta mínima)
+    if (histcliente.length < 4) return;
+
+    // Construir resumen de la conversación
+    const conversationText = histcliente
+      .filter((m: any) => m.content && m.content.length > 5)
+      .map((m: any) => `${m.role === "user" ? "CLIENTE" : "AGENTE"}: ${m.content}`)
+      .slice(-20) // últimos 20 mensajes
+      .join("\n");
+
+    const clienteData = typeof caso.cliente === "object" ? caso.cliente : {};
+    const equipo = clienteData?.equipo || caso.marca ? `${caso.marca || ""} ${caso.modelo || ""}`.trim() : "No identificado";
+    const problema = caso.problema || "No clasificado";
+
+    const prompt = `Analiza la siguiente conversación de soporte técnico y genera un resumen estructurado para aprendizaje futuro del sistema. El resumen debe ser CONCISO (máximo 300 palabras) e incluir:
+
+1. TIPO DE CLIENTE: perfil del cliente (paciente, impaciente, técnico, novato, etc.)
+2. EQUIPO: marca y modelo si se identificó
+3. PROBLEMA: qué problema reportó
+4. DIAGNÓSTICO: pasos que se siguieron
+5. RESOLUCIÓN: cómo se resolvió (o si se escaló y por qué)
+6. LECCIÓN APRENDIDA: qué debería hacer mejor SEKA la próxima vez con un caso similar
+
+Conversación:
+${conversationText}
+
+Equipo identificado: ${equipo}
+Problema clasificado: ${problema}`;
+
+    const summary = await callAI([
+      { role: "system", content: "Eres un analista de calidad de soporte técnico. Genera resúmenes concisos y accionables." },
+      { role: "user", content: prompt },
+    ]);
+
+    if (!summary || summary.length < 50) return;
+
+    // Guardar en sek_doc_chunks como conocimiento aprendido
+    await db.from("sek_doc_chunks").insert({
+      doc_id: null,
+      doc_name: `Aprendizaje: ${equipo} — ${problema}`.substring(0, 200),
+      content: summary.substring(0, 3000),
+      source_label: "Aprendizaje de conversación",
+    });
+
+    console.log(`[ia-agent] Aprendizaje guardado para caso ${caso.id}: ${equipo} / ${problema}`);
+  } catch (e: any) {
+    // Aprendizaje es no-bloqueante — si falla, no afecta el flujo
+    console.error("[ia-agent] Error en aprendizaje:", e.message);
+  }
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -765,6 +819,12 @@ Deno.serve(async (req) => {
     }
 
     await db.from("sek_cases").update(updates).eq("id", case_id);
+
+    // Aprendizaje automático: al cerrar o escalar, SEKA genera un resumen y lo guarda en RAG
+    if (shouldClose || shouldEscalate) {
+      // No bloqueante — se ejecuta en background sin afectar la respuesta al cliente
+      learnFromConversation(caso, updatedHist).catch(() => {});
+    }
 
     return new Response(
       JSON.stringify({
