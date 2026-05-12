@@ -205,9 +205,23 @@ export function InboxClient({
   const prevMergedRef = React.useRef<SekCase[]>(mergedCases);
 
   React.useEffect(() => {
+    const source = params.get("source");
     const c = params.get("c");
-    if (c) setSelectedId(c);
-  }, [params]);
+    const isPwa = source === "pwa" ||
+      window.matchMedia("(display-mode: standalone)").matches ||
+      (window.navigator as any).standalone === true;
+    if (isPwa && c) {
+      // En modo PWA, al abrir siempre volver a la bandeja (no al último chat)
+      setSelectedId(null);
+      const url = new URL(window.location.href);
+      url.searchParams.delete("c");
+      url.searchParams.delete("source");
+      router.replace(url.pathname + (url.search || ""), { scroll: false });
+    } else if (c) {
+      setSelectedId(c);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   React.useEffect(() => {
     if (unreadTotal > 0) {
