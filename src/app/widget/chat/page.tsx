@@ -72,7 +72,7 @@ export default function WidgetPage() {
       try {
         const res = await fetch(`${BASE}/api/cedula?id=${clean}`);
         const data = await res.json();
-        if (data.valid) {
+        if (res.ok && data.valid) {
           setCedulaStatus("valid");
           setCedulaInfo({ nombre: data.nombre, tipo: data.tipo });
           setCedulaError("");
@@ -80,13 +80,20 @@ export default function WidgetPage() {
           if (!nombre.trim() && data.nombre) {
             setNombre(data.nombre);
           }
+        } else if (!res.ok && res.status >= 500) {
+          // Hacienda no responde: permitir continuar con formato válido
+          setCedulaStatus("valid");
+          setCedulaInfo({ nombre, tipo: "no verificada" });
+          setCedulaError("No pudimos verificar con Hacienda, pero puede continuar.");
         } else {
           setCedulaStatus("invalid");
           setCedulaError(data.error || "Cédula no válida");
         }
       } catch {
-        setCedulaStatus("invalid");
-        setCedulaError("Error al verificar. Intente de nuevo.");
+        // Timeout o error de red: permitir continuar
+        setCedulaStatus("valid");
+        setCedulaInfo({ nombre, tipo: "no verificada" });
+        setCedulaError("No pudimos verificar con Hacienda, pero puede continuar.");
       }
     }, 600);
   }
@@ -207,7 +214,7 @@ export default function WidgetPage() {
   async function startSession(e: React.FormEvent) {
     e.preventDefault();
     if (!cedula.trim() || cedulaStatus !== "valid") {
-      setError("Debe ingresar un número de cédula válido verificado por Hacienda.");
+      setError("Debe ingresar un número de cédula válido.");
       return;
     }
     if (!nombre.trim()) { setError("Por favor ingresa tu nombre."); return; }
