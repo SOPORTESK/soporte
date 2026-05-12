@@ -12,7 +12,7 @@ export function formatTime(iso: string | null | undefined): string {
   const sameDay = d.toDateString() === now.toDateString();
   if (sameDay) return d.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", hour12: false });
   const yesterday = new Date(now); yesterday.setDate(now.getDate() - 1);
-  if (d.toDateString() === yesterday.toDateString()) return "Ayer";
+  if (d.toDateString() === yesterday.toDateString()) return `Ayer ${d.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", hour12: false })}`;
   return d.toLocaleDateString("es-CR");
 }
 

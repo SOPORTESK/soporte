@@ -27,7 +27,7 @@ export default async function SoporteAvanzadoPage({ searchParams }: { searchPara
   });
   console.log(`[soporte-avanzado] Total casos: ${allCases?.length || 0}, Casos n2: ${n2Cases.length}`);
   
-  const selectedId = searchParams.c || (n2Cases?.[0]?.id ? String(n2Cases[0].id) : null);
+  const selectedId = searchParams.c ?? null;
 
   return (
     <InboxClient
