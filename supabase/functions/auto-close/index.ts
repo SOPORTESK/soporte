@@ -4,7 +4,7 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
 const INACTIVITY_MINUTES_DEFAULT = 5;   // canales humanos (whatsapp, etc.)
-const INACTIVITY_MINUTES_IA = 15;       // widget atendido por IA — el cliente puede tardar más
+const INACTIVITY_MINUTES_IA = 5;        // widget atendido por IA — mismo umbral que manual
 const CLOSE_MSG = "Debido a que no hemos recibido respuesta, vamos a cerrar esta conversación. Si necesita ayuda, no dude en ponerse en contacto, con gusto le atendemos. ¡Que tenga un buen día!";
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY);

@@ -477,7 +477,7 @@ var INACT_MS=5*60*1000;
 })();
 function resetInactTimer(){
   if(inactTmr){clearTimeout(inactTmr);inactTmr=null}
-  if(iaActiva||!sid||casoCerrado)return;
+  if(!sid||casoCerrado)return;
   inactTmr=setTimeout(closeByInactivity,INACT_MS);
 }
 async function closeByInactivity(){
