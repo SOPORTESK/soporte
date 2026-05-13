@@ -623,17 +623,21 @@ function MsgBubble({ m, onSelect }: { m: ChatMsg; onSelect?: (val: string) => vo
           {(!m.content && m.fileName) && (
             <span style={{ opacity: 0.7, fontSize: 11 }}>📎 {m.fileName}</span>
           )}
-          {m.content?.includes("[SUGERENCIAS:") ? (
-            <>
-              {m.content.split("[SUGERENCIAS:")[0]}
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
-                {m.content
-                  .match(/\[SUGERENCIAS:\s*(.+?)\]/)?.[1]
-                  .split(",")
-                  .map((opt, i) => (
+          {m.content?.includes("[SUGERENCIAS:") ? (() => {
+            const sugerMatch = m.content!.match(/\[SUGERENCIAS:\s*(.+)\]/);
+            if (!sugerMatch) return <span>{m.content}</span>;
+            const idx = m.content!.indexOf(sugerMatch[0]);
+            const before = m.content!.slice(0, idx);
+            const after = m.content!.slice(idx + sugerMatch[0].length);
+            const opciones = sugerMatch[1].split(",").map(s => s.trim()).filter(Boolean);
+            return (
+              <>
+                {before}
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                  {opciones.map((opt, i) => (
                     <button
                       key={i}
-                      onClick={() => onSelect?.(opt.trim())}
+                      onClick={() => onSelect?.(opt)}
                       style={{
                         background: isUser || isTec ? "rgba(255,255,255,0.2)" : "rgba(37,99,235,0.1)",
                         border: isUser || isTec ? "1px solid rgba(255,255,255,0.4)" : "1px solid rgba(37,99,235,0.3)",
@@ -645,13 +649,14 @@ function MsgBubble({ m, onSelect }: { m: ChatMsg; onSelect?: (val: string) => vo
                         cursor: "pointer"
                       }}
                     >
-                      {opt.trim()}
+                      {opt}
                     </button>
                   ))}
-              </div>
-              {m.content.split("]")[1]}
-            </>
-          ) : (
+                </div>
+                {after}
+              </>
+            );
+          })() : (
             m.content
           )}
         </div>
