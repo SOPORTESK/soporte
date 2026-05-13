@@ -131,6 +131,13 @@ Deno.serve(async () => {
     // Aprendizaje: generar resumen antes de pasar al siguiente caso
     learnFromCase(caso).catch(() => {});
 
+    // REGLA INMUTABLE #2 — invocar también la edge function learn-case (centralizada)
+    fetch(`${SUPABASE_URL}/functions/v1/learn-case`, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${SERVICE_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ case_id: caso.id }),
+    }).catch(() => {});
+
     // Send transcript email
     try {
       await fetch(`${SUPABASE_URL}/functions/v1/send-transcript`, {

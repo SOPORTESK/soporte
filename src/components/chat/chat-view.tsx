@@ -343,6 +343,9 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       
       // Enviar transcripción si aplica
       supabase.functions.invoke("send-transcript", { body: { case_id: targetId } }).catch(() => {});
+
+      // REGLA INMUTABLE #2 — aprendizaje obligatorio al cerrar el caso
+      supabase.functions.invoke("learn-case", { body: { case_id: targetId } }).catch(() => {});
     } catch (e: any) {
       toast.error("Error al cerrar caso", { description: e.message });
     } finally {

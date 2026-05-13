@@ -934,6 +934,13 @@ Deno.serve(async (req) => {
     if (shouldClose || shouldEscalate) {
       // No bloqueante — se ejecuta en background sin afectar la respuesta al cliente
       learnFromConversation(caso, updatedHist).catch(() => {});
+
+      // REGLA INMUTABLE #2 — invocar la edge function centralizada learn-case
+      fetch(`${SUPABASE_URL}/functions/v1/learn-case`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${SERVICE_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ case_id }),
+      }).catch(() => {});
     }
 
     return new Response(
