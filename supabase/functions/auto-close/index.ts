@@ -94,21 +94,15 @@ Deno.serve(async () => {
     const isIA = caso.estado === "ia_atendiendo";
     const threshold = (isIA ? INACTIVITY_MINUTES_IA : INACTIVITY_MINUTES_DEFAULT) * 60 * 1000;
 
-    // Caso escalado sin agente asignado → huérfano: cerrar también aunque el último
-    // mensaje sea del cliente (de lo contrario quedaría abierto indefinidamente).
-    const isOrphanEscalado = caso.estado === "escalado" && !caso.assigned_to;
-
-    if (allMsgs.length === 0) {
-      const elapsed = now - new Date(caso.created_at).getTime();
-      if (elapsed < threshold) continue;
-    } else {
-      const last = allMsgs[allMsgs.length - 1];
-      // Si el último mensaje es del cliente y NO es un escalado huérfano,
-      // está esperando agente/IA → NO cerrar.
-      if (last.role === "user" && !isOrphanEscalado) continue;
-      const elapsed = now - new Date(last.time).getTime();
-      if (elapsed < threshold) continue;
-    }
+    // REGLA INMUTABLE: el cierre por inactividad es ÚNICAMENTE por inactividad del CLIENTE.
+    // Si no hay mensajes aún, no cerrar (esperando primer mensaje del cliente).
+    // Si el último mensaje es del cliente, NUNCA cerrar (estaríamos cerrando por
+    // inactividad del agente/IA, lo cual es inaceptable).
+    if (allMsgs.length === 0) continue;
+    const last = allMsgs[allMsgs.length - 1];
+    if (last.role === "user") continue;
+    const elapsed = now - new Date(last.time).getTime();
+    if (elapsed < threshold) continue;
 
     /* Agregar mensaje de cierre al historial del cliente */
     const closeEntry = {
