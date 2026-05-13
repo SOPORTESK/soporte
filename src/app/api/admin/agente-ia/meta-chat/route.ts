@@ -273,7 +273,7 @@ REGLA PATCH: before_text = copia literal exacta del fragmento a reemplazar (debe
     if (!replyContent && nvidiaKey) {
       console.log("[meta-chat] fallback 3: NVIDIA llama-3.3-70b-instruct...");
       const ctrl4 = new AbortController();
-      const t4 = setTimeout(() => ctrl4.abort(), 20000);
+      const t4 = setTimeout(() => ctrl4.abort(), 45000);
       try {
         const nvidiaMessages = [
           { role: "system", content: systemInstruction },
@@ -314,6 +314,55 @@ REGLA PATCH: before_text = copia literal exacta del fragmento a reemplazar (debe
         console.error("[meta-chat] fallback 3 (NVIDIA) fetch error:", e.message);
       } finally {
         clearTimeout(t4);
+      }
+    }
+
+    // Fallback 4: Groq — llama-3.3-70b-versatile (rápido y gratuito)
+    const groqKey = process.env.GROQ_API_KEY;
+    if (!replyContent && groqKey) {
+      console.log("[meta-chat] fallback 4: Groq llama-3.3-70b-versatile...");
+      const ctrl5 = new AbortController();
+      const t5 = setTimeout(() => ctrl5.abort(), 30000);
+      try {
+        const groqMessages = [
+          { role: "system", content: systemInstruction },
+          ...recentHistory.map((h: any) => ({ role: h.role === "assistant" ? "assistant" : "user", content: h.content })),
+          { role: "user", content: userMsg },
+        ];
+        const r5 = await fetch(
+          "https://api.groq.com/openai/v1/chat/completions",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${groqKey}`,
+            },
+            body: JSON.stringify({
+              model: "llama-3.3-70b-versatile",
+              messages: groqMessages,
+              temperature: 0.1,
+              max_tokens: 8192,
+            }),
+            signal: ctrl5.signal,
+          }
+        );
+        if (r5.ok) {
+          const d5 = await r5.json();
+          const candidate = d5.choices?.[0]?.message?.content || "";
+          if (candidate.trim()) {
+            replyContent = candidate;
+            console.log("[meta-chat] fallback 4 (Groq) ok | length:", replyContent.length);
+          } else {
+            console.error("[meta-chat] fallback 4 (Groq) vacío", JSON.stringify(d5).slice(0, 200));
+          }
+        } else {
+          const e5 = await r5.text();
+          console.error("[meta-chat] fallback 4 (Groq) error:", r5.status, e5.slice(0, 200));
+        }
+      } catch (e: any) {
+        console.error("[meta-chat] fallback 4 (Groq) fetch error:", e.message);
+      } finally {
+        clearTimeout(t5);
       }
     }
 
