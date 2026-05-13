@@ -61,7 +61,7 @@ export default function WidgetPage() {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const cedulaTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   // IA mode flag (true = automática, false = manual)
-  const [iaActiva, setIaActiva] = React.useState<boolean>(true);
+  const [iaActiva, setIaActiva] = React.useState<boolean>(false);
   // Ref para timeout de inactividad del cliente
   const inactivityTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   // Duración de inactividad antes de cerrar sesión (ej. 5 minutos)
@@ -187,16 +187,8 @@ export default function WidgetPage() {
         } catch {}
       })();
     }
-    // Obtener estado IA (automático/manual) al montar
-    (async () => {
-      try {
-        const res = await fetch(`${BASE}/api/admin/ia-mode`);
-        if (res.ok) {
-          const data = await res.json();
-          setIaActiva(data.ia_activa ?? true);
-        }
-      } catch {}
-    })();
+    // Forzar modo manual (IA desactivada) – no se consulta al backend
+    setIaActiva(false);
     // Reset inactivity timer when user manually selects a case
     document.addEventListener("visibilitychange", resetInactivityTimer);
     document.addEventListener("keydown", resetInactivityTimer);
