@@ -90,8 +90,9 @@ Deno.serve(async () => {
     }
     allMsgs.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
 
-    // Umbral según canal: widget/ia_atendiendo usan timeout más largo
-    const isIA = caso.canal === "widget" || caso.estado === "ia_atendiendo";
+    // Umbral: SOLO los casos atendidos por IA usan el timeout largo (15 min).
+    // En modo manual (agente humano), el widget debe cerrar a los 5 min como cualquier canal.
+    const isIA = caso.estado === "ia_atendiendo";
     const threshold = (isIA ? INACTIVITY_MINUTES_IA : INACTIVITY_MINUTES_DEFAULT) * 60 * 1000;
 
     // Si no hay mensajes, usar created_at como referencia
