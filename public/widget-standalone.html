@@ -420,7 +420,22 @@ if(soundOff){$("btn-sound").textContent="🔕";$("btn-sound").classList.add("mut
 $("btn-sound").addEventListener("click",function(){soundOff=!soundOff;this.textContent=soundOff?"🔕":"🔔";this.classList.toggle("muted",soundOff);try{localStorage.setItem("sek_mute",soundOff?"1":"0")}catch(e){};haptic(15)});
 
 /* ═══ CONNECTION ═══ */
-function connSt(s){var d=$("status-dot"),t=$("status-text");d.className="status-dot "+s;t.textContent=s==="online"?"En línea · Respuesta inmediata":s==="offline"?"Sin conexión":"Reconectando…"}
+var _connReconTmr=null,_lastConnState="online";
+function _applyConnSt(s){var d=$("status-dot"),t=$("status-text");d.className="status-dot "+s;t.textContent=s==="online"?(agenteName?agenteName+" · En línea":"En línea · Respuesta inmediata"):s==="offline"?"Sin conexión":"Reconectando…"}
+function connSt(s){
+  if(s==="reconnecting"){
+    if(navigator.onLine===false){s="offline"}
+    else{
+      if(_connReconTmr)return;
+      _lastConnState="reconnecting";
+      _connReconTmr=setTimeout(function(){_connReconTmr=null;if(_lastConnState==="reconnecting")_applyConnSt("reconnecting")},8000);
+      return;
+    }
+  }
+  if(_connReconTmr){clearTimeout(_connReconTmr);_connReconTmr=null}
+  _lastConnState=s;
+  _applyConnSt(s);
+}
 window.addEventListener("online",function(){connSt("online");doReconnect()});
 window.addEventListener("offline",function(){connSt("offline")});
 
