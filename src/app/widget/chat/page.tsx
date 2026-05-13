@@ -62,6 +62,8 @@ export default function WidgetPage() {
   const cedulaTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   // IA mode flag (true = automática, false = manual)
   const [iaActiva, setIaActiva] = React.useState<boolean>(false);
+  // Estado de conexión del widget – forzamos siempre "En línea" para evitar parpadeos
+  const [connectionStatus, setConnectionStatus] = React.useState<string>('En línea');
   // Ref para timeout de inactividad del cliente
   const inactivityTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   // Duración de inactividad antes de cerrar sesión (ej. 5 minutos)
@@ -431,7 +433,7 @@ export default function WidgetPage() {
           <div>
             <div style={S.headerTitle}>Soporte Sekunet</div>
             <div style={S.headerSub}>
-              <span style={S.dot} /> En línea
+              <span style={S.dot} /> {connectionStatus}
             </div>
           </div>
         </div>
