@@ -464,6 +464,39 @@ function connSt(s){
 window.addEventListener("online",function(){connSt("online");doReconnect()});
 window.addEventListener("offline",function(){connSt("offline")});
 
+/* ═══ INACTIVIDAD (modo manual: cierra sesión a los 5 min) ═══ */
+var iaActiva=true;
+var inactTmr=null;
+var INACT_MS=5*60*1000;
+(async function loadIaFlag(){
+  try{
+    var r=await db.from("sek_agent_config").select("ia_activa").eq("email","system_prompt@sekunet.com").maybeSingle();
+    if(r&&r.data) iaActiva=r.data.ia_activa!==false;
+    resetInactTimer();
+  }catch(e){}
+})();
+function resetInactTimer(){
+  if(inactTmr){clearTimeout(inactTmr);inactTmr=null}
+  if(iaActiva||!sid||casoCerrado)return;
+  inactTmr=setTimeout(closeByInactivity,INACT_MS);
+}
+async function closeByInactivity(){
+  if(!sid||casoCerrado)return;
+  try{await db.from("sek_cases").update({estado:"cerrado"}).eq("id",sid)}catch(e){}
+  casoCerrado=true;
+  try{
+    var tt=document.createElement("div");
+    tt.textContent="Sesión cerrada por 5 minutos de inactividad.";
+    tt.style.cssText="position:fixed;top:20px;left:50%;transform:translateX(-50%);background:#1e293b;color:#fff;padding:10px 16px;border-radius:8px;z-index:99999;font-size:13px;box-shadow:0 4px 12px rgba(0,0,0,.3)";
+    document.body.appendChild(tt);
+    setTimeout(function(){tt.remove()},5000);
+  }catch(e){}
+  try{lockChat()}catch(e){}
+}
+document.addEventListener("keydown",resetInactTimer);
+document.addEventListener("click",resetInactTimer);
+document.addEventListener("visibilitychange",function(){if(!document.hidden)resetInactTimer()});
+
 /* ═══ CEDULA ═══ */
 function cedFmt(id){if(!/^\d+$/.test(id))return null;var l=id.length;if(l===9)return"física";if(l===10&&id[0]==="3")return"jurídica";if(l===10&&id.substring(0,2)==="10")return"NITE";if(l===11||l===12)return"DIMEX";return null}
 
