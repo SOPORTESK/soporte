@@ -260,18 +260,59 @@ REGLA PATCH: before_text = copia literal exacta del fragmento a reemplazar (debe
         } else {
           const e3 = await r3.text();
           console.error("[meta-chat] fallback 2 error:", r3.status, e3.slice(0, 200));
-          throw new Error("Todos los modelos de IA están saturados. Espere 1 minuto e intente de nuevo.");
         }
       } catch (e: any) {
-        if (e.message.includes("saturados")) throw e;
         console.error("[meta-chat] fallback 2 fetch error:", e.message);
-        throw new Error("Todos los modelos de IA están saturados. Espere 1 minuto e intente de nuevo.");
       } finally {
         clearTimeout(t3);
       }
     }
 
-    if (!replyContent) throw new Error("No se obtuvo respuesta de la IA.");
+    // Fallback 3: NVIDIA NIM — qwen3.5-122b-a10b (OpenAI-compatible)
+    const nvidiaKey = process.env.NVIDIA_API_KEY;
+    if (!replyContent && nvidiaKey) {
+      console.log("[meta-chat] fallback 3: NVIDIA qwen3.5-122b-a10b...");
+      const ctrl4 = new AbortController();
+      const t4 = setTimeout(() => ctrl4.abort(), 20000);
+      try {
+        const nvidiaMessages = [
+          { role: "system", content: systemInstruction },
+          ...recentHistory.map((h: any) => ({ role: h.role === "assistant" ? "assistant" : "user", content: h.content })),
+          { role: "user", content: userMsg },
+        ];
+        const r4 = await fetch(
+          "https://integrate.api.nvidia.com/v1/chat/completions",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${nvidiaKey}`,
+            },
+            body: JSON.stringify({
+              model: "qwen/qwen3.5-122b-a10b",
+              messages: nvidiaMessages,
+              temperature: 0.1,
+              max_tokens: 8192,
+            }),
+            signal: ctrl4.signal,
+          }
+        );
+        if (r4.ok) {
+          const d4 = await r4.json();
+          replyContent = d4.choices?.[0]?.message?.content || "";
+          console.log("[meta-chat] fallback 3 (NVIDIA) ok | length:", replyContent.length);
+        } else {
+          const e4 = await r4.text();
+          console.error("[meta-chat] fallback 3 (NVIDIA) error:", r4.status, e4.slice(0, 200));
+        }
+      } catch (e: any) {
+        console.error("[meta-chat] fallback 3 (NVIDIA) fetch error:", e.message);
+      } finally {
+        clearTimeout(t4);
+      }
+    }
+
+    if (!replyContent) throw new Error("Todos los modelos de IA están saturados. Espere 1 minuto e intente de nuevo.");
     let newPrompt: string | null = null;
     let summary = "";
     let blocked = false;
