@@ -67,6 +67,41 @@ export default function WidgetPage() {
   // Duración de inactividad antes de cerrar sesión (ej. 5 minutos)
   const INACTIVITY_LIMIT_MS = 5 * 60 * 1000;
 
+
+  // Función que cierra la sesión del cliente
+  const closeSession = React.useCallback(() => {
+    // Cancelar timer si está activo
+    if (inactivityTimeoutRef.current) {
+      clearTimeout(inactivityTimeoutRef.current);
+      inactivityTimeoutRef.current = null;
+    }
+    // Limpiar storage y estado UI
+    store.del("sek_widget_session");
+    store.del("sek_widget_version");
+    setSessionId(null);
+    setStep("form");
+    setMsgs([]);
+    setShowEncuesta(false);
+    setEncuestaEnviada(false);
+    toast.info("Sesión cerrada por inactividad del cliente.");
+  }, []);
+
+  // Función que reinicia el temporizador de inactividad
+  function resetInactivityTimer() {
+    // Cancelar timeout previo si existe
+    if (inactivityTimeoutRef.current) {
+      clearTimeout(inactivityTimeoutRef.current);
+      inactivityTimeoutRef.current = null;
+    }
+    // Sólo iniciar el temporizador cuando la IA está desactivada (modo manual) y hay sesión activa
+    if (!iaActiva && sessionId) {
+      inactivityTimeoutRef.current = setTimeout(() => {
+        closeSession();
+      }, INACTIVITY_LIMIT_MS);
+    }
+  }
+
+
   /* ── Validar cédula contra Hacienda (con debounce) ── */
   function onCedulaChange(raw: string) {
     const clean = raw.replace(/[^\d]/g, "");
