@@ -4,7 +4,7 @@ import {
   ArrowLeft, MoreVertical, Phone, Send, Paperclip, Bot,
   Mail, Building2, User, StickyNote, Zap, CheckCircle2,
   XCircle, Image as ImageIcon, FileText, Music, Video,
-  Download, X, ChevronDown, History, HandMetal, Star
+  Download, X, ChevronDown, History, HandMetal, Star, Tag, AlertTriangle
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Avatar, Badge } from "@/components/ui/avatar";
@@ -86,6 +86,39 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   const [clientRating, setClientRating] = React.useState(5);
   const [clientComment, setClientComment] = React.useState("");
   const [accepting, setAccepting] = React.useState(false);
+  const [showClassify, setShowClassify] = React.useState(false);
+
+  const CATEGORIAS = [
+    { value: "sin_imagen", label: "Sin imagen" },
+    { value: "sin_grabacion", label: "Sin grabación" },
+    { value: "sin_acceso_remoto", label: "Sin acceso remoto" },
+    { value: "sin_energia", label: "Sin energía" },
+    { value: "error_configuracion", label: "Error de configuración" },
+    { value: "conectividad_red", label: "Conectividad / Red" },
+    { value: "reset_contrasena", label: "Reset contraseña" },
+    { value: "desvinculacion_cuenta", label: "Desvinculación cuenta" },
+    { value: "dano_fisico", label: "Daño físico" },
+    { value: "actualizacion_firmware", label: "Actualización firmware" },
+    { value: "instalacion_nueva", label: "Instalación nueva" },
+    { value: "deteccion_incendio", label: "Detección incendio" },
+    { value: "control_acceso", label: "Control de acceso" },
+    { value: "intrusion_alarma", label: "Intrusión / Alarma" },
+    { value: "otro", label: "Otro" },
+  ];
+
+  const PRIORIDADES = [
+    { value: "baja", label: "Baja", color: "text-emerald-500" },
+    { value: "media", label: "Media", color: "text-amber-500" },
+    { value: "alta", label: "Alta", color: "text-orange-500" },
+    { value: "urgente", label: "Urgente", color: "text-red-500" },
+  ];
+
+  async function updateClassification(field: "prioridad" | "cat", value: string) {
+    const { error } = await supabase.from("sek_cases").update({ [field]: value }).eq("id", targetId);
+    if (error) { toast.error("Error al actualizar"); return; }
+    setSekCase(prev => ({ ...prev, [field]: value }));
+    toast.success("Actualizado");
+  }
 
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const scrollerRef = React.useRef<HTMLDivElement>(null);
@@ -402,7 +435,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
               <MoreVertical className="h-4 w-4" />
             </button>
             {showActions && (
-              <div className="absolute right-0 top-10 z-50 w-48 rounded-xl border border-border bg-card shadow-xl py-1">
+              <div className="absolute right-0 top-10 z-50 w-56 rounded-xl border border-border bg-card shadow-xl py-1">
                 <button
                   onClick={toggleCaso}
                   className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-muted transition-colors"
@@ -411,6 +444,72 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
                     ? <><CheckCircle2 className="h-4 w-4 text-green-500" /> Reabrir caso</>  
                     : <><XCircle className="h-4 w-4 text-red-500" /> Cerrar caso</>}
                 </button>
+                <div className="border-t border-border/50 my-1" />
+                <button
+                  onClick={() => { setShowClassify(true); setShowActions(false); }}
+                  className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-muted transition-colors"
+                >
+                  <Tag className="h-4 w-4 text-violet-500" /> Clasificar caso
+                </button>
+              </div>
+            )}
+
+            {/* Panel de clasificación manual */}
+            {showClassify && (
+              <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm">
+                <div className="bg-card border border-border rounded-t-3xl sm:rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden pb-safe">
+                  <div className="flex items-center justify-between p-5 border-b border-border">
+                    <div className="flex items-center gap-2">
+                      <Tag className="h-4 w-4 text-violet-500" />
+                      <p className="font-bold text-sm">Clasificar caso manualmente</p>
+                    </div>
+                    <button onClick={() => setShowClassify(false)} className="p-1.5 rounded-lg hover:bg-muted">
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <div className="p-5 space-y-5">
+                    {/* Prioridad */}
+                    <div>
+                      <p className="text-[11px] font-black uppercase tracking-wider text-muted-foreground mb-2">Prioridad</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        {PRIORIDADES.map(p => (
+                          <button
+                            key={p.value}
+                            onClick={() => updateClassification("prioridad", p.value)}
+                            className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-sm font-semibold transition-all ${
+                              sekCase.prioridad === p.value
+                                ? "border-violet-500 bg-violet-500/10 text-violet-500"
+                                : "border-border hover:bg-muted"
+                            }`}
+                          >
+                            <AlertTriangle className={`h-3.5 w-3.5 ${p.color}`} />
+                            {p.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    {/* Categoría */}
+                    <div>
+                      <p className="text-[11px] font-black uppercase tracking-wider text-muted-foreground mb-2">Categoría del problema</p>
+                      <div className="grid grid-cols-1 gap-1 max-h-48 overflow-y-auto">
+                        {CATEGORIAS.map(c => (
+                          <button
+                            key={c.value}
+                            onClick={() => updateClassification("cat", c.value)}
+                            className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-sm text-left transition-all ${
+                              sekCase.cat === c.value
+                                ? "border-violet-500 bg-violet-500/10 text-violet-500 font-semibold"
+                                : "border-transparent hover:bg-muted"
+                            }`}
+                          >
+                            {sekCase.cat === c.value && <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />}
+                            {c.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
           </div>
