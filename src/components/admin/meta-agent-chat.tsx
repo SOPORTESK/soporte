@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Bot, User, Send, Loader2, Save, FileText, Paperclip, X, History, RotateCcw, ShieldAlert, ChevronDown, ChevronUp, CheckCheck, Play, Eye, MessageSquare, Sparkles } from "lucide-react";
+import { Bot, User, Send, Loader2, Save, FileText, Paperclip, X, History, RotateCcw, ShieldAlert, ChevronDown, ChevronUp, CheckCheck, Play, Eye, MessageSquare, Sparkles, PowerOff, Wifi, WifiOff } from "lucide-react";
 import { toast } from "sonner";
 
 interface HistoryEntry {
@@ -53,6 +53,8 @@ export function MetaAgentChat({ initialPrompt, isSuperadmin }: { initialPrompt: 
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const simulationScrollRef = useRef<HTMLDivElement>(null);
   const promptPanelRef = useRef<HTMLDivElement>(null);
+  const [modoManual, setModoManual] = useState(false);
+  const [modoManualRazon, setModoManualRazon] = useState<string>("");
 
   // Cargar historial persistente y prompt activo desde BD al montar
   useEffect(() => {
@@ -256,8 +258,13 @@ export function MetaAgentChat({ initialPrompt, isSuperadmin }: { initialPrompt: 
       }
     } catch (error: any) {
       console.error(error);
-      toast.error(error.message || "Hubo un problema de conexión");
+      const errMsg = error.message || "Hubo un problema de conexión";
+      toast.error(errMsg);
       setMessages((prev) => [...prev, { role: "assistant", content: "Lo siento, tuve un problema interno de conexión." }]);
+      if (errMsg.includes("saturados") || errMsg.includes("no está disponible")) {
+        setModoManual(true);
+        setModoManualRazon("Todos los modelos de IA fallaron. El sistema entró en modo manual automáticamente.");
+      }
     } finally {
       setIsLoading(false);
     }
@@ -489,6 +496,23 @@ export function MetaAgentChat({ initialPrompt, isSuperadmin }: { initialPrompt: 
       {/* ── Panel derecho: Chat con Tabs para modo Train/Simulate ── */}
       <div className="xl:col-span-3 rounded-2xl border border-border bg-card flex flex-col overflow-hidden" style={{ minHeight: "600px" }}>
 
+        {/* Banner Modo Manual */}
+        {modoManual && (
+          <div className="flex items-center gap-3 px-5 py-3 bg-red-500/10 border-b-2 border-red-500 animate-pulse">
+            <WifiOff className="h-5 w-5 text-red-500 shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-bold text-red-500">⚠️ MODO MANUAL ACTIVO</p>
+              <p className="text-xs text-red-400">{modoManualRazon || "Activado manualmente por el administrador."}</p>
+            </div>
+            <button
+              onClick={() => { setModoManual(false); setModoManualRazon(""); }}
+              className="text-xs px-3 py-1.5 rounded-lg bg-red-500 text-white font-semibold hover:bg-red-600 transition-colors shrink-0"
+            >
+              Reactivar IA
+            </button>
+          </div>
+        )}
+
         {/* Header con Toggle de Modo */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-gradient-to-r from-violet-500/5 to-indigo-500/5">
           <div className="flex items-center gap-3">
@@ -506,7 +530,30 @@ export function MetaAgentChat({ initialPrompt, isSuperadmin }: { initialPrompt: 
             </div>
           </div>
           
-          {/* Toggle de Modo */}
+          {/* Botón Modo Manual + Toggle de Modo */}
+          <div className="flex items-center gap-2">
+          {isSuperadmin && (
+            <button
+              onClick={() => {
+                if (modoManual) {
+                  setModoManual(false);
+                  setModoManualRazon("");
+                } else {
+                  setModoManual(true);
+                  setModoManualRazon("Activado manualmente por el administrador.");
+                }
+              }}
+              title={modoManual ? "Reactivar IA" : "Activar modo manual"}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
+                modoManual
+                  ? "bg-red-500/10 border-red-500/50 text-red-500 hover:bg-red-500/20"
+                  : "bg-muted/50 border-border text-muted-foreground hover:text-foreground hover:border-red-500/30"
+              }`}
+            >
+              {modoManual ? <Wifi className="h-3.5 w-3.5" /> : <WifiOff className="h-3.5 w-3.5" />}
+              {modoManual ? "Reactivar IA" : "Modo Manual"}
+            </button>
+          )}
           <div className="flex items-center gap-1 p-1 bg-muted/50 rounded-xl border border-border">
             <button
               onClick={() => setMode("train")}
@@ -530,6 +577,7 @@ export function MetaAgentChat({ initialPrompt, isSuperadmin }: { initialPrompt: 
               <Play className="h-3.5 w-3.5" />
               Simular
             </button>
+          </div>
           </div>
         </div>
 
@@ -617,6 +665,14 @@ export function MetaAgentChat({ initialPrompt, isSuperadmin }: { initialPrompt: 
             <div className="flex items-center gap-3 p-3.5 rounded-xl bg-amber-500/5 border border-amber-500/20">
               <ShieldAlert className="h-4 w-4 text-amber-500 shrink-0" />
               <p className="text-xs text-amber-600 dark:text-amber-400">Solo el <strong>Superadmin</strong> puede enviar instrucciones a SEKA.</p>
+            </div>
+          ) : modoManual ? (
+            <div className="flex items-center gap-3 p-4 rounded-xl bg-red-500/5 border border-red-500/20">
+              <WifiOff className="h-5 w-5 text-red-500 shrink-0" />
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-red-500">IA desactivada — Modo Manual</p>
+                <p className="text-xs text-muted-foreground mt-0.5">El chat de entrenamiento está pausado. Presione "Reactivar IA" para continuar.</p>
+              </div>
             </div>
           ) : (
             <form onSubmit={sendMessage} className="flex flex-col gap-2">
