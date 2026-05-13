@@ -8,7 +8,7 @@ const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
 
 // Modelos de Gemini según caso de uso
-const GEMINI_CHAT_MODEL = "gemini-3.1-flash-lite";   // confirmado funcional con key actual
+const GEMINI_CHAT_MODEL = "gemini-3.1-flash-lite";   // modelo principal
 const GEMINI_VISION_MODEL = "gemini-3.1-flash-lite"; // visión y multimedia
 const GEMINI_IMAGE_MODEL = "gemini-3.1-flash-lite";  // imágenes
 
@@ -383,15 +383,27 @@ Analiza el documento COMPLETAMENTE:
 }
 
 async function searchInventory(query: string): Promise<any[]> {
-  const terms = query
-    .toLowerCase()
-    .replace(/[^a-z0-9\s\-]/g, "")
-    .split(/\s+/)
-    .filter((t) => t.length >= 2);
+  const normalized = query.toLowerCase().replace(/[^a-z0-9\s\-]/g, "");
+  const terms = normalized.split(/\s+/).filter((t) => t.length >= 2);
 
   if (terms.length === 0) return [];
 
-  let results: any[] = [];
+  // Paso 1: verificar que la MARCA (primer término) exista en el inventario
+  // Si la marca no existe, no tiene sentido seguir buscando — evita falsos positivos
+  const brandTerm = terms[0];
+  const { data: brandCheck } = await db
+    .from("sek_inventario")
+    .select("id")
+    .ilike("marca", `%${brandTerm}%`)
+    .limit(1);
+
+  if (!brandCheck || brandCheck.length === 0) {
+    // La marca indicada no existe en cartera — retornar vacío
+    return [];
+  }
+
+  // Paso 2: buscar cada término y contar coincidencias por registro
+  const matchCount = new Map<string, { record: any; count: number }>();
 
   for (const term of terms) {
     const pattern = `%${term}%`;
@@ -401,20 +413,32 @@ async function searchInventory(query: string): Promise<any[]> {
       .or(
         `marca.ilike.${pattern},modelo.ilike.${pattern},nombre.ilike.${pattern},codigo.ilike.${pattern}`
       )
-      .limit(10);
+      .limit(20);
 
-    if (data && data.length > 0) {
-      results = [...results, ...data];
+    if (data) {
+      for (const r of data) {
+        const key = String(r.id);
+        if (matchCount.has(key)) {
+          matchCount.get(key)!.count++;
+        } else {
+          matchCount.set(key, { record: r, count: 1 });
+        }
+      }
     }
   }
 
-  // Deduplicate by id
-  const seen = new Set();
-  return results.filter((r) => {
-    if (seen.has(r.id)) return false;
-    seen.add(r.id);
-    return true;
-  });
+  if (matchCount.size === 0) return [];
+
+  // Paso 3: ordenar por cantidad de términos coincidentes
+  const sorted = Array.from(matchCount.values())
+    .sort((a, b) => b.count - a.count);
+
+  const maxCount = sorted[0].count;
+
+  // Paso 4: devolver solo los que alcancen el máximo score, hasta 5
+  const best = sorted.filter((x) => x.count === maxCount).slice(0, 5);
+
+  return best.map((x) => x.record);
 }
 
 // ── Aprendizaje: al cerrar un caso, SEKA genera un resumen y lo guarda en RAG ──

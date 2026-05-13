@@ -74,9 +74,6 @@ NEXT_PUBLIC_SITE_URL=http://localhost:3000
 
 # IA - Requerido para el agente IA
 GEMINI_API_KEY=<tu_gemini_api_key>
-
-# IA - Opcional (fallback)
-GROQ_API_KEY=<tu_groq_api_key>
 ```
 
 ---

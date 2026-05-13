@@ -1,5 +1,6 @@
 "use client";
 import * as React from "react";
+import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 
 /* ─── Tipos ─────────────────────────────────────────────────── */
@@ -59,6 +60,12 @@ export default function WidgetPage() {
   const pollRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const cedulaTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  // IA mode flag (true = automática, false = manual)
+  const [iaActiva, setIaActiva] = React.useState<boolean>(true);
+  // Ref para timeout de inactividad del cliente
+  const inactivityTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Duración de inactividad antes de cerrar sesión (ej. 5 minutos)
+  const INACTIVITY_LIMIT_MS = 5 * 60 * 1000;
 
   /* ── Validar cédula contra Hacienda (con debounce) ── */
   function onCedulaChange(raw: string) {
@@ -145,13 +152,33 @@ export default function WidgetPage() {
         } catch {}
       })();
     }
+    // Obtener estado IA (automático/manual) al montar
+    (async () => {
+      try {
+        const res = await fetch(`${BASE}/api/admin/ia-mode`);
+        if (res.ok) {
+          const data = await res.json();
+          setIaActiva(data.ia_activa ?? true);
+        }
+      } catch {}
+    })();
+    // Reset inactivity timer when user manually selects a case
+    document.addEventListener("visibilitychange", resetInactivityTimer);
+    document.addEventListener("keydown", resetInactivityTimer);
+    document.addEventListener("click", resetInactivityTimer);
+    return () => {
+      document.removeEventListener("visibilitychange", resetInactivityTimer);
+      document.removeEventListener("keydown", resetInactivityTimer);
+      document.removeEventListener("click", resetInactivityTimer);
+    };
   }, []);
 
   /* Scroll al fondo cuando llegan mensajes */
+  // Scroll al fondo cuando llegan nuevos mensajes o se muestra la encuesta
   React.useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [msgs.length]);
+  }, [msgs.length, showEncuesta]);
 
   /* Polling de respuestas del agente cada 4 s */
   React.useEffect(() => {
@@ -270,6 +297,8 @@ export default function WidgetPage() {
     const body = (override ?? draft).trim();
     if ((!body && !mUrl) || sending || !sessionId) return;
     setSending(true);
+    // Reset inactivity timer on user sending a message
+    resetInactivityTimer();
 
     const optimistic: ChatMsg = {
       id: `opt-${Date.now()}`,
@@ -332,6 +361,8 @@ export default function WidgetPage() {
     const file = e.target.files?.[0];
     if (!file || !sessionId) return;
     setUploading(true);
+    // Reset inactivity timer on file upload
+    resetInactivityTimer();
     try {
       const supabase = createClient();
       const ext = file.name.split(".").pop();
@@ -350,7 +381,11 @@ export default function WidgetPage() {
 
   function onKey(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMsg(); }
+    // Any key press counts as activity
+    resetInactivityTimer();
   }
+
+  // Duplicate resetInactivityTimer removed – functionality handled by the single implementation above.
 
   /* ─── RENDER ─────────────────────────────────────────────── */
   if (step === "splash") {

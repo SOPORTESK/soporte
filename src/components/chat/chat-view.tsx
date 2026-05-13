@@ -85,6 +85,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   const [showRatingModal, setShowRatingModal] = React.useState(false);
   const [clientRating, setClientRating] = React.useState(5);
   const [clientComment, setClientComment] = React.useState("");
+  const [submittingRating, setSubmittingRating] = React.useState(false);
   const [accepting, setAccepting] = React.useState(false);
   const [showClassify, setShowClassify] = React.useState(false);
 
@@ -314,6 +315,8 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   }
 
   async function confirmCloseWithRating() {
+    if (submittingRating) return;
+    setSubmittingRating(true);
     try {
       const currentCliente = typeof sekCase.cliente === "object" ? sekCase.cliente : {};
       const updatedCliente = {
@@ -342,6 +345,8 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       supabase.functions.invoke("send-transcript", { body: { case_id: targetId } }).catch(() => {});
     } catch (e: any) {
       toast.error("Error al cerrar caso", { description: e.message });
+    } finally {
+      setSubmittingRating(false);
     }
   }
 
@@ -742,9 +747,10 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
                 </Button>
                 <Button 
                   onClick={confirmCloseWithRating}
-                  className="flex-1 rounded-xl bg-brand-700 hover:bg-brand-800"
+                  disabled={submittingRating}
+                  className="flex-1 rounded-xl bg-brand-700 hover:bg-brand-800 disabled:opacity-50"
                 >
-                  Cerrar Caso
+                  {submittingRating ? "Guardando..." : "Cerrar Caso"}
                 </Button>
               </div>
             </div>

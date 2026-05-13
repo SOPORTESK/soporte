@@ -55,36 +55,8 @@ export async function POST(req: NextRequest) {
         // Texto plano
         textContent = buffer.toString("utf-8");
       } else if (file.type.startsWith("video/") || file.type.startsWith("audio/")) {
-        // Multimedia: Transcripción con Whisper (Groq u OpenAI)
-        const apiKey = process.env.GROQ_API_KEY || process.env.OPENAI_API_KEY;
-        if (!apiKey) {
-          throw new Error("Para procesar video/audio se requiere configurar GROQ_API_KEY u OPENAI_API_KEY en .env.local");
-        }
-        
-        // Crear FormData para enviar a la API
-        const audioFormData = new FormData();
-        audioFormData.append("file", file);
-        audioFormData.append("model", process.env.GROQ_API_KEY ? "whisper-large-v3" : "whisper-1");
-        
-        const apiUrl = process.env.GROQ_API_KEY 
-          ? "https://api.groq.com/openai/v1/audio/transcriptions"
-          : "https://api.openai.com/v1/audio/transcriptions";
-
-        const res = await fetch(apiUrl, {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${apiKey}`
-          },
-          body: audioFormData
-        });
-
-        if (!res.ok) {
-          const errData = await res.text();
-          throw new Error(`Error en API de transcripción: ${errData}`);
-        }
-
-        const data = await res.json();
-        textContent = data.text;
+        // Audio/Video transcripción no soportada (Groq eliminado)
+        throw new Error("Transcripción de audio/video no está disponible porque la integración con Groq ha sido eliminada.");
       } else {
         console.log(`Formato no soportado para extracción profunda: ${file.name}`);
         textContent = `[Archivo multimedia/binario no soportado: ${file.name}]`;

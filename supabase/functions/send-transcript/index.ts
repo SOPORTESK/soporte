@@ -5,6 +5,12 @@ const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") ?? "";
 const FROM_EMAIL = "soporte@sekunet.com";
 
+const CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
 
 function formatTranscript(histcliente: any[], histtecnico: any[]): string {
@@ -72,10 +78,13 @@ function buildHtml(clienteName: string, transcript: string, caseTitle: string): 
 }
 
 Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: CORS });
+  }
   try {
     const { case_id } = await req.json();
     if (!case_id) {
-      return new Response(JSON.stringify({ error: "case_id required" }), { status: 400 });
+      return new Response(JSON.stringify({ error: "case_id required" }), { status: 400, headers: { ...CORS, "Content-Type": "application/json" } });
     }
 
     const { data: caso, error } = await db
@@ -85,21 +94,21 @@ Deno.serve(async (req) => {
       .maybeSingle();
 
     if (error || !caso) {
-      return new Response(JSON.stringify({ error: "Case not found" }), { status: 404 });
+      return new Response(JSON.stringify({ error: "Case not found" }), { status: 404, headers: { ...CORS, "Content-Type": "application/json" } });
     }
 
     const cliente = typeof caso.cliente === "object" ? caso.cliente : {};
     const email = (cliente as any)?.correo;
 
     if (!email || !email.includes("@")) {
-      return new Response(JSON.stringify({ skip: true, reason: "no client email" }), { status: 200 });
+      return new Response(JSON.stringify({ skip: true, reason: "no client email" }), { status: 200, headers: { ...CORS, "Content-Type": "application/json" } });
     }
 
     const clienteName = (cliente as any)?.nombre || "Cliente";
     const transcript = formatTranscript(caso.histcliente || [], caso.histtecnico || []);
 
     if (!transcript.trim()) {
-      return new Response(JSON.stringify({ skip: true, reason: "empty transcript" }), { status: 200 });
+      return new Response(JSON.stringify({ skip: true, reason: "empty transcript" }), { status: 200, headers: { ...CORS, "Content-Type": "application/json" } });
     }
 
     const html = buildHtml(clienteName, transcript, caso.title || "");
@@ -121,7 +130,7 @@ Deno.serve(async (req) => {
     if (!res.ok) {
       const errBody = await res.text();
       console.error("[send-transcript] Resend error:", res.status, errBody);
-      return new Response(JSON.stringify({ error: "email send failed", detail: errBody }), { status: 500 });
+      return new Response(JSON.stringify({ error: "email send failed", detail: errBody }), { status: 500, headers: { ...CORS, "Content-Type": "application/json" } });
     }
 
     const result = await res.json();
@@ -129,10 +138,10 @@ Deno.serve(async (req) => {
 
     return new Response(JSON.stringify({ ok: true, email_id: result.id }), {
       status: 200,
-      headers: { "Content-Type": "application/json" },
+      headers: { ...CORS, "Content-Type": "application/json" },
     });
   } catch (e: any) {
     console.error("[send-transcript] Error:", e.message);
-    return new Response(JSON.stringify({ error: e.message }), { status: 500 });
+    return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: { ...CORS, "Content-Type": "application/json" } });
   }
 });
