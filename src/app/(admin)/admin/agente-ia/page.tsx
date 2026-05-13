@@ -1,6 +1,11 @@
 import { createClient } from "@/lib/supabase/server";
 import { Bot, Brain, FileText, Clock, AlertCircle, Zap, Globe, Eye, Package, ArrowUpRight, CheckCircle2, Activity } from "lucide-react";
-import { MetaAgentChat } from "@/components/admin/meta-agent-chat";
+import nextDynamic from "next/dynamic";
+
+const MetaAgentChat = nextDynamic(
+  () => import("@/components/admin/meta-agent-chat").then(m => m.MetaAgentChat),
+  { ssr: false }
+);
 
 export const dynamic = "force-dynamic";
 
