@@ -268,10 +268,10 @@ REGLA PATCH: before_text = copia literal exacta del fragmento a reemplazar (debe
       }
     }
 
-    // Fallback 3: NVIDIA NIM — qwen3.5-122b-a10b (OpenAI-compatible)
+    // Fallback 3: NVIDIA NIM — meta/llama-3.3-70b-instruct (OpenAI-compatible)
     const nvidiaKey = process.env.NVIDIA_API_KEY;
     if (!replyContent && nvidiaKey) {
-      console.log("[meta-chat] fallback 3: NVIDIA qwen3.5-122b-a10b...");
+      console.log("[meta-chat] fallback 3: NVIDIA llama-3.3-70b-instruct...");
       const ctrl4 = new AbortController();
       const t4 = setTimeout(() => ctrl4.abort(), 20000);
       try {
@@ -289,7 +289,7 @@ REGLA PATCH: before_text = copia literal exacta del fragmento a reemplazar (debe
               "Authorization": `Bearer ${nvidiaKey}`,
             },
             body: JSON.stringify({
-              model: "qwen/qwen3.5-122b-a10b",
+              model: "meta/llama-3.3-70b-instruct",
               messages: nvidiaMessages,
               temperature: 0.1,
               max_tokens: 8192,
@@ -299,8 +299,13 @@ REGLA PATCH: before_text = copia literal exacta del fragmento a reemplazar (debe
         );
         if (r4.ok) {
           const d4 = await r4.json();
-          replyContent = d4.choices?.[0]?.message?.content || "";
-          console.log("[meta-chat] fallback 3 (NVIDIA) ok | length:", replyContent.length);
+          const candidate = d4.choices?.[0]?.message?.content || "";
+          if (candidate.trim()) {
+            replyContent = candidate;
+            console.log("[meta-chat] fallback 3 (NVIDIA) ok | length:", replyContent.length);
+          } else {
+            console.error("[meta-chat] fallback 3 (NVIDIA) devolvió contenido vacío", JSON.stringify(d4).slice(0, 300));
+          }
         } else {
           const e4 = await r4.text();
           console.error("[meta-chat] fallback 3 (NVIDIA) error:", r4.status, e4.slice(0, 200));
