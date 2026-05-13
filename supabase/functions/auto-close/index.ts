@@ -58,8 +58,8 @@ async function learnFromCase(caso: any): Promise<void> {
 Deno.serve(async () => {
   const { data: casos, error } = await db
     .from("sek_cases")
-    .select("id, canal, estado, histcliente, histtecnico, created_at")
-    .not("estado", "in", '("cerrado","resuelto","escalado")')
+    .select("id, canal, estado, histcliente, histtecnico, created_at, assigned_to")
+    .not("estado", "in", '("cerrado","resuelto")')
     .limit(200);
 
   if (error) {
@@ -90,19 +90,22 @@ Deno.serve(async () => {
     }
     allMsgs.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
 
-    // Umbral: SOLO los casos atendidos por IA usan el timeout largo (15 min).
-    // En modo manual (agente humano), el widget debe cerrar a los 5 min como cualquier canal.
+    // Umbral unificado a 5 min para todos los casos.
     const isIA = caso.estado === "ia_atendiendo";
     const threshold = (isIA ? INACTIVITY_MINUTES_IA : INACTIVITY_MINUTES_DEFAULT) * 60 * 1000;
 
-    // Si no hay mensajes, usar created_at como referencia
+    // Caso escalado sin agente asignado → huérfano: cerrar también aunque el último
+    // mensaje sea del cliente (de lo contrario quedaría abierto indefinidamente).
+    const isOrphanEscalado = caso.estado === "escalado" && !caso.assigned_to;
+
     if (allMsgs.length === 0) {
       const elapsed = now - new Date(caso.created_at).getTime();
       if (elapsed < threshold) continue;
     } else {
       const last = allMsgs[allMsgs.length - 1];
-      // Si el último mensaje es del cliente → está esperando agente/IA → NO cerrar
-      if (last.role === "user") continue;
+      // Si el último mensaje es del cliente y NO es un escalado huérfano,
+      // está esperando agente/IA → NO cerrar.
+      if (last.role === "user" && !isOrphanEscalado) continue;
       const elapsed = now - new Date(last.time).getTime();
       if (elapsed < threshold) continue;
     }
