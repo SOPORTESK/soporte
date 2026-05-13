@@ -67,6 +67,7 @@ export default function WidgetPage() {
   // Ref para timeout de inactividad del cliente
   const inactivityTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   // Duración de inactividad antes de cerrar sesión (ej. 5 minutos)
+  // Inactividad del cliente: cerrar sesión después de 5 minutos (300 000 ms)
   const INACTIVITY_LIMIT_MS = 5 * 60 * 1000;
 
 
