@@ -66,26 +66,27 @@ Al escalar, use SIEMPRE este texto exacto (sin la palabra "humano"):
 7. Cierre ÚNICAMENTE cuando el cliente se despida explícitamente → [CERRAR]`;
 
 
-async function loadSystemPrompt(): Promise<string> {
+async function loadSystemConfig(): Promise<{ prompt: string; iaActiva: boolean }> {
   try {
     const { data } = await db
       .from("sek_agent_config")
-      .select("system_prompt")
+      .select("system_prompt, ia_activa")
       .eq("email", "system_prompt@sekunet.com")
       .maybeSingle();
-    
-    const prompt = data?.system_prompt?.trim();
-    if (!prompt) {
+
+    const prompt = data?.system_prompt?.trim() || FALLBACK_PROMPT;
+    const iaActiva = data?.ia_activa ?? true;
+
+    if (!data?.system_prompt?.trim()) {
       console.log("[ia-agent] WARNING: No se encontró prompt en BD, usando FALLBACK");
-      return FALLBACK_PROMPT;
+    } else {
+      console.log(`[ia-agent] Prompt cargado: ${prompt.length} chars | ia_activa: ${iaActiva}`);
     }
-    
-    console.log(`[ia-agent] Prompt cargado desde BD: ${prompt.length} caracteres`);
-    console.log(`[ia-agent] Primeros 200 chars: ${prompt.substring(0, 200)}`);
-    return prompt;
+
+    return { prompt, iaActiva };
   } catch (e: any) {
-    console.error("[ia-agent] ERROR cargando prompt:", e.message);
-    return FALLBACK_PROMPT;
+    console.error("[ia-agent] ERROR cargando config:", e.message);
+    return { prompt: FALLBACK_PROMPT, iaActiva: true };
   }
 }
 
@@ -533,8 +534,15 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ ok: true, response: offMsg, escalated: false, closed: false }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // Cargar prompt desde BD (guardado desde panel admin) o usar fallback
-    const systemPrompt = await loadSystemPrompt();
+    // Cargar prompt y flag ia_activa desde BD
+    const { prompt: systemPrompt, iaActiva } = await loadSystemConfig();
+
+    // Si el modo manual está activo, no intervenir — dejar para agentes humanos
+    if (!iaActiva) {
+      console.log("[ia-agent] ia_activa=false — modo manual activo, sin respuesta automática");
+      await db.from("sek_cases").update({ estado: "escalado" }).eq("id", case_id);
+      return new Response(JSON.stringify({ ok: true, skipped: true }), { headers: { "Content-Type": "application/json" } });
+    }
 
     // ── Leer estados de agentes humanos ──
     const { data: agentStatuses } = await db

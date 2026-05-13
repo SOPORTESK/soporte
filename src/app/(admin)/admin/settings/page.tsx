@@ -4,6 +4,7 @@ import { DangerZonePanel } from "@/components/admin/danger-zone-panel";
 import { Settings, Server, Clock, Shield, Webhook, Database, Globe, Users, Zap, Activity, ShieldAlert, KeyRound, CheckCircle2 } from "lucide-react";
 import { Badge } from "@/components/ui/avatar";
 import type { SekAgent } from "@/lib/types";
+import { IaModeToggle } from "@/components/admin/ia-mode-toggle";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,13 @@ export default async function AdminSettingsPage() {
     : { data: [] };
 
   const { data: channels } = await supabase.from("sek_channels").select("id, name, kind, is_active, created_at").order("created_at");
+
+  const { data: iaConfig } = await supabase
+    .from("sek_agent_config")
+    .select("ia_activa")
+    .eq("email", "system_prompt@sekunet.com")
+    .maybeSingle();
+  const iaActiva = iaConfig?.ia_activa ?? true;
 
   const { count: msgCount } = isSuperadmin
     ? await supabase.from("sek_messages").select("id", { count: "exact", head: true })
@@ -107,6 +115,13 @@ export default async function AdminSettingsPage() {
               ))}
             </div>
           </section>
+
+          {/* Toggle IA Global — solo superadmin */}
+          {isSuperadmin && (
+            <section>
+              <IaModeToggle initialValue={iaActiva} />
+            </section>
+          )}
 
           {/* Configuración SEKA */}
           <section className="rounded-2xl border border-border/60 bg-card p-5">
