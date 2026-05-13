@@ -200,14 +200,14 @@ REGLA PATCH: before_text = copia literal exacta del fragmento a reemplazar (debe
       }
     }
 
-    // Fallback 1: gemini-2.0-flash-exp (quota diferente a 3.1)
+    // Fallback 1: gemini-2.0-flash
     if (!replyContent) {
-      console.log("[meta-chat] fallback 1: gemini-2.0-flash-exp...");
+      console.log("[meta-chat] fallback 1: gemini-2.0-flash...");
       const ctrl2 = new AbortController();
       const t2 = setTimeout(() => ctrl2.abort(), 15000);
       try {
         const r2 = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -234,14 +234,14 @@ REGLA PATCH: before_text = copia literal exacta del fragmento a reemplazar (debe
       }
     }
 
-    // Fallback 2: gemini-1.5-flash en v1beta (soporta system_instruction)
+    // Fallback 2: gemini-2.5-flash
     if (!replyContent) {
-      console.log("[meta-chat] fallback 2: gemini-1.5-flash v1beta...");
+      console.log("[meta-chat] fallback 2: gemini-2.5-flash...");
       const ctrl3 = new AbortController();
       const t3 = setTimeout(() => ctrl3.abort(), 15000);
       try {
         const r3 = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
