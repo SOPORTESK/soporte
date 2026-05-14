@@ -60,6 +60,7 @@ Deno.serve(async () => {
     .from("sek_cases")
     .select("id, canal, estado, histcliente, histtecnico, created_at, assigned_to")
     .not("estado", "in", '("cerrado","resuelto")')
+    .neq("canal", "simulator")
     .limit(200);
 
   if (error) {

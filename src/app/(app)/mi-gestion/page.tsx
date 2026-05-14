@@ -34,6 +34,7 @@ export default async function MiGestionPage({ searchParams }: { searchParams: { 
   const { data: allCases, error } = await supabase
     .from("sek_cases")
     .select("*")
+    .neq("canal", "simulator")
     .order("created_at", { ascending: false })
     .limit(200);
   

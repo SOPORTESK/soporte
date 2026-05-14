@@ -8,6 +8,7 @@ export default async function InboxPage({ searchParams }: { searchParams: { c?: 
   const { data: cases, error } = await supabase
     .from("sek_cases")
     .select("*")
+    .neq("canal", "simulator")
     .order("created_at", { ascending: false })
     .limit(100);
   if (error) console.error("[inbox] sek_cases error:", error.message);

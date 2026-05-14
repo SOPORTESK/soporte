@@ -49,6 +49,7 @@ export function MetaAgentChat({ initialPrompt, isSuperadmin }: { initialPrompt: 
   const [simulationMessages, setSimulationMessages] = useState<Message[]>([]);
   const [simulationInput, setSimulationInput] = useState("");
   const [isSimulating, setIsSimulating] = useState(false);
+  const [simulationCaseId, setSimulationCaseId] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<string>("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const simulationScrollRef = useRef<HTMLDivElement>(null);
@@ -297,11 +298,11 @@ export function MetaAgentChat({ initialPrompt, isSuperadmin }: { initialPrompt: 
     setIsSimulating(true);
 
     try {
-      // Llamar al endpoint de simulación
+      // Llamar al endpoint de simulación (que invoca la edge ia-agent real)
       const res = await fetch("/api/admin/agente-ia/simulate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: msgToSend, history: newMessages }),
+        body: JSON.stringify({ message: msgToSend, case_id: simulationCaseId }),
       });
 
       if (!res.ok) {
@@ -310,6 +311,7 @@ export function MetaAgentChat({ initialPrompt, isSuperadmin }: { initialPrompt: 
       }
 
       const data = await res.json();
+      if (data.case_id) setSimulationCaseId(data.case_id);
       setSimulationMessages(prev => [...prev, { role: "assistant", content: data.reply }]);
 
       // Trigger análisis automático después de cada respuesta del agente
@@ -690,7 +692,18 @@ export function MetaAgentChat({ initialPrompt, isSuperadmin }: { initialPrompt: 
               </div>
             </div>
             <button
-              onClick={() => { setSimulationMessages([]); setAnalysis(""); }}
+              onClick={async () => {
+                if (simulationCaseId) {
+                  fetch("/api/admin/agente-ia/simulate", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ reset: true, case_id: simulationCaseId }),
+                  }).catch(() => {});
+                }
+                setSimulationCaseId(null);
+                setSimulationMessages([]);
+                setAnalysis("");
+              }}
               className="text-[11px] px-2 py-1 rounded-lg border border-border hover:bg-muted transition-colors"
             >
               Reiniciar

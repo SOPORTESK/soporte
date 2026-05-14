@@ -251,6 +251,7 @@ export function InboxClient({
         async (payload) => {
           const { data } = await supabase
             .from("sek_cases").select("*")
+            .neq("canal", "simulator")
             .order("created_at", { ascending: false })
             .limit(100);
           if (!data) return;
@@ -333,6 +334,7 @@ export function InboxClient({
     const poll = setInterval(async () => {
       const { data } = await supabase
         .from("sek_cases").select("*")
+        .neq("canal", "simulator")
         .order("created_at", { ascending: false })
         .limit(100);
       if (!data) return;

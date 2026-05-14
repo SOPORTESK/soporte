@@ -10,6 +10,7 @@ export default async function SoporteAvanzadoPage({ searchParams }: { searchPara
   const { data: allCases, error } = await supabase
     .from("sek_cases")
     .select("*")
+    .neq("canal", "simulator")
     .order("created_at", { ascending: false })
     .limit(200);
   

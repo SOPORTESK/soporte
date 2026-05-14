@@ -110,13 +110,20 @@ Deno.serve(async (req) => {
     // 1. Cargar caso completo
     const { data: caso, error: fetchErr } = await db
       .from("sek_cases")
-      .select("id, estado, cliente, histcliente, histtecnico, marca, modelo, problema, tags, assigned_to, learned_at")
+      .select("id, canal, estado, cliente, histcliente, histtecnico, marca, modelo, problema, tags, assigned_to, learned_at")
       .eq("id", case_id)
       .maybeSingle();
 
     if (fetchErr || !caso) {
       return new Response(JSON.stringify({ error: "Case not found" }), {
         status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Casos de simulación NO contaminan el RAG
+    if (caso.canal === "simulator") {
+      return new Response(JSON.stringify({ skip: true, reason: "simulator_case" }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
