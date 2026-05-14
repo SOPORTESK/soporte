@@ -91,10 +91,10 @@ function LoginPageContent() {
         </div>
         <div className="relative space-y-6 max-w-md">
           <h1 className="text-4xl font-bold leading-tight">Conversaciones que <span className="text-accent-300">conectan</span>.</h1>
-          <p className="text-white/85 text-lg">Plataforma omnicanal premium con WhatsApp integrado, accesible y diseñada para tu equipo.</p>
+          <p className="text-white/85 text-lg">Plataforma de atención al cliente con IA integrada, diseñada para el equipo de soporte técnico de Sekunet.</p>
           <ul className="space-y-3 text-white/90">
-            <li className="flex items-start gap-3"><ShieldCheck className="h-5 w-5 mt-0.5 shrink-0" /> Cifrado de extremo a extremo y RLS estricto en cada consulta</li>
-            <li className="flex items-start gap-3"><Lock className="h-5 w-5 mt-0.5 shrink-0" /> Autenticación segura con Supabase Auth + 2FA opcional</li>
+            <li className="flex items-start gap-3"><ShieldCheck className="h-5 w-5 mt-0.5 shrink-0" /> Acceso seguro con roles y permisos por agente</li>
+            <li className="flex items-start gap-3"><Lock className="h-5 w-5 mt-0.5 shrink-0" /> Sesiones protegidas y datos cifrados en tránsito</li>
           </ul>
         </div>
         <p className="relative text-xs text-white/70">© {new Date().getFullYear()} Sekunet. Todos los derechos reservados.</p>
