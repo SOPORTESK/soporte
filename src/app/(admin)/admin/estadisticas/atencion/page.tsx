@@ -10,7 +10,7 @@ export default async function EstadisticasAtencionPage() {
 
   const { data: todosLosCasos } = await supabase
     .from("sek_cases")
-    .select("id, assigned_to, created_at, updated_at, estado, cliente, title, canal, cat, prioridad");
+    .select("id, assigned_to, created_at, updated_at, estado, cliente, title, canal, cat, prioridad, histtecnico, accepted_at");
 
   const casos = todosLosCasos || [];
 
@@ -73,6 +73,29 @@ export default async function EstadisticasAtencionPage() {
   });
   const sparkMax = Math.max(...spark7d, 1);
 
+  // ── Tiempo efectivo del agente: suma de gaps entre mensajes consecutivos del agente <= 5 min
+  // Gaps > 5 min = cliente tardando en responder, no se cuentan
+  const UMBRAL_GAP_MIN = 5;
+  function tiempoEfectivo(histtecnico: any[], accepted_at?: string | null): number {
+    const msgs = (Array.isArray(histtecnico) ? histtecnico : [])
+      .filter((m: any) => m?.role === "agente" || m?.role === "agent")
+      .map((m: any) => new Date(m.time).getTime())
+      .filter(t => !isNaN(t))
+      .sort((a, b) => a - b);
+    // Si hay accepted_at, incluirlo como primer punto de referencia
+    if (accepted_at) {
+      const t = new Date(accepted_at).getTime();
+      if (!isNaN(t)) msgs.unshift(t);
+    }
+    if (msgs.length < 2) return 0;
+    let total = 0;
+    for (let i = 1; i < msgs.length; i++) {
+      const gap = Math.round((msgs[i] - msgs[i - 1]) / 60000);
+      if (gap > 0 && gap <= UMBRAL_GAP_MIN) total += gap;
+    }
+    return total;
+  }
+
   // ── Helper para leer calificación desde objeto cliente
   function getCal(c: any): number | null {
     const cl = typeof c.cliente === "object" && c.cliente ? c.cliente as any : null;
@@ -93,13 +116,13 @@ export default async function EstadisticasAtencionPage() {
   const statsPorAgente: Record<string, {
     email: string; nombre: string; totalAtendidos: number; resueltos: number; activos: number;
     escalados: number; calificaciones: number[]; tiemposResolucion: number[]; ultimoCaso: string;
-    urgentes: number; casos7d: number;
+    urgentes: number; casos7d: number; tiemposEfectivos: number[];
   }> = {};
 
   casosConAsig.forEach(caso => {
     const email = caso.assigned_to!.toLowerCase();
     if (!statsPorAgente[email]) {
-      statsPorAgente[email] = { email, nombre: agenteMap[email] || caso.assigned_to!, totalAtendidos: 0, resueltos: 0, activos: 0, escalados: 0, calificaciones: [], tiemposResolucion: [], ultimoCaso: caso.title || "Caso sin título", urgentes: 0, casos7d: 0 };
+      statsPorAgente[email] = { email, nombre: agenteMap[email] || caso.assigned_to!, totalAtendidos: 0, resueltos: 0, activos: 0, escalados: 0, calificaciones: [], tiemposResolucion: [], ultimoCaso: caso.title || "Caso sin título", urgentes: 0, casos7d: 0, tiemposEfectivos: [] };
     }
     const s = statsPorAgente[email];
     s.totalAtendidos++;
@@ -111,6 +134,8 @@ export default async function EstadisticasAtencionPage() {
         const diff = Math.round((new Date(caso.updated_at).getTime() - new Date(caso.created_at).getTime()) / 60000);
         if (diff > 0) s.tiemposResolucion.push(diff);
       }
+      const te = tiempoEfectivo((caso as any).histtecnico, (caso as any).accepted_at);
+      if (te > 0) s.tiemposEfectivos.push(te);
     }
     const cal = getCal(caso); if (cal !== null) s.calificaciones.push(cal);
     if (caso.prioridad === "urgente") s.urgentes++;
@@ -130,7 +155,9 @@ export default async function EstadisticasAtencionPage() {
     const weightRes = 1 - weightSat - weightSLA;
     const score = Math.round(tasa * weightRes + scoreSat * weightSat + scoreSLA * weightSLA);
     const tasaEsc = s.totalAtendidos > 0 ? Math.round((s.escalados / s.totalAtendidos) * 100) : 0;
-    return { ...s, avgCalificacion: avgCal > 0 ? avgCal.toFixed(1) : "N/A", avgSLA, tasa: Math.round(tasa), score, tasaEsc };
+    const avgEfectivo = s.tiemposEfectivos.length > 0
+      ? Math.round(s.tiemposEfectivos.reduce((a, b) => a + b, 0) / s.tiemposEfectivos.length) : 0;
+    return { ...s, avgCalificacion: avgCal > 0 ? avgCal.toFixed(1) : "N/A", avgSLA, tasa: Math.round(tasa), score, tasaEsc, avgEfectivo };
   }).sort((a, b) => b.score - a.score);
 
   // ── Canales / Categorías
@@ -414,13 +441,14 @@ export default async function EstadisticasAtencionPage() {
                   <th className="px-4 py-3 text-center text-[10px] font-black uppercase tracking-widest text-muted-foreground">Resueltos</th>
                   <th className="px-4 py-3 text-center text-[10px] font-black uppercase tracking-widest text-muted-foreground">Escalados</th>
                   <th className="px-4 py-3 text-center text-[10px] font-black uppercase tracking-widest text-muted-foreground">SLA</th>
+                  <th className="px-4 py-3 text-center text-[10px] font-black uppercase tracking-widest text-muted-foreground">T. Efectivo</th>
                   <th className="px-4 py-3 text-center text-[10px] font-black uppercase tracking-widest text-muted-foreground">Rating</th>
                   <th className="px-4 py-3 text-center text-[10px] font-black uppercase tracking-widest text-muted-foreground">7 días</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/50">
                 {rankingAgentes.length === 0 ? (
-                  <tr><td colSpan={8} className="py-16 text-center text-sm text-muted-foreground">Sin datos de atención registrados.</td></tr>
+                  <tr><td colSpan={9} className="py-16 text-center text-sm text-muted-foreground">Sin datos de atención registrados.</td></tr>
                 ) : rankingAgentes.map((a, i) => {
                   const isTop = i === 0 && rankingAgentes.length > 1;
                   const initials = a.nombre.split(" ").filter(Boolean).map((n: string) => n[0]).join("").substring(0, 2).toUpperCase();
@@ -463,6 +491,15 @@ export default async function EstadisticasAtencionPage() {
                           <Clock className="h-3 w-3 text-sky-500" />
                           <span className="font-black tabular-nums text-sky-500 text-sm">{formatSLA(a.avgSLA)}</span>
                         </div>
+                      </td>
+                      <td className="px-4 py-3.5 text-center">
+                        {(a as any).avgEfectivo > 0 ? (
+                          <div className="flex items-center justify-center gap-1">
+                            <UserCheck className="h-3 w-3 text-violet-500" />
+                            <span className="font-black tabular-nums text-violet-500 text-sm">{formatSLA((a as any).avgEfectivo)}</span>
+                          </div>
+                        ) : <span className="text-muted-foreground/40 text-sm">—</span>}
+                        <p className="text-[9px] text-muted-foreground">activo</p>
                       </td>
                       <td className="px-4 py-3.5 text-center">
                         {a.avgCalificacion !== "N/A" ? (
