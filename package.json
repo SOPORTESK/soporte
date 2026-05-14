@@ -4,10 +4,15 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3100",
-    "build": "next build",
+    "build": "npm run sync-widget && next build",
     "start": "next start -p 3100",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "sync-widget": "node scripts/sync-widget.mjs",
+    "prepare": "simple-git-hooks || true"
+  },
+  "simple-git-hooks": {
+    "pre-commit": "node scripts/sync-widget.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",
@@ -35,6 +40,7 @@
     "eslint-config-next": "14.2.15",
     "postcss": "^8.4.47",
     "sharp": "^0.34.5",
+    "simple-git-hooks": "^2.13.1",
     "tailwindcss": "^3.4.13",
     "typescript": "^5.6.3"
   }
