@@ -35,7 +35,7 @@ export default function WebPreviewPage() {
           <p className="text-xs text-muted-foreground">Prueba el chat como lo vería un visitante de tu sitio</p>
         </div>
         <a
-          href="/widget/chat"
+          href="/widget-standalone.html"
           target="_blank"
           rel="noopener noreferrer"
           className="ml-auto inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-brand-700 transition-colors"
@@ -100,7 +100,7 @@ export default function WebPreviewPage() {
 
                 {/* iframe del widget anclado dentro */}
                 <iframe
-                  src="/widget/chat"
+                  src="/widget-standalone.html"
                   title="Sekunet Chat Widget Preview"
                   style={{
                     position: "absolute",
