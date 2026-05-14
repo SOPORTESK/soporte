@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
       role: "assistant",
       author: "Asistente Sekunet",
       time: new Date().toISOString(),
-      content: "Reciba un cordial saludo de parte de Soporte Sekunet, gracias por contactarnos. En que le podemos asistir hoy?",
+      content: "Reciba un cordial saludo de parte del equipo de Soporte Sekunet. Gracias por contactarnos. ¿Cómo podemos asistirle?",
     };
 
     const { data: newCase, error: insertErr } = await supabase

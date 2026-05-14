@@ -650,7 +650,7 @@ function renderAll(hc,ht){
   var opts=[];c.querySelectorAll(".optimista").forEach(function(el){opts.push(el)});
   var conf=new Set();(hc||[]).forEach(function(e){if((e.role||"user")==="user")conf.add("c:"+(e.content||"")+"|m:"+(e.mediaUrl||""))});
   c.innerHTML="";
-  if(all.length===0){c.appendChild(mkBubble("assistant","Reciba un cordial saludo de parte de Soporte Sekunet, gracias por contactarnos. En que le podemos asistir hoy?",new Date().toISOString()))}
+  if(all.length===0){c.appendChild(mkBubble("assistant","Reciba un cordial saludo de parte del equipo de Soporte Sekunet. Gracias por contactarnos. ¿Cómo podemos asistirle?",new Date().toISOString()))}
   var lastDate="";
   all.forEach(function(m){var dl=dateLabel(m.time);if(dl!==lastDate){lastDate=dl;var sep=document.createElement("div");sep.className="date-sep";sep.innerHTML="<span>"+dl+"</span>";c.appendChild(sep)}c.appendChild(mkBubble(m.role,m.content,m.time,m.mediaUrl,m.mediaType,m.fileName))});
   opts.forEach(function(el){var k="c:"+(el.dataset.optContent||"")+"|m:"+(el.dataset.optMedia||"");if(!conf.has(k))c.appendChild(el)});
@@ -716,7 +716,7 @@ async function startSession(){
   }
   /* Cada nueva sesión arranca de cero: no reusamos casos previos por cédula.
      Solo se retoma un caso si localStorage.sek_session existía y sigue vivo (manejado arriba). */
-  var welcomeMsg={role:"assistant",author:"Asistente Sekunet",time:new Date().toISOString(),content:"Reciba un cordial saludo de parte de Soporte Sekunet, gracias por contactarnos. ¿En qué le podemos asistir hoy?"};
+  var welcomeMsg={role:"assistant",author:"Asistente Sekunet",time:new Date().toISOString(),content:"Reciba un cordial saludo de parte del equipo de Soporte Sekunet. Gracias por contactarnos. ¿Cómo podemos asistirle?"};
   sid=null;
   showChat([welcomeMsg],[],"pendiente",clienteData);
 }
@@ -733,7 +733,7 @@ function cleanCliente(c){
 /* ═══ CREATE NEW CASE ═══ */
 async function newCase(msg){
   if(creandoCaso)return;creandoCaso=true;casoCerrado=false;lastHash="";csatDone=false;
-  var wm={role:"assistant",author:"Asistente Sekunet",time:new Date().toISOString(),content:"Reciba un cordial saludo de parte de Soporte Sekunet, gracias por contactarnos. En que le podemos asistir hoy?"};
+  var wm={role:"assistant",author:"Asistente Sekunet",time:new Date().toISOString(),content:"Reciba un cordial saludo de parte del equipo de Soporte Sekunet. Gracias por contactarnos. ¿Cómo podemos asistirle?"};
   var ins=await db.from("sek_cases").insert({title:"Chat web — "+(clienteData?clienteData.nombre:"Cliente"),canal:"widget",estado:"ia_atendiendo",prioridad:"media",cliente:cleanCliente(clienteData),customer_phone:clienteData?clienteData.telefono:null,histcliente:[wm],histtecnico:[]}).select("id,histcliente,histtecnico").single();
   if(ins.error){alert("Error: "+ins.error.message);creandoCaso=false;return}
   sid=String(ins.data.id);try{localStorage.setItem("sek_session",sid);localStorage.setItem("sek_session_ver",SVER)}catch(e){}
@@ -749,7 +749,7 @@ async function sendMsg(){
   if(!sid){
     if(!txt&&!pendFile)return;
     $("btn-send").disabled=true;$("txt-msg").value="";autoResize();
-    var wm={role:"assistant",author:"Asistente Sekunet",time:new Date().toISOString(),content:"Reciba un cordial saludo de parte de Soporte Sekunet, gracias por contactarnos. ¿En qué le podemos asistir hoy?"};
+    var wm={role:"assistant",author:"Asistente Sekunet",time:new Date().toISOString(),content:"Reciba un cordial saludo de parte del equipo de Soporte Sekunet. Gracias por contactarnos. ¿Cómo podemos asistirle?"};
     var um={role:"user",time:new Date().toISOString(),content:txt||"Archivo adjunto"};
     if(pendFile){var pf=pendFile;pendFile=null;$("up-prev-bar").style.display="none";try{var pu=await uploadFile(pf);um.mediaUrl=pu.url;um.mediaType=pu.type;um.fileName=pu.name;um.content=txt||""}catch(err){alert("Error al subir: "+err.message);$("btn-send").disabled=false;return}}
     var ins=await db.from("sek_cases").insert({title:"Chat web — "+(clienteData?clienteData.nombre:"Cliente"),canal:"widget",estado:"ia_atendiendo",prioridad:"media",cliente:cleanCliente(clienteData),customer_phone:clienteData?clienteData.telefono:null,histcliente:[wm,um],histtecnico:[]}).select("id,histcliente,histtecnico").single();

@@ -19,8 +19,6 @@ NEXT_PUBLIC_SITE_URL=http://localhost:3000
 # IA - Google Gemini
 GEMINI_API_KEY=$geminiKey
 
-# IA - Groq (opcional)
-GROQ_API_KEY=tu_api_key_de_groq
 "@ | Out-File -FilePath $envFile -Encoding UTF8
     Write-Host "Archivo .env.local creado con GEMINI_API_KEY configurada!" -ForegroundColor Green
 } else {
