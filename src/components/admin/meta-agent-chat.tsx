@@ -209,6 +209,7 @@ export function MetaAgentChat({ initialPrompt, isSuperadmin }: { initialPrompt: 
           message: userMessage, 
           history: messages,
           currentPrompt,
+          mode,
           isSuperadminOverride: false,
           file: fileData ? {
             base64: fileData,
