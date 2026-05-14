@@ -203,6 +203,33 @@ export default async function EstadisticasClientePage() {
   });
   const histMax = Math.max(...Object.values(histogramaMap), 1);
 
+  // ── Ranking de agentes por tiempo de respuesta (escalado_at → accepted_at)
+  let casosConTiempo: any[] = [];
+  try {
+    const { data } = await supabase
+      .from("sek_cases")
+      .select("assigned_to, escalado_at, accepted_at")
+      .not("escalado_at", "is", null)
+      .not("accepted_at", "is", null)
+      .not("assigned_to", "is", null);
+    casosConTiempo = data || [];
+  } catch { casosConTiempo = []; }
+
+  const agentTiempos: Record<string, { total: number; suma: number; min: number; max: number }> = {};
+  casosConTiempo.forEach((c: any) => {
+    if (!c.assigned_to || !c.escalado_at || !c.accepted_at) return;
+    const diff = Math.round((new Date(c.accepted_at).getTime() - new Date(c.escalado_at).getTime()) / 60000);
+    if (diff < 0 || diff > 480) return; // descartar negativos y > 8h
+    if (!agentTiempos[c.assigned_to]) agentTiempos[c.assigned_to] = { total: 0, suma: 0, min: diff, max: diff };
+    const a = agentTiempos[c.assigned_to];
+    a.total++; a.suma += diff;
+    if (diff < a.min) a.min = diff;
+    if (diff > a.max) a.max = diff;
+  });
+  const rankingAgentes = Object.entries(agentTiempos)
+    .map(([email, s]) => ({ email, promedio: Math.round(s.suma / s.total), min: s.min, max: s.max, total: s.total }))
+    .sort((a, b) => a.promedio - b.promedio);
+
   // ── Clientes en riesgo: casos abiertos hace más de 3 días sin actualización
   const hace3 = new Date(hoy); hace3.setDate(hoy.getDate() - 3);
   const clientesRiesgo = topClientes
@@ -772,6 +799,63 @@ export default async function EstadisticasClientePage() {
             </div>
           )}
         </div>
+      </section>
+
+      {/* ══ RANKING TIEMPOS DE RESPUESTA ══ */}
+      <section className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-bold flex items-center gap-2"><Clock className="h-5 w-5 text-brand-500" /> Tiempos de Respuesta por Agente</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">Tiempo entre escalado a humano y aceptación del caso</p>
+          </div>
+        </div>
+        {rankingAgentes.length === 0 ? (
+          <div className="p-12 text-center border border-dashed border-border/60 rounded-2xl text-muted-foreground">
+            <Clock className="h-6 w-6 mx-auto mb-2 text-muted-foreground/20" />
+            <p className="text-xs">Aún no hay datos de tiempos de respuesta. Se registrarán automáticamente con los próximos casos escalados.</p>
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-border/60 bg-card overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border/60 bg-muted/30">
+                  <th className="text-left px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wider">#</th>
+                  <th className="text-left px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wider">Agente</th>
+                  <th className="text-right px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wider">Promedio</th>
+                  <th className="text-right px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wider">Mínimo</th>
+                  <th className="text-right px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wider">Máximo</th>
+                  <th className="text-right px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wider">Casos</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rankingAgentes.map((a, i) => {
+                  const badge = a.promedio < 2 ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                    : a.promedio < 5 ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                    : "bg-red-500/10 text-red-600 dark:text-red-400";
+                  const dot = a.promedio < 2 ? "bg-emerald-500" : a.promedio < 5 ? "bg-amber-400" : "bg-red-500";
+                  const fmt = (m: number) => m < 60 ? `${m}m` : `${(m/60).toFixed(1)}h`;
+                  return (
+                    <tr key={a.email} className="border-b border-border/40 last:border-0 hover:bg-muted/30 transition-colors">
+                      <td className="px-4 py-3 font-bold text-muted-foreground text-xs">{i + 1}</td>
+                      <td className="px-4 py-3">
+                        <p className="font-semibold truncate max-w-[200px]">{a.email}</p>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold ${badge}`}>
+                          <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
+                          {fmt(a.promedio)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right text-xs text-muted-foreground font-medium">{fmt(a.min)}</td>
+                      <td className="px-4 py-3 text-right text-xs text-muted-foreground font-medium">{fmt(a.max)}</td>
+                      <td className="px-4 py-3 text-right text-xs font-bold">{a.total}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
     </div>
   );

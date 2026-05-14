@@ -67,6 +67,8 @@ export interface SekCase {
   channel_id: string | null;
   customer_phone: string | null;
   updated_at: string;
+  escalado_at: string | null;
+  accepted_at: string | null;
   /** Metadatos del agrupamiento por cliente (varios casos como un solo chat) */
   _group?: {
     caseIds: Array<string | number>;

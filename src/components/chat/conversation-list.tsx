@@ -1,6 +1,6 @@
 "use client";
 import * as React from "react";
-import { Search, MessageSquarePlus, Star } from "lucide-react";
+import { Search, MessageSquarePlus, Star, Clock } from "lucide-react";
 import { Avatar, Badge } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { cn, formatTime, asText, clienteInfo } from "@/lib/utils";
@@ -20,6 +20,11 @@ export function ConversationList({
   cases, selectedId, onSelect
 }: { cases: SekCase[]; selectedId: string | null; onSelect: (id: string) => void }) {
   const [query, setQuery] = React.useState("");
+  const [tick, setTick] = React.useState(0);
+  React.useEffect(() => {
+    const t = setInterval(() => setTick(n => n + 1), 60000);
+    return () => clearInterval(t);
+  }, []);
 
 
   const filtered = React.useMemo(() => {
@@ -43,7 +48,8 @@ export function ConversationList({
       const tb = lastMessage(b)?.time || b.last_message_at || b.updated_at || b.created_at || "";
       return new Date(tb).getTime() - new Date(ta).getTime();
     });
-  }, [cases, query]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cases, query, tick]);
 
   const emptyMsg = React.useMemo(() => {
     if (cases.length === 0) return "Aún no hay casos. Cuando un cliente escriba, aparecerá aquí.";
@@ -92,6 +98,14 @@ export function ConversationList({
           const preview = lm?.content || asText(c.last_message_preview) || sub || "Sin mensajes";
           const timeStr = formatTime(lm?.time || c.last_message_at || c.created_at);
           const estadoLower = String(c.estado || "").toLowerCase();
+          const isEscaladoPendiente = estadoLower === "escalado" && !c.accepted_at;
+          const minutosEsperando = isEscaladoPendiente && c.escalado_at
+            ? Math.floor((Date.now() - new Date(c.escalado_at).getTime()) / 60000)
+            : null;
+          const semaforo = minutosEsperando === null ? null
+            : minutosEsperando < 2 ? { color: "bg-emerald-500", text: "text-emerald-600 dark:text-emerald-400", label: `${minutosEsperando}m` }
+            : minutosEsperando < 5 ? { color: "bg-amber-400", text: "text-amber-600 dark:text-amber-400", label: `${minutosEsperando}m` }
+            : { color: "bg-red-500", text: "text-red-600 dark:text-red-400", label: `${minutosEsperando}m` };
           return (
             <li key={id} role="option" aria-selected={active}>
               <button
@@ -113,7 +127,16 @@ export function ConversationList({
                         </div>
                       )}
                     </div>
-                    <span className="text-xs text-muted-foreground shrink-0">{timeStr}</span>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {semaforo && (
+                        <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-bold ${semaforo.text} bg-current/10`}>
+                          <span className={`h-1.5 w-1.5 rounded-full ${semaforo.color} animate-pulse`} />
+                          <Clock className="h-2.5 w-2.5" />
+                          {semaforo.label}
+                        </span>
+                      )}
+                      <span className="text-xs text-muted-foreground">{timeStr}</span>
+                    </div>
                   </div>
                   <p className="text-sm text-muted-foreground truncate mt-0.5">{preview}</p>
                   <div className="flex items-center gap-1 mt-1.5 flex-wrap">

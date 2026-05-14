@@ -646,7 +646,7 @@ Deno.serve(async (req) => {
     // reales con clientes externos.
     if (!iaActiva && !isSimulator) {
       console.log("[ia-agent] ia_activa=false — modo manual activo, sin respuesta automática");
-      await db.from("sek_cases").update({ estado: "escalado" }).eq("id", case_id);
+      await db.from("sek_cases").update({ estado: "escalado", escalado_at: new Date().toISOString() }).eq("id", case_id);
       return new Response(JSON.stringify({ ok: true, skipped: true }), { headers: { "Content-Type": "application/json" } });
     }
 
@@ -750,6 +750,7 @@ Deno.serve(async (req) => {
       await db.from("sek_cases").update({
         histcliente: [...histcliente, fallbackEntry],
         estado: "escalado",
+        escalado_at: new Date().toISOString(),
       }).eq("id", case_id);
 
       return new Response(
@@ -923,6 +924,7 @@ Deno.serve(async (req) => {
 
     if (shouldEscalate) {
       updates.estado = "escalado";
+      updates.escalado_at = new Date().toISOString();
       updates.title =
         `Chat web — ${(caso.cliente as any)?.nombre || "Cliente"} — ${(caso.cliente as any)?.equipo || ""}`.trim();
       // Agregar tag n2 al caso para que aparezca en Soporte Avanzado

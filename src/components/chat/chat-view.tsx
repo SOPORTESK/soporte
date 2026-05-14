@@ -392,6 +392,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       const { error } = await supabase.from("sek_cases").update({
         estado: "abierto",
         assigned_to: agentEmail,
+        accepted_at: new Date().toISOString(),
       }).eq("id", targetId);
       if (error) throw error;
       setSekCase(prev => ({ ...prev, estado: "abierto", assigned_to: agentEmail }));
