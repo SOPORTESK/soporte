@@ -69,7 +69,7 @@ html,body{height:100%;height:100dvh;font-family:-apple-system,BlinkMacSystemFont
 .field input.valid{border-color:var(--success)}.field input.invalid{border-color:var(--danger)}
 .ced-wrap{position:relative}.ced-wrap input{padding-right:38px}
 .ced-ico{position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:16px;line-height:1}
-.ced-res{font-size:11px;margin:-4px 0 6px 2px;line-height:1.4}.ced-res.ok{color:var(--success)}.ced-res.fail{color:var(--danger)}
+.ced-res{font-size:11px;margin:-4px 0 6px 2px;line-height:1.4}.ced-res.ok{color:var(--success)}.ced-res.fail{color:var(--danger)}.ced-res.warn{color:#d97706}
 .err{color:var(--danger);font-size:12px;margin-top:-8px;margin-bottom:8px;font-weight:600}
 .btn-primary{width:100%;margin-top:6px;padding:14px;border-radius:14px;background:var(--grad-btn);color:#fff;border:none;cursor:pointer;font-weight:700;font-size:15px;font-family:inherit;transition:opacity .15s,transform .1s;box-shadow:0 4px 16px rgba(37,99,235,.35)}
 .btn-primary:active{transform:scale(.98)}.btn-primary:disabled{opacity:.6;cursor:not-allowed}
@@ -471,13 +471,13 @@ window.addEventListener("offline",function(){connSt("offline")});
 /* ═══ CEDULA ═══ */
 function cedFmt(id){if(!/^\d+$/.test(id))return null;var l=id.length;if(l===9)return"física";if(l===10&&id[0]==="3")return"jurídica";if(l===10&&id.substring(0,2)==="10")return"NITE";if(l===11||l===12)return"DIMEX";return null}
 
-var cedNombre="",cedRaw="";
+var cedNombre="",cedRaw="",cedFallback=false;
 
 function showStep(s){$("step-ced").style.display=s==="ced"?"block":"none";$("step-login").style.display=s==="login"?"block":"none";$("step-register").style.display=s==="register"?"block":"none";$("step-forgot").style.display=s==="forgot"?"block":"none";}
 
 function onCedInp(){
   var raw=$("inp-cedula").value.replace(/[^\d]/g,"");
-  $("inp-cedula").value=raw;cedulaOk=false;cedNombre="";cedRaw=raw;
+  $("inp-cedula").value=raw;cedulaOk=false;cedNombre="";cedRaw=raw;cedFallback=false;
   $("btn-ced-next").disabled=true;
   $("ced-res").textContent="";$("ced-res").className="ced-res";
   $("inp-cedula").className="";$("ced-ico").textContent="";
@@ -490,10 +490,10 @@ function onCedInp(){
   cedTmr=setTimeout(async function(){
     try{
       var r=await fetch(HURL+"?identificacion="+raw);
-      if(r.ok){var d=await r.json();cedNombre=d.nombre||"";cedulaOk=true;$("ced-ico").textContent="✅";$("inp-cedula").className="valid";$("ced-res").className="ced-res ok";$("ced-res").textContent="✓ "+(cedNombre||"Verificado")+" ("+tipo+")";$("btn-ced-next").disabled=false}
+      if(r.ok){var d=await r.json();cedNombre=d.nombre||"";cedulaOk=true;cedFallback=false;$("ced-ico").textContent="✅";$("inp-cedula").className="valid";$("ced-res").className="ced-res ok";$("ced-res").textContent="✓ "+(cedNombre||"Verificado")+" ("+tipo+")";$("btn-ced-next").disabled=false}
       else if(r.status===404){$("ced-ico").textContent="❌";$("inp-cedula").className="invalid";$("ced-res").className="ced-res fail";$("ced-res").textContent="Cédula no encontrada en Hacienda"}
-      else{cedulaOk=true;$("inp-cedula").className="valid";$("btn-ced-next").disabled=false}
-    }catch(e){cedulaOk=true;$("inp-cedula").className="valid";$("btn-ced-next").disabled=false}
+      else{cedulaOk=true;cedFallback=true;$("ced-ico").textContent="⚠️";$("inp-cedula").className="valid";$("ced-res").className="ced-res warn";$("ced-res").textContent="⚠ Hacienda no respondió. Continúe e ingrese su nombre manualmente.";$("btn-ced-next").disabled=false}
+    }catch(e){cedulaOk=true;cedFallback=true;$("ced-ico").textContent="⚠️";$("inp-cedula").className="valid";$("ced-res").className="ced-res warn";$("ced-res").textContent="⚠ Hacienda no respondió. Continúe e ingrese su nombre manualmente.";$("btn-ced-next").disabled=false}
   },600)
 }
 $("inp-cedula").addEventListener("input",onCedInp);
@@ -514,9 +514,14 @@ $("btn-ced-next").addEventListener("click",async function(){
     showStep("login");$("inp-password").focus();
   } else {
     $("reg-nombre").value=cedNombre;
+    // Si Hacienda falló, desbloqueamos el campo para que el cliente escriba su nombre.
+    if(cedFallback){$("reg-nombre").removeAttribute("readonly");$("reg-nombre").style.background="";$("reg-nombre").style.color="";$("reg-nombre").placeholder="Ingrese su nombre completo";}
+    else{$("reg-nombre").setAttribute("readonly","");$("reg-nombre").style.background="var(--bg2)";$("reg-nombre").style.color="var(--text2)";}
     $("reg-correo").value="";$("reg-tel").value="";$("reg-cuenta").value="";
     $("reg-password").value="";$("reg-password2").value="";$("reg-err").textContent="";
-    showStep("register");$("reg-correo").focus();
+    showStep("register");
+    if(cedFallback)$("reg-nombre").focus();
+    else $("reg-correo").focus();
   }
 });
 
