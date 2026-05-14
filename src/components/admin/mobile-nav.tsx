@@ -5,14 +5,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, Settings, BookOpen, Bot, Package,
-  Users, MessageCircle, X, Menu, ShieldCheck, ShieldBan
+  Users, MessageCircle, X, Menu, ShieldCheck
 } from "lucide-react";
 
 const navItems = [
   { section: "General", items: [{ href: "/admin", label: "Resumen", icon: LayoutDashboard }] },
   { section: "Gestión", items: [
     { href: "/admin/equipo", label: "Equipo", icon: Users },
-    { href: "/admin/clientes", label: "Clientes", icon: ShieldBan },
     { href: "/admin/inventario", label: "Inventario", icon: Package },
     { href: "/admin/manuales", label: "Manuales", icon: BookOpen },
   ]},
