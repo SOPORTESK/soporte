@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { Bot, Brain, FileText, Clock, AlertCircle, Zap, Globe, Eye, Package, ArrowUpRight, CheckCircle2, Activity } from "lucide-react";
+import { Bot, Brain, FileText, Clock, AlertCircle, Zap, Globe, Eye, Package, ArrowUpRight, CheckCircle2, Activity, Sparkles } from "lucide-react";
 import nextDynamic from "next/dynamic";
 
 const MetaAgentChat = nextDynamic(
@@ -41,11 +41,13 @@ export default async function AdminAgenteIAPage() {
     { icon: Package, title: "Inventario Inteligente", desc: "Búsqueda fuzzy en cartera Sekunet", color: "emerald" },
     { icon: ArrowUpRight, title: "Escalación N2", desc: "Detección automática y etiquetado", color: "amber" },
     { icon: Clock, title: "Horario de Atención", desc: "Costa Rica · L-V 7:30–17:00", color: "rose" },
+    { icon: Sparkles, title: "Aprendizaje Continuo", desc: "Resume y guarda en RAG cada caso al cerrar", color: "indigo" },
   ];
 
   const edgeFunctions = [
     { name: "ia-agent", desc: "Procesa mensajes · RAG · escalación" },
     { name: "auto-close", desc: "Cierra casos por inactividad (5 min)" },
+    { name: "learn-case", desc: "Aprendizaje obligatorio al cerrar (Regla Inmutable)" },
     { name: "send-transcript", desc: "Transcripción por email al cerrar" },
     { name: "whatsapp-webhook", desc: "Recibe y responde WhatsApp" },
   ];
@@ -57,6 +59,7 @@ export default async function AdminAgenteIAPage() {
     emerald:"bg-emerald-500/10 text-emerald-500 border-emerald-500/20",
     amber:  "bg-amber-500/10 text-amber-500 border-amber-500/20",
     rose:   "bg-rose-500/10 text-rose-500 border-rose-500/20",
+    indigo: "bg-indigo-500/10 text-indigo-500 border-indigo-500/20",
   };
 
   return (

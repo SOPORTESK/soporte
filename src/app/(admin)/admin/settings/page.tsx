@@ -97,6 +97,7 @@ export default async function AdminSettingsPage() {
               {[
                 { name: "ia-agent", desc: "Procesa mensajes con Gemini 3.1 Flash Lite, RAG, escalación", icon: Activity },
                 { name: "auto-close", desc: "Cierra casos por inactividad (5 min)", icon: Clock },
+                { name: "learn-case", desc: "Aprendizaje obligatorio al cerrar (Regla Inmutable)", icon: Activity },
                 { name: "send-transcript", desc: "Envía transcripción por email al cerrar", icon: Globe },
                 { name: "whatsapp-webhook", desc: "Recibe mensajes de WhatsApp Cloud API", icon: Webhook },
               ].map((fn) => (
