@@ -69,10 +69,11 @@ function LoginPageContent() {
   return (
     <main id="main" className="min-h-dvh grid lg:grid-cols-2 px-safe">
       {/* Panel de marca */}
-      <aside className="relative hidden lg:flex flex-col justify-between p-12 gradient-brand text-white overflow-hidden">
+      <aside className="relative hidden lg:flex flex-col p-12 gradient-brand text-white overflow-hidden">
         <div className="absolute inset-0 opacity-20" aria-hidden style={{
           backgroundImage: "radial-gradient(circle at 20% 20%, rgba(255,255,255,.4), transparent 40%), radial-gradient(circle at 80% 80%, rgba(255,255,255,.3), transparent 40%)"
         }} />
+        {/* Logo */}
         <div className="relative">
           <div className="flex items-center gap-3">
             <div className="relative group/logo">
@@ -89,15 +90,19 @@ function LoginPageContent() {
             </div>
           </div>
         </div>
-        <div className="relative space-y-6 max-w-md">
-          <h1 className="text-4xl font-bold leading-tight">Conversaciones que <span className="text-accent-300">conectan</span>.</h1>
-          <p className="text-white/85 text-lg">Plataforma de atención al cliente con IA integrada, diseñada para el equipo de soporte técnico de Sekunet.</p>
-          <ul className="space-y-3 text-white/90">
-            <li className="flex items-start gap-3"><ShieldCheck className="h-5 w-5 mt-0.5 shrink-0" /> Acceso seguro con roles y permisos por agente</li>
-            <li className="flex items-start gap-3"><Lock className="h-5 w-5 mt-0.5 shrink-0" /> Sesiones protegidas y datos cifrados en tránsito</li>
+        {/* Contenido central */}
+        <div className="relative flex-1 flex flex-col justify-center max-w-md space-y-8">
+          <h1 className="text-5xl font-black leading-[1.1] tracking-tight">Conversaciones que <span className="text-accent-300">conectan</span>.</h1>
+          <p className="text-white/80 text-lg leading-relaxed">Plataforma de atención al cliente con IA integrada, diseñada para el equipo de soporte técnico de Sekunet.</p>
+          <ul className="space-y-4 text-white/90">
+            <li className="flex items-start gap-3"><ShieldCheck className="h-5 w-5 mt-0.5 shrink-0 text-emerald-300" /> Acceso seguro con roles y permisos por agente</li>
+            <li className="flex items-start gap-3"><Lock className="h-5 w-5 mt-0.5 shrink-0 text-sky-300" /> Sesiones protegidas y datos cifrados en tránsito</li>
           </ul>
         </div>
-        <p className="relative text-xs text-white/70">© {new Date().getFullYear()} Sekunet. Todos los derechos reservados.</p>
+        {/* Footer */}
+        <div className="relative space-y-1">
+          <p className="text-xs text-white/60">© {new Date().getFullYear()} Sekunet. Desarrollado por César Andrés Batista Vargas.</p>
+        </div>
       </aside>
 
       {/* Formulario */}
