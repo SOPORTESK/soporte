@@ -56,6 +56,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: insertErr.message }, { status: 500 });
     }
 
+    // Persistir cliente en sek_clientes si trae cédula. Idempotente: si ya
+    // existe (registrado con password), NO sobrescribimos. Si no existe, lo
+    // creamos con password_hash placeholder para que cuente como cliente.
+    if (cliente.cedula && cliente.cedula.length >= 9 && cliente.nombre) {
+      const { error: upErr } = await supabase
+        .from("sek_clientes")
+        .upsert({
+          cedula: cliente.cedula,
+          nombre: cliente.nombre,
+          correo: cliente.correo || null,
+          telefono: cliente.telefono || null,
+          password_hash: "WIDGET_CHAT_ONLY",
+        }, { onConflict: "cedula", ignoreDuplicates: true });
+      if (upErr) console.warn("[widget/session] upsert cliente warning:", upErr.message);
+    }
+
     return NextResponse.json({ session_id: String(newCase.id), case: newCase }, { status: 201 });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message ?? "Error inesperado" }, { status: 500 });

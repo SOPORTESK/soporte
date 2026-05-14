@@ -1,13 +1,14 @@
 "use client";
 import * as React from "react";
-import { Trash2, AlertTriangle, CheckCircle2, MessageSquare, Users, Sparkles, RefreshCw } from "lucide-react";
+import { Trash2, AlertTriangle, CheckCircle2, MessageSquare, Users, Sparkles, RefreshCw, BookOpen, Paperclip } from "lucide-react";
 import { toast } from "sonner";
 
 interface Counts {
   cases: number;
   clientes: number;
-  messages: number;
   learnings: number;
+  manuales: number;
+  attachments: number;
 }
 
 interface ResetResult {
@@ -73,7 +74,7 @@ export function DangerZonePanel() {
     }
   }
 
-  const totalAfectado = counts ? counts.cases + counts.clientes + counts.messages + counts.learnings : 0;
+  const totalAfectado = counts ? counts.cases + counts.clientes + counts.learnings + counts.attachments : 0;
 
   return (
     <div className="space-y-5">
@@ -89,11 +90,16 @@ export function DangerZonePanel() {
             <RefreshCw className={`h-3 w-3 ${loadingCounts ? "animate-spin" : ""}`} /> Actualizar
           </button>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+        <p className="text-[10px] text-rose-500 font-bold uppercase tracking-wider mb-2">Se borrarán — a borrar</p>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-4">
           <CountCard icon={MessageSquare} label="Casos / chats" value={counts?.cases} color="rose" />
-          <CountCard icon={Users} label="Clientes" value={counts?.clientes} color="amber" />
-          <CountCard icon={MessageSquare} label="Mensajes (vestigial)" value={counts?.messages} color="muted" />
-          <CountCard icon={Sparkles} label="Aprendizajes RAG" value={counts?.learnings} color="violet" />
+          <CountCard icon={Users} label="Clientes" value={counts?.clientes} color="rose" />
+          <CountCard icon={Sparkles} label="Aprendizajes de chats" value={counts?.learnings} color="rose" />
+          <CountCard icon={Paperclip} label="Adjuntos" value={counts?.attachments} color="rose" />
+        </div>
+        <p className="text-[10px] text-emerald-500 font-bold uppercase tracking-wider mb-2">Se conservan</p>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+          <CountCard icon={BookOpen} label="Chunks de manuales (RAG)" value={counts?.manuales} color="emerald" />
         </div>
       </div>
 
@@ -189,12 +195,13 @@ function CountCard({ icon: Icon, label, value, color }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   value: number | undefined;
-  color: "rose" | "amber" | "violet" | "muted";
+  color: "rose" | "amber" | "violet" | "muted" | "emerald";
 }) {
   const colorMap = {
     rose: "bg-rose-500/10 text-rose-500 border-rose-500/30",
     amber: "bg-amber-500/10 text-amber-500 border-amber-500/30",
     violet: "bg-violet-500/10 text-violet-500 border-violet-500/30",
+    emerald: "bg-emerald-500/10 text-emerald-500 border-emerald-500/30",
     muted: "bg-muted text-muted-foreground border-border",
   }[color];
   return (

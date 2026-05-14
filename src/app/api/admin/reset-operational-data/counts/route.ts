@@ -15,22 +15,27 @@ export async function GET() {
     return NextResponse.json({ error: "Solo superadmin" }, { status: 403 });
   }
 
-  const [cases, clientes, messages, learnings] = await Promise.all([
+  const [cases, clientes, learnings, manuales, attachments] = await Promise.all([
     supabase.from("sek_cases").select("id", { count: "exact", head: true }),
     supabase.from("sek_clientes").select("id", { count: "exact", head: true }),
-    supabase.from("sek_messages").select("id", { count: "exact", head: true }),
     supabase
       .from("sek_doc_chunks")
       .select("id", { count: "exact", head: true })
       .eq("source_label", "Aprendizaje de conversación"),
+    supabase
+      .from("sek_doc_chunks")
+      .select("id", { count: "exact", head: true })
+      .neq("source_label", "Aprendizaje de conversación"),
+    supabase.storage.from("sek-attachments").list("", { limit: 1000 }),
   ]);
 
   return NextResponse.json({
     counts: {
       cases: cases.count || 0,
       clientes: clientes.count || 0,
-      messages: messages.count || 0,
       learnings: learnings.count || 0,
+      manuales: manuales.count || 0,
+      attachments: attachments.data?.length || 0,
     },
   });
 }
