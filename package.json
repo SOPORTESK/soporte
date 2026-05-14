@@ -1,7 +1,8 @@
 {
   "name": "sekunet-chat",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "next dev -p 3100",
     "build": "npm run sync-widget && next build",
@@ -9,7 +10,41 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "sync-widget": "node scripts/sync-widget.mjs",
-    "prepare": "simple-git-hooks || true"
+    "prepare": "simple-git-hooks || true",
+    "electron:dev": "cross-env NODE_ENV=development electron .",
+    "electron:build": "electron-builder --win"
+  },
+  "build": {
+    "appId": "com.sekunet.soporte",
+    "productName": "Soporte Sekunet",
+    "files": [
+      "electron/**/*",
+      "public/logo.png"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "SOPORTESK",
+        "repo": "soporte"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "public/logo.png",
+      "verifyUpdateCodeSignature": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "installerLanguages": [
+        "es_ES"
+      ]
+    }
   },
   "simple-git-hooks": {
     "pre-commit": "node scripts/sync-widget.mjs"
@@ -36,6 +71,10 @@
     "@types/react-dom": "^18.3.0",
     "autoprefixer": "^10.4.20",
     "canvas": "^3.2.3",
+    "cross-env": "^7.0.3",
+    "electron": "^34.5.8",
+    "electron-builder": "^25.1.8",
+    "electron-updater": "^6.8.3",
     "eslint": "^8.57.1",
     "eslint-config-next": "14.2.15",
     "postcss": "^8.4.47",
