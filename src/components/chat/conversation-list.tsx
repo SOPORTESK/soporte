@@ -20,20 +20,10 @@ export function ConversationList({
   cases, selectedId, onSelect
 }: { cases: SekCase[]; selectedId: string | null; onSelect: (id: string) => void }) {
   const [query, setQuery] = React.useState("");
-  const [filter, setFilter] = React.useState<"all" | ChannelKind>("all");
 
-  const counts = React.useMemo(() => {
-    const map: Record<string, number> = { all: cases.length, widget: 0, whatsapp: 0, messenger: 0 };
-    cases.forEach(c => {
-      const canal = c.canal ? String(c.canal).toLowerCase() : "";
-      if (canal && canal in map) map[canal]++;
-    });
-    return map;
-  }, [cases]);
 
   const filtered = React.useMemo(() => {
     const list = cases.filter(c => {
-      if (filter !== "all" && (c.canal ? String(c.canal).toLowerCase() : "") !== filter) return false;
       if (!query.trim()) return true;
       const q = query.toLowerCase();
       const ci = clienteInfo(c.cliente);
@@ -53,15 +43,12 @@ export function ConversationList({
       const tb = lastMessage(b)?.time || b.last_message_at || b.updated_at || b.created_at || "";
       return new Date(tb).getTime() - new Date(ta).getTime();
     });
-  }, [cases, filter, query]);
+  }, [cases, query]);
 
   const emptyMsg = React.useMemo(() => {
     if (cases.length === 0) return "Aún no hay casos. Cuando un cliente escriba, aparecerá aquí.";
-    if (filter === "widget") return "No hay conversaciones web aún. Prueba el widget en Bandeja → Widget Web.";
-    if (filter === "whatsapp") return "No hay conversaciones de WhatsApp aún.";
-    if (filter === "messenger") return "No hay conversaciones de Messenger aún.";
     return "Sin resultados con esos filtros.";
-  }, [cases.length, filter]);
+  }, [cases.length]);
 
   return (
     <aside className={cn(
@@ -85,30 +72,6 @@ export function ConversationList({
             placeholder="Buscar por nombre, teléfono, cuenta…"
             className="pl-10 h-9 sm:h-10 text-sm" aria-label="Buscar conversaciones"
           />
-        </div>
-        <div className="flex gap-1 text-xs overflow-x-auto scrollbar-none pb-0.5" role="tablist">
-          {([
-            ["all", "Todos"], ["widget", "Web"], ["whatsapp", "WhatsApp"], ["messenger", "Messenger"]
-          ] as const).map(([k, l]) => (
-            <button
-              key={k} role="tab" aria-selected={filter === k}
-              onClick={() => setFilter(k as any)}
-              className={cn(
-                "inline-flex items-center gap-1 px-2.5 py-1 rounded-md font-medium transition-colors shrink-0",
-                filter === k ? "bg-brand-700 text-white" : "text-muted-foreground hover:bg-muted"
-              )}
-            >
-              {l}
-              {counts[k] > 0 && (
-                <span className={cn(
-                  "inline-flex items-center justify-center rounded-full text-[10px] font-bold h-4 min-w-4 px-1",
-                  filter === k ? "bg-white/25 text-white" : "bg-muted text-muted-foreground"
-                )}>
-                  {counts[k]}
-                </span>
-              )}
-            </button>
-          ))}
         </div>
       </div>
 
