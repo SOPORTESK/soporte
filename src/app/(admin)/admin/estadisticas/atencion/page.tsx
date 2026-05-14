@@ -432,18 +432,18 @@ export default async function EstadisticasAtencionPage() {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm min-w-[900px]">
               <thead>
                 <tr className="border-b border-border bg-muted/10">
-                  <th className="px-5 py-3 text-left text-[10px] font-black uppercase tracking-widest text-muted-foreground">#</th>
-                  <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-widest text-muted-foreground">Agente</th>
-                  <th className="px-4 py-3 text-center text-[10px] font-black uppercase tracking-widest text-muted-foreground">Score</th>
-                  <th className="px-4 py-3 text-center text-[10px] font-black uppercase tracking-widest text-muted-foreground">Resueltos</th>
-                  <th className="px-4 py-3 text-center text-[10px] font-black uppercase tracking-widest text-muted-foreground">Escalados</th>
-                  <th className="px-4 py-3 text-center text-[10px] font-black uppercase tracking-widest text-muted-foreground">SLA</th>
-                  <th className="px-4 py-3 text-center text-[10px] font-black uppercase tracking-widest text-muted-foreground">T. Efectivo</th>
-                  <th className="px-4 py-3 text-center text-[10px] font-black uppercase tracking-widest text-muted-foreground">Rating</th>
-                  <th className="px-4 py-3 text-center text-[10px] font-black uppercase tracking-widest text-muted-foreground">7 días</th>
+                  <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider text-muted-foreground w-10">#</th>
+                  <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider text-muted-foreground">Agente</th>
+                  <th className="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground">Score</th>
+                  <th className="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground">Resueltos</th>
+                  <th className="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground">Escalados</th>
+                  <th className="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground">SLA</th>
+                  <th className="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground whitespace-nowrap">T. Efectivo</th>
+                  <th className="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground">Rating</th>
+                  <th className="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground whitespace-nowrap">7 días</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/50">
@@ -456,14 +456,14 @@ export default async function EstadisticasAtencionPage() {
                   const scoreBg = a.score >= 75 ? "bg-emerald-500/10" : a.score >= 50 ? "bg-amber-400/10" : "bg-rose-500/10";
                   return (
                     <tr key={i} className="hover:bg-muted/20 transition-colors">
-                      <td className="px-5 py-3.5">
+                      <td className="px-3 py-3.5">
                         {isTop
                           ? <div className="h-7 w-7 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 grid place-items-center shadow-lg shadow-amber-500/30"><Award className="h-3.5 w-3.5 text-white" /></div>
                           : <span className="text-sm font-black text-muted-foreground/40">#{i + 1}</span>}
                       </td>
-                      <td className="px-4 py-3.5">
-                        <div className="flex items-center gap-2.5">
-                          <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white text-xs font-black grid place-items-center shrink-0">
+                      <td className="px-3 py-3.5">
+                        <div className="flex items-center gap-2">
+                          <div className="h-8 w-8 rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white text-[10px] font-black grid place-items-center shrink-0">
                             {initials}
                           </div>
                           <div>
@@ -472,27 +472,27 @@ export default async function EstadisticasAtencionPage() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3.5 text-center">
-                        <div className={`inline-flex flex-col items-center justify-center h-12 w-12 rounded-xl ${scoreBg} mx-auto`}>
-                          <span className={`text-lg font-black tabular-nums ${scoreColor}`}>{a.score}</span>
+                      <td className="px-3 py-3 text-center">
+                        <div className={`inline-flex flex-col items-center justify-center h-11 w-11 rounded-xl ${scoreBg} mx-auto`}>
+                          <span className={`text-base font-black tabular-nums ${scoreColor}`}>{a.score}</span>
                           <span className="text-[8px] font-bold text-muted-foreground uppercase">pts</span>
                         </div>
                       </td>
-                      <td className="px-4 py-3.5 text-center">
-                        <p className="font-black text-emerald-500 tabular-nums text-lg">{a.resueltos}</p>
+                      <td className="px-3 py-3 text-center">
+                        <p className="font-black text-emerald-500 tabular-nums text-base">{a.resueltos}</p>
                         <p className="text-[10px] text-muted-foreground">{a.tasa}% efect.</p>
                       </td>
-                      <td className="px-4 py-3.5 text-center">
+                      <td className="px-3 py-3 text-center">
                         <span className={`text-sm font-black tabular-nums ${a.tasaEsc > 15 ? "text-rose-500" : a.tasaEsc > 5 ? "text-amber-500" : "text-emerald-500"}`}>{a.tasaEsc}%</span>
                         <p className="text-[10px] text-muted-foreground">{a.escalados} casos</p>
                       </td>
-                      <td className="px-4 py-3.5 text-center">
+                      <td className="px-3 py-3 text-center">
                         <div className="flex items-center justify-center gap-1">
                           <Clock className="h-3 w-3 text-sky-500" />
                           <span className="font-black tabular-nums text-sky-500 text-sm">{formatSLA(a.avgSLA)}</span>
                         </div>
                       </td>
-                      <td className="px-4 py-3.5 text-center">
+                      <td className="px-3 py-3 text-center">
                         {(a as any).avgEfectivo > 0 ? (
                           <div className="flex items-center justify-center gap-1">
                             <UserCheck className="h-3 w-3 text-violet-500" />
@@ -501,7 +501,7 @@ export default async function EstadisticasAtencionPage() {
                         ) : <span className="text-muted-foreground/40 text-sm">—</span>}
                         <p className="text-[9px] text-muted-foreground">activo</p>
                       </td>
-                      <td className="px-4 py-3.5 text-center">
+                      <td className="px-3 py-3 text-center">
                         {a.avgCalificacion !== "N/A" ? (
                           <div className="flex items-center justify-center gap-0.5">
                             <Star className="h-3 w-3 text-amber-400 fill-amber-400" />
@@ -510,7 +510,7 @@ export default async function EstadisticasAtencionPage() {
                         ) : <span className="text-muted-foreground/40 text-sm">—</span>}
                         <p className="text-[9px] text-muted-foreground">{a.calificaciones.length} votos</p>
                       </td>
-                      <td className="px-4 py-3.5 text-center">
+                      <td className="px-3 py-3 text-center">
                         <span className="text-sm font-black tabular-nums text-violet-500">{a.casos7d}</span>
                         <p className="text-[10px] text-muted-foreground">esta semana</p>
                       </td>
