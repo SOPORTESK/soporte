@@ -4,18 +4,21 @@
 // Preserva configuración: prompt, agentes, inventario, manuales RAG.
 // ════════════════════════════════════════════════════════════════════════════
 import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
 async function getSuperadmin() {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  // Auth con cliente normal (respeta sesión)
+  const auth = createClient();
+  const { data: { user } } = await auth.auth.getUser();
   if (!user) return { error: "No autenticado", supabase: null };
-  const { data: agent } = await supabase
+  const { data: agent } = await auth
     .from("sek_agent_config").select("rol").ilike("email", user.email!).maybeSingle();
   if (agent?.rol !== "superadmin") return { error: "Solo superadmin puede realizar esta acción", supabase: null };
-  return { error: null, supabase };
+  // Service client para borrar (bypassa RLS — sek_clientes solo permite anon)
+  return { error: null, supabase: createServiceClient() };
 }
 
 export async function POST(req: Request) {
