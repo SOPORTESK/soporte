@@ -310,7 +310,10 @@ export function MetaAgentChat({ initialPrompt, isSuperadmin }: { initialPrompt: 
 
       if (!res.ok) {
         const errorData = await res.json();
-        throw new Error(errorData.error || "Error en simulación");
+        const msg = errorData.detail
+          ? `${errorData.error}: ${errorData.detail}`
+          : errorData.error || "Error en simulación";
+        throw new Error(msg);
       }
 
       const data = await res.json();

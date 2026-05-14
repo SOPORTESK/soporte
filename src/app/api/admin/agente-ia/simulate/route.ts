@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { createClient as createServiceClient } from "@supabase/supabase-js";
+import { createServiceClient } from "@/lib/supabase/service";
 
 // Simulación FIEL: invoca la MISMA Edge Function ia-agent que atiende clientes
 // reales en producción, usando un caso "sandbox" con canal=simulator. Así se
@@ -13,6 +13,7 @@ export async function POST(req: NextRequest) {
     const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
     const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
     if (!SUPABASE_URL || !SERVICE_KEY) {
+      console.error("[simulate] Faltan env vars:", { SUPABASE_URL: !!SUPABASE_URL, SERVICE_KEY: !!SERVICE_KEY });
       return NextResponse.json({ error: "Supabase no configurado" }, { status: 500 });
     }
 
@@ -23,8 +24,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No autorizado" }, { status: 401 });
     }
 
-    // Cliente con service_role para gestionar el caso sandbox
-    const adminDb = createServiceClient(SUPABASE_URL, SERVICE_KEY);
+    // Cliente con service_role para gestionar el caso sandbox (bypassa RLS)
+    const adminDb = createServiceClient();
 
     let caseId: string | null = existingCaseId || null;
 
@@ -64,8 +65,12 @@ export async function POST(req: NextRequest) {
         .single();
 
       if (insertErr || !newCase) {
-        console.error("[simulate] Error creando caso sandbox:", insertErr?.message);
-        return NextResponse.json({ error: "No se pudo crear el caso de simulación" }, { status: 500 });
+        console.error("[simulate] Error creando caso sandbox:", JSON.stringify(insertErr));
+        return NextResponse.json({
+          error: "No se pudo crear el caso de simulación",
+          detail: insertErr?.message || "Sin detalle",
+          code: insertErr?.code,
+        }, { status: 500 });
       }
       caseId = newCase.id;
     } else {
