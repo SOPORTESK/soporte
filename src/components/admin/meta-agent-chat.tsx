@@ -50,8 +50,11 @@ export function MetaAgentChat({ initialPrompt, isSuperadmin }: { initialPrompt: 
   const [simulationInput, setSimulationInput] = useState("");
   const [isSimulating, setIsSimulating] = useState(false);
   const [simulationCaseId, setSimulationCaseId] = useState<string | null>(null);
-  const [analysis, setAnalysis] = useState<string>("");
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  // Estado para el chat con el ARQUITECTO en vivo
+  const [architectMessages, setArchitectMessages] = useState<Message[]>([]);
+  const [architectInput, setArchitectInput] = useState("");
+  const [isArchitectThinking, setIsArchitectThinking] = useState(false);
+  const architectScrollRef = useRef<HTMLDivElement>(null);
   const simulationScrollRef = useRef<HTMLDivElement>(null);
   const promptPanelRef = useRef<HTMLDivElement>(null);
 
@@ -314,8 +317,11 @@ export function MetaAgentChat({ initialPrompt, isSuperadmin }: { initialPrompt: 
       if (data.case_id) setSimulationCaseId(data.case_id);
       setSimulationMessages(prev => [...prev, { role: "assistant", content: data.reply }]);
 
-      // Trigger análisis automático después de cada respuesta del agente
-      analyzeSimulation([...newMessages, { role: "assistant", content: data.reply }]);
+      // Auto-disparo: el ARQUITECTO observa y comenta tras cada turno del agente
+      const caseIdToObserve = data.case_id || simulationCaseId;
+      if (caseIdToObserve) {
+        triggerArchitectObservation(caseIdToObserve);
+      }
 
     } catch (error: any) {
       console.error("Simulation error:", error);
@@ -326,31 +332,109 @@ export function MetaAgentChat({ initialPrompt, isSuperadmin }: { initialPrompt: 
     }
   };
 
-  const analyzeSimulation = async (conversationHistory?: Message[]) => {
-    const historyToAnalyze = conversationHistory || simulationMessages;
-    if (historyToAnalyze.length === 0) return;
+  // ── ARQUITECTO EN VIVO: observación automática + diálogo bidireccional ──
 
-    setIsAnalyzing(true);
-    try {
-      const res = await fetch("/api/admin/agente-ia/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          simulationHistory: historyToAnalyze,
-          currentPrompt 
-        }),
+  // Aplicar patch al prompt si la respuesta del arquitecto trae newPrompt (mismo flow que train chat)
+  const applyArchitectPatch = (data: any) => {
+    if (data.newPrompt) {
+      const newEntry: HistoryEntry = {
+        time: new Date().toLocaleTimeString(),
+        summary: data.summary || "Actualización desde análisis en vivo",
+        prompt: data.newPrompt,
+      };
+      setHistory(prev => [newEntry, ...prev].slice(0, 5));
+      setPreviousPrompt(currentPrompt);
+      setCurrentPrompt(data.newPrompt);
+      setPatchInfo(data.patchInfo || null);
+      setShowDiff(true);
+      toast.success("¡Prompt actualizado desde análisis en vivo!", {
+        icon: <Save className="h-4 w-4 text-emerald-500" />,
       });
-
-      if (!res.ok) throw new Error("Error al analizar");
-
-      const data = await res.json();
-      setAnalysis(data.analysis);
-    } catch (error) {
-      console.error("Analysis error:", error);
-    } finally {
-      setIsAnalyzing(false);
+      reloadDbHistory();
     }
   };
+
+  // Disparo silencioso después de cada turno del agente: el arquitecto comenta solo
+  const triggerArchitectObservation = async (caseIdToObserve: string) => {
+    setIsArchitectThinking(true);
+    try {
+      const res = await fetch("/api/admin/agente-ia/meta-chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: "",
+          history: architectMessages,
+          currentPrompt,
+          mode: "train",
+          simulation_case_id: caseIdToObserve,
+          auto_observation: true,
+        }),
+      });
+      if (!res.ok) throw new Error("Error consultando al arquitecto");
+      const data = await res.json();
+      if (data.reply) {
+        setArchitectMessages(prev => [...prev, { role: "assistant", content: data.reply }]);
+      }
+      applyArchitectPatch(data);
+    } catch (e: any) {
+      console.error("[architect] auto-observation error:", e);
+    } finally {
+      setIsArchitectThinking(false);
+    }
+  };
+
+  // Mensaje manual del admin al arquitecto
+  const sendArchitectMessage = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    const msg = architectInput.trim();
+    if (!msg || isArchitectThinking) return;
+
+    const newHist = [...architectMessages, { role: "user" as const, content: msg }];
+    setArchitectMessages(newHist);
+    setArchitectInput("");
+    setIsArchitectThinking(true);
+
+    try {
+      const res = await fetch("/api/admin/agente-ia/meta-chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: msg,
+          history: architectMessages,
+          currentPrompt,
+          mode: "train",
+          simulation_case_id: simulationCaseId,
+          auto_observation: false,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Error con arquitecto");
+      }
+      const data = await res.json();
+      setArchitectMessages(prev => [...prev, { role: "assistant", content: data.reply }]);
+      applyArchitectPatch(data);
+    } catch (e: any) {
+      toast.error(e.message || "Error consultando al arquitecto");
+      setArchitectMessages(prev => [...prev, { role: "assistant", content: "(Error de conexión al arquitecto)" }]);
+    } finally {
+      setIsArchitectThinking(false);
+    }
+  };
+
+  const handleArchitectKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendArchitectMessage();
+    }
+  };
+
+  // Auto-scroll del panel arquitecto
+  useEffect(() => {
+    if (architectScrollRef.current) {
+      architectScrollRef.current.scrollTop = architectScrollRef.current.scrollHeight;
+    }
+  }, [architectMessages, isArchitectThinking]);
 
   const handleSimulationKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -702,7 +786,7 @@ export function MetaAgentChat({ initialPrompt, isSuperadmin }: { initialPrompt: 
                 }
                 setSimulationCaseId(null);
                 setSimulationMessages([]);
-                setAnalysis("");
+                setArchitectMessages([]);
               }}
               className="text-[11px] px-2 py-1 rounded-lg border border-border hover:bg-muted transition-colors"
             >
@@ -776,7 +860,7 @@ export function MetaAgentChat({ initialPrompt, isSuperadmin }: { initialPrompt: 
           </div>
         </div>
 
-        {/* Panel derecho: Análisis del Meta-Agente */}
+        {/* Panel derecho: CHAT con el ARQUITECTO en vivo */}
         <div className="flex flex-col rounded-2xl border border-border bg-card overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-gradient-to-r from-violet-500/5 to-indigo-500/5">
             <div className="flex items-center gap-2">
@@ -785,42 +869,76 @@ export function MetaAgentChat({ initialPrompt, isSuperadmin }: { initialPrompt: 
               </div>
               <div>
                 <p className="text-sm font-bold">Análisis en Vivo</p>
-                <p className="text-[10px] text-muted-foreground">Meta-Agente observando</p>
+                <p className="text-[10px] text-muted-foreground">Arquitecto · auto-crítico</p>
               </div>
             </div>
-            {isAnalyzing && (
-              <span className="flex items-center gap-1.5 text-[10px] text-violet-500">
-                <Loader2 className="h-3 w-3 animate-spin" />
-                Analizando...
-              </span>
-            )}
+            <button
+              onClick={() => setArchitectMessages([])}
+              className="text-[11px] px-2 py-1 rounded-lg border border-border hover:bg-muted transition-colors"
+            >
+              Limpiar
+            </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4 min-h-[300px]">
-            {analysis ? (
-              <div className="prose prose-sm prose-invert max-w-none">
-                <div className="whitespace-pre-wrap text-sm leading-relaxed">
-                  {analysis}
-                </div>
-              </div>
-            ) : (
+          <div ref={architectScrollRef} className="flex-1 overflow-y-auto p-4 space-y-3 min-h-[300px]">
+            {architectMessages.length === 0 && !isArchitectThinking && (
               <div className="flex flex-col items-center justify-center h-full text-center py-8 gap-3 text-muted-foreground">
                 <Eye className="h-12 w-12 text-violet-500/30" />
-                <p className="text-sm">El análisis aparecerá aquí</p>
-                <p className="text-xs opacity-70">Comienza la simulación para ver observaciones</p>
+                <p className="text-sm">El arquitecto observará en vivo</p>
+                <p className="text-xs opacity-70">Comenta tras cada turno y podés dialogar con él</p>
+              </div>
+            )}
+
+            {architectMessages.map((msg, i) => (
+              <div key={i} className={`flex gap-2 ${msg.role === "user" ? "flex-row-reverse" : ""}`}>
+                <div className={`h-7 w-7 rounded-xl flex-shrink-0 grid place-items-center text-xs font-bold ${
+                  msg.role === "user"
+                    ? "bg-gradient-to-br from-blue-500 to-cyan-500 text-white"
+                    : "bg-gradient-to-br from-violet-500 to-indigo-600 text-white"
+                }`}>
+                  {msg.role === "user" ? "Tú" : <Eye className="h-3 w-3" />}
+                </div>
+                <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-xs leading-relaxed ${
+                  msg.role === "user"
+                    ? "bg-blue-500/10 border border-blue-500/20"
+                    : "bg-violet-500/5 border border-violet-500/20"
+                }`}>
+                  <div className="whitespace-pre-wrap">{msg.content}</div>
+                </div>
+              </div>
+            ))}
+
+            {isArchitectThinking && (
+              <div className="flex gap-2">
+                <div className="h-7 w-7 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 grid place-items-center">
+                  <Eye className="h-3 w-3 text-white" />
+                </div>
+                <div className="rounded-2xl border border-violet-500/20 bg-violet-500/5 px-3 py-2 flex items-center gap-2">
+                  <Loader2 className="h-3 w-3 animate-spin text-violet-500" />
+                  <span className="text-xs text-muted-foreground">Analizando...</span>
+                </div>
               </div>
             )}
           </div>
 
           <div className="p-3 border-t border-border bg-card/50">
-            <button
-              onClick={() => analyzeSimulation()}
-              disabled={simulationMessages.length === 0 || isAnalyzing}
-              className="w-full flex items-center justify-center gap-2 py-2 px-4 rounded-xl border border-violet-500/30 bg-violet-500/5 text-violet-500 hover:bg-violet-500/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
-            >
-              {isAnalyzing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-              {isAnalyzing ? "Analizando conversación..." : "Analizar conversación ahora"}
-            </button>
+            <form onSubmit={sendArchitectMessage} className="flex items-end gap-2">
+              <textarea
+                value={architectInput}
+                onChange={(e) => setArchitectInput(e.target.value)}
+                onKeyDown={handleArchitectKeyDown}
+                placeholder="Hablá con el arquitecto: pedile que profundice, debatí su crítica, pedí un cambio..."
+                rows={2}
+                className="flex-1 rounded-xl border border-border bg-background px-3 py-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-violet-500/30"
+              />
+              <button
+                type="submit"
+                disabled={!architectInput.trim() || isArchitectThinking}
+                className="p-2.5 bg-gradient-to-br from-violet-500 to-indigo-600 text-white rounded-xl hover:opacity-90 transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
+              >
+                {isArchitectThinking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              </button>
+            </form>
           </div>
         </div>
       </div>
