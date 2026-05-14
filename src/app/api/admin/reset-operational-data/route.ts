@@ -36,71 +36,32 @@ export async function POST(req: Request) {
 
     const result: Record<string, { deleted: number | null; error?: string }> = {};
 
-    // 1) sek_cases
+    // 1) sek_messages (Primero por FK)
     {
-      const { count: before, error: countErr } = await supabase.from("sek_cases").select("id", { count: "exact", head: true });
-      const { error: e } = await supabase.from("sek_cases").delete().not("id", "is", null);
-      result.sek_cases = { deleted: before ?? null, error: e?.message || countErr?.message };
+      const { count: before } = await supabase.from("sek_messages").select("id", { count: "exact", head: true });
+      const { error: e } = await supabase.from("sek_messages").delete().not("id", "is", null);
+      result.sek_messages = { deleted: before ?? 0, error: e?.message };
     }
 
-    // 2) sek_messages
+    // 2) sek_cases (Segundo por FK a clientes)
     {
-      const { count: before, error: countErr } = await supabase.from("sek_messages").select("id", { count: "exact", head: true });
-      const { error: e } = await supabase.from("sek_messages").delete().not("id", "is", null);
-      result.sek_messages = { deleted: before ?? null, error: e?.message || countErr?.message };
+      const { count: before } = await supabase.from("sek_cases").select("id", { count: "exact", head: true });
+      const { error: e } = await supabase.from("sek_cases").delete().not("id", "is", null);
+      result.sek_cases = { deleted: before ?? 0, error: e?.message };
     }
 
     // 3) sek_clientes
     {
-      const { count: before, error: countErr } = await supabase.from("sek_clientes").select("id", { count: "exact", head: true });
+      const { count: before } = await supabase.from("sek_clientes").select("id", { count: "exact", head: true });
       const { error: e } = await supabase.from("sek_clientes").delete().not("id", "is", null);
-      result.sek_clientes = { deleted: before ?? null, error: e?.message || countErr?.message };
-    }
-
-    // 4) sek_doc_chunks (aprendizajes y caché web)
-    {
-      const { count: before, error: countErr } = await supabase
-        .from("sek_doc_chunks")
-        .select("id", { count: "exact", head: true })
-        .eq("source_label", "Aprendizaje de conversación");
-      const { error: e } = await supabase
-        .from("sek_doc_chunks")
-        .delete()
-        .eq("source_label", "Aprendizaje de conversación");
-      result["sek_doc_chunks (aprendizajes)"] = { deleted: before ?? null, error: e?.message || countErr?.message };
-    }
-    {
-      const { count: before, error: countErr } = await supabase
-        .from("sek_doc_chunks")
-        .select("id", { count: "exact", head: true })
-        .eq("source_label", "Búsqueda Web");
-      const { error: e } = await supabase
-        .from("sek_doc_chunks")
-        .delete()
-        .eq("source_label", "Búsqueda Web");
-      result["sek_doc_chunks (cache web)"] = { deleted: before ?? null, error: e?.message || countErr?.message };
-    }
-
-    // 5) Storage sek-attachments
-    try {
-      const { data: files, error: listError } = await supabase.storage.from("sek-attachments").list("", { limit: 1000 });
-      if (listError) {
-        result["storage sek-attachments"] = { deleted: null, error: listError.message };
-      } else if (files && files.length > 0) {
-        const paths = files.map((f: any) => f.name);
-        const { error: e } = await supabase.storage.from("sek-attachments").remove(paths);
-        result["storage sek-attachments"] = { deleted: paths.length, error: e?.message };
-      } else {
-        result["storage sek-attachments"] = { deleted: 0 };
-      }
-    } catch (e: any) {
-      result["storage sek-attachments"] = { deleted: null, error: e?.message || "Error desconocido al borrar storage" };
+      result.sek_clientes = { deleted: before ?? 0, error: e?.message };
     }
 
     const hasErrors = Object.values(result).some(r => !!r.error);
     return NextResponse.json({ ok: !hasErrors, result }, { status: hasErrors ? 207 : 200 });
   } catch (error: any) {
     console.error("[FATAL ERROR IN RESET API]:", error);
-    return NextResponse.json({ ok: false, error: "Error interno del servidor al procesar el borrado", details: error?.message }, { status: 500 });
+    return NextResponse.json({ ok: false, error: "Error interno del servidor", details: error?.message }, { status: 500 });
   }
 }
+

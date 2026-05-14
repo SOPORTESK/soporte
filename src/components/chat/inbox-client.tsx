@@ -158,6 +158,23 @@ function playN2Alert() {
   } catch {}
 }
 
+function playEscaladoAlert() {
+  try {
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    // Cinco tonos urgentes y repetitivos a mayor volumen
+    [880, 660, 880, 660, 880].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.frequency.setValueAtTime(freq, ctx.currentTime + i * 0.18);
+      gain.gain.setValueAtTime(0.8, ctx.currentTime + i * 0.18);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.18 + 0.15);
+      osc.start(ctx.currentTime + i * 0.18);
+      osc.stop(ctx.currentTime + i * 0.18 + 0.15);
+    });
+  } catch {}
+}
+
 export function InboxClient({
   initialCases, initialSelectedId, containerType
 }: { initialCases: SekCase[]; initialSelectedId: string | null; containerType?: "inbox" | "soporte-avanzado" | "mi-gestion" }) {
@@ -203,6 +220,24 @@ export function InboxClient({
   /* Casos agrupados por cliente (un solo chat por cliente, varios casos dentro) */
   const mergedCases = React.useMemo(() => mergeGroups(filteredCases), [filteredCases]);
   const prevMergedRef = React.useRef<SekCase[]>(mergedCases);
+  const pendingEscaladosRef = React.useRef<Map<string, { name: string; equipo: string }>>(new Map());
+  const escaladoReminderRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+
+  /* Intervalo: recordar casos escalados pendientes cada 60s */
+  React.useEffect(() => {
+    escaladoReminderRef.current = setInterval(() => {
+      pendingEscaladosRef.current.forEach((info, id) => {
+        playEscaladoAlert();
+        toast.warning(`⚠️ PENDIENTE — Caso escalado: ${info.name}`, {
+          description: info.equipo ? `Equipo: ${info.equipo} · Sin atender` : "Sin atender · Requiere agente humano",
+          duration: 55000,
+          action: { label: "Atender ahora", onClick: () => selectCase(id) }
+        });
+      });
+    }, 60000);
+    return () => { if (escaladoReminderRef.current) clearInterval(escaladoReminderRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectCase]);
 
   React.useEffect(() => {
     const source = params.get("source");
@@ -286,15 +321,26 @@ export function InboxClient({
           if (payload.eventType === "UPDATE") {
             const updCase = payload.new as SekCase;
             const oldCase2 = payload.old as SekCase;
-            if (String(updCase?.estado).toLowerCase() === "escalado" && String(oldCase2?.estado).toLowerCase() !== "escalado") {
-              playNotif();
+            const nuevoEstado = String(updCase?.estado).toLowerCase();
+            const viejoEstado = String(oldCase2?.estado).toLowerCase();
+
+            if (nuevoEstado === "escalado" && viejoEstado !== "escalado") {
+              // Registrar como pendiente para recordatorios
               const ci3 = clienteInfo(updCase.cliente);
               const name3 = ci3.nombre || ci3.telefono || asText(updCase.title) || "Cliente";
-              toast.info(`Caso escalado: ${name3}`, {
-                description: (updCase.cliente as any)?.equipo ? `Equipo: ${(updCase.cliente as any).equipo}` : "Esperando agente",
-                duration: 10000,
+              const equipo3 = (updCase.cliente as any)?.equipo || "";
+              pendingEscaladosRef.current.set(String(updCase.id), { name: name3, equipo: equipo3 });
+              playEscaladoAlert();
+              toast.warning(`🚨 CASO ESCALADO: ${name3}`, {
+                description: equipo3 ? `Equipo: ${equipo3} · Esperando agente` : "Esperando agente humano",
+                duration: Infinity,
                 action: { label: "Atender", onClick: () => selectCase(String(updCase.id)) }
               });
+            }
+
+            // Cuando el caso es aceptado (asignado o estado cambia), quitar del pendiente
+            if (viejoEstado === "escalado" && nuevoEstado !== "escalado") {
+              pendingEscaladosRef.current.delete(String(updCase.id));
             }
           }
 

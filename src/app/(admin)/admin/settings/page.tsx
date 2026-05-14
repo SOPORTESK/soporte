@@ -228,8 +228,8 @@ export default async function AdminSettingsPage() {
                 </div>
               </div>
               <p className="text-xs text-muted-foreground mb-4 mt-2 border-l-2 border-rose-500/30 pl-3">
-                Reset operacional: borra todos los chats, clientes, aprendizajes RAG y adjuntos para arrancar la aplicación
-                con datos reales en producción. Se preservan prompt, agentes, inventario y manuales.
+                Reset operacional: borra todos los chats, mensajes y clientes para arrancar la aplicación
+                con datos reales en producción. Se preservan prompt, agentes, inventario, manuales, RAG y adjuntos.
                 <strong className="text-rose-500"> Esta acción no se puede deshacer.</strong>
               </p>
               <DangerZonePanel />

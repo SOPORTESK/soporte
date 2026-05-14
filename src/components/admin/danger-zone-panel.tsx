@@ -123,7 +123,7 @@ export function DangerZonePanel() {
       )}
 
       <p className="text-[10px] text-muted-foreground leading-relaxed">
-        Borra: chats, clientes, aprendizajes y cache de chats, adjuntos. Conserva: prompt, agentes, inventario, manuales y chunks del RAG.
+        Borra: chats, mensajes y clientes. Conserva: prompt, agentes, inventario, manuales, chunks del RAG, aprendizajes y adjuntos.
       </p>
     </div>
   );
