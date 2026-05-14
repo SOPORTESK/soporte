@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="es" style="background:#070d1f">
 <head>
   <meta charset="UTF-8"/>
@@ -272,7 +272,7 @@ textarea:focus{border-color:var(--primary);background:var(--bg)}
     <div class="header-avatar" id="header-avatar-el" style="padding:0;overflow:hidden;background:linear-gradient(135deg,#1e3a8a 0%,#2563eb 60%,#3b82f6 100%);border-radius:50%"><img src="iSoTienda3D.png" alt="Sekunet" style="width:100%;height:100%;object-fit:cover;border-radius:50%"/></div>
     <div class="header-info">
       <div class="header-title" id="header-title">Soporte Sekunet</div>
-      <div class="header-sub"><span class="status-dot online" id="status-dot"></span><span id="status-text">En línea · Respuesta inmediata</span></div>
+      <div class="header-sub"><span class="status-dot online" id="status-dot"></span><span id="status-text">En línea · Disponible</span></div>
     </div>
     <button class="hdr-btn" id="btn-profile" title="Mi Perfil">👤</button>
     <button class="hdr-btn" id="btn-sound" title="Silenciar">🔔</button>
@@ -422,7 +422,7 @@ try{
 
 /* ═══ BUSINESS HOURS ═══ */
 function isOpenNow(){var n=new Date();var utcH=n.getUTCHours(),utcM=n.getUTCMinutes();var crH=utcH-6;if(crH<0)crH+=24;var crMin=crH*60+utcM;var dow=n.getUTCDay();var dCr=dow;if(crH>utcH)dCr=(dow+6)%7;else dCr=dow;if(dCr===0||dCr===6)return false;return crMin>=450&&crMin<1020}
-function checkOOH(){var open=isOpenNow();$("ooh-banner").classList.toggle("vis",!open);if(open){$("status-text").textContent=agenteName?agenteName+" · En línea":"En línea · Respuesta inmediata";$("status-dot").className="status-dot online"}else{$("status-text").textContent="Fuera de horario · Deje su mensaje";$("status-dot").className="status-dot offline"}}
+function checkOOH(){var open=isOpenNow();$("ooh-banner").classList.toggle("vis",!open);if(open){$("status-text").textContent=agenteName?agenteName+" · En línea":"En línea · Disponible";$("status-dot").className="status-dot online"}else{$("status-text").textContent="Fuera de horario · Deje su mensaje";$("status-dot").className="status-dot offline"}}
 checkOOH();setInterval(checkOOH,60000);
 
 /* ═══ BROWSER NOTIFICATIONS ═══ */
@@ -446,7 +446,7 @@ $("btn-sound").addEventListener("click",function(){soundOff=!soundOff;this.textC
 
 /* ═══ CONNECTION ═══ */
 var _connReconTmr=null,_lastConnState="online";
-function _applyConnSt(s){var d=$("status-dot"),t=$("status-text");if(s==="online"&&!isOpenNow()){d.className="status-dot offline";t.textContent="Fuera de horario · Deje su mensaje";return}d.className="status-dot "+s;t.textContent=s==="online"?(agenteName?agenteName+" · En línea":"En línea · Respuesta inmediata"):s==="offline"?"Sin conexión":"Reconectando…"}
+function _applyConnSt(s){var d=$("status-dot"),t=$("status-text");if(s==="online"&&!isOpenNow()){d.className="status-dot offline";t.textContent="Fuera de horario · Deje su mensaje";return}d.className="status-dot "+s;t.textContent=s==="online"?(agenteName?agenteName+" · En línea":"En línea · Disponible"):s==="offline"?"Sin conexión":"Reconectando…"}
 function connSt(s){
   if(s==="reconnecting"){
     if(navigator.onLine===false){s="offline"}
