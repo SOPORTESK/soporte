@@ -53,7 +53,7 @@ export async function POST(req: Request) {
     result.sek_clientes = { deleted: before ?? null, error: e?.message };
   }
 
-  // 4) sek_doc_chunks — solo los aprendizajes de conversaciones, NO los manuales
+  // 4) sek_doc_chunks — solo aprendizajes de chats y cache de búsquedas web, NO manuales
   {
     const { count: before } = await supabase
       .from("sek_doc_chunks")
@@ -64,6 +64,17 @@ export async function POST(req: Request) {
       .delete()
       .eq("source_label", "Aprendizaje de conversación");
     result["sek_doc_chunks (aprendizajes)"] = { deleted: before ?? null, error: e?.message };
+  }
+  {
+    const { count: before } = await supabase
+      .from("sek_doc_chunks")
+      .select("id", { count: "exact", head: true })
+      .eq("source_label", "Búsqueda Web");
+    const { error: e } = await supabase
+      .from("sek_doc_chunks")
+      .delete()
+      .eq("source_label", "Búsqueda Web");
+    result["sek_doc_chunks (cache web)"] = { deleted: before ?? null, error: e?.message };
   }
 
   // 5) Storage sek-attachments — limpiar archivos subidos en chats

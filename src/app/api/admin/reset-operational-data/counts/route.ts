@@ -15,9 +15,12 @@ export async function GET() {
     return NextResponse.json({ error: "Solo superadmin" }, { status: 403 });
   }
 
-  const [cases, clientes, learnings, manuales, attachments] = await Promise.all([
+  // Manuales reales = chunks con doc_id apuntando a sek_docs.
+  // Aprendizajes de chats = chunks insertados por learn-case/auto-close/ia-agent (doc_id null, source_label "Aprendizaje de conversación").
+  const [cases, clientes, docs, learnings, manualesChunks, webCache, attachments] = await Promise.all([
     supabase.from("sek_cases").select("id", { count: "exact", head: true }),
     supabase.from("sek_clientes").select("id", { count: "exact", head: true }),
+    supabase.from("sek_docs").select("id", { count: "exact", head: true }),
     supabase
       .from("sek_doc_chunks")
       .select("id", { count: "exact", head: true })
@@ -25,7 +28,11 @@ export async function GET() {
     supabase
       .from("sek_doc_chunks")
       .select("id", { count: "exact", head: true })
-      .neq("source_label", "Aprendizaje de conversación"),
+      .not("doc_id", "is", null),
+    supabase
+      .from("sek_doc_chunks")
+      .select("id", { count: "exact", head: true })
+      .eq("source_label", "Búsqueda Web"),
     supabase.storage.from("sek-attachments").list("", { limit: 1000 }),
   ]);
 
@@ -34,7 +41,9 @@ export async function GET() {
       cases: cases.count || 0,
       clientes: clientes.count || 0,
       learnings: learnings.count || 0,
-      manuales: manuales.count || 0,
+      manuales_docs: docs.count || 0,
+      manuales_chunks: manualesChunks.count || 0,
+      web_cache: webCache.count || 0,
       attachments: attachments.data?.length || 0,
     },
   });

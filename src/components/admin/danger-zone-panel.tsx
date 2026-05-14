@@ -7,7 +7,9 @@ interface Counts {
   cases: number;
   clientes: number;
   learnings: number;
-  manuales: number;
+  manuales_docs: number;
+  manuales_chunks: number;
+  web_cache: number;
   attachments: number;
 }
 
@@ -74,7 +76,7 @@ export function DangerZonePanel() {
     }
   }
 
-  const totalAfectado = counts ? counts.cases + counts.clientes + counts.learnings + counts.attachments : 0;
+  const totalAfectado = counts ? counts.cases + counts.clientes + counts.learnings + counts.web_cache + counts.attachments : 0;
 
   return (
     <div className="space-y-5">
@@ -90,16 +92,18 @@ export function DangerZonePanel() {
             <RefreshCw className={`h-3 w-3 ${loadingCounts ? "animate-spin" : ""}`} /> Actualizar
           </button>
         </div>
-        <p className="text-[10px] text-rose-500 font-bold uppercase tracking-wider mb-2">Se borrarán — a borrar</p>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-4">
+        <p className="text-[10px] text-rose-500 font-bold uppercase tracking-wider mb-2">Se borran</p>
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 mb-4">
           <CountCard icon={MessageSquare} label="Casos / chats" value={counts?.cases} color="rose" />
           <CountCard icon={Users} label="Clientes" value={counts?.clientes} color="rose" />
-          <CountCard icon={Sparkles} label="Aprendizajes de chats" value={counts?.learnings} color="rose" />
+          <CountCard icon={Sparkles} label="Aprendizajes chats" value={counts?.learnings} color="rose" />
+          <CountCard icon={Sparkles} label="Cache búsquedas web" value={counts?.web_cache} color="rose" />
           <CountCard icon={Paperclip} label="Adjuntos" value={counts?.attachments} color="rose" />
         </div>
         <p className="text-[10px] text-emerald-500 font-bold uppercase tracking-wider mb-2">Se conservan</p>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-          <CountCard icon={BookOpen} label="Chunks de manuales (RAG)" value={counts?.manuales} color="emerald" />
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+          <CountCard icon={BookOpen} label="Manuales subidos" value={counts?.manuales_docs} color="emerald" />
+          <CountCard icon={BookOpen} label="Chunks de manuales" value={counts?.manuales_chunks} color="emerald" />
         </div>
       </div>
 
