@@ -592,7 +592,7 @@ Deno.serve(async (req) => {
     // Fetch case
     const { data: caso, error: fetchErr } = await db
       .from("sek_cases")
-      .select("id, estado, cliente, histcliente, histtecnico, tags, assigned_to")
+      .select("id, estado, canal, cliente, histcliente, histtecnico, tags, assigned_to")
       .eq("id", case_id)
       .maybeSingle();
 
@@ -624,9 +624,13 @@ Deno.serve(async (req) => {
     const TEST_ACCOUNTS = ["cesar andres batista vargas", "cesar batista"];
     const clienteName = (typeof caso.cliente === "object" ? caso.cliente?.nombre : caso.cliente || "").toLowerCase().trim();
     const isTestAccount = TEST_ACCOUNTS.some(t => clienteName.includes(t));
+    // Canal SIMULATOR: panel interno de admin/entrenamiento. Bypassa horario
+    // y modo manual — la IA siempre debe responder en simulación, porque el
+    // modo manual sólo aplica a chats reales con clientes externos.
+    const isSimulator = caso.canal === "simulator";
 
-    // Verificar horario de atención (se omite para cuentas de prueba)
-    if (!isWithinBusinessHours() && !isTestAccount) {
+    // Verificar horario de atención (se omite para cuentas de prueba y simulador)
+    if (!isWithinBusinessHours() && !isTestAccount && !isSimulator) {
       const offMsg = "Gracias por contactar a Sekunet. Nuestro horario de atencion es de lunes a viernes de 7:30 a.m. a 5:00 p.m. En este momento no estamos disponibles. Con gusto le atendemos el proximo dia habil.";
       const offEntry = { role: "assistant", author: "SEKA", time: new Date().toISOString(), content: offMsg };
       await db.from("sek_cases").update({ histcliente: [...histcliente, offEntry] }).eq("id", case_id);
@@ -636,8 +640,11 @@ Deno.serve(async (req) => {
     // Cargar prompt y flag ia_activa desde BD
     const { prompt: systemPrompt, iaActiva } = await loadSystemConfig();
 
-    // Si el modo manual está activo, no intervenir — dejar para agentes humanos
-    if (!iaActiva) {
+    // Si el modo manual está activo, no intervenir — dejar para agentes humanos.
+    // EXCEPCIÓN: el canal `simulator` siempre debe responder, porque es el
+    // panel interno de entrenamiento. El modo manual sólo aplica a chats
+    // reales con clientes externos.
+    if (!iaActiva && !isSimulator) {
       console.log("[ia-agent] ia_activa=false — modo manual activo, sin respuesta automática");
       await db.from("sek_cases").update({ estado: "escalado" }).eq("id", case_id);
       return new Response(JSON.stringify({ ok: true, skipped: true }), { headers: { "Content-Type": "application/json" } });
