@@ -7,7 +7,7 @@ import { LogoutButton } from "@/components/logout-button";
 import { Avatar, Badge } from "@/components/ui/avatar";
 import { SidebarLink } from "@/components/sidebar-link";
 import { LayoutDashboard, Settings, BookOpen, Bot, Package,
-  ArrowLeft, Users, ShieldCheck, MessageCircle
+  ArrowLeft, Users, ShieldCheck, MessageCircle, ShieldBan
 } from "lucide-react";
 import type { SekAgent } from "@/lib/types";
 import { MobileNav } from "@/components/admin/mobile-nav";
@@ -88,6 +88,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
           <NavSection title="Gestión">
             <SidebarLink href="/admin/equipo" icon={<Users className="h-4 w-4" />}>Equipo</SidebarLink>
+            <SidebarLink href="/admin/clientes" icon={<ShieldBan className="h-4 w-4" />}>Clientes</SidebarLink>
             <SidebarLink href="/admin/inventario" icon={<Package className="h-4 w-4" />}>Inventario</SidebarLink>
             <SidebarLink href="/admin/manuales" icon={<BookOpen className="h-4 w-4" />}>Manuales</SidebarLink>
           </NavSection>

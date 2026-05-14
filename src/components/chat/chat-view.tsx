@@ -342,6 +342,18 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       setShowRatingModal(false);
       fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online" }) });
 
+      // Bloqueo progresivo: calificación < 2 → incrementar contador, bloquear al 5to
+      if (clientRating < 2) {
+        const cedula = (sekCase.cliente as any)?.cedula;
+        if (cedula) {
+          fetch("/api/widget/bloqueo-check", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ cedula, incrementar: true }),
+          }).catch(() => {});
+        }
+      }
+
       // Enviar transcripción si aplica
       supabase.functions.invoke("send-transcript", { body: { case_id: targetId } }).catch(() => {});
 

@@ -23,6 +23,22 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Verificar si el cliente está bloqueado antes de crear el caso
+    if (cedula && cedula.length >= 9) {
+      const { data: clienteData } = await supabase
+        .from("sek_clientes")
+        .select("bloqueado")
+        .eq("cedula", cedula)
+        .maybeSingle();
+
+      if (clienteData?.bloqueado) {
+        return NextResponse.json({
+          error: "bloqueado",
+          mensaje: "Su acceso al servicio de soporte ha sido restringido. Para más información, comuníquese directamente con Sekunet.",
+        }, { status: 403 });
+      }
+    }
+
     const cliente = {
       nombre: nombre || "Visitante web",
       correo: correo || "",
