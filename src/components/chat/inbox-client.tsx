@@ -223,22 +223,6 @@ export function InboxClient({
   const pendingEscaladosRef = React.useRef<Map<string, { name: string; equipo: string }>>(new Map());
   const escaladoReminderRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
 
-  /* Intervalo: recordar casos escalados pendientes cada 60s */
-  React.useEffect(() => {
-    escaladoReminderRef.current = setInterval(() => {
-      pendingEscaladosRef.current.forEach((info, id) => {
-        playEscaladoAlert();
-        toast.warning(`⚠️ PENDIENTE — Caso escalado: ${info.name}`, {
-          description: info.equipo ? `Equipo: ${info.equipo} · Sin atender` : "Sin atender · Requiere agente humano",
-          duration: 55000,
-          action: { label: "Atender ahora", onClick: () => selectCase(id) }
-        });
-      });
-    }, 60000);
-    return () => { if (escaladoReminderRef.current) clearInterval(escaladoReminderRef.current); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectCase]);
-
   React.useEffect(() => {
     const source = params.get("source");
     const c = params.get("c");
@@ -278,6 +262,21 @@ export function InboxClient({
       router.replace(url.pathname + url.search, { scroll: false });
     }
   }, [router]);
+
+  /* Intervalo: recordar casos escalados pendientes cada 60s */
+  React.useEffect(() => {
+    escaladoReminderRef.current = setInterval(() => {
+      pendingEscaladosRef.current.forEach((info, id) => {
+        playEscaladoAlert();
+        toast.warning(`⚠️ PENDIENTE — Caso escalado: ${info.name}`, {
+          description: info.equipo ? `Equipo: ${info.equipo} · Sin atender` : "Sin atender · Requiere agente humano",
+          duration: 55000,
+          action: { label: "Atender ahora", onClick: () => selectCase(id) }
+        });
+      });
+    }, 60000);
+    return () => { if (escaladoReminderRef.current) clearInterval(escaladoReminderRef.current); };
+  }, [selectCase]);
 
   React.useEffect(() => {
     const channel = supabase
