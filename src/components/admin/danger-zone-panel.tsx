@@ -1,58 +1,29 @@
 "use client";
 import * as React from "react";
-import { Trash2, AlertTriangle, CheckCircle2, MessageSquare, Users, Sparkles, RefreshCw, BookOpen, Paperclip } from "lucide-react";
+import { Trash2, AlertTriangle, RefreshCw, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 
-interface Counts {
-  cases: number;
-  clientes: number;
-  learnings: number;
-  manuales_docs: number;
-  manuales_chunks: number;
-  web_cache: number;
-  attachments: number;
-}
-
-interface ResetResult {
-  ok: boolean;
-  result: Record<string, { deleted: number | null; error?: string }>;
-}
-
 export function DangerZonePanel() {
-  const [counts, setCounts] = React.useState<Counts | null>(null);
-  const [loadingCounts, setLoadingCounts] = React.useState(false);
+  const [counts, setCounts] = React.useState<{ cases: number; clientes: number } | null>(null);
   const [confirmText, setConfirmText] = React.useState("");
   const [showConfirm, setShowConfirm] = React.useState(false);
   const [running, setRunning] = React.useState(false);
-  const [lastResult, setLastResult] = React.useState<ResetResult | null>(null);
+  const [done, setDone] = React.useState<string | null>(null);
 
   async function fetchCounts() {
-    setLoadingCounts(true);
     try {
       const res = await fetch("/api/admin/reset-operational-data/counts");
-      if (!res.ok) {
-        const e = await res.json().catch(() => ({}));
-        toast.error(e.error || "Error al cargar conteos");
-        return;
-      }
+      if (!res.ok) return;
       const json = await res.json();
-      setCounts(json.counts);
-    } catch {
-      toast.error("Error de red");
-    } finally {
-      setLoadingCounts(false);
-    }
+      setCounts({ cases: json.counts?.cases || 0, clientes: json.counts?.clientes || 0 });
+    } catch {}
   }
 
   React.useEffect(() => { fetchCounts(); }, []);
 
   async function runReset() {
-    if (confirmText !== "BORRAR") {
-      toast.error('Debes escribir exactamente "BORRAR"');
-      return;
-    }
+    if (confirmText !== "BORRAR") { toast.error('Escribí "BORRAR" para confirmar'); return; }
     setRunning(true);
-    setLastResult(null);
     try {
       const res = await fetch("/api/admin/reset-operational-data", {
         method: "POST",
@@ -60,14 +31,18 @@ export function DangerZonePanel() {
         body: JSON.stringify({ confirm: "BORRAR" }),
       });
       const json = await res.json();
-      setLastResult(json);
       if (json.ok) {
-        toast.success("Reset operacional completado");
+        toast.success("Reset completado");
+        const totalDeleted = Object.values(json.result || {})
+          .map((v: any) => v.deleted || 0)
+          .reduce((a: number, b: number) => a + b, 0);
+        setDone(`✓ ${totalDeleted} registro${totalDeleted === 1 ? "" : "s"} eliminado${totalDeleted === 1 ? "" : "s"}. Sistema listo para producción.`);
         setShowConfirm(false);
         setConfirmText("");
         await fetchCounts();
       } else {
-        toast.error("El reset terminó con errores. Revisa el detalle.");
+        toast.error("Reset terminó con errores. Revisá la consola.");
+        console.error("[reset]", json.result);
       }
     } catch (e: any) {
       toast.error(e?.message || "Error de red");
@@ -76,145 +51,80 @@ export function DangerZonePanel() {
     }
   }
 
-  const totalAfectado = counts ? counts.cases + counts.clientes + counts.learnings + counts.web_cache + counts.attachments : 0;
+  const total = counts ? counts.cases + counts.clientes : 0;
+  const isEmpty = counts !== null && total === 0;
 
   return (
-    <div className="space-y-5">
-      {/* Resumen de lo que se va a borrar */}
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Datos operacionales actuales</p>
-          <button
-            onClick={fetchCounts}
-            disabled={loadingCounts}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-border bg-muted/50 hover:bg-muted text-[11px] font-bold transition-colors disabled:opacity-50"
-          >
-            <RefreshCw className={`h-3 w-3 ${loadingCounts ? "animate-spin" : ""}`} /> Actualizar
-          </button>
-        </div>
-        <p className="text-[10px] text-rose-500 font-bold uppercase tracking-wider mb-2">Se borran</p>
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 mb-4">
-          <CountCard icon={MessageSquare} label="Casos / chats" value={counts?.cases} color="rose" />
-          <CountCard icon={Users} label="Clientes" value={counts?.clientes} color="rose" />
-          <CountCard icon={Sparkles} label="Aprendizajes chats" value={counts?.learnings} color="rose" />
-          <CountCard icon={Sparkles} label="Cache búsquedas web" value={counts?.web_cache} color="rose" />
-          <CountCard icon={Paperclip} label="Adjuntos" value={counts?.attachments} color="rose" />
-        </div>
-        <p className="text-[10px] text-emerald-500 font-bold uppercase tracking-wider mb-2">Se conservan</p>
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
-          <CountCard icon={BookOpen} label="Manuales subidos" value={counts?.manuales_docs} color="emerald" />
-          <CountCard icon={BookOpen} label="Chunks de manuales" value={counts?.manuales_chunks} color="emerald" />
-        </div>
+    <div className="space-y-4">
+      {/* Resumen simple */}
+      <div className="flex items-center gap-4 text-sm">
+        <span className="text-muted-foreground">Datos a borrar:</span>
+        <span className="font-black tabular-nums">
+          {counts === null ? "…" : `${counts.cases} chats · ${counts.clientes} clientes`}
+        </span>
+        <button
+          onClick={fetchCounts}
+          className="ml-auto text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1"
+        >
+          <RefreshCw className="h-3 w-3" /> actualizar
+        </button>
       </div>
 
-      {/* Bloque de acción */}
-      <div className="rounded-xl border border-rose-500/40 bg-rose-500/[0.04] p-4 space-y-3">
-        <div className="flex items-start gap-2.5">
-          <AlertTriangle className="h-4 w-4 text-rose-500 mt-0.5 shrink-0" />
-          <div className="text-xs text-foreground/90 leading-relaxed">
-            <p className="font-black text-rose-500 mb-1">Reset operacional para arranque en producción</p>
-            <p className="text-muted-foreground">
-              Borra <strong className="text-foreground">todos</strong> los chats, mensajes, clientes,
-              aprendizajes RAG generados de conversaciones y archivos adjuntos subidos.
-              <span className="block mt-1">
-                <span className="text-emerald-500">Se conservan:</span> prompt activo, historial de versiones,
-                agentes/usuarios, inventario, manuales RAG y configuración de canales.
-              </span>
-            </p>
-          </div>
-        </div>
-
-        {!showConfirm ? (
-          <button
-            onClick={() => setShowConfirm(true)}
-            disabled={totalAfectado === 0 && !!counts}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-rose-500/60 bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 text-sm font-black transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <Trash2 className="h-4 w-4" />
-            {totalAfectado === 0 && counts ? "Nada que borrar" : "Borrar chats y clientes"}
-          </button>
-        ) : (
-          <div className="space-y-3 p-3 rounded-lg border border-rose-500 bg-rose-500/10">
-            <p className="text-xs font-black text-rose-500">
-              ⚠ Esta acción es irreversible. Para confirmar escribí <code className="px-1.5 py-0.5 rounded bg-background border border-rose-500/40 font-mono">BORRAR</code> abajo:
-            </p>
-            <input
-              type="text"
-              value={confirmText}
-              onChange={e => setConfirmText(e.target.value)}
-              placeholder="BORRAR"
-              autoFocus
+      {/* Confirmación o botón */}
+      {!showConfirm ? (
+        <button
+          onClick={() => setShowConfirm(true)}
+          disabled={isEmpty}
+          className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-rose-500 hover:bg-rose-600 text-white text-sm font-black transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <Trash2 className="h-4 w-4" />
+          {isEmpty ? "Nada que borrar" : "Borrar todos los chats y clientes"}
+        </button>
+      ) : (
+        <div className="space-y-2 p-3 rounded-lg border-2 border-rose-500 bg-rose-500/10">
+          <p className="text-xs font-black text-rose-500 flex items-center gap-1.5">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            Escribí <code className="px-1.5 py-0.5 rounded bg-background border border-rose-500/40 font-mono">BORRAR</code> para confirmar:
+          </p>
+          <input
+            type="text"
+            value={confirmText}
+            onChange={e => setConfirmText(e.target.value)}
+            placeholder="BORRAR"
+            autoFocus
+            disabled={running}
+            className="w-full px-3 py-2 rounded-lg border border-rose-500/60 bg-background text-foreground text-sm font-mono uppercase tracking-wider focus:outline-none focus:border-rose-500 disabled:opacity-50"
+          />
+          <div className="flex items-center gap-2 justify-end">
+            <button
+              onClick={() => { setShowConfirm(false); setConfirmText(""); }}
               disabled={running}
-              className="w-full px-3 py-2 rounded-lg border border-rose-500/60 bg-background text-foreground text-sm font-mono uppercase tracking-wider focus:outline-none focus:border-rose-500 disabled:opacity-50"
-            />
-            <div className="flex items-center gap-2 justify-end">
-              <button
-                onClick={() => { setShowConfirm(false); setConfirmText(""); }}
-                disabled={running}
-                className="px-3 py-1.5 rounded-lg bg-muted hover:bg-muted/80 text-xs font-bold transition-colors disabled:opacity-50"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={runReset}
-                disabled={running || confirmText !== "BORRAR"}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500 hover:bg-rose-600 text-white text-xs font-black transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {running ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
-                {running ? "Borrando…" : "Sí, borrar todo"}
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Resultado del último reset */}
-      {lastResult && (
-        <div className={`rounded-xl border p-4 ${lastResult.ok ? "border-emerald-500/40 bg-emerald-500/5" : "border-amber-500/40 bg-amber-500/5"}`}>
-          <div className="flex items-center gap-2 mb-2.5">
-            {lastResult.ok ? <CheckCircle2 className="h-4 w-4 text-emerald-500" /> : <AlertTriangle className="h-4 w-4 text-amber-500" />}
-            <p className="text-xs font-black">
-              {lastResult.ok ? "Reset completado correctamente" : "Reset completado con errores"}
-            </p>
-          </div>
-          <div className="grid gap-1.5">
-            {Object.entries(lastResult.result).map(([key, val]) => (
-              <div key={key} className="flex items-center justify-between text-[11px] font-mono">
-                <span className="text-muted-foreground">{key}</span>
-                {val.error ? (
-                  <span className="text-rose-500" title={val.error}>ERROR: {val.error.substring(0, 60)}</span>
-                ) : (
-                  <span className="text-emerald-500">{val.deleted ?? 0} eliminado{(val.deleted ?? 0) === 1 ? "" : "s"}</span>
-                )}
-              </div>
-            ))}
+              className="px-3 py-1.5 rounded-lg bg-muted hover:bg-muted/80 text-xs font-bold transition-colors disabled:opacity-50"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={runReset}
+              disabled={running || confirmText !== "BORRAR"}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500 hover:bg-rose-600 text-white text-xs font-black transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {running ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+              {running ? "Borrando…" : "Sí, borrar todo"}
+            </button>
           </div>
         </div>
       )}
-    </div>
-  );
-}
 
-function CountCard({ icon: Icon, label, value, color }: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  value: number | undefined;
-  color: "rose" | "amber" | "violet" | "muted" | "emerald";
-}) {
-  const colorMap = {
-    rose: "bg-rose-500/10 text-rose-500 border-rose-500/30",
-    amber: "bg-amber-500/10 text-amber-500 border-amber-500/30",
-    violet: "bg-violet-500/10 text-violet-500 border-violet-500/30",
-    emerald: "bg-emerald-500/10 text-emerald-500 border-emerald-500/30",
-    muted: "bg-muted text-muted-foreground border-border",
-  }[color];
-  return (
-    <div className={`rounded-xl border p-3 ${colorMap}`}>
-      <div className="flex items-center gap-1.5 mb-1.5">
-        <Icon className="h-3 w-3" />
-        <p className="text-[10px] font-black uppercase tracking-wider truncate">{label}</p>
-      </div>
-      <p className="text-xl font-black tabular-nums">{value === undefined ? "…" : value.toLocaleString("es-CR")}</p>
+      {done && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 text-xs font-bold">
+          <CheckCircle2 className="h-3.5 w-3.5" />
+          {done}
+        </div>
+      )}
+
+      <p className="text-[10px] text-muted-foreground leading-relaxed">
+        Borra: chats, clientes, aprendizajes y cache de chats, adjuntos. Conserva: prompt, agentes, inventario, manuales y chunks del RAG.
+      </p>
     </div>
   );
 }
