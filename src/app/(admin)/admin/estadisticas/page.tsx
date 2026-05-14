@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { Users, TrendingUp, CheckCircle, Star, ArrowUpRight, Repeat2, AlertCircle, BarChart3, TrendingDown, Minus, ExternalLink, Cpu, Wrench, Clock, Zap, Activity, Globe, UserPlus, ShieldAlert } from "lucide-react";
+import { Users, TrendingUp, CheckCircle, Star, ArrowUpRight, Repeat2, AlertCircle, BarChart3, TrendingDown, Minus, ExternalLink, Cpu, Wrench, Clock, Zap, Activity, Globe, UserPlus, ShieldAlert, ShieldBan, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { StatsExportButton } from "@/components/admin/stats-export-button";
 
@@ -202,6 +202,13 @@ export default async function EstadisticasClientePage() {
     else histogramaMap["11+"]++;
   });
   const histMax = Math.max(...Object.values(histogramaMap), 1);
+
+  // ── Clientes bloqueados
+  const { data: clientesBloqueados } = await supabase
+    .from("sek_clientes")
+    .select("id, cedula, nombre, correo, telefono, bloqueo_contador, fecha_bloqueo, motivo_bloqueo")
+    .eq("bloqueado", true)
+    .order("fecha_bloqueo", { ascending: false });
 
   // ── Ranking de agentes por tiempo de respuesta (escalado_at → accepted_at)
   let casosConTiempo: any[] = [];
@@ -799,6 +806,60 @@ export default async function EstadisticasClientePage() {
             </div>
           )}
         </div>
+      </section>
+
+      {/* ══ CLIENTES BLOQUEADOS ══ */}
+      <section className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-bold flex items-center gap-2"><ShieldBan className="h-5 w-5 text-red-500" /> Clientes Bloqueados</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">Bloqueo automático por 5 calificaciones menores a 2 estrellas</p>
+          </div>
+        </div>
+        {!clientesBloqueados || clientesBloqueados.length === 0 ? (
+          <div className="p-12 text-center border border-dashed border-border/60 rounded-2xl text-muted-foreground">
+            <ShieldCheck className="h-6 w-6 mx-auto mb-2 text-emerald-500/40" />
+            <p className="text-xs">No hay clientes bloqueados actualmente.</p>
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-border/60 bg-card overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border/60 bg-muted/30">
+                  <th className="text-left px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wider">Cliente</th>
+                  <th className="text-left px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wider">Cédula</th>
+                  <th className="text-right px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wider">Calif. negativas</th>
+                  <th className="text-right px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wider">Fecha bloqueo</th>
+                  <th className="text-right px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wider">Desbloquear</th>
+                </tr>
+              </thead>
+              <tbody>
+                {clientesBloqueados.map((c: any) => (
+                  <tr key={c.id} className="border-b border-border/40 last:border-0 hover:bg-muted/30 transition-colors">
+                    <td className="px-4 py-3">
+                      <p className="font-semibold">{c.nombre}</p>
+                      {c.correo && <p className="text-xs text-muted-foreground">{c.correo}</p>}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground font-mono">{c.cedula}</td>
+                    <td className="px-4 py-3 text-right">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 text-red-600 dark:text-red-400 px-2.5 py-1 text-xs font-bold">
+                        <ShieldBan className="h-3 w-3" /> {c.bloqueo_contador}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right text-xs text-muted-foreground">
+                      {c.fecha_bloqueo ? new Date(c.fecha_bloqueo).toLocaleDateString("es-CR", { day: "2-digit", month: "short", year: "numeric" }) : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <Link href="/admin/clientes" className="inline-flex items-center gap-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 px-2.5 py-1 text-xs font-semibold transition-colors">
+                        <ShieldCheck className="h-3 w-3" /> Gestionar
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       {/* ══ RANKING TIEMPOS DE RESPUESTA ══ */}
