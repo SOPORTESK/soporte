@@ -62,8 +62,27 @@ export default function WidgetPage() {
   const cedulaTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   // IA mode flag (true = automática, false = manual)
   const [iaActiva, setIaActiva] = React.useState<boolean>(false);
-  // Estado de conexión del widget – forzamos siempre "En línea" para evitar parpadeos
-  const [connectionStatus, setConnectionStatus] = React.useState<string>('En línea');
+  // Estado de conexión del widget. Respeta el horario hábil: lun-vie 7:30–17:00 hora Costa Rica
+  function isOpenNow(): boolean {
+    const n = new Date();
+    const utcH = n.getUTCHours();
+    const utcM = n.getUTCMinutes();
+    let crH = utcH - 6;
+    if (crH < 0) crH += 24;
+    const crMin = crH * 60 + utcM;
+    const dow = n.getUTCDay();
+    const dCr = crH > utcH ? (dow + 6) % 7 : dow;
+    if (dCr === 0 || dCr === 6) return false;
+    return crMin >= 450 && crMin < 1020;
+  }
+  const [isOpen, setIsOpen] = React.useState<boolean>(typeof window === 'undefined' ? true : isOpenNow());
+  const connectionStatus = isOpen ? 'En línea' : 'Fuera de horario · Deje su mensaje';
+  React.useEffect(() => {
+    const tick = () => setIsOpen(isOpenNow());
+    tick();
+    const id = setInterval(tick, 60000);
+    return () => clearInterval(id);
+  }, []);
   // Ref para timeout de inactividad del cliente
   const inactivityTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   // Duración de inactividad antes de cerrar sesión (ej. 5 minutos)
@@ -434,7 +453,7 @@ export default function WidgetPage() {
           <div>
             <div style={S.headerTitle}>Soporte Sekunet</div>
             <div style={S.headerSub}>
-              <span style={S.dot} /> {connectionStatus}
+              <span style={{ ...S.dot, background: isOpen ? '#4ade80' : '#94a3b8' }} /> {connectionStatus}
             </div>
           </div>
         </div>

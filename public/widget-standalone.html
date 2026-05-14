@@ -421,7 +421,7 @@ $("btn-sound").addEventListener("click",function(){soundOff=!soundOff;this.textC
 
 /* ═══ CONNECTION ═══ */
 var _connReconTmr=null,_lastConnState="online";
-function _applyConnSt(s){var d=$("status-dot"),t=$("status-text");d.className="status-dot "+s;t.textContent=s==="online"?(agenteName?agenteName+" · En línea":"En línea · Respuesta inmediata"):s==="offline"?"Sin conexión":"Reconectando…"}
+function _applyConnSt(s){var d=$("status-dot"),t=$("status-text");if(s==="online"&&!isOpenNow()){d.className="status-dot offline";t.textContent="Fuera de horario · Deje su mensaje";return}d.className="status-dot "+s;t.textContent=s==="online"?(agenteName?agenteName+" · En línea":"En línea · Respuesta inmediata"):s==="offline"?"Sin conexión":"Reconectando…"}
 function connSt(s){
   if(s==="reconnecting"){
     if(navigator.onLine===false){s="offline"}
