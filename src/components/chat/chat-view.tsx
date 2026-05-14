@@ -340,7 +340,8 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       setSekCase(prev => ({ ...prev, estado: "cerrado", cliente: updatedCliente }));
       toast.success("Caso cerrado y cliente calificado");
       setShowRatingModal(false);
-      
+      fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online" }) });
+
       // Enviar transcripción si aplica
       supabase.functions.invoke("send-transcript", { body: { case_id: targetId } }).catch(() => {});
 
@@ -383,6 +384,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       if (error) throw error;
       setSekCase(prev => ({ ...prev, estado: "abierto", assigned_to: agentEmail }));
       toast.success("Caso aceptado");
+      fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "busy" }) });
     } catch (e: any) {
       toast.error("Error al aceptar", { description: e?.message });
     } finally {
