@@ -8,12 +8,12 @@ import {
   Users, MessageCircle, X, Menu, ShieldCheck
 } from "lucide-react";
 
-export function MobileNav({ isAdmin = true }: { isAdmin?: boolean }) {
+export function MobileNav({ isAdmin = true, isTecnico = false }: { isAdmin?: boolean; isTecnico?: boolean }) {
   const [isOpen, setIsOpen] = useState(false);
   const pathname = usePathname();
 
   const navItems = [
-    { section: "General", items: [{ href: "/admin", label: "Resumen", icon: LayoutDashboard }] },
+    ...(!isTecnico ? [{ section: "General", items: [{ href: "/admin", label: "Resumen", icon: LayoutDashboard }] }] : []),
     { section: "Gestión", items: [
       { href: "/admin/equipo", label: "Equipo", icon: Users },
       ...(isAdmin ? [

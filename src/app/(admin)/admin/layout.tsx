@@ -25,8 +25,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   if (!a) redirect("/login");
 
   const isAdmin = ["admin","superadmin"].includes(a.rol);
-  // Pasar isAdmin al children no es posible en layouts de Next.js,
-  // pero el sidebar ya se filtra. Las páginas sensibles hacen su propia verificación.
+  const isTecnico = a.rol === "tecnico";
+  // Solo admin, superadmin y tecnico pueden acceder al panel admin
+  if (!isAdmin && !isTecnico) redirect("/inbox");
 
   const fullName = [a.nombre, a.apellido].filter(Boolean).join(" ") || user.email!;
 
@@ -65,9 +66,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             <ArrowLeft className="h-4 w-4" /> Volver a Bandeja
           </Link>
 
-          <NavSection title="General">
-            <SidebarLink href="/admin" icon={<LayoutDashboard className="h-4 w-4" />}>Resumen</SidebarLink>
-          </NavSection>
+          {!isTecnico && (
+            <NavSection title="General">
+              <SidebarLink href="/admin" icon={<LayoutDashboard className="h-4 w-4" />}>Resumen</SidebarLink>
+            </NavSection>
+          )}
 
           <NavSection title="Gestión">
             <SidebarLink href="/admin/equipo" icon={<Users className="h-4 w-4" />}>Equipo</SidebarLink>
@@ -103,7 +106,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
       <header className="lg:hidden flex items-center justify-between p-4 border-b border-border bg-card">
         <div className="flex items-center gap-2">
-          <MobileNav isAdmin={isAdmin} />
+          <MobileNav isAdmin={isAdmin} isTecnico={isTecnico} />
           <Link href="/inbox" className="flex items-center gap-2 text-sm text-muted-foreground">
             <ArrowLeft className="h-4 w-4" /> Bandeja
           </Link>

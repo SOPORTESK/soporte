@@ -22,6 +22,7 @@ export default async function AdminDashboardPage() {
     .maybeSingle();
 
   const isAdmin = ["admin", "superadmin"].includes(currentAgent?.rol);
+  if (currentAgent?.rol === "tecnico") redirect("/admin/equipo");
   if (!isAdmin) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 p-8 text-center">
