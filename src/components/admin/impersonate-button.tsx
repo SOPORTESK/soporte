@@ -18,12 +18,14 @@ export function ImpersonateButton({ email, name }: { email: string; name: string
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Error desconocido");
+      localStorage.setItem("sek_impersonating", data.agentName || name);
+      if (data.returnUrl) localStorage.setItem("sek_return_url", data.returnUrl);
       // En Electron: abrir segunda ventana con sesión separada
       const eAPI = (window as any).electronAPI;
       if (eAPI?.abrirImpersonar) {
         eAPI.abrirImpersonar(data.url, name);
       } else {
-        window.open(data.url, "_blank");
+        window.location.assign(data.url);
       }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Error al impersonar");
