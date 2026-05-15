@@ -5,8 +5,8 @@ import {
   ArrowLeft, Shield, UserCheck, Activity, Clock, Star,
   CheckCircle, MessageSquare, Mail, Phone, Calendar, Eye, Lock
 } from "lucide-react";
-import { ImpersonateButton } from "@/components/admin/impersonate-button";
-import { ImpersonateBanner } from "@/components/admin/impersonate-banner";
+import { GodModeButton } from "@/components/admin/god-mode-button";
+import { GodModeBanner } from "@/components/admin/god-mode-banner";
 
 export const dynamic = "force-dynamic";
 
@@ -92,12 +92,12 @@ export default async function AgentProfilePage({
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-violet-500/10 border border-violet-500/20 text-violet-500 text-xs font-bold">
             <Eye className="h-3.5 w-3.5" /> Vista de perfil (solo tú puedes ver esto)
           </div>
-          {isSuperadmin && <ImpersonateButton email={targetEmail} name={fullName} />}
+          {isSuperadmin && <GodModeButton email={targetEmail} name={fullName} />}
         </div>
       </header>
 
-      {/* ── BANNER MODO VISTA ── */}
-      <ImpersonateBanner />
+      {/* ── BANNER MODO DIOS ── */}
+      <GodModeBanner />
 
       {/* ── PROFILE CARD ── */}
       <section className="relative rounded-2xl border border-border bg-card overflow-hidden">

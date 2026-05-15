@@ -185,28 +185,30 @@ export function InboxClient({
   const [unreadTotal, setUnreadTotal] = React.useState(0);
   const [agentEmail, setAgentEmail] = React.useState<string | null>(null);
   const [agentName, setAgentName] = React.useState<string | null>(null);
-  const [impersonatingEmail, setImpersonatingEmail] = React.useState<string | null>(null);
-  const [impersonatingName, setImpersonatingName] = React.useState<string | null>(null);
+  const [godModeEmail, setGodModeEmail] = React.useState<string | null>(null);
+  const [godModeName, setGodModeName] = React.useState<string | null>(null);
   const supabase = React.useMemo(() => createClient(), []);
   const prevCasesRef = React.useRef<SekCase[]>(initialCases);
 
-  /* Detectar modo impersonación desde URL o localStorage */
+  /* Detectar MODO DIOS desde localStorage */
   React.useEffect(() => {
-    const impEmail = params.get("impersonate") || localStorage.getItem("sek_impersonating_email");
-    const impName = localStorage.getItem("sek_impersonating_name");
-    if (impEmail) {
-      setImpersonatingEmail(impEmail);
-      setImpersonatingName(impName || impEmail);
-      console.log(`[Impersonate] Vista como: ${impName || impEmail}`);
+    if (localStorage.getItem("god_mode_active") === "true") {
+      const godEmail = localStorage.getItem("god_mode_target_email");
+      const godName = localStorage.getItem("god_mode_target_name");
+      if (godEmail) {
+        setGodModeEmail(godEmail);
+        setGodModeName(godName || godEmail);
+        console.log(`[GOD MODE] Actuando como: ${godName || godEmail}`);
+      }
     }
-  }, [params]);
+  }, []);
 
   /* Obtener email y nombre del agente actual para filtrar Mi Gestion */
   React.useEffect(() => {
     supabase.auth.getUser().then(async ({ data }) => {
       if (data?.user?.email) {
-        // Si estamos impersonando, usar el email del agente objetivo
-        const effectiveEmail = impersonatingEmail || data.user.email;
+        // Si estamos en MODO DIOS, usar el email del agente objetivo
+        const effectiveEmail = godModeEmail || data.user.email;
         setAgentEmail(effectiveEmail);
         // Buscar nombre del agente en config
         const { data: agent } = await supabase
@@ -221,7 +223,7 @@ export function InboxClient({
         }
       }
     });
-  }, [supabase, impersonatingEmail]);
+  }, [supabase, godModeEmail]);
 
   /* Casos filtrados según containerType */
   const filteredCases = React.useMemo(() => {
@@ -229,10 +231,10 @@ export function InboxClient({
     if (containerType === "mi-gestion" && !agentName && !agentEmail && cases === initialCases) {
       return cases;
     }
-    // Si estamos impersonando, forzar modo "mi-gestion" para ver casos de ese agente
-    const effectiveContainer = impersonatingEmail ? "mi-gestion" : containerType;
+    // Si estamos en MODO DIOS, forzar modo "mi-gestion" para ver casos de ese agente
+    const effectiveContainer = godModeEmail ? "mi-gestion" : containerType;
     return filterCasesByContainer(cases, effectiveContainer, agentEmail, agentName);
-  }, [cases, containerType, agentEmail, agentName, initialCases, impersonatingEmail]);
+  }, [cases, containerType, agentEmail, agentName, initialCases, godModeEmail]);
 
   /* Casos agrupados por cliente (un solo chat por cliente, varios casos dentro) */
   const mergedCases = React.useMemo(() => mergeGroups(filteredCases), [filteredCases]);
