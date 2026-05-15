@@ -25,25 +25,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   if (!a) redirect("/login");
 
   const isAdmin = ["admin","superadmin"].includes(a.rol);
-  if (!isAdmin) {
-    return (
-      <div className="min-h-dvh grid place-items-center p-6 bg-muted/30">
-        <div className="max-w-md text-center space-y-4 rounded-2xl border border-border bg-card p-8 shadow-2xl">
-          <div className="mx-auto h-16 w-16 rounded-full bg-[hsl(var(--danger)/.15)] grid place-items-center text-[hsl(var(--danger))]">
-            <ShieldCheck className="h-8 w-8" />
-          </div>
-          <h1 className="text-2xl font-bold">Solo administradores</h1>
-          <p className="text-muted-foreground">
-            Este panel está reservado a roles <strong>admin</strong> y <strong>superadmin</strong>.
-            Tu rol actual es <span className="capitalize rounded bg-muted px-2 py-0.5">{a.rol}</span>.
-          </p>
-          <Link href="/inbox" className="inline-flex items-center gap-2 text-brand-700 dark:text-brand-300 font-medium hover:underline">
-            <ArrowLeft className="h-4 w-4" /> Volver a la bandeja
-          </Link>
-        </div>
-      </div>
-    );
-  }
+  if (!isAdmin) redirect("/inbox");
 
   const fullName = [a.nombre, a.apellido].filter(Boolean).join(" ") || user.email!;
 
