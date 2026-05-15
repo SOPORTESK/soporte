@@ -927,6 +927,15 @@ function VideoNote({ url, type }: { url: string; type: string }) {
     else { v.play().catch(() => {}); setPlaying(true); }
   }
 
+  function openFullscreen(e: React.MouseEvent) {
+    e.stopPropagation();
+    const v = videoRef.current as any;
+    if (!v) return;
+    const req = v.requestFullscreen || v.webkitRequestFullscreen || v.webkitEnterFullscreen;
+    if (req) req.call(v);
+    if (!playing) { v.play().catch(() => {}); setPlaying(true); }
+  }
+
   return (
     <div className="relative mt-2 shrink-0" style={{ width: 160, height: 160 }}>
       <video
@@ -947,6 +956,13 @@ function VideoNote({ url, type }: { url: string; type: string }) {
           <Play className="h-9 w-9 text-white ml-1" />
         </button>
       )}
+      <button
+        onClick={openFullscreen}
+        title="Pantalla completa"
+        className="absolute top-1 right-1 w-7 h-7 rounded-full bg-black/60 hover:bg-black/80 flex items-center justify-center text-white z-10"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7V3h4M21 7V3h-4M3 17v4h4M21 17v4h-4"/></svg>
+      </button>
     </div>
   );
 }

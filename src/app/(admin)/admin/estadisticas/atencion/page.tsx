@@ -78,7 +78,7 @@ export default async function EstadisticasAtencionPage() {
   const UMBRAL_GAP_MIN = 5;
   function tiempoEfectivo(histtecnico: any[], accepted_at?: string | null): number {
     const msgs = (Array.isArray(histtecnico) ? histtecnico : [])
-      .filter((m: any) => m?.role === "agente" || m?.role === "agent")
+      .filter((m: any) => m?.role === "agente" || m?.role === "agent" || m?.role === "tecnico")
       .map((m: any) => new Date(m.time).getTime())
       .filter(t => !isNaN(t))
       .sort((a, b) => a - b);

@@ -645,7 +645,11 @@ function mkBubble(role,content,time,mUrl,mType,fName){
         vel.onended=function(){vPaused=true;vpb.style.display="flex";vpb.innerHTML='<svg width="36" height="36" viewBox="0 0 24 24" fill="white"><polygon points="8,5 19,12 8,19"/></svg>'};
         vpb.onclick=function(){if(vPaused){vel.play();vPaused=false;vpb.style.display="none";}else{vel.pause();vPaused=true;vpb.innerHTML='<svg width="36" height="36" viewBox="0 0 24 24" fill="white"><polygon points="8,5 19,12 8,19"/></svg>';vpb.style.display="flex";}};
         vel.onclick=function(){vpb.click()};
-        vw.appendChild(vel);vw.appendChild(vpb);bb.appendChild(vw);
+        var vfs=document.createElement("button");vfs.style.cssText="position:absolute;top:6px;right:6px;width:28px;height:28px;border-radius:50%;background:rgba(0,0,0,0.55);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;color:#fff;z-index:2;";
+        vfs.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V3h4M21 7V3h-4M3 17v4h4M21 17v4h-4"/></svg>';
+        vfs.title="Pantalla completa";
+        vfs.onclick=function(ev){ev.stopPropagation();var req=vel.requestFullscreen||vel.webkitRequestFullscreen||vel.webkitEnterFullscreen;if(req)req.call(vel);if(vPaused){vel.play();vPaused=false;vpb.style.display="none"}};
+        vw.appendChild(vel);vw.appendChild(vpb);vw.appendChild(vfs);bb.appendChild(vw);
       }else{
         var vid=document.createElement("video");vid.controls=true;vid.preload="metadata";vid.playsInline=true;vid.style.cssText="max-width:100%;border-radius:12px;display:block;margin-bottom:8px;background:#000;";var vs=document.createElement("source");vs.src=mUrl;vs.type=mt;vid.appendChild(vs);bb.appendChild(vid);
         var vdl=document.createElement("a");vdl.href="#";vdl.className="fc-dl";vdl.textContent="⬇ "+fn;vdl.onclick=function(ev){ev.preventDefault();forceDl(mUrl,fn)};bb.appendChild(vdl);
