@@ -857,33 +857,37 @@ $("file-input").addEventListener("change",function(){if(this.files&&this.files[0
 $("up-cancel").addEventListener("click",function(){pendFile=null;$("up-prev-bar").style.display="none";$("btn-send").disabled=!$("txt-msg").value.trim()});
 
 /* ═══ VIDEO NOTE (push-to-talk) ═══ */
-var vidStream=null,vidRec=null,vidChunks=[],isVidRec=false,vidStopped=false;
+var vidStream=null,vidRec=null,vidChunks=[],isVidRec=false;
+async function sendMedia(chunks,mimeType,prefix,label){
+  var blob=new Blob(chunks,{type:mimeType});
+  var minSize=mimeType.startsWith("video")?5000:1000;
+  if(blob.size<minSize)return;
+  var file=new File([blob],prefix+Date.now()+".webm",{type:mimeType});
+  if(!sid){showFilePrev(file,label);return}
+  try{
+    var up=await uploadFile(file);
+    var entry={role:"user",time:new Date().toISOString(),content:"",mediaUrl:up.url,mediaType:up.type,fileName:up.name};
+    var ow=mkBubble("user","",entry.time,up.url,up.type,up.name);ow.classList.add("optimista");
+    var mc=$("messages");mc.appendChild(ow);mc.scrollTop=mc.scrollHeight;haptic(15);
+    var rr=await db.from("sek_cases").select("histcliente,estado,assigned_to").eq("id",sid).maybeSingle();
+    var hh=(rr.data&&Array.isArray(rr.data.histcliente))?rr.data.histcliente:[];hh.push(entry);
+    await db.from("sek_cases").update({histcliente:hh}).eq("id",sid);
+    var est=rr.data?rr.data.estado:"";
+    if(est==="ia_atendiendo"||(est==="abierto"&&!rr.data.assigned_to)){invokeIA()}
+  }catch(err){alert("Error al enviar: "+err.message)}
+}
 async function vidStart(){
   if(isVidRec)return;
-  vidStopped=false;
   try{
     vidStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"user",width:480,height:480},audio:true});
-    vidChunks=[];vidRec=new MediaRecorder(vidStream);
-    vidRec.ondataavailable=function(e){if(e.data.size>0)vidChunks.push(e.data)};
-    vidRec.onstop=async function(){
-      if(vidStopped)return;vidStopped=true;
-      if(vidStream)vidStream.getTracks().forEach(function(t){t.stop()});vidStream=null;
-      var blob=new Blob(vidChunks,{type:"video/webm"});
-      if(blob.size<5000){isVidRec=false;$("btn-vid").classList.remove("rec");return}
-      var file=new File([blob],"nota-video-"+Date.now()+".webm",{type:"video/webm"});
+    vidChunks=[];var sent=false;
+    vidRec=new MediaRecorder(vidStream);
+    vidRec.ondataavailable=function(e){if(e.data&&e.data.size>0)vidChunks.push(e.data)};
+    vidRec.onstop=function(){
+      if(sent)return;sent=true;
+      if(vidStream){vidStream.getTracks().forEach(function(t){t.stop()});vidStream=null}
       $("btn-vid").classList.remove("rec");isVidRec=false;
-      if(!sid){showFilePrev(file,"\uD83C\uDFA5");return}
-      try{
-        var up=await uploadFile(file);
-        var entry={role:"user",time:new Date().toISOString(),content:"",mediaUrl:up.url,mediaType:up.type,fileName:up.name};
-        var ow=mkBubble("user","",entry.time,up.url,up.type,up.name);ow.classList.add("optimista");
-        var mc=$("messages");mc.appendChild(ow);mc.scrollTop=mc.scrollHeight;haptic(15);
-        var rr=await db.from("sek_cases").select("histcliente,estado,assigned_to").eq("id",sid).maybeSingle();
-        var hh=(rr.data&&Array.isArray(rr.data.histcliente))?rr.data.histcliente:[];hh.push(entry);
-        await db.from("sek_cases").update({histcliente:hh}).eq("id",sid);
-        var est=rr.data?rr.data.estado:"";
-        if(est==="ia_atendiendo"||(est==="abierto"&&!rr.data.assigned_to)){invokeIA()}
-      }catch(err){alert("Error al enviar video: "+err.message)}
+      sendMedia(vidChunks,"video/webm","nota-video-","\uD83C\uDFA5");
     };
     vidRec.start();isVidRec=true;$("btn-vid").classList.add("rec");haptic(30);
   }catch(err){alert("No se pudo acceder a la c\u00E1mara: "+err.message)}
@@ -895,33 +899,19 @@ $('btn-vid').addEventListener('touchstart',function(e){e.preventDefault();vidSta
 $('btn-vid').addEventListener('touchend',function(e){e.preventDefault();vidStop()},{passive:false});
 $('btn-vid').addEventListener('touchcancel',function(e){e.preventDefault();vidStop()},{passive:false});
 
-var micStream=null,micStopped=false;
+var micStream=null;
 async function micStart(){
   if(isRec)return;
-  micStopped=false;
   try{
     micStream=await navigator.mediaDevices.getUserMedia({audio:true});
-    audioChunks=[];mediaRec=new MediaRecorder(micStream);
-    mediaRec.ondataavailable=function(e){if(e.data.size>0)audioChunks.push(e.data)};
-    mediaRec.onstop=async function(){
-      if(micStopped)return;micStopped=true;
-      if(micStream)micStream.getTracks().forEach(function(t){t.stop()});micStream=null;
-      var blob=new Blob(audioChunks,{type:"audio/webm"});
-      if(blob.size<1000){isRec=false;$("btn-mic").classList.remove("rec");return}
-      var file=new File([blob],"nota-voz-"+Date.now()+".webm",{type:"audio/webm"});
+    audioChunks=[];var sent=false;
+    mediaRec=new MediaRecorder(micStream);
+    mediaRec.ondataavailable=function(e){if(e.data&&e.data.size>0)audioChunks.push(e.data)};
+    mediaRec.onstop=function(){
+      if(sent)return;sent=true;
+      if(micStream){micStream.getTracks().forEach(function(t){t.stop()});micStream=null}
       $("btn-mic").classList.remove("rec");isRec=false;
-      if(!sid){showFilePrev(file,"\uD83C\uDFA4");return}
-      try{
-        var up=await uploadFile(file);
-        var entry={role:"user",time:new Date().toISOString(),content:"",mediaUrl:up.url,mediaType:up.type,fileName:up.name};
-        var ow=mkBubble("user","",entry.time,up.url,up.type,up.name);ow.classList.add("optimista");
-        var mc=$("messages");mc.appendChild(ow);mc.scrollTop=mc.scrollHeight;haptic(15);
-        var rr=await db.from("sek_cases").select("histcliente,estado,assigned_to").eq("id",sid).maybeSingle();
-        var hh=(rr.data&&Array.isArray(rr.data.histcliente))?rr.data.histcliente:[];hh.push(entry);
-        await db.from("sek_cases").update({histcliente:hh}).eq("id",sid);
-        var est=rr.data?rr.data.estado:"";
-        if(est==="ia_atendiendo"||(est==="abierto"&&!rr.data.assigned_to)){invokeIA()}
-      }catch(err){alert("Error al enviar audio: "+err.message)}
+      sendMedia(audioChunks,"audio/webm","nota-voz-","\uD83C\uDFA4");
     };
     mediaRec.start();isRec=true;$("btn-mic").classList.add("rec");haptic(30);
   }catch(err){alert("No se pudo acceder al micr\u00F3fono: "+err.message)}
