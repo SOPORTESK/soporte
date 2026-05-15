@@ -865,24 +865,29 @@ async function sendMedia(chunks,mimeType,prefix,label){
   var minSize=mimeType.startsWith("video")?5000:1000;
   if(blob.size<minSize){_recLock=0;return;}
   var file=new File([blob],prefix+Date.now()+".webm",{type:mimeType});
-  if(!sid){showFilePrev(file,label);return}
+  if(!sid){showFilePrev(file,label);_recLock=0;return;}
   try{
     var up=await uploadFile(file);
-    var entry={role:"user",time:new Date().toISOString(),content:"",mediaUrl:up.url,mediaType:up.type,fileName:up.name};
-    var ow=mkBubble("user","",entry.time,up.url,up.type,up.name);ow.classList.add("optimista");
-    var mc=$("messages");mc.appendChild(ow);mc.scrollTop=mc.scrollHeight;haptic(15);
+    /* Leer BD fresca y verificar que no existe ya esa URL */
     var rr=await db.from("sek_cases").select("histcliente,estado,assigned_to").eq("id",sid).maybeSingle();
-    var hh=(rr.data&&Array.isArray(rr.data.histcliente))?rr.data.histcliente:[];hh.push(entry);
-    await db.from("sek_cases").update({histcliente:hh}).eq("id",sid);
-    var est=rr.data?rr.data.estado:"";
-    if(est==="ia_atendiendo"||(est==="abierto"&&!rr.data.assigned_to)){invokeIA()}
+    var hh=(rr.data&&Array.isArray(rr.data.histcliente))?rr.data.histcliente:[];
+    var alreadySaved=hh.some(function(e){return e.mediaUrl===up.url});
+    if(!alreadySaved){
+      var entry={role:"user",time:new Date().toISOString(),content:"",mediaUrl:up.url,mediaType:up.type,fileName:up.name};
+      hh.push(entry);
+      await db.from("sek_cases").update({histcliente:hh}).eq("id",sid);
+      var ow=mkBubble("user","",entry.time,up.url,up.type,up.name);ow.classList.add("optimista");
+      var mc=$("messages");mc.appendChild(ow);mc.scrollTop=mc.scrollHeight;haptic(15);
+      var est=rr.data?rr.data.estado:"";
+      if(est==="ia_atendiendo"||(est==="abierto"&&!rr.data.assigned_to)){invokeIA()}
+    }
   }catch(err){alert("Error al enviar: "+err.message)}
   _recLock=0;
 }
 async function vidStart(){
   if(isVidRec||recLocked())return;
   try{
-    vidStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"user",width:480,height:480},audio:true});
+    vidStream=await navigator.mediaDevices.getUserMedia({video:true,audio:true});
     vidChunks=[];
     vidRec=new MediaRecorder(vidStream);
     vidRec.ondataavailable=function(e){if(e.data&&e.data.size>0)vidChunks.push(e.data)};
