@@ -205,7 +205,16 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     const poll = setInterval(async () => {
       const { data } = await supabase.from("sek_cases").select("*").eq("id", targetId).maybeSingle();
       if (data && mounted) {
-        setSekCase(prev => ({ ...prev, ...data }));
+        setSekCase(prev => {
+          const hashOf = (c: any) => {
+            const hc = c.histcliente || [], ht = c.histtecnico || [];
+            return hc.length + "|" + ht.length + "|" +
+              (hc.length ? (hc[hc.length-1].time || "") + (hc[hc.length-1].read_at || "") : "") + "|" +
+              (ht.length ? (ht[ht.length-1].time || "") + (ht[ht.length-1].read_at || "") : "") + "|" +
+              (c.estado || "") + "|" + (c.assigned_to || "");
+          };
+          return hashOf(prev) === hashOf(data) ? prev : { ...prev, ...data };
+        });
         // Marcar mensajes del cliente sin read_at como leídos (agente tiene el chat abierto)
         const hc = (data.histcliente || []) as any[];
         const now = new Date().toISOString();
