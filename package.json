@@ -10,6 +10,9 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "sync-widget": "node scripts/sync-widget.mjs",
+    "deploy:functions": "node scripts/deploy-functions.mjs",
+    "deploy:auto-close": "node scripts/deploy-functions.mjs auto-close",
+    "deploy:ia-agent": "node scripts/deploy-functions.mjs ia-agent",
     "prepare": "simple-git-hooks || true",
     "electron:dev": "cross-env NODE_ENV=development electron .",
     "electron:build": "electron-builder --win"
