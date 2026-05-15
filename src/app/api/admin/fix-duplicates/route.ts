@@ -19,10 +19,18 @@ export async function POST() {
 
     // Clave única por time + mediaUrl para deduplicar dentro de histcliente
     const seen = new Set<string>();
+    const seenVideoSec = new Set<string>(); // deduplicar nota-video por segundo
     const cleanHc = hc.filter((e: any) => {
       const k = `${e.time || ""}_${e.mediaUrl || ""}_${e.role || ""}`;
       if (seen.has(k)) return false;
       seen.add(k);
+      // Deduplicar nota-video grabadas en el mismo segundo (mismo role+segundo)
+      if (e.mediaUrl && (e.fileName || "").startsWith("nota-video")) {
+        const sec = (e.time || "").slice(0, 19); // YYYY-MM-DDTHH:MM:SS
+        const vk = `${e.role || "user"}_${sec}`;
+        if (seenVideoSec.has(vk)) return false;
+        seenVideoSec.add(vk);
+      }
       return true;
     });
 
