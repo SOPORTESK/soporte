@@ -860,6 +860,7 @@ $("up-cancel").addEventListener("click",function(){pendFile=null;$("up-prev-bar"
 var vidStream=null,vidRec=null,vidChunks=[],isVidRec=false,vidStopped=false;
 async function vidStart(){
   if(isVidRec)return;
+  vidStopped=false;
   try{
     vidStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"user",width:480,height:480},audio:true});
     vidChunks=[];vidRec=new MediaRecorder(vidStream);
@@ -887,7 +888,7 @@ async function vidStart(){
     vidRec.start();isVidRec=true;$("btn-vid").classList.add("rec");haptic(30);
   }catch(err){alert("No se pudo acceder a la c\u00E1mara: "+err.message)}
 }
-function vidStop(){if(!isVidRec||!vidRec)return;isVidRec=false;vidStopped=false;vidRec.stop();vidRec=null}
+function vidStop(){if(!isVidRec||!vidRec)return;isVidRec=false;var r=vidRec;vidRec=null;r.stop()}
 $('btn-vid').addEventListener('mousedown',function(e){e.preventDefault();vidStart()});
 $('btn-vid').addEventListener('mouseup',function(e){e.preventDefault();vidStop()});
 $('btn-vid').addEventListener('touchstart',function(e){e.preventDefault();vidStart()},{passive:false});
@@ -897,6 +898,7 @@ $('btn-vid').addEventListener('touchcancel',function(e){e.preventDefault();vidSt
 var micStream=null,micStopped=false;
 async function micStart(){
   if(isRec)return;
+  micStopped=false;
   try{
     micStream=await navigator.mediaDevices.getUserMedia({audio:true});
     audioChunks=[];mediaRec=new MediaRecorder(micStream);
@@ -924,7 +926,7 @@ async function micStart(){
     mediaRec.start();isRec=true;$("btn-mic").classList.add("rec");haptic(30);
   }catch(err){alert("No se pudo acceder al micr\u00F3fono: "+err.message)}
 }
-function micStop(){if(!isRec||!mediaRec)return;isRec=false;micStopped=false;mediaRec.stop();mediaRec=null}
+function micStop(){if(!isRec||!mediaRec)return;isRec=false;var r=mediaRec;mediaRec=null;r.stop()}
 $('btn-mic').addEventListener('mousedown',function(e){e.preventDefault();micStart()});
 $('btn-mic').addEventListener('mouseup',function(e){e.preventDefault();micStop()});
 $('btn-mic').addEventListener('touchstart',function(e){e.preventDefault();micStart()},{passive:false});
