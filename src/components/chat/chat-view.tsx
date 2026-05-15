@@ -860,7 +860,7 @@ function AudioPlayer({ url }: { url: string }) {
   }
 
   return (
-    <div className="flex items-center gap-2 mt-1 px-2 py-1.5 rounded-xl bg-white/10 min-w-[180px] max-w-[240px]">
+    <div className="flex items-center gap-3 mt-2 px-3 py-2.5 rounded-2xl bg-white/15 backdrop-blur-sm border border-white/10 w-[260px]">
       <audio
         ref={audioRef}
         src={url}
@@ -874,15 +874,32 @@ function AudioPlayer({ url }: { url: string }) {
       />
       <button
         onClick={toggle}
-        className="h-8 w-8 shrink-0 rounded-full bg-white/20 hover:bg-white/30 grid place-items-center transition-colors"
+        className="h-10 w-10 shrink-0 rounded-full bg-white/25 hover:bg-white/40 grid place-items-center transition-all hover:scale-105 active:scale-95 shadow-md"
       >
-        {playing ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5 ml-0.5" />}
+        {playing
+          ? <Pause className="h-4 w-4" />
+          : <Play className="h-4 w-4 ml-0.5" />}
       </button>
-      <div className="flex-1 min-w-0">
-        <div className="h-1.5 bg-white/20 rounded-full overflow-hidden">
-          <div className="h-full bg-white/70 rounded-full transition-all" style={{ width: `${progress}%` }} />
+      <div className="flex-1 min-w-0 space-y-1.5">
+        <div className="flex items-center gap-1.5">
+          {[...Array(20)].map((_, i) => {
+            const h = 4 + Math.sin(i * 1.7) * 3 + Math.sin(i * 0.9) * 2;
+            const filled = (i / 20) * 100 <= progress;
+            return (
+              <div
+                key={i}
+                className={cn("w-1 rounded-full transition-colors shrink-0", filled ? "bg-white" : "bg-white/30")}
+                style={{ height: `${h + 4}px` }}
+              />
+            );
+          })}
         </div>
-        <p className="text-[10px] opacity-60 mt-0.5 text-right">{fmt(duration)}</p>
+        <div className="flex justify-between items-center">
+          <span className="text-[10px] font-medium opacity-70 flex items-center gap-1">
+            <Mic className="h-2.5 w-2.5" /> Nota de voz
+          </span>
+          <span className="text-[10px] opacity-60">{fmt(duration)}</span>
+        </div>
       </div>
     </div>
   );
