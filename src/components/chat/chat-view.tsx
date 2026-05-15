@@ -4,7 +4,8 @@ import {
   ArrowLeft, MoreVertical, Phone, Send, Paperclip, Bot,
   Mail, Building2, User, StickyNote, Zap, CheckCircle2,
   XCircle, Image as ImageIcon, FileText, Music, Video,
-  Download, X, ChevronDown, History, HandMetal, Star, Tag, AlertTriangle
+  Download, X, ChevronDown, History, HandMetal, Star, Tag, AlertTriangle,
+  Mic, Play, Pause, Square
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Avatar, Badge } from "@/components/ui/avatar";
@@ -78,6 +79,9 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   const [showPlantillas, setShowPlantillas] = React.useState(false);
   const [plantillas, setPlantillas] = React.useState<any[]>([]);
   const [uploadingFile, setUploadingFile] = React.useState(false);
+  const [isRecording, setIsRecording] = React.useState(false);
+  const mediaRecRef = React.useRef<MediaRecorder | null>(null);
+  const audioChunksRef = React.useRef<Blob[]>([]);
   const [showActions, setShowActions] = React.useState(false);
   const [showHistory, setShowHistory] = React.useState(false);
   const [clienteTyping, setClienteTyping] = React.useState(false);
@@ -271,6 +275,39 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       toast.error("No se pudo enviar", { description: (e as any)?.message });
       setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...m, status: "error" } : m));
     } finally { setSending(false); }
+  }
+
+  async function startRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunksRef.current = [];
+      const rec = new MediaRecorder(stream);
+      rec.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+      rec.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        const file = new File([blob], `nota-voz-${Date.now()}.webm`, { type: "audio/webm" });
+        setUploadingFile(true);
+        try {
+          const path = `cases/${targetId}/${file.name}`;
+          const { error: upErr } = await supabase.storage.from("attachments").upload(path, file, { upsert: true });
+          if (upErr) throw upErr;
+          const { data: urlData } = supabase.storage.from("attachments").getPublicUrl(path);
+          await send("", urlData.publicUrl, file.type, file.name);
+        } catch (err: any) {
+          toast.error("Error al subir audio", { description: err?.message });
+        } finally { setUploadingFile(false); }
+      };
+      rec.start();
+      mediaRecRef.current = rec;
+      setIsRecording(true);
+    } catch (err: any) { toast.error("No se pudo acceder al micrófono", { description: err?.message }); }
+  }
+
+  function stopRecording() {
+    mediaRecRef.current?.stop();
+    mediaRecRef.current = null;
+    setIsRecording(false);
   }
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -679,7 +716,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
           />
           <button
             onClick={() => fileInputRef.current?.click()}
-            disabled={uploadingFile}
+            disabled={uploadingFile || isRecording}
             className="h-10 w-10 grid place-items-center rounded-lg text-muted-foreground hover:bg-muted disabled:opacity-50"
             aria-label="Adjuntar archivo"
             title="Adjuntar archivo"
@@ -689,6 +726,18 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
             ) : (
               <Paperclip className="h-4 w-4" />
             )}
+          </button>
+          <button
+            onClick={isRecording ? stopRecording : startRecording}
+            disabled={uploadingFile}
+            className={cn(
+              "h-10 w-10 grid place-items-center rounded-lg transition-colors disabled:opacity-50",
+              isRecording ? "bg-red-500 text-white animate-pulse" : "text-muted-foreground hover:bg-muted"
+            )}
+            aria-label={isRecording ? "Detener grabación" : "Grabar audio"}
+            title={isRecording ? "Detener y enviar" : "Grabar nota de voz"}
+          >
+            {isRecording ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
           </button>
 
           <Textarea
@@ -786,6 +835,54 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   );
 }
 
+function AudioPlayer({ url }: { url: string }) {
+  const audioRef = React.useRef<HTMLAudioElement>(null);
+  const [playing, setPlaying] = React.useState(false);
+  const [progress, setProgress] = React.useState(0);
+  const [duration, setDuration] = React.useState(0);
+
+  function toggle() {
+    const a = audioRef.current;
+    if (!a) return;
+    if (playing) { a.pause(); setPlaying(false); }
+    else { a.play().catch(() => {}); setPlaying(true); }
+  }
+
+  function fmt(s: number) {
+    if (!s || isNaN(s)) return "0:00";
+    const m = Math.floor(s / 60), sec = Math.floor(s % 60);
+    return `${m}:${sec.toString().padStart(2, "0")}`;
+  }
+
+  return (
+    <div className="flex items-center gap-2 mt-1 px-2 py-1.5 rounded-xl bg-white/10 min-w-[180px] max-w-[240px]">
+      <audio
+        ref={audioRef}
+        src={url}
+        preload="metadata"
+        onTimeUpdate={() => {
+          const a = audioRef.current;
+          if (a && a.duration) setProgress(a.currentTime / a.duration * 100);
+        }}
+        onLoadedMetadata={() => setDuration(audioRef.current?.duration || 0)}
+        onEnded={() => { setPlaying(false); setProgress(0); }}
+      />
+      <button
+        onClick={toggle}
+        className="h-8 w-8 shrink-0 rounded-full bg-white/20 hover:bg-white/30 grid place-items-center transition-colors"
+      >
+        {playing ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5 ml-0.5" />}
+      </button>
+      <div className="flex-1 min-w-0">
+        <div className="h-1.5 bg-white/20 rounded-full overflow-hidden">
+          <div className="h-full bg-white/70 rounded-full transition-all" style={{ width: `${progress}%` }} />
+        </div>
+        <p className="text-[10px] opacity-60 mt-0.5 text-right">{fmt(duration)}</p>
+      </div>
+    </div>
+  );
+}
+
 function MediaPreview({ url, type, name }: { url: string; type?: string; name?: string }) {
   if (!url) return null;
   const ext = (name || url).split("?")[0].split(".").pop()?.toLowerCase() ?? "";
@@ -809,14 +906,7 @@ function MediaPreview({ url, type, name }: { url: string; type?: string; name?: 
     return <video src={url} controls className="max-w-[240px] rounded-lg mt-1" />;
   }
   if (t.startsWith("audio/")) {
-    return (
-      <audio controls preload="metadata" className="mt-1 w-full max-w-[260px]" style={{ minWidth: 200 }}>
-        <source src={url} type={t} />
-        <source src={url} type="audio/ogg" />
-        <source src={url} type="audio/mpeg" />
-        Tu navegador no soporta audio.
-      </audio>
-    );
+    return <AudioPlayer url={url} />;
   }
   const Icon = ext === "xml" || ext === "csv" || ext === "txt" ? FileText
     : ext === "pdf" ? FileText : Download;
