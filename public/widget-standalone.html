@@ -888,11 +888,11 @@ async function vidStart(){
   }catch(err){alert("No se pudo acceder a la c\u00E1mara: "+err.message)}
 }
 function vidStop(){if(!isVidRec||!vidRec)return;isVidRec=false;vidStopped=false;vidRec.stop();vidRec=null}
-$("btn-vid").addEventListener("mousedown",function(e){e.preventDefault();vidStart()});
-$("btn-vid").addEventListener("mouseup",function(e){e.preventDefault();vidStop()});
-$("btn-vid").addEventListener("mouseleave",function(){if(isVidRec)vidStop()});
-$("btn-vid").addEventListener("touchstart",function(e){e.preventDefault();vidStart()},{passive:false});
-$("btn-vid").addEventListener("touchend",function(e){e.preventDefault();vidStop()},{passive:false});
+$('btn-vid').addEventListener('mousedown',function(e){e.preventDefault();vidStart()});
+$('btn-vid').addEventListener('mouseup',function(e){e.preventDefault();vidStop()});
+$('btn-vid').addEventListener('touchstart',function(e){e.preventDefault();vidStart()},{passive:false});
+$('btn-vid').addEventListener('touchend',function(e){e.preventDefault();vidStop()},{passive:false});
+$('btn-vid').addEventListener('touchcancel',function(e){e.preventDefault();vidStop()},{passive:false});
 
 var micStream=null,micStopped=false;
 async function micStart(){
@@ -925,11 +925,11 @@ async function micStart(){
   }catch(err){alert("No se pudo acceder al micr\u00F3fono: "+err.message)}
 }
 function micStop(){if(!isRec||!mediaRec)return;isRec=false;micStopped=false;mediaRec.stop();mediaRec=null}
-$("btn-mic").addEventListener("mousedown",function(e){e.preventDefault();micStart()});
-$("btn-mic").addEventListener("mouseup",function(e){e.preventDefault();micStop()});
-$("btn-mic").addEventListener("mouseleave",function(){if(isRec)micStop()});
-$("btn-mic").addEventListener("touchstart",function(e){e.preventDefault();micStart()},{passive:false});
-$("btn-mic").addEventListener("touchend",function(e){e.preventDefault();micStop()},{passive:false});
+$('btn-mic').addEventListener('mousedown',function(e){e.preventDefault();micStart()});
+$('btn-mic').addEventListener('mouseup',function(e){e.preventDefault();micStop()});
+$('btn-mic').addEventListener('touchstart',function(e){e.preventDefault();micStart()},{passive:false});
+$('btn-mic').addEventListener('touchend',function(e){e.preventDefault();micStop()},{passive:false});
+$('btn-mic').addEventListener('touchcancel',function(e){e.preventDefault();micStop()},{passive:false});
 
 async function uploadFile(file){var ext=file.name.split(".").pop();var path="cases/"+sid+"/"+Date.now()+"."+ext;$("up-prog-wrap").style.display="block";$("up-bar").style.width="30%";var r=await db.storage.from("attachments").upload(path,file,{upsert:true});$("up-bar").style.width="80%";if(r.error){$("up-prog-wrap").style.display="none";throw r.error}var u=db.storage.from("attachments").getPublicUrl(path);$("up-bar").style.width="100%";setTimeout(function(){$("up-prog-wrap").style.display="none";$("up-bar").style.width="0%"},400);return{url:u.data.publicUrl,type:file.type,name:file.name}}
 
