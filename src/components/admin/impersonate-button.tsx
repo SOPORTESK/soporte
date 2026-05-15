@@ -22,8 +22,8 @@ export function ImpersonateButton({ email, name }: { email: string; name: string
       localStorage.setItem("sek_impersonating_email", email);
       localStorage.setItem("sek_impersonating_name", data.agentName || name);
       localStorage.setItem("sek_impersonating_mode", "true");
-      // Redirigir a inbox en modo "vista como agente" sin cambiar sesión
-      window.location.assign("/inbox?impersonate=" + encodeURIComponent(email));
+      // Recargar la página actual para mostrar modo vista
+      window.location.reload();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Error al impersonar");
       setLoading(false);
