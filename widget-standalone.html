@@ -862,6 +862,7 @@ var vidStream=null,vidRec=null,vidChunks=[],isVidRec=false;
 var _recLock=0;
 function recLocked(){var now=Date.now();if(now-_recLock<1500)return true;_recLock=now;return false;}
 async function sendMedia(chunks,mimeType,prefix,label){
+  console.log('[vid] sendMedia called, chunks='+chunks.length+', size='+new Blob(chunks,{type:mimeType}).size);
   var blob=new Blob(chunks,{type:mimeType});
   var minSize=mimeType.startsWith("video")?5000:1000;
   if(blob.size<minSize){_recLock=0;return;}
@@ -907,6 +908,7 @@ function vidStop(){
   r.onstop=null;
   if(s)s.getTracks().forEach(function(t){t.stop()});
   r.addEventListener("stop",function(){
+    console.log('[vid] stop event fired, chunks='+localChunks.length);
     sendMedia(localChunks,"video/webm","nota-video-","\uD83C\uDFA5");
   },{once:true});
   r.stop();
