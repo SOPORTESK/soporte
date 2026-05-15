@@ -1,6 +1,6 @@
 {
   "name": "sekunet-chat",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "private": true,
   "main": "electron/main.cjs",
   "scripts": {
@@ -22,7 +22,9 @@
     "productName": "Soporte Sekunet",
     "files": [
       "electron/**/*",
-      "public/logo.png"
+      "public/logo.png",
+      "public/iSoTienda3D.png",
+      "public/logo.ico"
     ],
     "directories": {
       "output": "release"
@@ -36,7 +38,7 @@
     ],
     "win": {
       "target": "nsis",
-      "icon": "public/logo.png",
+      "icon": "public/iSoTienda3D.png",
       "verifyUpdateCodeSignature": false
     },
     "nsis": {

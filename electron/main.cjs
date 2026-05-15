@@ -4,13 +4,13 @@ const path = require('path');
 const fs   = require('fs');
 const { autoUpdater } = require('electron-updater');
 
-const PROD_URL = 'https://kachat.vercel.app';
+const PROD_URL = 'https://sekachat.vercel.app';
 const DEV_URL  = 'http://localhost:3100';
 const isDev    = process.env.NODE_ENV === 'development';
 
 const APP_ICON = fs.existsSync(path.join(__dirname, '../public/logo.ico'))
   ? path.join(__dirname, '../public/logo.ico')
-  : path.join(__dirname, '../public/logo.png');
+  : path.join(__dirname, '../public/iSoTienda3D.png');
 
 if (process.platform === 'win32') {
   app.setAppUserModelId('com.sekunet.soporte');
@@ -47,7 +47,7 @@ function createWindow() {
 
   // Links externos se abren en el navegador del sistema
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (!url.startsWith('https://kachat.vercel.app')) {
+    if (!url.startsWith('https://sekachat.vercel.app')) {
       shell.openExternal(url);
       return { action: 'deny' };
     }
