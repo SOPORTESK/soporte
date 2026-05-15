@@ -404,10 +404,47 @@ export function InboxClient({
     || mergedCases.find(c => c._group?.caseIds.some(cid => String(cid) === selectedId))
     || null;
 
+  const [listWidth, setListWidth] = React.useState(() => {
+    if (typeof window === "undefined") return 340;
+    return Number(localStorage.getItem("inbox_list_width") || 340);
+  });
+  const isDragging = React.useRef(false);
+  const containerRef = React.useRef<HTMLDivElement>(null);
+
+  const onDragStart = React.useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isDragging.current = true;
+    const onMove = (ev: MouseEvent) => {
+      if (!isDragging.current || !containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const newW = Math.min(560, Math.max(240, ev.clientX - rect.left));
+      setListWidth(newW);
+    };
+    const onUp = () => {
+      isDragging.current = false;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      setListWidth(w => { localStorage.setItem("inbox_list_width", String(w)); return w; });
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, []);
+
   return (
-    <div className="grid flex-1 grid-cols-1 md:grid-cols-[340px_1fr] overflow-hidden">
-      <ConversationList cases={mergedCases} selectedId={selectedId} onSelect={selectCase} />
-      <div className={`min-h-0 ${selected ? "flex" : "hidden md:flex"} flex-col bg-background`}>
+    <div ref={containerRef} className="flex flex-1 overflow-hidden">
+      <div className="hidden md:flex flex-col shrink-0 overflow-hidden" style={{ width: listWidth }}>
+        <ConversationList cases={mergedCases} selectedId={selectedId} onSelect={selectCase} />
+      </div>
+      {/* Divisor arrastrable — solo visible en md+ */}
+      <div
+        onMouseDown={onDragStart}
+        className="hidden md:flex w-1 shrink-0 cursor-col-resize items-center justify-center group hover:bg-brand-500/30 transition-colors bg-border/50"
+        title="Arrastrar para redimensionar"
+      >
+        <div className="h-8 w-0.5 rounded-full bg-border group-hover:bg-brand-400 transition-colors" />
+      </div>
+      {/* Panel de chat */}
+      <div className={`min-h-0 ${selected ? "flex" : "hidden md:flex"} flex-1 flex-col bg-background`}>
         {selected ? (
           <ChatView sekCase={selected} onBack={() => setSelectedId(null)} />
         ) : (
