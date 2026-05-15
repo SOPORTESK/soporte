@@ -18,13 +18,8 @@ export function ImpersonateButton({ email, name }: { email: string; name: string
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Error desconocido");
-      // Guardar en localStorage — operación síncrona garantizada antes de navegar
-      localStorage.setItem("sek_impersonating", data.agentName || name);
-      if (data.returnUrl) localStorage.setItem("sek_return_url", data.returnUrl);
-      // Verificar que se guardó
-      console.log("Guardado:", localStorage.getItem("sek_impersonating"));
-      // Navegar al magic link
-      window.location.assign(data.url);
+      // Abrir en nueva pestaña para no cerrar la sesión del superadmin
+      window.open(data.url, "_blank");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Error al impersonar");
       setLoading(false);
