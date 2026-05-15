@@ -44,7 +44,6 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   if (!a) redirect("/login");
 
   const isAdmin = ["admin","superadmin"].includes(a.rol);
-  const isAdmin = ["admin","superadmin"].includes(a.rol);
   const isTecnico = a.rol === "tecnico";
   // Solo admin, superadmin y tecnico pueden acceder al panel admin
   if (!isAdmin && !isTecnico) redirect("/inbox");
