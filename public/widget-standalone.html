@@ -857,7 +857,7 @@ $("file-input").addEventListener("change",function(){if(this.files&&this.files[0
 $("up-cancel").addEventListener("click",function(){pendFile=null;$("up-prev-bar").style.display="none";$("btn-send").disabled=!$("txt-msg").value.trim()});
 
 /* ═══ VIDEO NOTE (push-to-talk) ═══ */
-var vidStream=null,vidRec=null,vidChunks=[],isVidRec=false;
+var vidStream=null,vidRec=null,vidChunks=[],isVidRec=false,vidStopped=false;
 async function vidStart(){
   if(isVidRec)return;
   try{
@@ -865,6 +865,7 @@ async function vidStart(){
     vidChunks=[];vidRec=new MediaRecorder(vidStream);
     vidRec.ondataavailable=function(e){if(e.data.size>0)vidChunks.push(e.data)};
     vidRec.onstop=async function(){
+      if(vidStopped)return;vidStopped=true;
       if(vidStream)vidStream.getTracks().forEach(function(t){t.stop()});vidStream=null;
       var blob=new Blob(vidChunks,{type:"video/webm"});
       if(blob.size<5000){isVidRec=false;$("btn-vid").classList.remove("rec");return}
@@ -886,14 +887,14 @@ async function vidStart(){
     vidRec.start();isVidRec=true;$("btn-vid").classList.add("rec");haptic(30);
   }catch(err){alert("No se pudo acceder a la c\u00E1mara: "+err.message)}
 }
-function vidStop(){if(!isVidRec||!vidRec)return;vidRec.stop();isVidRec=false}
+function vidStop(){if(!isVidRec||!vidRec)return;isVidRec=false;vidStopped=false;vidRec.stop();vidRec=null}
 $("btn-vid").addEventListener("mousedown",function(e){e.preventDefault();vidStart()});
 $("btn-vid").addEventListener("mouseup",function(e){e.preventDefault();vidStop()});
 $("btn-vid").addEventListener("mouseleave",function(){if(isVidRec)vidStop()});
 $("btn-vid").addEventListener("touchstart",function(e){e.preventDefault();vidStart()},{passive:false});
 $("btn-vid").addEventListener("touchend",function(e){e.preventDefault();vidStop()},{passive:false});
 
-var micStream=null;
+var micStream=null,micStopped=false;
 async function micStart(){
   if(isRec)return;
   try{
@@ -901,6 +902,7 @@ async function micStart(){
     audioChunks=[];mediaRec=new MediaRecorder(micStream);
     mediaRec.ondataavailable=function(e){if(e.data.size>0)audioChunks.push(e.data)};
     mediaRec.onstop=async function(){
+      if(micStopped)return;micStopped=true;
       if(micStream)micStream.getTracks().forEach(function(t){t.stop()});micStream=null;
       var blob=new Blob(audioChunks,{type:"audio/webm"});
       if(blob.size<1000){isRec=false;$("btn-mic").classList.remove("rec");return}
@@ -922,7 +924,7 @@ async function micStart(){
     mediaRec.start();isRec=true;$("btn-mic").classList.add("rec");haptic(30);
   }catch(err){alert("No se pudo acceder al micr\u00F3fono: "+err.message)}
 }
-function micStop(){if(!isRec||!mediaRec)return;mediaRec.stop();isRec=false}
+function micStop(){if(!isRec||!mediaRec)return;isRec=false;micStopped=false;mediaRec.stop();mediaRec=null}
 $("btn-mic").addEventListener("mousedown",function(e){e.preventDefault();micStart()});
 $("btn-mic").addEventListener("mouseup",function(e){e.preventDefault();micStop()});
 $("btn-mic").addEventListener("mouseleave",function(){if(isRec)micStop()});
