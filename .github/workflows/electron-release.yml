@@ -5,9 +5,8 @@ on:
     branches: [master]
     paths:
       - 'electron/**'
-      - 'public/logo.png'
+      - 'public/iSoTienda3D.png'
       - 'public/logo.ico'
-      - 'package.json'
 
 jobs:
   release:
@@ -15,6 +14,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -24,39 +25,34 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Get version from package.json
+      - name: Auto-increment patch version
         id: pkg
         run: |
-          $v = (Get-Content package.json | ConvertFrom-Json).version
-          echo "version=$v" >> $env:GITHUB_OUTPUT
-
-      - name: Check if release already exists
-        id: check
-        run: |
-          $tag = "v${{ steps.pkg.outputs.version }}"
-          $res = gh release view $tag --repo ${{ github.repository }} 2>&1
-          if ($LASTEXITCODE -eq 0) {
-            echo "exists=true" >> $env:GITHUB_OUTPUT
-          } else {
-            echo "exists=false" >> $env:GITHUB_OUTPUT
-          }
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          $json = Get-Content package.json | ConvertFrom-Json
+          $parts = $json.version -split '\.'
+          $parts[2] = [int]$parts[2] + 1
+          $newVersion = $parts -join '.'
+          $json.version = $newVersion
+          $json | ConvertTo-Json -Depth 10 | Set-Content package.json
+          echo "version=$newVersion" >> $env:GITHUB_OUTPUT
+          git config user.email "actions@github.com"
+          git config user.name "GitHub Actions"
+          git add package.json
+          git commit -m "chore: bump version to $newVersion [skip ci]"
+          git push
 
       - name: Build Electron app
-        if: steps.check.outputs.exists == 'false'
         run: npm run electron:build
 
       - name: Publish GitHub Release
-        if: steps.check.outputs.exists == 'false'
         run: |
-          $tag = "v${{ steps.pkg.outputs.version }}"
-          gh release create $tag `
-            "release\Soporte Sekunet Setup ${{ steps.pkg.outputs.version }}.exe" `
-            "release\Soporte Sekunet Setup ${{ steps.pkg.outputs.version }}.exe.blockmap" `
+          $v = "${{ steps.pkg.outputs.version }}"
+          gh release create "v$v" `
+            "release\Soporte Sekunet Setup $v.exe" `
+            "release\Soporte Sekunet Setup $v.exe.blockmap" `
             "release\latest.yml" `
-            --title "Soporte Sekunet v${{ steps.pkg.outputs.version }}" `
-            --notes "Release automatico v${{ steps.pkg.outputs.version }}" `
+            --title "Soporte Sekunet v$v" `
+            --notes "Release automatico v$v" `
             --repo ${{ github.repository }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
