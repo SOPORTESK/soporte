@@ -2,11 +2,12 @@
 <html lang="es" style="background:#070d1f">
 <head>
   <meta charset="UTF-8"/>
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
+  <meta http-equiv="Pragma" content="no-cache"/>
+  <meta http-equiv="Expires" content="0"/>
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"/>
   <title>Soporte Sekunet</title>
   <meta name="theme-color" content="#070d1f"/>
-  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
-  <meta http-equiv="Pragma" content="no-cache"/>
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <meta name="apple-mobile-web-app-title" content="Soporte Sekunet"/>
@@ -885,6 +886,7 @@ async function sendMedia(chunks,mimeType,prefix,label){
   _recLock=0;
 }
 async function vidStart(){
+  console.log('[vid] vidStart called, isVidRec='+isVidRec);
   if(isVidRec||recLocked())return;
   try{
     vidStream=await navigator.mediaDevices.getUserMedia({video:true,audio:true});
@@ -895,6 +897,7 @@ async function vidStart(){
   }catch(err){alert("No se pudo acceder a la c\u00E1mara: "+err.message)}
 }
 function vidStop(){
+  console.log('[vid] vidStop called, isVidRec='+isVidRec);
   if(!isVidRec||!vidRec)return;
   isVidRec=false;$("btn-vid").classList.remove("rec");
   var r=vidRec;vidRec=null;
@@ -910,14 +913,8 @@ function vidStop(){
   });
   r.stop();
 }
-(function(){
-  var isTouchDev=false;
-  $('btn-vid').addEventListener('touchstart',function(e){e.preventDefault();isTouchDev=true;vidStart()},{passive:false});
-  $('btn-vid').addEventListener('touchend',function(e){e.preventDefault();vidStop()},{passive:false});
-  $('btn-vid').addEventListener('touchcancel',function(e){e.preventDefault();vidStop()},{passive:false});
-  $('btn-vid').addEventListener('mousedown',function(e){if(isTouchDev)return;e.preventDefault();vidStart()});
-  $('btn-vid').addEventListener('mouseup',function(e){if(isTouchDev)return;e.preventDefault();vidStop()});
-})();
+$('btn-vid').addEventListener('mousedown',function(e){e.preventDefault();vidStart()});
+$('btn-vid').addEventListener('mouseup',function(e){e.preventDefault();vidStop();});
 
 var micStream=null;
 async function micStart(){
