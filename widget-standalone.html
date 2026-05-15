@@ -691,8 +691,11 @@ function mkCheck(double,blue){
 
 function renderAll(hc,ht){
   var all=[];
-  (hc||[]).forEach(function(e){all.push({role:e.role||"user",content:e.content,mediaUrl:e.mediaUrl,mediaType:e.mediaType,fileName:e.fileName,time:e.time,read_at:e.read_at})});
-  (ht||[]).forEach(function(e){if(e.role==="nota")return;all.push({role:"tecnico",content:e.content,mediaUrl:e.mediaUrl,mediaType:e.mediaType,fileName:e.fileName,time:e.time,read_at:e.read_at})});
+  var seen=new Set();
+  // histtecnico tiene prioridad (agentes humanos) — agregar primero y registrar sus tiempos
+  (ht||[]).forEach(function(e){if(e.role==="nota")return;var k=(e.time||"")+"_"+(e.mediaUrl||"");seen.add(k);all.push({role:e.role==="assistant"?"ia":"tecnico",content:e.content,mediaUrl:e.mediaUrl,mediaType:e.mediaType,fileName:e.fileName,time:e.time,read_at:e.read_at})});
+  // histcliente: mostrar user y assistant (IA), pero omitir cualquier cosa que ya esté en histtecnico
+  (hc||[]).forEach(function(e){var r=e.role||"user";var k=(e.time||"")+"_"+(e.mediaUrl||"");if(seen.has(k))return;if(r==="user"||r==="assistant")all.push({role:r==="assistant"?"ia":"user",content:e.content,mediaUrl:e.mediaUrl,mediaType:e.mediaType,fileName:e.fileName,time:e.time,read_at:e.read_at})});
   all.sort(function(a,b){return new Date(a.time)-new Date(b.time)});
   var c=$("messages");
   var opts=[];c.querySelectorAll(".optimista").forEach(function(el){opts.push(el)});
