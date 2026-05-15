@@ -2,8 +2,15 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
 
-export async function POST() {
+export async function POST(req: Request) {
   const supabase = await createClient();
+  const body = await req.json().catch(() => ({}));
+
+  // Modo: limpiar historial completo de un caso específico (solo videos de prueba)
+  if (body.clear_case) {
+    await supabase.from("sek_cases").update({ histcliente: [], histtecnico: [] }).eq("id", body.clear_case);
+    return NextResponse.json({ ok: true, cleared: body.clear_case });
+  }
 
   const { data: cases, error } = await supabase
     .from("sek_cases")
