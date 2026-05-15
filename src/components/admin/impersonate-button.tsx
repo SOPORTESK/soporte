@@ -18,15 +18,12 @@ export function ImpersonateButton({ email, name }: { email: string; name: string
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Error desconocido");
-      localStorage.setItem("sek_impersonating", data.agentName || name);
-      if (data.returnUrl) localStorage.setItem("sek_return_url", data.returnUrl);
-      // En Electron: abrir segunda ventana con sesión separada
-      const eAPI = (window as any).electronAPI;
-      if (eAPI?.abrirImpersonar) {
-        eAPI.abrirImpersonar(data.url, name);
-      } else {
-        window.location.assign(data.url);
-      }
+      // Guardar datos de impersonación sin cambiar sesión
+      localStorage.setItem("sek_impersonating_email", email);
+      localStorage.setItem("sek_impersonating_name", data.agentName || name);
+      localStorage.setItem("sek_impersonating_mode", "true");
+      // Redirigir a inbox en modo "vista como agente" sin cambiar sesión
+      window.location.assign("/inbox?impersonate=" + encodeURIComponent(email));
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Error al impersonar");
       setLoading(false);

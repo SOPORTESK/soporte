@@ -34,32 +34,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Email requerido" }, { status: 400 });
     }
 
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3100";
+    // Solo validar que el agente objetivo existe
+    const { data: targetAgent } = await serviceClient
+      .from("sek_agent_config")
+      .select("email, nombre, apellido")
+      .ilike("email", email.toLowerCase())
+      .maybeSingle();
 
-    const { data, error } = await serviceClient.auth.admin.generateLink({
-      type: "magiclink",
-      email: email.toLowerCase(),
-      options: { redirectTo: `${siteUrl}/auth/confirm` },
-    });
-
-    if (error || !data?.properties?.action_link) {
-      return NextResponse.json(
-        { error: error?.message || "No se pudo generar el enlace" },
-        { status: 500 }
-      );
+    if (!targetAgent) {
+      return NextResponse.json({ error: "Agente no encontrado" }, { status: 404 });
     }
 
-    // Generar magic link de retorno para el superadmin
-    const { data: returnData } = await serviceClient.auth.admin.generateLink({
-      type: "magiclink",
-      email: user.email!.toLowerCase(),
-      options: { redirectTo: `${siteUrl}/auth/confirm` },
-    });
+    const fullName = [targetAgent.nombre, targetAgent.apellido].filter(Boolean).join(" ");
 
     return NextResponse.json({
-      url: data.properties.action_link,
-      returnUrl: returnData?.properties?.action_link || null,
-      agentName,
+      agentName: fullName || email,
+      email: targetAgent.email,
     });
   } catch (err: any) {
     console.error("[impersonate] error:", err);
