@@ -156,9 +156,16 @@ export function ConversationList({
                     {estadoLower === "ia_atendiendo" && (
                       <Badge variant="muted" className="text-[10px]">IA atendiendo</Badge>
                     )}
-                    {(estadoLower === "abierto" || estadoLower === "asignado") && (
-                      <Badge variant="warning" className="text-[10px]">En proceso</Badge>
-                    )}
+                    {(estadoLower === "abierto" || estadoLower === "asignado") && (() => {
+                      const agente = c.assigned_to
+                        ? (c.assigned_to as string).split("@")[0].replace(/[._]/g, " ").replace(/\b\w/g, l => l.toUpperCase())
+                        : null;
+                      return (
+                        <Badge variant="warning" className="text-[10px]">
+                          {agente ? `Atendido por ${agente}` : "En proceso"}
+                        </Badge>
+                      );
+                    })()}
                     {(estadoLower === "pendiente" || estadoLower === "" || !estadoLower) && (
                       <Badge variant="default" className="text-[10px]">Nuevo</Badge>
                     )}
