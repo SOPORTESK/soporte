@@ -263,20 +263,23 @@ export function InboxClient({
     }
   }, [router]);
 
-  /* Intervalo: recordar casos escalados pendientes cada 60s */
+  /* Intervalo: recordar casos escalados pendientes cada 60s — solo si siguen sin atender */
   React.useEffect(() => {
     escaladoReminderRef.current = setInterval(() => {
       pendingEscaladosRef.current.forEach((info, id) => {
+        // Verificar que el caso sigue en estado escalado antes de notificar
+        const stillPending = cases.find(c => String(c.id) === id && String(c.estado).toLowerCase() === "escalado");
+        if (!stillPending) { pendingEscaladosRef.current.delete(id); return; }
         playEscaladoAlert();
-        toast.warning(`⚠️ PENDIENTE — Caso escalado: ${info.name}`, {
-          description: info.equipo ? `Equipo: ${info.equipo} · Sin atender` : "Sin atender · Requiere agente humano",
+        toast.warning(`Caso sin atender: ${info.name}`, {
+          description: info.equipo ? `Equipo: ${info.equipo} · Esperando agente` : "Esperando asignación de agente",
           duration: 55000,
-          action: { label: "Atender ahora", onClick: () => selectCase(id) }
+          action: { label: "Atender", onClick: () => selectCase(id) }
         });
       });
     }, 60000);
     return () => { if (escaladoReminderRef.current) clearInterval(escaladoReminderRef.current); };
-  }, [selectCase]);
+  }, [selectCase, cases]);
 
   React.useEffect(() => {
     const channel = supabase
@@ -330,9 +333,9 @@ export function InboxClient({
               const equipo3 = (updCase.cliente as any)?.equipo || "";
               pendingEscaladosRef.current.set(String(updCase.id), { name: name3, equipo: equipo3 });
               playEscaladoAlert();
-              toast.warning(`🚨 CASO ESCALADO: ${name3}`, {
-                description: equipo3 ? `Equipo: ${equipo3} · Esperando agente` : "Esperando agente humano",
-                duration: Infinity,
+              toast.warning(`Nueva conversación: ${name3}`, {
+                description: equipo3 ? `Equipo: ${equipo3} · Requiere atención` : "Requiere atención de un agente",
+                duration: 30000,
                 action: { label: "Atender", onClick: () => selectCase(String(updCase.id)) }
               });
             }
