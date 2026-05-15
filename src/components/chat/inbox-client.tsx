@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { SekCase, SekHistEntry } from "@/lib/types";
 import { ConversationList } from "./conversation-list";
 import { ChatView } from "./chat-view";
-import { Inbox as InboxIcon } from "lucide-react";
+import { Inbox as InboxIcon, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { clienteInfo, asText, customerKey } from "@/lib/utils";
 
@@ -185,19 +185,34 @@ export function InboxClient({
   const [unreadTotal, setUnreadTotal] = React.useState(0);
   const [agentEmail, setAgentEmail] = React.useState<string | null>(null);
   const [agentName, setAgentName] = React.useState<string | null>(null);
+  const [impersonatingEmail, setImpersonatingEmail] = React.useState<string | null>(null);
+  const [impersonatingName, setImpersonatingName] = React.useState<string | null>(null);
   const supabase = React.useMemo(() => createClient(), []);
   const prevCasesRef = React.useRef<SekCase[]>(initialCases);
+
+  /* Detectar modo impersonación desde URL o localStorage */
+  React.useEffect(() => {
+    const impEmail = params.get("impersonate") || localStorage.getItem("sek_impersonating_email");
+    const impName = localStorage.getItem("sek_impersonating_name");
+    if (impEmail) {
+      setImpersonatingEmail(impEmail);
+      setImpersonatingName(impName || impEmail);
+      console.log(`[Impersonate] Vista como: ${impName || impEmail}`);
+    }
+  }, [params]);
 
   /* Obtener email y nombre del agente actual para filtrar Mi Gestion */
   React.useEffect(() => {
     supabase.auth.getUser().then(async ({ data }) => {
       if (data?.user?.email) {
-        setAgentEmail(data.user.email);
+        // Si estamos impersonando, usar el email del agente objetivo
+        const effectiveEmail = impersonatingEmail || data.user.email;
+        setAgentEmail(effectiveEmail);
         // Buscar nombre del agente en config
         const { data: agent } = await supabase
           .from("sek_agent_config")
           .select("nombre,apellido")
-          .ilike("email", data.user.email)
+          .ilike("email", effectiveEmail)
           .maybeSingle();
         if (agent) {
           const fullName = [agent.nombre, agent.apellido].filter(Boolean).join(" ");
@@ -206,7 +221,7 @@ export function InboxClient({
         }
       }
     });
-  }, [supabase]);
+  }, [supabase, impersonatingEmail]);
 
   /* Casos filtrados según containerType */
   const filteredCases = React.useMemo(() => {
@@ -214,8 +229,10 @@ export function InboxClient({
     if (containerType === "mi-gestion" && !agentName && !agentEmail && cases === initialCases) {
       return cases;
     }
-    return filterCasesByContainer(cases, containerType, agentEmail, agentName);
-  }, [cases, containerType, agentEmail, agentName, initialCases]);
+    // Si estamos impersonando, forzar modo "mi-gestion" para ver casos de ese agente
+    const effectiveContainer = impersonatingEmail ? "mi-gestion" : containerType;
+    return filterCasesByContainer(cases, effectiveContainer, agentEmail, agentName);
+  }, [cases, containerType, agentEmail, agentName, initialCases, impersonatingEmail]);
 
   /* Casos agrupados por cliente (un solo chat por cliente, varios casos dentro) */
   const mergedCases = React.useMemo(() => mergeGroups(filteredCases), [filteredCases]);
@@ -433,8 +450,33 @@ export function InboxClient({
     window.addEventListener("mouseup", onUp);
   }, []);
 
+  const salirImpersonacion = () => {
+    localStorage.removeItem("sek_impersonating_email");
+    localStorage.removeItem("sek_impersonating_name");
+    localStorage.removeItem("sek_impersonating_mode");
+    window.location.href = "/admin/equipo";
+  };
+
   return (
-    <div ref={containerRef} className="flex flex-1 overflow-hidden">
+    <div ref={containerRef} className="flex flex-1 overflow-hidden flex-col">
+      {/* Banner de impersonación */}
+      {impersonatingEmail && (
+        <div className="shrink-0 bg-gradient-to-r from-violet-600 via-purple-600 to-rose-500 text-white px-4 py-2 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Eye className="h-4 w-4" />
+            <span className="text-sm font-medium">
+              Vista como: <strong>{impersonatingName || impersonatingEmail}</strong>
+            </span>
+          </div>
+          <button
+            onClick={salirImpersonacion}
+            className="text-xs bg-white/20 hover:bg-white/30 px-3 py-1 rounded-md transition-colors"
+          >
+            Salir de vista
+          </button>
+        </div>
+      )}
+      <div className="flex flex-1 overflow-hidden">
       {/* Lista: visible en móvil solo cuando NO hay caso seleccionado */}
       <div
         className={`${selected ? "hidden md:flex" : "flex"} md:flex flex-col shrink-0 overflow-hidden w-full md:w-auto`}
@@ -466,6 +508,7 @@ export function InboxClient({
           </div>
         )}
       </div>
+      </div>{/* cierre del layout interno */}
     </div>
   );
 }
