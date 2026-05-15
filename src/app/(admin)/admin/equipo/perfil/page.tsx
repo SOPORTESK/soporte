@@ -6,7 +6,6 @@ import {
   CheckCircle, MessageSquare, Mail, Phone, Calendar, Eye, Lock
 } from "lucide-react";
 import { ImpersonateButton } from "@/components/admin/impersonate-button";
-import { ImpersonateBannerPerfil } from "@/components/admin/impersonate-banner-perfil";
 
 export const dynamic = "force-dynamic";
 
@@ -95,9 +94,6 @@ export default async function AgentProfilePage({
           {isSuperadmin && <ImpersonateButton email={targetEmail} name={fullName} />}
         </div>
       </header>
-
-      {/* ── BANNER MODO VISTA ── */}
-      <ImpersonateBannerPerfil />
 
       {/* ── PROFILE CARD ── */}
       <section className="relative rounded-2xl border border-border bg-card overflow-hidden">

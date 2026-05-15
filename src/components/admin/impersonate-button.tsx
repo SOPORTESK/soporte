@@ -22,8 +22,8 @@ export function ImpersonateButton({ email, name }: { email: string; name: string
       localStorage.setItem("sek_impersonating_email", email);
       localStorage.setItem("sek_impersonating_name", data.agentName || name);
       localStorage.setItem("sek_impersonating_mode", "true");
-      // Recargar la página actual para mostrar modo vista
-      window.location.reload();
+      // Ir al inbox para ver la vista del compañero
+      window.location.href = "/inbox";
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Error al impersonar");
       setLoading(false);
