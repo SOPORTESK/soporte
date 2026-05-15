@@ -714,8 +714,7 @@ function renderAll(hc,ht){
     // Agregar palomillas al pie de los mensajes del usuario y del agente
     var foot=bub.querySelector(".b-foot");
     if(foot){
-      if(m.role==="user"){foot.insertBefore(mkCheck(!!m.read_at,!!m.read_at),foot.firstChild)}
-      else if(m.role==="tecnico"){foot.appendChild(mkCheck(true,!!m.read_at))}
+      if(m.role==="user"){foot.insertBefore(mkCheck(true,!!m.read_at),foot.firstChild)}
     }
     c.appendChild(bub);
   });

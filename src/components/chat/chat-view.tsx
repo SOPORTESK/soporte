@@ -1163,15 +1163,6 @@ function Bubble({ m, clienteName }: { m: UnifiedMessage; clienteName: string }) 
               <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none"><path d="M2 8L6 12 14 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
             </span>
           )}
-          {isCliente && m.read_at && (
-            <span className="inline-flex text-blue-500">
-              <svg className="h-3.5 w-3.5 -mr-2" viewBox="0 0 16 16" fill="none"><path d="M2 8L6 12 14 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
-              <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none"><path d="M2 8L6 12 14 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
-            </span>
-          )}
-          {isCliente && !m.read_at && (
-            <svg className="h-3.5 w-3.5 opacity-40" viewBox="0 0 16 16" fill="none"><path d="M2 8L6 12 14 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
-          )}
           {m.status === "error" && <span className="text-red-400">❌</span>}
         </div>
       </div>
