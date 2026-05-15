@@ -11,6 +11,7 @@ import { LayoutDashboard, Settings, BookOpen, Bot, Package,
 } from "lucide-react";
 import type { SekAgent } from "@/lib/types";
 import { MobileNav } from "@/components/admin/mobile-nav";
+import { GodModeAdminWrapper } from "@/components/god-mode-admin-wrapper";
 
 export const dynamic = 'force-dynamic';
 
@@ -32,6 +33,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const fullName = [a.nombre, a.apellido].filter(Boolean).join(" ") || user.email!;
 
   return (
+    <GodModeAdminWrapper originalAgent={a}>
     <div className="min-h-dvh grid grid-cols-1 lg:grid-cols-[280px_1fr] bg-muted/30">
       <aside className="hidden lg:flex lg:flex-col border-r border-border bg-card relative overflow-hidden">
         {/* Header con gradiente */}
@@ -122,6 +124,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
       <main id="main" className="min-w-0 min-h-0">{children}</main>
     </div>
+    </GodModeAdminWrapper>
   );
 }
 
