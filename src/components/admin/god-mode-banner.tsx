@@ -32,19 +32,19 @@ export function GodModeBanner() {
       <div className="flex items-center gap-2">
         <Crown className="h-5 w-5" />
         <span className="text-sm font-bold">
-          MODO DIOS ACTIVO — Actuando como: <strong className="underline">{godMode.name}</strong>
+          MODO DIOS — Viendo perfil de: <strong className="underline">{godMode.name}</strong>
         </span>
       </div>
       <div className="flex items-center gap-2">
         <button 
           onClick={irAlInbox} 
-          className="flex items-center gap-1 text-xs bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-md transition-colors"
+          className="flex items-center gap-1 text-xs bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-md transition-colors font-medium"
         >
-          <Inbox className="h-3 w-3" /> Ver inbox
+          <Inbox className="h-3 w-3" /> Ver casos
         </button>
         <button 
           onClick={salir} 
-          className="flex items-center gap-1 text-xs bg-white/30 hover:bg-white/40 px-3 py-1.5 rounded-md transition-colors"
+          className="flex items-center gap-1 text-xs bg-white/30 hover:bg-white/40 px-3 py-1.5 rounded-md transition-colors font-medium"
         >
           <LogOut className="h-3 w-3" /> Salir
         </button>

@@ -12,8 +12,8 @@ export function GodModeButton({ email, name }: { email: string; name: string }) 
     localStorage.setItem("god_mode_target_email", email);
     localStorage.setItem("god_mode_target_name", name);
     localStorage.setItem("god_mode_active", "true");
-    // Ir al inbox para trabajar como ese agente
-    window.location.href = "/inbox";
+    // Recargar para activar el banner en el perfil actual
+    window.location.reload();
   };
 
   return (

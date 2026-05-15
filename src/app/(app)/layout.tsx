@@ -9,7 +9,7 @@ import { SidebarLink } from "@/components/sidebar-link";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
 import { Inbox, ShieldCheck, ChevronRight, Wrench, FolderKanban } from "lucide-react";
 import type { SekAgent } from "@/lib/types";
-import { ImpersonateBanner } from "@/components/impersonate-banner";
+import { GodModeWrapper } from "@/components/god-mode-wrapper";
 import { SidebarUserPanel } from "@/components/sidebar-user-panel";
 import { N2Badge } from "@/components/n2-badge";
 
@@ -59,8 +59,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const fullName = [a.nombre, a.apellido].filter(Boolean).join(" ") || user.email!;
 
   return (
+    <GodModeWrapper originalAgent={a}>
     <div className="h-dvh flex flex-col overflow-hidden">
-    <ImpersonateBanner />
     <div className="flex-1 flex min-h-0 bg-muted/30">
       {/* ── Desktop sidebar ── */}
       <aside className="hidden lg:flex lg:flex-col w-[260px] shrink-0 border-r border-border bg-card">
@@ -131,5 +131,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       onlineAgents={onlineAgents || []}
     />
     </div>
+    </GodModeWrapper>
   );
 }
