@@ -24,10 +24,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     .from("sek_agent_config").select("*").ilike("email", user.email!).maybeSingle();
   const a = agent as SekAgent | null;
 
+  const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
   const { data: onlineAgents } = await supabase
     .from("sek_agent_config")
-    .select("email, nombre, apellido, avatar_url, status")
-    .neq("status", "offline");
+    .select("email, nombre, apellido, avatar_url, status, last_seen_at")
+    .neq("status", "offline")
+    .gte("last_seen_at", twoMinutesAgo);
 
   const { count: n2Count } = await supabase
     .from("sek_cases")

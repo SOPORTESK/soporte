@@ -66,11 +66,19 @@ export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; online
   const supabase = createClient();
   const fullName = [agent.nombre, agent.apellido].filter(Boolean).join(" ") || agent.email;
 
-  // Marcar online al montar + auto-away por inactividad
+  // Marcar online al montar + auto-away por inactividad + heartbeat
   useEffect(() => {
     fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online" }) });
     const handleUnload = () => navigator.sendBeacon("/api/profile/status", JSON.stringify({ status: "offline" }));
     window.addEventListener("beforeunload", handleUnload);
+
+    // Heartbeat cada 30s para mantener last_seen_at actualizado
+    const heartbeat = setInterval(() => {
+      fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online" }) });
+    }, 30000);
+
+    // Refrescar lista de agentes online cada 60s
+    const refreshAgents = setInterval(() => router.refresh(), 60000);
 
     // Idle timer — auto switch to "away" after inactivity
     let idleTimer: ReturnType<typeof setTimeout>;
@@ -108,6 +116,8 @@ export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; online
       window.removeEventListener("beforeunload", handleUnload);
       events.forEach(e => window.removeEventListener(e, resetIdle));
       clearTimeout(idleTimer);
+      clearInterval(heartbeat);
+      clearInterval(refreshAgents);
     };
   }, []);
 
