@@ -204,7 +204,18 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     /* Polling de respaldo cada 3s por si Realtime falla */
     const poll = setInterval(async () => {
       const { data } = await supabase.from("sek_cases").select("*").eq("id", targetId).maybeSingle();
-      if (data && mounted) setSekCase(prev => ({ ...prev, ...data }));
+      if (data && mounted) {
+        setSekCase(prev => ({ ...prev, ...data }));
+        // Marcar mensajes del cliente sin read_at como leídos (agente tiene el chat abierto)
+        const hc = (data.histcliente || []) as any[];
+        const now = new Date().toISOString();
+        let changed = false;
+        const updated = hc.map((e: any) => {
+          if ((e.role === "user" || !e.role) && !e.read_at) { changed = true; return { ...e, read_at: now }; }
+          return e;
+        });
+        if (changed) supabase.from("sek_cases").update({ histcliente: updated }).eq("id", targetId).then(() => {});
+      }
     }, 3000);
 
     // Marcar mensajes del cliente como leídos al abrir el chat
