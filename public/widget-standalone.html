@@ -858,10 +858,12 @@ $("up-cancel").addEventListener("click",function(){pendFile=null;$("up-prev-bar"
 
 /* ═══ VIDEO NOTE (push-to-talk) ═══ */
 var vidStream=null,vidRec=null,vidChunks=[],isVidRec=false;
+var _recLock=0;
+function recLocked(){var now=Date.now();if(now-_recLock<1500)return true;_recLock=now;return false;}
 async function sendMedia(chunks,mimeType,prefix,label){
   var blob=new Blob(chunks,{type:mimeType});
   var minSize=mimeType.startsWith("video")?5000:1000;
-  if(blob.size<minSize)return;
+  if(blob.size<minSize){_recLock=0;return;}
   var file=new File([blob],prefix+Date.now()+".webm",{type:mimeType});
   if(!sid){showFilePrev(file,label);return}
   try{
@@ -875,9 +877,10 @@ async function sendMedia(chunks,mimeType,prefix,label){
     var est=rr.data?rr.data.estado:"";
     if(est==="ia_atendiendo"||(est==="abierto"&&!rr.data.assigned_to)){invokeIA()}
   }catch(err){alert("Error al enviar: "+err.message)}
+  _recLock=0;
 }
 async function vidStart(){
-  if(isVidRec)return;
+  if(isVidRec||recLocked())return;
   try{
     vidStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"user",width:480,height:480},audio:true});
     vidChunks=[];
@@ -907,7 +910,7 @@ $('btn-vid').addEventListener('touchcancel',function(e){e.preventDefault();vidSt
 
 var micStream=null;
 async function micStart(){
-  if(isRec)return;
+  if(isRec||recLocked())return;
   try{
     micStream=await navigator.mediaDevices.getUserMedia({audio:true});
     audioChunks=[];
