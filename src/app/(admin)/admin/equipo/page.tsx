@@ -31,7 +31,7 @@ export default async function AdminEquipoPage() {
   // ── Fetch performance data ──
   const { data: casos } = await supabase
     .from("sek_cases")
-    .select("id, assigned_to, created_at, updated_at, estado, cliente, canal")
+    .select("id, assigned_to, created_at, updated_at, estado, cliente, canal, accepted_at")
     .not("assigned_to", "is", null);
 
   const now = new Date();
@@ -61,9 +61,13 @@ export default async function AdminEquipoPage() {
 
     if (c.estado === "resuelto" || c.estado === "cerrado") {
       s.resueltos++;
-      if (c.created_at && c.updated_at) {
-        const diff = Math.round((new Date(c.updated_at).getTime() - new Date(c.created_at).getTime()) / (1000 * 60));
-        if (diff > 0) s.tiempos.push(diff);
+      if (c.updated_at) {
+        const start = c.accepted_at ? new Date(c.accepted_at as string) : new Date(c.created_at);
+        const end = new Date(c.updated_at);
+        if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
+          const diff = Math.round((end.getTime() - start.getTime()) / (1000 * 60));
+          if (diff > 0) s.tiempos.push(diff);
+        }
       }
     }
     const cl = typeof c.cliente === "object" && c.cliente ? c.cliente as any : null;
@@ -116,7 +120,7 @@ export default async function AdminEquipoPage() {
   const globalStats = {
     totalCasos: casos?.length || 0,
     totalResueltos: (casos || []).filter(c => c.estado === "resuelto" || c.estado === "cerrado").length,
-    tasaResolucion: casos && casos.length > 0
+    tasaResolucion: (casos && casos.length > 0)
       ? Math.round(((casos.filter(c => c.estado === "resuelto" || c.estado === "cerrado").length) / casos.length) * 100)
       : 0,
     avgSLA: allTiempos.length > 0 ? Math.round(allTiempos.reduce((a, b) => a + b, 0) / allTiempos.length) : 0,

@@ -225,6 +225,19 @@ export function InboxClient({
     });
   }, [supabase, godModeEmail]);
 
+  const selectCase = React.useCallback((id: string) => {
+    setSelectedId(id);
+    // En modo PWA standalone no persistir el chat en la URL para que al reabrir
+    // la app siempre muestre la bandeja y no el último chat visitado
+    const isPwa = window.matchMedia("(display-mode: standalone)").matches ||
+      (window.navigator as any).standalone === true;
+    if (!isPwa) {
+      const url = new URL(window.location.href);
+      url.searchParams.set("c", id);
+      router.replace(url.pathname + url.search, { scroll: false });
+    }
+  }, [router]);
+
   /* Casos filtrados según containerType */
   const filteredCases = React.useMemo(() => {
     // Si es Mi Gestion y aún no tenemos datos, confiar en el filtro del servidor (initialCases)
@@ -269,18 +282,7 @@ export function InboxClient({
     }
   }, [unreadTotal]);
 
-  const selectCase = React.useCallback((id: string) => {
-    setSelectedId(id);
-    // En modo PWA standalone no persistir el chat en la URL para que al reabrir
-    // la app siempre muestre la bandeja y no el último chat visitado
-    const isPwa = window.matchMedia("(display-mode: standalone)").matches ||
-      (window.navigator as any).standalone === true;
-    if (!isPwa) {
-      const url = new URL(window.location.href);
-      url.searchParams.set("c", id);
-      router.replace(url.pathname + url.search, { scroll: false });
-    }
-  }, [router]);
+
 
   /* Intervalo: recordar casos escalados pendientes cada 60s — solo si siguen sin atender */
   React.useEffect(() => {

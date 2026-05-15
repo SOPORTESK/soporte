@@ -50,8 +50,13 @@ export default async function EstadisticasAtencionPage() {
 
   // ── Histograma SLA global
   const tiemposTodos = casos
-    .filter(c => (c.estado === "resuelto" || c.estado === "cerrado") && c.created_at && c.updated_at)
-    .map(c => Math.round((new Date(c.updated_at).getTime() - new Date(c.created_at).getTime()) / 60000))
+    .filter(c => (c.estado === "resuelto" || c.estado === "cerrado") && c.updated_at)
+    .map(c => {
+      const start = c.accepted_at ? new Date(c.accepted_at) : new Date(c.created_at);
+      const end = new Date(c.updated_at);
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) return 0;
+      return Math.round((end.getTime() - start.getTime()) / 60000);
+    })
     .filter(t => t > 0);
   const slaLt1h = tiemposTodos.filter(t => t <= 60).length;
   const sla1_4h = tiemposTodos.filter(t => t > 60 && t <= 240).length;
@@ -130,9 +135,13 @@ export default async function EstadisticasAtencionPage() {
     if (caso.estado === "escalado") s.escalados++;
     if (caso.estado === "resuelto" || caso.estado === "cerrado") {
       s.resueltos++;
-      if (caso.created_at && caso.updated_at) {
-        const diff = Math.round((new Date(caso.updated_at).getTime() - new Date(caso.created_at).getTime()) / 60000);
-        if (diff > 0) s.tiemposResolucion.push(diff);
+      if (caso.updated_at) {
+        const start = caso.accepted_at ? new Date(caso.accepted_at) : new Date(caso.created_at);
+        const end = new Date(caso.updated_at);
+        if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
+          const diff = Math.round((end.getTime() - start.getTime()) / 60000);
+          if (diff > 0) s.tiemposResolucion.push(diff);
+        }
       }
       const te = tiempoEfectivo((caso as any).histtecnico, (caso as any).accepted_at);
       if (te > 0) s.tiemposEfectivos.push(te);

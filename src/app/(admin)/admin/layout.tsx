@@ -12,26 +12,10 @@ import { LayoutDashboard, Settings, BookOpen, Bot, Package,
 import type { SekAgent } from "@/lib/types";
 import { MobileNav } from "@/components/admin/mobile-nav";
 import { GodModeAdminWrapper } from "@/components/god-mode-admin-wrapper";
-
-export const dynamic = 'force-dynamic';
-
-import { redirect } from "next/navigation";
-import Image from "next/image";
-import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
-import { ThemeToggle } from "@/components/theme-toggle";
-import { LogoutButton } from "@/components/logout-button";
-import { Avatar, Badge } from "@/components/ui/avatar";
-import { SidebarLink } from "@/components/sidebar-link";
-import { LayoutDashboard, Settings, BookOpen, Bot, Package,
-  ArrowLeft, Users, ShieldCheck, MessageCircle
-} from "lucide-react";
-import type { SekAgent } from "@/lib/types";
-import { MobileNav } from "@/components/admin/mobile-nav";
-import { GodModeAdminWrapper } from "@/components/god-mode-admin-wrapper";
 import { GodModeGuard } from "@/components/god-mode-guard";
 
 export const dynamic = 'force-dynamic';
+
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const supabase = createClient();
