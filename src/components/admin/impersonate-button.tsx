@@ -18,8 +18,13 @@ export function ImpersonateButton({ email, name }: { email: string; name: string
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Error desconocido");
-      // Abrir en nueva pestaña para no cerrar la sesión del superadmin
-      window.open(data.url, "_blank");
+      // En Electron: abrir segunda ventana con sesión separada
+      const eAPI = (window as any).electronAPI;
+      if (eAPI?.abrirImpersonar) {
+        eAPI.abrirImpersonar(data.url, name);
+      } else {
+        window.open(data.url, "_blank");
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Error al impersonar");
       setLoading(false);

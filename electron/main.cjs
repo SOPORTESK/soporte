@@ -90,6 +90,26 @@ function setupAutoUpdater() {
 // ─── IPC ──────────────────────────────────────────────────────────────────────
 ipcMain.on('recargar', () => win?.webContents.reload());
 
+ipcMain.on('abrir-impersonar', (_, { url, nombre }) => {
+  const impWin = new BrowserWindow({
+    width: 1400, height: 900, minWidth: 900, minHeight: 600,
+    title: `Vista: ${nombre}`,
+    icon: APP_ICON,
+    backgroundColor: '#0f172a',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      nodeIntegration: false,
+      contextIsolation: true,
+      partition: `persist:imp-${nombre.replace(/\s+/g, '-').toLowerCase()}`,
+    },
+  });
+  impWin.loadURL(url);
+  impWin.webContents.setWindowOpenHandler(({ url: u }) => {
+    if (!u.startsWith('https://sekachat.vercel.app')) { shell.openExternal(u); return { action: 'deny' }; }
+    return { action: 'allow' };
+  });
+});
+
 ipcMain.on('notificar-n2', (_, data) => {
   if (!Notification.isSupported()) return;
   const notif = new Notification({
