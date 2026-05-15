@@ -1,4 +1,4 @@
-// ─── ELECTRON MAIN — Shell que carga kachat.vercel.app ───────────────────────
+// ─── ELECTRON MAIN — Shell que carga sekachat.vercel.app ───────────────────────
 const { app, BrowserWindow, Notification, ipcMain, shell, Menu, session, dialog } = require('electron');
 const path = require('path');
 const fs   = require('fs');
