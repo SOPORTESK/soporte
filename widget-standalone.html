@@ -905,12 +905,10 @@ function vidStop(){
   r.ondataavailable=null;
   var localChunks=vidChunks.slice();vidChunks=[];
   r.onstop=null;
-  var done=false;
+  if(s)s.getTracks().forEach(function(t){t.stop()});
   r.addEventListener("stop",function(){
-    if(done)return;done=true;
-    if(s)s.getTracks().forEach(function(t){t.stop()});
     sendMedia(localChunks,"video/webm","nota-video-","\uD83C\uDFA5");
-  });
+  },{once:true});
   r.stop();
 }
 $('btn-vid').addEventListener('mousedown',function(e){e.preventDefault();vidStart()});
@@ -935,12 +933,10 @@ function micStop(){
   r.ondataavailable=null;
   var localChunks=audioChunks.slice();audioChunks=[];
   r.onstop=null;
-  var done=false;
+  if(s)s.getTracks().forEach(function(t){t.stop()});
   r.addEventListener("stop",function(){
-    if(done)return;done=true;
-    if(s)s.getTracks().forEach(function(t){t.stop()});
     sendMedia(localChunks,"audio/webm","nota-voz-","\uD83C\uDFA4");
-  });
+  },{once:true});
   r.stop();
 }
 (function(){
