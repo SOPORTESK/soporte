@@ -910,11 +910,14 @@ function vidStop(){
   });
   r.stop();
 }
-$('btn-vid').addEventListener('mousedown',function(e){e.preventDefault();vidStart()});
-$('btn-vid').addEventListener('mouseup',function(e){e.preventDefault();vidStop()});
-$('btn-vid').addEventListener('touchstart',function(e){e.preventDefault();vidStart()},{passive:false});
-$('btn-vid').addEventListener('touchend',function(e){e.preventDefault();vidStop()},{passive:false});
-$('btn-vid').addEventListener('touchcancel',function(e){e.preventDefault();vidStop()},{passive:false});
+(function(){
+  var isTouchDev=false;
+  $('btn-vid').addEventListener('touchstart',function(e){e.preventDefault();isTouchDev=true;vidStart()},{passive:false});
+  $('btn-vid').addEventListener('touchend',function(e){e.preventDefault();vidStop()},{passive:false});
+  $('btn-vid').addEventListener('touchcancel',function(e){e.preventDefault();vidStop()},{passive:false});
+  $('btn-vid').addEventListener('mousedown',function(e){if(isTouchDev)return;e.preventDefault();vidStart()});
+  $('btn-vid').addEventListener('mouseup',function(e){if(isTouchDev)return;e.preventDefault();vidStop()});
+})();
 
 var micStream=null;
 async function micStart(){
@@ -943,11 +946,14 @@ function micStop(){
   });
   r.stop();
 }
-$('btn-mic').addEventListener('mousedown',function(e){e.preventDefault();micStart()});
-$('btn-mic').addEventListener('mouseup',function(e){e.preventDefault();micStop()});
-$('btn-mic').addEventListener('touchstart',function(e){e.preventDefault();micStart()},{passive:false});
-$('btn-mic').addEventListener('touchend',function(e){e.preventDefault();micStop()},{passive:false});
-$('btn-mic').addEventListener('touchcancel',function(e){e.preventDefault();micStop()},{passive:false});
+(function(){
+  var isTouchDev=false;
+  $('btn-mic').addEventListener('touchstart',function(e){e.preventDefault();isTouchDev=true;micStart()},{passive:false});
+  $('btn-mic').addEventListener('touchend',function(e){e.preventDefault();micStop()},{passive:false});
+  $('btn-mic').addEventListener('touchcancel',function(e){e.preventDefault();micStop()},{passive:false});
+  $('btn-mic').addEventListener('mousedown',function(e){if(isTouchDev)return;e.preventDefault();micStart()});
+  $('btn-mic').addEventListener('mouseup',function(e){if(isTouchDev)return;e.preventDefault();micStop()});
+})();
 
 async function uploadFile(file){var ext=file.name.split(".").pop();var path="cases/"+sid+"/"+Date.now()+"."+ext;$("up-prog-wrap").style.display="block";$("up-bar").style.width="30%";var r=await db.storage.from("attachments").upload(path,file,{upsert:true});$("up-bar").style.width="80%";if(r.error){$("up-prog-wrap").style.display="none";throw r.error}var u=db.storage.from("attachments").getPublicUrl(path);$("up-bar").style.width="100%";setTimeout(function(){$("up-prog-wrap").style.display="none";$("up-bar").style.width="0%"},400);return{url:u.data.publicUrl,type:file.type,name:file.name}}
 
