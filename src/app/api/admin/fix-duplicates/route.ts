@@ -1,26 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
-export async function GET() {
-  const supabase = await createClient();
-  const { data: cases } = await supabase
-    .from("sek_cases")
-    .select("id, histcliente")
-    .not("histcliente", "is", null)
-    .order("id", { ascending: false })
-    .limit(5);
-
-  const debug = (cases ?? []).map((c: any) => ({
-    id: c.id,
-    entries: (c.histcliente ?? []).map((e: any) => ({
-      role: e.role,
-      time: e.time,
-      fileName: e.fileName,
-      mediaUrl: e.mediaUrl?.slice(-40),
-    }))
-  }));
-  return NextResponse.json(debug);
-}
 
 export async function POST() {
   const supabase = await createClient();
