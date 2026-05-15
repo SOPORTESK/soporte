@@ -31,7 +31,7 @@ export default async function AdminEquipoPage() {
   // ── Fetch performance data ──
   const { data: casos } = await supabase
     .from("sek_cases")
-    .select("id, assigned_to, created_at, updated_at, estado, cliente, canal, accepted_at")
+    .select("id, assigned_to, created_at, updated_at, estado, cliente, canal, accepted_at, histtecnico")
     .not("assigned_to", "is", null);
 
   const now = new Date();
@@ -62,7 +62,14 @@ export default async function AdminEquipoPage() {
     if (c.estado === "resuelto" || c.estado === "cerrado") {
       s.resueltos++;
       if (c.updated_at) {
-        const start = c.accepted_at ? new Date(c.accepted_at as string) : new Date(c.created_at);
+        // Lógica de inicio: accepted_at -> primer mensaje técnico -> created_at
+        let startTimestamp = c.accepted_at;
+        if (!startTimestamp && Array.isArray(c.histtecnico)) {
+          const firstMsg = c.histtecnico.find((h: any) => h.role === "tecnico");
+          if (firstMsg) startTimestamp = firstMsg.time;
+        }
+        
+        const start = startTimestamp ? new Date(startTimestamp as string) : new Date(c.created_at);
         const end = new Date(c.updated_at);
         if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
           const diff = Math.round((end.getTime() - start.getTime()) / (1000 * 60));

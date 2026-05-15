@@ -52,7 +52,12 @@ export default async function EstadisticasAtencionPage() {
   const tiemposTodos = casos
     .filter(c => (c.estado === "resuelto" || c.estado === "cerrado") && c.updated_at)
     .map(c => {
-      const start = c.accepted_at ? new Date(c.accepted_at) : new Date(c.created_at);
+      let startTimestamp = c.accepted_at;
+      if (!startTimestamp && Array.isArray(c.histtecnico)) {
+        const firstMsg = c.histtecnico.find((h: any) => h.role === "tecnico");
+        if (firstMsg) startTimestamp = firstMsg.time;
+      }
+      const start = startTimestamp ? new Date(startTimestamp) : new Date(c.created_at);
       const end = new Date(c.updated_at);
       if (isNaN(start.getTime()) || isNaN(end.getTime())) return 0;
       return Math.round((end.getTime() - start.getTime()) / 60000);
@@ -136,7 +141,12 @@ export default async function EstadisticasAtencionPage() {
     if (caso.estado === "resuelto" || caso.estado === "cerrado") {
       s.resueltos++;
       if (caso.updated_at) {
-        const start = caso.accepted_at ? new Date(caso.accepted_at) : new Date(caso.created_at);
+        let startTimestamp = caso.accepted_at;
+        if (!startTimestamp && Array.isArray(caso.histtecnico)) {
+          const firstMsg = caso.histtecnico.find((h: any) => h.role === "tecnico");
+          if (firstMsg) startTimestamp = firstMsg.time;
+        }
+        const start = startTimestamp ? new Date(startTimestamp) : new Date(caso.created_at);
         const end = new Date(caso.updated_at);
         if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
           const diff = Math.round((end.getTime() - start.getTime()) / 60000);

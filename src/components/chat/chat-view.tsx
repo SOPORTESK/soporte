@@ -300,6 +300,14 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       const updates: Record<string, unknown> = { histtecnico: newHist };
       const targetCerrado = String(targetEstado || "").toLowerCase() === "cerrado" || String(targetEstado || "").toLowerCase() === "resuelto";
       if (targetCerrado && !isNota) updates.estado = "abierto";
+      
+      // Auto-aceptar caso si el agente responde y aún no tiene accepted_at
+      if (!isNota && !sekCase.accepted_at) {
+        updates.accepted_at = new Date().toISOString();
+        updates.estado = "abierto";
+        updates.assigned_to = agentEmail;
+      }
+
       const { error } = await supabase
         .from("sek_cases")
         .update(updates)
