@@ -204,11 +204,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     /* Polling de respaldo cada 3s por si Realtime falla */
     const poll = setInterval(async () => {
       const { data } = await supabase.from("sek_cases").select("*").eq("id", targetId).maybeSingle();
-      if (data && mounted) setSekCase(prev => {
-        const prevLen = (prev.histcliente?.length || 0) + (prev.histtecnico?.length || 0);
-        const newLen = (data.histcliente?.length || 0) + (data.histtecnico?.length || 0);
-        return newLen !== prevLen ? { ...prev, ...data } : prev;
-      });
+      if (data && mounted) setSekCase(prev => ({ ...prev, ...data }));
     }, 3000);
 
     // Marcar mensajes del cliente como leídos al abrir el chat
