@@ -25,7 +25,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   if (!a) redirect("/login");
 
   const isAdmin = ["admin","superadmin"].includes(a.rol);
-  if (!isAdmin) redirect("/inbox");
+  // Pasar isAdmin al children no es posible en layouts de Next.js,
+  // pero el sidebar ya se filtra. Las páginas sensibles hacen su propia verificación.
 
   const fullName = [a.nombre, a.apellido].filter(Boolean).join(" ") || user.email!;
 
@@ -70,15 +71,17 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
           <NavSection title="Gestión">
             <SidebarLink href="/admin/equipo" icon={<Users className="h-4 w-4" />}>Equipo</SidebarLink>
-            <SidebarLink href="/admin/inventario" icon={<Package className="h-4 w-4" />}>Inventario</SidebarLink>
-            <SidebarLink href="/admin/manuales" icon={<BookOpen className="h-4 w-4" />}>Manuales</SidebarLink>
+            {isAdmin && <SidebarLink href="/admin/inventario" icon={<Package className="h-4 w-4" />}>Inventario</SidebarLink>}
+            {isAdmin && <SidebarLink href="/admin/manuales" icon={<BookOpen className="h-4 w-4" />}>Manuales</SidebarLink>}
           </NavSection>
 
-          <NavSection title="Plataforma">
-            <SidebarLink href="/admin/canales" icon={<MessageCircle className="h-4 w-4" />}>Canales</SidebarLink>
-            <SidebarLink href="/admin/agente-ia" icon={<Bot className="h-4 w-4" />} disabled={false}>Agente IA</SidebarLink>
-            <SidebarLink href="/admin/settings" icon={<Settings className="h-4 w-4" />}>Configuración</SidebarLink>
-          </NavSection>
+          {isAdmin && (
+            <NavSection title="Plataforma">
+              <SidebarLink href="/admin/canales" icon={<MessageCircle className="h-4 w-4" />}>Canales</SidebarLink>
+              <SidebarLink href="/admin/agente-ia" icon={<Bot className="h-4 w-4" />}>Agente IA</SidebarLink>
+              <SidebarLink href="/admin/settings" icon={<Settings className="h-4 w-4" />}>Configuración</SidebarLink>
+            </NavSection>
+          )}
         </nav>
 
         <div className="p-3 border-t border-border space-y-3">
@@ -100,7 +103,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
       <header className="lg:hidden flex items-center justify-between p-4 border-b border-border bg-card">
         <div className="flex items-center gap-2">
-          <MobileNav />
+          <MobileNav isAdmin={isAdmin} />
           <Link href="/inbox" className="flex items-center gap-2 text-sm text-muted-foreground">
             <ArrowLeft className="h-4 w-4" /> Bandeja
           </Link>

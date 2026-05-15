@@ -8,23 +8,25 @@ import {
   Users, MessageCircle, X, Menu, ShieldCheck
 } from "lucide-react";
 
-const navItems = [
-  { section: "General", items: [{ href: "/admin", label: "Resumen", icon: LayoutDashboard }] },
-  { section: "Gestión", items: [
-    { href: "/admin/equipo", label: "Equipo", icon: Users },
-    { href: "/admin/inventario", label: "Inventario", icon: Package },
-    { href: "/admin/manuales", label: "Manuales", icon: BookOpen },
-  ]},
-  { section: "Plataforma", items: [
-    { href: "/admin/canales", label: "Canales", icon: MessageCircle },
-    { href: "/admin/agente-ia", label: "Agente IA", icon: Bot },
-    { href: "/admin/settings", label: "Configuración", icon: Settings },
-  ]},
-];
-
-export function MobileNav() {
+export function MobileNav({ isAdmin = true }: { isAdmin?: boolean }) {
   const [isOpen, setIsOpen] = useState(false);
   const pathname = usePathname();
+
+  const navItems = [
+    { section: "General", items: [{ href: "/admin", label: "Resumen", icon: LayoutDashboard }] },
+    { section: "Gestión", items: [
+      { href: "/admin/equipo", label: "Equipo", icon: Users },
+      ...(isAdmin ? [
+        { href: "/admin/inventario", label: "Inventario", icon: Package },
+        { href: "/admin/manuales", label: "Manuales", icon: BookOpen },
+      ] : []),
+    ]},
+    ...(isAdmin ? [{ section: "Plataforma", items: [
+      { href: "/admin/canales", label: "Canales", icon: MessageCircle },
+      { href: "/admin/agente-ia", label: "Agente IA", icon: Bot },
+      { href: "/admin/settings", label: "Configuración", icon: Settings },
+    ]}] : []),
+  ];
 
   return (
     <>
