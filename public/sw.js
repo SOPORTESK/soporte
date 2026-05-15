@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sekunet-widget-v7';
+const CACHE_NAME = 'sekunet-widget-v8';
 const urlsToCache = [
   '/widget-standalone.html',
   '/iSoTiendaHD.png',
@@ -28,19 +28,30 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+  const url = event.request.url;
+  // Ignorar completamente: Supabase, APIs, POST, PATCH, PUT
+  if (
+    event.request.method !== 'GET' ||
+    url.includes('supabase.co') ||
+    url.includes('/api/') ||
+    url.includes('supabase.in')
+  ) {
+    return; // dejar pasar sin interceptar
+  }
+  // Solo cachear archivos estáticos locales
+  const isStatic = urlsToCache.some(u => url.endsWith(u));
+  if (!isStatic) return;
+
   event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        // Update cache with fresh response
+    caches.match(event.request).then((cached) => {
+      if (cached) return cached;
+      return fetch(event.request).then((response) => {
         if (response.ok) {
           var clone = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
         }
         return response;
-      })
-      .catch(() => {
-        // Fallback to cache if offline
-        return caches.match(event.request);
-      })
+      });
+    }).catch(() => fetch(event.request))
   );
 });
