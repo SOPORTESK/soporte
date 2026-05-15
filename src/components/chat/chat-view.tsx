@@ -82,6 +82,9 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   const [isRecording, setIsRecording] = React.useState(false);
   const mediaRecRef = React.useRef<MediaRecorder | null>(null);
   const audioChunksRef = React.useRef<Blob[]>([]);
+  const [isRecordingVideo, setIsRecordingVideo] = React.useState(false);
+  const videoRecRef = React.useRef<MediaRecorder | null>(null);
+  const videoChunksRef = React.useRef<Blob[]>([]);
   const [showActions, setShowActions] = React.useState(false);
   const [showHistory, setShowHistory] = React.useState(false);
   const [clienteTyping, setClienteTyping] = React.useState(false);
@@ -309,6 +312,40 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     mediaRecRef.current?.stop();
     mediaRecRef.current = null;
     setIsRecording(false);
+  }
+
+  async function startVideoRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: 480, height: 480 }, audio: true });
+      videoChunksRef.current = [];
+      const rec = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported("video/webm;codecs=vp9") ? "video/webm;codecs=vp9" : "video/webm" });
+      rec.ondataavailable = (e) => { if (e.data.size > 0) videoChunksRef.current.push(e.data); };
+      rec.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(videoChunksRef.current, { type: "video/webm" });
+        if (blob.size < 5000) return;
+        const file = new File([blob], `nota-video-${Date.now()}.webm`, { type: "video/webm" });
+        setUploadingFile(true);
+        try {
+          const path = `cases/${targetId}/${file.name}`;
+          const { error: upErr } = await supabase.storage.from("attachments").upload(path, file, { upsert: true });
+          if (upErr) throw upErr;
+          const { data: urlData } = supabase.storage.from("attachments").getPublicUrl(path);
+          await send("", urlData.publicUrl, file.type, file.name);
+        } catch (err: any) {
+          toast.error("Error al subir video", { description: err?.message });
+        } finally { setUploadingFile(false); }
+      };
+      rec.start();
+      videoRecRef.current = rec;
+      setIsRecordingVideo(true);
+    } catch (err: any) { toast.error("No se pudo acceder a la c\u00e1mara", { description: err?.message }); }
+  }
+
+  function stopVideoRecording() {
+    videoRecRef.current?.stop();
+    videoRecRef.current = null;
+    setIsRecordingVideo(false);
   }
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -734,15 +771,31 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
             onMouseLeave={isRecording ? stopRecording : undefined}
             onTouchStart={(e) => { e.preventDefault(); startRecording(); }}
             onTouchEnd={(e) => { e.preventDefault(); stopRecording(); }}
-            disabled={uploadingFile}
+            disabled={uploadingFile || isRecordingVideo}
             className={cn(
               "h-10 w-10 grid place-items-center rounded-lg transition-colors disabled:opacity-50 select-none",
               isRecording ? "bg-red-500 text-white scale-110" : "text-muted-foreground hover:bg-muted"
             )}
-            aria-label="Mantener para grabar"
-            title="Mantener presionado para grabar · Soltar para enviar"
+            aria-label="Mantener para grabar audio"
+            title="Mantener presionado para grabar audio · Soltar para enviar"
           >
             <Mic className="h-4 w-4" />
+          </button>
+          <button
+            onMouseDown={startVideoRecording}
+            onMouseUp={stopVideoRecording}
+            onMouseLeave={isRecordingVideo ? stopVideoRecording : undefined}
+            onTouchStart={(e) => { e.preventDefault(); startVideoRecording(); }}
+            onTouchEnd={(e) => { e.preventDefault(); stopVideoRecording(); }}
+            disabled={uploadingFile || isRecording}
+            className={cn(
+              "h-10 w-10 grid place-items-center rounded-lg transition-all disabled:opacity-50 select-none",
+              isRecordingVideo ? "bg-red-500 text-white scale-110 animate-pulse" : "text-muted-foreground hover:bg-muted"
+            )}
+            aria-label="Mantener para grabar video"
+            title="Mantener presionado para nota de video · Soltar para enviar"
+          >
+            <Video className="h-4 w-4" />
           </button>
 
           <Textarea
@@ -840,6 +893,41 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   );
 }
 
+function VideoNote({ url, type }: { url: string; type: string }) {
+  const videoRef = React.useRef<HTMLVideoElement>(null);
+  const [playing, setPlaying] = React.useState(false);
+
+  function toggle() {
+    const v = videoRef.current;
+    if (!v) return;
+    if (playing) { v.pause(); setPlaying(false); }
+    else { v.play().catch(() => {}); setPlaying(true); }
+  }
+
+  return (
+    <div className="relative mt-2 shrink-0" style={{ width: 160, height: 160 }}>
+      <video
+        ref={videoRef}
+        preload="metadata"
+        playsInline
+        className="w-full h-full object-cover rounded-full bg-black"
+        onEnded={() => setPlaying(false)}
+        onClick={toggle}
+      >
+        <source src={url} type={type} />
+      </video>
+      {!playing && (
+        <button
+          onClick={toggle}
+          className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40 hover:bg-black/50 transition-colors"
+        >
+          <Play className="h-9 w-9 text-white ml-1" />
+        </button>
+      )}
+    </div>
+  );
+}
+
 function AudioPlayer({ url }: { url: string }) {
   const audioRef = React.useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = React.useState(false);
@@ -925,6 +1013,8 @@ function MediaPreview({ url, type, name }: { url: string; type?: string; name?: 
     );
   }
   if (t.startsWith("video/")) {
+    const isNote = (name || url).includes("nota-video");
+    if (isNote) return <VideoNote url={url} type={t} />;
     return <video src={url} controls className="max-w-[240px] rounded-lg mt-1" />;
   }
   if (t.startsWith("audio/")) {

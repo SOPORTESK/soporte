@@ -341,10 +341,9 @@ textarea:focus{border-color:var(--primary);background:var(--bg)}
     <div id="up-prog-wrap" style="display:none" class="up-prog"><div class="up-prog-bar" id="up-bar" style="width:0%"></div></div>
     <div class="input-bar">
       <input type="file" id="file-input" style="display:none" accept="image/*,video/*,audio/*,.pdf,.xml,.xlsx,.xls,.xlsm,.doc,.docx,.ppt,.pptx,.txt,.csv,.json,.zip,.rar,.7z,.tar,.gz"/>
-      <input type="file" id="camera-input" style="display:none" accept="video/*" capture="environment"/>
       <button class="att-btn" id="btn-attach" title="Adjuntar">📎</button>
-      <button class="att-btn" id="btn-camera" title="Video">🎥</button>
-      <button class="att-btn" id="btn-mic" title="Audio">🎤</button>
+      <button class="att-btn" id="btn-mic" title="Nota de voz">🎤</button>
+      <button class="att-btn" id="btn-vid" title="Nota de video">�</button>
       <textarea id="txt-msg" rows="1" placeholder="Escribe un mensaje…"></textarea>
       <button class="send-btn" id="btn-send" disabled>➤</button>
     </div>
@@ -633,7 +632,24 @@ function mkBubble(role,content,time,mUrl,mType,fName){
   if(mUrl){
     var mt=mType||"",fn=fName||decodeURIComponent(mUrl.split("/").pop().split("?")[0])||"archivo";
     if(mt.startsWith("image/")){var img=document.createElement("img");img.src=mUrl;img.style.cssText="max-width:100%;border-radius:12px;display:block;margin-bottom:8px;cursor:pointer;";img.onclick=function(){openLB(mUrl)};bb.appendChild(img);var dl=document.createElement("a");dl.href=mUrl;dl.target="_blank";dl.className="fc-dl";dl.textContent="⬇ Descargar";bb.appendChild(dl)}
-    else if(mt.startsWith("video/")){var vid=document.createElement("video");vid.controls=true;vid.preload="metadata";vid.playsInline=true;vid.style.cssText="max-width:100%;border-radius:12px;display:block;margin-bottom:8px;background:#000;";var vs=document.createElement("source");vs.src=mUrl;vs.type=mt;vid.appendChild(vs);bb.appendChild(vid);var vdl=document.createElement("a");vdl.href="#";vdl.className="fc-dl";vdl.textContent="⬇ "+fn;vdl.onclick=function(ev){ev.preventDefault();forceDl(mUrl,fn)};bb.appendChild(vdl)}
+    else if(mt.startsWith("video/")||["mp4","mov","mkv"].includes((mUrl.split("?")[0].split(".").pop()||""))){
+      var isNote=fn.startsWith("nota-video");
+      if(isNote){
+        var vw=document.createElement("div");vw.style.cssText="position:relative;width:180px;height:180px;border-radius:50%;overflow:hidden;background:#000;margin-bottom:8px;flex-shrink:0;";
+        var vel=document.createElement("video");vel.preload="metadata";vel.playsInline=true;vel.loop=false;vel.style.cssText="width:100%;height:100%;object-fit:cover;border-radius:50%;";
+        var vss=document.createElement("source");vss.src=mUrl;vss.type=mt||"video/webm";vel.appendChild(vss);
+        var vpb=document.createElement("button");vpb.style.cssText="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.35);border:none;cursor:pointer;border-radius:50%;";
+        vpb.innerHTML='<svg width="36" height="36" viewBox="0 0 24 24" fill="white"><polygon points="8,5 19,12 8,19"/></svg>';
+        var vPaused=true;
+        vel.onended=function(){vPaused=true;vpb.style.display="flex";vpb.innerHTML='<svg width="36" height="36" viewBox="0 0 24 24" fill="white"><polygon points="8,5 19,12 8,19"/></svg>'};
+        vpb.onclick=function(){if(vPaused){vel.play();vPaused=false;vpb.style.display="none";}else{vel.pause();vPaused=true;vpb.innerHTML='<svg width="36" height="36" viewBox="0 0 24 24" fill="white"><polygon points="8,5 19,12 8,19"/></svg>';vpb.style.display="flex";}};
+        vel.onclick=function(){vpb.click()};
+        vw.appendChild(vel);vw.appendChild(vpb);bb.appendChild(vw);
+      }else{
+        var vid=document.createElement("video");vid.controls=true;vid.preload="metadata";vid.playsInline=true;vid.style.cssText="max-width:100%;border-radius:12px;display:block;margin-bottom:8px;background:#000;";var vs=document.createElement("source");vs.src=mUrl;vs.type=mt;vid.appendChild(vs);bb.appendChild(vid);
+        var vdl=document.createElement("a");vdl.href="#";vdl.className="fc-dl";vdl.textContent="⬇ "+fn;vdl.onclick=function(ev){ev.preventDefault();forceDl(mUrl,fn)};bb.appendChild(vdl);
+      }
+    }
     else if(mt.startsWith("audio/")||["webm","ogg","mp3","wav","m4a","aac","opus"].includes((mUrl.split("?")[0].split(".").pop()||""))){
       var ap=document.createElement("div");
       ap.style.cssText="display:flex;align-items:center;gap:10px;background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.12);border-radius:16px;padding:10px 12px;margin-bottom:8px;min-width:200px;max-width:260px;";
@@ -810,12 +826,46 @@ function invokeIA(){
 
 /* ═══ FILE HANDLING ═══ */
 $("btn-attach").addEventListener("click",function(){$("file-input").click()});
-$("btn-camera").addEventListener("click",function(){$("camera-input").click()});
-
 function showFilePrev(file,icon){pendFile=file;$("up-icon").textContent=icon||fIcon(file.type);$("up-name").textContent=file.name+" ("+(file.size>1048576?(file.size/1048576).toFixed(1)+"MB":(file.size/1024).toFixed(0)+"KB")+")";$("up-prev-bar").style.display="flex";$("btn-send").disabled=false}
 $("file-input").addEventListener("change",function(){if(this.files&&this.files[0])showFilePrev(this.files[0]);this.value=""});
-$("camera-input").addEventListener("change",function(){if(this.files&&this.files[0])showFilePrev(this.files[0],"🎥");this.value=""});
 $("up-cancel").addEventListener("click",function(){pendFile=null;$("up-prev-bar").style.display="none";$("btn-send").disabled=!$("txt-msg").value.trim()});
+
+/* ═══ VIDEO NOTE (push-to-talk) ═══ */
+var vidStream=null,vidRec=null,vidChunks=[],isVidRec=false;
+async function vidStart(){
+  if(isVidRec)return;
+  try{
+    vidStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"user",width:480,height:480},audio:true});
+    vidChunks=[];vidRec=new MediaRecorder(vidStream);
+    vidRec.ondataavailable=function(e){if(e.data.size>0)vidChunks.push(e.data)};
+    vidRec.onstop=async function(){
+      if(vidStream)vidStream.getTracks().forEach(function(t){t.stop()});vidStream=null;
+      var blob=new Blob(vidChunks,{type:"video/webm"});
+      if(blob.size<5000){isVidRec=false;$("btn-vid").classList.remove("rec");return}
+      var file=new File([blob],"nota-video-"+Date.now()+".webm",{type:"video/webm"});
+      $("btn-vid").classList.remove("rec");isVidRec=false;
+      if(!sid){showFilePrev(file,"\uD83C\uDFA5");return}
+      try{
+        var up=await uploadFile(file);
+        var entry={role:"user",time:new Date().toISOString(),content:"",mediaUrl:up.url,mediaType:up.type,fileName:up.name};
+        var ow=mkBubble("user","",entry.time,up.url,up.type,up.name);ow.classList.add("optimista");
+        var mc=$("messages");mc.appendChild(ow);mc.scrollTop=mc.scrollHeight;haptic(15);
+        var rr=await db.from("sek_cases").select("histcliente,estado,assigned_to").eq("id",sid).maybeSingle();
+        var hh=(rr.data&&Array.isArray(rr.data.histcliente))?rr.data.histcliente:[];hh.push(entry);
+        await db.from("sek_cases").update({histcliente:hh}).eq("id",sid);
+        var est=rr.data?rr.data.estado:"";
+        if(est==="ia_atendiendo"||(est==="abierto"&&!rr.data.assigned_to)){invokeIA()}
+      }catch(err){alert("Error al enviar video: "+err.message)}
+    };
+    vidRec.start();isVidRec=true;$("btn-vid").classList.add("rec");haptic(30);
+  }catch(err){alert("No se pudo acceder a la c\u00E1mara: "+err.message)}
+}
+function vidStop(){if(!isVidRec||!vidRec)return;vidRec.stop();isVidRec=false}
+$("btn-vid").addEventListener("mousedown",function(e){e.preventDefault();vidStart()});
+$("btn-vid").addEventListener("mouseup",function(e){e.preventDefault();vidStop()});
+$("btn-vid").addEventListener("mouseleave",function(){if(isVidRec)vidStop()});
+$("btn-vid").addEventListener("touchstart",function(e){e.preventDefault();vidStart()},{passive:false});
+$("btn-vid").addEventListener("touchend",function(e){e.preventDefault();vidStop()},{passive:false});
 
 var micStream=null;
 async function micStart(){
