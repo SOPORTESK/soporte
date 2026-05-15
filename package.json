@@ -1,6 +1,6 @@
 {
   "name": "sekunet-chat",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "private": true,
   "main": "electron/main.cjs",
   "scripts": {
@@ -22,11 +22,7 @@
     "productName": "Soporte Sekunet",
     "files": [
       "electron/**/*",
-      "public/logo.png",
-      "node_modules/electron-updater/**/*",
-      "node_modules/builder-util-runtime/**/*",
-      "node_modules/semver/**/*",
-      "node_modules/js-yaml/**/*"
+      "public/logo.png"
     ],
     "directories": {
       "output": "release"
@@ -70,7 +66,8 @@
     "sonner": "^1.5.0",
     "tailwind-merge": "^2.5.4",
     "tesseract.js": "^7.0.0",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "electron-updater": "^6.8.3"
   },
   "devDependencies": {
     "@types/node": "^22.7.5",
@@ -81,7 +78,6 @@
     "cross-env": "^7.0.3",
     "electron": "^34.5.8",
     "electron-builder": "^25.1.8",
-    "electron-updater": "^6.8.3",
     "eslint": "^8.57.1",
     "eslint-config-next": "14.2.15",
     "postcss": "^8.4.47",
