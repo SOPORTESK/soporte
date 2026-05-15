@@ -286,6 +286,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       rec.onstop = async () => {
         stream.getTracks().forEach(t => t.stop());
         const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        if (blob.size < 1000) return; // descartar grabaciones muy cortas
         const file = new File([blob], `nota-voz-${Date.now()}.webm`, { type: "audio/webm" });
         setUploadingFile(true);
         try {
@@ -728,16 +729,20 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
             )}
           </button>
           <button
-            onClick={isRecording ? stopRecording : startRecording}
+            onMouseDown={startRecording}
+            onMouseUp={stopRecording}
+            onMouseLeave={isRecording ? stopRecording : undefined}
+            onTouchStart={(e) => { e.preventDefault(); startRecording(); }}
+            onTouchEnd={(e) => { e.preventDefault(); stopRecording(); }}
             disabled={uploadingFile}
             className={cn(
-              "h-10 w-10 grid place-items-center rounded-lg transition-colors disabled:opacity-50",
-              isRecording ? "bg-red-500 text-white animate-pulse" : "text-muted-foreground hover:bg-muted"
+              "h-10 w-10 grid place-items-center rounded-lg transition-colors disabled:opacity-50 select-none",
+              isRecording ? "bg-red-500 text-white scale-110" : "text-muted-foreground hover:bg-muted"
             )}
-            aria-label={isRecording ? "Detener grabación" : "Grabar audio"}
-            title={isRecording ? "Detener y enviar" : "Grabar nota de voz"}
+            aria-label="Mantener para grabar"
+            title="Mantener presionado para grabar · Soltar para enviar"
           >
-            {isRecording ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+            <Mic className="h-4 w-4" />
           </button>
 
           <Textarea
