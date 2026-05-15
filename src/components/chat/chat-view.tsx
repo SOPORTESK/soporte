@@ -788,7 +788,15 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
 
 function MediaPreview({ url, type, name }: { url: string; type?: string; name?: string }) {
   if (!url) return null;
-  const t = type || "";
+  const ext = (name || url).split("?")[0].split(".").pop()?.toLowerCase() ?? "";
+  const audioExts = ["webm", "ogg", "mp3", "wav", "m4a", "aac", "opus"];
+  const videoExts = ["mp4", "mov", "webm", "mkv"];
+  const imageExts = ["jpg", "jpeg", "png", "gif", "webp", "svg"];
+  const t = type
+    || (audioExts.includes(ext) ? `audio/${ext === "mp3" ? "mpeg" : ext}` : "")
+    || (videoExts.includes(ext) ? `video/${ext}` : "")
+    || (imageExts.includes(ext) ? `image/${ext}` : "")
+    || "";
   if (t.startsWith("image/")) {
     return (
       <a href={url} target="_blank" rel="noopener noreferrer" className="block mt-1">
@@ -801,9 +809,15 @@ function MediaPreview({ url, type, name }: { url: string; type?: string; name?: 
     return <video src={url} controls className="max-w-[240px] rounded-lg mt-1" />;
   }
   if (t.startsWith("audio/")) {
-    return <audio src={url} controls className="mt-1 w-full max-w-[240px]" />;
+    return (
+      <audio controls preload="metadata" className="mt-1 w-full max-w-[260px]" style={{ minWidth: 200 }}>
+        <source src={url} type={t} />
+        <source src={url} type="audio/ogg" />
+        <source src={url} type="audio/mpeg" />
+        Tu navegador no soporta audio.
+      </audio>
+    );
   }
-  const ext = (name || url).split(".").pop()?.toLowerCase();
   const Icon = ext === "xml" || ext === "csv" || ext === "txt" ? FileText
     : ext === "pdf" ? FileText : Download;
   return (
