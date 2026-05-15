@@ -31,7 +31,7 @@ export default async function AdminEquipoPage() {
   // ── Fetch performance data ──
   const { data: casos } = await supabase
     .from("sek_cases")
-    .select("id, assigned_to, created_at, updated_at, estado, calificacion, canal")
+    .select("id, assigned_to, created_at, updated_at, estado, cliente, canal")
     .not("assigned_to", "is", null);
 
   const now = new Date();
@@ -66,7 +66,10 @@ export default async function AdminEquipoPage() {
         if (diff > 0) s.tiempos.push(diff);
       }
     }
-    if (c.calificacion) s.calificaciones.push(c.calificacion);
+    const cl = typeof c.cliente === "object" && c.cliente ? c.cliente as any : null;
+    const cal = cl?.calificacion_cliente ?? cl?.calificacion_agente;
+    const calNum = Number(cal);
+    if (cal != null && !isNaN(calNum) && calNum >= 1 && calNum <= 5) s.calificaciones.push(calNum);
     if (c.created_at >= todayStart) s.casosHoy++;
     if (c.created_at >= weekStart) {
       s.casosEstaSemana++;
