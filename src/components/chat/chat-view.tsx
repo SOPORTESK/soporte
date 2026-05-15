@@ -23,6 +23,7 @@ type UnifiedMessage = {
   time: string;
   authorName?: string;
   status?: "pending" | "sent" | "error";
+  read_at?: string;
   mediaUrl?: string;
   mediaType?: string;
   fileName?: string;
@@ -43,6 +44,7 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
       time: e.time || c.created_at,
       authorName: isAgente ? (asText(e.author) || "Soporte Sekunet") : undefined,
       status: "sent",
+      read_at: e.read_at as string | undefined,
       mediaUrl: e.mediaUrl as string | undefined,
       mediaType: e.mediaType as string | undefined,
       fileName: e.fileName as string | undefined,
@@ -58,6 +60,7 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
       time: e.time || c.created_at,
       authorName: asText(e.author) || undefined,
       status: "sent",
+      read_at: e.read_at as string | undefined,
       mediaUrl: e.mediaUrl as string | undefined,
       mediaType: e.mediaType as string | undefined,
       fileName: e.fileName as string | undefined,
@@ -207,6 +210,19 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
         return newLen !== prevLen ? { ...prev, ...data } : prev;
       });
     }, 3000);
+
+    // Marcar mensajes del cliente como leídos al abrir el chat
+    (async () => {
+      const { data: fresh } = await supabase.from("sek_cases").select("histcliente").eq("id", targetId).maybeSingle();
+      if (!fresh?.histcliente || !mounted) return;
+      const now = new Date().toISOString();
+      let changed = false;
+      const updated = (fresh.histcliente as any[]).map((e: any) => {
+        if ((e.role === "user" || !e.role) && !e.read_at) { changed = true; return { ...e, read_at: now }; }
+        return e;
+      });
+      if (changed) await supabase.from("sek_cases").update({ histcliente: updated }).eq("id", targetId);
+    })();
 
     return () => { mounted = false; clearInterval(poll); supabase.removeChannel(channel); supabase.removeChannel(presenceCh); };
   }, [targetId, supabase, isGrouped]);
@@ -1109,8 +1125,30 @@ function Bubble({ m, clienteName }: { m: UnifiedMessage; clienteName: string }) 
           isCliente ? "text-muted-foreground" : "text-white/75 justify-end"
         )}>
           <span>{formatTime(m.time)}</span>
-          {isTecnico && m.status === "pending" && <span className="opacity-60">✓</span>}
-          {isTecnico && m.status === "sent" && <span className="opacity-90">✓✓</span>}
+            {isTecnico && m.status === "pending" && (
+            <svg className="h-3.5 w-3.5 opacity-50" viewBox="0 0 16 16" fill="currentColor"><path d="M13.5 4L6.5 11 3 7.5" stroke="currentColor" strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          )}
+          {isTecnico && m.status === "sent" && !m.read_at && (
+            <span className="inline-flex opacity-70">
+              <svg className="h-3.5 w-3.5 -mr-2" viewBox="0 0 16 16" fill="none"><path d="M2 8L6 12 14 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none"><path d="M2 8L6 12 14 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            </span>
+          )}
+          {isTecnico && m.read_at && (
+            <span className="inline-flex text-blue-300">
+              <svg className="h-3.5 w-3.5 -mr-2" viewBox="0 0 16 16" fill="none"><path d="M2 8L6 12 14 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none"><path d="M2 8L6 12 14 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            </span>
+          )}
+          {isCliente && m.read_at && (
+            <span className="inline-flex text-blue-500">
+              <svg className="h-3.5 w-3.5 -mr-2" viewBox="0 0 16 16" fill="none"><path d="M2 8L6 12 14 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none"><path d="M2 8L6 12 14 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            </span>
+          )}
+          {isCliente && !m.read_at && (
+            <svg className="h-3.5 w-3.5 opacity-40" viewBox="0 0 16 16" fill="none"><path d="M2 8L6 12 14 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          )}
           {m.status === "error" && <span className="text-red-400">❌</span>}
         </div>
       </div>

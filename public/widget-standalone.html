@@ -680,10 +680,19 @@ function mkBubble(role,content,time,mUrl,mType,fName){
   bb.appendChild(foot);wrap.appendChild(bb);return wrap;
 }
 
+function mkCheck(double,blue){
+  var s=document.createElement("span");s.style.cssText="display:inline-flex;align-items:center;margin-left:3px;vertical-align:middle;"+(blue?"color:#60a5fa;":"opacity:0.55;");
+  var svg1='<svg width="13" height="13" viewBox="0 0 16 16" fill="none" style="margin-right:-5px"><path d="M2 8L6 12 14 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  var svg2='<svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M2 8L6 12 14 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  var svg0='<svg width="13" height="13" viewBox="0 0 16 16" fill="none" style="opacity:0.4"><path d="M2 8L6 12 14 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  s.innerHTML=double?(svg1+svg2):svg0;
+  return s;
+}
+
 function renderAll(hc,ht){
   var all=[];
-  (hc||[]).forEach(function(e){all.push({role:e.role||"user",content:e.content,mediaUrl:e.mediaUrl,mediaType:e.mediaType,fileName:e.fileName,time:e.time})});
-  (ht||[]).forEach(function(e){if(e.role==="nota")return;all.push({role:"tecnico",content:e.content,mediaUrl:e.mediaUrl,mediaType:e.mediaType,fileName:e.fileName,time:e.time})});
+  (hc||[]).forEach(function(e){all.push({role:e.role||"user",content:e.content,mediaUrl:e.mediaUrl,mediaType:e.mediaType,fileName:e.fileName,time:e.time,read_at:e.read_at})});
+  (ht||[]).forEach(function(e){if(e.role==="nota")return;all.push({role:"tecnico",content:e.content,mediaUrl:e.mediaUrl,mediaType:e.mediaType,fileName:e.fileName,time:e.time,read_at:e.read_at})});
   all.sort(function(a,b){return new Date(a.time)-new Date(b.time)});
   var c=$("messages");
   var opts=[];c.querySelectorAll(".optimista").forEach(function(el){opts.push(el)});
@@ -691,7 +700,17 @@ function renderAll(hc,ht){
   c.innerHTML="";
   if(all.length===0){c.appendChild(mkBubble("assistant","Reciba un cordial saludo de parte del equipo de Soporte Sekunet. Gracias por contactarnos. ¿Cómo podemos asistirle?",new Date().toISOString()))}
   var lastDate="";
-  all.forEach(function(m){var dl=dateLabel(m.time);if(dl!==lastDate){lastDate=dl;var sep=document.createElement("div");sep.className="date-sep";sep.innerHTML="<span>"+dl+"</span>";c.appendChild(sep)}c.appendChild(mkBubble(m.role,m.content,m.time,m.mediaUrl,m.mediaType,m.fileName))});
+  all.forEach(function(m){
+    var dl=dateLabel(m.time);if(dl!==lastDate){lastDate=dl;var sep=document.createElement("div");sep.className="date-sep";sep.innerHTML="<span>"+dl+"</span>";c.appendChild(sep)}
+    var bub=mkBubble(m.role,m.content,m.time,m.mediaUrl,m.mediaType,m.fileName);
+    // Agregar palomillas al pie de los mensajes del usuario y del agente
+    var foot=bub.querySelector(".b-foot");
+    if(foot){
+      if(m.role==="user"){foot.insertBefore(mkCheck(!!m.read_at,!!m.read_at),foot.firstChild)}
+      else if(m.role==="tecnico"){foot.appendChild(mkCheck(true,!!m.read_at))}
+    }
+    c.appendChild(bub);
+  });
   opts.forEach(function(el){var k="c:"+(el.dataset.optContent||"")+"|m:"+(el.dataset.optMedia||"");if(!conf.has(k))c.appendChild(el)});
   if(atBottom)c.scrollTop=c.scrollHeight;
 }
@@ -708,7 +727,11 @@ function showTyping(v){var c=$("messages");if(v&&!typEl){typEl=document.createEl
 var hashH=function(hc,ht){var a=hc||[],b=ht||[];return a.length+"|"+b.length+"|"+(a.length?a[a.length-1].time:"")};
 function renderIfChanged(hc,ht){var h=hashH(hc,ht);if(h===lastHash)return;var isNew=lastHash&&hc&&hc.length>0;lastHash=h;renderAll(hc,ht);if(isNew){playNotif();haptic(20);var lastMsg=ht&&ht.length>0?ht[ht.length-1]:null;if(lastMsg&&lastMsg.content)showBrowserNotif(lastMsg.content);if(!atBottom){unread++;$("ubadge").textContent=unread;$("ubadge").style.display="flex";$("scroll-btn").classList.add("vis");notifyParent()}}}
 
-async function fetchRender(){if(!sid)return;var r=await db.from("sek_cases").select("histcliente,histtecnico,estado,assigned_to").eq("id",sid).maybeSingle();if(!r.data)return;renderIfChanged(r.data.histcliente,r.data.histtecnico);if(r.data.assigned_to&&!agenteName){updateAgentHeader(r.data.assigned_to)}var e=String(r.data.estado||"").toLowerCase();if(e==="cerrado"||e==="resuelto")lockChat();else if(e==="escalado")showEscalado();else if(e==="abierto"&&r.data.assigned_to&&!agenteName){updateAgentHeader(r.data.assigned_to)}}
+async function fetchRender(){if(!sid)return;var r=await db.from("sek_cases").select("histcliente,histtecnico,estado,assigned_to").eq("id",sid).maybeSingle();if(!r.data)return;renderIfChanged(r.data.histcliente,r.data.histtecnico);
+  // Marcar mensajes del agente sin read_at como leídos
+  var ht=r.data.histtecnico||[];var now=new Date().toISOString();var chg=false;
+  var uht=ht.map(function(e){if(e.role!=="nota"&&!e.read_at){chg=true;return Object.assign({},e,{read_at:now})}return e});
+  if(chg)db.from("sek_cases").update({histtecnico:uht}).eq("id",sid).then(function(){});if(r.data.assigned_to&&!agenteName){updateAgentHeader(r.data.assigned_to)}var e=String(r.data.estado||"").toLowerCase();if(e==="cerrado"||e==="resuelto")lockChat();else if(e==="escalado")showEscalado();else if(e==="abierto"&&r.data.assigned_to&&!agenteName){updateAgentHeader(r.data.assigned_to)}}
 
 function startRT(){
   if(rtCh)try{db.removeChannel(rtCh)}catch(e){}
