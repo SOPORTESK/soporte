@@ -889,13 +889,14 @@ async function sendMedia(chunks,mimeType,prefix,label){
 async function vidStart(){
   console.log('[vid] vidStart called, isVidRec='+isVidRec);
   if(isVidRec||recLocked())return;
+  isVidRec=true;
   try{
     vidStream=await navigator.mediaDevices.getUserMedia({video:true,audio:true});
     vidChunks=[];
     vidRec=new MediaRecorder(vidStream);
     vidRec.ondataavailable=function(e){if(e.data&&e.data.size>0)vidChunks.push(e.data)};
-    vidRec.start(100);isVidRec=true;$("btn-vid").classList.add("rec");haptic(30);
-  }catch(err){alert("No se pudo acceder a la c\u00E1mara: "+err.message)}
+    vidRec.start(100);$("btn-vid").classList.add("rec");haptic(30);
+  }catch(err){isVidRec=false;alert("No se pudo acceder a la c\u00E1mara: "+err.message)}
 }
 function vidStop(){
   console.log('[vid] vidStop called, isVidRec='+isVidRec);
@@ -919,13 +920,14 @@ $('btn-vid').addEventListener('mouseup',function(e){e.preventDefault();vidStop()
 var micStream=null;
 async function micStart(){
   if(isRec||recLocked())return;
+  isRec=true;
   try{
     micStream=await navigator.mediaDevices.getUserMedia({audio:true});
     audioChunks=[];
     mediaRec=new MediaRecorder(micStream);
     mediaRec.ondataavailable=function(e){if(e.data&&e.data.size>0)audioChunks.push(e.data)};
-    mediaRec.start(100);isRec=true;$("btn-mic").classList.add("rec");haptic(30);
-  }catch(err){alert("No se pudo acceder al micr\u00F3fono: "+err.message)}
+    mediaRec.start(100);$("btn-mic").classList.add("rec");haptic(30);
+  }catch(err){isRec=false;alert("No se pudo acceder al micr\u00F3fono: "+err.message)}
 }
 function micStop(){
   if(!isRec||!mediaRec)return;
