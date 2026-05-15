@@ -53,6 +53,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   }
 
   const isAdmin = ["admin","superadmin"].includes(a.rol);
+  const isTecnico = a.rol === "tecnico";
+  const canAccessAdmin = isAdmin || isTecnico;
+  const adminHref = isTecnico ? "/admin/equipo" : "/admin";
   const fullName = [a.nombre, a.apellido].filter(Boolean).join(" ") || user.email!;
 
   return (
@@ -61,9 +64,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <div className="flex-1 flex min-h-0 bg-muted/30">
       {/* ── Desktop sidebar ── */}
       <aside className="hidden lg:flex lg:flex-col w-[260px] shrink-0 border-r border-border bg-card">
-        {isAdmin ? (
+        {canAccessAdmin ? (
           <Link
-            href="/admin"
+            href={adminHref}
             className="group relative px-5 py-5 flex items-center gap-3 border-b border-border overflow-hidden hover:bg-muted/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             title="Abrir Panel de Administración"
           >
@@ -121,7 +124,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
     {/* ── Mobile bottom navigation bar ── */}
     <MobileBottomNav
-      isAdmin={isAdmin}
+      isAdmin={canAccessAdmin}
       agentName={fullName}
       avatarUrl={a.avatar_url || null}
       agent={{ email: a.email, nombre: a.nombre, apellido: a.apellido, rol: a.rol, avatar_url: a.avatar_url, status: a.status }}
