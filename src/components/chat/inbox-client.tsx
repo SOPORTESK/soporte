@@ -432,7 +432,11 @@ export function InboxClient({
 
   return (
     <div ref={containerRef} className="flex flex-1 overflow-hidden">
-      <div className="hidden md:flex flex-col shrink-0 overflow-hidden" style={{ width: listWidth }}>
+      {/* Lista: visible en móvil solo cuando NO hay caso seleccionado */}
+      <div
+        className={`${selected ? "hidden md:flex" : "flex"} md:flex flex-col shrink-0 overflow-hidden w-full md:w-auto`}
+        style={{ width: typeof window !== "undefined" && window.innerWidth >= 768 ? listWidth : undefined }}
+      >
         <ConversationList cases={mergedCases} selectedId={selectedId} onSelect={selectCase} />
       </div>
       {/* Divisor arrastrable — solo visible en md+ */}
