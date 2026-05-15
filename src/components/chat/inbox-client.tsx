@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { SekCase, SekHistEntry } from "@/lib/types";
 import { ConversationList } from "./conversation-list";
 import { ChatView } from "./chat-view";
-import { Inbox as InboxIcon, Eye } from "lucide-react";
+import { Inbox as InboxIcon, Crown } from "lucide-react";
 import { toast } from "sonner";
 import { clienteInfo, asText, customerKey } from "@/lib/utils";
 
@@ -452,29 +452,27 @@ export function InboxClient({
     window.addEventListener("mouseup", onUp);
   }, []);
 
-  const salirImpersonacion = () => {
-    localStorage.removeItem("sek_impersonating_email");
-    localStorage.removeItem("sek_impersonating_name");
-    localStorage.removeItem("sek_impersonating_mode");
-    window.location.href = "/admin/equipo";
-  };
-
   return (
     <div ref={containerRef} className="flex flex-1 overflow-hidden flex-col">
-      {/* Banner de impersonación */}
-      {impersonatingEmail && (
-        <div className="shrink-0 bg-gradient-to-r from-violet-600 via-purple-600 to-rose-500 text-white px-4 py-2 flex items-center justify-between">
+      {/* Banner de Modo Dios */}
+      {godModeEmail && (
+        <div className="shrink-0 bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 text-white px-4 py-2 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Eye className="h-4 w-4" />
-            <span className="text-sm font-medium">
-              Vista como: <strong>{impersonatingName || impersonatingEmail}</strong>
+            <Crown className="h-4 w-4" />
+            <span className="text-sm font-bold">
+              MODO DIOS — Actuando como: <strong>{godModeName || godModeEmail}</strong>
             </span>
           </div>
           <button
-            onClick={salirImpersonacion}
+            onClick={() => {
+              localStorage.removeItem("god_mode_target_email");
+              localStorage.removeItem("god_mode_target_name");
+              localStorage.removeItem("god_mode_active");
+              window.location.href = "/admin/equipo";
+            }}
             className="text-xs bg-white/20 hover:bg-white/30 px-3 py-1 rounded-md transition-colors"
           >
-            Salir de vista
+            Salir
           </button>
         </div>
       )}
