@@ -22,8 +22,13 @@ export function ImpersonateButton({ email, name }: { email: string; name: string
       localStorage.setItem("sek_impersonating_email", email);
       localStorage.setItem("sek_impersonating_name", data.agentName || name);
       localStorage.setItem("sek_impersonating_mode", "true");
-      // Ir al perfil del compañero
-      window.location.href = "/admin/equipo/perfil?email=" + encodeURIComponent(email);
+      // Ir al perfil del compañero (forzar recarga para activar banner)
+      const targetUrl = "/admin/equipo/perfil?email=" + encodeURIComponent(email);
+      if (window.location.pathname + window.location.search === targetUrl) {
+        window.location.reload();
+      } else {
+        window.location.href = targetUrl;
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Error al impersonar");
       setLoading(false);
