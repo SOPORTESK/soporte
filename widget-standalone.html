@@ -878,8 +878,8 @@ async function sendMedia(chunks,mimeType,prefix,label){
       var entry={role:"user",time:new Date().toISOString(),content:"",mediaUrl:up.url,mediaType:up.type,fileName:up.name};
       hh.push(entry);
       await db.from("sek_cases").update({histcliente:hh}).eq("id",sid);
-      var ow=mkBubble("user","",entry.time,up.url,up.type,up.name);ow.classList.add("optimista");
-      var mc=$("messages");mc.appendChild(ow);mc.scrollTop=mc.scrollHeight;haptic(15);
+      haptic(15);
+      fetchRender();
       var est=rr.data?rr.data.estado:"";
       if(est==="ia_atendiendo"||(est==="abierto"&&!rr.data.assigned_to)){invokeIA()}
     }
