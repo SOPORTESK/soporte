@@ -729,10 +729,9 @@ function renderAll(hc,ht){
     c.appendChild(bub);
   });
   opts.forEach(function(el){var k="c:"+(el.dataset.optContent||"")+"|m:"+(el.dataset.optMedia||"");if(!conf.has(k))c.appendChild(el)});
-  var lastMsg = all.length > 0 ? all[all.length-1] : null;
-  var isWelcome = lastMsg && (lastMsg.role==="ia" || lastMsg.role==="assistant") && lastMsg.content===SECOND_WELCOME_MSG;
-  if(isWelcome && !casoCerrado){
-    var ob=document.createElement("div");ob.style.cssText="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:12px 10px 16px;animation:fadeUp 0.3s ease";
+  var isWelcome = (all.length === 3) && !casoCerrado;
+  if(isWelcome){
+    var ob=document.createElement("div");ob.style.cssText="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:12px 10px 16px;";
     var btns=["Configuración","Licencias","Reset","Desvinculación","Firmware"];
     btns.forEach(function(txt){
       var btn=document.createElement("button");btn.textContent=txt;
