@@ -10,7 +10,7 @@ export default async function EstadisticasAtencionPage() {
 
   const { data: todosLosCasos } = await supabase
     .from("sek_cases")
-    .select("id, assigned_to, created_at, updated_at, estado, cliente, title, canal, cat, prioridad, histtecnico, accepted_at");
+    .select("id, assigned_to, created_at, updated_at, estado, cliente, title, canal, cat, prioridad, histtecnico, histcliente, accepted_at");
 
   const casos = todosLosCasos || [];
 
@@ -83,24 +83,33 @@ export default async function EstadisticasAtencionPage() {
   });
   const sparkMax = Math.max(...spark7d, 1);
 
-  // ── Tiempo efectivo del agente: suma de gaps entre mensajes consecutivos del agente <= 5 min
-  // Gaps > 5 min = cliente tardando en responder, no se cuentan
+  // ── Tiempo efectivo del agente: solo cuenta gaps cuando el SIGUIENTE mensaje es del agente
+  //    cliente→agente = tiempo de respuesta del operador (cuenta, capado a UMBRAL)
+  //    agente→agente  = operador sigue escribiendo (cuenta, capado a UMBRAL)
+  //    agente→cliente = cliente leyendo/escribiendo (NO cuenta — es tiempo del cliente)
+  //    Gaps > UMBRAL = inactividad/espera larga, no cuentan
   const UMBRAL_GAP_MIN = 5;
-  function tiempoEfectivo(histtecnico: any[], accepted_at?: string | null): number {
-    const msgs = (Array.isArray(histtecnico) ? histtecnico : [])
-      .filter((m: any) => m?.role === "agente" || m?.role === "agent" || m?.role === "tecnico")
-      .map((m: any) => new Date(m.time).getTime())
-      .filter(t => !isNaN(t))
-      .sort((a, b) => a - b);
-    // Si hay accepted_at, incluirlo como primer punto de referencia
+  const isAgentRole = (r: any) => r === "agente" || r === "agent" || r === "tecnico";
+  function tiempoEfectivo(histtecnico: any[], histcliente: any[], accepted_at?: string | null): number {
+    const tech = (Array.isArray(histtecnico) ? histtecnico : [])
+      .filter((m: any) => m && m.time && isAgentRole(m.role) && m.role !== "nota")
+      .map((m: any) => ({ t: new Date(m.time).getTime(), agent: true }));
+    const cli = (Array.isArray(histcliente) ? histcliente : [])
+      .filter((m: any) => m && m.time)
+      .map((m: any) => ({ t: new Date(m.time).getTime(), agent: false }));
+    const msgs = [...tech, ...cli]
+      .filter(m => !isNaN(m.t))
+      .sort((a, b) => a.t - b.t);
     if (accepted_at) {
       const t = new Date(accepted_at).getTime();
-      if (!isNaN(t)) msgs.unshift(t);
+      if (!isNaN(t)) msgs.unshift({ t, agent: true });
     }
     if (msgs.length < 2) return 0;
     let total = 0;
     for (let i = 1; i < msgs.length; i++) {
-      const gap = Math.round((msgs[i] - msgs[i - 1]) / 60000);
+      // Solo cuenta gap cuando el SIGUIENTE mensaje es del agente
+      if (!msgs[i].agent) continue;
+      const gap = Math.round((msgs[i].t - msgs[i - 1].t) / 60000);
       if (gap > 0 && gap <= UMBRAL_GAP_MIN) total += gap;
     }
     return total;
@@ -153,7 +162,7 @@ export default async function EstadisticasAtencionPage() {
           if (diff > 0) s.tiemposResolucion.push(diff);
         }
       }
-      const te = tiempoEfectivo((caso as any).histtecnico, (caso as any).accepted_at);
+      const te = tiempoEfectivo((caso as any).histtecnico, (caso as any).histcliente, (caso as any).accepted_at);
       if (te > 0) s.tiemposEfectivos.push(te);
     }
     const cal = getCal(caso); if (cal !== null) s.calificaciones.push(cal);
