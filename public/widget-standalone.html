@@ -419,7 +419,8 @@ var HURL="https://api.hacienda.go.cr/fe/ae";
 var db=supabase.createClient(SB_URL,SB_KEY);
 
 /* ═══ STATE ═══ */
-var DEFAULT_WELCOME_MSG="Reciba un cordial saludo de parte del equipo de Soporte Sekunet. Gracias por contactarnos. Mi nombre es Seka, asistente virtual de Sekunet. ¿Cómo puedo asistirle?";
+var DEFAULT_WELCOME_MSG="Reciba un cordial saludo de parte del equipo de Soporte Sekunet. Gracias por contactarnos.";
+var SECOND_WELCOME_MSG="Mi nombre es Seka, asistente virtual de Sekunet. ¿En relación a qué tema sería su consulta?";
 var sid=null,clienteData=null,cedulaOk=false,cedTmr=null,casoCerrado=false,agenteName=null;
 var creandoCaso=false,soundOff=false,lastHash="",unread=0,atBottom=true;
 var rtCh=null,presCh=null,typTmr=null,pollTmr=null,reconAttempts=0;
@@ -728,7 +729,8 @@ function renderAll(hc,ht){
     c.appendChild(bub);
   });
   opts.forEach(function(el){var k="c:"+(el.dataset.optContent||"")+"|m:"+(el.dataset.optMedia||"");if(!conf.has(k))c.appendChild(el)});
-  var isWelcome = (all.length===0) || (all.length===1 && (all[0].role==="ia" || all[0].role==="assistant"));
+  var lastMsg = all.length > 0 ? all[all.length-1] : null;
+  var isWelcome = lastMsg && (lastMsg.role==="ia" || lastMsg.role==="assistant") && lastMsg.content===SECOND_WELCOME_MSG;
   if(isWelcome && !casoCerrado){
     var ob=document.createElement("div");ob.style.cssText="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:12px 10px 16px;animation:fadeUp 0.3s ease";
     var btns=["Configuración","Licencias","Reset","Desvinculación","Firmware"];
@@ -830,7 +832,12 @@ async function newCase(msg){
   if(ins.error){alert("Error: "+ins.error.message);creandoCaso=false;return}
   sid=String(ins.data.id);try{localStorage.setItem("sek_session",sid);localStorage.setItem("sek_session_ver",SVER)}catch(e){}
   $("messages").innerHTML="";lastHash="";startRT();
-  if(msg){var hc2=[wm,{role:"user",time:new Date().toISOString(),content:msg}];await db.from("sek_cases").update({histcliente:hc2}).eq("id",sid);lastHash="";renderAll(hc2,[]);invokeIA()}
+  if(msg){
+    var wm2={role:"assistant",author:"Asistente Sekunet",time:new Date().toISOString(),content:SECOND_WELCOME_MSG};
+    var hc2=[wm,{role:"user",time:new Date().toISOString(),content:msg},wm2];
+    await db.from("sek_cases").update({histcliente:hc2}).eq("id",sid);
+    lastHash="";renderAll(hc2,[]);
+  }
   creandoCaso=false;
 }
 
@@ -843,11 +850,12 @@ async function sendMsg(){
     $("btn-send").disabled=true;$("txt-msg").value="";autoResize();
     var wm={role:"assistant",author:"Asistente Sekunet",time:new Date().toISOString(),content:DEFAULT_WELCOME_MSG};
     var um={role:"user",time:new Date().toISOString(),content:txt||"Archivo adjunto"};
+    var wm2={role:"assistant",author:"Asistente Sekunet",time:new Date().toISOString(),content:SECOND_WELCOME_MSG};
     if(pendFile){var pf=pendFile;pendFile=null;$("up-prev-bar").style.display="none";try{var pu=await uploadFile(pf);um.mediaUrl=pu.url;um.mediaType=pu.type;um.fileName=pu.name;um.content=txt||""}catch(err){alert("Error al subir: "+err.message);$("btn-send").disabled=false;return}}
-    var ins=await db.from("sek_cases").insert({title:"Chat web — "+(clienteData?clienteData.nombre:"Cliente"),canal:"widget",estado:"ia_atendiendo",prioridad:"media",cliente:cleanCliente(clienteData),customer_phone:clienteData?clienteData.telefono:null,histcliente:[wm,um],histtecnico:[]}).select("id,histcliente,histtecnico").single();
+    var ins=await db.from("sek_cases").insert({title:"Chat web — "+(clienteData?clienteData.nombre:"Cliente"),canal:"widget",estado:"ia_atendiendo",prioridad:"media",cliente:cleanCliente(clienteData),customer_phone:clienteData?clienteData.telefono:null,histcliente:[wm,um,wm2],histtecnico:[]}).select("id,histcliente,histtecnico").single();
     if(ins.error){alert("Error: "+ins.error.message);$("btn-send").disabled=false;return}
     sid=String(ins.data.id);try{localStorage.setItem("sek_session",sid);localStorage.setItem("sek_session_ver",SVER)}catch(e){}
-    lastHash="";renderAll(ins.data.histcliente,ins.data.histtecnico);startRT();invokeIA();
+    lastHash="";renderAll(ins.data.histcliente,ins.data.histtecnico);startRT();
     $("btn-send").disabled=false;return;
   }
   if(casoCerrado){$("txt-msg").value="";await newCase(txt);return}
