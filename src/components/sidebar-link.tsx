@@ -11,7 +11,7 @@ export function SidebarLink({
   const active = pathname === href || pathname.startsWith(href + "/");
   const cls = cn(
     "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-    active ? "bg-brand-700 text-white" : "text-muted-foreground hover:text-foreground hover:bg-muted",
+    active ? "bg-brand-700 text-white" : "text-foreground/80 hover:text-foreground hover:bg-muted",
     disabled && "pointer-events-none opacity-60"
   );
   const content = (
