@@ -731,7 +731,7 @@ function renderAll(hc,ht){
   var isWelcome = (all.length===0) || (all.length===1 && all[0].role==="ia" && all[0].content===DEFAULT_WELCOME_MSG);
   if(isWelcome && !casoCerrado){
     var ob=document.createElement("div");ob.style.cssText="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:12px 10px 16px;animation:fadeUp 0.3s ease";
-    var btns=["Soporte Técnico","Ventas e Información","Reportar Falla","Facturación"];
+    var btns=["Configuración","Licencias","Reset","Desvinculación","Firmware"];
     btns.forEach(function(txt){
       var btn=document.createElement("button");btn.textContent=txt;
       btn.style.cssText="background:var(--grad-btn);color:#fff;border:none;padding:10px 16px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;box-shadow:var(--shsm);transition:transform 0.15s;font-family:inherit;";
