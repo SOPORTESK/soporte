@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { SekCase, SekHistEntry } from "@/lib/types";
 import { ConversationList } from "./conversation-list";
 import { ChatView } from "./chat-view";
-import { Inbox as InboxIcon, Crown } from "lucide-react";
+import { Inbox as InboxIcon, Crown, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { clienteInfo, asText, customerKey } from "@/lib/utils";
 
@@ -252,8 +252,9 @@ export function InboxClient({
   /* Casos agrupados por cliente (un solo chat por cliente, varios casos dentro) */
   const mergedCases = React.useMemo(() => mergeGroups(filteredCases), [filteredCases]);
   const prevMergedRef = React.useRef<SekCase[]>(mergedCases);
-  const pendingEscaladosRef = React.useRef<Map<string, { name: string; equipo: string }>>(new Map());
-  const escaladoReminderRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  const escaladosPendientes = React.useMemo(() => {
+    return mergedCases.filter(c => String(c.estado).toLowerCase() === "escalado");
+  }, [mergedCases]);
 
   React.useEffect(() => {
     const source = params.get("source");
@@ -282,25 +283,15 @@ export function InboxClient({
     }
   }, [unreadTotal]);
 
-
-
-  /* Intervalo: recordar casos escalados pendientes cada 60s — solo si siguen sin atender */
+  /* Intervalo: recordar casos escalados pendientes cada 60s */
   React.useEffect(() => {
-    escaladoReminderRef.current = setInterval(() => {
-      pendingEscaladosRef.current.forEach((info, id) => {
-        // Verificar que el caso sigue en estado escalado antes de notificar
-        const stillPending = cases.find(c => String(c.id) === id && String(c.estado).toLowerCase() === "escalado");
-        if (!stillPending) { pendingEscaladosRef.current.delete(id); return; }
+    const timer = setInterval(() => {
+      if (escaladosPendientes.length > 0) {
         playEscaladoAlert();
-        toast.warning(`Caso sin atender: ${info.name}`, {
-          description: info.equipo ? `Equipo: ${info.equipo} · Esperando agente` : "Esperando asignación de agente",
-          duration: 55000,
-          action: { label: "Atender", onClick: () => selectCase(id) }
-        });
-      });
+      }
     }, 60000);
-    return () => { if (escaladoReminderRef.current) clearInterval(escaladoReminderRef.current); };
-  }, [selectCase, cases]);
+    return () => clearInterval(timer);
+  }, [escaladosPendientes.length]);
 
   React.useEffect(() => {
     const channel = supabase
@@ -461,7 +452,7 @@ export function InboxClient({
     <div ref={containerRef} className="flex flex-1 overflow-hidden flex-col">
       {/* Banner de Modo Dios */}
       {godModeEmail && (
-        <div className="shrink-0 bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 text-white px-4 py-2 flex items-center justify-between">
+        <div className="shrink-0 bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 text-white px-4 py-2 flex items-center justify-between z-50 relative">
           <div className="flex items-center gap-2">
             <Crown className="h-4 w-4" />
             <span className="text-sm font-bold">
@@ -478,6 +469,35 @@ export function InboxClient({
             className="text-xs bg-white/20 hover:bg-white/30 px-3 py-1 rounded-md transition-colors"
           >
             Salir
+          </button>
+        </div>
+      )}
+
+      {/* Banner Persistente de Casos Escalados */}
+      {escaladosPendientes.length > 0 && (
+        <div className="shrink-0 bg-orange-500/10 border-b border-orange-500/20 px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in slide-in-from-top-2 z-40 relative">
+          <div className="flex items-center gap-3">
+            <div className="h-8 w-8 rounded-full bg-orange-500/20 text-orange-500 flex items-center justify-center shrink-0">
+              <AlertTriangle className="h-4 w-4" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-orange-600 dark:text-orange-400">
+                {escaladosPendientes.length === 1 
+                  ? `Caso sin atender: ${clienteInfo(escaladosPendientes[0].cliente).nombre || asText(escaladosPendientes[0].title) || "Cliente"}`
+                  : `Hay ${escaladosPendientes.length} casos sin atender esperando asignación`}
+              </p>
+              <p className="text-xs text-orange-600/80 dark:text-orange-400/80">
+                {escaladosPendientes.length === 1 
+                  ? ((escaladosPendientes[0].cliente as any)?.equipo ? `Equipo: ${(escaladosPendientes[0].cliente as any).equipo}` : "Esperando asignación de agente")
+                  : "Varios clientes requieren atención inmediata de un agente"}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => selectCase(String(escaladosPendientes[0].id))}
+            className="shrink-0 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold rounded-lg transition-colors shadow-sm"
+          >
+            {escaladosPendientes.length === 1 ? "Atender caso" : "Ver casos"}
           </button>
         </div>
       )}
@@ -500,7 +520,7 @@ export function InboxClient({
       {/* Panel de chat */}
       <div className={`min-h-0 ${selected ? "flex" : "hidden md:flex"} flex-1 flex-col bg-background`}>
         {selected ? (
-          <ChatView sekCase={selected} onBack={() => setSelectedId(null)} />
+          <ChatView key={selected.id} sekCase={selected} onBack={() => setSelectedId(null)} />
         ) : (
           <div className="flex-1 grid place-items-center text-center p-8">
             <div className="max-w-sm">

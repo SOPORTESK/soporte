@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { cn, formatTime, asText, clienteInfo } from "@/lib/utils";
 import { toast } from "sonner";
 import { CaseHistoryDrawer } from "./case-history-drawer";
+import { TemplateManager } from "./template-manager";
 import type { SekCase, SekHistEntry, ChannelKind } from "@/lib/types";
 
 type UnifiedMessage = {
@@ -78,9 +79,12 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   const [sending, setSending] = React.useState(false);
   const [agentEmail, setAgentEmail] = React.useState<string | null>(null);
   const [agentName, setAgentName] = React.useState<string | null>(null);
+  const [agentRole, setAgentRole] = React.useState<string>("tecnico");
   const [mode, setMode] = React.useState<"reply" | "nota">("reply");
   const [showPlantillas, setShowPlantillas] = React.useState(false);
+  const [showTemplateManager, setShowTemplateManager] = React.useState(false);
   const [plantillas, setPlantillas] = React.useState<any[]>([]);
+  const [personalPlantillas, setPersonalPlantillas] = React.useState<any[]>([]);
   const [uploadingFile, setUploadingFile] = React.useState(false);
   const [isRecording, setIsRecording] = React.useState(false);
   const mediaRecRef = React.useRef<MediaRecorder | null>(null);
@@ -142,8 +146,19 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   /* Cargar plantillas */
   React.useEffect(() => {
     supabase.from("sek_plantillas").select("id,nombre,texto,cat").limit(30)
-      .then(({ data }) => { if (data) setPlantillas(data); });
+      .then(({ data }) => { if (data) setPlantillas(data.map(d => ({ ...d, isGlobal: true }))); });
   }, [supabase]);
+
+  React.useEffect(() => {
+    if (agentEmail) {
+      try {
+        const stored = localStorage.getItem(`sek_plantillas_${agentEmail}`);
+        if (stored) setPersonalPlantillas(JSON.parse(stored));
+      } catch (e) {
+        console.error("Error loading personal templates", e);
+      }
+    }
+  }, [agentEmail]);
 
   const isGrouped = !!initialCase._group;
   const targetId = initialCase._group?.targetCaseId ?? initialCase.id;
@@ -158,10 +173,11 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
         if (!mounted || !user?.email) return;
         setAgentEmail(user.email);
         const { data: agent } = await supabase
-          .from("sek_agent_config").select("nombre,apellido").ilike("email", user.email).maybeSingle();
+          .from("sek_agent_config").select("nombre,apellido,rol").ilike("email", user.email).maybeSingle();
         if (!mounted) return;
         const a: any = agent;
         setAgentName([a?.nombre, a?.apellido].filter(Boolean).join(" ") || user.email);
+        setAgentRole(a?.rol || "tecnico");
       } catch { /* lock timeout en dev - ignorar */ }
     })();
 
@@ -691,40 +707,66 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       </div>
 
       {/* ── Plantillas popup ── */}
-      {showPlantillas && plantillas.length > 0 && (
-        <div className="border-t border-border bg-card max-h-48 overflow-y-auto flex-shrink-0 px-safe">
-          <div className="flex items-center justify-between px-4 py-2 border-b border-border">
+      {showPlantillas && (
+        <div className="border-t border-border bg-card max-h-56 overflow-y-auto flex-shrink-0 px-safe relative">
+          <div className="sticky top-0 bg-card/95 backdrop-blur-sm flex items-center justify-between px-4 py-2 border-b border-border z-10">
             <span className="text-xs font-semibold text-muted-foreground">Respuestas rápidas</span>
-            <button onClick={() => setShowPlantillas(false)}><X className="h-3.5 w-3.5" /></button>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setShowTemplateManager(true)} className="text-[10px] font-bold text-brand-500 hover:text-brand-600 transition-colors uppercase tracking-wider">
+                Gestionar
+              </button>
+              <button onClick={() => setShowPlantillas(false)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+            </div>
           </div>
-          {plantillas.map((p: any) => (
+          
+          {personalPlantillas.length === 0 && plantillas.length === 0 && (
+            <p className="text-xs text-center text-muted-foreground py-4">No hay plantillas disponibles.</p>
+          )}
+
+          {[...personalPlantillas, ...plantillas].map((p: any) => (
             <button
               key={p.id}
               onClick={() => {
-                const tieneCorchetes = /\[[^\]]+\]/.test(p.texto || "");
-                if (tieneCorchetes) {
-                  setDraft(p.texto);
-                  setShowPlantillas(false);
-                  setTimeout(() => {
-                    const ta = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Mensaje"]');
-                    if (ta) {
-                      ta.focus();
-                      const match = /\[[^\]]+\]/.exec(ta.value);
-                      if (match) ta.setSelectionRange(match.index, match.index + match[0].length);
+                setDraft(p.texto);
+                setShowPlantillas(false);
+                setTimeout(() => {
+                  const ta = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Mensaje"]');
+                  if (ta) {
+                    ta.focus();
+                    const match = /\[[^\]]+\]/.exec(ta.value);
+                    if (match) {
+                      ta.setSelectionRange(match.index, match.index + match[0].length);
+                    } else {
+                      ta.setSelectionRange(ta.value.length, ta.value.length);
                     }
-                  }, 0);
-                } else {
-                  send(p.texto);
-                  setShowPlantillas(false);
-                }
+                  }
+                }, 0);
               }}
-              className="w-full text-left px-4 py-2.5 hover:bg-muted transition-colors border-b border-border/50 last:border-0"
+              className="w-full text-left px-4 py-2.5 hover:bg-muted transition-colors border-b border-border/50 last:border-0 relative group"
             >
-              <p className="text-xs font-semibold">{p.nombre}</p>
+              <div className="flex justify-between items-start gap-2">
+                <p className="text-xs font-semibold">{p.nombre}</p>
+                <span className="text-[9px] font-bold tracking-wider uppercase text-muted-foreground opacity-50 shrink-0">
+                  {p.isGlobal ? "Global" : "Personal"}
+                </span>
+              </div>
               <p className="text-xs text-muted-foreground truncate mt-0.5">{p.texto}</p>
             </button>
           ))}
         </div>
+      )}
+
+      {showTemplateManager && agentEmail && (
+        <TemplateManager
+          supabase={supabase}
+          agentEmail={agentEmail}
+          agentRole={agentRole}
+          globalTemplates={plantillas}
+          onGlobalTemplatesChange={setPlantillas}
+          personalTemplates={personalPlantillas}
+          onPersonalTemplatesChange={setPersonalPlantillas}
+          onClose={() => setShowTemplateManager(false)}
+        />
       )}
 
       {/* ── Accept banner for escalated cases ── */}

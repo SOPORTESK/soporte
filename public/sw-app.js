@@ -1,4 +1,4 @@
-const CACHE_NAME = "sekunet-app-v1";
+const CACHE_NAME = "sekunet-app-v2";
 const PRECACHE = [
   "/",
   "/login",
@@ -30,12 +30,17 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(
     fetch(event.request)
       .then((response) => {
-        if (response.ok) {
+        if (response.ok && event.request.url.startsWith("http")) {
           var clone = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
         }
         return response;
       })
-      .catch(() => caches.match(event.request))
+      .catch(() => 
+        caches.match(event.request).then(cached => {
+          if (cached) return cached;
+          return new Response("Network error", { status: 503, statusText: "Service Unavailable" });
+        })
+      )
   );
 });

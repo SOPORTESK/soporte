@@ -11,10 +11,16 @@ export function SplashScreen() {
       setPhase("gone");
       return;
     }
-    const t1 = setTimeout(() => setPhase("exiting"), 2800);
+    const t1 = setTimeout(() => {
+      setPhase("exiting");
+      const el = document.getElementById("sekunet-splash-root");
+      if (el) el.classList.add("splash-exit");
+    }, 2800);
     const t2 = setTimeout(() => {
       setPhase("gone");
       try { sessionStorage.setItem("splash_shown", "1"); } catch {}
+      const el = document.getElementById("sekunet-splash-root");
+      if (el) el.style.display = "none";
     }, 3500);
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, []);
@@ -22,7 +28,16 @@ export function SplashScreen() {
   if (phase === "gone") return null;
 
   return (
-    <div className={`splash-root ${phase === "exiting" ? "splash-exit" : ""}`}>
+    <div 
+      id="sekunet-splash-root" 
+      className={`splash-root ${phase === "exiting" ? "splash-exit" : ""}`}
+      onClick={() => {
+        setPhase("gone");
+        try { sessionStorage.setItem("splash_shown", "1"); } catch {}
+        const el = document.getElementById("sekunet-splash-root");
+        if (el) el.style.display = "none";
+      }}
+    >
       {/* Shimmer lines */}
       <div className="splash-shimmer" />
       <div className="splash-shimmer-bottom" />

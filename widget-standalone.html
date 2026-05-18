@@ -263,8 +263,17 @@ textarea:focus{border-color:var(--primary);background:var(--bg)}
   for(var i=0;i<20;i++){var d=document.createElement('div');d.className='pt';var s=2+(i%4)*1.5;d.style.cssText='left:'+(i*37+11)%100+'%;width:'+s+'px;height:'+s+'px;animation-delay:'+(i*.7)%5+'s;animation-duration:'+(4+(i%4)*2)+'s;opacity:'+(0.3+(i%3)*0.2);c.appendChild(d)}
   // Auto dismiss
   var sp=document.getElementById('_splash');
-  setTimeout(function(){sp.classList.add('exit')},2800);
-  setTimeout(function(){sp.parentNode.removeChild(sp);document.getElementById('root').style.display='';document.documentElement.style.background='';document.body.style.background=''},3500);
+  function dismissSplash() {
+    if (!sp.parentNode) return;
+    sp.parentNode.removeChild(sp);
+    var r = document.getElementById('root');
+    if (r) r.style.display='';
+    document.documentElement.style.background='';
+    document.body.style.background='';
+  }
+  sp.onclick = function() { dismissSplash(); };
+  setTimeout(function(){if(sp.parentNode) sp.classList.add('exit')},2800);
+  setTimeout(dismissSplash,3500);
 })();
 </script>
 <!-- ═══ FIN SPLASH ═══ -->
@@ -680,7 +689,6 @@ function mkBubble(role,content,time,mUrl,mType,fName){
     else{var card=document.createElement("div");card.className="file-card";var ci=document.createElement("div");ci.className="fc-icon";ci.textContent=fIcon(mt);var cinfo=document.createElement("div");cinfo.className="fc-info";var cn=document.createElement("div");cn.className="fc-name";cn.textContent=fn;var cdl=document.createElement("a");cdl.className="fc-dl";cdl.textContent="⬇ Descargar";cdl.href="#";cdl.onclick=function(ev){ev.preventDefault();forceDl(mUrl,fn)};cinfo.appendChild(cn);cinfo.appendChild(cdl);card.appendChild(ci);card.appendChild(cinfo);bb.appendChild(card)}
   }else{var txt=document.createElement("div");txt.className="b-text";txt.textContent=content||"";bb.appendChild(txt)}
   var foot=document.createElement("div");foot.className="b-foot";
-  if(isU){var st=document.createElement("span");st.className="b-stat";st.textContent="✓";foot.appendChild(st)}
   var tm=document.createElement("span");tm.className="b-time";tm.textContent=fmt(time);foot.appendChild(tm);
   bb.appendChild(foot);wrap.appendChild(bb);return wrap;
 }

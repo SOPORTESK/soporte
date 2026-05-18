@@ -68,13 +68,13 @@ export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; online
 
   // Marcar online al montar + auto-away por inactividad + heartbeat
   useEffect(() => {
-    fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online" }) });
+    fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online" }) }).catch(() => {});
     const handleUnload = () => navigator.sendBeacon("/api/profile/status", JSON.stringify({ status: "offline" }));
     window.addEventListener("beforeunload", handleUnload);
 
     // Heartbeat cada 30s para mantener last_seen_at actualizado
     const heartbeat = setInterval(() => {
-      fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online" }) });
+      fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online" }) }).catch(() => {});
     }, 30000);
 
     // Refrescar lista de agentes online cada 60s
@@ -89,7 +89,7 @@ export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; online
         // Only restore to online if we were auto-set to away
         setStatus(prev => {
           if (prev === "away") {
-            fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online" }) });
+            fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online" }) }).catch(() => {});
             return "online";
           }
           return prev;
@@ -101,7 +101,7 @@ export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; online
           // Only auto-away from "online" — don't override manual states
           if (prev === "online") {
             isIdle = true;
-            fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "away" }) });
+            fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "away" }) }).catch(() => {});
             return "away";
           }
           return prev;
@@ -123,7 +123,7 @@ export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; online
 
   const handleStatusChange = async (s: string) => {
     setStatus(s);
-    await fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: s }) });
+    await fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: s }) }).catch(() => {});
     router.refresh();
   };
 
@@ -152,7 +152,7 @@ export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; online
   };
 
   const handleLogout = async () => {
-    await fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "offline" }) });
+    await fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "offline" }) }).catch(() => {});
     await supabase.auth.signOut();
     router.push("/login");
   };
