@@ -97,12 +97,6 @@ function LoginPageContent() {
 
         {/* Contenido central */}
         <div className="relative z-10 flex-1 flex flex-col justify-center max-w-lg space-y-10 py-12">
-          {/* Badge */}
-          <div className="flex items-center gap-2 w-fit px-4 py-1.5 rounded-full bg-white/10 backdrop-blur-sm border border-white/20">
-            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-xs font-medium text-white/90 tracking-wide">Plataforma activa 24/7</span>
-          </div>
-
           <div className="space-y-6">
             <h1 className="text-[3.5rem] xl:text-6xl font-black leading-[1.05] tracking-tight">
               Conversaciones que{" "}
