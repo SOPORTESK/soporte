@@ -728,7 +728,7 @@ function renderAll(hc,ht){
     c.appendChild(bub);
   });
   opts.forEach(function(el){var k="c:"+(el.dataset.optContent||"")+"|m:"+(el.dataset.optMedia||"");if(!conf.has(k))c.appendChild(el)});
-  var isWelcome = (all.length===0) || (all.length===1 && all[0].role==="ia" && all[0].content===DEFAULT_WELCOME_MSG);
+  var isWelcome = (all.length===0) || (all.length===1 && (all[0].role==="ia" || all[0].role==="assistant"));
   if(isWelcome && !casoCerrado){
     var ob=document.createElement("div");ob.style.cssText="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:12px 10px 16px;animation:fadeUp 0.3s ease";
     var btns=["Configuración","Licencias","Reset","Desvinculación","Firmware"];
