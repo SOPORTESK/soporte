@@ -420,17 +420,17 @@ var db=supabase.createClient(SB_URL,SB_KEY);
 
 /* ═══ STATE ═══ */
 var DEFAULT_WELCOME_MSG="Reciba un cordial saludo de parte del equipo de Soporte Sekunet. Gracias por contactarnos.";
-var SECOND_WELCOME_MSG="Mi nombre es Seka, asistente virtual de Sekunet. ¿En relación a qué tema sería su consulta?";
+var SECOND_WELCOME_MSG="Mi nombre es Seka, asistente virtual de Sekunet. Estaré acompañándole durante este proceso. Para brindarle una mejor asistencia, necesitamos algunos datos importantes que nos permitan comprender mejor su consulta.";
+var THIRD_WELCOME_MSG="¿En relación a qué tema sería su consulta?";
 var sid=null,clienteData=null,cedulaOk=false,cedTmr=null,casoCerrado=false,agenteName=null;
 var creandoCaso=false,soundOff=false,lastHash="",unread=0,atBottom=true;
 var rtCh=null,presCh=null,typTmr=null,pollTmr=null,reconAttempts=0;
 var pendFile=null,mediaRec=null,audioChunks=[],isRec=false,csatDone=false;
 
 try{
-  var sv=localStorage.getItem("sek_session_ver");
-  if(sv!==SVER){localStorage.removeItem("sek_session");localStorage.removeItem("sek_session_ver");sid=null}
-  else sid=localStorage.getItem("sek_session");
-  soundOff=localStorage.getItem("sek_mute")==="1";
+  localStorage.removeItem("wgt_session");sid=null;
+  soundOff=localStorage.getItem("wgt_mute")==="1";
+  var _cd=localStorage.getItem("wgt_cliente");if(_cd){try{clienteData=JSON.parse(_cd)}catch(e){}}
 }catch(e){}
 
 /* ═══ BUSINESS HOURS ═══ */
@@ -455,7 +455,7 @@ function haptic(ms){try{if(navigator.vibrate)navigator.vibrate(ms||10)}catch(e){
 /* ═══ SOUND ═══ */
 function playNotif(){if(soundOff)return;try{var AC=window.AudioContext||window.webkitAudioContext;if(!AC)return;var c=new AC,o=c.createOscillator(),g=c.createGain();o.connect(g);g.connect(c.destination);o.type="sine";o.frequency.setValueAtTime(830,c.currentTime);o.frequency.setValueAtTime(1100,c.currentTime+.08);g.gain.setValueAtTime(.15,c.currentTime);g.gain.exponentialRampToValueAtTime(.001,c.currentTime+.25);o.start(c.currentTime);o.stop(c.currentTime+.25)}catch(e){}}
 if(soundOff){$("btn-sound").textContent="🔕";$("btn-sound").classList.add("muted")}
-$("btn-sound").addEventListener("click",function(){soundOff=!soundOff;this.textContent=soundOff?"🔕":"🔔";this.classList.toggle("muted",soundOff);try{localStorage.setItem("sek_mute",soundOff?"1":"0")}catch(e){};haptic(15)});
+$("btn-sound").addEventListener("click",function(){soundOff=!soundOff;this.textContent=soundOff?"🔕":"🔔";this.classList.toggle("muted",soundOff);try{localStorage.setItem("wgt_mute",soundOff?"1":"0")}catch(e){};haptic(15)});
 
 /* ═══ CONNECTION ═══ */
 var _connReconTmr=null,_lastConnState="online";
@@ -595,7 +595,8 @@ $("btn-login").addEventListener("click",async function(){
   var r=await db.from("sek_clientes").select("id,nombre,correo,telefono,cuenta_sekunet,cedula").eq("cedula",cedRaw).eq("password_hash",hash).maybeSingle();
   if(!r.data){$("login-err").textContent="Contraseña incorrecta.";$("btn-login").disabled=false;$("btn-login").textContent="Ingresar →";return}
   clienteData={nombre:r.data.nombre,correo:r.data.correo,telefono:r.data.telefono,cuenta:r.data.cuenta_sekunet,cedula:r.data.cedula};
-  $("btn-login").textContent="Ingresar →";$("btn-login").disabled=false;
+  try{localStorage.setItem("wgt_cliente",JSON.stringify(clienteData))}catch(e){}
+  $('btn-login').textContent="Ingresar →";$("btn-login").disabled=false;
   await startSession();
 });
 
@@ -629,6 +630,7 @@ $("btn-register").addEventListener("click",async function(){
     }catch(e){console.warn("Avatar upload failed",e);}
   }
   clienteData={nombre:ins.data.nombre,correo:ins.data.correo,telefono:ins.data.telefono,cuenta:ins.data.cuenta_sekunet,cedula:ins.data.cedula,avatar_url:avatarUrl};
+  try{localStorage.setItem("wgt_cliente",JSON.stringify(clienteData))}catch(e){}
   $("btn-register").textContent="Registrarse e ingresar →";$("btn-register").disabled=false;
   await startSession();
 });
@@ -716,7 +718,6 @@ function renderAll(hc,ht){
   var opts=[];c.querySelectorAll(".optimista").forEach(function(el){opts.push(el)});
   var conf=new Set();(hc||[]).forEach(function(e){if((e.role||"user")==="user")conf.add("c:"+(e.content||"")+"|m:"+(e.mediaUrl||""))});
   c.innerHTML="";
-  if(all.length===0){c.appendChild(mkBubble("assistant",DEFAULT_WELCOME_MSG,new Date().toISOString()))}
   var lastDate="";
   all.forEach(function(m){
     var dl=dateLabel(m.time);if(dl!==lastDate){lastDate=dl;var sep=document.createElement("div");sep.className="date-sep";sep.innerHTML="<span>"+dl+"</span>";c.appendChild(sep)}
@@ -729,10 +730,12 @@ function renderAll(hc,ht){
     c.appendChild(bub);
   });
   opts.forEach(function(el){var k="c:"+(el.dataset.optContent||"")+"|m:"+(el.dataset.optMedia||"");if(!conf.has(k))c.appendChild(el)});
-  var isWelcome = (all.length === 3) && !casoCerrado;
+  var userCount=all.filter(function(m){return m.role==="user"}).length;
+  var iaCount=all.filter(function(m){return m.role==="ia"}).length;
+  var isWelcome = userCount===1 && iaCount===3 && !casoCerrado;
   if(isWelcome){
     var ob=document.createElement("div");ob.style.cssText="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:12px 10px 16px;";
-    var btns=["Configuración","Licencias","Reset","Desvinculación","Firmware"];
+    var btns=["Configuraciones","Reset","Desvinculación","Firmware","Software","Drivers","Licencias"];
     btns.forEach(function(txt){
       var btn=document.createElement("button");btn.textContent=txt;
       btn.style.cssText="background:var(--grad-btn);color:#fff;border:none;padding:10px 16px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;box-shadow:var(--shsm);transition:transform 0.15s;font-family:inherit;";
@@ -756,7 +759,8 @@ function showTyping(v){var c=$("messages");if(v&&!typEl){typEl=document.createEl
 
 /* ═══ REALTIME + RECONNECT ═══ */
 var hashH=function(hc,ht){var a=hc||[],b=ht||[];return a.length+"|"+b.length+"|"+(a.length?a[a.length-1].time:"")};
-function renderIfChanged(hc,ht){var h=hashH(hc,ht);if(h===lastHash)return;var isNew=lastHash&&hc&&hc.length>0;lastHash=h;renderAll(hc,ht);if(isNew){playNotif();haptic(20);var lastMsg=ht&&ht.length>0?ht[ht.length-1]:null;if(lastMsg&&lastMsg.content)showBrowserNotif(lastMsg.content);if(!atBottom){unread++;$("ubadge").textContent=unread;$("ubadge").style.display="flex";$("scroll-btn").classList.add("vis");notifyParent()}}}
+var playingWelcome=false;
+function renderIfChanged(hc,ht){if(playingWelcome)return;var h=hashH(hc,ht);if(h===lastHash)return;var isNew=lastHash&&hc&&hc.length>0;lastHash=h;renderAll(hc,ht);if(isNew){playNotif();haptic(20);var lastMsg=ht&&ht.length>0?ht[ht.length-1]:null;if(lastMsg&&lastMsg.content)showBrowserNotif(lastMsg.content);if(!atBottom){unread++;$("ubadge").textContent=unread;$("ubadge").style.display="flex";$("scroll-btn").classList.add("vis");notifyParent()}}}
 
 async function fetchRender(){if(!sid)return;var r=await db.from("sek_cases").select("histcliente,histtecnico,estado,assigned_to").eq("id",sid).maybeSingle();if(!r.data)return;renderIfChanged(r.data.histcliente,r.data.histtecnico);
   // Marcar mensajes del agente sin read_at como leídos
@@ -805,13 +809,12 @@ async function startSession(){
     if(ck.data && ckEst!=="cerrado" && ckEst!=="resuelto"){
       showChat(ck.data.histcliente,ck.data.histtecnico,ck.data.estado,ck.data.cliente);return;
     }
-    sid=null;try{localStorage.removeItem("sek_session")}catch(e){}
+    sid=null;try{localStorage.removeItem("wgt_session")}catch(e){}
   }
   /* Cada nueva sesión arranca de cero: no reusamos casos previos por cédula.
      Solo se retoma un caso si localStorage.sek_session existía y sigue vivo (manejado arriba). */
-  var welcomeMsg={role:"assistant",author:"Asistente Sekunet",time:new Date().toISOString(),content:DEFAULT_WELCOME_MSG};
   sid=null;
-  showChat([welcomeMsg],[],"pendiente",clienteData);
+  showChat([],[],"pendiente",clienteData);
 }
 
 /* Filtra el objeto cliente para no propagar campos heredados (equipo, csat_*, etc.) */
@@ -824,18 +827,57 @@ function cleanCliente(c){
 }
 
 /* ═══ CREATE NEW CASE ═══ */
+function delay(ms){return new Promise(function(r){setTimeout(r,ms)})}
+
+async function playWelcomeSequence(msgs, caseHc){
+  playingWelcome=true;
+  var input=$('txt-msg');var sendBtn=$('btn-send');
+  input.disabled=true;sendBtn.disabled=true;
+  input.placeholder="Seka está escribiendo…";
+  for(var i=0;i<msgs.length;i++){
+    showTyping(true);
+    await delay(4000);
+    showTyping(false);
+    var m=msgs[i];
+    var bub=mkBubble('ia',m.content,m.time);
+    $('messages').appendChild(bub);
+    $('messages').scrollTop=$('messages').scrollHeight;
+    if(i<msgs.length-1)await delay(1000);
+  }
+  /* Mostrar botones de tema */
+  var ob=document.createElement('div');ob.style.cssText='display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:12px 10px 16px;';
+  var btns=['Configuraciones','Reset','Desvinculación','Firmware','Software','Drivers','Licencias'];
+  btns.forEach(function(txt){
+    var btn=document.createElement('button');btn.textContent=txt;
+    btn.style.cssText='background:var(--grad-btn);color:#fff;border:none;padding:10px 16px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;box-shadow:var(--shsm);transition:transform 0.15s;font-family:inherit;';
+    btn.onmouseenter=function(){this.style.transform='scale(1.05)'};
+    btn.onmouseleave=function(){this.style.transform='scale(1)'};
+    btn.onclick=function(){input.value=txt;ob.style.display='none';sendMsg()};
+    ob.appendChild(btn);
+  });
+  $('messages').appendChild(ob);$('messages').scrollTop=$('messages').scrollHeight;
+  input.disabled=false;sendBtn.disabled=false;
+  input.placeholder='Escribe un mensaje…';
+  lastHash=caseHc.length+'|0|'+(caseHc.length?caseHc[caseHc.length-1].time:'');
+  playingWelcome=false;
+}
+
 async function newCase(msg){
   if(creandoCaso)return;creandoCaso=true;casoCerrado=false;lastHash="";csatDone=false;
-  var wm={role:"assistant",author:"Asistente Sekunet",time:new Date().toISOString(),content:DEFAULT_WELCOME_MSG};
-  var ins=await db.from("sek_cases").insert({title:"Chat web — "+(clienteData?clienteData.nombre:"Cliente"),canal:"widget",estado:"ia_atendiendo",prioridad:"media",cliente:cleanCliente(clienteData),customer_phone:clienteData?clienteData.telefono:null,histcliente:[wm],histtecnico:[]}).select("id,histcliente,histtecnico").single();
+  var t=Date.now();
+  var um={role:"user",time:new Date(t).toISOString(),content:msg||""};
+  var wm={role:"assistant",author:"Asistente Sekunet",time:new Date(t+1).toISOString(),content:DEFAULT_WELCOME_MSG};
+  var wm2={role:"assistant",author:"Asistente Sekunet",time:new Date(t+2).toISOString(),content:SECOND_WELCOME_MSG};
+  var wm3={role:"assistant",author:"Asistente Sekunet",time:new Date(t+3).toISOString(),content:THIRD_WELCOME_MSG};
+  var hcInit = msg ? [um,wm,wm2,wm3] : [];
+  var ins=await db.from("sek_cases").insert({title:"Chat web — "+(clienteData?clienteData.nombre:"Cliente"),canal:"widget",estado:"ia_atendiendo",prioridad:"media",cliente:cleanCliente(clienteData),customer_phone:clienteData?clienteData.telefono:null,histcliente:hcInit,histtecnico:[]}).select("id,histcliente,histtecnico").single();
   if(ins.error){alert("Error: "+ins.error.message);creandoCaso=false;return}
-  sid=String(ins.data.id);try{localStorage.setItem("sek_session",sid);localStorage.setItem("sek_session_ver",SVER)}catch(e){}
+  sid=String(ins.data.id);try{localStorage.setItem("wgt_session",sid)}catch(e){}
   $("messages").innerHTML="";lastHash="";startRT();
   if(msg){
-    var wm2={role:"assistant",author:"Asistente Sekunet",time:new Date().toISOString(),content:SECOND_WELCOME_MSG};
-    var hc2=[wm,{role:"user",time:new Date().toISOString(),content:msg},wm2];
-    await db.from("sek_cases").update({histcliente:hc2}).eq("id",sid);
-    lastHash="";renderAll(hc2,[]);
+    var ubub=mkBubble('user',um.content,um.time);
+    $("messages").appendChild(ubub);$("messages").scrollTop=$("messages").scrollHeight;
+    await playWelcomeSequence([wm,wm2,wm3],hcInit);
   }
   creandoCaso=false;
 }
@@ -846,16 +888,21 @@ async function sendMsg(){
   /* Si no hay caso aún, crear uno con el primer mensaje */
   if(!sid){
     if(!txt&&!pendFile)return;
-    $("btn-send").disabled=true;$("txt-msg").value="";autoResize();
-    var wm={role:"assistant",author:"Asistente Sekunet",time:new Date().toISOString(),content:DEFAULT_WELCOME_MSG};
-    var um={role:"user",time:new Date().toISOString(),content:txt||"Archivo adjunto"};
-    var wm2={role:"assistant",author:"Asistente Sekunet",time:new Date().toISOString(),content:SECOND_WELCOME_MSG};
+    $('btn-send').disabled=true;$('txt-msg').value='';autoResize();
+    var t=Date.now();
+    var um={role:"user",time:new Date(t).toISOString(),content:txt||"Archivo adjunto"};
+    var wm={role:"assistant",author:"Asistente Sekunet",time:new Date(t+1).toISOString(),content:DEFAULT_WELCOME_MSG};
+    var wm2={role:"assistant",author:"Asistente Sekunet",time:new Date(t+2).toISOString(),content:SECOND_WELCOME_MSG};
+    var wm3={role:"assistant",author:"Asistente Sekunet",time:new Date(t+3).toISOString(),content:THIRD_WELCOME_MSG};
     if(pendFile){var pf=pendFile;pendFile=null;$("up-prev-bar").style.display="none";try{var pu=await uploadFile(pf);um.mediaUrl=pu.url;um.mediaType=pu.type;um.fileName=pu.name;um.content=txt||""}catch(err){alert("Error al subir: "+err.message);$("btn-send").disabled=false;return}}
-    var ins=await db.from("sek_cases").insert({title:"Chat web — "+(clienteData?clienteData.nombre:"Cliente"),canal:"widget",estado:"ia_atendiendo",prioridad:"media",cliente:cleanCliente(clienteData),customer_phone:clienteData?clienteData.telefono:null,histcliente:[wm,um,wm2],histtecnico:[]}).select("id,histcliente,histtecnico").single();
+    var hcFirst=[um,wm,wm2,wm3];
+    var ins=await db.from("sek_cases").insert({title:"Chat web — "+(clienteData?clienteData.nombre:"Cliente"),canal:"widget",estado:"ia_atendiendo",prioridad:"media",cliente:cleanCliente(clienteData),customer_phone:clienteData?clienteData.telefono:null,histcliente:hcFirst,histtecnico:[]}).select("id,histcliente,histtecnico").single();
     if(ins.error){alert("Error: "+ins.error.message);$("btn-send").disabled=false;return}
-    sid=String(ins.data.id);try{localStorage.setItem("sek_session",sid);localStorage.setItem("sek_session_ver",SVER)}catch(e){}
-    lastHash="";renderAll(ins.data.histcliente,ins.data.histtecnico);startRT();
-    $("btn-send").disabled=false;return;
+    sid=String(ins.data.id);try{localStorage.setItem("wgt_session",sid)}catch(e){}
+    startRT();
+    var ub=mkBubble('user',um.content,um.time);$("messages").appendChild(ub);$("messages").scrollTop=$("messages").scrollHeight;
+    await playWelcomeSequence([wm,wm2,wm3],hcFirst);
+    return;
   }
   if(casoCerrado){$("txt-msg").value="";await newCase(txt);return}
   $("btn-send").disabled=true;$("txt-msg").value="";autoResize();
@@ -1138,7 +1185,7 @@ $("prof-pw-save").addEventListener("click",async function(){
 
 $("prof-logout").addEventListener("click",function(){
   if(!confirm("¿Cerrar sesión? Volverá a la pantalla de inicio."))return;
-  try{localStorage.removeItem("sek_session");localStorage.removeItem("sek_session_ver")}catch(e){}
+  try{localStorage.removeItem("wgt_session");localStorage.removeItem("wgt_cliente")}catch(e){}
   sid=null;clienteData=null;
   if(rtCh)try{db.removeChannel(rtCh)}catch(e){}
   if(presCh)try{db.removeChannel(presCh)}catch(e){}
@@ -1159,14 +1206,9 @@ reqNotifPerm();
 $("txt-msg").addEventListener("focus",reqNotifPerm);
 
 /* ═══ RESTORE SESSION ═══ */
-if(sid){
-  /* Show skeleton while loading */
-  $("form-section").style.display="none";var cs=$("chat-section");cs.classList.add("active");cs.style.display="flex";cs.style.opacity="1";$("messages").appendChild(mkSkeleton());
-  db.from("sek_cases").select("id,histcliente,histtecnico,estado,cliente").eq("id",sid).eq("canal","widget").maybeSingle().then(function(res){
-    $("messages").innerHTML="";
-    if(res.data){showChat(res.data.histcliente,res.data.histtecnico,res.data.estado,res.data.cliente)}
-    else{try{localStorage.removeItem("sek_session")}catch(e){};sid=null;$("chat-section").classList.remove("active");$("chat-section").style.display="none";$("form-section").style.display="flex";$("form-section").classList.remove("hiding")}
-  });
+if(clienteData){
+  /* Cliente ya logueado — saltar formulario, chat vacío */
+  showChat([],[],"pendiente",clienteData);
 }
 })()
 </script>
