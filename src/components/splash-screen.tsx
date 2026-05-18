@@ -6,8 +6,16 @@ export function SplashScreen() {
   const [phase, setPhase] = useState<"visible" | "exiting" | "gone">("visible");
 
   useEffect(() => {
+    // Solo mostrar splash una vez por sesión
+    if (typeof window !== "undefined" && sessionStorage.getItem("splash_shown") === "1") {
+      setPhase("gone");
+      return;
+    }
     const t1 = setTimeout(() => setPhase("exiting"), 2800);
-    const t2 = setTimeout(() => setPhase("gone"), 3500);
+    const t2 = setTimeout(() => {
+      setPhase("gone");
+      try { sessionStorage.setItem("splash_shown", "1"); } catch {}
+    }, 3500);
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, []);
 

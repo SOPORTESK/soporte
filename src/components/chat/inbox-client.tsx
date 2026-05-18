@@ -428,10 +428,13 @@ export function InboxClient({
     || mergedCases.find(c => c._group?.caseIds.some(cid => String(cid) === selectedId))
     || null;
 
-  const [listWidth, setListWidth] = React.useState(() => {
-    if (typeof window === "undefined") return 340;
-    return Number(localStorage.getItem("inbox_list_width") || 340);
-  });
+  const [listWidth, setListWidth] = React.useState<number>(340);
+  const [mounted, setMounted] = React.useState(false);
+  React.useEffect(() => {
+    const stored = Number(localStorage.getItem("inbox_list_width") || 340);
+    setListWidth(stored);
+    setMounted(true);
+  }, []);
   const isDragging = React.useRef(false);
   const containerRef = React.useRef<HTMLDivElement>(null);
 
@@ -482,7 +485,7 @@ export function InboxClient({
       {/* Lista: visible en móvil solo cuando NO hay caso seleccionado */}
       <div
         className={`${selected ? "hidden md:flex" : "flex"} md:flex flex-col shrink-0 overflow-hidden w-full md:w-auto`}
-        style={{ width: typeof window !== "undefined" && window.innerWidth >= 768 ? listWidth : undefined }}
+        style={{ width: mounted && typeof window !== "undefined" && window.innerWidth >= 768 ? listWidth : undefined }}
       >
         <ConversationList cases={mergedCases} selectedId={selectedId} onSelect={selectCase} />
       </div>
