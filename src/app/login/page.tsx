@@ -69,39 +69,81 @@ function LoginPageContent() {
   return (
     <main id="main" className="min-h-dvh grid lg:grid-cols-2 px-safe">
       {/* Panel de marca */}
-      <aside className="relative hidden lg:flex flex-col p-12 gradient-brand text-white overflow-hidden">
-        <div className="absolute inset-0 opacity-20" aria-hidden style={{
-          backgroundImage: "radial-gradient(circle at 20% 20%, rgba(255,255,255,.4), transparent 40%), radial-gradient(circle at 80% 80%, rgba(255,255,255,.3), transparent 40%)"
-        }} />
-        {/* Logo */}
-        <div className="relative">
-          <div className="flex items-center gap-3">
+      <aside className="relative hidden lg:flex flex-col justify-between p-14 xl:p-16 gradient-brand text-white overflow-hidden">
+        {/* Orbes decorativos */}
+        <div className="absolute inset-0 pointer-events-none" aria-hidden>
+          <div className="absolute -top-32 -left-32 w-[500px] h-[500px] rounded-full bg-white/[0.07] blur-3xl" />
+          <div className="absolute -bottom-40 -right-40 w-[600px] h-[600px] rounded-full bg-orange-400/[0.12] blur-3xl" />
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] rounded-full bg-blue-400/[0.06] blur-2xl" />
+        </div>
+
+        {/* Logo top */}
+        <div className="relative z-10">
+          <div className="flex items-center gap-3.5">
             <div className="relative group/logo">
-              <div className="absolute -inset-2 bg-gradient-to-r from-white/30 via-blue-400/30 to-orange-400/30 rounded-3xl blur-xl opacity-70 group-hover/logo:opacity-100 transition duration-700 animate-pulse" />
-              <div className="relative w-14 h-14 rounded-2xl bg-white/10 backdrop-blur-xl p-1 shadow-2xl shadow-black/40 border border-white/30 group-hover:scale-110 transition-all duration-500">
+              <div className="absolute -inset-2 bg-gradient-to-r from-white/30 via-blue-400/30 to-orange-400/30 rounded-3xl blur-xl opacity-60 group-hover/logo:opacity-100 transition duration-700" />
+              <div className="relative w-14 h-14 rounded-2xl bg-white/10 backdrop-blur-xl p-1 shadow-2xl shadow-black/40 border border-white/30 group-hover/logo:scale-110 transition-all duration-500">
                 <div className="w-full h-full rounded-xl bg-gradient-to-br from-slate-900/80 to-slate-800/80 flex items-center justify-center overflow-hidden">
                   <Image src="/logoTienda3D.png" alt="Sekunet" width={48} height={48} priority className="object-contain drop-shadow-[0_0_25px_rgba(59,130,246,0.6)]" />
                 </div>
               </div>
             </div>
             <div>
-              <p className="text-xs uppercase tracking-widest opacity-80">Sekunet</p>
-              <p className="text-lg font-semibold">Centro de Atención</p>
+              <p className="text-[11px] uppercase tracking-[0.2em] font-semibold text-white/70">Sekunet</p>
+              <p className="text-lg font-bold leading-tight">Centro de Atención</p>
             </div>
           </div>
         </div>
+
         {/* Contenido central */}
-        <div className="relative flex-1 flex flex-col justify-center max-w-md space-y-8">
-          <h1 className="text-5xl font-black leading-[1.1] tracking-tight">Conversaciones que <span className="text-accent-300">conectan</span>.</h1>
-          <p className="text-white/80 text-lg leading-relaxed">Plataforma de atención al cliente con IA integrada, diseñada para el equipo de soporte técnico de Sekunet.</p>
-          <ul className="space-y-4 text-white/90">
-            <li className="flex items-start gap-3"><ShieldCheck className="h-5 w-5 mt-0.5 shrink-0 text-emerald-300" /> Acceso seguro con roles y permisos por agente</li>
-            <li className="flex items-start gap-3"><Lock className="h-5 w-5 mt-0.5 shrink-0 text-sky-300" /> Sesiones protegidas y datos cifrados en tránsito</li>
-          </ul>
+        <div className="relative z-10 flex-1 flex flex-col justify-center max-w-lg space-y-10 py-12">
+          {/* Badge */}
+          <div className="flex items-center gap-2 w-fit px-4 py-1.5 rounded-full bg-white/10 backdrop-blur-sm border border-white/20">
+            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-xs font-medium text-white/90 tracking-wide">Plataforma activa 24/7</span>
+          </div>
+
+          <div className="space-y-6">
+            <h1 className="text-[3.5rem] xl:text-6xl font-black leading-[1.05] tracking-tight">
+              Conversaciones que{" "}
+              <span className="relative inline-block">
+                <span className="relative z-10 text-amber-200">conectan</span>
+                <span className="absolute -bottom-1 left-0 right-0 h-3 bg-amber-400/20 rounded-full blur-sm" aria-hidden />
+              </span>
+              <span className="text-amber-200">.</span>
+            </h1>
+            <p className="text-white/75 text-lg xl:text-xl leading-relaxed max-w-md">
+              Plataforma de atención al cliente con IA integrada, diseñada para el equipo de soporte técnico de Sekunet.
+            </p>
+          </div>
+
+          {/* Features */}
+          <div className="space-y-4">
+            <div className="flex items-center gap-4 p-4 rounded-2xl bg-white/[0.07] backdrop-blur-sm border border-white/10 hover:bg-white/[0.12] transition-colors duration-300">
+              <div className="flex items-center justify-center h-10 w-10 rounded-xl bg-emerald-400/20 shrink-0">
+                <ShieldCheck className="h-5 w-5 text-emerald-300" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-white">Acceso seguro</p>
+                <p className="text-xs text-white/60">Roles y permisos granulares por agente</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4 p-4 rounded-2xl bg-white/[0.07] backdrop-blur-sm border border-white/10 hover:bg-white/[0.12] transition-colors duration-300">
+              <div className="flex items-center justify-center h-10 w-10 rounded-xl bg-sky-400/20 shrink-0">
+                <Lock className="h-5 w-5 text-sky-300" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-white">Datos protegidos</p>
+                <p className="text-xs text-white/60">Sesiones cifradas y tráfico encriptado</p>
+              </div>
+            </div>
+          </div>
         </div>
+
         {/* Footer */}
-        <div className="relative space-y-1">
-          <p className="text-xs text-white/60">© {new Date().getFullYear()} Sekunet. Desarrollado por César Andrés Batista Vargas.</p>
+        <div className="relative z-10">
+          <div className="h-px w-full bg-gradient-to-r from-transparent via-white/20 to-transparent mb-5" />
+          <p className="text-xs text-white/50">© {new Date().getFullYear()} Sekunet. Desarrollado por César Andrés Batista Vargas.</p>
         </div>
       </aside>
 
