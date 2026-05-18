@@ -339,22 +339,16 @@ export function InboxClient({
             const viejoEstado = String(oldCase2?.estado).toLowerCase();
 
             if (nuevoEstado === "escalado" && viejoEstado !== "escalado") {
-              // Registrar como pendiente para recordatorios
               const ci3 = clienteInfo(updCase.cliente);
               const name3 = ci3.nombre || ci3.telefono || asText(updCase.title) || "Cliente";
               const equipo3 = (updCase.cliente as any)?.equipo || "";
-              pendingEscaladosRef.current.set(String(updCase.id), { name: name3, equipo: equipo3 });
+              
               playEscaladoAlert();
               toast.warning(`Nueva conversación: ${name3}`, {
                 description: equipo3 ? `Equipo: ${equipo3} · Requiere atención` : "Requiere atención de un agente",
                 duration: 30000,
                 action: { label: "Atender", onClick: () => selectCase(String(updCase.id)) }
               });
-            }
-
-            // Cuando el caso es aceptado (asignado o estado cambia), quitar del pendiente
-            if (viejoEstado === "escalado" && nuevoEstado !== "escalado") {
-              pendingEscaladosRef.current.delete(String(updCase.id));
             }
           }
 
