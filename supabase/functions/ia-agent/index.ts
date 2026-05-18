@@ -641,10 +641,11 @@ Deno.serve(async (req) => {
     const { prompt: systemPrompt, iaActiva } = await loadSystemConfig();
 
     // Si el modo manual está activo, no intervenir — dejar para agentes humanos.
-    // EXCEPCIÓN: el canal `simulator` siempre debe responder, porque es el
-    // panel interno de entrenamiento. El modo manual sólo aplica a chats
-    // reales con clientes externos.
-    if (!iaActiva && !isSimulator) {
+    // EXCEPCIÓN: el canal `simulator` siempre debe responder.
+    // También permitimos que la IA responda si el caso está en su fase inicial (saludo y selección de botones, histcliente <= 4)
+    // para que el bot pueda terminar de guiar al cliente antes de escalar.
+    const isWelcomePhase = histcliente.length <= 4;
+    if (!iaActiva && !isSimulator && !isWelcomePhase) {
       console.log("[ia-agent] ia_activa=false — modo manual activo, sin respuesta automática");
       await db.from("sek_cases").update({ estado: "escalado", escalado_at: new Date().toISOString() }).eq("id", case_id);
       return new Response(JSON.stringify({ ok: true, skipped: true }), { headers: { "Content-Type": "application/json" } });
