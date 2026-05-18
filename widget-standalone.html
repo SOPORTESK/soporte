@@ -735,7 +735,7 @@ function renderAll(hc,ht){
   var isWelcome = userCount===1 && iaCount===3 && !casoCerrado;
   if(isWelcome){
     var ob=document.createElement("div");ob.style.cssText="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:12px 10px 16px;";
-    var btns=["Configuraciones","Reset","Desvinculación","Firmware","Software","Drivers","Licencias"];
+    var btns=["Configuraciones","Reset","Desvinculación","Firmware","Software","Drivers","Licencias","Otro"];
     btns.forEach(function(txt){
       var btn=document.createElement("button");btn.textContent=txt;
       btn.style.cssText="background:var(--grad-btn);color:#fff;border:none;padding:10px 16px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;box-shadow:var(--shsm);transition:transform 0.15s;font-family:inherit;";
@@ -846,7 +846,7 @@ async function playWelcomeSequence(msgs, caseHc){
   }
   /* Mostrar botones de tema */
   var ob=document.createElement('div');ob.style.cssText='display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:12px 10px 16px;';
-  var btns=['Configuraciones','Reset','Desvinculación','Firmware','Software','Drivers','Licencias'];
+  var btns=['Configuraciones','Reset','Desvinculación','Firmware','Software','Drivers','Licencias','Otro'];
   btns.forEach(function(txt){
     var btn=document.createElement('button');btn.textContent=txt;
     btn.style.cssText='background:var(--grad-btn);color:#fff;border:none;padding:10px 16px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;box-shadow:var(--shsm);transition:transform 0.15s;font-family:inherit;';
