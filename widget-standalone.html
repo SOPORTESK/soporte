@@ -918,7 +918,7 @@ async function sendMsg(){
 function invokeIA(){
   console.log("[widget] invokeIA called, case:",sid);
   showTyping(true);
-  db.functions.invoke("ia-agent",{body:{case_id:sid}}).then(function(res){
+  db.functions.invoke("seka-widget",{body:{case_id:sid}}).then(function(res){
     console.log("[widget] IA response:",res);
     showTyping(false);
     if(res.data&&res.data.ok){fetchRender()}
