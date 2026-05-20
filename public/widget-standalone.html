@@ -343,7 +343,7 @@ textarea:focus{border-color:var(--primary);background:var(--bg)}
       <button class="btn-back" id="btn-back-reg" style="background:none;border:none;color:var(--text2);font-size:13px;cursor:pointer;width:100%;margin-top:12px;font-family:inherit">← Cambiar cédula</button>
     </div>
   </div>
-  <div class="ooh-banner" id="ooh-banner">⏰ Nuestro horario de atención es de lunes a viernes, 7:30 AM a 5:00 PM. Puede dejar su mensaje y le responderemos lo antes posible.</div>
+  <div class="ooh-banner" id="ooh-banner">⏰ En este momento nos encontramos fuera de horario. Le invitamos a contactarnos de lunes a viernes, de 7:30 a. m. a 5:00 p. m. Será un gusto atenderle.</div>
   <div id="chat-section" class="chat-section">
     <div class="messages" id="messages"></div>
     <button class="scroll-btn" id="scroll-btn"><span class="ubadge" id="ubadge" style="display:none">0</span>↓</button>
@@ -435,7 +435,7 @@ try{
 
 /* ═══ BUSINESS HOURS ═══ */
 function isOpenNow(){var n=new Date();var utcH=n.getUTCHours(),utcM=n.getUTCMinutes();var crH=utcH-6;if(crH<0)crH+=24;var crMin=crH*60+utcM;var dow=n.getUTCDay();var dCr=dow;if(crH>utcH)dCr=(dow+6)%7;else dCr=dow;if(dCr===0||dCr===6)return false;return crMin>=450&&crMin<1020}
-function checkOOH(){var open=isOpenNow();$("ooh-banner").classList.toggle("vis",!open);if(open){$("status-text").textContent=agenteName?agenteName+" · En línea":"En línea · Disponible";$("status-dot").className="status-dot online"}else{$("status-text").textContent="Fuera de horario · Deje su mensaje";$("status-dot").className="status-dot offline"}}
+function checkOOH(){var open=isOpenNow();$("ooh-banner").classList.toggle("vis",!open);if(open){$("status-text").textContent=agenteName?agenteName+" · En línea":"En línea · Disponible";$("status-dot").className="status-dot online"}else{$("status-text").textContent="Fuera de horario · No disponible";$("status-dot").className="status-dot offline"}}
 checkOOH();setInterval(checkOOH,60000);
 
 /* ═══ BROWSER NOTIFICATIONS ═══ */
@@ -459,7 +459,7 @@ $("btn-sound").addEventListener("click",function(){soundOff=!soundOff;this.textC
 
 /* ═══ CONNECTION ═══ */
 var _connReconTmr=null,_lastConnState="online";
-function _applyConnSt(s){var d=$("status-dot"),t=$("status-text");if(s==="online"&&!isOpenNow()){d.className="status-dot offline";t.textContent="Fuera de horario · Deje su mensaje";return}d.className="status-dot "+s;t.textContent=s==="online"?(agenteName?agenteName+" · En línea":"En línea · Disponible"):s==="offline"?"Sin conexión":"Reconectando…"}
+function _applyConnSt(s){var d=$("status-dot"),t=$("status-text");if(s==="online"&&!isOpenNow()){d.className="status-dot offline";t.textContent="Fuera de horario · No disponible";return}d.className="status-dot "+s;t.textContent=s==="online"?(agenteName?agenteName+" · En línea":"En línea · Disponible"):s==="offline"?"Sin conexión":"Reconectando…"}
 function connSt(s){
   if(s==="reconnecting"){
     if(navigator.onLine===false){s="offline"}
@@ -792,7 +792,7 @@ function emitTyping(){if(!presCh)return;presCh.track({role:"cliente",typing:true
 
 /* ═══ LOCK CHAT (caso cerrado) ═══ */
 function lockChat(){casoCerrado=true;if(pollTmr){clearInterval(pollTmr);pollTmr=null}$("txt-msg").placeholder="Escribe para iniciar una nueva conversacion...";$("txt-msg").disabled=false;$("btn-send").disabled=false;$("btn-attach").disabled=false;$("btn-mic").disabled=false;$("btn-vid").disabled=false;if(!csatDone){setTimeout(showCSAT,800)}}
-function showEscalado(){if(!isOpenNow()){$("status-text").textContent="Fuera de horario · Deje su mensaje";$("status-dot").className="status-dot offline";return}$("status-text").textContent="Conectando con un agente...";$("status-dot").className="status-dot reconnecting"}
+function showEscalado(){if(!isOpenNow()){$("status-text").textContent="Fuera de horario · No disponible";$("status-dot").className="status-dot offline";return}$("status-text").textContent="Conectando con un agente...";$("status-dot").className="status-dot reconnecting"}
 
 /* ═══ SHOW CHAT ═══ */
 function showChat(hc,ht,estado,cl){
