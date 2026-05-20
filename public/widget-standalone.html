@@ -707,12 +707,16 @@ function mkCheck(double,blue){
 }
 
 function renderAll(hc,ht){
+  // Limpiar mensajes temporales (sending) antes de renderizar
+  var tempBubbles=document.querySelectorAll(".sending");
+  tempBubbles.forEach(function(b){b.remove()});
+  
   var all=[];
   var seen=new Set();
   // histtecnico tiene prioridad (agentes humanos) — agregar primero y registrar sus tiempos
   (ht||[]).forEach(function(e){if(e.role==="nota")return;var k=(e.time||"")+"_"+(e.mediaUrl||"");seen.add(k);all.push({role:e.role==="assistant"?"ia":"tecnico",content:e.content,mediaUrl:e.mediaUrl,mediaType:e.mediaType,fileName:e.fileName,time:e.time,read_at:e.read_at})});
   // histcliente: mostrar user y assistant (IA), pero omitir cualquier cosa que ya esté en histtecnico
-  (hc||[]).forEach(function(e){var r=e.role||"user";var k=(e.time||"")+"_"+(e.mediaUrl||"");if(seen.has(k))return;if(r==="user"||r==="assistant")all.push({role:r==="assistant"?"ia":"user",content:e.content,mediaUrl:e.mediaUrl,mediaType:e.mediaType,fileName:e.fileName,time:e.time,read_at:e.read_at})});
+  (hc||[]).forEach(function(e){var r=e.role||"user";var k=(e.time||"")+"_"+(e.mediaUrl||"");if(seen.has(k))return;if(r==="user"||r==="assistant"||r==="ia")all.push({role:(r==="assistant"||r==="ia")?"ia":"user",content:e.content,mediaUrl:e.mediaUrl,mediaType:e.mediaType,fileName:e.fileName,time:e.time,read_at:e.read_at})});
   all.sort(function(a,b){return new Date(a.time)-new Date(b.time)});
   var c=$("messages");
   var opts=[];c.querySelectorAll(".optimista").forEach(function(el){opts.push(el)});
@@ -875,8 +879,7 @@ async function newCase(msg){
   sid=String(ins.data.id);try{localStorage.setItem("wgt_session",sid)}catch(e){}
   $("messages").innerHTML="";lastHash="";startRT();
   if(msg){
-    var ubub=mkBubble('user',um.content,um.time);
-    $("messages").appendChild(ubub);$("messages").scrollTop=$("messages").scrollHeight;
+    // No mostrar mensaje inmediatamente - esperar fetchRender() del backend
     await playWelcomeSequence([wm,wm2,wm3],hcInit);
   }
   creandoCaso=false;
@@ -900,7 +903,7 @@ async function sendMsg(){
     if(ins.error){alert("Error: "+ins.error.message);$("btn-send").disabled=false;return}
     sid=String(ins.data.id);try{localStorage.setItem("wgt_session",sid)}catch(e){}
     startRT();
-    var ub=mkBubble('user',um.content,um.time);$("messages").appendChild(ub);$("messages").scrollTop=$("messages").scrollHeight;
+    // No mostrar mensaje inmediatamente - esperar fetchRender() del backend
     await playWelcomeSequence([wm,wm2,wm3],hcFirst);
     return;
   }
@@ -908,9 +911,14 @@ async function sendMsg(){
   $("btn-send").disabled=true;$("txt-msg").value="";autoResize();
   var entry={role:"user",time:new Date().toISOString(),content:txt||"Archivo adjunto"};
   if(pendFile){var f=pendFile;pendFile=null;$("up-prev-bar").style.display="none";try{var up=await uploadFile(f);entry.mediaUrl=up.url;entry.mediaType=up.type;entry.fileName=up.name;entry.content=txt||""}catch(err){alert("Error al subir: "+err.message);$("btn-send").disabled=false;return}}
-  var ow=mkBubble("user",entry.content,entry.time,entry.mediaUrl,entry.mediaType,entry.fileName);ow.classList.add("optimista");ow.dataset.optContent=entry.content||"";ow.dataset.optMedia=entry.mediaUrl||"";
-  var mc=$("messages");mc.appendChild(ow);mc.scrollTop=mc.scrollHeight;haptic(15);
+  // Mostrar indicador temporal mientras se envía
+  var tempBubble = mkBubble("user",entry.content,entry.time,entry.mediaUrl,entry.mediaType,entry.fileName);
+  tempBubble.classList.add("sending");
+  tempBubble.style.opacity = "0.6";
+  var mc=$("messages");mc.appendChild(tempBubble);mc.scrollTop=mc.scrollHeight;
   var r=await db.from("sek_cases").select("histcliente,estado,assigned_to").eq("id",sid).maybeSingle();var h=(r.data&&Array.isArray(r.data.histcliente))?r.data.histcliente:[];h.push(entry);await db.from("sek_cases").update({histcliente:h}).eq("id",sid);$('btn-send').disabled=false;
+  // Esperar a que el backend confirme y renderizar en orden correcto
+  setTimeout(fetchRender, 300);
   var est=r.data?r.data.estado:"";console.log("[widget] sendMsg estado:",est,"assigned:",r.data?r.data.assigned_to:null);if(est==="ia_atendiendo"||(est==="abierto"&&!r.data.assigned_to)){if(est==="abierto"){await db.from("sek_cases").update({estado:"ia_atendiendo"}).eq("id",sid)}invokeIA()}else{console.log("[widget] IA NOT invoked, estado:",est)}
 }
 
@@ -919,15 +927,15 @@ function invokeIA(){
   console.log("[widget] invokeIA called, case:",sid);
   showTyping(true);
   db.functions.invoke("seka-widget",{body:{case_id:sid}}).then(function(res){
-    console.log("[widget] IA response:",res);
+    console.log("[widget] IA response full:",JSON.stringify(res));
     showTyping(false);
-    if(res.data&&res.data.ok){fetchRender()}
-    else if(res.error){console.error("[widget] IA error:",res.error);fetchRender()}
-    else{fetchRender()}
+    lastHash="";
+    setTimeout(fetchRender,400);
   }).catch(function(e){
     console.error("[widget] IA catch error:",e);
     showTyping(false);
-    fetchRender();
+    lastHash="";
+    setTimeout(fetchRender,400);
   });
 }
 

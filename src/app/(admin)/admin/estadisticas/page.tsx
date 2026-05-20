@@ -1,7 +1,9 @@
 import { createClient } from "@/lib/supabase/server";
-import { Users, TrendingUp, CheckCircle, Star, ArrowUpRight, Repeat2, AlertCircle, BarChart3, TrendingDown, Minus, ExternalLink, Cpu, Wrench, Clock, Zap, Activity, Globe, UserPlus, ShieldAlert, ShieldBan, ShieldCheck } from "lucide-react";
+import { Users, TrendingUp, CheckCircle, Star, ArrowUpRight, Repeat2, BarChart3, TrendingDown, Minus, ExternalLink, Cpu, Wrench, Clock, Activity, Globe, UserPlus, ShieldAlert, ShieldBan, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { StatsExportButton } from "@/components/admin/stats-export-button";
+import { ClientProfilePanel } from "@/components/admin/client-profile-panel";
+import type { PerfilClienteDTO } from "@/components/admin/client-profile-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -23,9 +25,6 @@ export default async function EstadisticasClientePage() {
 
   // ── Fechas
   const hoy = new Date(); hoy.setHours(0,0,0,0);
-  const hace7 = new Date(hoy); hace7.setDate(hoy.getDate() - 7);
-  const hace14 = new Date(hoy); hace14.setDate(hoy.getDate() - 14);
-  const hace30 = new Date(hoy); hace30.setDate(hoy.getDate() - 30);
 
   // ── Parsear cliente helper
   const parseCliente = (raw: unknown): { nombre: string; telefono: string; correo: string; cedula: string } => {
@@ -131,38 +130,7 @@ export default async function EstadisticasClientePage() {
   const pctRecurrencia = totalClientes > 0 ? Math.round((clientesRecurrentes / totalClientes) * 100) : 0;
   const clientesActivos = topClientes.filter(c => c.abiertos > 0).length;
 
-  const todasCals = topClientes.flatMap(c => c.calificaciones);
-  const avgSat = todasCals.length > 0 ? (todasCals.reduce((a, b) => a + b, 0) / todasCals.length).toFixed(1) : "N/A";
-  const promotores = todasCals.filter(c => c >= 4).length;
-  const detractores = todasCals.filter(c => c <= 2).length;
-  const nps = todasCals.length > 0 ? Math.round(((promotores - detractores) / todasCals.length) * 100) : null;
-
   const totalCasos = (casos || []).length;
-  const casos7d = (casos || []).filter(c => new Date(c.created_at) >= hace7).length;
-  const casosAntes7d = (casos || []).filter(c => new Date(c.created_at) >= hace14 && new Date(c.created_at) < hace7).length;
-  const tendencia7d = casosAntes7d > 0 ? Math.round(((casos7d - casosAntes7d) / casosAntes7d) * 100) : 0;
-
-  // ── Tiempo promedio apertura→cierre (solo estados terminales, descarta outliers > 30 días)
-  // Nota: usa updated_at como proxy del cierre; es válido si el estado es "resuelto" o "cerrado"
-  // y el caso no fue reabierto. Se excluyen casos con diff <= 0 (datos corruptos).
-  const tiemposRes: number[] = [];
-  (casos || []).forEach(c => {
-    if ((c.estado === "resuelto" || c.estado === "cerrado") && c.created_at && c.updated_at) {
-      const diff = Math.round((new Date(c.updated_at).getTime() - new Date(c.created_at).getTime()) / 60000);
-      if (diff > 0 && diff < 43200) tiemposRes.push(diff); // 43200 min = 30 días
-    }
-  });
-  const avgResMin = tiemposRes.length > 0 ? Math.round(tiemposRes.reduce((a, b) => a + b, 0) / tiemposRes.length) : 0;
-  const formatTiempo = (min: number) => {
-    if (min < 60) return { value: min.toString(), unit: "min" };
-    if (min < 1440) return { value: (min / 60).toFixed(1), unit: "hrs" };
-    return { value: (min / 1440).toFixed(1), unit: "días" };
-  };
-  const avgResFormatted = formatTiempo(avgResMin);
-
-  // ── Tasa de resolución rápida (< 24h)
-  const resueltosRapido = tiemposRes.filter(t => t <= 1440).length;
-  const tasaRapida = tiemposRes.length > 0 ? Math.round((resueltosRapido / tiemposRes.length) * 100) : 0;
 
   // ── Distribución por canal
   const canalCount: Record<string, number> = {};
@@ -210,38 +178,117 @@ export default async function EstadisticasClientePage() {
     .eq("bloqueado", true)
     .order("fecha_bloqueo", { ascending: false });
 
-  // ── Ranking de agentes por tiempo de respuesta (escalado_at → accepted_at)
-  let casosConTiempo: any[] = [];
-  try {
-    const { data } = await supabase
-      .from("sek_cases")
-      .select("assigned_to, escalado_at, accepted_at")
-      .not("escalado_at", "is", null)
-      .not("accepted_at", "is", null)
-      .not("assigned_to", "is", null);
-    casosConTiempo = data || [];
-  } catch { casosConTiempo = []; }
-
-  const agentTiempos: Record<string, { total: number; suma: number; min: number; max: number }> = {};
-  casosConTiempo.forEach((c: any) => {
-    if (!c.assigned_to || !c.escalado_at || !c.accepted_at) return;
-    const diff = Math.round((new Date(c.accepted_at).getTime() - new Date(c.escalado_at).getTime()) / 60000);
-    if (diff < 0 || diff > 480) return; // descartar negativos y > 8h
-    if (!agentTiempos[c.assigned_to]) agentTiempos[c.assigned_to] = { total: 0, suma: 0, min: diff, max: diff };
-    const a = agentTiempos[c.assigned_to];
-    a.total++; a.suma += diff;
-    if (diff < a.min) a.min = diff;
-    if (diff > a.max) a.max = diff;
-  });
-  const rankingAgentes = Object.entries(agentTiempos)
-    .map(([email, s]) => ({ email, promedio: Math.round(s.suma / s.total), min: s.min, max: s.max, total: s.total }))
-    .sort((a, b) => a.promedio - b.promedio);
-
   // ── Clientes en riesgo: casos abiertos hace más de 3 días sin actualización
   const hace3 = new Date(hoy); hace3.setDate(hoy.getDate() - 3);
   const clientesRiesgo = topClientes
     .filter(c => c.abiertos > 0 && new Date(c.ultimoCaso) < hace3)
     .sort((a, b) => new Date(a.ultimoCaso).getTime() - new Date(b.ultimoCaso).getTime());
+
+  // ══════════════════════════════════════════════════════════════════
+  // PERFIL DEL CLIENTE — cálculos enriquecidos
+  // ══════════════════════════════════════════════════════════════════
+
+  type PerfilCliente = {
+    nombre: string; telefono: string; correo: string; cedula: string;
+    total: number; resueltos: number; abiertos: number;
+    primerCaso: string; ultimoCaso: string; ultimoCasoId: string | number;
+    canales: Record<string, number>; cats: string[]; calificaciones: number[];
+    // Nuevos campos de perfil
+    antiguedadDias: number;          // días desde el primer caso
+    diasSinContacto: number;         // días desde último caso
+    frecuenciaMes: number;           // casos/mes promedio
+    tipo: "nuevo" | "ocasional" | "recurrente" | "frecuente";
+    tendencia: "subiendo" | "estable" | "bajando";
+    healthScore: number;             // 0-100
+    salud: "saludable" | "atencion" | "riesgo";
+    avgCal: number | null;
+    canalPreferido: string;
+  };
+
+  const hace30b = new Date(hoy); hace30b.setDate(hoy.getDate() - 30);
+  const hace60b = new Date(hoy); hace60b.setDate(hoy.getDate() - 60);
+
+  // Mapa key → casos del cliente para tendencia
+  const casosPorCliente: Record<string, any[]> = {};
+  (casos || []).forEach(c => {
+    const { cedula, correo, telefono } = parseCliente(c.cliente);
+    const key = cedula || correo || (telefono !== "—" ? telefono : `_id_${c.id}`);
+    if (!casosPorCliente[key]) casosPorCliente[key] = [];
+    casosPorCliente[key].push(c);
+  });
+
+  const perfiles: PerfilCliente[] = topClientes.map(c => {
+    const key = c.cedula || c.correo || (c.telefono !== "—" ? c.telefono : "");
+    const casosCliente = casosPorCliente[key] || [];
+
+    const antiguedadDias = Math.max(1, Math.floor((hoy.getTime() - new Date(c.primerCaso).getTime()) / 86400000));
+    const diasSinContacto = Math.floor((hoy.getTime() - new Date(c.ultimoCaso).getTime()) / 86400000);
+    const meses = Math.max(1, antiguedadDias / 30);
+    const frecuenciaMes = +(c.total / meses).toFixed(2);
+
+    // Tipo de cliente
+    let tipo: PerfilCliente["tipo"] = "nuevo";
+    if (c.total >= 10) tipo = "frecuente";
+    else if (c.total >= 4) tipo = "recurrente";
+    else if (c.total >= 2) tipo = "ocasional";
+
+    // Tendencia: comparar últimos 30d vs 30-60d
+    const casos30 = casosCliente.filter(x => new Date(x.created_at) >= hace30b).length;
+    const casos60 = casosCliente.filter(x => new Date(x.created_at) >= hace60b && new Date(x.created_at) < hace30b).length;
+    let tendencia: PerfilCliente["tendencia"] = "estable";
+    if (casos30 > casos60 && casos30 >= 2) tendencia = "subiendo";
+    else if (casos30 < casos60 && casos60 >= 2) tendencia = "bajando";
+
+    // Calificación promedio
+    const avgCal = c.calificaciones.length > 0 ? c.calificaciones.reduce((a, b) => a + b, 0) / c.calificaciones.length : null;
+
+    // Canal preferido
+    const canalPreferido = Object.entries(c.canales).sort(([, a], [, b]) => b - a)[0]?.[0] || "web";
+
+    // Health score (0-100)
+    let score = 50;
+    // Resolución: hasta +25
+    const tasaRes = c.total > 0 ? c.resueltos / c.total : 0;
+    score += tasaRes * 25;
+    // Calificación: hasta +15 / -15
+    if (avgCal !== null) score += (avgCal - 3) * 7.5;
+    // Casos abiertos: -5 por cada uno (max -20)
+    score -= Math.min(c.abiertos * 5, 20);
+    // Días sin contacto: penalizar si > 90 días tras tener problema
+    if (diasSinContacto > 90 && c.total > 0) score -= 15;
+    // Tendencia subiendo es buena para engagement, mala si abiertos crecen
+    if (tendencia === "subiendo" && c.abiertos > 0) score -= 10;
+    // Bonus por antigüedad
+    if (antiguedadDias > 180) score += 5;
+    score = Math.max(0, Math.min(100, Math.round(score)));
+
+    let salud: PerfilCliente["salud"] = "saludable";
+    if (score < 40) salud = "riesgo";
+    else if (score < 70) salud = "atencion";
+
+    return { ...c, antiguedadDias, diasSinContacto, frecuenciaMes, tipo, tendencia, healthScore: score, salud, avgCal, canalPreferido };
+  });
+
+  // KPIs de perfil global
+  const saludables = perfiles.filter(p => p.salud === "saludable").length;
+  const enAtencion = perfiles.filter(p => p.salud === "atencion").length;
+  const enRiesgoSalud = perfiles.filter(p => p.salud === "riesgo").length;
+  const antiguedadProm = perfiles.length > 0 ? Math.round(perfiles.reduce((a, b) => a + b.antiguedadDias, 0) / perfiles.length) : 0;
+  const frecuenciaProm = perfiles.length > 0 ? +(perfiles.reduce((a, b) => a + b.frecuenciaMes, 0) / perfiles.length).toFixed(2) : 0;
+
+  // Heatmap horarios × días (de todos los casos)
+  // 7 filas (Dom..Sáb) × 4 franjas (madrugada, mañana, tarde, noche)
+  const franjas = ["Madrugada", "Mañana", "Tarde", "Noche"]; // 0-5, 6-11, 12-17, 18-23
+  const dias = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+  const heatmap: number[][] = Array.from({ length: 7 }, () => Array(4).fill(0));
+  (casos || []).forEach(c => {
+    const d = new Date(c.created_at);
+    const dia = d.getDay();
+    const h = d.getHours();
+    const fr = h < 6 ? 0 : h < 12 ? 1 : h < 18 ? 2 : 3;
+    heatmap[dia][fr]++;
+  });
+  const heatmapMax = Math.max(...heatmap.flat(), 1);
 
   const nowStr = new Date().toLocaleString("es-CR", { timeZone: "America/Costa_Rica", dateStyle: "long", timeStyle: "short" });
 
@@ -311,10 +358,10 @@ export default async function EstadisticasClientePage() {
         {[
           { label: "Clientes", value: totalClientes.toString(), icon: Users, color: "text-brand-500", gradient: "from-brand-500/15 to-brand-500/5", sub: `${clientesActivos} activos` },
           { label: "Recurrencia", value: `${pctRecurrencia}%`, icon: Repeat2, color: "text-violet-500", gradient: "from-violet-500/15 to-violet-500/5", sub: `${clientesRecurrentes} repiten` },
-          { label: "CSAT", value: avgSat !== "N/A" ? `${avgSat}` : "—", icon: Star, color: "text-amber-400", gradient: "from-amber-400/15 to-amber-400/5", sub: `${todasCals.length} ratings` },
-          { label: "NPS", value: nps === null ? "—" : `${nps > 0 ? "+" : ""}${nps}`, icon: TrendingUp, color: nps === null ? "text-muted-foreground" : nps >= 50 ? "text-emerald-500" : nps >= 0 ? "text-amber-400" : "text-rose-500", gradient: nps !== null && nps >= 50 ? "from-emerald-500/15 to-emerald-500/5" : "from-amber-400/15 to-amber-400/5", sub: `${promotores}P · ${detractores}D` },
-          { label: "T. Resolución", value: tiemposRes.length > 0 ? avgResFormatted.value : "—", icon: Clock, color: "text-sky-500", gradient: "from-sky-500/15 to-sky-500/5", sub: tiemposRes.length > 0 ? `${avgResFormatted.unit} apertura→cierre` : "sin datos aún" },
-          { label: "Resueltos <24h", value: tiemposRes.length > 0 ? `${tasaRapida}%` : "—", icon: Zap, color: "text-emerald-500", gradient: "from-emerald-500/15 to-emerald-500/5", sub: tiemposRes.length > 0 ? `${resueltosRapido} de ${tiemposRes.length}` : "sin datos aún" },
+          { label: "Frecuencia", value: frecuenciaProm.toString(), icon: Activity, color: "text-amber-400", gradient: "from-amber-400/15 to-amber-400/5", sub: "casos / mes" },
+          { label: "Antigüedad", value: antiguedadProm > 365 ? `${(antiguedadProm/365).toFixed(1)}a` : antiguedadProm > 30 ? `${Math.round(antiguedadProm/30)}m` : `${antiguedadProm}d`, icon: Clock, color: "text-sky-500", gradient: "from-sky-500/15 to-sky-500/5", sub: "promedio cartera" },
+          { label: "Saludables", value: totalClientes > 0 ? `${Math.round((saludables / totalClientes) * 100)}%` : "—", icon: ShieldCheck, color: "text-sky-500", gradient: "from-sky-500/15 to-sky-500/5", sub: `${saludables} de ${totalClientes}` },
+          { label: "En Riesgo", value: enRiesgoSalud.toString(), icon: ShieldAlert, color: enRiesgoSalud > 0 ? "text-rose-500" : "text-muted-foreground", gradient: enRiesgoSalud > 0 ? "from-rose-500/15 to-rose-500/5" : "from-muted/15 to-muted/5", sub: `${enAtencion} en atención` },
         ].map((k, i) => (
           <div key={i} className="group relative rounded-2xl border border-border/60 bg-gradient-to-br from-card to-card/80 p-4 overflow-hidden hover:border-border hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300">
             <div className={`absolute inset-0 bg-gradient-to-br ${k.gradient} opacity-0 group-hover:opacity-100 transition-opacity duration-500`} />
@@ -379,43 +426,59 @@ export default async function EstadisticasClientePage() {
           </div>
         </div>
 
-        {/* ── Distribución por estado (donut visual) ── */}
+        {/* ── Salud de Clientes (donut visual) ── */}
         <div className="lg:col-span-4 rounded-2xl border border-border/60 bg-card p-5">
           <div className="flex items-center gap-2.5 mb-4">
-            <div className="h-7 w-7 rounded-lg bg-emerald-500/10 text-emerald-500 grid place-items-center">
-              <CheckCircle className="h-3.5 w-3.5" />
+            <div className="h-7 w-7 rounded-lg bg-sky-500/10 text-sky-500 grid place-items-center">
+              <ShieldCheck className="h-3.5 w-3.5" />
             </div>
             <div>
-              <h3 className="text-sm font-black">Resolución</h3>
-              <p className="text-[10px] text-muted-foreground">Estado de casos</p>
+              <h3 className="text-sm font-black">Salud de Clientes</h3>
+              <p className="text-[10px] text-muted-foreground">Score basado en comportamiento</p>
             </div>
           </div>
           <div className="flex items-center justify-center my-4">
             <div className="relative h-28 w-28">
               <svg viewBox="0 0 36 36" className="h-full w-full -rotate-90">
                 <circle cx="18" cy="18" r="14" fill="none" stroke="currentColor" className="text-muted/30" strokeWidth="3.5" />
-                <circle cx="18" cy="18" r="14" fill="none" stroke="currentColor" className="text-emerald-500"
-                  strokeWidth="3.5" strokeDasharray={`${totalCasos > 0 ? ((casos || []).filter(c => c.estado === "resuelto" || c.estado === "cerrado").length / totalCasos) * 88 : 0} 88`} strokeLinecap="round" />
+                {/* Saludable (azul) */}
+                <circle cx="18" cy="18" r="14" fill="none" stroke="currentColor" className="text-sky-500"
+                  strokeWidth="3.5"
+                  strokeDasharray={`${totalClientes > 0 ? (saludables / totalClientes) * 88 : 0} 88`}
+                  strokeDashoffset="0"
+                  strokeLinecap="butt" />
+                {/* Atención (ámbar) */}
+                <circle cx="18" cy="18" r="14" fill="none" stroke="currentColor" className="text-amber-400"
+                  strokeWidth="3.5"
+                  strokeDasharray={`${totalClientes > 0 ? (enAtencion / totalClientes) * 88 : 0} 88`}
+                  strokeDashoffset={`${totalClientes > 0 ? -((saludables / totalClientes) * 88) : 0}`}
+                  strokeLinecap="butt" />
+                {/* Riesgo (fucsia) */}
+                <circle cx="18" cy="18" r="14" fill="none" stroke="currentColor" className="text-rose-500"
+                  strokeWidth="3.5"
+                  strokeDasharray={`${totalClientes > 0 ? (enRiesgoSalud / totalClientes) * 88 : 0} 88`}
+                  strokeDashoffset={`${totalClientes > 0 ? -(((saludables + enAtencion) / totalClientes) * 88) : 0}`}
+                  strokeLinecap="butt" />
               </svg>
               <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-2xl font-black text-emerald-500 tabular-nums">
-                  {totalCasos > 0 ? Math.round(((casos || []).filter(c => c.estado === "resuelto" || c.estado === "cerrado").length / totalCasos) * 100) : 0}%
+                <span className="text-2xl font-black text-sky-500 tabular-nums">
+                  {totalClientes > 0 ? Math.round((saludables / totalClientes) * 100) : 0}%
                 </span>
-                <span className="text-[9px] text-muted-foreground font-bold">resueltos</span>
+                <span className="text-[9px] text-muted-foreground font-bold">saludables</span>
               </div>
             </div>
           </div>
           <div className="space-y-2">
             {[
-              { label: "Resueltos", count: (casos || []).filter(c => c.estado === "resuelto" || c.estado === "cerrado").length, color: "bg-emerald-500", text: "text-emerald-500" },
-              { label: "Activos", count: (casos || []).filter(c => ["abierto","asignado","pendiente"].includes(c.estado || "")).length, color: "bg-brand-500", text: "text-brand-500" },
-              { label: "Escalados", count: (casos || []).filter(c => c.estado === "escalado").length, color: "bg-rose-500", text: "text-rose-500" },
+              { label: "Saludable", count: saludables, color: "bg-sky-500", text: "text-sky-500", hash: "clientes-saludable" },
+              { label: "Atención", count: enAtencion, color: "bg-amber-400", text: "text-amber-400", hash: "clientes-atencion" },
+              { label: "Riesgo", count: enRiesgoSalud, color: "bg-rose-500", text: "text-rose-500", hash: "clientes-riesgo" },
             ].map(row => (
-              <div key={row.label} className="flex items-center gap-2.5 p-2 rounded-lg hover:bg-muted/30 transition-colors">
+              <a key={row.label} href={`#${row.hash}`} className="flex items-center gap-2.5 p-2 rounded-lg hover:bg-muted/30 transition-colors cursor-pointer group">
                 <span className={`h-2.5 w-2.5 rounded-full ${row.color} shrink-0`} />
-                <span className="text-xs text-muted-foreground flex-1">{row.label}</span>
+                <span className="text-xs text-muted-foreground flex-1 group-hover:text-foreground transition-colors">{row.label}</span>
                 <span className={`text-xs font-black tabular-nums ${row.text}`}>{row.count}</span>
-              </div>
+              </a>
             ))}
           </div>
         </div>
@@ -524,6 +587,71 @@ export default async function EstadisticasClientePage() {
             )}
           </div>
         </div>
+      </section>
+
+      {/* ══════════════════════════════════════════════════════════════════
+          HEATMAP — Patrones de contacto (día × franja horaria)
+      ══════════════════════════════════════════════════════════════════ */}
+      <section className="rounded-2xl border border-border/60 bg-card p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2.5">
+            <div className="h-7 w-7 rounded-lg bg-violet-500/10 text-violet-500 grid place-items-center">
+              <Activity className="h-3.5 w-3.5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-black">Patrones de Contacto</h3>
+              <p className="text-[10px] text-muted-foreground">Cuándo escriben sus clientes — día × franja horaria</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-[9px] text-muted-foreground">
+            <span>Menor</span>
+            <div className="flex gap-0.5">
+              {[0.1, 0.25, 0.5, 0.75, 1].map((o, i) => (
+                <span key={i} className="h-3 w-3 rounded-sm bg-violet-500" style={{ opacity: o }} />
+              ))}
+            </div>
+            <span>Mayor</span>
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr>
+                <th className="px-2 py-1.5 text-left text-[9px] font-black uppercase tracking-widest text-muted-foreground/60 w-16"></th>
+                {franjas.map(f => (
+                  <th key={f} className="px-2 py-1.5 text-center text-[9px] font-black uppercase tracking-widest text-muted-foreground/60">{f}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {dias.map((dia, i) => (
+                <tr key={dia}>
+                  <td className="px-2 py-1.5 text-[10px] font-black text-muted-foreground/70 uppercase">{dia}</td>
+                  {heatmap[i].map((count, j) => {
+                    const intensity = count / heatmapMax;
+                    const opacity = count === 0 ? 0.04 : Math.max(0.15, intensity);
+                    return (
+                      <td key={j} className="px-1 py-1">
+                        <div
+                          className="h-9 rounded-md flex items-center justify-center text-[10px] font-bold transition-all hover:ring-2 hover:ring-violet-500/40"
+                          style={{ backgroundColor: `rgba(139, 92, 246, ${opacity})` }}
+                          title={`${dia} ${franjas[j]}: ${count} casos`}
+                        >
+                          <span className={count > 0 ? "text-white" : "text-muted-foreground/30"}>
+                            {count > 0 ? count : "·"}
+                          </span>
+                        </div>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="text-[9px] text-muted-foreground/60 mt-3">
+          Madrugada: 0–6h · Mañana: 6–12h · Tarde: 12–18h · Noche: 18–24h
+        </p>
       </section>
 
       {/* ══════════════════════════════════════════════════════════════════
@@ -636,177 +764,33 @@ export default async function EstadisticasClientePage() {
       </section>
 
       {/* ══════════════════════════════════════════════════════════════════
-          TOP CLIENTES TABLE — Premium data table
+          PERFIL DE CLIENTES — Tabla interactiva con filtros y perfil expandible
       ══════════════════════════════════════════════════════════════════ */}
-      <div className="rounded-2xl border border-border/60 bg-card overflow-hidden">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-5 py-4 border-b border-border/50 bg-gradient-to-r from-brand-500/5 to-transparent">
-          <div className="flex items-center gap-2.5">
-            <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-brand-500/20 to-brand-600/20 text-brand-500 grid place-items-center">
-              <Users className="h-4 w-4" />
-            </div>
-            <div>
-              <h3 className="font-black text-sm">Top Clientes</h3>
-              <p className="text-[10px] text-muted-foreground">Por volumen de casos · {topClientes.filter(c => c.total > 1).length} recurrentes</p>
-            </div>
-          </div>
-          <StatsExportButton
-            data={topClientes.map(c => ({
-              Cliente: c.nombre, Telefono: c.telefono,
-              Total_Casos: c.total, Resueltos: c.resueltos, Abiertos: c.abiertos,
-              Calificacion_Avg: c.calificaciones.length > 0 ? (c.calificaciones.reduce((a,b) => a+b,0)/c.calificaciones.length).toFixed(1) : "N/A",
-              Canal_Principal: Object.entries(c.canales).sort(([,a],[,b]) => b-a)[0]?.[0] || "—",
-              Primer_Caso: new Date(c.primerCaso).toLocaleDateString("es-CR"),
-              Ultimo_Caso: new Date(c.ultimoCaso).toLocaleDateString("es-CR"),
-            }))}
-            fileName="Reporte_Clientes_Sekunet"
-          />
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border/30 bg-muted/5">
-                <th className="px-5 py-3 text-left text-[9px] font-black uppercase tracking-widest text-muted-foreground/60 w-8">#</th>
-                <th className="px-4 py-3 text-left text-[9px] font-black uppercase tracking-widest text-muted-foreground/60">Cliente</th>
-                <th className="px-3 py-3 text-center text-[9px] font-black uppercase tracking-widest text-muted-foreground/60">Casos</th>
-                <th className="px-3 py-3 text-center text-[9px] font-black uppercase tracking-widest text-muted-foreground/60">Resueltos</th>
-                <th className="px-3 py-3 text-center text-[9px] font-black uppercase tracking-widest text-muted-foreground/60">Activos</th>
-                <th className="px-3 py-3 text-center text-[9px] font-black uppercase tracking-widest text-muted-foreground/60">Rating</th>
-                <th className="px-3 py-3 text-center text-[9px] font-black uppercase tracking-widest text-muted-foreground/60">Canal</th>
-                <th className="px-3 py-3 text-right text-[9px] font-black uppercase tracking-widest text-muted-foreground/60">Último</th>
-                <th className="px-3 py-3 w-8"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/30">
-              {topClientes.length === 0 ? (
-                <tr><td colSpan={9} className="py-16 text-center text-sm text-muted-foreground">Sin datos de clientes.</td></tr>
-              ) : topClientes.slice(0, 20).map((c, i) => {
-                const tasa = c.total > 0 ? Math.round((c.resueltos / c.total) * 100) : 0;
-                const canalPrincipal = Object.entries(c.canales).sort(([,a],[,b]) => b-a)[0]?.[0] || "web";
-                const avgCal = c.calificaciones.length > 0 ? (c.calificaciones.reduce((a, b) => a + b, 0) / c.calificaciones.length).toFixed(1) : null;
-                const isRecurrente = c.total > 1;
-                const initials = c.nombre.split(" ").filter(Boolean).map(n => n[0]).join("").substring(0, 2).toUpperCase();
-                return (
-                  <tr key={i} className="group hover:bg-muted/20 transition-colors">
-                    <td className="px-5 py-3">
-                      <span className="text-[10px] font-black text-muted-foreground/30 tabular-nums">{i + 1}</span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2.5">
-                        <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-brand-500/15 to-brand-600/15 text-brand-500 text-[10px] font-black grid place-items-center shrink-0 ring-1 ring-brand-500/10">
-                          {initials}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <p className="font-bold text-xs truncate">{c.nombre}</p>
-                            {isRecurrente && (
-                              <span className="text-[8px] font-black px-1.5 py-px rounded-full bg-violet-500/10 text-violet-500 border border-violet-500/15 shrink-0">R</span>
-                            )}
-                          </div>
-                          <p className="text-[9px] text-muted-foreground truncate">{c.telefono}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-3 py-3 text-center">
-                      <span className="font-black text-sm tabular-nums">{c.total}</span>
-                    </td>
-                    <td className="px-3 py-3 text-center">
-                      <div className="inline-flex flex-col items-center">
-                        <span className="font-black text-emerald-500 tabular-nums text-xs">{c.resueltos}</span>
-                        <div className="h-1 w-8 bg-muted/50 rounded-full overflow-hidden mt-0.5">
-                          <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${tasa}%` }} />
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-3 py-3 text-center">
-                      {c.abiertos > 0
-                        ? <span className="inline-flex items-center gap-0.5 text-[10px] font-black text-rose-500 bg-rose-500/10 px-1.5 py-0.5 rounded-full">
-                            <span className="h-1 w-1 rounded-full bg-rose-500 animate-pulse" />{c.abiertos}
-                          </span>
-                        : <span className="text-muted-foreground/20 text-xs">—</span>}
-                    </td>
-                    <td className="px-3 py-3 text-center">
-                      {avgCal ? (
-                        <div className="flex items-center justify-center gap-0.5">
-                          <Star className="h-2.5 w-2.5 text-amber-400 fill-amber-400" />
-                          <span className="font-black text-amber-400 text-xs tabular-nums">{avgCal}</span>
-                        </div>
-                      ) : <span className="text-muted-foreground/20 text-xs">—</span>}
-                    </td>
-                    <td className="px-3 py-3 text-center">
-                      <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-full uppercase ${canalBadge[canalPrincipal] || "bg-muted text-muted-foreground"}`}>
-                        {canalLabels[canalPrincipal] || canalPrincipal}
-                      </span>
-                    </td>
-                    <td className="px-3 py-3 text-right">
-                      <span className="text-[10px] text-muted-foreground">{new Date(c.ultimoCaso).toLocaleDateString("es-CR", { day: "numeric", month: "short" })}</span>
-                    </td>
-                    <td className="px-3 py-3">
-                      <Link href={`/inbox?case=${c.ultimoCasoId}`} className="opacity-0 group-hover:opacity-100 text-brand-500 hover:text-brand-600 transition-all">
-                        <ExternalLink className="h-3 w-3" />
-                      </Link>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+      <div className="flex justify-end">
+        <StatsExportButton
+          data={perfiles.map(p => ({
+            Cliente: p.nombre, Telefono: p.telefono, Cedula: p.cedula,
+            Tipo: p.tipo, Salud: p.salud, Score: p.healthScore, Tendencia: p.tendencia,
+            Total_Casos: p.total, Resueltos: p.resueltos, Abiertos: p.abiertos,
+            Antiguedad_Dias: p.antiguedadDias, Dias_Sin_Contacto: p.diasSinContacto,
+            Frecuencia_Mes: p.frecuenciaMes,
+            Calificacion_Avg: p.avgCal !== null ? p.avgCal.toFixed(1) : "N/A",
+            Canal_Preferido: p.canalPreferido,
+            Primer_Caso: new Date(p.primerCaso).toLocaleDateString("es-CR"),
+            Ultimo_Caso: new Date(p.ultimoCaso).toLocaleDateString("es-CR"),
+          }))}
+          fileName="Perfil_Clientes_Sekunet"
+        />
       </div>
-
-      {/* ══════════════════════════════════════════════════════════════════
-          FEEDBACK RECIENTE — Premium review cards
-      ══════════════════════════════════════════════════════════════════ */}
-      <section>
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2.5">
-            <div className="h-7 w-7 rounded-lg bg-amber-400/10 text-amber-400 grid place-items-center"><Star className="h-3.5 w-3.5" /></div>
-            <h3 className="font-black text-sm">Feedback Reciente</h3>
-            <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-400/10 text-amber-400">{(casos || []).filter(c => getCal(c.cliente) !== null).length}</span>
-          </div>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {(casos || []).filter(c => getCal(c.cliente) !== null).slice(0, 6).map((c, i) => {
-            const { nombre } = parseCliente(c.cliente);
-            const stars = getCal(c.cliente) as number;
-            const cl = typeof c.cliente === "object" && c.cliente ? c.cliente as any : null;
-            const comentario = cl?.calificacion_comentario || cl?.calificacion_agente_comentario || null;
-            return (
-              <div key={i} className="group relative rounded-2xl border border-border/60 bg-card p-4 overflow-hidden hover:border-amber-400/30 hover:shadow-lg transition-all duration-300">
-                <div className="absolute -top-8 -right-8 h-20 w-20 rounded-full bg-amber-400/5 blur-2xl group-hover:bg-amber-400/10 transition-all" />
-                <div className="relative">
-                  <div className="flex items-center justify-between mb-2.5">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[10px] font-black text-brand-500 uppercase tracking-wider truncate">{nombre}</p>
-                    </div>
-                    <div className="flex items-center gap-px shrink-0 ml-2">
-                      {Array.from({ length: 5 }).map((_, si) => (
-                        <Star key={si} className={`h-3 w-3 ${si < stars ? "text-amber-400 fill-amber-400" : "text-muted-foreground/15"}`} />
-                      ))}
-                    </div>
-                  </div>
-                  <p className="text-xs font-bold line-clamp-1 text-foreground/80 mb-2">{c.title || "Atención Finalizada"}</p>
-                  <div className="p-2.5 bg-muted/30 rounded-lg text-[11px] italic text-muted-foreground border border-border/30 leading-relaxed line-clamp-2">
-                    &quot;{comentario || "Sin comentario."}&quot;
-                  </div>
-                  <div className="mt-2.5 flex justify-between items-center text-[9px] text-muted-foreground">
-                    <span>{new Date(c.updated_at || c.created_at).toLocaleDateString("es-CR", { day: "numeric", month: "short" })}</span>
-                    <Link href={`/inbox?case=${c.id}`} className="flex items-center gap-1 text-brand-500 hover:text-brand-600 font-bold opacity-0 group-hover:opacity-100 transition-opacity">
-                      <ExternalLink className="h-3 w-3" /> Ver caso
-                    </Link>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-          {!(casos || []).some(c => getCal(c.cliente) !== null) && (
-            <div className="col-span-full p-12 text-center border border-dashed border-border/60 rounded-2xl text-muted-foreground">
-              <Star className="h-6 w-6 mx-auto mb-2 text-muted-foreground/20" />
-              <p className="text-xs">Aún no se han recibido calificaciones</p>
-            </div>
-          )}
-        </div>
-      </section>
+      <ClientProfilePanel perfiles={perfiles.map(p => ({
+        nombre: p.nombre, telefono: p.telefono, correo: p.correo, cedula: p.cedula,
+        total: p.total, resueltos: p.resueltos, abiertos: p.abiertos,
+        primerCaso: p.primerCaso, ultimoCaso: p.ultimoCaso, ultimoCasoId: p.ultimoCasoId,
+        cats: p.cats,
+        antiguedadDias: p.antiguedadDias, diasSinContacto: p.diasSinContacto,
+        frecuenciaMes: p.frecuenciaMes, tipo: p.tipo, tendencia: p.tendencia,
+        healthScore: p.healthScore, salud: p.salud, avgCal: p.avgCal, canalPreferido: p.canalPreferido,
+      }))} />
 
       {/* ══ CLIENTES BLOQUEADOS ══ */}
       <section className="space-y-4">
@@ -862,62 +846,6 @@ export default async function EstadisticasClientePage() {
         )}
       </section>
 
-      {/* ══ RANKING TIEMPOS DE RESPUESTA ══ */}
-      <section className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-bold flex items-center gap-2"><Clock className="h-5 w-5 text-brand-500" /> Tiempos de Respuesta por Agente</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">Tiempo entre escalado a humano y aceptación del caso</p>
-          </div>
-        </div>
-        {rankingAgentes.length === 0 ? (
-          <div className="p-12 text-center border border-dashed border-border/60 rounded-2xl text-muted-foreground">
-            <Clock className="h-6 w-6 mx-auto mb-2 text-muted-foreground/20" />
-            <p className="text-xs">Aún no hay datos de tiempos de respuesta. Se registrarán automáticamente con los próximos casos escalados.</p>
-          </div>
-        ) : (
-          <div className="rounded-2xl border border-border/60 bg-card overflow-hidden">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border/60 bg-muted/30">
-                  <th className="text-left px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wider">#</th>
-                  <th className="text-left px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wider">Agente</th>
-                  <th className="text-right px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wider">Promedio</th>
-                  <th className="text-right px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wider">Mínimo</th>
-                  <th className="text-right px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wider">Máximo</th>
-                  <th className="text-right px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wider">Casos</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rankingAgentes.map((a, i) => {
-                  const badge = a.promedio < 2 ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                    : a.promedio < 5 ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
-                    : "bg-red-500/10 text-red-600 dark:text-red-400";
-                  const dot = a.promedio < 2 ? "bg-emerald-500" : a.promedio < 5 ? "bg-amber-400" : "bg-red-500";
-                  const fmt = (m: number) => m < 60 ? `${m}m` : `${(m/60).toFixed(1)}h`;
-                  return (
-                    <tr key={a.email} className="border-b border-border/40 last:border-0 hover:bg-muted/30 transition-colors">
-                      <td className="px-4 py-3 font-bold text-muted-foreground text-xs">{i + 1}</td>
-                      <td className="px-4 py-3">
-                        <p className="font-semibold truncate max-w-[200px]">{a.email}</p>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold ${badge}`}>
-                          <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
-                          {fmt(a.promedio)}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-right text-xs text-muted-foreground font-medium">{fmt(a.min)}</td>
-                      <td className="px-4 py-3 text-right text-xs text-muted-foreground font-medium">{fmt(a.max)}</td>
-                      <td className="px-4 py-3 text-right text-xs font-bold">{a.total}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
     </div>
   );
 }

@@ -59,7 +59,7 @@ Deno.serve(async () => {
   const { data: casos, error } = await db
     .from("sek_cases")
     .select("id, canal, estado, histcliente, histtecnico, created_at, assigned_to")
-    .not("estado", "in", '("cerrado","resuelto")')
+    .not("estado", "in", '("cerrado","resuelto","escalado")')
     .neq("canal", "simulator")
     .limit(200);
 
