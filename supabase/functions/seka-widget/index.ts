@@ -465,8 +465,8 @@ Deno.serve(async (req: Request) => {
           const visionMessages: NimMessage[] = [
             {
               role: "system",
-              content: `Eres un extractor de datos de etiquetas de equipos. Responde SOLO con una línea JSON: {"sn": "serial_number", "legible": true/false, "razon": "motivo breve"}.
-- sn: el número de serie (S/N) exacto como aparece en la etiqueta.
+              content: `Eres un extractor de datos de etiquetas de equipos Hikvision. Responde SOLO con una línea JSON: {"sn": "serial_number", "legible": true/false, "razon": "motivo breve"}.
+- sn: el número de serie (Serial No. o S/N) exacto como aparece en la etiqueta. En equipos Hikvision suele estar después de "Serial No.:" y es un código alfanumérico (ejemplo: F26114205). NO es el modelo (DS-xxxx).
 - legible: la etiqueta es visible y el S/N es legible.
 No agregues nada más.`,
             },
@@ -544,19 +544,30 @@ No agregues nada más.`,
         imagenOk = imagenLegible && snImagen.length > 0;
         xmlOk = xmlValido && snXml.length > 0;
         
-        // Si ambos tienen S/N, verificar que coincidan
+        // Si ambos tienen S/N, verificar que coincidan (comparación flexible)
         let snCoinciden = false;
         if (imagenOk && xmlOk) {
-          // Normalizar S/N para comparación (quitar espacios, guiones, mayúsculas)
-          const normalizeSn = (sn: string) => sn.replace(/[\s\-_]/g, "").toUpperCase();
-          snCoinciden = normalizeSn(snImagen) === normalizeSn(snXml);
+          const normalizeSn = (sn: string) => sn.replace(/[\s\-_\.]/g, "").toUpperCase();
+          const nImg = normalizeSn(snImagen);
+          const nXml = normalizeSn(snXml);
+          // Exacto, uno contiene al otro, o comparten >=6 chars consecutivos
+          snCoinciden = nImg === nXml || nImg.includes(nXml) || nXml.includes(nImg);
+          if (!snCoinciden && nImg.length >= 6 && nXml.length >= 6) {
+            // Buscar subcadena común de al menos 6 caracteres
+            for (let len = Math.min(nImg.length, nXml.length); len >= 6; len--) {
+              for (let i = 0; i <= nImg.length - len; i++) {
+                if (nXml.includes(nImg.substring(i, i + len))) { snCoinciden = true; break; }
+              }
+              if (snCoinciden) break;
+            }
+          }
           if (!snCoinciden) {
             motivoImagen = `el número de serie de la imagen (${snImagen}) no coincide con el del XML (${snXml})`;
             motivoXml = `el número de serie del XML (${snXml}) no coincide con el de la imagen (${snImagen})`;
           }
         }
 
-        console.log("[seka-widget] S/N - imagen:", snImagen, "XML:", snXml, "coinciden:", snCoinciden);
+        console.log("[seka-widget] S/N - imagen:", JSON.stringify(snImagen), "XML:", JSON.stringify(snXml), "coinciden:", snCoinciden);
 
         // Si ambos pasaron Y los S/N coinciden → escalar normalmente
         if (imagenOk && xmlOk && snCoinciden) {
