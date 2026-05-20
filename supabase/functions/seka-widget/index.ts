@@ -382,10 +382,13 @@ Deno.serve(async (req: Request) => {
     const MSG_RESET_PIDE_IMAGEN = "adjunte nuevamente una imagen clara";
     const MSG_RESET_PIDE_XML = "adjunte nuevamente el archivo XML";
     if ((lastIA?.content?.includes(MSG_RESET_PIDE_ARCHIVOS) || lastIA?.content?.includes(MSG_RESET_PIDE_IMAGEN) || lastIA?.content?.includes(MSG_RESET_PIDE_XML)) && lastUserTime > lastIATime) {
-      // Verificar que el usuario haya enviado al menos un archivo
+      // Buscar archivos en TODOS los mensajes del usuario después de dar el modelo (paso 3)
+      // Esto captura archivos enviados en cualquier orden (XML primero, imagen después, o viceversa)
+      const modeloMsg = topiIdx >= 0 ? userRealMsgs[topiIdx + 2] : null;
+      const modeloTime = modeloMsg ? new Date(modeloMsg.time ?? 0).getTime() : 0;
       const mensajesDesdePedido = userRealMsgs.filter(m => {
         const mTime = new Date(m.time ?? 0).getTime();
-        return mTime > lastIATime;
+        return mTime > modeloTime;
       });
       
       const tieneArchivos = mensajesDesdePedido.some(m => m.mediaUrl);
