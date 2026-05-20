@@ -12,7 +12,7 @@ export function InboxBadge({ initialCount }: { initialCount: number }) {
 
   React.useEffect(() => {
     const fetchCount = async () => {
-      // Contar casos escalados (esperando agente) + casos con último msg del usuario sin respuesta
+      // Contar casos que necesitan atención del agente
       const { data } = await supabase
         .from("sek_cases")
         .select("id, histcliente, histtecnico, estado")
@@ -23,16 +23,23 @@ export function InboxBadge({ initialCount }: { initialCount: number }) {
       if (!data) return;
       let unread = 0;
       data.forEach((c: any) => {
+        const estado = String(c.estado || "").toLowerCase();
+        // Caso escalado siempre cuenta como pendiente
+        if (estado === "escalado") { unread++; return; }
+        // Para casos abiertos: contar si el último mensaje del cliente (user) no tiene respuesta del agente
         const hc = Array.isArray(c.histcliente) ? c.histcliente : [];
         const ht = Array.isArray(c.histtecnico) ? c.histtecnico : [];
         if (hc.length === 0) return;
-        const lastMsg = hc[hc.length - 1];
-        const lastRole = lastMsg?.role || "user";
-        if (lastRole === "user") {
-          const lastHcTime = new Date(lastMsg.time || 0).getTime();
-          const hasNewerTech = ht.some((t: any) => new Date(t.time || 0).getTime() > lastHcTime);
-          if (!hasNewerTech) unread++;
-        }
+        // Buscar el último mensaje del usuario (no IA)
+        const lastUserMsg = [...hc].reverse().find((m: any) => m.role === "user");
+        if (!lastUserMsg) return;
+        const lastUserTime = new Date(lastUserMsg.time || 0).getTime();
+        // Verificar si hay respuesta del agente posterior en histtecnico
+        const hasAgentReply = ht.some((t: any) => {
+          const tTime = new Date(t.time || 0).getTime();
+          return tTime > lastUserTime && t.role !== "nota";
+        });
+        if (!hasAgentReply) unread++;
       });
       setCount(unread);
     };

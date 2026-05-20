@@ -46,13 +46,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     .neq("canal", "simulator")
     .limit(100);
   const inboxUnread = (inboxCases || []).filter((c: any) => {
+    const estado = String(c.estado || "").toLowerCase();
+    if (estado === "escalado") return true;
     const hc = Array.isArray(c.histcliente) ? c.histcliente : [];
     const ht = Array.isArray(c.histtecnico) ? c.histtecnico : [];
     if (hc.length === 0) return false;
-    const lastMsg = hc[hc.length - 1];
-    if ((lastMsg?.role || "user") !== "user") return false;
-    const lastHcTime = new Date(lastMsg.time || 0).getTime();
-    return !ht.some((t: any) => new Date(t.time || 0).getTime() > lastHcTime);
+    const lastUserMsg = [...hc].reverse().find((m: any) => m.role === "user");
+    if (!lastUserMsg) return false;
+    const lastUserTime = new Date(lastUserMsg.time || 0).getTime();
+    return !ht.some((t: any) => new Date(t.time || 0).getTime() > lastUserTime && t.role !== "nota");
   }).length;
 
   if (!a) {
