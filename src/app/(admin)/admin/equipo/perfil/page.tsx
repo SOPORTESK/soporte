@@ -143,7 +143,7 @@ export default async function AgentProfilePage({
         {[
           { label: "Casos Totales",    value: (casos || []).length.toString(), icon: MessageSquare, color: "text-brand-500",   bg: "bg-brand-500/10",   sub: `${abiertos.length} activos ahora`  },
           { label: "Resueltos",        value: resueltos.length.toString(),     icon: CheckCircle,   color: "text-emerald-500", bg: "bg-emerald-500/10", sub: `${tasa}% tasa de resolución`       },
-          { label: "SLA Promedio",     value: formatSLA(avgSLA),               icon: Clock,         color: "text-sky-500",     bg: "bg-sky-500/10",     sub: "tiempo medio de resolución"        },
+          { label: "SLA Promedio",     value: formatSLA(avgSLA),               icon: Clock,         color: "text-sky-500",     bg: "bg-sky-500/10",     sub: "Solo casos de este agente"         },
           { label: "Satisfacción",     value: avgCal ? `${avgCal}/5` : "—",   icon: Star,          color: "text-amber-400",   bg: "bg-amber-400/10",   sub: `${cals.length} calificaciones`     },
         ].map(k => (
           <div key={k.label} className="relative rounded-2xl border border-border bg-card p-5 ring-1 ring-border/50 overflow-hidden hover:shadow-lg hover:-translate-y-0.5 transition-all">

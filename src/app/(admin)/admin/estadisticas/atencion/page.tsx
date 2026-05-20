@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { Users, Clock, Star, TrendingUp, CheckCircle, FileText, Activity, ArrowUpRight, Award, Target, BarChart3, Zap, AlertTriangle, Bot, UserCheck, TrendingDown, Minus } from "lucide-react";
+import { Users, Clock, Star, TrendingUp, CheckCircle, FileText, Activity, ArrowUpRight, Award, Target, BarChart3, Zap, AlertTriangle, UserCheck, TrendingDown, Minus } from "lucide-react";
 import Link from "next/link";
 import { StatsExportButton } from "@/components/admin/stats-export-button";
 
@@ -33,23 +33,21 @@ export default async function EstadisticasAtencionPage() {
   const casosConAsig = casos.filter(c => c.assigned_to && !c.assigned_to.includes("system_prompt"));
   const casosSinAsig = casos.filter(c => !c.assigned_to || c.assigned_to.includes("system_prompt"));
 
-  // ── Métricas globales
-  const totalCasos = casos.length;
-  const totalResueltos = casos.filter(c => c.estado === "resuelto" || c.estado === "cerrado").length;
-  const totalActivos = casos.filter(c => ["abierto","asignado","pendiente","escalado"].includes(c.estado || "")).length;
-  const totalEscalados = casos.filter(c => c.estado === "escalado").length;
-  const totalIA = casosSinAsig.length;
+  // ── Métricas globales (solo agentes humanos)
+  const totalCasos = casosConAsig.length;
+  const totalResueltos = casosConAsig.filter(c => c.estado === "resuelto" || c.estado === "cerrado").length;
+  const totalActivos = casosConAsig.filter(c => ["abierto","asignado","pendiente","escalado"].includes(c.estado || "")).length;
+  const totalEscalados = casosConAsig.filter(c => c.estado === "escalado").length;
   const tasaResolucion = totalCasos > 0 ? Math.round((totalResueltos / totalCasos) * 100) : 0;
   const tasaEscalado = totalCasos > 0 ? Math.round((totalEscalados / totalCasos) * 100) : 0;
-  const pctIA = totalCasos > 0 ? Math.round((totalIA / totalCasos) * 100) : 0;
 
-  // ── Tendencia 7d vs 7d anterior
-  const casos7d = casos.filter(c => new Date(c.created_at) >= hace7dias).length;
-  const casosAntes7d = casos.filter(c => new Date(c.created_at) >= hace14dias && new Date(c.created_at) < hace7dias).length;
+  // ── Tendencia 7d vs 7d anterior (solo humanos)
+  const casos7d = casosConAsig.filter(c => new Date(c.created_at) >= hace7dias).length;
+  const casosAntes7d = casosConAsig.filter(c => new Date(c.created_at) >= hace14dias && new Date(c.created_at) < hace7dias).length;
   const tendencia7d = casosAntes7d > 0 ? Math.round(((casos7d - casosAntes7d) / casosAntes7d) * 100) : 0;
 
-  // ── Histograma SLA global
-  const tiemposTodos = casos
+  // ── Histograma SLA (solo humanos)
+  const tiemposTodos = casosConAsig
     .filter(c => (c.estado === "resuelto" || c.estado === "cerrado") && c.updated_at)
     .map(c => {
       let startTimestamp = c.accepted_at;
@@ -68,13 +66,13 @@ export default async function EstadisticasAtencionPage() {
   const slaGt4h = tiemposTodos.filter(t => t > 240).length;
   const avgSlaGlobal = tiemposTodos.length > 0 ? Math.round(tiemposTodos.reduce((a, b) => a + b, 0) / tiemposTodos.length) : 0;
 
-  // ── Prioridades
+  // ── Prioridades (solo humanos)
   const prioridades: Record<string, number> = { urgente: 0, alta: 0, media: 0, baja: 0 };
-  casos.forEach(c => { if (c.prioridad && prioridades[c.prioridad] !== undefined) prioridades[c.prioridad]++; });
+  casosConAsig.forEach(c => { if (c.prioridad && prioridades[c.prioridad] !== undefined) prioridades[c.prioridad]++; });
 
-  // ── Últimos 7 días — volumen por día (para mini spark)
+  // ── Últimos 7 días — volumen por día (solo humanos)
   const spark7d: number[] = Array(7).fill(0);
-  casos.forEach(c => {
+  casosConAsig.forEach(c => {
     const d = new Date(c.created_at);
     if (d >= hace7dias) {
       const idx = Math.floor((d.getTime() - hace7dias.getTime()) / 86400000);
@@ -123,8 +121,8 @@ export default async function EstadisticasAtencionPage() {
     return v != null && !isNaN(n) && n >= 1 && n <= 5 ? n : null;
   }
 
-  // ── NPS estimado (calificaciones 4-5 = promotores, 1-2 = detractores)
-  const todasCals = casos.map(getCal).filter((v): v is number => v !== null);
+  // ── NPS estimado (solo humanos)
+  const todasCals = casosConAsig.map(getCal).filter((v): v is number => v !== null);
   const promotores = todasCals.filter(c => c >= 4).length;
   const detractores = todasCals.filter(c => c <= 2).length;
   const nps = todasCals.length > 0 ? Math.round(((promotores - detractores) / todasCals.length) * 100) : null;
@@ -188,11 +186,11 @@ export default async function EstadisticasAtencionPage() {
     return { ...s, avgCalificacion: avgCal > 0 ? avgCal.toFixed(1) : "N/A", avgSLA, tasa: Math.round(tasa), score, tasaEsc, avgEfectivo };
   }).sort((a, b) => b.score - a.score);
 
-  // ── Canales / Categorías
+  // ── Canales / Categorías (solo humanos)
   const canales: Record<string, number> = {};
-  casos.forEach(c => { if (c.canal) canales[c.canal] = (canales[c.canal] || 0) + 1; });
+  casosConAsig.forEach(c => { if (c.canal) canales[c.canal] = (canales[c.canal] || 0) + 1; });
   const categorias: Record<string, number> = {};
-  casos.forEach(c => { if (c.cat) categorias[c.cat] = (categorias[c.cat] || 0) + 1; });
+  casosConAsig.forEach(c => { if (c.cat) categorias[c.cat] = (categorias[c.cat] || 0) + 1; });
 
   const formatSLA = (m: number) => m === 0 ? "—" : m < 60 ? `${m}m` : `${Math.floor(m / 60)}h${m % 60 > 0 ? ` ${m % 60}m` : ""}`;
 
@@ -236,7 +234,7 @@ export default async function EstadisticasAtencionPage() {
         {[
           { label: "Total Casos",      value: totalCasos.toString(),  icon: Users,        color: "text-brand-500",   bg: "bg-brand-500/10",   sub: `${totalActivos} activos ahora`              },
           { label: "Tasa Resolución",  value: `${tasaResolucion}%`,   icon: CheckCircle,  color: "text-emerald-500", bg: "bg-emerald-500/10", sub: `${totalResueltos} de ${totalCasos} resueltos` },
-          { label: "SLA Promedio",     value: formatSLA(avgSlaGlobal),icon: Clock,        color: "text-sky-500",     bg: "bg-sky-500/10",     sub: `${tiemposTodos.length} con tiempo medido`   },
+          { label: "SLA Promedio",     value: formatSLA(avgSlaGlobal),icon: Clock,        color: "text-sky-500",     bg: "bg-sky-500/10",     sub: `Solo agentes humanos · ${tiemposTodos.length} medidos`   },
           { label: "Satisfacción",     value: avgSatisfaccionGlobal !== "N/A" ? `${avgSatisfaccionGlobal}/5` : "—", icon: Star, color: "text-amber-400", bg: "bg-amber-400/10", sub: `${todasCals.length} calificaciones` },
         ].map((k, i) => (
           <div key={i} className="relative rounded-2xl border border-border bg-card p-5 overflow-hidden hover:shadow-xl hover:-translate-y-0.5 transition-all ring-1 ring-border/50">
@@ -293,19 +291,16 @@ export default async function EstadisticasAtencionPage() {
           </div>
         </div>
 
-        {/* IA vs Humanos */}
+        {/* Carga por agente */}
         <div className="relative rounded-2xl border border-border bg-card p-5 overflow-hidden ring-1 ring-border/50">
           <div className="absolute -top-8 -right-8 h-28 w-28 rounded-full bg-cyan-500/10 blur-2xl" />
           <div className="relative">
             <div className="inline-flex items-center justify-center h-10 w-10 rounded-xl bg-cyan-500/10 text-cyan-500 mb-3">
-              <Bot className="h-5 w-5" />
+              <UserCheck className="h-5 w-5" />
             </div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Automatización IA</p>
-            <p className="text-4xl font-black mt-1 tracking-tight tabular-nums text-cyan-500">{pctIA}%</p>
-            <div className="mt-2 h-1.5 w-full bg-muted rounded-full overflow-hidden">
-              <div className="h-full bg-gradient-to-r from-cyan-600 to-cyan-400 rounded-full" style={{ width: `${pctIA}%` }} />
-            </div>
-            <p className="text-[11px] text-muted-foreground mt-1.5">{totalIA} por IA · {casosConAsig.length} por humano</p>
+            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Carga Promedio</p>
+            <p className="text-4xl font-black mt-1 tracking-tight tabular-nums text-cyan-500">{rankingAgentes.length > 0 ? Math.round(totalCasos / rankingAgentes.length) : 0}</p>
+            <p className="text-[11px] text-muted-foreground mt-1.5">casos por agente · {rankingAgentes.length} agentes</p>
           </div>
         </div>
 

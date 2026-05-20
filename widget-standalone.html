@@ -706,39 +706,42 @@ function mkCheck(double,blue){
   return s;
 }
 
-function renderAll(hc,ht){
-  // Limpiar mensajes temporales (sending) antes de renderizar
-  var tempBubbles=document.querySelectorAll(".sending");
-  tempBubbles.forEach(function(b){b.remove()});
-  
+var renderedCount=0;
+function buildMsgList(hc,ht){
   var all=[];
-  var seen=new Set();
-  // histtecnico tiene prioridad (agentes humanos) — agregar primero y registrar sus tiempos
-  (ht||[]).forEach(function(e){if(e.role==="nota")return;var k=(e.time||"")+"_"+(e.mediaUrl||"");seen.add(k);all.push({role:e.role==="assistant"?"ia":"tecnico",content:e.content,mediaUrl:e.mediaUrl,mediaType:e.mediaType,fileName:e.fileName,time:e.time,read_at:e.read_at})});
-  // histcliente: mostrar user y assistant (IA), pero omitir cualquier cosa que ya esté en histtecnico
-  (hc||[]).forEach(function(e){var r=e.role||"user";var k=(e.time||"")+"_"+(e.mediaUrl||"");if(seen.has(k))return;if(r==="user"||r==="assistant"||r==="ia")all.push({role:(r==="assistant"||r==="ia")?"ia":"user",content:e.content,mediaUrl:e.mediaUrl,mediaType:e.mediaType,fileName:e.fileName,time:e.time,read_at:e.read_at})});
-  all.sort(function(a,b){return new Date(a.time)-new Date(b.time)});
+  (hc||[]).forEach(function(e){var r=e.role||"user";if(r==="user"||r==="assistant"||r==="ia")all.push({role:(r==="assistant"||r==="ia")?"ia":"user",content:e.content,mediaUrl:e.mediaUrl,mediaType:e.mediaType,fileName:e.fileName,time:e.time,read_at:e.read_at})});
+  (ht||[]).forEach(function(e){if(e.role==="nota")return;var msg={role:e.role==="assistant"?"ia":"tecnico",content:e.content,mediaUrl:e.mediaUrl,mediaType:e.mediaType,fileName:e.fileName,time:e.time,read_at:e.read_at};var t=new Date(e.time).getTime();var inserted=false;for(var i=all.length-1;i>=0;i--){if(new Date(all[i].time).getTime()<=t){all.splice(i+1,0,msg);inserted=true;break}}if(!inserted)all.unshift(msg)});
+  return all;
+}
+
+function renderAll(hc,ht){
   var c=$("messages");
-  var opts=[];c.querySelectorAll(".optimista").forEach(function(el){opts.push(el)});
-  var conf=new Set();(hc||[]).forEach(function(e){if((e.role||"user")==="user")conf.add("c:"+(e.content||"")+"|m:"+(e.mediaUrl||""))});
-  c.innerHTML="";
-  var lastDate="";
-  all.forEach(function(m){
-    var dl=dateLabel(m.time);if(dl!==lastDate){lastDate=dl;var sep=document.createElement("div");sep.className="date-sep";sep.innerHTML="<span>"+dl+"</span>";c.appendChild(sep)}
+  var all=buildMsgList(hc,ht);
+  var total=all.length;
+
+  // Si es menos mensajes que lo renderizado (caso raro), full redraw
+  if(total<renderedCount){renderedCount=0;c.innerHTML="";}
+
+  // Solo renderizar mensajes nuevos (desde renderedCount en adelante)
+  if(total<=renderedCount){if(atBottom)c.scrollTop=c.scrollHeight;return;}
+
+  // Quitar botones quick-reply si existen (se re-agregan si aplica)
+  var qr=c.querySelector(".qr-btns");if(qr)qr.remove();
+
+  var newMsgs=all.slice(renderedCount);
+  newMsgs.forEach(function(m){
     var bub=mkBubble(m.role,m.content,m.time,m.mediaUrl,m.mediaType,m.fileName);
-    // Agregar palomillas al pie de los mensajes del usuario y del agente
     var foot=bub.querySelector(".b-foot");
-    if(foot){
-      if(m.role==="user"){foot.insertBefore(mkCheck(true,!!m.read_at),foot.firstChild)}
-    }
+    if(foot&&m.role==="user"){foot.insertBefore(mkCheck(true,!!m.read_at),foot.firstChild)}
     c.appendChild(bub);
   });
-  opts.forEach(function(el){var k="c:"+(el.dataset.optContent||"")+"|m:"+(el.dataset.optMedia||"");if(!conf.has(k))c.appendChild(el)});
+  renderedCount=total;
+
+  // Quick reply buttons después del welcome
   var userCount=all.filter(function(m){return m.role==="user"}).length;
   var iaCount=all.filter(function(m){return m.role==="ia"}).length;
-  var isWelcome = userCount===1 && iaCount===3 && !casoCerrado;
-  if(isWelcome){
-    var ob=document.createElement("div");ob.style.cssText="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:12px 10px 16px;";
+  if(userCount===1&&iaCount===3&&!casoCerrado){
+    var ob=document.createElement("div");ob.className="qr-btns";ob.style.cssText="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:12px 10px 16px;";
     var btns=["Configuraciones","Reset","Desvinculación","Firmware","Software","Drivers","Licencias","Otro"];
     btns.forEach(function(txt){
       var btn=document.createElement("button");btn.textContent=txt;
@@ -766,7 +769,7 @@ var hashH=function(hc,ht){var a=hc||[],b=ht||[];return a.length+"|"+b.length+"|"
 var playingWelcome=false;
 function renderIfChanged(hc,ht){if(playingWelcome)return;var h=hashH(hc,ht);if(h===lastHash)return;var isNew=lastHash&&hc&&hc.length>0;lastHash=h;renderAll(hc,ht);if(isNew){playNotif();haptic(20);var lastMsg=ht&&ht.length>0?ht[ht.length-1]:null;if(lastMsg&&lastMsg.content)showBrowserNotif(lastMsg.content);if(!atBottom){unread++;$("ubadge").textContent=unread;$("ubadge").style.display="flex";$("scroll-btn").classList.add("vis");notifyParent()}}}
 
-async function fetchRender(){if(!sid)return;var r=await db.from("sek_cases").select("histcliente,histtecnico,estado,assigned_to").eq("id",sid).maybeSingle();if(!r.data)return;renderIfChanged(r.data.histcliente,r.data.histtecnico);
+async function fetchRender(){if(!sid)return;var r=await db.from("sek_cases").select("histcliente,histtecnico,estado,assigned_to").eq("id",sid).maybeSingle();if(!r.data)return;var hcLen=(r.data.histcliente||[]).length;var htLen=(r.data.histtecnico||[]).length;var newH=hashH(r.data.histcliente,r.data.histtecnico);console.log("[widget] fetchRender hc:"+hcLen+" ht:"+htLen+" hash:"+newH+" lastHash:"+lastHash+" playing:"+playingWelcome);renderIfChanged(r.data.histcliente,r.data.histtecnico);
   // Marcar mensajes del agente sin read_at como leídos
   var ht=r.data.histtecnico||[];var now=new Date().toISOString();var chg=false;
   var uht=ht.map(function(e){if(e.role!=="nota"&&!e.read_at){chg=true;return Object.assign({},e,{read_at:now})}return e});
@@ -862,12 +865,13 @@ async function playWelcomeSequence(msgs, caseHc){
   $('messages').appendChild(ob);$('messages').scrollTop=$('messages').scrollHeight;
   input.disabled=false;sendBtn.disabled=false;
   input.placeholder='Escribe un mensaje…';
+  renderedCount=caseHc.length;
   lastHash=caseHc.length+'|0|'+(caseHc.length?caseHc[caseHc.length-1].time:'');
   playingWelcome=false;
 }
 
 async function newCase(msg){
-  if(creandoCaso)return;creandoCaso=true;casoCerrado=false;lastHash="";csatDone=false;
+  if(creandoCaso)return;creandoCaso=true;casoCerrado=false;lastHash="";renderedCount=0;csatDone=false;
   var t=Date.now();
   var um={role:"user",time:new Date(t).toISOString(),content:msg||""};
   var wm={role:"assistant",author:"Asistente Sekunet",time:new Date(t+1).toISOString(),content:DEFAULT_WELCOME_MSG};
@@ -877,7 +881,7 @@ async function newCase(msg){
   var ins=await db.from("sek_cases").insert({title:"Chat web — "+(clienteData?clienteData.nombre:"Cliente"),canal:"widget",estado:"ia_atendiendo",prioridad:"media",cliente:cleanCliente(clienteData),customer_phone:clienteData?clienteData.telefono:null,histcliente:hcInit,histtecnico:[]}).select("id,histcliente,histtecnico").single();
   if(ins.error){alert("Error: "+ins.error.message);creandoCaso=false;return}
   sid=String(ins.data.id);try{localStorage.setItem("wgt_session",sid)}catch(e){}
-  $("messages").innerHTML="";lastHash="";startRT();
+  $('messages').innerHTML="";lastHash="";renderedCount=0;startRT();
   if(msg){
     // No mostrar mensaje inmediatamente - esperar fetchRender() del backend
     await playWelcomeSequence([wm,wm2,wm3],hcInit);
@@ -911,15 +915,14 @@ async function sendMsg(){
   $("btn-send").disabled=true;$("txt-msg").value="";autoResize();
   var entry={role:"user",time:new Date().toISOString(),content:txt||"Archivo adjunto"};
   if(pendFile){var f=pendFile;pendFile=null;$("up-prev-bar").style.display="none";try{var up=await uploadFile(f);entry.mediaUrl=up.url;entry.mediaType=up.type;entry.fileName=up.name;entry.content=txt||""}catch(err){alert("Error al subir: "+err.message);$("btn-send").disabled=false;return}}
-  // Mostrar indicador temporal mientras se envía
-  var tempBubble = mkBubble("user",entry.content,entry.time,entry.mediaUrl,entry.mediaType,entry.fileName);
-  tempBubble.classList.add("sending");
-  tempBubble.style.opacity = "0.6";
-  var mc=$("messages");mc.appendChild(tempBubble);mc.scrollTop=mc.scrollHeight;
+  // Mostrar mensaje del usuario inmediatamente (sin re-render)
+  var qr=$("messages").querySelector(".qr-btns");if(qr)qr.remove();
+  var userBub = mkBubble("user",entry.content,entry.time,entry.mediaUrl,entry.mediaType,entry.fileName);
+  var foot=userBub.querySelector(".b-foot");if(foot)foot.insertBefore(mkCheck(true,false),foot.firstChild);
+  var mc=$("messages");mc.appendChild(userBub);mc.scrollTop=mc.scrollHeight;
+  renderedCount++;
   var r=await db.from("sek_cases").select("histcliente,estado,assigned_to").eq("id",sid).maybeSingle();var h=(r.data&&Array.isArray(r.data.histcliente))?r.data.histcliente:[];h.push(entry);await db.from("sek_cases").update({histcliente:h}).eq("id",sid);$('btn-send').disabled=false;
-  // Esperar a que el backend confirme y renderizar en orden correcto
-  setTimeout(fetchRender, 300);
-  var est=r.data?r.data.estado:"";console.log("[widget] sendMsg estado:",est,"assigned:",r.data?r.data.assigned_to:null);if(est==="ia_atendiendo"||(est==="abierto"&&!r.data.assigned_to)){if(est==="abierto"){await db.from("sek_cases").update({estado:"ia_atendiendo"}).eq("id",sid)}invokeIA()}else{console.log("[widget] IA NOT invoked, estado:",est)}
+  var est=r.data?r.data.estado:"";console.log("[widget] sendMsg estado:",est,"assigned:",r.data?r.data.assigned_to:null);if(est==="ia_atendiendo"||(est==="abierto"&&!r.data.assigned_to)){if(est==="abierto"){await db.from("sek_cases").update({estado:"ia_atendiendo"}).eq("id",sid)}invokeIA()}else{console.log("[widget] IA NOT invoked, estado:",est);lastHash="";setTimeout(fetchRender,300)}
 }
 
 /* ═══ IA AGENT INVOCATION ═══ */
@@ -929,13 +932,14 @@ function invokeIA(){
   db.functions.invoke("seka-widget",{body:{case_id:sid}}).then(function(res){
     console.log("[widget] IA response full:",JSON.stringify(res));
     showTyping(false);
-    lastHash="";
-    setTimeout(fetchRender,400);
+    lastHash="";fetchRender();
+    setTimeout(function(){lastHash="";fetchRender()},800);
+    setTimeout(function(){lastHash="";fetchRender()},2000);
   }).catch(function(e){
     console.error("[widget] IA catch error:",e);
     showTyping(false);
-    lastHash="";
-    setTimeout(fetchRender,400);
+    lastHash="";fetchRender();
+    setTimeout(function(){lastHash="";fetchRender()},800);
   });
 }
 
@@ -1204,7 +1208,7 @@ $("prof-logout").addEventListener("click",function(){
   $("messages").innerHTML="";
   $("inp-cedula").value="";$("ced-res").textContent="";$("ced-ico").textContent="";
   $("inp-cedula").className="";$("btn-ced-next").disabled=true;
-  showStep("ced");lastHash="";
+  showStep("ced");lastHash="";renderedCount=0;
   haptic(20);
 });
 

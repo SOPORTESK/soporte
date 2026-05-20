@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import {
   Edit2, Trash2, Save, X, Shield, UserCheck, Activity, UserPlus, Key, Loader2,
-  TrendingUp, TrendingDown, Clock, Star, CheckCircle, MessageSquare, Zap,
+  TrendingUp, TrendingDown, Clock, Star, CheckCircle, MessageSquare, Zap, Bot,
   Award, Target, BarChart3, ArrowUpRight, ChevronDown, ChevronUp, Minus, Eye
 } from "lucide-react";
 import { Badge } from "@/components/ui/avatar";
@@ -40,6 +40,9 @@ interface TeamPerformanceProps {
     casosHoy: number;
     casosEstaSemana: number;
     cargaPromedio: number;
+    pctIA?: number;
+    totalIA?: number;
+    casosHumanos?: number;
   };
 }
 
@@ -210,7 +213,7 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
               <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">SLA Promedio</span>
             </div>
             <p className="text-5xl font-black tracking-tight text-sky-500 tabular-nums">{formatSLA(globalStats.avgSLA)}</p>
-            <p className="text-[11px] text-muted-foreground mt-1">Tiempo medio resolución</p>
+            <p className="text-[11px] text-muted-foreground mt-1">IA + humanos · global</p>
           </div>
         </div>
 
@@ -245,6 +248,31 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
             </div>
             <p className="text-5xl font-black tracking-tight text-emerald-500 tabular-nums">{globalStats.casosHoy}</p>
             <p className="text-[11px] text-muted-foreground mt-1">{globalStats.casosEstaSemana} esta semana</p>
+          </div>
+        </div>
+      </div>
+
+      {/* ── AUTOMATIZACIÓN IA — banner compacto ─────────────── */}
+      <div className="relative rounded-2xl border border-cyan-500/20 bg-gradient-to-br from-cyan-500/5 via-transparent to-cyan-500/[0.02] p-5 overflow-hidden ring-1 ring-cyan-500/10">
+        <div className="absolute -top-10 -right-10 h-36 w-36 rounded-full bg-cyan-500/10 blur-3xl" />
+        <div className="relative flex flex-col sm:flex-row sm:items-center gap-4">
+          <div className="flex items-center gap-3 shrink-0">
+            <div className="h-12 w-12 rounded-xl bg-cyan-500/10 text-cyan-500 grid place-items-center">
+              <Bot className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Automatización IA</p>
+              <p className="text-3xl font-black tracking-tight text-cyan-500 tabular-nums">{globalStats.pctIA ?? 0}%</p>
+            </div>
+          </div>
+          <div className="flex-1 space-y-2">
+            <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
+              <div className="h-full bg-gradient-to-r from-cyan-600 to-cyan-400 rounded-full transition-all" style={{ width: `${globalStats.pctIA ?? 0}%` }} />
+            </div>
+            <div className="flex justify-between text-[11px] text-muted-foreground">
+              <span><span className="font-bold text-cyan-500">{globalStats.totalIA ?? 0}</span> resueltos por IA</span>
+              <span><span className="font-bold text-foreground">{globalStats.casosHumanos ?? 0}</span> atendidos por humanos</span>
+            </div>
           </div>
         </div>
       </div>

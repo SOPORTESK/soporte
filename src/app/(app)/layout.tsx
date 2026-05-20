@@ -12,6 +12,7 @@ import type { SekAgent } from "@/lib/types";
 import { GodModeWrapper } from "@/components/god-mode-wrapper";
 import { SidebarUserPanel } from "@/components/sidebar-user-panel";
 import { N2Badge } from "@/components/n2-badge";
+import { InboxBadge } from "@/components/inbox-badge";
 
 export const dynamic = 'force-dynamic';
 
@@ -36,6 +37,23 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     .select("*", { count: "exact", head: true })
     .eq("estado", "escalado")
     .contains("tags", ["n2"]);
+
+  // Contar casos sin responder para badge de Bandeja
+  const { data: inboxCases } = await supabase
+    .from("sek_cases")
+    .select("histcliente, histtecnico, estado")
+    .in("estado", ["escalado", "abierto", "ia_atendiendo"])
+    .neq("canal", "simulator")
+    .limit(100);
+  const inboxUnread = (inboxCases || []).filter((c: any) => {
+    const hc = Array.isArray(c.histcliente) ? c.histcliente : [];
+    const ht = Array.isArray(c.histtecnico) ? c.histtecnico : [];
+    if (hc.length === 0) return false;
+    const lastMsg = hc[hc.length - 1];
+    if ((lastMsg?.role || "user") !== "user") return false;
+    const lastHcTime = new Date(lastMsg.time || 0).getTime();
+    return !ht.some((t: any) => new Date(t.time || 0).getTime() > lastHcTime);
+  }).length;
 
   if (!a) {
     return (
@@ -105,7 +123,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         )}
 
         <nav className="flex-1 p-3 space-y-1">
-          <SidebarLink href="/inbox" icon={<Inbox className="h-4 w-4" />}>Bandeja</SidebarLink>
+          <SidebarLink href="/inbox" icon={<Inbox className="h-4 w-4" />} badge={<InboxBadge initialCount={inboxUnread} />}>Bandeja</SidebarLink>
           <SidebarLink href="/soporte-avanzado" icon={<Wrench className="h-4 w-4" />} badge={<N2Badge initialCount={n2Count ?? 0} />}>Soporte Avanzado</SidebarLink>
           <SidebarLink href="/mi-gestion" icon={<FolderKanban className="h-4 w-4" />}>Mi Bandeja de Gestión</SidebarLink>
         </nav>

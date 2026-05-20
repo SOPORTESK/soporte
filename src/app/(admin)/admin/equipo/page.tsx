@@ -34,6 +34,11 @@ export default async function AdminEquipoPage() {
     .select("id, assigned_to, created_at, updated_at, estado, cliente, canal, accepted_at, histtecnico")
     .not("assigned_to", "is", null);
 
+  // Todos los casos (IA + humanos) para stats globales
+  const { data: todosCasos } = await supabase
+    .from("sek_cases")
+    .select("id, assigned_to, created_at, updated_at, estado, cliente, accepted_at, histtecnico, histcliente");
+
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
   const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay()).toISOString();
@@ -121,22 +126,43 @@ export default async function AdminEquipoPage() {
     };
   });
 
-  // Global stats
-  const allCals = Object.values(statsMap).flatMap(s => s.calificaciones);
-  const allTiempos = Object.values(statsMap).flatMap(s => s.tiempos);
+  // Global stats (TODOS los casos: IA + humanos)
+  const allCasos = todosCasos || [];
+  const allResueltos = allCasos.filter(c => c.estado === "resuelto" || c.estado === "cerrado");
+  const allTiemposGlobal = allResueltos
+    .filter(c => c.updated_at)
+    .map(c => {
+      let st = c.accepted_at;
+      if (!st && Array.isArray(c.histtecnico)) { const fm = c.histtecnico.find((h: any) => h.role === "tecnico"); if (fm) st = fm.time; }
+      const start = st ? new Date(st as string) : new Date(c.created_at);
+      const end = new Date(c.updated_at);
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) return 0;
+      return Math.round((end.getTime() - start.getTime()) / 60000);
+    })
+    .filter(t => t > 0);
+  const getCal = (c: any): number | null => {
+    const cl = typeof c.cliente === "object" && c.cliente ? c.cliente as any : null;
+    const v = cl?.calificacion_cliente ?? cl?.calificacion_agente;
+    const n = Number(v);
+    return v != null && !isNaN(n) && n >= 1 && n <= 5 ? n : null;
+  };
+  const allCalsGlobal = allCasos.map(getCal).filter((v): v is number => v !== null);
+  const totalIA = allCasos.filter(c => !c.assigned_to || (c.assigned_to as string).includes("system_prompt")).length;
+  const pctIA = allCasos.length > 0 ? Math.round((totalIA / allCasos.length) * 100) : 0;
   const globalStats = {
-    totalCasos: casos?.length || 0,
-    totalResueltos: (casos || []).filter(c => c.estado === "resuelto" || c.estado === "cerrado").length,
-    tasaResolucion: (casos && casos.length > 0)
-      ? Math.round(((casos.filter(c => c.estado === "resuelto" || c.estado === "cerrado").length) / casos.length) * 100)
-      : 0,
-    avgSLA: allTiempos.length > 0 ? Math.round(allTiempos.reduce((a, b) => a + b, 0) / allTiempos.length) : 0,
-    avgSatisfaccion: allCals.length > 0
-      ? (allCals.reduce((a, b) => a + b, 0) / allCals.length).toFixed(1)
+    totalCasos: allCasos.length,
+    totalResueltos: allResueltos.length,
+    tasaResolucion: allCasos.length > 0 ? Math.round((allResueltos.length / allCasos.length) * 100) : 0,
+    avgSLA: allTiemposGlobal.length > 0 ? Math.round(allTiemposGlobal.reduce((a, b) => a + b, 0) / allTiemposGlobal.length) : 0,
+    avgSatisfaccion: allCalsGlobal.length > 0
+      ? (allCalsGlobal.reduce((a, b) => a + b, 0) / allCalsGlobal.length).toFixed(1)
       : "N/A",
-    casosHoy: (casos || []).filter(c => c.created_at >= todayStart).length,
-    casosEstaSemana: (casos || []).filter(c => c.created_at >= weekStart).length,
-    cargaPromedio: humanAgents.length > 0 ? Math.round((casos?.length || 0) / humanAgents.length) : 0,
+    casosHoy: allCasos.filter(c => c.created_at >= todayStart).length,
+    casosEstaSemana: allCasos.filter(c => c.created_at >= weekStart).length,
+    cargaPromedio: humanAgents.length > 0 ? Math.round((allCasos.length) / humanAgents.length) : 0,
+    pctIA,
+    totalIA,
+    casosHumanos: (casos || []).length,
   };
 
   const totalAgents     = humanAgents.length;

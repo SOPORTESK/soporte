@@ -433,6 +433,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     if (newEstado === "cerrado") {
       const prevRating = (sekCase.cliente as any)?.calificacion_agente;
       if (prevRating) setClientRating(Number(prevRating) || 5);
+      modalShownRef.current = true;
       setShowRatingModal(true);
       setShowActions(false);
       return;
@@ -468,6 +469,8 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
 
       if (error) throw error;
 
+      modalShownRef.current = true;
+      prevEstadoRef.current = "cerrado";
       setSekCase(prev => ({ ...prev, estado: "cerrado", cliente: updatedCliente }));
       toast.success("Caso cerrado y cliente calificado");
       setShowRatingModal(false);

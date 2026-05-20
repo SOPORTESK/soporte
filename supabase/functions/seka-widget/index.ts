@@ -365,7 +365,7 @@ Deno.serve(async (req: Request) => {
       if (!inv.encontrado) {
         directReply = "El dispositivo indicado no forma parte de los equipos distribuidos por Sekunet, por lo que lamentablemente no podemos brindarle el soporte requerido. ¿Tiene alguna otra consulta relacionada con nuestros productos?";
       } else if (tema === "Reset") {
-        const esHikvision = marca.toLowerCase().includes("hikvision");
+        const esHikvision = /hik/i.test(marca);
         directReply = esHikvision
           ? "Como parte de los requisitos del fabricante, requerimos una imagen clara y legible de la etiqueta del equipo y el archivo XML, el cual puede obtener mediante la herramienta SAPD Tools en la opción \"Olvidé mi contraseña\", ubicada en la parte inferior derecha del software. Por favor, adjunte ambos archivos."
           : "Por favor, adjunte una imagen clara y legible de la etiqueta del equipo.";
@@ -395,7 +395,7 @@ Deno.serve(async (req: Request) => {
       }
       const marca = topiIdx >= 0 ? (userRealMsgs[topiIdx + 1]?.content?.trim() ?? "") : "";
       const modelo = topiIdx >= 0 ? (userRealMsgs[topiIdx + 2]?.content?.trim() ?? "") : "";
-      const esHikvision = marca.toLowerCase().includes("hikvision");
+      const esHikvision = /hik/i.test(marca);
 
       // Buscar archivos en todos los mensajes desde el pedido
       let imagenUrl: string | null = null;
