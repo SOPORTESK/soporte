@@ -533,7 +533,7 @@ No agregues nada más.`,
 
         console.log("[seka-widget] S/N - imagen:", snImagen, "XML:", snXml, "coinciden:", snCoinciden);
 
-        // Si ambos pasaron Y los S/N coinciden → escalar
+        // Si ambos pasaron Y los S/N coinciden → escalar normalmente
         if (imagenOk && xmlOk && snCoinciden) {
           const M02_TEXT = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M02_TEXT };
@@ -545,6 +545,15 @@ No agregues nada más.`,
             tags: ["reset", "n2"],
           }).eq("id", case_id);
           return new Response(JSON.stringify({ ok: true, reply: M02_TEXT }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+
+        // Si ambos archivos tienen S/N válido PERO no coinciden → pedir de nuevo
+        if (imagenOk && xmlOk && !snCoinciden) {
+          // Marcar ambos como fallidos para que la lógica de reintento los pida de nuevo
+          imagenOk = false;
+          xmlOk = false;
+          motivoImagen = "el número de serie de la imagen no coincide con el del archivo XML";
+          motivoXml = "el número de serie del XML no coincide con el de la imagen";
         }
       } else {
         // Otras marcas: solo verificar imagen (legible + coincide marca/modelo)

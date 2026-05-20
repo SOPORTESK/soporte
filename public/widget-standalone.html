@@ -350,7 +350,7 @@ textarea:focus{border-color:var(--primary);background:var(--bg)}
     <div id="up-prev-bar" style="display:none" class="up-prev"><span class="up-prev-icon" id="up-icon">📎</span><span class="up-prev-name" id="up-name"></span><button class="up-prev-cancel" id="up-cancel">✕</button></div>
     <div id="up-prog-wrap" style="display:none" class="up-prog"><div class="up-prog-bar" id="up-bar" style="width:0%"></div></div>
     <div class="input-bar">
-      <input type="file" id="file-input" style="display:none" accept="image/*,video/*,audio/*,.pdf,.xml,.xlsx,.xls,.xlsm,.doc,.docx,.ppt,.pptx,.txt,.csv,.json,.zip,.rar,.7z,.tar,.gz"/>
+      <input type="file" id="file-input" style="display:none" accept="image/*,video/*,audio/*,.pdf,.xml,.xlsx,.xls,.xlsm,.doc,.docx,.ppt,.pptx,.txt,.csv,.json,.zip,.rar,.7z,.tar,.gz" multiple/>
       <button class="att-btn" id="btn-attach" title="Adjuntar">📎</button>
       <button class="att-btn" id="btn-mic" title="Nota de voz">🎤</button>
       <button class="att-btn" id="btn-vid" title="Nota de video">�</button>
@@ -425,7 +425,7 @@ var THIRD_WELCOME_MSG="¿En relación a qué tema sería su consulta?";
 var sid=null,clienteData=null,cedulaOk=false,cedTmr=null,casoCerrado=false,agenteName=null;
 var creandoCaso=false,soundOff=false,lastHash="",unread=0,atBottom=true;
 var rtCh=null,presCh=null,typTmr=null,pollTmr=null,reconAttempts=0;
-var pendFile=null,mediaRec=null,audioChunks=[],isRec=false,csatDone=false;
+var pendFiles=[],mediaRec=null,audioChunks=[],isRec=false,csatDone=false;
 
 try{
   localStorage.removeItem("wgt_session");sid=null;
@@ -891,17 +891,17 @@ async function newCase(msg){
 
 /* ═══ SEND MESSAGE ═══ */
 async function sendMsg(){
-  var txt=$("txt-msg").value.trim();if(!txt&&!pendFile)return;
+  var txt=$('txt-msg').value.trim();if(!txt&&!pendFiles.length)return;
   /* Si no hay caso aún, crear uno con el primer mensaje */
   if(!sid){
-    if(!txt&&!pendFile)return;
+    if(!txt&&!pendFiles.length)return;
     $('btn-send').disabled=true;$('txt-msg').value='';autoResize();
     var t=Date.now();
     var um={role:"user",time:new Date(t).toISOString(),content:txt||"Archivo adjunto"};
     var wm={role:"assistant",author:"Asistente Sekunet",time:new Date(t+1).toISOString(),content:DEFAULT_WELCOME_MSG};
     var wm2={role:"assistant",author:"Asistente Sekunet",time:new Date(t+2).toISOString(),content:SECOND_WELCOME_MSG};
     var wm3={role:"assistant",author:"Asistente Sekunet",time:new Date(t+3).toISOString(),content:THIRD_WELCOME_MSG};
-    if(pendFile){var pf=pendFile;pendFile=null;$("up-prev-bar").style.display="none";try{var pu=await uploadFile(pf);um.mediaUrl=pu.url;um.mediaType=pu.type;um.fileName=pu.name;um.content=txt||""}catch(err){alert("Error al subir: "+err.message);$("btn-send").disabled=false;return}}
+    if(pendFiles.length){var pf=pendFiles[0];pendFiles=[];$("up-prev-bar").style.display="none";try{var pu=await uploadFile(pf);um.mediaUrl=pu.url;um.mediaType=pu.type;um.fileName=pu.name;um.content=txt||""}catch(err){alert("Error al subir: "+err.message);$("btn-send").disabled=false;return}}
     var hcFirst=[um,wm,wm2,wm3];
     var ins=await db.from("sek_cases").insert({title:"Chat web — "+(clienteData?clienteData.nombre:"Cliente"),canal:"widget",estado:"ia_atendiendo",prioridad:"media",cliente:cleanCliente(clienteData),customer_phone:clienteData?clienteData.telefono:null,histcliente:hcFirst,histtecnico:[]}).select("id,histcliente,histtecnico").single();
     if(ins.error){alert("Error: "+ins.error.message);$("btn-send").disabled=false;return}
@@ -914,7 +914,11 @@ async function sendMsg(){
   if(casoCerrado){$("txt-msg").value="";await newCase(txt);return}
   $("btn-send").disabled=true;$("txt-msg").value="";autoResize();
   var entry={role:"user",time:new Date().toISOString(),content:txt||"Archivo adjunto"};
-  if(pendFile){var f=pendFile;pendFile=null;$("up-prev-bar").style.display="none";try{var up=await uploadFile(f);entry.mediaUrl=up.url;entry.mediaType=up.type;entry.fileName=up.name;entry.content=txt||""}catch(err){alert("Error al subir: "+err.message);$("btn-send").disabled=false;return}}
+  if(pendFiles.length>0){var files=pendFiles.slice();pendFiles=[];$("up-prev-bar").style.display="none";
+    // Subir primer archivo con este entry
+    var f=files[0];try{var up=await uploadFile(f);entry.mediaUrl=up.url;entry.mediaType=up.type;entry.fileName=up.name;entry.content=txt||""}catch(err){alert("Error al subir: "+err.message);$("btn-send").disabled=false;return}
+    // Subir archivos adicionales como mensajes separados
+    for(var fi=1;fi<files.length;fi++){try{var up2=await uploadFile(files[fi]);var extraEntry={role:"user",time:new Date(Date.now()+fi).toISOString(),content:"",mediaUrl:up2.url,mediaType:up2.type,fileName:up2.name};var extraBub=mkBubble("user",extraEntry.content,extraEntry.time,extraEntry.mediaUrl,extraEntry.mediaType,extraEntry.fileName);$('messages').appendChild(extraBub);$('messages').scrollTop=$('messages').scrollHeight;renderedCount++;var r2=await db.from("sek_cases").select("histcliente").eq("id",sid).maybeSingle();var h2=(r2.data&&Array.isArray(r2.data.histcliente))?r2.data.histcliente:[];h2.push(extraEntry);await db.from("sek_cases").update({histcliente:h2}).eq("id",sid)}catch(e2){console.error("[widget] extra file error:",e2)}}}
   // Mostrar mensaje del usuario inmediatamente (sin re-render)
   var qr=$("messages").querySelector(".qr-btns");if(qr)qr.remove();
   var userBub = mkBubble("user",entry.content,entry.time,entry.mediaUrl,entry.mediaType,entry.fileName);
@@ -945,9 +949,10 @@ function invokeIA(){
 
 /* ═══ FILE HANDLING ═══ */
 $("btn-attach").addEventListener("click",function(){$("file-input").click()});
-function showFilePrev(file,icon){pendFile=file;$("up-icon").textContent=icon||fIcon(file.type);$("up-name").textContent=file.name+" ("+(file.size>1048576?(file.size/1048576).toFixed(1)+"MB":(file.size/1024).toFixed(0)+"KB")+")";$("up-prev-bar").style.display="flex";$("btn-send").disabled=false}
-$("file-input").addEventListener("change",function(){if(this.files&&this.files[0])showFilePrev(this.files[0]);this.value=""});
-$("up-cancel").addEventListener("click",function(){pendFile=null;$("up-prev-bar").style.display="none";$("btn-send").disabled=!$("txt-msg").value.trim()});
+function showFilePrev(file,icon){pendFiles=[file];$("up-icon").textContent=icon||fIcon(file.type);$("up-name").textContent=file.name+" ("+(file.size>1048576?(file.size/1048576).toFixed(1)+"MB":(file.size/1024).toFixed(0)+"KB")+")";$("up-prev-bar").style.display="flex";$("btn-send").disabled=false}
+function showMultiFilePrev(files){pendFiles=Array.from(files);$("up-icon").textContent="📎";$("up-name").textContent=files.length+" archivos seleccionados";$("up-prev-bar").style.display="flex";$("btn-send").disabled=false}
+$("file-input").addEventListener("change",function(){if(this.files&&this.files.length>1){showMultiFilePrev(this.files)}else if(this.files&&this.files[0]){showFilePrev(this.files[0])}this.value=""});
+$("up-cancel").addEventListener("click",function(){pendFiles=[];$("up-prev-bar").style.display="none";$("btn-send").disabled=!$("txt-msg").value.trim()});
 
 /* ═══ VIDEO NOTE (push-to-talk) ═══ */
 var vidStream=null,vidRec=null,vidChunks=[],isVidRec=false;
@@ -1051,14 +1056,14 @@ var dragCtr=0;
 $("root").addEventListener("dragenter",function(e){e.preventDefault();dragCtr++;$("drop-ov").classList.add("active")});
 $("root").addEventListener("dragleave",function(e){e.preventDefault();dragCtr--;if(dragCtr<=0){dragCtr=0;$("drop-ov").classList.remove("active")}});
 $("root").addEventListener("dragover",function(e){e.preventDefault()});
-$("root").addEventListener("drop",function(e){e.preventDefault();dragCtr=0;$("drop-ov").classList.remove("active");if(e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0]&&sid){showFilePrev(e.dataTransfer.files[0])}});
+$("root").addEventListener("drop",function(e){e.preventDefault();dragCtr=0;$("drop-ov").classList.remove("active");if(e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0]&&sid){if(e.dataTransfer.files.length>1){showMultiFilePrev(e.dataTransfer.files)}else{showFilePrev(e.dataTransfer.files[0])}}});
 
 /* ═══ CLIPBOARD PASTE ═══ */
 document.addEventListener("paste",function(e){if(!sid)return;var items=e.clipboardData&&e.clipboardData.items;if(!items)return;for(var i=0;i<items.length;i++){if(items[i].type.indexOf("image/")===0){var file=items[i].getAsFile();if(file){e.preventDefault();showFilePrev(file,"🖼️");break}}}});
 
 /* ═══ TEXTAREA AUTO-RESIZE ═══ */
 function autoResize(){var ta=$("txt-msg");ta.style.height="38px";ta.style.height=Math.min(ta.scrollHeight,120)+"px"}
-$("txt-msg").addEventListener("input",function(){autoResize();$("btn-send").disabled=!this.value.trim()&&!pendFile;emitTyping()});
+$("txt-msg").addEventListener("input",function(){autoResize();$("btn-send").disabled=!this.value.trim()&&!pendFiles.length;emitTyping()});
 
 /* ═══ SEND EVENTS ═══ */
 $("btn-send").addEventListener("click",sendMsg);
