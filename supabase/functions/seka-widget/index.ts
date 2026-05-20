@@ -78,6 +78,7 @@ interface HistMsg {
   author?: string;
   mediaUrl?: string;
   mediaType?: string;
+  fileName?: string;
 }
 
 interface NimMessage {
@@ -405,15 +406,19 @@ Deno.serve(async (req: Request) => {
       let xmlUrl: string | null = null;
       for (const m of mensajesDesdePedido) {
         if (m.mediaUrl) {
-          if (m.mediaType?.startsWith("image/")) {
+          const mType = (m.mediaType || "").toLowerCase();
+          const mName = (m.fileName || "").toLowerCase();
+          const mUrl = (m.mediaUrl || "").toLowerCase();
+          console.log("[seka-widget] Archivo encontrado - type:", mType, "name:", mName, "url:", mUrl.substring(mUrl.lastIndexOf("/") + 1));
+          if (mType.startsWith("image/")) {
             imagenUrl = m.mediaUrl;
-          } else if (m.mediaType === "text/xml" || m.mediaType === "application/xml" || m.mediaUrl.toLowerCase().endsWith(".xml")) {
+          } else if (mType === "text/xml" || mType === "application/xml" || mType === "application/octet-stream" && (mName.endsWith(".xml") || mUrl.endsWith(".xml")) || mName.endsWith(".xml") || mUrl.endsWith(".xml")) {
             xmlUrl = m.mediaUrl;
           }
         }
       }
 
-      console.log("[seka-widget] Archivos recibidos - imagen:", !!imagenUrl, "XML:", !!xmlUrl, "esHikvision:", esHikvision);
+      console.log("[seka-widget] Archivos recibidos - imagen:", !!imagenUrl, "XML:", !!xmlUrl, "esHikvision:", esHikvision, "totalMsgs:", mensajesDesdePedido.length);
 
       // Para Hikvision: requiere ambos archivos
       if (esHikvision) {
@@ -486,32 +491,49 @@ No agregues nada más.`,
           motivoImagen = "no fue posible analizar la imagen";
         }
 
-        // Extraer S/N del XML con Llama
+        // Extraer S/N del XML directamente (sin LLM)
         let snXml = "";
         let xmlValido = false;
         try {
-          const xmlResponse = await fetch(xmlUrl);
+          const xmlResponse = await fetch(xmlUrl!);
           const xmlText = await xmlResponse.text();
-          const xmlMessages: NimMessage[] = [
-            {
-              role: "system",
-              content: `Eres un extractor de datos de archivos XML de reset. Responde SOLO con una línea JSON: {"sn": "serial_number", "valido": true/false, "razon": "motivo breve"}.
-- sn: el número de serie (S/N) encontrado en el XML.
-- valido: el XML contiene un número de serie válido.
-No agregues nada más.`,
-            },
-            {
-              role: "user",
-              content: `Extrae el número de serie (S/N) de este XML:\n\n${xmlText.substring(0, 4000)}`,
-            },
+          console.log("[seka-widget] XML content (first 500):", xmlText.substring(0, 500));
+          // Buscar S/N con patrones comunes de Hikvision SAPD Tools
+          const snPatterns = [
+            /<serialNumber>([^<]+)<\/serialNumber>/i,
+            /<deviceSerialNo>([^<]+)<\/deviceSerialNo>/i,
+            /<SerialNumber>([^<]+)<\/SerialNumber>/i,
+            /<serial[^>]*>([^<]+)<\/serial[^>]*>/i,
+            /<machineSN>([^<]+)<\/machineSN>/i,
+            /<sn>([^<]+)<\/sn>/i,
+            /serialNumber["\s:=]+["']?([A-Z0-9]+)/i,
+            /serial[_\-]?no["\s:=]+["']?([A-Z0-9]+)/i,
           ];
-          const xmlRaw = await callLlama(xmlMessages);
-          const xmlMatch = xmlRaw.match(/\{[\s\S]*\}/);
-          if (xmlMatch) {
-            const result = JSON.parse(xmlMatch[0]);
-            snXml = result.sn || "";
-            xmlValido = result.valido || false;
-            if (!xmlValido) motivoXml = result.razon || "el XML no contiene un número de serie válido";
+          for (const pat of snPatterns) {
+            const match = xmlText.match(pat);
+            if (match && match[1]) {
+              snXml = match[1].trim();
+              xmlValido = true;
+              console.log("[seka-widget] S/N extraído del XML con patrón:", pat.source, "->", snXml);
+              break;
+            }
+          }
+          // Fallback: si no matcheó ningún patrón, usar LLM
+          if (!snXml) {
+            console.log("[seka-widget] No se encontró S/N con regex, usando LLM...");
+            const xmlMessages: NimMessage[] = [
+              { role: "system", content: `Extrae el número de serie del siguiente XML. Responde SOLO con el S/N, nada más. Si no hay S/N, responde "NONE".` },
+              { role: "user", content: xmlText.substring(0, 4000) },
+            ];
+            const xmlRaw = await callLlama(xmlMessages);
+            const cleaned = xmlRaw.trim().replace(/["`]/g, "");
+            if (cleaned && cleaned !== "NONE" && cleaned.length > 3 && cleaned.length < 50) {
+              snXml = cleaned;
+              xmlValido = true;
+              console.log("[seka-widget] S/N extraído del XML con LLM:", snXml);
+            } else {
+              motivoXml = "no se encontró un número de serie válido en el archivo XML";
+            }
           }
         } catch (e: any) {
           console.error("[seka-widget] XML error:", e.message);
