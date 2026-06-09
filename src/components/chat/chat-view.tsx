@@ -369,7 +369,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
         setUploadingFile(true);
         try {
           const path = `cases/${targetId}/${file.name}`;
-          const { error: upErr } = await supabase.storage.from("attachments").upload(path, file, { upsert: true });
+          const { error: upErr } = await supabase.storage.from("attachments").upload(path, file, { upsert: true, contentType: file.type || "audio/webm" });
           if (upErr) throw upErr;
           const { data: urlData } = supabase.storage.from("attachments").getPublicUrl(path);
           await send("", urlData.publicUrl, file.type, file.name);
@@ -403,7 +403,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
         setUploadingFile(true);
         try {
           const path = `cases/${targetId}/${file.name}`;
-          const { error: upErr } = await supabase.storage.from("attachments").upload(path, file, { upsert: true });
+          const { error: upErr } = await supabase.storage.from("attachments").upload(path, file, { upsert: true, contentType: file.type || "video/webm" });
           if (upErr) throw upErr;
           const { data: urlData } = supabase.storage.from("attachments").getPublicUrl(path);
           await send("", urlData.publicUrl, file.type, file.name);
@@ -432,7 +432,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       const path = `cases/${targetId}/${Date.now()}.${ext}`;
       const { error: upErr } = await supabase.storage
         .from("attachments")
-        .upload(path, file, { upsert: true });
+        .upload(path, file, { upsert: true, contentType: file.type || undefined });
       if (upErr) throw upErr;
       const { data: urlData } = supabase.storage.from("attachments").getPublicUrl(path);
       await send("", urlData.publicUrl, file.type, file.name);
