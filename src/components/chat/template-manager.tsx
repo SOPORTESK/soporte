@@ -80,13 +80,14 @@ export function TemplateManager({
           return;
         }
         const isNew = editingTemplate.id.startsWith("new_");
-        const payload = {
+        const payload: any = {
           nombre: editingTemplate.nombre,
           texto: editingTemplate.texto,
           cat: editingTemplate.cat || "general"
         };
 
         if (isNew) {
+          payload.id = crypto.randomUUID();
           const { data, error } = await supabase.from("sek_plantillas").insert([payload]).select().single();
           if (error) throw error;
           onGlobalTemplatesChange([...globalTemplates, data]);
