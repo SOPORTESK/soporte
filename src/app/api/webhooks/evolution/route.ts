@@ -200,11 +200,15 @@ export async function POST(req: NextRequest) {
   const msgObj = get(payload, "data.messages.0.message") || get(payload, "data.message") || get(payload, "message");
   
   let mediaType = "";
+  let originalFileName = "";
   if (msgObj) {
     if (msgObj.audioMessage) mediaType = "audio";
     else if (msgObj.imageMessage) mediaType = "image";
     else if (msgObj.videoMessage) mediaType = "video";
-    else if (msgObj.documentMessage) mediaType = "document";
+    else if (msgObj.documentMessage) {
+      mediaType = "document";
+      originalFileName = msgObj.documentMessage.fileName || msgObj.documentMessage.title || "";
+    }
     else if (msgObj.stickerMessage) mediaType = "sticker";
   }
 
@@ -341,8 +345,13 @@ export async function POST(req: NextRequest) {
 
           console.log("[evo-webhook] base64 recibido", { mime, base64Length: base64.length });
 
+          let finalExt = ext;
+          if (originalFileName && originalFileName.includes(".")) {
+             finalExt = originalFileName.split(".").pop() || ext;
+          }
+
           const buffer = Buffer.from(dataStr, "base64");
-          fileName = `${Date.now()}_${phone || "media"}.${ext}`;
+          fileName = `${Date.now()}_${phone || "media"}.${finalExt}`;
           
           const { data: uploadData, error: uploadErr } = await supabase.storage
             .from("attachments")

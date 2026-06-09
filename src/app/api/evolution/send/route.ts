@@ -50,14 +50,19 @@ export async function POST(req: NextRequest) {
 
   try {
     if (mediaUrl) {
-      const mediatype = detectMediaType(mediaType);
+      let finalMimeType = mediaType;
+      if (!finalMimeType || finalMimeType === "application/octet-stream") {
+        if (fileName?.toLowerCase().endsWith(".xml")) finalMimeType = "text/xml";
+      }
+
+      const mediatype = detectMediaType(finalMimeType);
       const res = await fetch(`${EVO_URL.replace(/\/$/, "")}/message/sendMedia/${encodeURIComponent(EVO_INSTANCE)}` ,{
         method: "POST",
         headers: { "Content-Type": "application/json", apikey: EVO_KEY },
         body: JSON.stringify({
           number: to,
           mediatype,
-          mimetype: mediaType || undefined,
+          mimetype: finalMimeType || undefined,
           caption: text || undefined,
           media: mediaUrl,
           fileName: fileName || undefined,
