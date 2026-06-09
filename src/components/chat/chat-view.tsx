@@ -137,6 +137,8 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     toast.success("Actualizado");
   }
 
+  const [previewImage, setPreviewImage] = React.useState<string | null>(null);
+
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const scrollerRef = React.useRef<HTMLDivElement>(null);
   const typingTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
