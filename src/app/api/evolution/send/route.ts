@@ -24,6 +24,30 @@ function pickPhone(c: any): string | null {
   return null;
 }
 
+function inferMimeFromExt(ext: string): string {
+  const map: Record<string, string> = {
+    "xml": "text/xml",
+    "pdf": "application/pdf",
+    "doc": "application/msword",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "xls": "application/vnd.ms-excel",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "csv": "text/csv",
+    "txt": "text/plain",
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "gif": "image/gif",
+    "mp4": "video/mp4",
+    "mp3": "audio/mpeg",
+    "ogg": "audio/ogg",
+    "wav": "audio/wav",
+    "zip": "application/zip",
+    "rar": "application/x-rar-compressed"
+  };
+  return map[ext.toLowerCase()] || "application/octet-stream";
+}
+
 function detectMediaType(mime: string | null | undefined): "image" | "video" | "audio" | "document" {
   const m = (mime || "").toLowerCase();
   if (m.startsWith("image/")) return "image";
@@ -52,7 +76,10 @@ export async function POST(req: NextRequest) {
     if (mediaUrl) {
       let finalMimeType = mediaType;
       if (!finalMimeType || finalMimeType === "application/octet-stream") {
-        if (fileName?.toLowerCase().endsWith(".xml")) finalMimeType = "text/xml";
+        if (fileName && fileName.includes(".")) {
+          const ext = fileName.split(".").pop();
+          if (ext) finalMimeType = inferMimeFromExt(ext);
+        }
       }
 
       const mediatype = detectMediaType(finalMimeType);

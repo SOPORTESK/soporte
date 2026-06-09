@@ -3,6 +3,30 @@ import { createServiceClient } from "@/lib/supabase/service";
 
 const get = (obj: any, path: string) => path.split(".").reduce((o, k) => (o && o[k] !== undefined ? o[k] : undefined), obj);
 
+function inferMimeFromExt(ext: string): string {
+  const map: Record<string, string> = {
+    "xml": "text/xml",
+    "pdf": "application/pdf",
+    "doc": "application/msword",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "xls": "application/vnd.ms-excel",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "csv": "text/csv",
+    "txt": "text/plain",
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "gif": "image/gif",
+    "mp4": "video/mp4",
+    "mp3": "audio/mpeg",
+    "ogg": "audio/ogg",
+    "wav": "audio/wav",
+    "zip": "application/zip",
+    "rar": "application/x-rar-compressed"
+  };
+  return map[ext.toLowerCase()] || "application/octet-stream";
+}
+
 const jidToPhone = (jid?: string | null) => {
   if (!jid) return null;
   let s = String(jid).trim();
@@ -346,15 +370,16 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          if (originalFileName?.toLowerCase().endsWith(".xml")) {
-             mime = "text/xml";
-          }
-
+          // Limpiado el bloque de xml quemado, ahora usamos inferMimeFromExt
           console.log("[evo-webhook] base64 recibido", { mime, base64Length: base64.length });
 
           let finalExt = ext;
           if (originalFileName && originalFileName.includes(".")) {
              finalExt = originalFileName.split(".").pop() || ext;
+             // Si el webhook no traía mime específico o era genérico, adivinamos por la extensión original
+             if (!b64Data?.mimetype || b64Data.mimetype === "application/octet-stream") {
+               mime = inferMimeFromExt(finalExt);
+             }
           }
 
           const buffer = Buffer.from(dataStr, "base64");
