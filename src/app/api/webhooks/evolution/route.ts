@@ -402,6 +402,24 @@ export async function POST(req: NextRequest) {
       if (isOutgoing) {
         // Mensaje saliente: guardar en histtecnico
         const hist = Array.isArray(existing.histtecnico) ? existing.histtecnico : [];
+        
+        // Anti-duplicación: evitar que el webhook guarde el mensaje si la UI ya lo guardó
+        const isDuplicate = hist.some((m: any) => {
+          const timeDiff = Math.abs(new Date(now).getTime() - new Date(m.time).getTime());
+          if (timeDiff < 20000) { // Ventana de 20 segundos
+            // Si tiene texto, comparamos el texto
+            if (m.content && text && m.content.trim() === text.trim()) return true;
+            // Si es un archivo sin texto, comparamos el tipo (puede haber falsos positivos si mandan 2 fotos seguidas, pero es aceptable para evitar duplicados del bot)
+            if (!text && !m.content && m.mediaType && finalMediaType && m.mediaType === finalMediaType) return true;
+          }
+          return false;
+        });
+
+        if (isDuplicate) {
+          console.log("[evo-webhook] Ignorando mensaje saliente duplicado (la UI ya lo guardó)");
+          return NextResponse.json({ ok: true, duplicate: true });
+        }
+
         const updated = [...hist, entry];
         await supabase
           .from("sek_cases")
