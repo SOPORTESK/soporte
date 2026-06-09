@@ -67,12 +67,15 @@ async function extractJid(payload: any, evoUrl: string, evoKey: string, evoInsta
 
   if (msg) {
     const fromMe = !!get(msg, "key.fromMe");
-    if (fromMe) return null;
-
     const remoteJid = get(msg, "key.remoteJid") || get(msg, "remoteJid");
     const participant = get(msg, "key.participant") || get(msg, "participant");
     
-    if (participant && !selfJids.some(sj => participant.includes(sj || "NON_EXISTENT"))) {
+    if (fromMe) {
+      // Mensaje saliente: el JID relevante es el destinatario (remoteJid)
+      if (remoteJid && !selfJids.some(sj => remoteJid.includes(sj || "NON_EXISTENT"))) {
+        rawJid = remoteJid;
+      }
+    } else if (participant && !selfJids.some(sj => participant.includes(sj || "NON_EXISTENT"))) {
       rawJid = participant;
     } else if (remoteJid && !selfJids.some(sj => remoteJid.includes(sj || "NON_EXISTENT"))) {
       rawJid = remoteJid;
@@ -179,17 +182,15 @@ export async function POST(req: NextRequest) {
   const EVO_KEY = process.env.EVOLUTION_API_KEY || "";
   const EVO_INSTANCE = process.env.EVOLUTION_INSTANCE || "";
 
-  // Si viene Baileys messages.upsert y es un mensaje "fromMe", ignorar
+  // Detectar si es un mensaje saliente (enviado desde nuestro número)
+  let isOutgoing = false;
   try {
     const fromMe = !!(payload?.data?.key?.fromMe || payload?.key?.fromMe || payload?.data?.messages?.[0]?.key?.fromMe);
     const pushNameRaw = get(payload, "data.pushName") || get(payload, "pushName");
     const isBotName = pushNameRaw && (pushNameRaw.includes("Sekunet") || pushNameRaw.includes("Soporte Sekunet"));
-    
-    // Check if the sender is explicitly the official number
     const participant = get(payload, "data.key.participant") || get(payload, "key.participant") || "";
     const isOfficialNumber = participant.includes("50660160394");
-
-    if (fromMe || isBotName || isOfficialNumber) return NextResponse.json({ ok: true });
+    isOutgoing = !!(fromMe || isBotName || isOfficialNumber);
   } catch {}
 
   // Diagnóstico para ver por qué no reconoce el número
@@ -224,7 +225,8 @@ export async function POST(req: NextRequest) {
     phone, 
     senderPn,
     text: (text || "").slice(0, 40),
-    mediaType
+    mediaType,
+    isOutgoing
   });
 
   if (!jid) {
@@ -276,22 +278,69 @@ export async function POST(req: NextRequest) {
   let finalMediaType = mediaType;
   let fileName = "";
 
+  if (mediaType) {
+    console.log("[evo-webhook] media detectada", mediaType);
+  }
+
   if (mediaType && EVO_URL && EVO_KEY && EVO_INSTANCE) {
     try {
-      const messageToExtract = get(payload, "data.messages.0") || get(payload, "data") || payload;
+      // Evolution manda el mensaje completo en payload.data (con key + message)
+      // payload.data YA tiene la estructura { key, pushName, message, messageType, ... }
+      const messageToExtract = payload?.data;
+      if (!messageToExtract || !messageToExtract.key || !messageToExtract.message) {
+        console.error("[evo-webhook] payload.data no tiene key+message, no se puede extraer base64", { hasData: !!payload?.data, hasKey: !!messageToExtract?.key, hasMessage: !!messageToExtract?.message });
+        return NextResponse.json({ ok: true }); // salir sin llamar a Evolution para evitar 400
+      }
+      console.log("[evo-webhook] solicitando base64 a Evolution", { mediaType, hasKey: !!messageToExtract.key, hasMessage: !!messageToExtract.message });
       const b64Res = await fetch(`${EVO_URL.replace(/\/$/, "")}/chat/getBase64FromMediaMessage/${encodeURIComponent(EVO_INSTANCE)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", apikey: EVO_KEY },
         body: JSON.stringify({ message: messageToExtract })
       });
-      if (b64Res.ok) {
-        const b64Data = await b64Res.json();
-        const base64 = b64Data.base64;
-        if (base64 && base64.includes(",")) {
-          const [prefix, dataStr] = base64.split(",");
-          const mime = prefix.split(":")[1]?.split(";")[0] || "application/octet-stream";
-          const ext = mime.split("/")[1]?.split(";")[0] || "bin";
-          
+      if (!b64Res.ok) {
+        const body = await b64Res.text().catch(() => "<no-body>");
+        console.error("[evo-webhook] getBase64FromMediaMessage NO OK", b64Res.status, body.slice(0, 500));
+        if (messageToExtract) {
+          try {
+            console.error("[evo-webhook] mensaje enviado a getBase64", JSON.stringify(messageToExtract).slice(0, 2000));
+          } catch {}
+        }
+      } else {
+        const b64Data = await b64Res.json().catch(() => null);
+        console.log("[evo-webhook] respuesta getBase64", b64Data);
+        const base64 = b64Data?.base64;
+        if (!base64) {
+          console.error("[evo-webhook] getBase64FromMediaMessage sin base64 en respuesta", b64Data);
+          if (messageToExtract) {
+            try {
+              console.error("[evo-webhook] mensaje enviado a getBase64", JSON.stringify(messageToExtract).slice(0, 2000));
+            } catch {}
+          }
+        }
+        if (base64) {
+          let dataStr = "";
+          let mime = "application/octet-stream";
+          let ext = "bin";
+
+          if (base64.includes(",")) {
+            const [prefix, rest] = base64.split(",");
+            dataStr = rest || "";
+            mime = prefix.split(":")[1]?.split(";")[0] || "application/octet-stream";
+            ext = mime.split("/")[1]?.split(";")[0] || "bin";
+          } else {
+            // Base64 sin cabecera; inferir MIME del mediaType detectado
+            dataStr = base64;
+            if (mediaType === "sticker") { mime = "image/webp"; ext = "webp"; }
+            else if (mediaType === "image") { mime = "image/jpeg"; ext = "jpg"; }
+            else if (mediaType === "video") { mime = "video/mp4"; ext = "mp4"; }
+            else if (mediaType === "audio") { mime = "audio/ogg"; ext = "ogg"; }
+            else if (mediaType === "document") { mime = "application/pdf"; ext = "pdf"; }
+            else { mime = "application/octet-stream"; ext = "bin"; }
+            console.warn("[evo-webhook] base64 sin cabecera, inferido", { base64Length: base64.length, mediaType, mime });
+          }
+
+          console.log("[evo-webhook] base64 recibido", { mime, base64Length: base64.length });
+
           const buffer = Buffer.from(dataStr, "base64");
           fileName = `${Date.now()}_${phone || "media"}.${ext}`;
           
@@ -299,26 +348,34 @@ export async function POST(req: NextRequest) {
             .from("attachments")
             .upload(`cases/evolution/${fileName}`, buffer, { contentType: mime });
             
+          if (uploadErr) {
+            console.error("[evo-webhook] Error subiendo media a Supabase", uploadErr.message || uploadErr);
+          }
           if (!uploadErr && uploadData) {
             const { data: urlData } = supabase.storage.from("attachments").getPublicUrl(`cases/evolution/${fileName}`);
             mediaUrl = urlData.publicUrl;
             finalMediaType = mime;
             if (text === `[Archivo adjunto: ${mediaType}]`) text = ""; // Limpiar el placeholder si se subió con éxito
+            console.log("[evo-webhook] media subida OK", { mediaUrl, mime, fileName });
           }
         }
       }
     } catch (e: any) {
       console.error("[evo-webhook] Error fetching/uploading base64 media:", e.message);
     }
+  } else if (mediaType) {
+    console.error("[evo-webhook] media detectada pero faltan envs EVO_URL/EVO_KEY/EVO_INSTANCE");
   }
 
   const now = new Date().toISOString();
-  const entry = { role: "user", time: now, content: text || "", mediaUrl, mediaType: finalMediaType, fileName } as any;
+  const entry = isOutgoing
+    ? { role: "tecnico", time: now, content: text || "", author: "Soporte Sekunet", mediaUrl, mediaType: finalMediaType, fileName } as any
+    : { role: "user", time: now, content: text || "", mediaUrl, mediaType: finalMediaType, fileName } as any;
 
   try {
     const { data: openCases } = await supabase
       .from("sek_cases")
-      .select("id, histcliente, estado, customer_phone, cliente, title")
+      .select("id, histcliente, histtecnico, estado, customer_phone, cliente, title")
       .eq("canal", "whatsapp")
       .not("estado", "in", '("cerrado","resuelto")')
       .order("created_at", { ascending: false })
@@ -342,53 +399,83 @@ export async function POST(req: NextRequest) {
 
 
     if (existing) {
-      const hist = Array.isArray(existing.histcliente) ? existing.histcliente : [];
-      const updated = [...hist, entry];
+      if (isOutgoing) {
+        // Mensaje saliente: guardar en histtecnico
+        const hist = Array.isArray(existing.histtecnico) ? existing.histtecnico : [];
+        const updated = [...hist, entry];
+        await supabase
+          .from("sek_cases")
+          .update({ 
+            histtecnico: updated, 
+            last_message_at: now, 
+            last_message_preview: (text || "").slice(0, 200),
+            customer_phone: jid
+          })
+          .eq("id", existing.id);
+      } else {
+        // Mensaje entrante: guardar en histcliente
+        const hist = Array.isArray(existing.histcliente) ? existing.histcliente : [];
+        const updated = [...hist, entry];
 
-      // Obtener datos actuales del cliente para no sobreescribir campos existentes
-      const { data: currentCase } = await supabase
-        .from("sek_cases")
-        .select("cliente, title")
-        .eq("id", existing.id)
-        .maybeSingle();
+        const { data: currentCase } = await supabase
+          .from("sek_cases")
+          .select("cliente, title")
+          .eq("id", existing.id)
+          .maybeSingle();
 
-      const currentCliente = typeof currentCase?.cliente === "object" ? currentCase.cliente : {};
-      const updatedCliente = { 
-        ...currentCliente, 
-        nombre: pushName || currentCliente.nombre,
-        telefono_real: senderPn || currentCliente.telefono_real
-      };
+        const currentCliente = typeof currentCase?.cliente === "object" ? currentCase.cliente : {};
+        const updatedCliente = { 
+          ...currentCliente, 
+          nombre: pushName || currentCliente.nombre,
+          telefono_real: senderPn || currentCliente.telefono_real
+        };
 
-      await supabase
-        .from("sek_cases")
-        .update({ 
-          histcliente: updated, 
-          last_message_at: now, 
-          last_message_preview: (text || "").slice(0, 200),
-          customer_phone: jid, // Asegura migrar el caso al JID completo
-          cliente: updatedCliente,
-          title: pushName ? `WhatsApp — ${pushName}` : (currentCase?.title || `WhatsApp — ${jid}`)
-        })
-        .eq("id", existing.id);
+        await supabase
+          .from("sek_cases")
+          .update({ 
+            histcliente: updated, 
+            last_message_at: now, 
+            last_message_preview: (text || "").slice(0, 200),
+            customer_phone: jid,
+            cliente: updatedCliente,
+            title: pushName ? `WhatsApp — ${pushName}` : (currentCase?.title || `WhatsApp — ${jid}`)
+          })
+          .eq("id", existing.id);
+      }
       return NextResponse.json({ ok: true });
     }
 
-    await supabase.from("sek_cases").insert({
-      canal: "whatsapp",
-      estado: "pendiente",
-      prioridad: "media",
-      customer_phone: jid,
-      cliente: { 
-        telefono: senderPn || phone || jid,
-        nombre: pushName || null,
-        telefono_real: senderPn || null
-      },
-      histcliente: [entry],
-      histtecnico: [],
-      title: pushName ? `WhatsApp — ${pushName}` : `WhatsApp — ${phone || jid}`,
-      last_message_at: now,
-      last_message_preview: (text || "").slice(0, 200),
-    });
+    if (isOutgoing) {
+      await supabase.from("sek_cases").insert({
+        canal: "whatsapp",
+        estado: "pendiente",
+        prioridad: "media",
+        customer_phone: jid,
+        cliente: { telefono: phone || jid, nombre: null },
+        histcliente: [],
+        histtecnico: [entry],
+        title: `WhatsApp — ${phone || jid}`,
+        last_message_at: now,
+        last_message_preview: (text || "").slice(0, 200),
+      });
+    } else {
+      await supabase.from("sek_cases").insert({
+        canal: "whatsapp",
+        estado: "pendiente",
+        prioridad: "media",
+        customer_phone: jid,
+        cliente: { 
+          telefono: senderPn || phone || jid,
+          nombre: pushName || null,
+          telefono_real: senderPn || null
+        },
+        histcliente: [entry],
+        histtecnico: [],
+        title: pushName ? `WhatsApp — ${pushName}` : `WhatsApp — ${phone || jid}`,
+        last_message_at: now,
+        last_message_preview: (text || "").slice(0, 200),
+      });
+    }
     return NextResponse.json({ ok: true });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message || "error" }, { status: 500 });

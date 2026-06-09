@@ -1200,10 +1200,13 @@ function MediaPreview({ url, type, name }: { url: string; type?: string; name?: 
   const audioExts = ["webm", "ogg", "mp3", "wav", "m4a", "aac", "opus"];
   const videoExts = ["mp4", "mov", "webm", "mkv"];
   const imageExts = ["jpg", "jpeg", "png", "gif", "webp", "svg"];
-  const t = type
+  // Si el type es genérico, inferir por extensión
+  const isGeneric = !type || type === "application/octet-stream" || type === "application/octet-stream";
+  const t = (!isGeneric ? type : "")
     || (audioExts.includes(ext) ? `audio/${ext === "mp3" ? "mpeg" : ext}` : "")
     || (videoExts.includes(ext) ? `video/${ext}` : "")
     || (imageExts.includes(ext) ? `image/${ext}` : "")
+    || type
     || "";
   if (t.startsWith("image/")) {
     return (
