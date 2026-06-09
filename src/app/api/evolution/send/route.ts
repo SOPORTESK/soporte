@@ -2,18 +2,21 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 
 function pickPhone(c: any): string | null {
-  // 1. Usar customer_phone como prioridad
+  // 1. Prioridad: telefono_real (es el número verdadero desencriptado o vinculado manualmente)
+  if (typeof c?.cliente === "object") {
+    const telReal = String(c.cliente?.telefono_real || "").trim();
+    if (telReal) return telReal.includes("@") ? telReal : `${telReal.replace(/[^0-9]/g, "")}@s.whatsapp.net`;
+  }
+
+  // 2. Fallback a customer_phone (puede ser un @lid o jid normal)
   const cust = (c?.customer_phone || "").toString().trim();
   if (cust) {
     if (cust.includes("@")) return cust;
     return `${cust.replace(/[^0-9]/g, "")}@s.whatsapp.net`;
   }
   
-  // 2. Fallback a cliente.telefono_real o cliente.telefono
+  // 3. Fallback a cliente.telefono
   if (typeof c?.cliente === "object") {
-    const telReal = String(c.cliente?.telefono_real || "").trim();
-    if (telReal) return telReal.includes("@") ? telReal : `${telReal.replace(/[^0-9]/g, "")}@s.whatsapp.net`;
-    
     const tel = String(c.cliente?.telefono || "").trim();
     if (tel) return tel.includes("@") ? tel : `${tel.replace(/[^0-9]/g, "")}@s.whatsapp.net`;
   }

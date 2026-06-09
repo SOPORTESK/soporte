@@ -1,6 +1,6 @@
 "use client";
 import * as React from "react";
-import { Search, MessageSquarePlus, Star, Clock } from "lucide-react";
+import { Search, MessageSquarePlus, Star, Clock, Trash2 } from "lucide-react";
 import { Avatar, Badge } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { cn, formatTime, asText, clienteInfo } from "@/lib/utils";
@@ -17,14 +17,32 @@ function lastMessage(c: SekCase): { content: string; time: string } | null {
 }
 
 export function ConversationList({
-  cases, selectedId, onSelect
-}: { cases: SekCase[]; selectedId: string | null; onSelect: (id: string) => void }) {
+  cases, selectedId, onSelect, agentRole
+}: { cases: SekCase[]; selectedId: string | null; onSelect: (id: string) => void; agentRole?: string }) {
   const [query, setQuery] = React.useState("");
   const [tick, setTick] = React.useState(0);
+  const [deletingId, setDeletingId] = React.useState<string | null>(null);
+  const [confirmId, setConfirmId] = React.useState<string | null>(null);
+  
+  const isAdmin = agentRole === "admin" || agentRole === "superadmin";
+
   React.useEffect(() => {
     const t = setInterval(() => setTick(n => n + 1), 60000);
     return () => clearInterval(t);
   }, []);
+
+  const handleDelete = async (caseId: string) => {
+    setDeletingId(caseId);
+    try {
+      const res = await fetch(`/api/cases/${caseId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Error al eliminar");
+      setConfirmId(null);
+    } catch (e: any) {
+      alert("No se pudo eliminar: " + (e?.message || "error"));
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
 
   const filtered = React.useMemo(() => {
@@ -107,11 +125,11 @@ export function ConversationList({
             : minutosEsperando < 5 ? { color: "bg-amber-400", text: "text-amber-600 dark:text-amber-400", label: `${minutosEsperando}m` }
             : { color: "bg-red-500", text: "text-red-600 dark:text-red-400", label: `${minutosEsperando}m` };
           return (
-            <li key={id} role="option" aria-selected={active}>
+            <li key={id} role="option" aria-selected={active} className="group flex items-center">
               <button
                 onClick={() => onSelect(id)}
                 className={cn(
-                  "w-full text-left flex items-start gap-3 px-3 sm:px-4 py-3 border-b border-border/50 transition-colors focus-visible:outline-none focus-visible:bg-muted active:bg-muted/80",
+                  "flex-1 text-left flex items-start gap-3 px-3 sm:px-4 py-3 border-b border-border/50 transition-colors focus-visible:outline-none focus-visible:bg-muted active:bg-muted/80",
                   active ? "bg-brand-50 dark:bg-brand-900/30" : "hover:bg-muted/60"
                 )}
               >
@@ -179,6 +197,24 @@ export function ConversationList({
                   </div>
                 </div>
               </button>
+              {isAdmin && (confirmId === id ? (
+                <div className="flex items-center gap-1 px-1 shrink-0">
+                  <button onClick={(e) => { e.stopPropagation(); handleDelete(id); }} disabled={deletingId === id}
+                    className="text-[10px] px-2 py-1 rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 whitespace-nowrap">
+                    {deletingId === id ? "..." : "Eliminar"}
+                  </button>
+                  <button onClick={(e) => { e.stopPropagation(); setConfirmId(null); }}
+                    className="text-[10px] px-2 py-1 rounded bg-muted hover:bg-border whitespace-nowrap">
+                    Cancelar
+                  </button>
+                </div>
+              ) : (
+                <button onClick={(e) => { e.stopPropagation(); setConfirmId(id); }}
+                  className="p-1.5 rounded-md text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                  title="Eliminar conversacion">
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              ))}
             </li>
           );
         })}

@@ -185,6 +185,7 @@ export function InboxClient({
   const [unreadTotal, setUnreadTotal] = React.useState(0);
   const [agentEmail, setAgentEmail] = React.useState<string | null>(null);
   const [agentName, setAgentName] = React.useState<string | null>(null);
+  const [agentRole, setAgentRole] = React.useState<string | null>(null);
   const [godModeEmail, setGodModeEmail] = React.useState<string | null>(null);
   const [godModeName, setGodModeName] = React.useState<string | null>(null);
   const supabase = React.useMemo(() => createClient(), []);
@@ -203,23 +204,24 @@ export function InboxClient({
     }
   }, []);
 
-  /* Obtener email y nombre del agente actual para filtrar Mi Gestion */
+  /* Obtener email, nombre y rol del agente actual para filtrar Mi Gestion */
   React.useEffect(() => {
     supabase.auth.getUser().then(async ({ data }) => {
       if (data?.user?.email) {
         // Si estamos en MODO DIOS, usar el email del agente objetivo
         const effectiveEmail = godModeEmail || data.user.email;
         setAgentEmail(effectiveEmail);
-        // Buscar nombre del agente en config
+        // Buscar nombre y rol del agente en config
         const { data: agent } = await supabase
           .from("sek_agent_config")
-          .select("nombre,apellido")
+          .select("nombre,apellido,rol")
           .ilike("email", effectiveEmail)
           .maybeSingle();
         if (agent) {
           const fullName = [agent.nombre, agent.apellido].filter(Boolean).join(" ");
           setAgentName(fullName);
-          console.log(`[Mi Gestion] Agente identificado: ${fullName}`);
+          setAgentRole(agent.rol);
+          console.log(`[Mi Gestion] Agente identificado: ${fullName}, Rol: ${agent.rol}`);
         }
       }
     });
@@ -501,7 +503,7 @@ export function InboxClient({
         className={`${selected ? "hidden md:flex" : "flex"} md:flex flex-col shrink-0 overflow-hidden w-full md:w-auto`}
         style={{ width: mounted && typeof window !== "undefined" && window.innerWidth >= 768 ? listWidth : undefined }}
       >
-        <ConversationList cases={mergedCases} selectedId={selectedId} onSelect={selectCase} />
+        <ConversationList cases={mergedCases} selectedId={selectedId} onSelect={selectCase} agentRole={agentRole || undefined} />
       </div>
       {/* Divisor arrastrable — solo visible en md+ */}
       <div
