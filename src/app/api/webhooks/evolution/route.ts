@@ -181,7 +181,7 @@ export async function POST(req: NextRequest) {
 
   // Si viene Baileys messages.upsert y es un mensaje "fromMe", ignorar
   try {
-    const fromMe = !!payload?.data?.messages?.[0]?.key?.fromMe;
+    const fromMe = !!(payload?.data?.key?.fromMe || payload?.key?.fromMe || payload?.data?.messages?.[0]?.key?.fromMe);
     if (fromMe) return NextResponse.json({ ok: true });
   } catch {}
 
