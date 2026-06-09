@@ -323,24 +323,31 @@ export async function POST(req: NextRequest) {
         }
         if (base64) {
           let dataStr = "";
-          let mime = "application/octet-stream";
-          let ext = "bin";
+          let mime = b64Data?.mimetype || "application/octet-stream";
+          let ext = mime.split("/")[1]?.split(";")[0] || "bin";
 
           if (base64.includes(",")) {
             const [prefix, rest] = base64.split(",");
             dataStr = rest || "";
-            mime = prefix.split(":")[1]?.split(";")[0] || "application/octet-stream";
-            ext = mime.split("/")[1]?.split(";")[0] || "bin";
+            if (!b64Data?.mimetype) {
+              mime = prefix.split(":")[1]?.split(";")[0] || "application/octet-stream";
+              ext = mime.split("/")[1]?.split(";")[0] || "bin";
+            }
           } else {
-            // Base64 sin cabecera; inferir MIME del mediaType detectado
+            // Base64 sin cabecera
             dataStr = base64;
-            if (mediaType === "sticker") { mime = "image/webp"; ext = "webp"; }
-            else if (mediaType === "image") { mime = "image/jpeg"; ext = "jpg"; }
-            else if (mediaType === "video") { mime = "video/mp4"; ext = "mp4"; }
-            else if (mediaType === "audio") { mime = "audio/ogg"; ext = "ogg"; }
-            else if (mediaType === "document") { mime = "application/pdf"; ext = "pdf"; }
-            else { mime = "application/octet-stream"; ext = "bin"; }
-            console.warn("[evo-webhook] base64 sin cabecera, inferido", { base64Length: base64.length, mediaType, mime });
+            if (!b64Data?.mimetype) {
+              if (mediaType === "sticker") { mime = "image/webp"; ext = "webp"; }
+              else if (mediaType === "image") { mime = "image/jpeg"; ext = "jpg"; }
+              else if (mediaType === "video") { mime = "video/mp4"; ext = "mp4"; }
+              else if (mediaType === "audio") { mime = "audio/ogg"; ext = "ogg"; }
+              else if (mediaType === "document") { mime = "application/pdf"; ext = "pdf"; }
+              else { mime = "application/octet-stream"; ext = "bin"; }
+            }
+          }
+
+          if (originalFileName?.toLowerCase().endsWith(".xml")) {
+             mime = "text/xml";
           }
 
           console.log("[evo-webhook] base64 recibido", { mime, base64Length: base64.length });
