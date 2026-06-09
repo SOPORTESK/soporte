@@ -102,6 +102,8 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   const [submittingRating, setSubmittingRating] = React.useState(false);
   const [accepting, setAccepting] = React.useState(false);
   const [showClassify, setShowClassify] = React.useState(false);
+  const [editingPhone, setEditingPhone] = React.useState(false);
+  const [realPhoneInput, setRealPhoneInput] = React.useState("");
 
   const CATEGORIAS = [
     { value: "sin_imagen", label: "Sin imagen" },
@@ -330,6 +332,23 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
         .eq("id", targetId);
       if (error) throw error;
       setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...m, status: "sent" } : m));
+
+      // Envío por WhatsApp vía Evolution API (solo mensajes no-nota y canal whatsapp)
+      const isWhatsApp = String(sekCase.canal || "").toLowerCase() === "whatsapp";
+      if (!isNota && isWhatsApp) {
+        // Disparar en segundo plano, sin bloquear la UI
+        fetch("/api/evolution/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            case_id: targetId,
+            text: body || undefined,
+            mediaUrl: mediaUrl || undefined,
+            mediaType: mediaType || undefined,
+            fileName: fileName || undefined,
+          })
+        }).catch(() => {});
+      }
     } catch (e: any) {
       toast.error("No se pudo enviar", { description: (e as any)?.message });
       setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...m, status: "error" } : m));
@@ -539,6 +558,28 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     }
   }
 
+  async function saveRealPhone() {
+    try {
+      const cleanNum = realPhoneInput.replace(/[^0-9]/g, "");
+      if (cleanNum.length < 8) {
+        toast.error("El número debe tener al menos 8 dígitos");
+        return;
+      }
+      const currentCliente = typeof sekCase.cliente === "object" ? sekCase.cliente : {};
+      const updatedCliente = { ...currentCliente, telefono_real: cleanNum };
+      const { error } = await supabase
+        .from("sek_cases")
+        .update({ cliente: updatedCliente })
+        .eq("id", targetId);
+      if (error) throw error;
+      setSekCase(prev => ({ ...prev, cliente: updatedCliente }));
+      toast.success("Teléfono real vinculado correctamente");
+      setEditingPhone(false);
+    } catch (e: any) {
+      toast.error("Error al vincular teléfono", { description: e?.message });
+    }
+  }
+
   // Render main view
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -567,7 +608,27 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
               )}
             </div>
             <div className="flex items-center gap-2 sm:gap-3 mt-0.5 text-xs text-muted-foreground flex-wrap">
-              {ci.telefono && <span className="inline-flex items-center gap-1"><Phone className="h-3 w-3" />{ci.telefono}</span>}
+              {canalKind === "whatsapp" && (String(sekCase.customer_phone || "").includes("@lid") || String(sekCase.customer_phone || "").length > 12) ? (
+                (sekCase.cliente as any)?.telefono_real ? (
+                  <span className="inline-flex items-center gap-1 text-green-500 font-medium" title="Teléfono real vinculado">
+                    <Phone className="h-3 w-3" />
+                    {(sekCase.cliente as any).telefono_real} (Vinculado)
+                    <button onClick={() => { setRealPhoneInput((sekCase.cliente as any).telefono_real); setEditingPhone(true); }} className="hover:underline text-[10px] ml-1 font-semibold text-brand-500">
+                      (Cambiar)
+                    </button>
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded" title="WhatsApp oculta el número de este usuario. Vincule su número real para poder responderle.">
+                    <Phone className="h-3 w-3" />
+                    {ci.telefono}
+                    <button onClick={() => { setRealPhoneInput(""); setEditingPhone(true); }} className="hover:underline text-[10px] ml-1 font-bold text-amber-600">
+                      (Vincular número real)
+                    </button>
+                  </span>
+                )
+              ) : (
+                ci.telefono && <span className="inline-flex items-center gap-1"><Phone className="h-3 w-3" />{ci.telefono}</span>
+              )}
               {ci.correo && <span className="hidden sm:inline-flex items-center gap-1"><Mail className="h-3 w-3" />{ci.correo}</span>}
               {ci.cuenta && <span className="inline-flex items-center gap-1"><Building2 className="h-3 w-3" />{ci.cuenta}</span>}
             </div>
@@ -669,6 +730,45 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
                 </div>
               </div>
             )}
+
+            {/* Modal de vincular teléfono real */}
+            {editingPhone && (
+              <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm">
+                <div className="bg-card border border-border rounded-t-3xl sm:rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden pb-safe">
+                  <div className="flex justify-between items-center px-4 py-3 border-b border-border bg-muted/20">
+                    <div className="flex items-center gap-1.5">
+                      <Phone className="h-4 w-4 text-brand-500" />
+                      <p className="font-bold text-sm">Vincular Teléfono Real</p>
+                    </div>
+                    <button onClick={() => setEditingPhone(false)} className="p-1.5 rounded-lg hover:bg-muted">
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <div className="p-4 flex flex-col gap-3">
+                    <p className="text-xs text-muted-foreground leading-normal">
+                      WhatsApp oculta el número real de este cliente debido a sus configuraciones de privacidad (ID de Red: {ci.telefono}).
+                      <strong> Ingrese el número telefónico real</strong> de este cliente (con código de país, ej: 50688888888) para poder enviarle mensajes desde este panel.
+                    </p>
+                    <input
+                      type="text"
+                      value={realPhoneInput}
+                      onChange={e => setRealPhoneInput(e.target.value)}
+                      placeholder="Ej: 50688888888"
+                      className="flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    />
+                    <div className="flex gap-2 justify-end mt-2">
+                      <Button variant="muted" onClick={() => setEditingPhone(false)}>
+                        Cancelar
+                      </Button>
+                      <Button variant="brand" onClick={saveRealPhone}>
+                        Vincular Número
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
           </div>
         </div>
       </header>

@@ -251,6 +251,27 @@ async function callAI(messages: ChatMessage[]): Promise<string> {
   }
 }
 
+async function sendViaEvolution(phone: string, text: string) {
+  const EVO_URL = Deno.env.get("EVOLUTION_API_URL") || "";
+  const EVO_KEY = Deno.env.get("EVOLUTION_API_KEY") || "";
+  const EVO_INSTANCE = Deno.env.get("EVOLUTION_INSTANCE") || "";
+  if (!EVO_URL || !EVO_KEY || !EVO_INSTANCE || !phone) return;
+  
+  let to = phone.toString().trim();
+  if (!to.includes("@")) to = `${to.replace(/[^0-9]/g, "")}@s.whatsapp.net`;
+  
+  try {
+    const res = await fetch(`${EVO_URL.replace(/\/$/, "")}/message/sendText/${encodeURIComponent(EVO_INSTANCE)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: EVO_KEY },
+      body: JSON.stringify({ number: to, text })
+    });
+    if (!res.ok) console.error("[ia-agent] Error Evolution API:", res.status, await res.text());
+  } catch (e: any) {
+    console.error("[ia-agent] Exception sending to Evolution:", e.message);
+  }
+}
+
 function getGeminiMimeType(mediaType: string, url: string): string {
   const cleanUrl = url.split("?")[0];
   const ext = cleanUrl.split(".").pop()?.toLowerCase() ?? "";
@@ -592,7 +613,7 @@ Deno.serve(async (req) => {
     // Fetch case
     const { data: caso, error: fetchErr } = await db
       .from("sek_cases")
-      .select("id, estado, canal, cliente, histcliente, histtecnico, tags, assigned_to")
+      .select("id, estado, canal, cliente, histcliente, histtecnico, tags, assigned_to, customer_phone")
       .eq("id", case_id)
       .maybeSingle();
 
@@ -939,6 +960,15 @@ Deno.serve(async (req) => {
     }
 
     await db.from("sek_cases").update(updates).eq("id", case_id);
+
+    // Si el canal es whatsapp y la IA generó una respuesta visible, enviarla por Evolution API
+    const finalMsg = aiResponse.trim();
+    if (caso.canal === "whatsapp" && finalMsg.length > 0) {
+      const phone = caso.customer_phone || (typeof caso.cliente === "object" ? caso.cliente?.telefono : null);
+      if (phone) {
+        await sendViaEvolution(phone, finalMsg);
+      }
+    }
 
     // Aprendizaje automático: al cerrar o escalar, SEKA genera un resumen y lo guarda en RAG
     if (shouldClose || shouldEscalate) {
