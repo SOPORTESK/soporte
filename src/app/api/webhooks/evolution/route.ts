@@ -195,8 +195,23 @@ export async function POST(req: NextRequest) {
   // Diagnóstico para ver por qué no reconoce el número
   const jid = await extractJid(payload, EVO_URL, EVO_KEY, EVO_INSTANCE);
   const phone = jidToPhone(jid);
-  const text = extractText(payload);
+  let text = extractText(payload);
+  const msgObj = get(payload, "data.messages.0.message") || get(payload, "data.message") || get(payload, "message");
   
+  let mediaType = "";
+  if (msgObj) {
+    if (msgObj.audioMessage) mediaType = "audio";
+    else if (msgObj.imageMessage) mediaType = "image";
+    else if (msgObj.videoMessage) mediaType = "video";
+    else if (msgObj.documentMessage) mediaType = "document";
+    else if (msgObj.stickerMessage) mediaType = "sticker";
+  }
+
+  // Si es un archivo pero no tiene texto, poner un placeholder para que no lo ignore
+  if (!text && mediaType) {
+    text = `[Archivo adjunto: ${mediaType}]`;
+  }
+
   const senderPnRaw = get(payload, "data.messages.0.senderPn") || 
                       get(payload, "data.senderPn") || 
                       get(payload, "senderPn") ||
@@ -208,7 +223,8 @@ export async function POST(req: NextRequest) {
     jid,
     phone, 
     senderPn,
-    text: (text || "").slice(0, 40)
+    text: (text || "").slice(0, 40),
+    mediaType
   });
 
   if (!jid) {
@@ -254,10 +270,50 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  if (!text) return NextResponse.json({ ok: true });
+  if (!text && !mediaType) return NextResponse.json({ ok: true });
+
+  let mediaUrl = "";
+  let finalMediaType = mediaType;
+  let fileName = "";
+
+  if (mediaType && EVO_URL && EVO_KEY && EVO_INSTANCE) {
+    try {
+      const messageToExtract = get(payload, "data.messages.0") || get(payload, "data") || payload;
+      const b64Res = await fetch(`${EVO_URL.replace(/\/$/, "")}/chat/getBase64FromMediaMessage/${encodeURIComponent(EVO_INSTANCE)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: EVO_KEY },
+        body: JSON.stringify({ message: messageToExtract })
+      });
+      if (b64Res.ok) {
+        const b64Data = await b64Res.json();
+        const base64 = b64Data.base64;
+        if (base64 && base64.includes(",")) {
+          const [prefix, dataStr] = base64.split(",");
+          const mime = prefix.split(":")[1]?.split(";")[0] || "application/octet-stream";
+          const ext = mime.split("/")[1]?.split(";")[0] || "bin";
+          
+          const buffer = Buffer.from(dataStr, "base64");
+          fileName = `${Date.now()}_${phone || "media"}.${ext}`;
+          
+          const { data: uploadData, error: uploadErr } = await supabase.storage
+            .from("attachments")
+            .upload(`cases/evolution/${fileName}`, buffer, { contentType: mime });
+            
+          if (!uploadErr && uploadData) {
+            const { data: urlData } = supabase.storage.from("attachments").getPublicUrl(`cases/evolution/${fileName}`);
+            mediaUrl = urlData.publicUrl;
+            finalMediaType = mime;
+            if (text === `[Archivo adjunto: ${mediaType}]`) text = ""; // Limpiar el placeholder si se subió con éxito
+          }
+        }
+      }
+    } catch (e: any) {
+      console.error("[evo-webhook] Error fetching/uploading base64 media:", e.message);
+    }
+  }
 
   const now = new Date().toISOString();
-  const entry = { role: "user", time: now, content: text || "" } as any;
+  const entry = { role: "user", time: now, content: text || "", mediaUrl, mediaType: finalMediaType, fileName } as any;
 
   try {
     const { data: openCases } = await supabase
