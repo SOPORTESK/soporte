@@ -790,7 +790,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
                   <div className="flex-1 h-px bg-border" />
                 </div>
               )}
-              <Bubble m={m} clienteName={ci.nombre} />
+              <Bubble m={m} clienteName={ci.nombre} onImageClick={setPreviewImage} />
             </React.Fragment>
           );
         })}
@@ -1074,6 +1074,21 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
         onClose={() => setShowHistory(false)}
         currentCase={sekCase}
       />
+
+      {/* Visor de imágenes a pantalla completa */}
+      {previewImage && (
+        <div 
+          className="fixed inset-0 z-[9999] bg-black/90 flex items-center justify-center p-4 cursor-zoom-out animate-fade-in"
+          onClick={() => setPreviewImage(null)}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img 
+            src={previewImage} 
+            alt="Vista completa" 
+            className="max-w-full max-h-full object-contain rounded-xl shadow-2xl transition-transform" 
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -1194,7 +1209,7 @@ function AudioPlayer({ url }: { url: string }) {
   );
 }
 
-function MediaPreview({ url, type, name }: { url: string; type?: string; name?: string }) {
+function MediaPreview({ url, type, name, onImageClick }: { url: string; type?: string; name?: string; onImageClick?: (url: string) => void }) {
   if (!url) return null;
   const ext = (name || url).split("?")[0].split(".").pop()?.toLowerCase() ?? "";
   const audioExts = ["webm", "ogg", "mp3", "wav", "m4a", "aac", "opus"];
@@ -1210,10 +1225,13 @@ function MediaPreview({ url, type, name }: { url: string; type?: string; name?: 
     || "";
   if (t.startsWith("image/")) {
     return (
-      <a href={url} target="_blank" rel="noopener noreferrer" className="block mt-1">
+      <div 
+        onClick={() => onImageClick?.(url)} 
+        className="block mt-1 cursor-pointer transition-transform hover:scale-[1.02] active:scale-[0.98]"
+      >
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={url} alt={name || "imagen"} className="max-w-[240px] max-h-48 rounded-lg object-cover border border-white/20" />
-      </a>
+        <img src={url} alt={name || "imagen"} className="max-w-[240px] max-h-48 rounded-lg object-cover border border-white/20 shadow-sm" />
+      </div>
     );
   }
   if (t.startsWith("video/")) {
@@ -1226,10 +1244,29 @@ function MediaPreview({ url, type, name }: { url: string; type?: string; name?: 
   }
   const Icon = ext === "xml" || ext === "csv" || ext === "txt" ? FileText
     : ext === "pdf" ? FileText : Download;
+    
+  const handleDownload = async (e: React.MouseEvent<HTMLAnchorElement>) => {
+    e.preventDefault();
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = name || "archivo";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      window.open(url, "_blank");
+    }
+  };
+
   return (
     <a
-      href={url} target="_blank" rel="noopener noreferrer" download={name}
-      className="mt-1 inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white/15 hover:bg-white/25 transition-colors text-xs font-medium"
+      href={url} onClick={handleDownload} target="_blank" rel="noopener noreferrer" download={name}
+      className="mt-1 inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white/15 hover:bg-white/25 transition-colors text-xs font-medium cursor-pointer"
     >
       <Icon className="h-4 w-4 shrink-0" />
       <span className="truncate max-w-[160px]">{name || "Archivo"}</span>
@@ -1238,7 +1275,7 @@ function MediaPreview({ url, type, name }: { url: string; type?: string; name?: 
   );
 }
 
-function Bubble({ m, clienteName }: { m: UnifiedMessage; clienteName: string }) {
+function Bubble({ m, clienteName, onImageClick }: { m: UnifiedMessage; clienteName: string; onImageClick?: (url: string) => void }) {
   const isCliente = m.source === "user";
   const isIA = m.source === "assistant";
   const isTecnico = m.source === "tecnico";
@@ -1276,7 +1313,7 @@ function Bubble({ m, clienteName }: { m: UnifiedMessage; clienteName: string }) 
           {isTecnico && <><User className="h-3 w-3" /> {m.authorName || "Técnico"}</>}
         </div>
 
-        {m.mediaUrl && <MediaPreview url={m.mediaUrl} type={m.mediaType} name={m.fileName} />}
+        {m.mediaUrl && <MediaPreview url={m.mediaUrl} type={m.mediaType} name={m.fileName} onImageClick={onImageClick} />}
         
         {/* Contenido con detección de [SUGERENCIAS] */}
         <div className="text-sm leading-relaxed whitespace-pre-wrap break-words mt-1" suppressHydrationWarning>
