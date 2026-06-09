@@ -786,7 +786,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
               {showDate && (
                 <div className="my-4 flex items-center gap-3 text-xs text-muted-foreground">
                   <div className="flex-1 h-px bg-border" />
-                  <span>{new Date(m.time).toLocaleDateString()}</span>
+                  <span suppressHydrationWarning>{new Date(m.time).toLocaleDateString()}</span>
                   <div className="flex-1 h-px bg-border" />
                 </div>
               )}
@@ -1249,7 +1249,7 @@ function Bubble({ m, clienteName }: { m: UnifiedMessage; clienteName: string }) 
             <StickyNote className="h-3 w-3" /> Nota interna · {m.authorName || "Agente"}
           </div>
           <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{m.content}</p>
-          <p className="text-[10px] mt-1 opacity-60 text-right">{formatTime(m.time)}</p>
+          <p className="text-[10px] mt-1 opacity-60 text-right" suppressHydrationWarning>{formatTime(m.time)}</p>
         </div>
       </div>
     );
@@ -1276,7 +1276,7 @@ function Bubble({ m, clienteName }: { m: UnifiedMessage; clienteName: string }) 
         {m.mediaUrl && <MediaPreview url={m.mediaUrl} type={m.mediaType} name={m.fileName} />}
         
         {/* Contenido con detección de [SUGERENCIAS] */}
-        <div className="text-sm leading-relaxed whitespace-pre-wrap break-words mt-1">
+        <div className="text-sm leading-relaxed whitespace-pre-wrap break-words mt-1" suppressHydrationWarning>
           {m.content?.includes("[SUGERENCIAS:") ? (
             <>
               {m.content.split("[SUGERENCIAS:")[0]}
@@ -1309,7 +1309,7 @@ function Bubble({ m, clienteName }: { m: UnifiedMessage; clienteName: string }) 
           "flex items-center gap-2 text-[10px] mt-1",
           isCliente ? "text-muted-foreground" : "text-white/75 justify-end"
         )}>
-          <span>{formatTime(m.time)}</span>
+          <span suppressHydrationWarning>{formatTime(m.time)}</span>
             {isTecnico && m.status === "pending" && (
             <svg className="h-3.5 w-3.5 opacity-50" viewBox="0 0 16 16" fill="currentColor"><path d="M13.5 4L6.5 11 3 7.5" stroke="currentColor" strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>
           )}

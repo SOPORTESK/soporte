@@ -135,7 +135,7 @@ export function ConversationList({
                           {semaforo.label}
                         </span>
                       )}
-                      <span className="text-xs text-muted-foreground">{timeStr}</span>
+                      <span className="text-xs text-muted-foreground" suppressHydrationWarning>{timeStr}</span>
                     </div>
                   </div>
                   <p className="text-sm text-muted-foreground truncate mt-0.5">{preview}</p>
