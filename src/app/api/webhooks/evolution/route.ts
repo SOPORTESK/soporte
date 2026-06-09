@@ -182,7 +182,14 @@ export async function POST(req: NextRequest) {
   // Si viene Baileys messages.upsert y es un mensaje "fromMe", ignorar
   try {
     const fromMe = !!(payload?.data?.key?.fromMe || payload?.key?.fromMe || payload?.data?.messages?.[0]?.key?.fromMe);
-    if (fromMe) return NextResponse.json({ ok: true });
+    const pushNameRaw = get(payload, "data.pushName") || get(payload, "pushName");
+    const isBotName = pushNameRaw && (pushNameRaw.includes("Sekunet") || pushNameRaw.includes("Soporte Sekunet"));
+    
+    // Check if the sender is explicitly the official number
+    const participant = get(payload, "data.key.participant") || get(payload, "key.participant") || "";
+    const isOfficialNumber = participant.includes("50660160394");
+
+    if (fromMe || isBotName || isOfficialNumber) return NextResponse.json({ ok: true });
   } catch {}
 
   // Diagnóstico para ver por qué no reconoce el número
