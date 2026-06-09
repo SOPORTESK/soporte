@@ -261,7 +261,7 @@ export async function POST(req: NextRequest) {
       .order("created_at", { ascending: false })
       .limit(50);
 
-    const pushName = get(payload, "data.pushName") || get(payload, "pushName");
+
 
     let existing = null;
     if (openCases) {
@@ -276,8 +276,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const pushNameRaw = get(payload, "data.pushName") || get(payload, "pushName");
-    const pushName = (pushNameRaw === "Você" || pushNameRaw === "Tú") ? null : pushNameRaw;
+
 
     if (existing) {
       const hist = Array.isArray(existing.histcliente) ? existing.histcliente : [];
