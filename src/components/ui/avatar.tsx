@@ -12,6 +12,7 @@ export function Avatar({
         className="h-full w-full rounded-full overflow-hidden bg-gradient-to-br from-brand-500 to-accent-500 grid place-items-center text-white font-semibold"
         style={{ fontSize: size * 0.38 }}
         aria-hidden={!!src}
+        suppressHydrationWarning
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         {src ? <img src={src} alt={name || "avatar"} className="h-full w-full object-cover" /> : getInitials(name || "?")}
