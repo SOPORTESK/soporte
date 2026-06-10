@@ -95,19 +95,16 @@ export async function POST(
             fromMe: (messageObj as any).fromMe ?? (historyType === "histtecnico")
           });
 
-          const res = await fetch(`${EVO_URL.replace(/\/$/, "")}/message/deleteMessage/${encodeURIComponent(EVO_INSTANCE)}`, {
-            method: "POST",
+          const res = await fetch(`${EVO_URL.replace(/\/$/, "")}/chat/deleteMessageForEveryone/${encodeURIComponent(EVO_INSTANCE)}`, {
+            method: "DELETE",
             headers: {
               "Content-Type": "application/json",
               apikey: EVO_KEY
             },
             body: JSON.stringify({
-              number: targetJid,
-              key: {
-                remoteJid: targetJid,
-                fromMe: (messageObj as any).fromMe ?? (historyType === "histtecnico"),
-                id: messageId
-              }
+              remoteJid: targetJid,
+              fromMe: (messageObj as any).fromMe ?? (historyType === "histtecnico"),
+              id: messageId
             })
           });
 
