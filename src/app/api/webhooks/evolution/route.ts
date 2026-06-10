@@ -7,12 +7,14 @@ const get = (obj: any, path: string) => path.split(".").reduce((o, k) => (o && o
 const processedMessages = new Map<string, number>();
 const DUPLICATE_WINDOW_MS = 30000; // 30 segundos
 
-function getMessageKey(jid: string, content: string, mediaUrl?: string): string {
-  const key = mediaUrl ? `${jid}:${mediaUrl}` : `${jid}:${content?.slice(0, 50)}`;
+function getMessageKey(jid: string | null, content: string | null, mediaUrl?: string): string {
+  const safeJid = jid || "";
+  const safeContent = content || "";
+  const key = mediaUrl ? `${safeJid}:${mediaUrl}` : `${safeJid}:${safeContent.slice(0, 50)}`;
   return key;
 }
 
-function isDuplicateMessage(jid: string, content: string, mediaUrl?: string): boolean {
+function isDuplicateMessage(jid: string | null, content: string | null, mediaUrl?: string): boolean {
   const key = getMessageKey(jid, content, mediaUrl);
   const now = Date.now();
   const lastProcessed = processedMessages.get(key);
