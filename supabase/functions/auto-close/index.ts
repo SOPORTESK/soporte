@@ -105,7 +105,17 @@ async function learnFromCase(caso: any): Promise<void> {
   } catch (_e) { /* no bloquea */ }
 }
 
-Deno.serve(async () => {
+Deno.serve(async (req) => {
+  const urlObj = new URL(req.url);
+  if (urlObj.searchParams.get("debug") === "true") {
+    return new Response(JSON.stringify({
+      SUPABASE_URL,
+      EVO_URL: Deno.env.get("EVOLUTION_API_URL") || "",
+      EVO_KEY: (Deno.env.get("EVOLUTION_API_KEY") || "").substring(0, 5) + "...",
+      EVO_INSTANCE: Deno.env.get("EVOLUTION_INSTANCE") || "",
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }
+
   const { data: casos, error } = await db
     .from("sek_cases")
     .select("id, canal, estado, histcliente, histtecnico, created_at, assigned_to, customer_phone, cliente")
