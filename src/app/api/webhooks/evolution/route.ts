@@ -350,15 +350,14 @@ export async function POST(req: NextRequest) {
   let payload: any = null;
   try { payload = await req.json(); } catch { payload = null; }
   
-  // Extraer datos para verificar duplicados
-  const text = extractText(payload);
-  const jid = await extractJid(payload, "", "", "");
-  const phone = jidToPhone(jid);
-  const msgObj = get(payload, "data.messages.0.message") || get(payload, "data.message") || get(payload, "message");
-  const mediaUrl = msgObj?.imageMessage?.url || msgObj?.videoMessage?.url || msgObj?.documentMessage?.url;
+  // Extraer datos para verificar duplicados (usar nombres diferentes para evitar conflictos)
+  const dupText = extractText(payload);
+  const dupJid = await extractJid(payload, "", "", "");
+  const dupMsgObj = get(payload, "data.messages.0.message") || get(payload, "data.message") || get(payload, "message");
+  const dupMediaUrl = dupMsgObj?.imageMessage?.url || dupMsgObj?.videoMessage?.url || dupMsgObj?.documentMessage?.url;
   
   // Verificar si es duplicado
-  if (isDuplicateMessage(jid, text, mediaUrl)) {
+  if (isDuplicateMessage(dupJid, dupText, dupMediaUrl)) {
     return NextResponse.json({ ok: true, duplicate: true });
   }
 
@@ -672,68 +671,45 @@ export async function POST(req: NextRequest) {
 
     if (existing) {
       if (isOutgoing) {
-        // Mensaje saliente: guardar en histtecnico
+        // Mensaje saliente: la UI ya lo guardó en histtecnico.
+        // Solo enriquecemos la entrada más reciente con el messageId de WhatsApp
+        // para que funcionen los recibos de lectura. NUNCA creamos una entrada nueva.
         const hist = Array.isArray(existing.histtecnico) ? existing.histtecnico : [];
         
-        // Anti-duplicación: evitar que el webhook guarde el mensaje si la UI ya lo guardó
-        let duplicateIndex = -1;
-        const isDuplicate = hist.some((m: any, idx: number) => {
-          const timeDiff = Math.abs(new Date(now).getTime() - new Date(m.time).getTime());
-          if (timeDiff < 60000) { // Ventana de 60 segundos (aumentada)
-            // Si tiene el mismo messageId, es duplicado
-            if (m.messageId && keyId && m.messageId === keyId) {
-              duplicateIndex = idx;
-              return true;
-            }
-            // Si tiene texto, comparamos el texto
-            if (m.content && text && m.content.trim() === text.trim()) {
-              duplicateIndex = idx;
-              return true;
-            }
-            // Si es un archivo, comparamos por mediaUrl o mediaType
-            if (mediaUrl && m.mediaUrl) {
-              // Extraer el nombre del archivo del URL
-              const url1 = mediaUrl.split('/').pop()?.split('?')[0];
-              const url2 = m.mediaUrl.split('/').pop()?.split('?')[0];
-              if (url1 && url2 && url1 === url2) {
-                duplicateIndex = idx;
-                return true;
+        if (keyId && hist.length > 0) {
+          // Buscar la entrada más reciente del técnico que NO tenga messageId (la que la UI guardó)
+          let targetIdx = -1;
+          for (let i = hist.length - 1; i >= 0; i--) {
+            const m = hist[i];
+            if (m.role === "tecnico" && !m.messageId) {
+              const timeDiff = Math.abs(new Date(now).getTime() - new Date(m.time).getTime());
+              if (timeDiff < 120000) { // 2 minutos de ventana
+                targetIdx = i;
+                break;
               }
             }
-            // Si es un archivo sin texto, comparamos el tipo
-            if (!text && !m.content && m.mediaType && finalMediaType && m.mediaType === finalMediaType) {
-              duplicateIndex = idx;
-              return true;
-            }
           }
-          return false;
-        });
-
-        if (isDuplicate && duplicateIndex >= 0) {
-          console.log("[evo-webhook] Ignorando mensaje saliente duplicado, actualizando con messageId:", keyId);
-          const updatedHist = [...hist];
-          updatedHist[duplicateIndex] = {
-            ...updatedHist[duplicateIndex],
-            messageId: keyId,
-            fromMe: true
-          };
-          await supabase
-            .from("sek_cases")
-            .update({ histtecnico: updatedHist })
-            .eq("id", existing.id);
-          return NextResponse.json({ ok: true, duplicate: true, updatedId: true });
+          
+          if (targetIdx >= 0) {
+            const updatedHist = [...hist];
+            updatedHist[targetIdx] = {
+              ...updatedHist[targetIdx],
+              messageId: keyId,
+              fromMe: true
+            };
+            await supabase
+              .from("sek_cases")
+              .update({ histtecnico: updatedHist })
+              .eq("id", existing.id);
+            console.log("[evo-webhook] Mensaje saliente: messageId asignado a entrada existente:", keyId);
+          } else {
+            console.log("[evo-webhook] Mensaje saliente ignorado (no se encontró entrada reciente sin messageId):", keyId);
+          }
+        } else {
+          console.log("[evo-webhook] Mensaje saliente ignorado (sin keyId o historial vacío)");
         }
-
-        const updated = [...hist, entry];
-        await supabase
-          .from("sek_cases")
-          .update({ 
-            histtecnico: updated, 
-            last_message_at: now, 
-            last_message_preview: (text || "").slice(0, 200),
-            customer_phone: jid
-          })
-          .eq("id", existing.id);
+        
+        return NextResponse.json({ ok: true, outgoing: true });
       } else {
         // Mensaje entrante: guardar en histcliente
         const hist = Array.isArray(existing.histcliente) ? existing.histcliente : [];

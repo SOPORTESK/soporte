@@ -181,15 +181,20 @@ Deno.serve(async () => {
 
     // SI EL CANAL ES WHATSAPP, ENVIAR EL MENSAJE REAL POR WHATSAPP VÍA EVOLUTION API!
     const canalLower = String(caso.canal || "").toLowerCase().trim();
-    console.log(`[auto-close] Caso ${caso.id} - Canal: '${canalLower}', Phone: ${caso.customer_phone || "SIN TELÉFONO"}`);
     
-    if (canalLower === "whatsapp" && caso.customer_phone) {
-      console.log(`[auto-close] Enviando mensaje de cierre por WhatsApp a ${caso.customer_phone}`);
-      await sendViaEvolution(caso.customer_phone, CLOSE_MSG);
+    // Resolver el teléfono real del cliente: priorizar telefono_real > telefono > customer_phone
+    const clienteObj = typeof caso.cliente === "object" ? caso.cliente : {};
+    const realPhone = clienteObj?.telefono_real || clienteObj?.telefono || caso.customer_phone || "";
+    
+    console.log(`[auto-close] Caso ${caso.id} - Canal: '${canalLower}', customer_phone: ${caso.customer_phone || "SIN"}, telefono_real: ${clienteObj?.telefono_real || "SIN"}, resolved: ${realPhone || "SIN"}`);
+    
+    if (canalLower === "whatsapp" && realPhone) {
+      console.log(`[auto-close] Enviando mensaje de cierre por WhatsApp a ${realPhone}`);
+      await sendViaEvolution(realPhone, CLOSE_MSG);
     } else if (canalLower !== "whatsapp") {
       console.log(`[auto-close] Caso ${caso.id} no es WhatsApp (canal='${canalLower}'), no se envía mensaje real`);
-    } else if (!caso.customer_phone) {
-      console.error(`[auto-close] Caso ${caso.id} es WhatsApp pero NO tiene customer_phone!`);
+    } else if (!realPhone) {
+      console.error(`[auto-close] Caso ${caso.id} es WhatsApp pero NO tiene teléfono real!`);
     }
 
     // Aprendizaje: generar resumen antes de pasar al siguiente caso
