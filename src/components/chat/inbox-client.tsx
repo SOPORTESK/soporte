@@ -541,7 +541,7 @@ export function InboxClient({
         <div className="h-8 w-0.5 rounded-full bg-border group-hover:bg-brand-400 transition-colors" />
       </div>
       {/* Panel de chat */}
-      <div className={`min-h-0 ${selected ? "flex" : "hidden md:flex"} flex-1 flex-col bg-background`}>
+      <div className={`min-h-0 min-w-0 ${selected ? "flex" : "hidden md:flex"} flex-1 flex-col bg-background`}>
         {selected ? (
           <ChatView key={selected.id} sekCase={selected} onBack={() => setSelectedId(null)} />
         ) : (

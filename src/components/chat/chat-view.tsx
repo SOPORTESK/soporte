@@ -679,7 +679,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
 
   // Render main view
   return (
-    <div className="flex flex-col h-full min-h-0">
+    <div className="flex flex-col h-full min-h-0 min-w-0">
       {/* ── Header ── */}
       <header className="px-3 sm:px-4 py-2.5 sm:py-3 pt-safe border-b border-border bg-card flex-shrink-0 px-safe">
         <div className="flex items-center gap-2 sm:gap-3">
@@ -1089,7 +1089,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
             rows={1}
             aria-label="Mensaje"
             className={cn(
-              "flex-1 max-h-40 transition-colors",
+              "flex-1 min-w-0 max-h-40 transition-colors",
               mode === "nota" && "border-amber-400 focus-visible:ring-amber-400/30"
             )}
           />
