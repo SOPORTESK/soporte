@@ -5,7 +5,7 @@ import {
   Mail, Building2, User, StickyNote, Zap, CheckCircle2,
   XCircle, Image as ImageIcon, FileText, Music, Video,
   Download, X, ChevronDown, History, HandMetal, Star, Tag, AlertTriangle,
-  Mic, Play, Pause, Square
+  Mic, Play, Pause, Square, Smile, Trash2
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Avatar, Badge } from "@/components/ui/avatar";
@@ -28,6 +28,14 @@ type UnifiedMessage = {
   mediaUrl?: string;
   mediaType?: string;
   fileName?: string;
+  reactions?: any[];
+  deleted?: boolean;
+  deleted_for_me?: string[];
+  originalIndex?: number;
+  historyType?: "histcliente" | "histtecnico";
+  sourceCaseId?: string | number;
+  messageId?: string;
+  fromMe?: boolean;
 };
 
 function unifyMessages(c: SekCase): UnifiedMessage[] {
@@ -49,6 +57,14 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
       mediaUrl: e.mediaUrl as string | undefined,
       mediaType: e.mediaType as string | undefined,
       fileName: e.fileName as string | undefined,
+      reactions: (e as any).reactions,
+      deleted: (e as any).deleted,
+      deleted_for_me: (e as any).deleted_for_me,
+      originalIndex: (e as any)._sourceIndex ?? i,
+      historyType: "histcliente",
+      sourceCaseId: (e as any)._sourceCaseId ?? c.id,
+      messageId: (e as any).messageId,
+      fromMe: (e as any).fromMe ?? isAgente,
     });
   });
 
@@ -65,6 +81,14 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
       mediaUrl: e.mediaUrl as string | undefined,
       mediaType: e.mediaType as string | undefined,
       fileName: e.fileName as string | undefined,
+      reactions: (e as any).reactions,
+      deleted: (e as any).deleted,
+      deleted_for_me: (e as any).deleted_for_me,
+      originalIndex: (e as any)._sourceIndex ?? i,
+      historyType: "histtecnico",
+      sourceCaseId: (e as any)._sourceCaseId ?? c.id,
+      messageId: (e as any).messageId,
+      fromMe: (e as any).fromMe ?? true,
     });
   });
 
@@ -80,6 +104,24 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   const [agentEmail, setAgentEmail] = React.useState<string | null>(null);
   const [agentName, setAgentName] = React.useState<string | null>(null);
   const [agentRole, setAgentRole] = React.useState<string>("tecnico");
+
+  const handleMessageUpdate = (
+    historyType: "histcliente" | "histtecnico",
+    originalIndex: number,
+    fieldsToUpdate: any
+  ) => {
+    setSekCase(prev => {
+      const history = prev[historyType] || [];
+      const updatedHistory = [...history];
+      if (originalIndex >= 0 && originalIndex < updatedHistory.length) {
+        updatedHistory[originalIndex] = {
+          ...updatedHistory[originalIndex],
+          ...fieldsToUpdate,
+        };
+      }
+      return { ...prev, [historyType]: updatedHistory };
+    });
+  };
   const [mode, setMode] = React.useState<"reply" | "nota">("reply");
   const [showPlantillas, setShowPlantillas] = React.useState(false);
   const [showTemplateManager, setShowTemplateManager] = React.useState(false);
@@ -446,6 +488,46 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     }
   }
 
+  // Handler para pegar desde el portapapeles (texto o imágenes)
+  const isProcessingPasteRef = React.useRef(false);
+  async function handlePaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const items = e.clipboardData?.items;
+    if (!items || !agentEmail || isProcessingPasteRef.current || uploadingFile) return;
+    
+    // Buscar imágenes o archivos en el portapapeles
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.kind === "file") {
+        e.preventDefault(); // Prevenir pegado por defecto
+        e.stopPropagation(); // Prevenir bubbling
+        const file = item.getAsFile();
+        if (!file) continue;
+        
+        isProcessingPasteRef.current = true;
+        setUploadingFile(true);
+        try {
+          const ext = file.name.split(".").pop() || "png";
+          const path = `cases/${targetId}/${Date.now()}.${ext}`;
+          const { error: upErr } = await supabase.storage
+            .from("attachments")
+            .upload(path, file, { upsert: true, contentType: file.type || undefined });
+          if (upErr) throw upErr;
+          const { data: urlData } = supabase.storage.from("attachments").getPublicUrl(path);
+          await send("", urlData.publicUrl, file.type, file.name);
+          toast.success("Imagen pegada y enviada");
+        } catch (err: any) {
+          toast.error("Error al subir imagen pegada", { description: err?.message });
+        } finally {
+          setUploadingFile(false);
+          // Reset después de un delay para evitar duplicados
+          setTimeout(() => { isProcessingPasteRef.current = false; }, 500);
+        }
+        return; // Solo procesar el primer archivo
+      }
+    }
+    // Si no hay archivos, el comportamiento por defecto (pegar texto) continúa
+  }
+
   async function toggleCaso() {
     const newEstado = cerrado ? "abierto" : "cerrado";
     
@@ -792,7 +874,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
                   <div className="flex-1 h-px bg-border" />
                 </div>
               )}
-              <Bubble m={m} clienteName={ci.nombre} onImageClick={setPreviewImage} />
+              <Bubble m={m} clienteName={ci.nombre} onImageClick={setPreviewImage} agentEmail={agentEmail} onMessageUpdate={handleMessageUpdate} />
             </React.Fragment>
           );
         })}
@@ -989,7 +1071,8 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
             value={draft}
             onChange={e => { setDraft(e.target.value); onTyping(); }}
             onKeyDown={onKeyDown}
-            placeholder={mode === "nota" ? "Escribe una nota interna (solo visible para el equipo)…" : "Escribe un mensaje al cliente… (Enter envía)"}
+            onPaste={handlePaste}
+            placeholder={mode === "nota" ? "Escribe una nota interna (solo visible para el equipo)…" : "Escribe un mensaje al cliente… (Enter envía, Ctrl+V para pegar imágenes)"}
             rows={1}
             aria-label="Mensaje"
             className={cn(
@@ -1277,11 +1360,113 @@ function MediaPreview({ url, type, name, onImageClick }: { url: string; type?: s
   );
 }
 
-function Bubble({ m, clienteName, onImageClick }: { m: UnifiedMessage; clienteName: string; onImageClick?: (url: string) => void }) {
+function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate }: { 
+  m: UnifiedMessage; 
+  clienteName: string; 
+  onImageClick?: (url: string) => void;
+  agentEmail: string | null;
+  onMessageUpdate?: (historyType: "histcliente" | "histtecnico", originalIndex: number, fieldsToUpdate: any) => void;
+}) {
   const isCliente = m.source === "user";
   const isIA = m.source === "assistant";
   const isTecnico = m.source === "tecnico";
   const isNota = m.source === "nota";
+  
+  const [showEmojiPicker, setShowEmojiPicker] = React.useState(false);
+  const [showDeleteMenu, setShowDeleteMenu] = React.useState(false);
+  
+  // Verificar si el mensaje está eliminado para el usuario actual
+  const isDeletedForMe = m.deleted_for_me?.includes(agentEmail || "");
+  const isDeletedForEveryone = m.deleted;
+
+  // Emojis comunes
+  const commonEmojis = ["👍", "❤️", "😂", "😮", "😢", "😡", "🎉", "🔥", "👏", "✅"];
+
+  const handleReaction = async (emoji: string) => {
+    const caseId = m.sourceCaseId;
+    if (!agentEmail || m.originalIndex === undefined || !m.historyType || !caseId) {
+      console.error("[Bubble] Datos faltantes para reacción", { agentEmail, originalIndex: m.originalIndex, historyType: m.historyType, caseId });
+      return;
+    }
+
+    // Actualización local/optimista sin recargar pantalla
+    const reactions = m.reactions || [];
+    const existingReactionIndex = reactions.findIndex(
+      (r: any) => r.emoji === emoji && r.author === agentEmail
+    );
+    let updatedReactions;
+    if (existingReactionIndex >= 0) {
+      updatedReactions = reactions.filter((_: any, i: number) => i !== existingReactionIndex);
+    } else {
+      updatedReactions = [
+        ...reactions,
+        { emoji, author: agentEmail, time: new Date().toISOString() }
+      ];
+    }
+
+    if (onMessageUpdate) {
+      onMessageUpdate(m.historyType, m.originalIndex, { reactions: updatedReactions });
+    }
+    setShowEmojiPicker(false);
+    
+    try {
+      const res = await fetch(`/api/messages/${caseId}/${m.originalIndex}/reaction`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ emoji, author: agentEmail, historyType: m.historyType })
+      });
+      if (!res.ok) {
+        // En caso de error, podríamos revertir, pero lo mantenemos simple e intuitivo
+      }
+    } catch (e) {
+      console.error("Error al agregar reacción:", e);
+    }
+  };
+
+  const handleDelete = async (deleteType: "for_everyone" | "for_me") => {
+    const caseId = m.sourceCaseId;
+    if (!agentEmail || m.originalIndex === undefined || !m.historyType || !caseId) {
+      console.error("[Bubble] Datos faltantes para eliminar", { agentEmail, originalIndex: m.originalIndex, historyType: m.historyType, caseId });
+      return;
+    }
+
+    // Actualización local/optimista sin recargar pantalla
+    if (onMessageUpdate) {
+      if (deleteType === "for_everyone") {
+        onMessageUpdate(m.historyType, m.originalIndex, { deleted: true, content: "" });
+      } else {
+        const deletedForMe = m.deleted_for_me || [];
+        onMessageUpdate(m.historyType, m.originalIndex, { deleted_for_me: [...deletedForMe, agentEmail] });
+      }
+    }
+    setShowDeleteMenu(false);
+    
+    try {
+      const res = await fetch(`/api/messages/${caseId}/${m.originalIndex}/delete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deleteType, author: agentEmail, historyType: m.historyType })
+      });
+      if (!res.ok) {
+        // En caso de error, podríamos revertir o notificar
+      }
+    } catch (e) {
+      console.error("Error al eliminar mensaje:", e);
+    }
+  };
+
+  if (isDeletedForMe || isDeletedForEveryone) {
+    // Mensaje eliminado - mostrar placeholder
+    return (
+      <div className={cn("flex animate-fade-in", isCliente ? "justify-start" : "justify-end")}>
+        <div className={cn(
+          "max-w-[85%] sm:max-w-[78%] rounded-2xl px-3.5 sm:px-4 py-2 shadow-sm bg-muted/50 text-muted-foreground text-sm italic"
+        )}>
+          {isDeletedForEveryone ? "Este mensaje fue eliminado" : "Eliminaste este mensaje"}
+        </div>
+      </div>
+    );
+  }
 
   if (isNota) {
     return (
@@ -1298,9 +1483,9 @@ function Bubble({ m, clienteName, onImageClick }: { m: UnifiedMessage; clienteNa
   }
 
   return (
-    <div className={cn("flex animate-fade-in", isCliente ? "justify-start" : "justify-end")}>
+    <div className={cn("flex animate-fade-in group relative", isCliente ? "justify-start" : "justify-end")}>
       <div className={cn(
-        "max-w-[85%] sm:max-w-[78%] rounded-2xl px-3.5 sm:px-4 py-2 shadow-sm",
+        "max-w-[85%] sm:max-w-[78%] rounded-2xl px-3.5 sm:px-4 py-2 shadow-sm relative",
         isCliente && "bg-card border border-border rounded-bl-sm",
         isIA && "bg-gradient-to-br from-violet-500/95 to-violet-600/95 text-white rounded-br-sm",
         isTecnico && "bg-brand-700 text-white rounded-br-sm"
@@ -1347,6 +1532,61 @@ function Bubble({ m, clienteName, onImageClick }: { m: UnifiedMessage; clienteNa
           )}
         </div>
 
+        {/* Reacciones agrupadas por emoji */}
+        {(() => {
+          if (!m.reactions || m.reactions.length === 0) return null;
+          
+          // Agrupar reacciones por emoji
+          const grouped: Record<string, { authors: string[]; emoji: string }> = {};
+          for (const r of m.reactions) {
+            if (!r || !r.emoji) continue;
+            if (!grouped[r.emoji]) {
+              grouped[r.emoji] = { authors: [], emoji: r.emoji };
+            }
+            if (r.author && !grouped[r.emoji].authors.includes(r.author)) {
+              grouped[r.emoji].authors.push(r.author);
+            }
+          }
+
+          const uniqueReactions = Object.values(grouped);
+          if (uniqueReactions.length === 0) return null;
+
+          // Si el bot reaccionó en nombre del agente (o viceversa), consolidarlo para que no se muestre duplicado
+          const cleanedReactions = uniqueReactions.map(ur => {
+            // Si tiene el agente e-mail y el número de bot, simplificar los autores
+            const cleanedAuthors = ur.authors.filter(a => {
+              // Si incluye el bot (ej. número de teléfono) y también tenemos el correo del agente real,
+              // podemos quedarnos solo con el correo para una UI más limpia
+              if (ur.authors.some(email => email.includes("@")) && !a.includes("@")) {
+                return false;
+              }
+              return true;
+            });
+            return {
+              ...ur,
+              authors: cleanedAuthors.length > 0 ? cleanedAuthors : ur.authors
+            };
+          });
+
+          return (
+            <div className="flex flex-wrap gap-1 mt-2">
+              {cleanedReactions.map((ur, idx) => (
+                <span 
+                  key={idx} 
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-white/20 hover:bg-white/30 cursor-pointer"
+                  title={ur.authors.join(", ")}
+                  onClick={() => handleReaction(ur.emoji)}
+                >
+                  {ur.emoji}
+                  {ur.authors.length > 1 && (
+                    <span className="opacity-70 font-semibold">{ur.authors.length}</span>
+                  )}
+                </span>
+              ))}
+            </div>
+          );
+        })()}
+
         <div className={cn(
           "flex items-center gap-2 text-[10px] mt-1",
           isCliente ? "text-muted-foreground" : "text-white/75 justify-end"
@@ -1369,6 +1609,68 @@ function Bubble({ m, clienteName, onImageClick }: { m: UnifiedMessage; clienteNa
           )}
           {m.status === "error" && <span className="text-red-400">❌</span>}
         </div>
+
+        {/* Botones de acción (hover) */}
+        <div className={cn(
+          "absolute top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10",
+          isCliente ? "left-full ml-2" : "right-full mr-2"
+        )}>
+          <button
+            onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+            className="p-1.5 rounded-full bg-card border border-border shadow-sm hover:bg-muted"
+            title="Reaccionar"
+          >
+            <Smile className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={() => setShowDeleteMenu(!showDeleteMenu)}
+            className="p-1.5 rounded-full bg-card border border-border shadow-sm hover:bg-muted text-red-500"
+            title="Eliminar"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+
+        {/* Emoji picker */}
+        {showEmojiPicker && (
+          <div className={cn(
+            "absolute -top-16 bg-card border border-border rounded-xl shadow-xl p-2 flex flex-wrap gap-1 z-10",
+            isCliente ? "left-0" : "right-0"
+          )}>
+            {commonEmojis.map(emoji => (
+              <button
+                key={emoji}
+                onClick={() => handleReaction(emoji)}
+                className="w-8 h-8 rounded-lg hover:bg-muted flex items-center justify-center text-lg"
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Menú de eliminación */}
+        {showDeleteMenu && (
+          <div className={cn(
+            "absolute -top-20 bg-card border border-border rounded-xl shadow-xl p-2 flex flex-col gap-1 z-10 min-w-[140px]",
+            isCliente ? "left-0" : "right-0"
+          )}>
+            <button
+              onClick={() => handleDelete("for_me")}
+              className="px-3 py-2 text-xs text-left hover:bg-muted rounded-lg"
+            >
+              Eliminar para mí
+            </button>
+            {isTecnico && (
+              <button
+                onClick={() => handleDelete("for_everyone")}
+                className="px-3 py-2 text-xs text-left hover:bg-muted rounded-lg text-red-500"
+              >
+                Eliminar para todos
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -3,6 +3,129 @@ import { createServiceClient } from "@/lib/supabase/service";
 
 const get = (obj: any, path: string) => path.split(".").reduce((o, k) => (o && o[k] !== undefined ? o[k] : undefined), obj);
 
+async function processIncomingReaction(supabase: any, targetMessageId: string, emoji: string | null, author: string) {
+  console.log("[evo-webhook] Buscando mensaje para reacción en base de datos:", { targetMessageId, emoji, author });
+  
+  const { data: openCases } = await supabase
+    .from("sek_cases")
+    .select("id, histcliente, histtecnico")
+    .not("estado", "in", '("cerrado","resuelto")')
+    .limit(50);
+
+  if (!openCases) return false;
+
+  for (const c of openCases) {
+    let updated = false;
+    let historyType = "";
+    let updatedHistory: any[] = [];
+
+    // Buscar en histcliente
+    const histCliente = Array.isArray(c.histcliente) ? c.histcliente : [];
+    const idxCliente = histCliente.findIndex((m: any) => m.messageId === targetMessageId);
+    if (idxCliente >= 0) {
+      historyType = "histcliente";
+      updatedHistory = [...histCliente];
+      const msg = { ...updatedHistory[idxCliente] };
+      const reactions = Array.isArray(msg.reactions) ? [...msg.reactions] : [];
+      const existingIdx = reactions.findIndex((r: any) => r.author === author);
+      if (emoji) {
+        if (existingIdx >= 0) {
+          reactions[existingIdx] = { emoji, author, time: new Date().toISOString() };
+        } else {
+          reactions.push({ emoji, author, time: new Date().toISOString() });
+        }
+      } else {
+        if (existingIdx >= 0) reactions.splice(existingIdx, 1);
+      }
+      msg.reactions = reactions;
+      updatedHistory[idxCliente] = msg;
+      updated = true;
+    }
+
+    // Buscar en histtecnico
+    if (!updated) {
+      const histTecnico = Array.isArray(c.histtecnico) ? c.histtecnico : [];
+      const idxTecnico = histTecnico.findIndex((m: any) => m.messageId === targetMessageId);
+      if (idxTecnico >= 0) {
+        historyType = "histtecnico";
+        updatedHistory = [...histTecnico];
+        const msg = { ...updatedHistory[idxTecnico] };
+        const reactions = Array.isArray(msg.reactions) ? [...msg.reactions] : [];
+        const existingIdx = reactions.findIndex((r: any) => r.author === author);
+        if (emoji) {
+          if (existingIdx >= 0) {
+            reactions[existingIdx] = { emoji, author, time: new Date().toISOString() };
+          } else {
+            reactions.push({ emoji, author, time: new Date().toISOString() });
+          }
+        } else {
+          if (existingIdx >= 0) reactions.splice(existingIdx, 1);
+        }
+        msg.reactions = reactions;
+        updatedHistory[idxTecnico] = msg;
+        updated = true;
+      }
+    }
+
+    if (updated) {
+      console.log(`[evo-webhook] Reacción actualizada con éxito en DB (${historyType}) para caso:`, c.id);
+      const { error } = await supabase
+        .from("sek_cases")
+        .update({ [historyType]: updatedHistory })
+        .eq("id", c.id);
+      if (error) {
+        console.error("[evo-webhook] Error actualizando caso con reacción:", error);
+      }
+      return true;
+    }
+  }
+  return false;
+}
+
+// Procesar confirmación de lectura de mensajes
+async function processReadReceipt(supabase: any, messageId: string): Promise<boolean> {
+  console.log("[evo-webhook] Procesando confirmación de lectura para mensaje:", messageId);
+  
+  const { data: openCases } = await supabase
+    .from("sek_cases")
+    .select("id, histcliente, histtecnico")
+    .not("estado", "in", '("cerrado","resuelto")')
+    .limit(50);
+
+  if (!openCases) return false;
+
+  const now = new Date().toISOString();
+
+  for (const c of openCases) {
+    // Buscar en histtecnico (mensajes enviados por el agente)
+    const histTecnico = Array.isArray(c.histtecnico) ? c.histtecnico : [];
+    const idxTecnico = histTecnico.findIndex((m: any) => m.messageId === messageId);
+    if (idxTecnico >= 0) {
+      // Si ya tiene read_at, no actualizar
+      if (histTecnico[idxTecnico].read_at) {
+        console.log("[evo-webhook] Mensaje ya estaba leído:", messageId);
+        return true;
+      }
+      
+      const updatedHistory = [...histTecnico];
+      updatedHistory[idxTecnico] = { ...updatedHistory[idxTecnico], read_at: now };
+      
+      const { error } = await supabase
+        .from("sek_cases")
+        .update({ histtecnico: updatedHistory })
+        .eq("id", c.id);
+      
+      if (error) {
+        console.error("[evo-webhook] Error actualizando read_at:", error);
+        return false;
+      }
+      console.log(`[evo-webhook] Confirmación de lectura actualizada para mensaje ${messageId} en caso ${c.id}`);
+      return true;
+    }
+  }
+  return false;
+}
+
 function inferMimeFromExt(ext: string): string {
   const map: Record<string, string> = {
     "xml": "text/xml",
@@ -201,6 +324,74 @@ export async function POST(req: NextRequest) {
   try { payload = await req.json(); } catch { payload = null; }
 
   if (!payload) return NextResponse.json({ ok: true });
+
+  const event = String(payload?.event || "").toUpperCase();
+
+  // 1. Interceptar eventos dedicados de Reacciones de Evolution (SEND_REACTION)
+  if (event === "SEND_REACTION") {
+    const reaction = payload?.data?.reaction || payload?.reaction;
+    const key = payload?.data?.key || payload?.key;
+    const targetMessageId = key?.id;
+    const emoji = reaction?.text;
+    const sender = payload?.data?.key?.participant || payload?.data?.sender || payload?.sender;
+    const author = jidToPhone(sender) || sender || "WhatsApp";
+
+    console.log("[evo-webhook] Recibido evento SEND_REACTION:", { targetMessageId, emoji, author });
+    if (targetMessageId) {
+      await processIncomingReaction(supabase, targetMessageId, emoji, author);
+    }
+    return NextResponse.json({ ok: true });
+  }
+
+  // 2. Interceptar eventos de actualización (MESSAGES_UPDATE) para reacciones Y confirmaciones de lectura
+  if (event === "MESSAGES_UPDATE") {
+    const updates = payload?.data;
+    if (Array.isArray(updates)) {
+      for (const item of updates) {
+        const reactions = item.update?.reactions;
+        const status = item.update?.status || item.status;
+        const targetMessageId = item.key?.id || item.messageId || item.keyId;
+
+        // Procesar reacciones
+        if (Array.isArray(reactions) && targetMessageId) {
+          console.log("[evo-webhook] Recibido evento MESSAGES_UPDATE con reacciones:", { targetMessageId, count: reactions.length });
+          for (const r of reactions) {
+            const emoji = r.text;
+            const sender = r.key?.participant || r.key?.remoteJid;
+            const author = jidToPhone(sender) || sender || "WhatsApp";
+            await processIncomingReaction(supabase, targetMessageId, emoji, author);
+          }
+        }
+
+        // Procesar confirmación de lectura (READ) o entrega (DELIVERY_ACK)
+        if (targetMessageId && (status === "READ" || status === "DELIVERY_ACK")) {
+          console.log("[evo-webhook] Recibido evento de lectura/entrega:", { targetMessageId, status, fromMe: item.key?.fromMe });
+          // Solo procesar si es un mensaje saliente (fromMe: true) - mensajes enviados por nosotros
+          if (item.key?.fromMe || item.fromMe) {
+            await processReadReceipt(supabase, targetMessageId);
+          }
+        }
+      }
+    }
+    return NextResponse.json({ ok: true });
+  }
+
+  // 3. Interceptar reacción incrustada en mensaje normal (MESSAGES_UPSERT)
+  const upsertMsgObj = get(payload, "data.messages.0.message") || get(payload, "data.message") || get(payload, "message");
+  const reactionMsg = upsertMsgObj?.reactionMessage || payload?.data?.message?.reactionMessage || payload?.message?.reactionMessage;
+
+  if (reactionMsg) {
+    const targetMessageId = reactionMsg.key?.id;
+    const emoji = reactionMsg.text;
+    const sender = payload?.data?.messages?.[0]?.key?.participant || payload?.data?.messages?.[0]?.key?.remoteJid;
+    const author = jidToPhone(sender) || sender || "WhatsApp";
+
+    console.log("[evo-webhook] Recibido reactionMessage en UPSERT:", { targetMessageId, emoji, author });
+    if (targetMessageId) {
+      await processIncomingReaction(supabase, targetMessageId, emoji, author);
+    }
+    return NextResponse.json({ ok: true });
+  }
 
   const EVO_URL = process.env.EVOLUTION_API_URL || "";
   const EVO_KEY = process.env.EVOLUTION_API_KEY || "";
@@ -408,10 +599,11 @@ export async function POST(req: NextRequest) {
     console.error("[evo-webhook] media detectada pero faltan envs EVO_URL/EVO_KEY/EVO_INSTANCE");
   }
 
+  const keyId = get(payload, "data.key.id") || get(payload, "key.id") || get(payload, "data.messages.0.key.id") || get(payload, "data.messages.0.key.id");
   const now = new Date().toISOString();
   const entry = isOutgoing
-    ? { role: "tecnico", time: now, content: text || "", author: "Soporte Sekunet", mediaUrl, mediaType: finalMediaType, fileName } as any
-    : { role: "user", time: now, content: text || "", mediaUrl, mediaType: finalMediaType, fileName } as any;
+    ? { role: "tecnico", time: now, content: text || "", author: "Soporte Sekunet", mediaUrl, mediaType: finalMediaType, fileName, messageId: keyId, fromMe: true } as any
+    : { role: "user", time: now, content: text || "", mediaUrl, mediaType: finalMediaType, fileName, messageId: keyId, fromMe: false } as any;
 
   try {
     const { data: openCases } = await supabase
@@ -445,20 +637,37 @@ export async function POST(req: NextRequest) {
         const hist = Array.isArray(existing.histtecnico) ? existing.histtecnico : [];
         
         // Anti-duplicación: evitar que el webhook guarde el mensaje si la UI ya lo guardó
-        const isDuplicate = hist.some((m: any) => {
+        let duplicateIndex = -1;
+        const isDuplicate = hist.some((m: any, idx: number) => {
           const timeDiff = Math.abs(new Date(now).getTime() - new Date(m.time).getTime());
           if (timeDiff < 20000) { // Ventana de 20 segundos
             // Si tiene texto, comparamos el texto
-            if (m.content && text && m.content.trim() === text.trim()) return true;
-            // Si es un archivo sin texto, comparamos el tipo (puede haber falsos positivos si mandan 2 fotos seguidas, pero es aceptable para evitar duplicados del bot)
-            if (!text && !m.content && m.mediaType && finalMediaType && m.mediaType === finalMediaType) return true;
+            if (m.content && text && m.content.trim() === text.trim()) {
+              duplicateIndex = idx;
+              return true;
+            }
+            // Si es un archivo sin texto, comparamos el tipo
+            if (!text && !m.content && m.mediaType && finalMediaType && m.mediaType === finalMediaType) {
+              duplicateIndex = idx;
+              return true;
+            }
           }
           return false;
         });
 
-        if (isDuplicate) {
-          console.log("[evo-webhook] Ignorando mensaje saliente duplicado (la UI ya lo guardó)");
-          return NextResponse.json({ ok: true, duplicate: true });
+        if (isDuplicate && duplicateIndex >= 0) {
+          console.log("[evo-webhook] Ignorando mensaje saliente duplicado, actualizando con messageId:", keyId);
+          const updatedHist = [...hist];
+          updatedHist[duplicateIndex] = {
+            ...updatedHist[duplicateIndex],
+            messageId: keyId,
+            fromMe: true
+          };
+          await supabase
+            .from("sek_cases")
+            .update({ histtecnico: updatedHist })
+            .eq("id", existing.id);
+          return NextResponse.json({ ok: true, duplicate: true, updatedId: true });
         }
 
         const updated = [...hist, entry];

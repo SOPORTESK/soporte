@@ -38,11 +38,20 @@ export interface SekCliente {
   [key: string]: unknown;
 }
 
+export interface MessageReaction {
+  emoji: string;
+  author: string; // email del usuario que reaccionó
+  time: string;
+}
+
 export interface SekHistEntry {
   role: "user" | "assistant" | "tecnico" | string;
   time: string;
   content: string;
   author?: string;
+  reactions?: MessageReaction[];
+  deleted?: boolean; // eliminado para todos
+  deleted_for_me?: string[]; // array de emails de usuarios que lo eliminaron para ellos
   [key: string]: unknown;
 }
 

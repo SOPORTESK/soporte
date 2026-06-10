@@ -72,8 +72,8 @@ function mergeGroups(rawCases: SekCase[]): SekCase[] {
           _separator: true,
         } as SekHistEntry);
       }
-      hc.forEach(e => histcliente.push(e));
-      ht.forEach(e => histtecnico.push(e));
+      hc.forEach((e, ei) => histcliente.push({ ...e, _sourceCaseId: c.id, _sourceIndex: ei } as SekHistEntry));
+      ht.forEach((e, ei) => histtecnico.push({ ...e, _sourceCaseId: c.id, _sourceIndex: ei } as SekHistEntry));
     });
     /* Estado agregado: abierto si hay alguno abierto, si no, el del último */
     const anyOpen = openCases.length > 0;
@@ -240,6 +240,19 @@ export function InboxClient({
     }
   }, [router]);
 
+  const handleCaseDeleted = React.useCallback((id: string) => {
+    if (selectedId === id) {
+      setSelectedId(null);
+    }
+    setCases(prev => prev.filter(c => {
+      const caseIdStr = String(c.id);
+      const matchesId = caseIdStr === id;
+      const matchesGroupKey = c._group?.caseIds.some(cid => String(cid) === id);
+      const matchesPhoneKey = id.startsWith("tel:") && String(c.customer_phone).includes(id.substring(4));
+      return !matchesId && !matchesGroupKey && !matchesPhoneKey;
+    }));
+  }, [selectedId]);
+
   /* Casos filtrados según containerType */
   const filteredCases = React.useMemo(() => {
     // Si es Mi Gestion y aún no tenemos datos, confiar en el filtro del servidor (initialCases)
@@ -312,25 +325,39 @@ export function InboxClient({
 
           /* Detectar mensajes nuevos comparando los GRUPOS de cliente (filtrados) */
           const newMerged = mergeGroups(filteredNewCases);
-          const changed = newMerged.find(ng => {
-            if (String(ng.id) === selectedId) return false;
-            const prev = prevMergedRef.current.find(p => String(p.id) === String(ng.id));
-            const prevLen = (Array.isArray(prev?.histcliente) ? prev!.histcliente.length : 0);
-            const newLen = (Array.isArray(ng.histcliente) ? ng.histcliente.length : 0);
-            return newLen > prevLen;
-          });
-
-          if (changed) {
-            playNotif();
-            const ci = clienteInfo(changed.cliente);
-            const name = ci.nombre || ci.telefono || asText(changed.title) || "Cliente";
-            const hist = Array.isArray(changed.histcliente) ? changed.histcliente : [];
-            const last = hist[hist.length - 1];
-            toast.info(`💬 Nuevo mensaje de ${name}`, {
-              description: asText(last?.content).slice(0, 80),
-              action: { label: "Ver", onClick: () => selectCase(String(changed.id)) }
+          /* IGNORAR: eventos DELETE (eliminación de casos) y eventos que no agregan mensajes del cliente */
+          if (payload.eventType !== "DELETE") {
+            const changed = newMerged.find(ng => {
+              if (String(ng.id) === selectedId) return false;
+              const prev = prevMergedRef.current.find(p => String(p.id) === String(ng.id));
+              const prevLen = (Array.isArray(prev?.histcliente) ? prev!.histcliente.length : 0);
+              const newLen = (Array.isArray(ng.histcliente) ? ng.histcliente.length : 0);
+              // Solo notificar si realmente hay mensajes NUEVOS del cliente (no reorganización de grupos)
+              if (newLen <= prevLen) return false;
+              // Verificar que el último mensaje sea realmente nuevo (despues de la última vez)
+              const lastMsg = ng.histcliente?.[ng.histcliente.length - 1];
+              const prevLastMsg = prev?.histcliente?.[prev?.histcliente?.length - 1];
+              // Si el último mensaje cambió, es realmente nuevo
+              return lastMsg?.time !== prevLastMsg?.time || lastMsg?.content !== prevLastMsg?.content;
             });
-            setUnreadTotal(p => p + 1);
+
+            if (changed) {
+              playNotif();
+              const ci = clienteInfo(changed.cliente);
+              const name = ci.nombre || ci.telefono || asText(changed.title) || "Cliente";
+              const hist = Array.isArray(changed.histcliente) ? changed.histcliente : [];
+              const last = hist[hist.length - 1];
+              // No notificar si el mensaje es muy antiguo (más de 5 minutos) - evita notificaciones fantasma
+              const msgTime = last?.time ? new Date(last.time).getTime() : 0;
+              const isRecent = (Date.now() - msgTime) < 5 * 60 * 1000;
+              if (isRecent) {
+                toast.info(`💬 Nuevo mensaje de ${name}`, {
+                  description: asText(last?.content).slice(0, 80),
+                  action: { label: "Ver", onClick: () => selectCase(String(changed.id)) }
+                });
+                setUnreadTotal(p => p + 1);
+              }
+            }
           }
 
           /* 🔔 Alerta para caso escalado por IA */
@@ -503,7 +530,7 @@ export function InboxClient({
         className={`${selected ? "hidden md:flex" : "flex"} md:flex flex-col shrink-0 overflow-hidden w-full md:w-auto`}
         style={{ width: mounted && typeof window !== "undefined" && window.innerWidth >= 768 ? listWidth : undefined }}
       >
-        <ConversationList cases={mergedCases} selectedId={selectedId} onSelect={selectCase} agentRole={agentRole || undefined} />
+        <ConversationList cases={mergedCases} selectedId={selectedId} onSelect={selectCase} agentRole={agentRole || undefined} onDeleteSuccess={handleCaseDeleted} />
       </div>
       {/* Divisor arrastrable — solo visible en md+ */}
       <div

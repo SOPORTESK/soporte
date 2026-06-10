@@ -1,10 +1,21 @@
 "use client";
 import * as React from "react";
-import { Search, MessageSquarePlus, Star, Clock, Trash2 } from "lucide-react";
+import { Search, MessageSquarePlus, Star, Clock, Trash2, Smartphone, Globe } from "lucide-react";
 import { Avatar, Badge } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { cn, formatTime, asText, clienteInfo } from "@/lib/utils";
 import type { SekCase, ChannelKind, SekHistEntry } from "@/lib/types";
+
+type ChannelFilter = "all" | "whatsapp" | "web";
+
+function getChannelIcon(canal: string | null | undefined) {
+  const c = String(canal || "").toLowerCase();
+  if (c === "whatsapp") return <span className="text-green-400 text-xs">w</span>;
+  if (c === "web" || c === "widget") return <span className="text-blue-400 text-xs">W</span>;
+  if (c === "messenger") return <span className="text-blue-500 text-xs">M</span>;
+  if (c === "email") return <span className="text-gray-400 text-xs">@</span>;
+  return null;
+}
 
 function lastMessage(c: SekCase): { content: string; time: string } | null {
   const all: SekHistEntry[] = [];
@@ -17,9 +28,10 @@ function lastMessage(c: SekCase): { content: string; time: string } | null {
 }
 
 export function ConversationList({
-  cases, selectedId, onSelect, agentRole
-}: { cases: SekCase[]; selectedId: string | null; onSelect: (id: string) => void; agentRole?: string }) {
+  cases, selectedId, onSelect, agentRole, onDeleteSuccess
+}: { cases: SekCase[]; selectedId: string | null; onSelect: (id: string) => void; agentRole?: string; onDeleteSuccess?: (id: string) => void }) {
   const [query, setQuery] = React.useState("");
+  const [channelFilter, setChannelFilter] = React.useState<ChannelFilter>("all");
   const [tick, setTick] = React.useState(0);
   const [deletingId, setDeletingId] = React.useState<string | null>(null);
   const [confirmId, setConfirmId] = React.useState<string | null>(null);
@@ -35,8 +47,14 @@ export function ConversationList({
     setDeletingId(caseId);
     try {
       const res = await fetch(`/api/cases/${caseId}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Error al eliminar");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Error al eliminar");
       setConfirmId(null);
+      if (onDeleteSuccess) {
+        onDeleteSuccess(caseId);
+      } else {
+        window.location.reload();
+      }
     } catch (e: any) {
       alert("No se pudo eliminar: " + (e?.message || "error"));
     } finally {
@@ -47,15 +65,28 @@ export function ConversationList({
 
   const filtered = React.useMemo(() => {
     const list = cases.filter(c => {
-      if (!query.trim()) return true;
-      const q = query.toLowerCase();
-      const ci = clienteInfo(c.cliente);
-      return ci.nombre.toLowerCase().includes(q)
-        || ci.telefono.toLowerCase().includes(q)
-        || ci.cuenta.toLowerCase().includes(q)
-        || asText(c.title).toLowerCase().includes(q)
-        || asText(c.last_message_preview).toLowerCase().includes(q);
+      // Filtro de búsqueda por texto
+      if (query.trim()) {
+        const q = query.toLowerCase();
+        const ci = clienteInfo(c.cliente);
+        const matchesSearch = ci.nombre.toLowerCase().includes(q)
+          || ci.telefono.toLowerCase().includes(q)
+          || ci.cuenta.toLowerCase().includes(q)
+          || asText(c.title).toLowerCase().includes(q)
+          || asText(c.last_message_preview).toLowerCase().includes(q);
+        if (!matchesSearch) return false;
+      }
+      
+      // Filtro por canal
+      if (channelFilter !== "all") {
+        const canal = String(c.canal || "").toLowerCase();
+        if (channelFilter === "whatsapp" && canal !== "whatsapp") return false;
+        if (channelFilter === "web" && canal !== "web" && canal !== "widget") return false;
+      }
+      
+      return true;
     });
+    
     /* Ordenar: escalado primero, luego el más reciente primero */
     return list.sort((a, b) => {
       const eA = String(a.estado || "").toLowerCase();
@@ -67,7 +98,7 @@ export function ConversationList({
       return new Date(tb).getTime() - new Date(ta).getTime();
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cases, query, tick]);
+  }, [cases, query, channelFilter, tick]);
 
   const emptyMsg = React.useMemo(() => {
     if (cases.length === 0) return "Aún no hay casos. Cuando un cliente escriba, aparecerá aquí.";
@@ -97,6 +128,57 @@ export function ConversationList({
             className="pl-10 h-9 sm:h-10 text-sm" aria-label="Buscar conversaciones"
           />
         </div>
+
+        {/* Filtros de Canal */}
+        <div className="flex items-center gap-1.5 pt-1">
+          <button
+            onClick={() => setChannelFilter("all")}
+            className={cn(
+              "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all",
+              channelFilter === "all"
+                ? "bg-brand-100 text-brand-700 dark:bg-brand-900/40 dark:text-brand-300"
+                : "text-muted-foreground hover:bg-muted"
+            )}
+          >
+            Todos
+            <span className="ml-0.5 px-1.5 py-0 bg-background border rounded-full text-[10px] min-w-[18px] text-center">
+              {cases.length}
+            </span>
+          </button>
+          <button
+            onClick={() => setChannelFilter("whatsapp")}
+            className={cn(
+              "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all",
+              channelFilter === "whatsapp"
+                ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300"
+                : "text-muted-foreground hover:bg-muted"
+            )}
+          >
+            <Smartphone className="h-3 w-3" />
+            WhatsApp
+            <span className="ml-0.5 px-1.5 py-0 bg-background border rounded-full text-[10px] min-w-[18px] text-center">
+              {cases.filter(c => String(c.canal).toLowerCase() === "whatsapp").length}
+            </span>
+          </button>
+          <button
+            onClick={() => setChannelFilter("web")}
+            className={cn(
+              "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all",
+              channelFilter === "web"
+                ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                : "text-muted-foreground hover:bg-muted"
+            )}
+          >
+            <Globe className="h-3 w-3" />
+            Web
+            <span className="ml-0.5 px-1.5 py-0 bg-background border rounded-full text-[10px] min-w-[18px] text-center">
+              {cases.filter(c => {
+                const canal = String(c.canal).toLowerCase();
+                return canal === "web" || canal === "widget";
+              }).length}
+            </span>
+          </button>
+        </div>
       </div>
 
       <ul className="flex-1 overflow-y-auto scrollbar-none px-safe" role="listbox">
@@ -125,18 +207,19 @@ export function ConversationList({
             : minutosEsperando < 5 ? { color: "bg-amber-400", text: "text-amber-600 dark:text-amber-400", label: `${minutosEsperando}m` }
             : { color: "bg-red-500", text: "text-red-600 dark:text-red-400", label: `${minutosEsperando}m` };
           return (
-            <li key={id} role="option" aria-selected={active} className="group flex items-center">
+            <li key={id} role="option" aria-selected={active} className="group relative flex items-stretch border-b border-border/50 min-w-0">
+              {/* Botón principal de selección - con overflow hidden para truncar texto */}
               <button
                 onClick={() => onSelect(id)}
                 className={cn(
-                  "flex-1 text-left flex items-start gap-3 px-3 sm:px-4 py-3 border-b border-border/50 transition-colors focus-visible:outline-none focus-visible:bg-muted active:bg-muted/80",
+                  "flex-1 min-w-0 text-left flex items-start gap-3 px-3 sm:px-4 py-3 transition-colors focus-visible:outline-none focus-visible:bg-muted active:bg-muted/80",
                   active ? "bg-brand-50 dark:bg-brand-900/30" : "hover:bg-muted/60"
                 )}
               >
                 <Avatar name={display} channel={canalKind as any} size={44} />
-                <div className="min-w-0 flex-1">
+                <div className="flex-1 min-w-0 overflow-hidden">
                   <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1.5 min-w-0">
+                    <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
                       <p className="font-semibold truncate">{display}</p>
                       {c._group?.avgRating && (
                         <div className="flex items-center gap-0.5 text-amber-500 font-bold text-[10px] shrink-0">
@@ -197,24 +280,37 @@ export function ConversationList({
                   </div>
                 </div>
               </button>
-              {isAdmin && (confirmId === id ? (
-                <div className="flex items-center gap-1 px-1 shrink-0">
-                  <button onClick={(e) => { e.stopPropagation(); handleDelete(id); }} disabled={deletingId === id}
-                    className="text-[10px] px-2 py-1 rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 whitespace-nowrap">
-                    {deletingId === id ? "..." : "Eliminar"}
-                  </button>
-                  <button onClick={(e) => { e.stopPropagation(); setConfirmId(null); }}
-                    className="text-[10px] px-2 py-1 rounded bg-muted hover:bg-border whitespace-nowrap">
-                    Cancelar
-                  </button>
+
+              {/* Botón de eliminar - SOLO PARA ADMIN/SUPERADMIN - shrink-0 para nunca empujarse */}
+              {isAdmin && (
+                <div className="shrink-0 flex items-center px-2 border-l border-border/30 bg-transparent">
+                  {confirmId === id ? (
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); handleDelete(id); }} 
+                        disabled={deletingId === id}
+                        className="text-[10px] px-2 py-1 rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 whitespace-nowrap shrink-0"
+                      >
+                        {deletingId === id ? "..." : "Eliminar"}
+                      </button>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); setConfirmId(null); }}
+                        className="text-[10px] px-2 py-1 rounded bg-muted hover:bg-border whitespace-nowrap shrink-0"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  ) : (
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); setConfirmId(id); }}
+                      className="shrink-0 p-2 rounded-md text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                      title="Eliminar conversación"
+                    >
+                      <Trash2 className="h-4 w-4 shrink-0" />
+                    </button>
+                  )}
                 </div>
-              ) : (
-                <button onClick={(e) => { e.stopPropagation(); setConfirmId(id); }}
-                  className="p-1.5 rounded-md text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-                  title="Eliminar conversacion">
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              ))}
+              )}
             </li>
           );
         })}

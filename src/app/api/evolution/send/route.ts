@@ -112,6 +112,7 @@ export async function POST(req: NextRequest) {
     }
     return NextResponse.json({ ok: true });
   } catch (e: any) {
+    console.error("[evo-send] ERROR FATAL ENVIANDO MENSAJE:", e);
     return NextResponse.json({ ok: false, error: e?.message || "send_failed" }, { status: 500 });
   }
 }

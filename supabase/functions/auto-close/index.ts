@@ -9,6 +9,56 @@ const CLOSE_MSG = "Al no haber recibido respuesta, procederemos a cerrar esta co
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
 
+async function sendViaEvolution(phone: string, text: string) {
+  const EVO_URL = Deno.env.get("EVOLUTION_API_URL") || "";
+  const EVO_KEY = Deno.env.get("EVOLUTION_API_KEY") || "";
+  const EVO_INSTANCE = Deno.env.get("EVOLUTION_INSTANCE") || "";
+  
+  console.log(`[auto-close] sendViaEvolution llamado`, { 
+    phone: phone || "SIN_PHONE", 
+    hasUrl: !!EVO_URL, 
+    hasKey: !!EVO_KEY, 
+    hasInstance: !!EVO_INSTANCE,
+    url: EVO_URL || "VACIO",
+    instance: EVO_INSTANCE || "VACIO"
+  });
+  
+  if (!EVO_URL || !EVO_KEY || !EVO_INSTANCE || !phone) {
+    console.error("[auto-close] Error: Falta configuración de Evolution API", { 
+      hasUrl: !!EVO_URL, 
+      hasKey: !!EVO_KEY, 
+      hasInstance: !!EVO_INSTANCE, 
+      phone: phone || "SIN_PHONE" 
+    });
+    return;
+  }
+  
+  let to = phone.toString().trim();
+  if (!to.includes("@")) to = `${to.replace(/[^0-9]/g, "")}@s.whatsapp.net`;
+  
+  const endpoint = `${EVO_URL.replace(/\/$/, "")}/message/sendText/${encodeURIComponent(EVO_INSTANCE)}`;
+  console.log(`[auto-close] Enviando a endpoint: ${endpoint}`, { to, textLength: text.length });
+  
+  try {
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: EVO_KEY },
+      body: JSON.stringify({ number: to, text })
+    });
+    
+    const resText = await res.text();
+    console.log(`[auto-close] Respuesta Evolution:`, { status: res.status, ok: res.ok, body: resText.substring(0, 200) });
+    
+    if (!res.ok) {
+      console.error("[auto-close] Error Evolution API:", res.status, resText);
+    } else {
+      console.log(`[auto-close] Mensaje de cierre enviado con éxito a ${to}`);
+    }
+  } catch (e: any) {
+    console.error("[auto-close] Exception sending to Evolution:", e.message, e.stack);
+  }
+}
+
 // Aprendizaje: genera resumen de la conversación y lo guarda en RAG
 async function learnFromCase(caso: any): Promise<void> {
   if (!GEMINI_API_KEY) return;
@@ -58,7 +108,7 @@ async function learnFromCase(caso: any): Promise<void> {
 Deno.serve(async () => {
   const { data: casos, error } = await db
     .from("sek_cases")
-    .select("id, canal, estado, histcliente, histtecnico, created_at, assigned_to")
+    .select("id, canal, estado, histcliente, histtecnico, created_at, assigned_to, customer_phone, cliente")
     .not("estado", "in", '("cerrado","resuelto","escalado")')
     .neq("canal", "simulator")
     .limit(200);
@@ -127,6 +177,19 @@ Deno.serve(async () => {
     if (updateErr) {
       console.error("[auto-close] Error cerrando caso", caso.id, updateErr.message);
       continue;
+    }
+
+    // SI EL CANAL ES WHATSAPP, ENVIAR EL MENSAJE REAL POR WHATSAPP VÍA EVOLUTION API!
+    const canalLower = String(caso.canal || "").toLowerCase().trim();
+    console.log(`[auto-close] Caso ${caso.id} - Canal: '${canalLower}', Phone: ${caso.customer_phone || "SIN TELÉFONO"}`);
+    
+    if (canalLower === "whatsapp" && caso.customer_phone) {
+      console.log(`[auto-close] Enviando mensaje de cierre por WhatsApp a ${caso.customer_phone}`);
+      await sendViaEvolution(caso.customer_phone, CLOSE_MSG);
+    } else if (canalLower !== "whatsapp") {
+      console.log(`[auto-close] Caso ${caso.id} no es WhatsApp (canal='${canalLower}'), no se envía mensaje real`);
+    } else if (!caso.customer_phone) {
+      console.error(`[auto-close] Caso ${caso.id} es WhatsApp pero NO tiene customer_phone!`);
     }
 
     // Aprendizaje: generar resumen antes de pasar al siguiente caso
