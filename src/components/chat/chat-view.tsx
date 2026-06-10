@@ -131,6 +131,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   const [isRecording, setIsRecording] = React.useState(false);
   const mediaRecRef = React.useRef<MediaRecorder | null>(null);
   const audioChunksRef = React.useRef<Blob[]>([]);
+  const processedFilesRef = React.useRef<Set<string>>(new Set());
   const [isRecordingVideo, setIsRecordingVideo] = React.useState(false);
   const videoRecRef = React.useRef<MediaRecorder | null>(null);
   const videoChunksRef = React.useRef<Blob[]>([]);
@@ -336,6 +337,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     if ((!body && !mediaUrl) || sending || !agentEmail) return;
     setSending(true);
     const isNota = mode === "nota" && !overrideContent;
+    console.log("[DEBUG send] agentName:", agentName, "agentEmail:", agentEmail);
     const entry: SekHistEntry = {
       role: isNota ? "nota" : "tecnico",
       time: new Date().toISOString(),
@@ -343,6 +345,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       author: agentName || agentEmail,
       ...(mediaUrl ? { mediaUrl, mediaType, fileName } : {})
     };
+    console.log("[DEBUG send] entry.author:", entry.author);
     const optimisticMsg: UnifiedMessage = {
       id: `temp-${Date.now()}`,
       source: isNota ? "nota" : "tecnico",
@@ -489,43 +492,53 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   }
 
   // Handler para pegar desde el portapapeles (texto o imágenes)
-  const isProcessingPasteRef = React.useRef(false);
   async function handlePaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
-    const items = e.clipboardData?.items;
-    if (!items || !agentEmail || isProcessingPasteRef.current || uploadingFile) return;
+    const items = Array.from(e.clipboardData?.items || []);
+    const hasFiles = items.some(item => item.kind === "file");
     
-    // Buscar imágenes o archivos en el portapapeles
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      if (item.kind === "file") {
-        e.preventDefault(); // Prevenir pegado por defecto
-        e.stopPropagation(); // Prevenir bubbling
-        const file = item.getAsFile();
-        if (!file) continue;
-        
-        isProcessingPasteRef.current = true;
-        setUploadingFile(true);
-        try {
-          const ext = file.name.split(".").pop() || "png";
-          const path = `cases/${targetId}/${Date.now()}.${ext}`;
-          const { error: upErr } = await supabase.storage
-            .from("attachments")
-            .upload(path, file, { upsert: true, contentType: file.type || undefined });
-          if (upErr) throw upErr;
-          const { data: urlData } = supabase.storage.from("attachments").getPublicUrl(path);
-          await send("", urlData.publicUrl, file.type, file.name);
-          toast.success("Imagen pegada y enviada");
-        } catch (err: any) {
-          toast.error("Error al subir imagen pegada", { description: err?.message });
-        } finally {
-          setUploadingFile(false);
-          // Reset después de un delay para evitar duplicados
-          setTimeout(() => { isProcessingPasteRef.current = false; }, 500);
-        }
-        return; // Solo procesar el primer archivo
-      }
+    if (!hasFiles || !agentEmail || uploadingFile) return;
+    
+    // Prevenir inmediatamente cualquier comportamiento por defecto
+    e.preventDefault();
+    e.stopPropagation();
+    
+    // Solo procesar el PRIMER archivo
+    const fileItem = items.find(item => item.kind === "file");
+    if (!fileItem) return;
+    
+    const file = fileItem.getAsFile();
+    if (!file) return;
+    
+    // Crear ID único para este archivo
+    const fileId = `${file.name}-${file.size}-${file.lastModified}`;
+    
+    // Verificar si ya procesamos este archivo
+    if (processedFilesRef.current.has(fileId)) {
+      console.log("[handlePaste] Archivo ya procesado, ignorando:", file.name);
+      return;
     }
-    // Si no hay archivos, el comportamiento por defecto (pegar texto) continúa
+    
+    // Marcar como procesado INMEDIATAMENTE
+    processedFilesRef.current.add(fileId);
+    
+    setUploadingFile(true);
+    try {
+      const ext = file.name.split(".").pop() || "png";
+      const path = `cases/${targetId}/${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage
+        .from("attachments")
+        .upload(path, file, { upsert: true, contentType: file.type || undefined });
+      if (upErr) throw upErr;
+      const { data: urlData } = supabase.storage.from("attachments").getPublicUrl(path);
+      await send("", urlData.publicUrl, file.type, file.name);
+      toast.success("Imagen enviada");
+    } catch (err: any) {
+      toast.error("Error al enviar imagen", { description: err?.message });
+      // En caso de error, remover del set para poder reintentar
+      processedFilesRef.current.delete(fileId);
+    } finally {
+      setUploadingFile(false);
+    }
   }
 
   async function toggleCaso() {

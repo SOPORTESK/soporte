@@ -640,11 +640,26 @@ export async function POST(req: NextRequest) {
         let duplicateIndex = -1;
         const isDuplicate = hist.some((m: any, idx: number) => {
           const timeDiff = Math.abs(new Date(now).getTime() - new Date(m.time).getTime());
-          if (timeDiff < 20000) { // Ventana de 20 segundos
+          if (timeDiff < 60000) { // Ventana de 60 segundos (aumentada)
+            // Si tiene el mismo messageId, es duplicado
+            if (m.messageId && keyId && m.messageId === keyId) {
+              duplicateIndex = idx;
+              return true;
+            }
             // Si tiene texto, comparamos el texto
             if (m.content && text && m.content.trim() === text.trim()) {
               duplicateIndex = idx;
               return true;
+            }
+            // Si es un archivo, comparamos por mediaUrl o mediaType
+            if (mediaUrl && m.mediaUrl) {
+              // Extraer el nombre del archivo del URL
+              const url1 = mediaUrl.split('/').pop()?.split('?')[0];
+              const url2 = m.mediaUrl.split('/').pop()?.split('?')[0];
+              if (url1 && url2 && url1 === url2) {
+                duplicateIndex = idx;
+                return true;
+              }
             }
             // Si es un archivo sin texto, comparamos el tipo
             if (!text && !m.content && m.mediaType && finalMediaType && m.mediaType === finalMediaType) {
