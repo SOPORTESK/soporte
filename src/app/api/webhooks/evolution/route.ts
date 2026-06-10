@@ -3,6 +3,33 @@ import { createServiceClient } from "@/lib/supabase/service";
 
 const get = (obj: any, path: string) => path.split(".").reduce((o, k) => (o && o[k] !== undefined ? o[k] : undefined), obj);
 
+// Map global para trackear mensajes procesados recientemente (evita duplicados)
+const processedMessages = new Map<string, number>();
+const DUPLICATE_WINDOW_MS = 30000; // 30 segundos
+
+function getMessageKey(jid: string, content: string, mediaUrl?: string): string {
+  const key = mediaUrl ? `${jid}:${mediaUrl}` : `${jid}:${content?.slice(0, 50)}`;
+  return key;
+}
+
+function isDuplicateMessage(jid: string, content: string, mediaUrl?: string): boolean {
+  const key = getMessageKey(jid, content, mediaUrl);
+  const now = Date.now();
+  const lastProcessed = processedMessages.get(key);
+  
+  if (lastProcessed && (now - lastProcessed) < DUPLICATE_WINDOW_MS) {
+    console.log(`[evo-webhook] DUPLICADO IGNORADO: ${key}`);
+    return true;
+  }
+  
+  processedMessages.set(key, now);
+  // Limpiar entradas antiguas
+  for (const [k, v] of processedMessages) {
+    if (now - v > DUPLICATE_WINDOW_MS) processedMessages.delete(k);
+  }
+  return false;
+}
+
 async function processIncomingReaction(supabase: any, targetMessageId: string, emoji: string | null, author: string) {
   console.log("[evo-webhook] Buscando mensaje para reacción en base de datos:", { targetMessageId, emoji, author });
   
@@ -322,6 +349,18 @@ export async function POST(req: NextRequest) {
   const supabase = createServiceClient();
   let payload: any = null;
   try { payload = await req.json(); } catch { payload = null; }
+  
+  // Extraer datos para verificar duplicados
+  const text = extractText(payload);
+  const jid = await extractJid(payload, "", "", "");
+  const phone = jidToPhone(jid);
+  const msgObj = get(payload, "data.messages.0.message") || get(payload, "data.message") || get(payload, "message");
+  const mediaUrl = msgObj?.imageMessage?.url || msgObj?.videoMessage?.url || msgObj?.documentMessage?.url;
+  
+  // Verificar si es duplicado
+  if (isDuplicateMessage(jid, text, mediaUrl)) {
+    return NextResponse.json({ ok: true, duplicate: true });
+  }
 
   if (!payload) return NextResponse.json({ ok: true });
 
