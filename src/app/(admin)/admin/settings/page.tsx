@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/avatar";
 import type { SekAgent } from "@/lib/types";
 import { IaModeToggle } from "@/components/admin/ia-mode-toggle";
 import { EvolutionConfigPanel } from "@/components/admin/evolution-config-panel";
+import { WhatsAppQRConnect } from "@/components/admin/whatsapp-qr-connect";
 
 export const dynamic = "force-dynamic";
 
@@ -187,7 +188,10 @@ export default async function AdminSettingsPage() {
 
           {/* Evolution WhatsApp */}
           {isAdmin && (
-            <EvolutionConfigPanel />
+            <>
+              <EvolutionConfigPanel />
+              <WhatsAppQRConnect />
+            </>
           )}
 
           {/* Canales */}
