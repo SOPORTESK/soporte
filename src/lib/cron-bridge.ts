@@ -19,12 +19,20 @@ function pickPhone(c: any): string | null {
   return null;
 }
 
+// Guarda en memoria: mensajes ya enviados por este proceso (caseId:time).
+// Evita reenviar el mismo mensaje en cada tick si la confirmación no trae key.id.
+const alreadySent = new Set<string>();
+// Evita que dos ticks se solapen (setInterval no espera a que termine el anterior).
+let running = false;
+
 export function startLocalCronJobs() {
   const isDev = process.env.NODE_ENV === "development";
   console.log(`[local-cron-bridge] Iniciando bridge local para retransmitir mensajes de auto-close e IA (isDev: ${isDev})...`);
   
   // Ejecutar cada 15 segundos
   setInterval(async () => {
+    if (running) return;
+    running = true;
     try {
       const EVO_URL = process.env.EVOLUTION_API_URL || "";
       const EVO_KEY = process.env.EVOLUTION_API_KEY || "";
@@ -55,6 +63,9 @@ export function startLocalCronJobs() {
         for (let i = 0; i < histTec.length; i++) {
           const m = histTec[i];
           if (m && m.role === "tecnico" && m.content === CLOSE_MSG && !m.messageId) {
+            const guardKey = `close:${c.id}:${m.time}`;
+            // Si ya lo enviamos en este proceso, no reenviar (aunque aún no tenga messageId persistido)
+            if (alreadySent.has(guardKey)) continue;
             console.log(`[local-cron-bridge] Detectado mensaje de cierre auto-close pendiente para caso ${c.id}`);
             const phone = pickPhone(c);
             if (phone) {
@@ -67,8 +78,11 @@ export function startLocalCronJobs() {
                 });
                 
                 const resData = await res.json().catch(() => ({}));
-                if (res.ok && resData?.key?.id) {
-                  const msgId = resData.key.id;
+                if (res.ok) {
+                  // Marcar como enviado SIEMPRE que la respuesta sea OK, exista o no key.id.
+                  // Esto evita el reenvío infinito cada 15s cuando Evolution no devuelve key.id.
+                  alreadySent.add(guardKey);
+                  const msgId = resData?.key?.id || `local-${Date.now()}`;
                   histTec[i] = {
                     ...m,
                     messageId: msgId,
@@ -92,6 +106,8 @@ export function startLocalCronJobs() {
           const m = histCli[i];
           // Los mensajes de la IA se guardan con role: "assistant", author: "Asistente Sekunet" y sin messageId
           if (m && m.role === "assistant" && m.author === "Asistente Sekunet" && !m.messageId && m.content) {
+            const guardKey = `ia:${c.id}:${m.time}`;
+            if (alreadySent.has(guardKey)) continue;
             console.log(`[local-cron-bridge] Detectado mensaje de IA pendiente para caso ${c.id}`);
             const phone = pickPhone(c);
             if (phone) {
@@ -104,8 +120,9 @@ export function startLocalCronJobs() {
                 });
                 
                 const resData = await res.json().catch(() => ({}));
-                if (res.ok && resData?.key?.id) {
-                  const msgId = resData.key.id;
+                if (res.ok) {
+                  alreadySent.add(guardKey);
+                  const msgId = resData?.key?.id || `local-${Date.now()}`;
                   histCli[i] = {
                     ...m,
                     messageId: msgId,
@@ -141,6 +158,8 @@ export function startLocalCronJobs() {
       }
     } catch (e: any) {
       console.error("[local-cron-bridge] Error general en loop de bridge:", e.message);
+    } finally {
+      running = false;
     }
   }, 15000);
 }

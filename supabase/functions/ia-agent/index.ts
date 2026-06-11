@@ -648,7 +648,7 @@ Deno.serve(async (req) => {
     // Canal SIMULATOR: panel interno de admin/entrenamiento. Bypassa horario
     // y modo manual — la IA siempre debe responder en simulación, porque el
     // modo manual sólo aplica a chats reales con clientes externos.
-    const isSimulator = caso.canal === "simulator";
+    const isSimulator = caso.canal === "simulator" || caso.canal === "whatsapp_test";
 
     // Verificar horario de atención (se omite para cuentas de prueba y simulador)
     if (!isWithinBusinessHours() && !isTestAccount && !isSimulator) {

@@ -36,6 +36,8 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith("/api/public") ||
     pathname.startsWith("/widget") ||
     pathname.startsWith("/api/widget") ||
+    pathname.startsWith("/test-whatsapp") ||
+    pathname.startsWith("/api/test") ||
     pathname.startsWith("/auth/confirm") ||
     pathname.startsWith("/auth/callback") ||
     pathname.startsWith("/api/admin/impersonate/go");

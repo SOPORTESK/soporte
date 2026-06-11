@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { cn, formatTime, asText, clienteInfo } from "@/lib/utils";
 import type { SekCase, ChannelKind, SekHistEntry } from "@/lib/types";
 
-type ChannelFilter = "all" | "whatsapp" | "web";
+type ChannelFilter = "all" | "whatsapp" | "web" | "test";
 
 function getChannelIcon(canal: string | null | undefined) {
   const c = String(canal || "").toLowerCase();
@@ -82,6 +82,7 @@ export function ConversationList({
         const canal = String(c.canal || "").toLowerCase();
         if (channelFilter === "whatsapp" && canal !== "whatsapp") return false;
         if (channelFilter === "web" && canal !== "web" && canal !== "widget") return false;
+        if (channelFilter === "test" && canal !== "whatsapp_test") return false;
       }
       
       return true;
@@ -105,6 +106,66 @@ export function ConversationList({
     return "Sin resultados con esos filtros.";
   }, [cases.length]);
 
+  const counts = React.useMemo(() => {
+    let whatsapp = 0;
+    let web = 0;
+    let test = 0;
+    for (const c of cases) {
+      const canal = String(c.canal || "").toLowerCase();
+      if (canal === "whatsapp") whatsapp++;
+      else if (canal === "web" || canal === "widget") web++;
+      else if (canal === "whatsapp_test") test++;
+    }
+    return { all: cases.length, whatsapp, web, test };
+  }, [cases]);
+
+  const channelTabs: {
+    key: ChannelFilter;
+    label: string;
+    count: number;
+    icon: React.ReactNode;
+    activeText: string;
+    activeDot: string;
+    activeBadge: string;
+  }[] = [
+    {
+      key: "all",
+      label: "Todos",
+      count: counts.all,
+      icon: null,
+      activeText: "text-brand-600 dark:text-brand-300",
+      activeDot: "bg-brand-500",
+      activeBadge: "bg-brand-500/15 text-brand-600 dark:text-brand-300",
+    },
+    {
+      key: "whatsapp",
+      label: "WhatsApp",
+      count: counts.whatsapp,
+      icon: <Smartphone className="h-3.5 w-3.5" />,
+      activeText: "text-green-600 dark:text-green-400",
+      activeDot: "bg-green-500",
+      activeBadge: "bg-green-500/15 text-green-600 dark:text-green-400",
+    },
+    {
+      key: "web",
+      label: "Web",
+      count: counts.web,
+      icon: <Globe className="h-3.5 w-3.5" />,
+      activeText: "text-blue-600 dark:text-blue-400",
+      activeDot: "bg-blue-500",
+      activeBadge: "bg-blue-500/15 text-blue-600 dark:text-blue-400",
+    },
+    {
+      key: "test",
+      label: "Prueba",
+      count: counts.test,
+      icon: <span className="text-[10px] font-bold leading-none">T</span>,
+      activeText: "text-orange-600 dark:text-orange-400",
+      activeDot: "bg-orange-500",
+      activeBadge: "bg-orange-500/15 text-orange-600 dark:text-orange-400",
+    },
+  ];
+
   return (
     <aside className={cn(
       "border-r border-border bg-card flex flex-col min-h-0",
@@ -120,64 +181,46 @@ export function ConversationList({
             <MessageSquarePlus className="h-4 w-4" />
           </button>
         </div>
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" aria-hidden />
+        <div className="relative group">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground transition-colors group-focus-within:text-brand-500" aria-hidden />
           <Input
             value={query} onChange={e => setQuery(e.target.value)}
             placeholder="Buscar por nombre, teléfono, cuenta…"
-            className="pl-10 h-9 sm:h-10 text-sm" aria-label="Buscar conversaciones"
+            className="pl-10 h-10 text-sm rounded-xl bg-muted/40 border-transparent focus-visible:bg-card focus-visible:border-brand-500/40 transition-colors"
+            aria-label="Buscar conversaciones"
           />
         </div>
 
-        {/* Filtros de Canal */}
-        <div className="flex items-center gap-1.5 pt-1">
-          <button
-            onClick={() => setChannelFilter("all")}
-            className={cn(
-              "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all",
-              channelFilter === "all"
-                ? "bg-brand-100 text-brand-700 dark:bg-brand-900/40 dark:text-brand-300"
-                : "text-muted-foreground hover:bg-muted"
-            )}
-          >
-            Todos
-            <span className="ml-0.5 px-1.5 py-0 bg-background border rounded-full text-[10px] min-w-[18px] text-center">
-              {cases.length}
-            </span>
-          </button>
-          <button
-            onClick={() => setChannelFilter("whatsapp")}
-            className={cn(
-              "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all",
-              channelFilter === "whatsapp"
-                ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300"
-                : "text-muted-foreground hover:bg-muted"
-            )}
-          >
-            <Smartphone className="h-3 w-3" />
-            WhatsApp
-            <span className="ml-0.5 px-1.5 py-0 bg-background border rounded-full text-[10px] min-w-[18px] text-center">
-              {cases.filter(c => String(c.canal).toLowerCase() === "whatsapp").length}
-            </span>
-          </button>
-          <button
-            onClick={() => setChannelFilter("web")}
-            className={cn(
-              "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all",
-              channelFilter === "web"
-                ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
-                : "text-muted-foreground hover:bg-muted"
-            )}
-          >
-            <Globe className="h-3 w-3" />
-            Web
-            <span className="ml-0.5 px-1.5 py-0 bg-background border rounded-full text-[10px] min-w-[18px] text-center">
-              {cases.filter(c => {
-                const canal = String(c.canal).toLowerCase();
-                return canal === "web" || canal === "widget";
-              }).length}
-            </span>
-          </button>
+        {/* Filtros de Canal — control segmentado */}
+        <div className="flex items-center gap-1 p-1 rounded-xl bg-muted/50" role="tablist" aria-label="Filtrar por canal">
+          {channelTabs.map(tab => {
+            const isActive = channelFilter === tab.key;
+            return (
+              <button
+                key={tab.key}
+                role="tab"
+                aria-selected={isActive}
+                onClick={() => setChannelFilter(tab.key)}
+                className={cn(
+                  "flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200",
+                  isActive
+                    ? cn("bg-card shadow-sm ring-1 ring-border", tab.activeText)
+                    : "text-muted-foreground hover:text-foreground hover:bg-card/50"
+                )}
+              >
+                {tab.key === "all"
+                  ? <span className={cn("h-1.5 w-1.5 rounded-full transition-colors", isActive ? tab.activeDot : "bg-muted-foreground/40")} />
+                  : <span className={cn("transition-colors", isActive ? tab.activeText : "text-muted-foreground/70")}>{tab.icon}</span>}
+                <span className="truncate">{tab.label}</span>
+                <span className={cn(
+                  "min-w-[20px] px-1.5 py-0.5 rounded-full text-[10px] font-bold leading-none text-center tabular-nums transition-colors",
+                  isActive ? tab.activeBadge : "bg-foreground/5 text-muted-foreground"
+                )}>
+                  {tab.count}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -276,6 +319,9 @@ export function ConversationList({
                       const hasN2 = tags.some((t: string) => t.toLowerCase().includes("n2"));
                       return hasN2 ? <span className="inline-flex items-center rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-semibold text-white">N2</span> : null;
                     })()}
+                    {String(c.canal || "").toLowerCase() === "whatsapp_test" && (
+                      <span className="inline-flex items-center rounded-full bg-orange-500 px-1.5 py-0.5 text-[10px] font-bold text-white">PRUEBA</span>
+                    )}
                     {c.unread_count > 0 && <Badge variant="default" className="text-[10px]">{c.unread_count}</Badge>}
                   </div>
                 </div>

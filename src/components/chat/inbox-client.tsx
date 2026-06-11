@@ -96,9 +96,26 @@ function mergeGroups(rawCases: SekCase[]): SekCase[] {
     const avgRating = ratings.length > 0 ? (ratings.reduce((a, b) => a + b, 0) / ratings.length) : null;
 
     const last = target;
+    /* Mejor info de cliente disponible en el grupo: algunos casos (p. ej. creados
+       por un mensaje saliente) pueden no tener nombre. Tomamos el primer valor
+       no vacío de cada campo recorriendo todos los casos del grupo para no perder
+       la identificación del cliente. */
+    const bestCliente: Record<string, unknown> =
+      typeof target.cliente === "object" && target.cliente ? { ...(target.cliente as Record<string, unknown>) } : {};
+    for (const cc of sorted) {
+      const co = typeof cc.cliente === "object" && cc.cliente ? (cc.cliente as Record<string, unknown>) : {};
+      const ci = clienteInfo(cc.cliente);
+      if (!bestCliente.nombre && ci.nombre) bestCliente.nombre = ci.nombre;
+      if (!bestCliente.correo && ci.correo) bestCliente.correo = ci.correo;
+      if (!bestCliente.cuenta && ci.cuenta) bestCliente.cuenta = ci.cuenta;
+      if (!bestCliente.cedula && ci.cedula) bestCliente.cedula = ci.cedula;
+      if (!bestCliente.telefono && ci.telefono) bestCliente.telefono = ci.telefono;
+      if (!bestCliente.telefono_real && co.telefono_real) bestCliente.telefono_real = co.telefono_real;
+    }
     const synthetic: SekCase = {
       ...last,
       id: key,
+      cliente: bestCliente as SekCase["cliente"],
       histcliente,
       histtecnico,
       estado: (anyOpen ? (target.estado ?? "abierto") : (last.estado ?? "cerrado")) as SekCase["estado"],

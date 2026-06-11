@@ -7,14 +7,12 @@ const get = (obj: any, path: string) => path.split(".").reduce((o, k) => (o && o
 const processedMessages = new Map<string, number>();
 const DUPLICATE_WINDOW_MS = 30000; // 30 segundos
 
-function getMessageKey(jid: string | null, content: string | null, mediaUrl?: string): string {
-  const safeJid = jid || "";
-  const safeContent = content || "";
-  const key = mediaUrl ? `${safeJid}:${mediaUrl}` : `${safeJid}:${safeContent.slice(0, 50)}`;
+function getMessageKey(jid: string | null | undefined, content: string | null | undefined, mediaUrl?: string): string {
+  const key = mediaUrl ? `${jid}:${mediaUrl}` : `${jid}:${content?.slice(0, 50)}`;
   return key;
 }
 
-function isDuplicateMessage(jid: string | null, content: string | null, mediaUrl?: string): boolean {
+function isDuplicateMessage(jid: string | null | undefined, content: string | null | undefined, mediaUrl?: string): boolean {
   const key = getMessageKey(jid, content, mediaUrl);
   const now = Date.now();
   const lastProcessed = processedMessages.get(key);
@@ -352,14 +350,19 @@ export async function POST(req: NextRequest) {
   let payload: any = null;
   try { payload = await req.json(); } catch { payload = null; }
   
-  // Extraer datos para verificar duplicados (usar nombres diferentes para evitar conflictos)
-  const dupText = extractText(payload);
-  const dupJid = await extractJid(payload, "", "", "");
-  const dupMsgObj = get(payload, "data.messages.0.message") || get(payload, "data.message") || get(payload, "message");
-  const dupMediaUrl = dupMsgObj?.imageMessage?.url || dupMsgObj?.videoMessage?.url || dupMsgObj?.documentMessage?.url;
+  const EVO_URL = process.env.EVOLUTION_API_URL || "";
+  const EVO_KEY = process.env.EVOLUTION_API_KEY || "";
+  const EVO_INSTANCE = process.env.EVOLUTION_INSTANCE || "";
+  
+  // Extraer datos para verificar duplicados
+  let text = extractText(payload);
+  const jid = await extractJid(payload, EVO_URL, EVO_KEY, EVO_INSTANCE);
+  const phone = jidToPhone(jid);
+  const msgObj = get(payload, "data.messages.0.message") || get(payload, "data.message") || get(payload, "message");
+  const dupMediaUrl = msgObj?.imageMessage?.url || msgObj?.videoMessage?.url || msgObj?.documentMessage?.url;
   
   // Verificar si es duplicado
-  if (isDuplicateMessage(dupJid, dupText, dupMediaUrl)) {
+  if (isDuplicateMessage(jid, text, dupMediaUrl)) {
     return NextResponse.json({ ok: true, duplicate: true });
   }
 
@@ -433,26 +436,38 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
-  const EVO_URL = process.env.EVOLUTION_API_URL || "";
-  const EVO_KEY = process.env.EVOLUTION_API_KEY || "";
-  const EVO_INSTANCE = process.env.EVOLUTION_INSTANCE || "";
-
   // Detectar si es un mensaje saliente (enviado desde nuestro número)
   let isOutgoing = false;
   try {
-    const fromMe = !!(payload?.data?.key?.fromMe || payload?.key?.fromMe || payload?.data?.messages?.[0]?.key?.fromMe);
-    const pushNameRaw = get(payload, "data.pushName") || get(payload, "pushName");
+    const fromMe = !!(
+      payload?.data?.key?.fromMe || 
+      payload?.key?.fromMe || 
+      payload?.data?.messages?.[0]?.key?.fromMe ||
+      payload?.data?.message?.key?.fromMe ||
+      payload?.message?.key?.fromMe ||
+      payload?.data?.fromMe ||
+      payload?.fromMe
+    );
+    const pushNameRaw = get(payload, "data.pushName") || 
+                        get(payload, "pushName") || 
+                        payload?.data?.messages?.[0]?.pushName ||
+                        payload?.data?.message?.pushName;
     const isBotName = pushNameRaw && (pushNameRaw.includes("Sekunet") || pushNameRaw.includes("Soporte Sekunet"));
-    const participant = get(payload, "data.key.participant") || get(payload, "key.participant") || "";
-    const isOfficialNumber = participant.includes("50660160394");
+    const participant = get(payload, "data.key.participant") || 
+                        get(payload, "key.participant") || 
+                        payload?.data?.messages?.[0]?.key?.participant || 
+                        payload?.data?.message?.key?.participant ||
+                        "";
+    const instanceUser = get(payload, "instance.user") || 
+                         get(payload, "data.instance.user") || 
+                         get(payload, "wuid") || 
+                         get(payload, "data.wuid") || 
+                         "";
+    const officialPhone = jidToPhone(instanceUser) || "50660160394";
+    const isOfficialNumber = !!(participant && (participant.includes(officialPhone) || instanceUser.includes(participant)));
     isOutgoing = !!(fromMe || isBotName || isOfficialNumber);
   } catch {}
 
-  // Diagnóstico para ver por qué no reconoce el número
-  const jid = await extractJid(payload, EVO_URL, EVO_KEY, EVO_INSTANCE);
-  const phone = jidToPhone(jid);
-  let text = extractText(payload);
-  const msgObj = get(payload, "data.messages.0.message") || get(payload, "data.message") || get(payload, "message");
   
   let mediaType = "";
   let originalFileName = "";
@@ -673,45 +688,68 @@ export async function POST(req: NextRequest) {
 
     if (existing) {
       if (isOutgoing) {
-        // Mensaje saliente: la UI ya lo guardó en histtecnico.
-        // Solo enriquecemos la entrada más reciente con el messageId de WhatsApp
-        // para que funcionen los recibos de lectura. NUNCA creamos una entrada nueva.
+        // Mensaje saliente: guardar en histtecnico
         const hist = Array.isArray(existing.histtecnico) ? existing.histtecnico : [];
         
-        if (keyId && hist.length > 0) {
-          // Buscar la entrada más reciente del técnico que NO tenga messageId (la que la UI guardó)
-          let targetIdx = -1;
-          for (let i = hist.length - 1; i >= 0; i--) {
-            const m = hist[i];
-            if (m.role === "tecnico" && !m.messageId) {
-              const timeDiff = Math.abs(new Date(now).getTime() - new Date(m.time).getTime());
-              if (timeDiff < 120000) { // 2 minutos de ventana
-                targetIdx = i;
-                break;
+        // Anti-duplicación: evitar que el webhook guarde el mensaje si la UI ya lo guardó
+        let duplicateIndex = -1;
+        const isDuplicate = hist.some((m: any, idx: number) => {
+          const timeDiff = Math.abs(new Date(now).getTime() - new Date(m.time).getTime());
+          if (timeDiff < 60000) { // Ventana de 60 segundos (aumentada)
+            // Si tiene el mismo messageId, es duplicado
+            if (m.messageId && keyId && m.messageId === keyId) {
+              duplicateIndex = idx;
+              return true;
+            }
+            // Si tiene texto, comparamos el texto
+            if (m.content && text && m.content.trim() === text.trim()) {
+              duplicateIndex = idx;
+              return true;
+            }
+            // Si es un archivo, comparamos por mediaUrl o mediaType
+            if (mediaUrl && m.mediaUrl) {
+              // Extraer el nombre del archivo del URL
+              const url1 = mediaUrl.split('/').pop()?.split('?')[0];
+              const url2 = m.mediaUrl.split('/').pop()?.split('?')[0];
+              if (url1 && url2 && url1 === url2) {
+                duplicateIndex = idx;
+                return true;
               }
             }
+            // Si es un archivo sin texto, comparamos el tipo
+            if (!text && !m.content && m.mediaType && finalMediaType && m.mediaType === finalMediaType) {
+              duplicateIndex = idx;
+              return true;
+            }
           }
-          
-          if (targetIdx >= 0) {
-            const updatedHist = [...hist];
-            updatedHist[targetIdx] = {
-              ...updatedHist[targetIdx],
-              messageId: keyId,
-              fromMe: true
-            };
-            await supabase
-              .from("sek_cases")
-              .update({ histtecnico: updatedHist })
-              .eq("id", existing.id);
-            console.log("[evo-webhook] Mensaje saliente: messageId asignado a entrada existente:", keyId);
-          } else {
-            console.log("[evo-webhook] Mensaje saliente ignorado (no se encontró entrada reciente sin messageId):", keyId);
-          }
-        } else {
-          console.log("[evo-webhook] Mensaje saliente ignorado (sin keyId o historial vacío)");
+          return false;
+        });
+
+        if (isDuplicate && duplicateIndex >= 0) {
+          console.log("[evo-webhook] Ignorando mensaje saliente duplicado, actualizando con messageId:", keyId);
+          const updatedHist = [...hist];
+          updatedHist[duplicateIndex] = {
+            ...updatedHist[duplicateIndex],
+            messageId: keyId,
+            fromMe: true
+          };
+          await supabase
+            .from("sek_cases")
+            .update({ histtecnico: updatedHist })
+            .eq("id", existing.id);
+          return NextResponse.json({ ok: true, duplicate: true, updatedId: true });
         }
-        
-        return NextResponse.json({ ok: true, outgoing: true });
+
+        const updated = [...hist, entry];
+        await supabase
+          .from("sek_cases")
+          .update({ 
+            histtecnico: updated, 
+            last_message_at: now, 
+            last_message_preview: (text || "").slice(0, 200),
+            customer_phone: jid
+          })
+          .eq("id", existing.id);
       } else {
         // Mensaje entrante: guardar en histcliente
         const hist = Array.isArray(existing.histcliente) ? existing.histcliente : [];
@@ -742,6 +780,21 @@ export async function POST(req: NextRequest) {
           })
           .eq("id", existing.id);
       }
+      // Disparar ia-agent para que responda automáticamente a mensajes entrantes de WhatsApp
+      if (!isOutgoing) {
+        const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+        const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+        if (SUPABASE_URL && SERVICE_KEY) {
+          fetch(`${SUPABASE_URL}/functions/v1/ia-agent`, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${SERVICE_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ case_id: existing.id }),
+          }).catch(() => {});
+        }
+      }
       return NextResponse.json({ ok: true });
     }
 
@@ -759,7 +812,7 @@ export async function POST(req: NextRequest) {
         last_message_preview: (text || "").slice(0, 200),
       });
     } else {
-      await supabase.from("sek_cases").insert({
+      const { data: newCase } = await supabase.from("sek_cases").insert({
         canal: "whatsapp",
         estado: "pendiente",
         prioridad: "media",
@@ -774,7 +827,21 @@ export async function POST(req: NextRequest) {
         title: pushName ? `WhatsApp — ${pushName}` : `WhatsApp — ${phone || jid}`,
         last_message_at: now,
         last_message_preview: (text || "").slice(0, 200),
-      });
+      }).select("id").single();
+
+      // Disparar ia-agent para nuevo caso entrante
+      const SUPABASE_URL2 = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+      const SERVICE_KEY2 = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+      if (SUPABASE_URL2 && SERVICE_KEY2 && newCase?.id) {
+        fetch(`${SUPABASE_URL2}/functions/v1/ia-agent`, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${SERVICE_KEY2}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ case_id: newCase.id }),
+        }).catch(() => {});
+      }
     }
     return NextResponse.json({ ok: true });
   } catch (e: any) {

@@ -9,7 +9,7 @@ const CLOSE_MSG = "Al no haber recibido respuesta, procederemos a cerrar esta co
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
 
-async function sendViaEvolution(phone: string, text: string) {
+async function sendViaEvolution(phone: string, text: string): Promise<string | null> {
   const EVO_URL = Deno.env.get("EVOLUTION_API_URL") || "";
   const EVO_KEY = Deno.env.get("EVOLUTION_API_KEY") || "";
   const EVO_INSTANCE = Deno.env.get("EVOLUTION_INSTANCE") || "";
@@ -30,7 +30,7 @@ async function sendViaEvolution(phone: string, text: string) {
       hasInstance: !!EVO_INSTANCE, 
       phone: phone || "SIN_PHONE" 
     });
-    return;
+    return null;
   }
   
   let to = phone.toString().trim();
@@ -51,11 +51,19 @@ async function sendViaEvolution(phone: string, text: string) {
     
     if (!res.ok) {
       console.error("[auto-close] Error Evolution API:", res.status, resText);
+      return null;
     } else {
       console.log(`[auto-close] Mensaje de cierre enviado con éxito a ${to}`);
+      try {
+        const resData = JSON.parse(resText);
+        return resData?.key?.id || null;
+      } catch {
+        return null;
+      }
     }
   } catch (e: any) {
     console.error("[auto-close] Exception sending to Evolution:", e.message, e.stack);
+    return null;
   }
 }
 
@@ -165,29 +173,9 @@ Deno.serve(async (req) => {
     const elapsed = now - new Date(last.time).getTime();
     if (elapsed < threshold) continue;
 
-    /* Agregar mensaje de cierre al historial del cliente */
-    const closeEntry = {
-      role: "tecnico",
-      content: CLOSE_MSG,
-      time: new Date().toISOString(),
-      author: "Soporte Sekunet",
-    };
-    const newHist = [...(caso.histtecnico ?? []), closeEntry];
-
     // Verificar que el caso siga abierto justo antes de cerrar (evita doble cierre en race condition)
     const { data: check } = await db.from("sek_cases").select("estado").eq("id", caso.id).maybeSingle();
     if (!check || check.estado === "cerrado" || check.estado === "resuelto") continue;
-
-    const { error: updateErr } = await db
-      .from("sek_cases")
-      .update({ estado: "cerrado", histtecnico: newHist })
-      .eq("id", caso.id)
-      .not("estado", "in", '("cerrado","resuelto")');
-
-    if (updateErr) {
-      console.error("[auto-close] Error cerrando caso", caso.id, updateErr.message);
-      continue;
-    }
 
     // SI EL CANAL ES WHATSAPP, ENVIAR EL MENSAJE REAL POR WHATSAPP VÍA EVOLUTION API!
     const canalLower = String(caso.canal || "").toLowerCase().trim();
@@ -198,13 +186,36 @@ Deno.serve(async (req) => {
     
     console.log(`[auto-close] Caso ${caso.id} - Canal: '${canalLower}', customer_phone: ${caso.customer_phone || "SIN"}, telefono_real: ${clienteObj?.telefono_real || "SIN"}, resolved: ${realPhone || "SIN"}`);
     
+    let msgId: string | null = null;
     if (canalLower === "whatsapp" && realPhone) {
       console.log(`[auto-close] Enviando mensaje de cierre por WhatsApp a ${realPhone}`);
-      await sendViaEvolution(realPhone, CLOSE_MSG);
+      msgId = await sendViaEvolution(realPhone, CLOSE_MSG);
     } else if (canalLower !== "whatsapp") {
       console.log(`[auto-close] Caso ${caso.id} no es WhatsApp (canal='${canalLower}'), no se envía mensaje real`);
     } else if (!realPhone) {
       console.error(`[auto-close] Caso ${caso.id} es WhatsApp pero NO tiene teléfono real!`);
+    }
+
+    /* Agregar mensaje de cierre al historial del cliente */
+    const closeEntry = {
+      role: "tecnico",
+      content: CLOSE_MSG,
+      time: new Date().toISOString(),
+      author: "Soporte Sekunet",
+      messageId: msgId || undefined,
+      fromMe: msgId ? true : undefined
+    };
+    const newHist = [...(caso.histtecnico ?? []), closeEntry];
+
+    const { error: updateErr } = await db
+      .from("sek_cases")
+      .update({ estado: "cerrado", histtecnico: newHist })
+      .eq("id", caso.id)
+      .not("estado", "in", '("cerrado","resuelto")');
+
+    if (updateErr) {
+      console.error("[auto-close] Error cerrando caso", caso.id, updateErr.message);
+      continue;
     }
 
     // Aprendizaje: generar resumen antes de pasar al siguiente caso
