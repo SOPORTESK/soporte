@@ -4,7 +4,7 @@ import { initials as getInitials } from "@/lib/utils";
 
 export function Avatar({
   src, name, size = 40, className, channel
-}: { src?: string | null; name?: string | null; size?: number; className?: string; channel?: "whatsapp" | "whatsapp_test" | "messenger" | "web" | "email" }) {
+}: { src?: string | null; name?: string | null; size?: number; className?: string; channel?: "whatsapp" | "messenger" | "web" | "email" }) {
   const dim = { width: size, height: size };
   return (
     <div className={cn("relative shrink-0", className)} style={dim}>
@@ -21,14 +21,14 @@ export function Avatar({
         <span
           className={cn(
             "absolute -bottom-0.5 -right-0.5 h-4 w-4 rounded-full border-2 border-card grid place-items-center text-[8px] font-bold text-white",
-            (channel === "whatsapp" || channel === "whatsapp_test") && "bg-[#25D366]",
+            channel === "whatsapp" && "bg-[#25D366]",
             channel === "messenger" && "bg-[#0084FF]",
             channel === "web" && "bg-brand-700",
             channel === "email" && "bg-accent-600"
           )}
           aria-label={`canal ${channel}`}
         >
-          {(channel === "whatsapp" || channel === "whatsapp_test") ? "W" : channel === "messenger" ? "M" : channel === "web" ? "C" : "@"}
+          {channel === "whatsapp" ? "W" : channel === "messenger" ? "M" : channel === "web" ? "C" : "@"}
         </span>
       )}
     </div>
