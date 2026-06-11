@@ -42,7 +42,7 @@ export function WhatsAppQRConnect() {
         const instances = Array.isArray(r1.data) ? r1.data : r1.data?.instances || [];
         const inst = instances.find((i: any) => i.instanceName === instance || i.name === instance);
         if (inst) {
-          const state = String(inst.state || inst.status || "").toLowerCase();
+          const state = String(inst.connectionStatus || inst.state || inst.status || "").toLowerCase();
           setStatus(state === "open" || state === "connected" ? "open" : state === "connecting" ? "connecting" : "close");
           setChecking(false);
           return;
@@ -153,6 +153,13 @@ export function WhatsAppQRConnect() {
           <CheckCircle className="h-4 w-4" />
           WhatsApp conectado correctamente.
         </div>
+      )}
+
+      {lastResponse && (
+        <details className="text-xs">
+          <summary className="cursor-pointer text-muted-foreground hover:text-foreground font-medium">Ver respuesta de Evolution</summary>
+          <pre className="mt-1 p-2 bg-muted rounded-lg overflow-x-auto text-[10px] text-muted-foreground">{lastResponse}</pre>
+        </details>
       )}
 
       {showManager && (

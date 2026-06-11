@@ -14,9 +14,13 @@ export async function POST(req: NextRequest) {
     }
 
     const url = `${cfg.url.replace(/\/$/, "")}${endpoint}`;
+    // Evolution v2: fetchInstances requiere la API key global, no la de instancia
+    const isFetchInstances = endpoint === "/instance/fetchInstances" || endpoint === "/instance/fetchInstances/";
+    const globalKey = process.env.EVOLUTION_GLOBAL_API_KEY || "SEKUNET_EVO_KEY_123";
+    const apiKey = isFetchInstances ? globalKey : cfg.apiKey;
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      apikey: cfg.apiKey,
+      apikey: apiKey,
     };
 
     const res = await fetch(url, {
