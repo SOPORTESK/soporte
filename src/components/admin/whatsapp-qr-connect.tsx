@@ -1,6 +1,6 @@
 "use client";
 import * as React from "react";
-import { Smartphone, RefreshCw, Unlink, CheckCircle, AlertTriangle, ExternalLink } from "lucide-react";
+import { Smartphone, RefreshCw, Unlink, CheckCircle, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 
 export function WhatsAppQRConnect() {
@@ -89,23 +89,67 @@ export function WhatsAppQRConnect() {
     setChecking(true);
     setLastError(null);
     try {
-      const r = await evoProxy(`/instance/restart/${encodeURIComponent(instance)}`, "POST");
-      setLastResponse(`restart POST: HTTP ${r.status}\n${JSON.stringify(r.data).slice(0, 500)}`);
-      if (r.ok) {
+      // Intentar obtener QR directamente via connect endpoint
+      const r = await evoProxy(`/instance/connect/${encodeURIComponent(instance)}`, "POST");
+      setLastResponse(`connect POST: HTTP ${r.status}\n${JSON.stringify(r.data).slice(0, 600)}`);
+      if (r.ok && r.data) {
         const inst = r.data?.instance || r.data;
         const state = String(inst?.state || "").toLowerCase();
-        if (state === "open" || state === "connected") {
-          toast.info("Instancia conectada. Para cambiar de número, desconecte primero.");
-        } else {
-          toast.success("Instancia reiniciada. Abra el panel de Evolution para ver el QR.");
+        const qr = inst?.qrcode || inst?.qr || inst?.base64 || r.data?.qrcode || r.data?.qr || r.data?.base64;
+        if (qr) {
+          setQrCode(qr);
+          setStatus("connecting");
+          toast.success("QR generado. Escanee con WhatsApp.");
+          setChecking(false);
+          return;
         }
+        if (state === "open" || state === "connected") {
+          setStatus("open");
+          toast.info("Instancia ya conectada. Desconecte primero para cambiar número.");
+          setChecking(false);
+          return;
+        }
+      }
+      // Fallback: reiniciar y esperar QR via polling
+      const r2 = await evoProxy(`/instance/restart/${encodeURIComponent(instance)}`, "POST");
+      setLastResponse(`restart POST: HTTP ${r2.status}\n${JSON.stringify(r2.data).slice(0, 600)}`);
+      if (r2.ok) {
+        toast.success("Instancia reiniciada. Consultando QR...");
+        // Iniciar polling hasta obtener QR o conexion
+        const poll = setInterval(async () => {
+          const pr = await evoProxy("/instance/fetchInstances");
+          if (pr.ok && pr.data) {
+            const instances = Array.isArray(pr.data) ? pr.data : pr.data?.instances || [];
+            const inst = instances.find((i: any) => i.instanceName === instance || i.name === instance);
+            if (inst) {
+              const state = String(inst.state || inst.status || "").toLowerCase();
+              const qr = inst?.qrcode || inst?.qr || inst?.base64;
+              if (qr) {
+                setQrCode(qr);
+                setStatus("connecting");
+                clearInterval(poll);
+                setChecking(false);
+                toast.success("QR listo. Escanee con WhatsApp.");
+                return;
+              }
+              if (state === "open" || state === "connected") {
+                setStatus("open");
+                clearInterval(poll);
+                setChecking(false);
+                toast.info("Ya conectado.");
+                return;
+              }
+            }
+          }
+        }, 2500);
+        // Parar polling tras 30s
+        setTimeout(() => { clearInterval(poll); setChecking(false); }, 30000);
       } else {
         throw new Error("No se pudo reiniciar la instancia.");
       }
     } catch (e: any) {
       toast.error("Error: " + (e?.message || e));
       setLastError(String(e?.message || e));
-    } finally {
       setChecking(false);
     }
   }
@@ -193,21 +237,6 @@ export function WhatsAppQRConnect() {
           WhatsApp conectado correctamente.
         </div>
       )}
-
-      {/* Link directo al panel de Evolution */}
-      <a
-        href={`${evoUrl.replace(/\/$/, "")}/manager`}
-        target="_blank"
-        rel="noreferrer"
-        className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium bg-[#25D366] text-white hover:bg-[#128C7E] transition-colors"
-      >
-        <Smartphone className="h-4 w-4" />
-        Abrir panel de Evolution
-        <ExternalLink className="h-3.5 w-3.5" />
-      </a>
-      <p className="text-[10px] text-muted-foreground text-center">
-        Inicie sesión en el panel, busque la instancia <code className="bg-muted px-1 rounded">{instance}</code> y haga clic en <strong>Conectar</strong> para ver el QR.
-      </p>
 
       {lastError && (
         <div className="p-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-600 text-xs">
