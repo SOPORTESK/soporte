@@ -45,7 +45,7 @@ while ($true) {
 
     try {
         if (Test-Path $nextBin) {
-            & node $nextBin start -p 3100 *>> $logFile
+            & node $nextBin start -p 3100 -H 0.0.0.0 *>> $logFile
         } else {
             # Fallback a npm si no se encuentra el binario de next
             & npm.cmd run start *>> $logFile
