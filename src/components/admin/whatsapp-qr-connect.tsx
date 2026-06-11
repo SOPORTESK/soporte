@@ -88,65 +88,120 @@ export function WhatsAppQRConnect() {
     setQrCode(null);
     setChecking(true);
     setLastError(null);
+    const logs: string[] = [];
+    const log = (label: string, r: any) => {
+      const entry = `${label}: HTTP ${r.status}\n${JSON.stringify(r.data, null, 2).slice(0, 800)}`;
+      logs.push(entry);
+      setLastResponse(logs.join("\n---\n"));
+    };
+
     try {
-      // Intentar obtener QR directamente via connect endpoint
-      const r = await evoProxy(`/instance/connect/${encodeURIComponent(instance)}`, "POST");
-      setLastResponse(`connect POST: HTTP ${r.status}\n${JSON.stringify(r.data).slice(0, 600)}`);
-      if (r.ok && r.data) {
+      // 1) Ver estado actual
+      const st = await evoProxy("/instance/fetchInstances");
+      log("fetchInstances", st);
+      let currentState = "unknown";
+      let currentQr: string | null = null;
+      if (st.ok && st.data) {
+        const instances = Array.isArray(st.data) ? st.data : st.data?.instances || [];
+        const inst = instances.find((i: any) => i.instanceName === instance || i.name === instance);
+        if (inst) {
+          currentState = String(inst.state || inst.status || "").toLowerCase();
+          currentQr = inst?.qrcode || inst?.qr || inst?.base64 || null;
+          if (currentQr) {
+            setQrCode(currentQr);
+            setStatus("connecting");
+            toast.success("QR ya disponible. Escanee con WhatsApp.");
+            setChecking(false);
+            return;
+          }
+          if (currentState === "open" || currentState === "connected") {
+            setStatus("open");
+            toast.info("Instancia conectada. Desconéctela primero para cambiar número.");
+            setChecking(false);
+            return;
+          }
+        }
+      }
+
+      // 2) Intentar crear la instancia si no existe (algunas versiones lo requieren)
+      const cr = await evoProxy("/instance/create", "POST", {
+        instanceName: instance,
+        qrcode: true,
+        number: "",
+        token: instance,
+      });
+      log("create instance", cr);
+      if (cr.ok && cr.data) {
+        const qr = cr.data?.qrcode || cr.data?.qr || cr.data?.base64 || cr.data?.instance?.qrcode;
+        if (qr) {
+          setQrCode(qr);
+          setStatus("connecting");
+          toast.success("QR generado (create). Escanee con WhatsApp.");
+          setChecking(false);
+          return;
+        }
+      }
+
+      // 3) Intentar conectar con varios endpoints y bodies
+      const attempts = [
+        { label: "connect (path)", endpoint: `/instance/connect/${encodeURIComponent(instance)}`, method: "POST", body: undefined },
+        { label: "connect (path + body)", endpoint: `/instance/connect/${encodeURIComponent(instance)}`, method: "POST", body: { instanceName: instance } },
+        { label: "connect (body only)", endpoint: `/instance/connect`, method: "POST", body: { instanceName: instance } },
+        { label: "instance connect", endpoint: `/instance/${encodeURIComponent(instance)}/connect`, method: "POST", body: undefined },
+        { label: "instance connect body", endpoint: `/instance/${encodeURIComponent(instance)}/connect`, method: "POST", body: { instanceName: instance } },
+        { label: "restart", endpoint: `/instance/restart/${encodeURIComponent(instance)}`, method: "POST", body: undefined },
+      ];
+
+      for (const a of attempts) {
+        const r = await evoProxy(a.endpoint, a.method, a.body);
+        log(a.label, r);
         const inst = r.data?.instance || r.data;
-        const state = String(inst?.state || "").toLowerCase();
         const qr = inst?.qrcode || inst?.qr || inst?.base64 || r.data?.qrcode || r.data?.qr || r.data?.base64;
         if (qr) {
           setQrCode(qr);
           setStatus("connecting");
-          toast.success("QR generado. Escanee con WhatsApp.");
+          toast.success(`QR generado (${a.label}). Escanee con WhatsApp.`);
           setChecking(false);
           return;
         }
+        const state = String(inst?.state || "").toLowerCase();
         if (state === "open" || state === "connected") {
           setStatus("open");
-          toast.info("Instancia ya conectada. Desconecte primero para cambiar número.");
+          toast.info("Ya conectado.");
           setChecking(false);
           return;
         }
       }
-      // Fallback: reiniciar y esperar QR via polling
-      const r2 = await evoProxy(`/instance/restart/${encodeURIComponent(instance)}`, "POST");
-      setLastResponse(`restart POST: HTTP ${r2.status}\n${JSON.stringify(r2.data).slice(0, 600)}`);
-      if (r2.ok) {
-        toast.success("Instancia reiniciada. Consultando QR...");
-        // Iniciar polling hasta obtener QR o conexion
-        const poll = setInterval(async () => {
-          const pr = await evoProxy("/instance/fetchInstances");
-          if (pr.ok && pr.data) {
-            const instances = Array.isArray(pr.data) ? pr.data : pr.data?.instances || [];
-            const inst = instances.find((i: any) => i.instanceName === instance || i.name === instance);
-            if (inst) {
-              const state = String(inst.state || inst.status || "").toLowerCase();
-              const qr = inst?.qrcode || inst?.qr || inst?.base64;
-              if (qr) {
-                setQrCode(qr);
-                setStatus("connecting");
-                clearInterval(poll);
-                setChecking(false);
-                toast.success("QR listo. Escanee con WhatsApp.");
-                return;
-              }
-              if (state === "open" || state === "connected") {
-                setStatus("open");
-                clearInterval(poll);
-                setChecking(false);
-                toast.info("Ya conectado.");
-                return;
-              }
+
+      // 4) Si nada devolvió QR, iniciar polling por si aparece tras reinicio
+      toast.info("Consultando QR cada 2.5 segundos...");
+      const poll = setInterval(async () => {
+        const pr = await evoProxy("/instance/fetchInstances");
+        if (pr.ok && pr.data) {
+          const instances = Array.isArray(pr.data) ? pr.data : pr.data?.instances || [];
+          const inst = instances.find((i: any) => i.instanceName === instance || i.name === instance);
+          if (inst) {
+            const state = String(inst.state || inst.status || "").toLowerCase();
+            const qr = inst?.qrcode || inst?.qr || inst?.base64;
+            if (qr) {
+              setQrCode(qr);
+              setStatus("connecting");
+              clearInterval(poll);
+              setChecking(false);
+              toast.success("QR listo. Escanee con WhatsApp.");
+              return;
+            }
+            if (state === "open" || state === "connected") {
+              setStatus("open");
+              clearInterval(poll);
+              setChecking(false);
+              toast.info("Ya conectado.");
+              return;
             }
           }
-        }, 2500);
-        // Parar polling tras 30s
-        setTimeout(() => { clearInterval(poll); setChecking(false); }, 30000);
-      } else {
-        throw new Error("No se pudo reiniciar la instancia.");
-      }
+        }
+      }, 2500);
+      setTimeout(() => { clearInterval(poll); setChecking(false); }, 30000);
     } catch (e: any) {
       toast.error("Error: " + (e?.message || e));
       setLastError(String(e?.message || e));

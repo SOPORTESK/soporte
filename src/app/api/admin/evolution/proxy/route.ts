@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
     const res = await fetch(url, {
       method,
       headers,
-      body: body ? JSON.stringify(body) : undefined,
+      body: body ? JSON.stringify(body) : (method === "POST" || method === "PUT" ? "{}" : undefined),
     });
 
     const text = await res.text();
