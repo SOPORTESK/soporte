@@ -196,7 +196,7 @@ export function WhatsAppQRConnect() {
 
       {/* Link directo al panel de Evolution */}
       <a
-        href={evoUrl.replace(/\/$/, "")}
+        href={`${evoUrl.replace(/\/$/, "")}/manager`}
         target="_blank"
         rel="noreferrer"
         className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium bg-[#25D366] text-white hover:bg-[#128C7E] transition-colors"

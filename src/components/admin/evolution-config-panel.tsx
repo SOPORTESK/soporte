@@ -135,7 +135,7 @@ export function EvolutionConfigPanel() {
         <p className="font-semibold text-muted-foreground">Cambiar número de WhatsApp:</p>
         <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
           <li>Asegúrese de que Docker esté encendido.</li>
-          <li>Abra el panel de Evolution: <a href="http://localhost:8080" target="_blank" rel="noreferrer" className="text-brand-600 hover:underline inline-flex items-center gap-1">localhost:8080 <ExternalLink className="h-3 w-3" /></a></li>
+          <li>Abra el panel de Evolution: <a href="http://localhost:8080/manager" target="_blank" rel="noreferrer" className="text-brand-600 hover:underline inline-flex items-center gap-1">localhost:8080/manager <ExternalLink className="h-3 w-3" /></a></li>
           <li>Vaya a la instancia actual y haga clic en <strong>Desconectar</strong> (Logout).</li>
           <li>Luego haga clic en <strong>Conectar</strong> y escanee el QR con el nuevo número.</li>
           <li>El webhook ya está configurado automáticamente.</li>
