@@ -10,70 +10,97 @@ export function WhatsAppQRConnect() {
   const [instance, setInstance] = React.useState("sekunet");
   const [evoUrl, setEvoUrl] = React.useState("http://localhost:8080");
   const [evoKey, setEvoKey] = React.useState("");
+  const [lastError, setLastError] = React.useState<string | null>(null);
+  const [lastResponse, setLastResponse] = React.useState<string | null>(null);
+
+  async function api(endpoint: string, opts?: RequestInit) {
+    const url = `${evoUrl.replace(/\/$/, "")}${endpoint}`;
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (evoKey) headers.apikey = evoKey;
+    const res = await fetch(url, { ...opts, headers });
+    const text = await res.text();
+    return { ok: res.ok, status: res.status, text };
+  }
 
   async function checkState() {
     setChecking(true);
+    setLastError(null);
     try {
-      const res = await fetch(`${evoUrl.replace(/\/$/, "")}/instance/connectionState/${encodeURIComponent(instance)}`, {
-        headers: { apikey: evoKey, "Content-Type": "application/json" },
-      });
-      if (!res.ok) throw new Error("Evolution no responde");
-      const data = await res.json();
+      const { ok, status, text } = await api(`/instance/connectionState/${encodeURIComponent(instance)}`);
+      setLastResponse(`connectionState: HTTP ${status}\n${text.slice(0, 500)}`);
+      if (!ok) throw new Error(`HTTP ${status}: ${text}`);
+      const data = JSON.parse(text);
       const state = data?.state?.toLowerCase?.() || "unknown";
       setStatus(state === "open" ? "open" : state === "connecting" ? "connecting" : "close");
-    } catch {
+      // Algunas versiones devuelven QR aquí
+      const qr = data?.qrcode || data?.qr || data?.base64;
+      if (qr && state !== "open") setQrCode(qr);
+    } catch (e: any) {
       setStatus("unknown");
+      setLastError(String(e?.message || e));
     } finally {
       setChecking(false);
     }
   }
 
   async function logout() {
+    setLastError(null);
     try {
-      await fetch(`${evoUrl.replace(/\/$/, "")}/instance/logout/${encodeURIComponent(instance)}`, {
-        method: "DELETE",
-        headers: { apikey: evoKey, "Content-Type": "application/json" },
-      });
+      const { ok, status, text } = await api(`/instance/logout/${encodeURIComponent(instance)}`, { method: "DELETE" });
+      setLastResponse(`logout: HTTP ${status}\n${text.slice(0, 500)}`);
+      if (!ok) throw new Error(`HTTP ${status}: ${text}`);
       toast.success("Sesión cerrada. Puede generar QR ahora.");
       setQrCode(null);
       setStatus("close");
-    } catch {
-      toast.error("Error cerrando sesión");
+    } catch (e: any) {
+      toast.error("Error cerrando sesión: " + (e?.message || e));
+      setLastError(String(e?.message || e));
     }
   }
 
   async function fetchQR() {
     setQrCode(null);
     setChecking(true);
+    setLastError(null);
     try {
-      // Intento 1: endpoint directo de QR
-      const res = await fetch(`${evoUrl.replace(/\/$/, "")}/instance/qr/${encodeURIComponent(instance)}`, {
-        headers: { apikey: evoKey, "Content-Type": "application/json" },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data?.qrcode || data?.qr) {
-          setQrCode(data.qrcode || data.qr);
-          toast.success("Escanea el QR con WhatsApp");
-          return;
-        }
+      // Intento 1: GET /instance/qr/{instance}
+      const r1 = await api(`/instance/qr/${encodeURIComponent(instance)}`);
+      setLastResponse(`qr GET: HTTP ${r1.status}\n${r1.text.slice(0, 500)}`);
+      if (r1.ok) {
+        const d1 = JSON.parse(r1.text);
+        const qr = d1?.qrcode || d1?.qr || d1?.base64 || d1?.code;
+        if (qr) { setQrCode(qr); toast.success("Escanea el QR con WhatsApp"); setChecking(false); return; }
       }
-      // Intento 2: endpoint de conexión
-      const res2 = await fetch(`${evoUrl.replace(/\/$/, "")}/instance/connect/${encodeURIComponent(instance)}`, {
-        method: "POST",
-        headers: { apikey: evoKey, "Content-Type": "application/json" },
-      });
-      if (res2.ok) {
-        const data2 = await res2.json();
-        if (data2?.qrcode || data2?.qr || data2?.base64) {
-          setQrCode(data2.qrcode || data2.qr || data2.base64);
-          toast.success("Escanea el QR con WhatsApp");
-          return;
-        }
+
+      // Intento 2: POST /instance/connect/{instance}
+      const r2 = await api(`/instance/connect/${encodeURIComponent(instance)}`, { method: "POST" });
+      setLastResponse(`connect POST: HTTP ${r2.status}\n${r2.text.slice(0, 500)}`);
+      if (r2.ok) {
+        const d2 = JSON.parse(r2.text);
+        const qr = d2?.qrcode || d2?.qr || d2?.base64 || d2?.code;
+        if (qr) { setQrCode(qr); toast.success("Escanea el QR con WhatsApp"); setChecking(false); return; }
       }
-      toast.error("No se pudo obtener el QR. Asegúrese de que Docker esté encendido.");
-    } catch {
-      toast.error("Error conectando. ¿Docker está encendido?");
+
+      // Intento 3: GET /instance/connect/{instance}
+      const r3 = await api(`/instance/connect/${encodeURIComponent(instance)}`);
+      setLastResponse(`connect GET: HTTP ${r3.status}\n${r3.text.slice(0, 500)}`);
+      if (r3.ok) {
+        const d3 = JSON.parse(r3.text);
+        const qr = d3?.qrcode || d3?.qr || d3?.base64 || d3?.code;
+        if (qr) { setQrCode(qr); toast.success("Escanea el QR con WhatsApp"); setChecking(false); return; }
+      }
+
+      // Intento 4: POST /instance/restart/{instance}
+      const r4 = await api(`/instance/restart/${encodeURIComponent(instance)}`, { method: "POST" });
+      setLastResponse(`restart POST: HTTP ${r4.status}\n${r4.text.slice(0, 500)}`);
+      if (r4.ok) {
+        toast.info("Instancia reiniciada. Intente Verificar Estado en 5 segundos.");
+      } else {
+        throw new Error("Ningún endpoint de QR respondió. Verifique que la instancia exista.");
+      }
+    } catch (e: any) {
+      toast.error("Error: " + (e?.message || e));
+      setLastError(String(e?.message || e));
     } finally {
       setChecking(false);
     }
@@ -168,11 +195,18 @@ export function WhatsAppQRConnect() {
         </div>
       )}
 
-      {status === "unknown" && (
-        <div className="flex items-center gap-2 text-amber-600 text-xs p-2 bg-amber-500/10 rounded-lg">
-          <AlertTriangle className="h-4 w-4" />
-          No se puede verificar el estado. ¿Docker está encendido? ¿La URL y API Key son correctas?
+      {lastError && (
+        <div className="p-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-600 text-xs">
+          <p className="font-bold">Error:</p>
+          <p className="break-all">{lastError}</p>
         </div>
+      )}
+
+      {lastResponse && (
+        <details className="text-xs">
+          <summary className="cursor-pointer text-muted-foreground hover:text-foreground font-medium">Ver respuesta de Evolution</summary>
+          <pre className="mt-1 p-2 bg-muted rounded-lg overflow-x-auto text-[10px] text-muted-foreground">{lastResponse}</pre>
+        </details>
       )}
     </div>
   );
