@@ -1,6 +1,6 @@
 "use client";
 import * as React from "react";
-import { Smartphone, RefreshCw, Unlink, CheckCircle, AlertTriangle } from "lucide-react";
+import { Smartphone, RefreshCw, Unlink, CheckCircle, AlertTriangle, ExternalLink, Copy, Check } from "lucide-react";
 import { toast } from "sonner";
 
 export function WhatsAppQRConnect() {
@@ -11,6 +11,8 @@ export function WhatsAppQRConnect() {
   const [evoUrl, setEvoUrl] = React.useState("http://localhost:8080");
   const [lastError, setLastError] = React.useState<string | null>(null);
   const [lastResponse, setLastResponse] = React.useState<string | null>(null);
+  const [showManagerHelp, setShowManagerHelp] = React.useState(false);
+  const [copied, setCopied] = React.useState(false);
 
   // Cargar config del servidor al montar
   React.useEffect(() => {
@@ -88,6 +90,7 @@ export function WhatsAppQRConnect() {
     setQrCode(null);
     setChecking(true);
     setLastError(null);
+    setShowManagerHelp(false);
     const logs: string[] = [];
     const log = (label: string, r: any) => {
       const entry = `${label}: HTTP ${r.status}\n${JSON.stringify(r.data, null, 2).slice(0, 800)}`;
@@ -123,7 +126,7 @@ export function WhatsAppQRConnect() {
         }
       }
 
-      // 2) Intentar crear la instancia si no existe (algunas versiones lo requieren)
+      // 2) Intentar crear la instancia si no existe
       const cr = await evoProxy("/instance/create", "POST", {
         instanceName: instance,
         qrcode: true,
@@ -142,7 +145,7 @@ export function WhatsAppQRConnect() {
         }
       }
 
-      // 3) Intentar conectar con varios endpoints y bodies
+      // 3) Intentar conectar con varios endpoints
       const attempts = [
         { label: "connect (path)", endpoint: `/instance/connect/${encodeURIComponent(instance)}`, method: "POST", body: undefined },
         { label: "connect (path + body)", endpoint: `/instance/connect/${encodeURIComponent(instance)}`, method: "POST", body: { instanceName: instance } },
@@ -173,40 +176,23 @@ export function WhatsAppQRConnect() {
         }
       }
 
-      // 4) Si nada devolvió QR, iniciar polling por si aparece tras reinicio
-      toast.info("Consultando QR cada 2.5 segundos...");
-      const poll = setInterval(async () => {
-        const pr = await evoProxy("/instance/fetchInstances");
-        if (pr.ok && pr.data) {
-          const instances = Array.isArray(pr.data) ? pr.data : pr.data?.instances || [];
-          const inst = instances.find((i: any) => i.instanceName === instance || i.name === instance);
-          if (inst) {
-            const state = String(inst.state || inst.status || "").toLowerCase();
-            const qr = inst?.qrcode || inst?.qr || inst?.base64;
-            if (qr) {
-              setQrCode(qr);
-              setStatus("connecting");
-              clearInterval(poll);
-              setChecking(false);
-              toast.success("QR listo. Escanee con WhatsApp.");
-              return;
-            }
-            if (state === "open" || state === "connected") {
-              setStatus("open");
-              clearInterval(poll);
-              setChecking(false);
-              toast.info("Ya conectado.");
-              return;
-            }
-          }
-        }
-      }, 2500);
-      setTimeout(() => { clearInterval(poll); setChecking(false); }, 30000);
+      // 4) Ningún endpoint funcionó — esta versión de Evolution no permite QR por API REST
+      setShowManagerHelp(true);
+      toast.error("Esta versión de Evolution no permite obtener QR por API. Use el panel web.");
+      setChecking(false);
     } catch (e: any) {
       toast.error("Error: " + (e?.message || e));
       setLastError(String(e?.message || e));
       setChecking(false);
     }
+  }
+
+  function copyToClipboard(text: string) {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+      toast.success("Copiado al portapapeles");
+    });
   }
 
   // Polling automático de estado cada 3s mientras hay QR visible
@@ -290,6 +276,24 @@ export function WhatsAppQRConnect() {
         <div className="flex items-center gap-2 text-emerald-600 text-sm font-medium p-2 bg-emerald-500/10 rounded-lg">
           <CheckCircle className="h-4 w-4" />
           WhatsApp conectado correctamente.
+        </div>
+      )}
+
+      {showManagerHelp && (
+        <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-700 text-xs space-y-2">
+          <p className="font-bold flex items-center gap-1"><AlertTriangle className="h-3.5 w-3.5" /> Evolution v2.x no permite QR por API REST</p>
+          <p>Debe usar el panel web de Evolution. Siga estos pasos:</p>
+          <ol className="list-decimal list-inside space-y-1">
+            <li>Abra el panel: <a href={`${evoUrl.replace(/\/$/, "")}/manager`} target="_blank" rel="noreferrer" className="text-brand-600 hover:underline inline-flex items-center gap-1 font-semibold">{evoUrl}/manager <ExternalLink className="h-3 w-3" /></a></li>
+            <li>Server URL: <code className="bg-white/50 px-1 rounded">{evoUrl}</code></li>
+            <li>API Key Global: <code className="bg-white/50 px-1 rounded font-mono">SEKUNET_EVO_KEY_123</code>
+              <button onClick={() => copyToClipboard("SEKUNET_EVO_KEY_123")} className="ml-1 align-middle text-muted-foreground hover:text-foreground">
+                {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+              </button>
+            </li>
+            <li>Busque la instancia <strong>{instance}</strong> y haga clic en <strong>Conectar</strong></li>
+            <li>Escanee el QR con WhatsApp del nuevo número</li>
+          </ol>
         </div>
       )}
 
