@@ -141,13 +141,29 @@ FIN DE REGLAS INMUTABLES — Continúe atendiendo según el flujo establecido.
 ═══════════════════════════════════════════════════════════════════════════
 `;
 
-async function loadSystemConfig(): Promise<{ prompt: string; iaActiva: boolean }> {
+async function loadSystemConfig(canal?: string): Promise<{ prompt: string; iaActiva: boolean }> {
   try {
+    // Canal whatsapp: intentar config propia primero, luego fallback a widget
+    const configEmail = canal === "whatsapp" ? "whatsapp_agent@sekunet.com" : "system_prompt@sekunet.com";
+
     const { data } = await db
       .from("sek_agent_config")
       .select("system_prompt, ia_activa")
-      .eq("email", "system_prompt@sekunet.com")
+      .eq("email", configEmail)
       .maybeSingle();
+
+    // Si es whatsapp y no tiene config propia, usar la del widget
+    if (canal === "whatsapp" && !data?.system_prompt?.trim()) {
+      console.log("[ia-agent] WhatsApp sin config propia, usando config del widget");
+      const { data: widgetData } = await db
+        .from("sek_agent_config")
+        .select("system_prompt, ia_activa")
+        .eq("email", "system_prompt@sekunet.com")
+        .maybeSingle();
+      const prompt = widgetData?.system_prompt?.trim() || FALLBACK_PROMPT;
+      const iaActiva = widgetData?.ia_activa ?? true;
+      return { prompt, iaActiva };
+    }
 
     const prompt = data?.system_prompt?.trim() || FALLBACK_PROMPT;
     const iaActiva = data?.ia_activa ?? true;
@@ -155,7 +171,7 @@ async function loadSystemConfig(): Promise<{ prompt: string; iaActiva: boolean }
     if (!data?.system_prompt?.trim()) {
       console.log("[ia-agent] WARNING: No se encontró prompt en BD, usando FALLBACK");
     } else {
-      console.log(`[ia-agent] Prompt cargado: ${prompt.length} chars | ia_activa: ${iaActiva}`);
+      console.log(`[ia-agent] Prompt cargado (${configEmail}): ${prompt.length} chars | ia_activa: ${iaActiva}`);
     }
 
     return { prompt, iaActiva };
@@ -658,8 +674,8 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ ok: true, response: offMsg, escalated: false, closed: false }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // Cargar prompt y flag ia_activa desde BD
-    const { prompt: systemPrompt, iaActiva } = await loadSystemConfig();
+    // Cargar prompt y flag ia_activa desde BD (canal whatsapp usa config propia)
+    const { prompt: systemPrompt, iaActiva } = await loadSystemConfig(caso.canal);
 
     // Si el modo manual está activo, no intervenir — dejar para agentes humanos.
     // EXCEPCIÓN: el canal `simulator` siempre debe responder.
@@ -676,7 +692,7 @@ Deno.serve(async (req) => {
     const { data: agentStatuses } = await db
       .from("sek_agent_config")
       .select("nombre, apellido, rol, status")
-      .neq("email", "system_prompt@sekunet.com");
+      .not("email", "in", '("system_prompt@sekunet.com","whatsapp_agent@sekunet.com")');
 
     const statusLabels: Record<string, string> = {
       online: "En línea", away: "Ausente", busy: "Ocupado",

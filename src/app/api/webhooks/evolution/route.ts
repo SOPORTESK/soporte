@@ -438,18 +438,25 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
+  // ANTI-BUCLE: si fromMe=true, es respuesta enviada por nosotros (ej. la IA) — salir de inmediato
+  const rawFromMe = !!(
+    payload?.data?.key?.fromMe ||
+    payload?.key?.fromMe ||
+    payload?.data?.messages?.[0]?.key?.fromMe ||
+    payload?.data?.message?.key?.fromMe ||
+    payload?.message?.key?.fromMe ||
+    payload?.data?.fromMe ||
+    payload?.fromMe
+  );
+  if (rawFromMe) {
+    console.log("[evo-webhook] fromMe=true — mensaje propio, ignorado para evitar bucle");
+    return NextResponse.json({ ok: true, skipped: "fromMe" });
+  }
+
   // Detectar si es un mensaje saliente (enviado desde nuestro número)
   let isOutgoing = false;
   try {
-    const fromMe = !!(
-      payload?.data?.key?.fromMe || 
-      payload?.key?.fromMe || 
-      payload?.data?.messages?.[0]?.key?.fromMe ||
-      payload?.data?.message?.key?.fromMe ||
-      payload?.message?.key?.fromMe ||
-      payload?.data?.fromMe ||
-      payload?.fromMe
-    );
+    const fromMe = rawFromMe;
     const pushNameRaw = get(payload, "data.pushName") || 
                         get(payload, "pushName") || 
                         payload?.data?.messages?.[0]?.pushName ||
@@ -787,14 +794,20 @@ export async function POST(req: NextRequest) {
         const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
         const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
         if (SUPABASE_URL && SERVICE_KEY) {
-          fetch(`${SUPABASE_URL}/functions/v1/ia-agent`, {
-            method: "POST",
-            headers: {
-              "Authorization": `Bearer ${SERVICE_KEY}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ case_id: existing.id }),
-          }).catch(() => {});
+          // Asegurar que el caso esté en ia_atendiendo para que ia-agent lo procese
+          if (existing.estado === "pendiente") {
+            await supabase.from("sek_cases").update({ estado: "ia_atendiendo" }).eq("id", existing.id);
+          }
+          if (existing.estado === "pendiente" || existing.estado === "ia_atendiendo") {
+            fetch(`${SUPABASE_URL}/functions/v1/ia-agent`, {
+              method: "POST",
+              headers: {
+                "Authorization": `Bearer ${SERVICE_KEY}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ case_id: existing.id }),
+            }).catch(() => {});
+          }
         }
       }
       return NextResponse.json({ ok: true });
@@ -816,7 +829,7 @@ export async function POST(req: NextRequest) {
     } else {
       const { data: newCase } = await supabase.from("sek_cases").insert({
         canal: "whatsapp",
-        estado: "pendiente",
+        estado: "ia_atendiendo",
         prioridad: "media",
         customer_phone: jid,
         cliente: { 
