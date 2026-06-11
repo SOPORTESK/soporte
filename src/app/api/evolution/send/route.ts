@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { getEvolutionConfig } from "@/lib/evolution-config";
 
 function pickPhone(c: any): string | null {
   // 1. Prioridad: telefono_real (es el número verdadero desencriptado o vinculado manualmente)
@@ -60,9 +61,10 @@ export async function POST(req: NextRequest) {
   const { case_id, text, mediaUrl, mediaType, fileName } = await req.json().catch(() => ({}));
   if (!case_id || (!text && !mediaUrl)) return NextResponse.json({ error: "invalid" }, { status: 400 });
 
-  const EVO_URL = process.env.EVOLUTION_API_URL || "";
-  const EVO_KEY = process.env.EVOLUTION_API_KEY || "";
-  const EVO_INSTANCE = process.env.EVOLUTION_INSTANCE || "";
+  const evoCfg = await getEvolutionConfig();
+  const EVO_URL = evoCfg.url;
+  const EVO_KEY = evoCfg.apiKey;
+  const EVO_INSTANCE = evoCfg.instance;
   if (!EVO_URL || !EVO_KEY || !EVO_INSTANCE) return NextResponse.json({ error: "not_configured" }, { status: 503 });
 
   const supabase = createServiceClient();

@@ -9,29 +9,37 @@ export function WhatsAppQRConnect() {
   const [checking, setChecking] = React.useState(false);
   const [instance, setInstance] = React.useState("sekunet");
   const [evoUrl, setEvoUrl] = React.useState("http://localhost:8080");
-  const [evoKey, setEvoKey] = React.useState("");
   const [lastError, setLastError] = React.useState<string | null>(null);
   const [lastResponse, setLastResponse] = React.useState<string | null>(null);
 
-  async function api(endpoint: string, opts?: RequestInit) {
-    const url = `${evoUrl.replace(/\/$/, "")}${endpoint}`;
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (evoKey) headers.apikey = evoKey;
-    const res = await fetch(url, { ...opts, headers });
-    const text = await res.text();
-    return { ok: res.ok, status: res.status, text };
+  // Cargar config del servidor al montar
+  React.useEffect(() => {
+    fetch("/api/admin/evolution/config")
+      .then(r => r.json())
+      .then(data => {
+        if (data.url) setEvoUrl(data.url);
+        if (data.instance) setInstance(data.instance);
+      })
+      .catch(() => {});
+  }, []);
+
+  async function evoProxy(endpoint: string, method = "GET", body?: any) {
+    const res = await fetch("/api/admin/evolution/proxy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ endpoint, method, body }),
+    });
+    return res.json();
   }
 
   async function checkState() {
     setChecking(true);
     setLastError(null);
     try {
-      // Intento 1: fetchInstances (funciona en esta versión)
-      const { ok, status, text } = await api(`/instance/fetchInstances`);
-      setLastResponse(`fetchInstances: HTTP ${status}\n${text.slice(0, 500)}`);
-      if (ok) {
-        const data = JSON.parse(text);
-        const instances = Array.isArray(data) ? data : data?.instances || [];
+      const r1 = await evoProxy("/instance/fetchInstances");
+      setLastResponse(`fetchInstances: HTTP ${r1.status}\n${JSON.stringify(r1.data).slice(0, 500)}`);
+      if (r1.ok) {
+        const instances = Array.isArray(r1.data) ? r1.data : r1.data?.instances || [];
         const inst = instances.find((i: any) => i.instanceName === instance || i.name === instance);
         if (inst) {
           const state = String(inst.state || inst.status || "").toLowerCase();
@@ -42,18 +50,16 @@ export function WhatsAppQRConnect() {
           return;
         }
       }
-      // Intento 2: restart (también devuelve estado en esta versión)
-      const r2 = await api(`/instance/restart/${encodeURIComponent(instance)}`, { method: "POST" });
-      setLastResponse(`restart: HTTP ${r2.status}\n${r2.text.slice(0, 500)}`);
+      const r2 = await evoProxy(`/instance/restart/${encodeURIComponent(instance)}`, "POST");
+      setLastResponse(`restart: HTTP ${r2.status}\n${JSON.stringify(r2.data).slice(0, 500)}`);
       if (r2.ok) {
-        const d2 = JSON.parse(r2.text);
-        const inst = d2?.instance || d2;
+        const inst = r2.data?.instance || r2.data;
         const state = String(inst?.state || "").toLowerCase();
         setStatus(state === "open" || state === "connected" ? "open" : state === "connecting" ? "connecting" : "close");
         setChecking(false);
         return;
       }
-      throw new Error(`No se pudo obtener estado. HTTP ${status}: ${text}`);
+      throw new Error(`No se pudo obtener estado. HTTP ${r2.status}`);
     } catch (e: any) {
       setStatus("unknown");
       setLastError(String(e?.message || e));
@@ -65,15 +71,10 @@ export function WhatsAppQRConnect() {
   async function logout() {
     setLastError(null);
     try {
-      // Intento 1: DELETE
-      let { ok, status, text } = await api(`/instance/logout/${encodeURIComponent(instance)}`, { method: "DELETE" });
-      if (!ok) {
-        // Intento 2: POST (algunas versiones usan POST)
-        const r2 = await api(`/instance/logout/${encodeURIComponent(instance)}`, { method: "POST" });
-        ok = r2.ok; status = r2.status; text = r2.text;
-      }
-      setLastResponse(`logout: HTTP ${status}\n${text.slice(0, 500)}`);
-      if (!ok) throw new Error(`HTTP ${status}: ${text}`);
+      let r = await evoProxy(`/instance/logout/${encodeURIComponent(instance)}`, "DELETE");
+      if (!r.ok) r = await evoProxy(`/instance/logout/${encodeURIComponent(instance)}`, "POST");
+      setLastResponse(`logout: HTTP ${r.status}\n${JSON.stringify(r.data).slice(0, 500)}`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}: ${JSON.stringify(r.data)}`);
       toast.success("Sesión cerrada. Puede generar QR ahora.");
       setQrCode(null);
       setStatus("close");
@@ -88,14 +89,10 @@ export function WhatsAppQRConnect() {
     setChecking(true);
     setLastError(null);
     try {
-      // En esta versión de Evolution no hay endpoint /instance/qr ni /instance/connect
-      // El QR solo está disponible desde el panel web de Evolution
-      // Reiniciamos para forzar estado "connecting" y dirigimos al panel web
-      const r4 = await api(`/instance/restart/${encodeURIComponent(instance)}`, { method: "POST" });
-      setLastResponse(`restart POST: HTTP ${r4.status}\n${r4.text.slice(0, 500)}`);
-      if (r4.ok) {
-        const d4 = JSON.parse(r4.text);
-        const inst = d4?.instance || d4;
+      const r = await evoProxy(`/instance/restart/${encodeURIComponent(instance)}`, "POST");
+      setLastResponse(`restart POST: HTTP ${r.status}\n${JSON.stringify(r.data).slice(0, 500)}`);
+      if (r.ok) {
+        const inst = r.data?.instance || r.data;
         const state = String(inst?.state || "").toLowerCase();
         if (state === "open" || state === "connected") {
           toast.info("Instancia conectada. Para cambiar de número, desconecte primero.");
@@ -143,20 +140,15 @@ export function WhatsAppQRConnect() {
           placeholder="URL Evolution"
           className="w-full px-3 py-2 rounded-lg bg-muted/40 border border-border text-sm"
         />
-        <div className="flex gap-2">
-          <input
-            value={instance}
-            onChange={e => setInstance(e.target.value)}
-            placeholder="Nombre instancia"
-            className="flex-1 px-3 py-2 rounded-lg bg-muted/40 border border-border text-sm"
-          />
-          <input
-            value={evoKey}
-            onChange={e => setEvoKey(e.target.value)}
-            placeholder="API Key"
-            className="flex-1 px-3 py-2 rounded-lg bg-muted/40 border border-border text-sm"
-          />
-        </div>
+        <input
+          value={instance}
+          onChange={e => setInstance(e.target.value)}
+          placeholder="Nombre instancia"
+          className="w-full px-3 py-2 rounded-lg bg-muted/40 border border-border text-sm"
+        />
+        <p className="text-[10px] text-muted-foreground">
+          La API Key está guardada cifrada en Supabase. No se muestra por seguridad.
+        </p>
       </div>
 
       <div className="flex gap-2">

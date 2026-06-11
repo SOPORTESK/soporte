@@ -22,13 +22,19 @@ export function EvolutionConfigPanel() {
   async function handleSave() {
     setSaving(true);
     try {
+      const payload: any = { url: config.url, instance: config.instance };
+      // Solo enviar apiKey si el usuario escribió una nueva (no si está enmascarada)
+      if (config.apiKey && !config.apiKey.startsWith("•")) {
+        payload.apiKey = config.apiKey;
+      }
       const res = await fetch("/api/admin/evolution/config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(config),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error("Error al guardar");
-      toast.success("Configuración guardada. Reinicie el servidor para aplicar cambios.");
+      toast.success("Configuración guardada.");
+      setConfig(prev => ({ ...prev, apiKey: "" }));
     } catch (e: any) {
       toast.error(e?.message || "Error");
     } finally {
@@ -42,11 +48,12 @@ export function EvolutionConfigPanel() {
       const res = await fetch("/api/admin/evolution/config");
       const data = await res.json();
       if (!data.url) { setStatus("error"); return; }
-      const ping = await fetch(`${data.url.replace(/\/$/, "")}/instance/fetchInstances`, {
-        method: "GET",
-        headers: { apikey: config.apiKey || "", "Content-Type": "application/json" },
-      }).catch(() => null);
-      setStatus(ping && ping.ok ? "ok" : "error");
+      const ping = await fetch("/api/admin/evolution/proxy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ endpoint: "/instance/fetchInstances" }),
+      });
+      setStatus(ping.ok ? "ok" : "error");
     } catch {
       setStatus("error");
     }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { getEvolutionConfig } from "@/lib/evolution-config";
 
 const get = (obj: any, path: string) => path.split(".").reduce((o, k) => (o && o[k] !== undefined ? o[k] : undefined), obj);
 
@@ -349,11 +350,12 @@ export async function POST(req: NextRequest) {
   const supabase = createServiceClient();
   let payload: any = null;
   try { payload = await req.json(); } catch { payload = null; }
-  
-  const EVO_URL = process.env.EVOLUTION_API_URL || "";
-  const EVO_KEY = process.env.EVOLUTION_API_KEY || "";
-  const EVO_INSTANCE = process.env.EVOLUTION_INSTANCE || "";
-  
+
+  const evoCfg = await getEvolutionConfig();
+  const EVO_URL = evoCfg.url;
+  const EVO_KEY = evoCfg.apiKey;
+  const EVO_INSTANCE = evoCfg.instance;
+
   // Extraer datos para verificar duplicados
   let text = extractText(payload);
   const jid = await extractJid(payload, EVO_URL, EVO_KEY, EVO_INSTANCE);
