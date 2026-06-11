@@ -105,6 +105,55 @@ export function ConversationList({
     return "Sin resultados con esos filtros.";
   }, [cases.length]);
 
+  const counts = React.useMemo(() => {
+    let whatsapp = 0;
+    let web = 0;
+    for (const c of cases) {
+      const canal = String(c.canal || "").toLowerCase();
+      if (canal === "whatsapp") whatsapp++;
+      else if (canal === "web" || canal === "widget") web++;
+    }
+    return { all: cases.length, whatsapp, web };
+  }, [cases]);
+
+  const channelTabs: {
+    key: ChannelFilter;
+    label: string;
+    count: number;
+    icon: React.ReactNode;
+    activeText: string;
+    activeDot: string;
+    activeBadge: string;
+  }[] = [
+    {
+      key: "all",
+      label: "Todos",
+      count: counts.all,
+      icon: null,
+      activeText: "text-brand-600 dark:text-brand-300",
+      activeDot: "bg-brand-500",
+      activeBadge: "bg-brand-500/15 text-brand-600 dark:text-brand-300",
+    },
+    {
+      key: "whatsapp",
+      label: "WhatsApp",
+      count: counts.whatsapp,
+      icon: <Smartphone className="h-3.5 w-3.5" />,
+      activeText: "text-green-600 dark:text-green-400",
+      activeDot: "bg-green-500",
+      activeBadge: "bg-green-500/15 text-green-600 dark:text-green-400",
+    },
+    {
+      key: "web",
+      label: "Web",
+      count: counts.web,
+      icon: <Globe className="h-3.5 w-3.5" />,
+      activeText: "text-blue-600 dark:text-blue-400",
+      activeDot: "bg-blue-500",
+      activeBadge: "bg-blue-500/15 text-blue-600 dark:text-blue-400",
+    },
+  ];
+
   return (
     <aside className={cn(
       "border-r border-border bg-card flex flex-col min-h-0",
@@ -129,55 +178,33 @@ export function ConversationList({
           />
         </div>
 
-        {/* Filtros de Canal */}
-        <div className="flex items-center gap-1.5 pt-1">
-          <button
-            onClick={() => setChannelFilter("all")}
-            className={cn(
-              "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all",
-              channelFilter === "all"
-                ? "bg-brand-100 text-brand-700 dark:bg-brand-900/40 dark:text-brand-300"
-                : "text-muted-foreground hover:bg-muted"
-            )}
-          >
-            Todos
-            <span className="ml-0.5 px-1.5 py-0 bg-background border rounded-full text-[10px] min-w-[18px] text-center">
-              {cases.length}
-            </span>
-          </button>
-          <button
-            onClick={() => setChannelFilter("whatsapp")}
-            className={cn(
-              "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all",
-              channelFilter === "whatsapp"
-                ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300"
-                : "text-muted-foreground hover:bg-muted"
-            )}
-          >
-            <Smartphone className="h-3 w-3" />
-            WhatsApp
-            <span className="ml-0.5 px-1.5 py-0 bg-background border rounded-full text-[10px] min-w-[18px] text-center">
-              {cases.filter(c => String(c.canal).toLowerCase() === "whatsapp").length}
-            </span>
-          </button>
-          <button
-            onClick={() => setChannelFilter("web")}
-            className={cn(
-              "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all",
-              channelFilter === "web"
-                ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
-                : "text-muted-foreground hover:bg-muted"
-            )}
-          >
-            <Globe className="h-3 w-3" />
-            Web
-            <span className="ml-0.5 px-1.5 py-0 bg-background border rounded-full text-[10px] min-w-[18px] text-center">
-              {cases.filter(c => {
-                const canal = String(c.canal).toLowerCase();
-                return canal === "web" || canal === "widget";
-              }).length}
-            </span>
-          </button>
+        {/* Filtros de Canal — control segmentado */}
+        <div className="bg-muted/50 p-1 rounded-xl inline-flex items-center gap-1 w-full">
+          {channelTabs.map((tab) => {
+            const active = channelFilter === tab.key;
+            return (
+              <button
+                key={tab.key}
+                onClick={() => setChannelFilter(tab.key)}
+                className={cn(
+                  "flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-medium transition-all",
+                  active
+                    ? "bg-card shadow-sm text-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                )}
+              >
+                {tab.icon && <span className={active ? tab.activeText : "text-muted-foreground"}>{tab.icon}</span>}
+                <span className={active ? tab.activeText : ""}>{tab.label}</span>
+                <span className={cn(
+                  "ml-0.5 px-1.5 py-0 rounded-full text-[10px] font-bold min-w-[18px] text-center",
+                  active ? tab.activeBadge : "bg-background/70 text-muted-foreground"
+                )}>
+                  {tab.count}
+                </span>
+                {active && <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", tab.activeDot)} />}
+              </button>
+            );
+          })}
         </div>
       </div>
 
