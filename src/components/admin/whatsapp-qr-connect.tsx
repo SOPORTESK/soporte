@@ -194,19 +194,19 @@ export function WhatsAppQRConnect() {
         </div>
       )}
 
-      {/* Link directo al panel de Evolution para QR */}
+      {/* Link directo al panel de Evolution */}
       <a
-        href={`${evoUrl.replace(/\/$/, "")}/instance/connect/${encodeURIComponent(instance)}`}
+        href={evoUrl.replace(/\/$/, "")}
         target="_blank"
         rel="noreferrer"
         className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium bg-[#25D366] text-white hover:bg-[#128C7E] transition-colors"
       >
         <Smartphone className="h-4 w-4" />
-        Abrir panel de Evolution para escanear QR
+        Abrir panel de Evolution
         <ExternalLink className="h-3.5 w-3.5" />
       </a>
       <p className="text-[10px] text-muted-foreground text-center">
-        O vaya directamente a <code className="bg-muted px-1 rounded">{evoUrl}</code> → instancia <code className="bg-muted px-1 rounded">{instance}</code> → Conectar
+        Inicie sesión en el panel, busque la instancia <code className="bg-muted px-1 rounded">{instance}</code> y haga clic en <strong>Conectar</strong> para ver el QR.
       </p>
 
       {lastError && (
