@@ -1,6 +1,6 @@
 "use client";
 import * as React from "react";
-import { Smartphone, RefreshCw, Unlink, CheckCircle, AlertTriangle } from "lucide-react";
+import { Smartphone, RefreshCw, Unlink, CheckCircle, AlertTriangle, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 
 export function WhatsAppQRConnect() {
@@ -26,15 +26,34 @@ export function WhatsAppQRConnect() {
     setChecking(true);
     setLastError(null);
     try {
-      const { ok, status, text } = await api(`/instance/connectionState/${encodeURIComponent(instance)}`);
-      setLastResponse(`connectionState: HTTP ${status}\n${text.slice(0, 500)}`);
-      if (!ok) throw new Error(`HTTP ${status}: ${text}`);
-      const data = JSON.parse(text);
-      const state = data?.state?.toLowerCase?.() || "unknown";
-      setStatus(state === "open" ? "open" : state === "connecting" ? "connecting" : "close");
-      // Algunas versiones devuelven QR aquí
-      const qr = data?.qrcode || data?.qr || data?.base64;
-      if (qr && state !== "open") setQrCode(qr);
+      // Intento 1: fetchInstances (funciona en esta versión)
+      const { ok, status, text } = await api(`/instance/fetchInstances`);
+      setLastResponse(`fetchInstances: HTTP ${status}\n${text.slice(0, 500)}`);
+      if (ok) {
+        const data = JSON.parse(text);
+        const instances = Array.isArray(data) ? data : data?.instances || [];
+        const inst = instances.find((i: any) => i.instanceName === instance || i.name === instance);
+        if (inst) {
+          const state = String(inst.state || inst.status || "").toLowerCase();
+          setStatus(state === "open" || state === "connected" ? "open" : state === "connecting" ? "connecting" : "close");
+          const qr = inst?.qrcode || inst?.qr || inst?.base64;
+          if (qr && state !== "open" && state !== "connected") setQrCode(qr);
+          setChecking(false);
+          return;
+        }
+      }
+      // Intento 2: restart (también devuelve estado en esta versión)
+      const r2 = await api(`/instance/restart/${encodeURIComponent(instance)}`, { method: "POST" });
+      setLastResponse(`restart: HTTP ${r2.status}\n${r2.text.slice(0, 500)}`);
+      if (r2.ok) {
+        const d2 = JSON.parse(r2.text);
+        const inst = d2?.instance || d2;
+        const state = String(inst?.state || "").toLowerCase();
+        setStatus(state === "open" || state === "connected" ? "open" : state === "connecting" ? "connecting" : "close");
+        setChecking(false);
+        return;
+      }
+      throw new Error(`No se pudo obtener estado. HTTP ${status}: ${text}`);
     } catch (e: any) {
       setStatus("unknown");
       setLastError(String(e?.message || e));
@@ -46,7 +65,13 @@ export function WhatsAppQRConnect() {
   async function logout() {
     setLastError(null);
     try {
-      const { ok, status, text } = await api(`/instance/logout/${encodeURIComponent(instance)}`, { method: "DELETE" });
+      // Intento 1: DELETE
+      let { ok, status, text } = await api(`/instance/logout/${encodeURIComponent(instance)}`, { method: "DELETE" });
+      if (!ok) {
+        // Intento 2: POST (algunas versiones usan POST)
+        const r2 = await api(`/instance/logout/${encodeURIComponent(instance)}`, { method: "POST" });
+        ok = r2.ok; status = r2.status; text = r2.text;
+      }
       setLastResponse(`logout: HTTP ${status}\n${text.slice(0, 500)}`);
       if (!ok) throw new Error(`HTTP ${status}: ${text}`);
       toast.success("Sesión cerrada. Puede generar QR ahora.");
@@ -63,40 +88,22 @@ export function WhatsAppQRConnect() {
     setChecking(true);
     setLastError(null);
     try {
-      // Intento 1: GET /instance/qr/{instance}
-      const r1 = await api(`/instance/qr/${encodeURIComponent(instance)}`);
-      setLastResponse(`qr GET: HTTP ${r1.status}\n${r1.text.slice(0, 500)}`);
-      if (r1.ok) {
-        const d1 = JSON.parse(r1.text);
-        const qr = d1?.qrcode || d1?.qr || d1?.base64 || d1?.code;
-        if (qr) { setQrCode(qr); toast.success("Escanea el QR con WhatsApp"); setChecking(false); return; }
-      }
-
-      // Intento 2: POST /instance/connect/{instance}
-      const r2 = await api(`/instance/connect/${encodeURIComponent(instance)}`, { method: "POST" });
-      setLastResponse(`connect POST: HTTP ${r2.status}\n${r2.text.slice(0, 500)}`);
-      if (r2.ok) {
-        const d2 = JSON.parse(r2.text);
-        const qr = d2?.qrcode || d2?.qr || d2?.base64 || d2?.code;
-        if (qr) { setQrCode(qr); toast.success("Escanea el QR con WhatsApp"); setChecking(false); return; }
-      }
-
-      // Intento 3: GET /instance/connect/{instance}
-      const r3 = await api(`/instance/connect/${encodeURIComponent(instance)}`);
-      setLastResponse(`connect GET: HTTP ${r3.status}\n${r3.text.slice(0, 500)}`);
-      if (r3.ok) {
-        const d3 = JSON.parse(r3.text);
-        const qr = d3?.qrcode || d3?.qr || d3?.base64 || d3?.code;
-        if (qr) { setQrCode(qr); toast.success("Escanea el QR con WhatsApp"); setChecking(false); return; }
-      }
-
-      // Intento 4: POST /instance/restart/{instance}
+      // En esta versión de Evolution no hay endpoint /instance/qr ni /instance/connect
+      // El QR solo está disponible desde el panel web de Evolution
+      // Reiniciamos para forzar estado "connecting" y dirigimos al panel web
       const r4 = await api(`/instance/restart/${encodeURIComponent(instance)}`, { method: "POST" });
       setLastResponse(`restart POST: HTTP ${r4.status}\n${r4.text.slice(0, 500)}`);
       if (r4.ok) {
-        toast.info("Instancia reiniciada. Intente Verificar Estado en 5 segundos.");
+        const d4 = JSON.parse(r4.text);
+        const inst = d4?.instance || d4;
+        const state = String(inst?.state || "").toLowerCase();
+        if (state === "open" || state === "connected") {
+          toast.info("Instancia conectada. Para cambiar de número, desconecte primero.");
+        } else {
+          toast.success("Instancia reiniciada. Abra el panel de Evolution para ver el QR.");
+        }
       } else {
-        throw new Error("Ningún endpoint de QR respondió. Verifique que la instancia exista.");
+        throw new Error("No se pudo reiniciar la instancia.");
       }
     } catch (e: any) {
       toast.error("Error: " + (e?.message || e));
@@ -194,6 +201,21 @@ export function WhatsAppQRConnect() {
           WhatsApp conectado correctamente.
         </div>
       )}
+
+      {/* Link directo al panel de Evolution para QR */}
+      <a
+        href={`${evoUrl.replace(/\/$/, "")}/instance/connect/${encodeURIComponent(instance)}`}
+        target="_blank"
+        rel="noreferrer"
+        className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium bg-[#25D366] text-white hover:bg-[#128C7E] transition-colors"
+      >
+        <Smartphone className="h-4 w-4" />
+        Abrir panel de Evolution para escanear QR
+        <ExternalLink className="h-3.5 w-3.5" />
+      </a>
+      <p className="text-[10px] text-muted-foreground text-center">
+        O vaya directamente a <code className="bg-muted px-1 rounded">{evoUrl}</code> → instancia <code className="bg-muted px-1 rounded">{instance}</code> → Conectar
+      </p>
 
       {lastError && (
         <div className="p-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-600 text-xs">
