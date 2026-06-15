@@ -14,6 +14,9 @@ function getMessageKey(jid: string | null | undefined, content: string | null | 
 }
 
 function isDuplicateMessage(jid: string | null | undefined, content: string | null | undefined, mediaUrl?: string): boolean {
+  // No procesar como duplicado si no hay JID válido
+  if (!jid) return false;
+  
   const key = getMessageKey(jid, content, mediaUrl);
   const now = Date.now();
   const lastProcessed = processedMessages.get(key);
@@ -29,6 +32,169 @@ function isDuplicateMessage(jid: string | null | undefined, content: string | nu
     if (now - v > DUPLICATE_WINDOW_MS) processedMessages.delete(k);
   }
   return false;
+}
+
+// ─── WHATSAPP FLOW DIRECTO (igual al widget) ────────────────────────────────────────
+const WHATSAPP_TOPICS = ["Configuraciones", "Reset", "Desvinculación", "Firmware", "Software", "Drivers", "Licencias", "Otro"];
+
+async function sendWhatsAppList(phone: string, title: string, subtitle: string, buttonText: string, options: string[], evoCfg: any) {
+  try {
+    const listSections = [{
+      title: "Seleccione una opción",
+      rows: options.map((opt, idx) => ({ id: String(idx + 1), title: opt }))
+    }];
+    
+    const body = {
+      number: phone,
+      listMessage: {
+        title,
+        subtitle,
+        buttonText,
+        sections: listSections
+      }
+    };
+    
+    const res = await fetch(`${evoCfg.url.replace(/\/$/, "")}/message/sendList/${encodeURIComponent(evoCfg.instance)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: evoCfg.apiKey },
+      body: JSON.stringify(body)
+    });
+    
+    if (!res.ok) {
+      const err = await res.text();
+      console.error("[evo-webhook] Error sending list:", res.status, err);
+    }
+  } catch (e: any) {
+    console.error("[evo-webhook] Exception sending list:", e.message);
+  }
+}
+
+async function sendWhatsAppText(phone: string, text: string, evoCfg: any) {
+  try {
+    const to = phone.toString().trim();
+    const formattedTo = to.includes("@") ? to : `${to.replace(/[^0-9]/g, "")}@s.whatsapp.net`;
+    
+    const res = await fetch(`${evoCfg.url.replace(/\/$/, "")}/message/sendText/${encodeURIComponent(evoCfg.instance)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: evoCfg.apiKey },
+      body: JSON.stringify({ number: formattedTo, text })
+    });
+    
+    if (!res.ok) {
+      const err = await res.text();
+      console.error("[evo-webhook] Error sending text:", res.status, err);
+    }
+  } catch (e: any) {
+    console.error("[evo-webhook] Exception sending text:", e.message);
+  }
+}
+
+async function buscarInventarioWhatsApp(supabase: any, query: string): Promise<{ encontrado: boolean; detalle: string }> {
+  try {
+    const tokens = query.trim().split(/\s+/).filter((t: string) => t.length >= 2);
+    if (tokens.length === 0) return { encontrado: false, detalle: "Consulta vacía." };
+
+    const brandToken = tokens[0];
+
+    const { data: brandRows } = await supabase
+      .from("sek_inventario")
+      .select("id,codigo,nombre,marca,modelo,categoria")
+      .ilike("marca", `%${brandToken}%`)
+      .limit(50);
+
+    if (!brandRows || brandRows.length === 0) {
+      return { encontrado: false, detalle: `La marca "${brandToken}" no está en la cartera de Sekunet.` };
+    }
+
+    if (tokens.length === 1) {
+      return { encontrado: true, detalle: `Marca en cartera: ${brandRows[0].marca}` };
+    }
+
+    const modelTokens: string[] = [];
+    for (const t of tokens.slice(1)) {
+      modelTokens.push(t);
+      t.split("-").filter((s: string) => s.length >= 2).forEach((s: string) => modelTokens.push(s));
+    }
+
+    const matchCount = new Map<string, { record: any; count: number }>();
+    for (const r of brandRows) {
+      matchCount.set(String(r.id), { record: r, count: 0 });
+    }
+    for (const mt of modelTokens) {
+      for (const [key, val] of matchCount.entries()) {
+        const hay = `${val.record.modelo || ""} ${val.record.nombre || ""} ${val.record.codigo || ""}`.toLowerCase();
+        if (hay.includes(mt.toLowerCase())) matchCount.get(key)!.count++;
+      }
+    }
+
+    const sorted = Array.from(matchCount.values()).sort((a, b) => b.count - a.count);
+    const best = sorted[0];
+
+    if (best.count === 0) {
+      return { encontrado: false, detalle: `El modelo no se encontró en la cartera de Sekunet para la marca "${brandToken}".` };
+    }
+
+    return {
+      encontrado: true,
+      detalle: `Equipo en cartera: ${best.record.marca} ${best.record.modelo}${best.record.nombre ? " — " + best.record.nombre : ""}`,
+    };
+  } catch (e: any) {
+    console.error("[evo-webhook] Error inventario:", e.message);
+    return { encontrado: false, detalle: "Error consultando inventario." };
+  }
+}
+
+async function handleWhatsAppFlow(supabase: any, caso: any, text: string, phone: string, evoCfg: any) {
+  const histcliente = Array.isArray(caso.histcliente) ? caso.histcliente : [];
+  const userMsgs = histcliente.filter((m: any) => m.role === "user" || !m.role);
+  
+  // Detectar si es el primer mensaje del caso (enviar lista de temas)
+  if (userMsgs.length === 1) {
+    await sendWhatsAppList(
+      phone,
+      "Soporte Sekunet",
+      "Seleccione el tema de su consulta",
+      "Ver opciones",
+      WHATSAPP_TOPICS,
+      evoCfg
+    );
+    return { handled: true, reply: "Lista de temas enviada" };
+  }
+
+  // Detectar tema seleccionado (primer mensaje después de la lista)
+  const temaSeleccionado = WHATSAPP_TOPICS.find(t => userMsgs.length === 2 && text === t);
+  if (temaSeleccionado) {
+    await sendWhatsAppText(phone, "Por favor, indíquenos la marca del equipo.", evoCfg);
+    return { handled: true, reply: "Solicitando marca" };
+  }
+
+  // Detectar marca (tercer mensaje)
+  if (userMsgs.length === 3) {
+    await sendWhatsAppText(phone, "¿Nos podría indicar el modelo del equipo, por favor?", evoCfg);
+    return { handled: true, reply: "Solicitando modelo" };
+  }
+
+  // Detectar modelo (cuarto mensaje) → buscar inventario
+  if (userMsgs.length === 4) {
+    const marca = userMsgs[1]?.content || "";
+    const modelo = text;
+    const inv = await buscarInventarioWhatsApp(supabase, `${marca} ${modelo}`);
+    
+    if (!inv.encontrado) {
+      await sendWhatsAppText(
+        phone,
+        "El dispositivo indicado no forma parte de los equipos distribuidos por Sekunet, por lo que lamentablemente no podemos brindarle el soporte requerido. ¿Tiene alguna otra consulta relacionada con nuestros productos?",
+        evoCfg
+      );
+    } else if (temaSeleccionado === "Reset") {
+      await sendWhatsAppText(phone, "Por favor, adjunte una imagen clara y legible de la etiqueta del equipo.", evoCfg);
+    } else {
+      await sendWhatsAppText(phone, "Por favor, describa brevemente el inconveniente que presenta.", evoCfg);
+    }
+    return { handled: true, reply: inv.detalle };
+  }
+
+  return { handled: false };
 }
 
 async function processIncomingReaction(supabase: any, targetMessageId: string, emoji: string | null, author: string) {
@@ -359,6 +525,13 @@ export async function POST(req: NextRequest) {
   // Extraer datos para verificar duplicados
   let text = extractText(payload);
   const jid = await extractJid(payload, EVO_URL, EVO_KEY, EVO_INSTANCE);
+
+  // Ignorar mensajes de grupos de WhatsApp
+  if (jid && String(jid).endsWith("@g.us")) {
+    console.log(`[evo-webhook] Ignorando mensaje de grupo: ${jid}`);
+    return NextResponse.json({ ok: true, skipped: "group" });
+  }
+
   const phone = jidToPhone(jid);
   const msgObj = get(payload, "data.messages.0.message") || get(payload, "data.message") || get(payload, "message");
   const dupMediaUrl = msgObj?.imageMessage?.url || msgObj?.videoMessage?.url || msgObj?.documentMessage?.url;
@@ -513,8 +686,21 @@ export async function POST(req: NextRequest) {
   });
 
   if (!jid) {
-    console.log("[evo-webhook-debug] PAYLOAD COMPLETO:", JSON.stringify(payload, null, 2));
-    return NextResponse.json({ ok: true });
+    console.log("[evo-webhook] JID es null, intentando extraer de más campos...");
+    // Log detallado del payload para debuggear
+    const debugPayload = {
+      event: payload?.event,
+      dataKeys: payload?.data ? Object.keys(payload.data) : null,
+      messageKeys: payload?.data?.message ? Object.keys(payload.data.message) : null,
+      keys0: payload?.data?.messages?.[0]?.key,
+      remoteJid: payload?.data?.remoteJid,
+      sender: payload?.data?.sender,
+      from: payload?.data?.from,
+      instance: payload?.instance,
+      wuid: payload?.data?.wuid || payload?.wuid,
+    };
+    console.log("[evo-webhook-debug] Estructura del payload:", JSON.stringify(debugPayload, null, 2));
+    return NextResponse.json({ ok: true, error: "no_jid" });
   }
 
   // EXCEPCIÓN: Si viene pushName o senderPn en cualquier evento (ej. contacts.update), actualizamos el cliente
@@ -789,24 +975,42 @@ export async function POST(req: NextRequest) {
           })
           .eq("id", existing.id);
       }
-      // Disparar ia-agent para que responda automáticamente a mensajes entrantes de WhatsApp
+      // Manejar flujo directo de WhatsApp (igual al widget) antes de llamar ia-agent
       if (!isOutgoing) {
+        const flowResult = await handleWhatsAppFlow(supabase, existing, text || "", phone || jid || "", evoCfg);
+        
+        if (flowResult.handled) {
+          console.log(`[evo-webhook] Flujo directo manejó el mensaje, no invocar ia-agent`);
+          return NextResponse.json({ ok: true, flow_handled: true });
+        }
+        
+        // Si el flujo directo no lo manejó, invocar ia-agent
         const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
         const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
         if (SUPABASE_URL && SERVICE_KEY) {
           // Asegurar que el caso esté en ia_atendiendo para que ia-agent lo procese
-          if (existing.estado === "pendiente") {
-            await supabase.from("sek_cases").update({ estado: "ia_atendiendo" }).eq("id", existing.id);
+          let currentEstado = existing.estado;
+          if (currentEstado === "pendiente") {
+            const { error: updErr } = await supabase.from("sek_cases").update({ estado: "ia_atendiendo" }).eq("id", existing.id);
+            if (!updErr) {
+              currentEstado = "ia_atendiendo";
+              console.log(`[evo-webhook] Caso ${existing.id} actualizado a ia_atendiendo`);
+            } else {
+              console.error(`[evo-webhook] Error actualizando estado del caso ${existing.id}:`, updErr);
+            }
           }
-          if (existing.estado === "pendiente" || existing.estado === "ia_atendiendo") {
-            fetch(`${SUPABASE_URL}/functions/v1/ia-agent`, {
+          if (currentEstado === "ia_atendiendo" || currentEstado === "escalado") {
+            console.log(`[evo-webhook] Invocando seka-whatsapp para caso ${existing.id}, estado: ${currentEstado}`);
+            fetch(`${SUPABASE_URL}/functions/v1/seka-whatsapp`, {
               method: "POST",
               headers: {
                 "Authorization": `Bearer ${SERVICE_KEY}`,
                 "Content-Type": "application/json",
               },
-              body: JSON.stringify({ case_id: existing.id }),
-            }).catch(() => {});
+              body: JSON.stringify({ case_id: existing.id, force_estado: currentEstado }),
+            }).catch((err) => {
+              console.error(`[evo-webhook] Error invocando ia-agent para caso ${existing.id}:`, err?.message || err);
+            });
           }
         }
       }
@@ -847,15 +1051,19 @@ export async function POST(req: NextRequest) {
       // Disparar ia-agent para nuevo caso entrante
       const SUPABASE_URL2 = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
       const SERVICE_KEY2 = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+      console.log(`[evo-webhook] Env vars check: SUPABASE_URL=${SUPABASE_URL2 ? "present" : "missing"}, SERVICE_KEY=${SERVICE_KEY2 ? "present" : "missing"}, newCase.id=${newCase?.id}`);
       if (SUPABASE_URL2 && SERVICE_KEY2 && newCase?.id) {
-        fetch(`${SUPABASE_URL2}/functions/v1/ia-agent`, {
+        console.log(`[evo-webhook] Invocando seka-whatsapp para NUEVO caso ${newCase.id}`);
+        fetch(`${SUPABASE_URL2}/functions/v1/seka-whatsapp`, {
           method: "POST",
           headers: {
             "Authorization": `Bearer ${SERVICE_KEY2}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ case_id: newCase.id }),
-        }).catch(() => {});
+          body: JSON.stringify({ case_id: newCase.id, force_estado: "ia_atendiendo" }),
+        }).catch((err) => {
+          console.error(`[evo-webhook] Error invocando ia-agent para nuevo caso ${newCase.id}:`, err?.message || err);
+        });
       }
     }
     return NextResponse.json({ ok: true });

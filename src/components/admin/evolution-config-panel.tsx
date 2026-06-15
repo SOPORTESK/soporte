@@ -1,6 +1,6 @@
 "use client";
 import * as React from "react";
-import { Smartphone, Save, RefreshCw, CheckCircle, AlertTriangle, ExternalLink, Eye, EyeOff } from "lucide-react";
+import { Smartphone, Save, RefreshCw, CheckCircle, AlertTriangle, ExternalLink, Eye, EyeOff, Power } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 
@@ -9,6 +9,8 @@ export function EvolutionConfigPanel() {
   const [showKey, setShowKey] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [status, setStatus] = React.useState<"idle" | "checking" | "ok" | "error">("idle");
+  const [restarting, setRestarting] = React.useState(false);
+  const [services, setServices] = React.useState<{ pg: boolean; evolution: boolean; app: boolean } | null>(null);
 
   React.useEffect(() => {
     fetch("/api/admin/evolution/config")
@@ -39,6 +41,26 @@ export function EvolutionConfigPanel() {
       toast.error(e?.message || "Error");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleRestart() {
+    setRestarting(true);
+    setServices(null);
+    try {
+      const res = await fetch("/api/admin/services/restart", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data?.error || "Error al reiniciar servicios");
+      setServices(data.services || null);
+      if (data.allUp) {
+        toast.success("Servicios reiniciados. Todo está arriba.");
+      } else {
+        toast.warning(data.message || "Watcher relanzado. Espere unos segundos y verifique de nuevo.");
+      }
+    } catch (e: any) {
+      toast.error(e?.message || "No se pudo reiniciar los servicios");
+    } finally {
+      setRestarting(false);
     }
   }
 
@@ -131,11 +153,42 @@ export function EvolutionConfigPanel() {
         </button>
       </div>
 
+      <div className="mt-3 p-3 rounded-xl border border-amber-500/30 bg-amber-500/5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex-1">
+            <p className="text-xs font-bold text-amber-600">Recuperación de servicios</p>
+            <p className="text-[10px] text-muted-foreground">Use este botón si el autoarranque falló y WhatsApp no responde. Reinicia PostgreSQL, Evolution API y la app.</p>
+          </div>
+          <button
+            onClick={handleRestart}
+            disabled={restarting}
+            className="px-4 py-2 rounded-lg text-sm font-medium bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-40 transition-colors flex items-center gap-2 shrink-0"
+          >
+            <Power className={`h-3.5 w-3.5 ${restarting ? "animate-spin" : ""}`} />
+            {restarting ? "Reiniciando..." : "Reiniciar servicios"}
+          </button>
+        </div>
+        {services && (
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            {([
+              { label: "PostgreSQL", up: services.pg },
+              { label: "Evolution", up: services.evolution },
+              { label: "App", up: services.app },
+            ] as const).map(s => (
+              <div key={s.label} className={`flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[10px] font-semibold ${s.up ? "bg-emerald-500/10 text-emerald-600" : "bg-rose-500/10 text-rose-600"}`}>
+                {s.up ? <CheckCircle className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
+                {s.label}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       <div className="mt-4 p-3 rounded-xl bg-muted/30 border border-border/40 text-xs space-y-2">
         <p className="font-semibold text-muted-foreground">Cambiar número de WhatsApp:</p>
         <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
-          <li>Asegúrese de que Docker esté encendido.</li>
-          <li>Abra el panel de Evolution: <a href="http://localhost:8080/manager" target="_blank" rel="noreferrer" className="text-brand-600 hover:underline inline-flex items-center gap-1">localhost:8080/manager <ExternalLink className="h-3 w-3" /></a></li>
+          <li>Asegúrese de que Evolution API esté encendido (arranca solo al iniciar sesión en Windows).</li>
+          <li>Abra el panel de Evolution: <a href="http://localhost:7001/manager" target="_blank" rel="noreferrer" className="text-brand-600 hover:underline inline-flex items-center gap-1">localhost:7001/manager <ExternalLink className="h-3 w-3" /></a></li>
           <li>Vaya a la instancia actual y haga clic en <strong>Desconectar</strong> (Logout).</li>
           <li>Luego haga clic en <strong>Conectar</strong> y escanee el QR con el nuevo número.</li>
           <li>El webhook ya está configurado automáticamente.</li>

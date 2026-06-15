@@ -2,15 +2,18 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const GEMINI_FALLBACK_MODEL = "gemini-2.0-flash";
+const NVIDIA_KEY = Deno.env.get("NVIDIA_API_KEY") ?? "";
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
+const NIM_BASE = "https://integrate.api.nvidia.com/v1";
+const LLAMA_MODEL = "meta/llama-3.2-11b-vision-instruct";
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
 
-// Modelos de Gemini según caso de uso
-const GEMINI_CHAT_MODEL = "gemini-3.1-flash-lite";   // modelo principal
-const GEMINI_VISION_MODEL = "gemini-3.1-flash-lite"; // visión y multimedia
-const GEMINI_IMAGE_MODEL = "gemini-3.1-flash-lite";  // imágenes
+// Modelos de Gemini para fallback y visión
+const GEMINI_CHAT_MODEL = "gemini-3.1-flash-lite";
+const GEMINI_VISION_MODEL = "gemini-3.1-flash-lite";
+const GEMINI_IMAGE_MODEL = "gemini-3.1-flash-lite";
+const GEMINI_FALLBACK_MODEL = "gemini-2.0-flash";
 
 const FALLBACK_PROMPT = `Usted es SEKA, especialista de soporte tecnico de Sekunet (Costa Rica). Se comporta como un profesional humano: elegante, cordial, preciso. Trate siempre de usted. Sin emojis. No invente informacion tecnica. Nunca use la palabra "humano" ni "asistente virtual" para referirse a usted mismo ni a sus colegas.
 

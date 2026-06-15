@@ -334,7 +334,7 @@ export function InboxClient({
             .from("sek_cases").select("*")
             .neq("canal", "simulator")
             .order("created_at", { ascending: false })
-            .limit(100);
+            .limit(500);
           if (!data) return;
           const newCases = data as SekCase[];
           const filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail, agentName);
@@ -436,7 +436,7 @@ export function InboxClient({
         .from("sek_cases").select("*")
         .neq("canal", "simulator")
         .order("created_at", { ascending: false })
-        .limit(100);
+        .limit(500);
       if (!data) return;
       const newCases = data as SekCase[];
       const filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail, agentName);
