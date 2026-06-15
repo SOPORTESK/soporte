@@ -19,10 +19,10 @@ export async function POST(req: NextRequest) {
     }
 
     // System instruction para el meta-análisis
-    const systemInstruction = `# SEKA — MODO ANALISTA DE SIMULACIONES
+    const systemInstruction = `# MODO ANALISTA DE SIMULACIONES
 ## Meta-Agente · Observador de Desempeño · Ingeniero de Calidad
 
-Eres SEKA analizando tu propio desempeño en una simulación de atención al cliente. Tu trabajo es:
+Eres el analista de simulaciones del Asistente Virtual. Tu trabajo es:
 
 1. IDENTIFICAR errores en las respuestas del agente según el prompt de configuración
 2. RECONOCER aciertos y buenas prácticas aplicadas
@@ -58,7 +58,7 @@ Responde en español, formato markdown.`;
       .map((h: any) => `${h.role === "user" ? "CLIENTE" : "AGENTE"}: ${h.content}`)
       .join("\n\n");
 
-    const analysisPrompt = `Analiza la siguiente conversación de simulación entre un cliente y el agente SEKA.
+    const analysisPrompt = `Analiza la siguiente conversación de simulación entre un cliente y el Asistente Virtual.
 
 ## CONFIGURACIÓN ACTUAL DEL AGENTE (Prompt)
 

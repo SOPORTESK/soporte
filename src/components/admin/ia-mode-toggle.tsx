@@ -19,7 +19,7 @@ export function IaModeToggle({ initialValue }: { initialValue: boolean }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Error");
       setIaActiva(data.ia_activa);
-      toast.success(data.ia_activa ? "Agente IA activado — SEKA responde automáticamente." : "Modo Manual activado — todos los chats requieren atención humana.");
+      toast.success(data.ia_activa ? "Agente IA activado — el Asistente Virtual responde automáticamente." : "Modo Manual activado — todos los chats requieren atención humana.");
     } catch (e: any) {
       toast.error(e.message);
     } finally {
@@ -40,8 +40,8 @@ export function IaModeToggle({ initialValue }: { initialValue: boolean }) {
             </p>
             <p className="text-[11px] text-muted-foreground mt-0.5">
               {iaActiva
-                ? "SEKA responde automáticamente a todos los chats entrantes."
-                : "Todos los chats nuevos requieren atención de un agente humano. SEKA no intervendrá."}
+                ? "El Asistente Virtual responde automáticamente a todos los chats entrantes."
+                : "Todos los chats nuevos requieren atención de un agente humano. El Asistente Virtual no intervendrá."}
             </p>
           </div>
         </div>

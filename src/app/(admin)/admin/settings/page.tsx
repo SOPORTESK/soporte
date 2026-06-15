@@ -126,14 +126,14 @@ export default async function AdminSettingsPage() {
             </section>
           )}
 
-          {/* Configuración SEKA */}
+          {/* Configuración del Asistente Virtual */}
           <section className="rounded-2xl border border-border/60 bg-card p-5">
             <div className="flex items-center gap-2.5 mb-4">
               <div className="h-7 w-7 rounded-lg bg-brand-500/10 text-brand-500 grid place-items-center">
                 <Zap className="h-3.5 w-3.5" />
               </div>
               <div>
-                <h2 className="text-sm font-black">Configuración SEKA</h2>
+                <h2 className="text-sm font-black">Configuración del Asistente Virtual</h2>
                 <p className="text-[10px] text-muted-foreground">Parámetros del agente de inteligencia artificial</p>
               </div>
             </div>

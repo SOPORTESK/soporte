@@ -11,7 +11,7 @@ const GEMINI_MODEL = "gemini-2.0-flash";
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
 
 // ─── SYSTEM PROMPT ────────────────────────────────────────────────────────────
-const SYSTEM_PROMPT = `Usted es SEKA, especialista de soporte técnico de Sekunet (Costa Rica).
+const SYSTEM_PROMPT = `Usted es el Asistente Virtual de Sekunet (Costa Rica), especialista de soporte técnico.
 Trate siempre de usted. Sin emojis. Máximo 2 oraciones por respuesta.
 Una sola pregunta o instrucción por mensaje. Espere respuesta antes de continuar.
 Nunca mencione que es una IA ni un asistente virtual. No se presente, el cliente ya fue saludado.
@@ -230,7 +230,7 @@ async function processTags(text: string, caseId: string): Promise<string> {
 // Textos de bienvenida que NO deben enviarse a Llama
 const WELCOME_TEXTS = [
   "Reciba un cordial saludo de parte del equipo de Soporte Sekunet. Gracias por contactarnos.",
-  "Mi nombre es Seka, asistente virtual de Sekunet. Para brindarle una mejor asistencia, requerimos algunos datos importantes sobre su consulta.",
+  "¡Hola! Soy el Asistente Virtual de Sekunet. Para brindarle una mejor asistencia, requerimos algunos datos importantes sobre su consulta.",
   "¿En relación a qué tema sería su consulta?",
 ];
 
@@ -325,7 +325,7 @@ Deno.serve(async (req: Request) => {
     // Filtrar mensajes reales (sin bienvenidas)
     const WELCOME_TEXTS_CHECK = [
       "Reciba un cordial saludo de parte del equipo de Soporte Sekunet. Gracias por contactarnos.",
-      "Mi nombre es Seka, asistente virtual de Sekunet. Para brindarle una mejor asistencia, requerimos algunos datos importantes sobre su consulta.",
+      "¡Hola! Soy el Asistente Virtual de Sekunet. Para brindarle una mejor asistencia, requerimos algunos datos importantes sobre su consulta.",
       "¿En relación a qué tema sería su consulta?",
     ];
     const TOPICS_CHECK = ["Configuraciones","Reset","Desvinculación","Firmware","Software","Drivers","Licencias","Otro"];

@@ -21,7 +21,7 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const LEARN_PROMPT = `Eres el sistema de aprendizaje de SEKA (asistente técnico de Sekunet). Vas a analizar una conversación de soporte técnico ya cerrada y producir un RESUMEN ESTRUCTURADO que se guardará en la base de conocimiento del agente para enriquecer su atención futura.
+const LEARN_PROMPT = `Eres el sistema de aprendizaje del Asistente Virtual (asistente técnico de Sekunet). Vas a analizar una conversación de soporte técnico ya cerrada y producir un RESUMEN ESTRUCTURADO que se guardará en la base de conocimiento del agente para enriquecer su atención futura.
 
 ESTRUCTURA OBLIGATORIA (todas las secciones deben aparecer; si no aplica una, escriba "No identificado"):
 
@@ -43,7 +43,7 @@ ESTRUCTURA OBLIGATORIA (todas las secciones deben aparecer; si no aplica una, es
 
 ## DIAGNÓSTICO Y PASOS APLICADOS
 - Pasos que se siguieron (en orden)
-- Qué validó el técnico / SEKA antes de actuar
+- Qué validó el técnico / el agente antes de actuar
 - Herramientas o procedimientos usados
 
 ## SOLUCIÓN APLICADA POR EL TÉCNICO
@@ -56,11 +56,11 @@ Esta es la sección MÁS valiosa para el aprendizaje. Documente con precisión:
 Cuando intervenga un agente humano, capture:
 - Forma de saludar y despedirse
 - Cómo explica conceptos técnicos al cliente
-- Frases típicas o muletillas útiles que SEKA pueda imitar
+- Frases típicas o muletillas útiles que el agente pueda imitar
 - Nivel de detalle que da (resumido vs. paso a paso)
 
-## LECCIÓN APRENDIDA PARA SEKA
-- ¿Qué debería hacer SEKA la próxima vez con un caso similar?
+## LECCIÓN APRENDIDA PARA EL AGENTE
+- ¿Qué debería hacer el agente la próxima vez con un caso similar?
 - Atajos de diagnóstico que el técnico aplicó y que conviene incorporar
 - Errores a evitar (qué NO funcionó, qué confundió al cliente)
 
@@ -162,7 +162,7 @@ Deno.serve(async (req) => {
           ? "CLIENTE"
           : m.role === "tecnico"
             ? `TÉCNICO HUMANO${m.author ? ` (${m.author})` : ""}`
-            : "SEKA";
+            : "AGENTE";
         return `${who}: ${m.content}`;
       })
       .slice(-40)
@@ -179,7 +179,7 @@ Deno.serve(async (req) => {
 
 CONTEXTO DEL CASO:
 - Caso ID: ${caso.id}
-- Equipo identificado por SEKA: ${equipo}
+- Equipo identificado por el agente: ${equipo}
 - Problema clasificado: ${problema}
 - Tags: ${tags || "(ninguna)"}
 

@@ -15,7 +15,7 @@ const GEMINI_VISION_MODEL = "gemini-3.1-flash-lite";
 const GEMINI_IMAGE_MODEL = "gemini-3.1-flash-lite";
 const GEMINI_FALLBACK_MODEL = "gemini-2.0-flash";
 
-const FALLBACK_PROMPT = `Usted es SEKA, especialista de soporte tecnico de Sekunet (Costa Rica). Se comporta como un profesional humano: elegante, cordial, preciso. Trate siempre de usted. Sin emojis. No invente informacion tecnica. Nunca use la palabra "humano" ni "asistente virtual" para referirse a usted mismo ni a sus colegas.
+const FALLBACK_PROMPT = `Usted es el Asistente Virtual de Sekunet (Costa Rica), especialista de soporte tecnico. Se comporta como un profesional humano: elegante, cordial, preciso. Trate siempre de usted. Sin emojis. No invente informacion tecnica. Nunca use la palabra "humano" ni "asistente virtual" para referirse a usted mismo ni a sus colegas.
 
 ## REGLA DE BREVEDAD — OBLIGATORIA
 
@@ -73,7 +73,7 @@ Al escalar, use SIEMPRE este texto exacto (sin la palabra "humano"):
 // REGLAS INMUTABLES — ESCRITAS EN PIEDRA
 // Este bloque se concatena SIEMPRE al final del system prompt, después del
 // prompt cargado desde BD. NO puede ser editado desde el panel de admin ni
-// sobrescrito por ninguna configuración. SEKA está OBLIGADO a obedecerlas.
+// sobrescrito por ninguna configuración. El Asistente Virtual está OBLIGADO a obedecerlas.
 // ════════════════════════════════════════════════════════════════════════════
 const IMMUTABLE_RULES = `
 
@@ -111,7 +111,7 @@ explícitamente y proceda a escalar [ESCALAR_N2: información no disponible].
 ### REGLA INMUTABLE #2 — APRENDIZAJE OBLIGATORIO DE CADA CONVERSACIÓN
 
 Cada caso atendido (por usted o por un agente humano) debe alimentar la
-base de conocimiento del sistema al cierre. SEKA debe extraer y guardar:
+base de conocimiento del sistema al cierre. El Asistente Virtual debe extraer y guardar:
 
   - Perfil del cliente (paciente/impaciente, técnico/novato, sector, etc.)
   - Marca y modelo del equipo involucrado
@@ -556,7 +556,7 @@ async function searchInventory(query: string): Promise<any[]> {
   return best.map((x) => x.record);
 }
 
-// ── Aprendizaje: al cerrar un caso, SEKA genera un resumen y lo guarda en RAG ──
+// ── Aprendizaje: al cerrar un caso, el Asistente Virtual genera un resumen y lo guarda en RAG ──
 async function learnFromConversation(caso: any, histcliente: any[]): Promise<void> {
   try {
     // Solo aprender si la conversación tiene al menos 4 mensajes (ida y vuelta mínima)
@@ -580,7 +580,7 @@ async function learnFromConversation(caso: any, histcliente: any[]): Promise<voi
 3. PROBLEMA: qué problema reportó
 4. DIAGNÓSTICO: pasos que se siguieron
 5. RESOLUCIÓN: cómo se resolvió (o si se escaló y por qué)
-6. LECCIÓN APRENDIDA: qué debería hacer mejor SEKA la próxima vez con un caso similar
+6. LECCIÓN APRENDIDA: qué debería hacer mejor el Asistente Virtual la próxima vez con un caso similar
 
 Conversación:
 ${conversationText}
@@ -672,7 +672,7 @@ Deno.serve(async (req) => {
     // Verificar horario de atención (se omite para cuentas de prueba y simulador)
     if (!isWithinBusinessHours() && !isTestAccount && !isSimulator) {
       const offMsg = "Gracias por contactar a Sekunet. Nuestro horario de atencion es de lunes a viernes de 7:30 a.m. a 5:00 p.m. En este momento no estamos disponibles. Con gusto le atendemos el proximo dia habil.";
-      const offEntry = { role: "assistant", author: "SEKA", time: new Date().toISOString(), content: offMsg };
+      const offEntry = { role: "assistant", author: "Asistente Virtual", time: new Date().toISOString(), content: offMsg };
       await db.from("sek_cases").update({ histcliente: [...histcliente, offEntry] }).eq("id", case_id);
       return new Response(JSON.stringify({ ok: true, response: offMsg, escalated: false, closed: false }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -989,7 +989,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Aprendizaje automático: al cerrar o escalar, SEKA genera un resumen y lo guarda en RAG
+    // Aprendizaje automático: al cerrar o escalar, el Asistente Virtual genera un resumen y lo guarda en RAG
     if (shouldClose || shouldEscalate) {
       // No bloqueante — se ejecuta en background sin afectar la respuesta al cliente
       learnFromConversation(caso, updatedHist).catch(() => {});

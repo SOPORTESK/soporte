@@ -468,7 +468,7 @@ export function MetaAgentChat({ initialPrompt, isSuperadmin }: { initialPrompt: 
               </div>
               <div>
                 <p className="text-sm font-semibold leading-tight">Reglas Actuales</p>
-                <p className="text-[10px] text-muted-foreground">Prompt activo de SEKA</p>
+                <p className="text-[10px] text-muted-foreground">Prompt activo del Asistente Virtual</p>
               </div>
             </div>
             {previousPrompt && (
@@ -590,7 +590,7 @@ export function MetaAgentChat({ initialPrompt, isSuperadmin }: { initialPrompt: 
               <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full bg-emerald-500 border-2 border-card" />
             </div>
             <div>
-              <p className="text-sm font-bold leading-tight">SEKA — {mode === "train" ? "Modo Admin" : "Simulación"}</p>
+              <p className="text-sm font-bold leading-tight">Asistente Virtual — {mode === "train" ? "Modo Admin" : "Simulación"}</p>
               <p className="text-[11px] text-muted-foreground">
                 {mode === "train" ? "Chat de Entrenamiento · Gemini 3.1 Flash Lite" : "Cliente vs Agente · Gemini 3.1 Flash Lite"}
               </p>
@@ -638,7 +638,7 @@ export function MetaAgentChat({ initialPrompt, isSuperadmin }: { initialPrompt: 
                     <p className="font-semibold text-base">Hola, Administrador</p>
                     <p className="text-sm text-muted-foreground mt-1 max-w-xs">
                       {isSuperadmin
-                        ? "Dime cómo quieres que SEKA se comporte y lo aplico."
+                        ? "Dime cómo quieres que el Asistente Virtual se comporte y lo aplico."
                         : "Puedes ver el prompt activo. Solo el Superadmin puede modificarlo."}
                     </p>
                   </div>
@@ -696,7 +696,7 @@ export function MetaAgentChat({ initialPrompt, isSuperadmin }: { initialPrompt: 
                   <span className="h-1.5 w-1.5 rounded-full bg-violet-500 animate-bounce" style={{ animationDelay: "150ms" }} />
                   <span className="h-1.5 w-1.5 rounded-full bg-violet-500 animate-bounce" style={{ animationDelay: "300ms" }} />
                 </div>
-                <span className="text-xs text-muted-foreground">SEKA está procesando...</span>
+                <span className="text-xs text-muted-foreground">El Asistente Virtual está procesando...</span>
               </div>
             </div>
           )}
@@ -707,11 +707,11 @@ export function MetaAgentChat({ initialPrompt, isSuperadmin }: { initialPrompt: 
           {!isSuperadmin ? (
             <div className="flex items-center gap-3 p-3.5 rounded-xl bg-amber-500/5 border border-amber-500/20">
               <ShieldAlert className="h-4 w-4 text-amber-500 shrink-0" />
-              <p className="text-xs text-amber-600 dark:text-amber-400">Solo el <strong>Superadmin</strong> puede enviar instrucciones a SEKA.</p>
+              <p className="text-xs text-amber-600 dark:text-amber-400">Solo el <strong>Superadmin</strong> puede enviar instrucciones al Asistente Virtual.</p>
             </div>
           ) : (
             <form onSubmit={sendMessage} className="flex flex-col gap-2">
-              {/* Botón de aplicar cambio — aparece cuando SEKA propone algo */}
+              {/* Botón de aplicar cambio — aparece cuando el Asistente Virtual propone algo */}
               {pendingApproval && !isLoading && (
                 <button
                   type="button"
@@ -775,7 +775,7 @@ export function MetaAgentChat({ initialPrompt, isSuperadmin }: { initialPrompt: 
               </div>
               <div>
                 <p className="text-sm font-bold">Simulación</p>
-                <p className="text-[10px] text-muted-foreground">Tú como Cliente · SEKA como Agente</p>
+                <p className="text-[10px] text-muted-foreground">Tú como Cliente · Asistente Virtual como Agente</p>
               </div>
             </div>
             <button
@@ -836,7 +836,7 @@ export function MetaAgentChat({ initialPrompt, isSuperadmin }: { initialPrompt: 
                     <span className="h-1 w-1 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: "150ms" }} />
                     <span className="h-1 w-1 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: "300ms" }} />
                   </div>
-                  <span className="text-xs text-muted-foreground">SEKA está escribiendo...</span>
+                  <span className="text-xs text-muted-foreground">El Asistente Virtual está escribiendo...</span>
                 </div>
               </div>
             )}

@@ -31,7 +31,7 @@ export default async function AdminManualesPage() {
           <BookOpen className="h-7 w-7" /> Manuales — Sistema RAG
         </h1>
         <p className="text-muted-foreground mt-1">
-          Base documental con embeddings vectoriales. SEKA busca aquí para respuestas contextuales.
+          Base documental con embeddings vectoriales. El Asistente Virtual busca aquí para respuestas contextuales.
         </p>
       </header>
 
@@ -104,13 +104,13 @@ export default async function AdminManualesPage() {
           <div className="p-4 rounded-xl bg-muted/50">
             <p className="font-semibold text-sm mb-2">2. Búsqueda</p>
             <p className="text-xs text-muted-foreground">
-              SEKA usa textSearch en <code>sek_doc_chunks</code> para encontrar contenido relevante por palabras clave.
+              El Asistente Virtual usa textSearch en <code>sek_doc_chunks</code> para encontrar contenido relevante por palabras clave.
             </p>
           </div>
           <div className="p-4 rounded-xl bg-muted/50">
             <p className="font-semibold text-sm mb-2">3. Contexto</p>
             <p className="text-xs text-muted-foreground">
-              Los chunks encontrados se inyectan en el prompt de SEKA como contexto para respuestas precisas.
+              Los chunks encontrados se inyectan en el prompt del Asistente Virtual como contexto para respuestas precisas.
             </p>
           </div>
         </div>

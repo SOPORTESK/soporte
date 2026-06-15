@@ -1,6 +1,6 @@
 -- =====================================================================
 -- SEKUNET CHAT - Migración 0003
--- Historial persistente de versiones del system_prompt de SEKA.
+-- Historial persistente de versiones del system_prompt del Asistente Virtual.
 -- Aplicar en Supabase SQL Editor.
 -- =====================================================================
 

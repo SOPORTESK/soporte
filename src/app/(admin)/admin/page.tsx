@@ -274,12 +274,12 @@ export default async function AdminDashboardPage() {
       {/* ── FILA 3: Estado IA + Métricas rápidas de agentes ──────────────── */}
       <div className="grid gap-6 lg:grid-cols-3">
 
-        {/* Estado SEKA */}
+        {/* Estado del Asistente Virtual */}
         <div className="rounded-2xl border border-border bg-card p-6 relative overflow-hidden">
           <div className="absolute -bottom-8 -right-8 h-32 w-32 rounded-full bg-violet-500/5 blur-3xl" />
           <div className="relative">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="font-bold text-sm uppercase tracking-wider text-muted-foreground">Estado SEKA</h2>
+              <h2 className="font-bold text-sm uppercase tracking-wider text-muted-foreground">Estado Asistente Virtual</h2>
               <span className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-600 bg-emerald-500/10 px-2 py-1 rounded-full">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" /> EN LÍNEA
               </span>
@@ -307,7 +307,7 @@ export default async function AdminDashboardPage() {
             </div>
             <Link href="/admin/agente-ia"
               className="mt-4 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-violet-500/10 text-violet-600 text-sm font-semibold hover:bg-violet-500/20 transition-colors">
-              <Zap className="h-4 w-4" /> Gestionar SEKA
+              <Zap className="h-4 w-4" /> Gestionar Asistente Virtual
             </Link>
           </div>
         </div>
@@ -406,7 +406,7 @@ export default async function AdminDashboardPage() {
             { title: "Manuales", desc: "Base RAG del agente IA", href: "/admin/manuales", icon: BookOpen, color: "text-sky-500", bg: "bg-sky-500/10" },
             { title: "Canales", desc: "WhatsApp, Messenger", href: "/admin/canales", icon: MessageCircle, color: "text-rose-500", bg: "bg-rose-500/10" },
             { title: "Estadísticas", desc: "Analítica detallada", href: "/admin/estadisticas", icon: TrendingUp, color: "text-emerald-500", bg: "bg-emerald-500/10" },
-            { title: "Agente IA", desc: "Entrenamiento SEKA", href: "/admin/agente-ia", icon: Bot, color: "text-violet-500", bg: "bg-violet-500/10" },
+            { title: "Agente IA", desc: "Entrenamiento del Asistente Virtual", href: "/admin/agente-ia", icon: Bot, color: "text-violet-500", bg: "bg-violet-500/10" },
             { title: "Configuración", desc: "Ajustes del sistema", href: "/admin/settings", icon: Settings, color: "text-zinc-500", bg: "bg-zinc-500/10" },
           ].map(q => (
             <Link key={q.title} href={q.href}

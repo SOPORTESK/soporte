@@ -73,7 +73,7 @@ export default async function AdminAgenteIAPage() {
             <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-indigo-600 shadow-lg shadow-violet-500/30">
               <Bot className="h-5 w-5 text-white" />
             </span>
-            Agente IA — SEKA
+            Agente IA — Asistente Virtual
           </h1>
           <p className="text-muted-foreground mt-1 text-sm">
             Sistema Experto de Conocimiento y Atención · Gemini 3.1 Flash Lite con RAG sobre manuales
@@ -165,7 +165,7 @@ export default async function AdminAgenteIAPage() {
       {/* Chat de entrenamiento — zona principal */}
       <MetaAgentChat
         isSuperadmin={isSuperadmin}
-        initialPrompt={agentConfig?.system_prompt || `Usted es SEKA, el agente de soporte técnico especializado de Sekunet.
+        initialPrompt={agentConfig?.system_prompt || `Usted es el Asistente Virtual, agente de soporte técnico especializado de Sekunet.
 Atienda al cliente de forma profesional, breve y sin emojis.
 Trate siempre de usted. No invente información técnica.
 
@@ -187,7 +187,7 @@ FLUJO:
         {/* Capacidades */}
         <section className="rounded-2xl border border-border bg-card p-6">
           <h2 className="text-sm font-bold uppercase tracking-widest text-muted-foreground mb-5 flex items-center gap-2">
-            <Brain className="h-4 w-4" /> Capacidades de SEKA
+            <Brain className="h-4 w-4" /> Capacidades del Asistente Virtual
           </h2>
           <div className="grid grid-cols-2 gap-3">
             {capabilities.map((cap, i) => (

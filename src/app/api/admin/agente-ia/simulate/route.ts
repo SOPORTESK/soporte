@@ -88,7 +88,7 @@ export async function POST(req: NextRequest) {
       // Si el caso ya está cerrado/escalado, devolver señal para que el cliente reinicie
       if (existing.estado === "cerrado" || existing.estado === "resuelto") {
         return NextResponse.json({
-          reply: "(El caso de simulación ya fue cerrado por SEKA. Pulse 'Reiniciar' para iniciar una nueva simulación.)",
+          reply: "(El caso de simulación ya fue cerrado por el Asistente Virtual. Pulse 'Reiniciar' para iniciar una nueva simulación.)",
           case_id: caseId,
           closed: true,
         });
@@ -132,7 +132,7 @@ export async function POST(req: NextRequest) {
       const ht = (refreshed?.histtecnico ?? []) as Array<{ role: string; content: string }>;
       const lastTech = [...ht].reverse().find((m) => m && m.role !== "nota" && m.content);
       if (lastTech) aiReply = lastTech.content;
-      else if (refreshed?.estado === "escalado") aiReply = "(SEKA escaló el caso a un agente humano. En producción aquí intervendría un técnico real.)";
+      else if (refreshed?.estado === "escalado") aiReply = "(El Asistente Virtual escaló el caso a un agente humano. En producción aquí intervendría un técnico real.)";
     }
 
     return NextResponse.json({

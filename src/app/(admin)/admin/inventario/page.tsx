@@ -75,7 +75,7 @@ export default async function AdminInventarioPage({
           <Package className="h-7 w-7" /> Inventario Inteligente
         </h1>
         <p className="text-muted-foreground mt-1">
-          Base de equipos con búsqueda fuzzy para el agente IA. SEKA consulta aquí para diagnósticos.
+          Base de equipos con búsqueda fuzzy para el agente IA. El Asistente Virtual consulta aquí para diagnósticos.
           <span className="block mt-1 text-brand-700">Total: {formatNumber(totalItems)} artículos</span>
         </p>
       </header>
