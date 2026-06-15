@@ -101,7 +101,7 @@ export function EvolutionConfigPanel() {
           <Input
             value={config.url}
             onChange={e => setConfig(prev => ({ ...prev, url: e.target.value }))}
-            placeholder="http://localhost:8080"
+            placeholder="http://localhost:7001"
             className="h-10 text-sm rounded-lg bg-muted/40 border-border"
           />
         </div>

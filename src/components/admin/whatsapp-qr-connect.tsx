@@ -7,7 +7,7 @@ export function WhatsAppQRConnect() {
   const [status, setStatus] = React.useState<"unknown" | "open" | "close" | "connecting">("unknown");
   const [checking, setChecking] = React.useState(false);
   const [instance, setInstance] = React.useState("sekunet");
-  const [evoUrl, setEvoUrl] = React.useState("http://localhost:8080");
+  const [evoUrl, setEvoUrl] = React.useState("http://localhost:7001");
   const [showManager, setShowManager] = React.useState(false);
   const [lastError, setLastError] = React.useState<string | null>(null);
   const [lastResponse, setLastResponse] = React.useState<string | null>(null);
