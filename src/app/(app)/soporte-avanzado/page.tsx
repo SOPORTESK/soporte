@@ -6,27 +6,22 @@ export const dynamic = "force-dynamic";
 export default async function SoporteAvanzadoPage({ searchParams }: { searchParams: { c?: string } }) {
   const supabase = createClient();
   
-  // Obtener todos los casos y filtrar por etiqueta "n2"
+  // Obtener todos los casos y filtrar: escalados sin agente asignado
   const { data: allCases, error } = await supabase
     .from("sek_cases")
     .select("*")
     .neq("canal", "simulator")
     .order("created_at", { ascending: false })
     .limit(200);
-  
+
   if (error) console.error("[soporte-avanzado] sek_cases error:", error.message);
-  
-  // Filtrar casos con etiqueta "n2" (case-insensitive, busca cualquier tag que contenga "n2")
+
+  // Soporte Avanzado: casos escalados que aún NO han sido tomados por ningún agente
   const n2Cases = (allCases || []).filter(c => {
-    const tags = Array.isArray(c.tags) ? c.tags : [];
-    const hasN2 = tags.some((t: string) => t.toLowerCase().includes("n2"));
-    // Log para diagnóstico
-    if (hasN2) {
-      console.log(`[soporte-avanzado] Caso con etiqueta n2: #${c.id} - ${JSON.stringify(c.tags)}`);
-    }
-    return hasN2;
+    const estado = String(c.estado || "").toLowerCase();
+    return estado === "escalado" && !c.assigned_to;
   });
-  console.log(`[soporte-avanzado] Total casos: ${allCases?.length || 0}, Casos n2: ${n2Cases.length}`);
+  console.log(`[soporte-avanzado] Total casos: ${allCases?.length || 0}, Casos escalados sin agente: ${n2Cases.length}`);
   
   const selectedId = searchParams.c ?? null;
 

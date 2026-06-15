@@ -5,13 +5,19 @@ export const dynamic = "force-dynamic";
 
 export default async function InboxPage({ searchParams }: { searchParams: { c?: string } }) {
   const supabase = createClient();
-  const { data: cases, error } = await supabase
+  const { data: allCases, error } = await supabase
     .from("sek_cases")
     .select("*")
     .neq("canal", "simulator")
     .order("created_at", { ascending: false })
-    .limit(100);
+    .limit(200);
   if (error) console.error("[inbox] sek_cases error:", error.message);
+
+  // Bandeja = histórico: SOLO casos cerrados o resueltos
+  const cases = (allCases || []).filter(c => {
+    const estado = String(c.estado || "").toLowerCase();
+    return estado === "cerrado" || estado === "resuelto";
+  });
 
   const selectedId = searchParams.c ?? null;
 

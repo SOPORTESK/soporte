@@ -148,8 +148,17 @@ async function handleWhatsAppFlow(supabase: any, caso: any, text: string, phone:
   const histcliente = Array.isArray(caso.histcliente) ? caso.histcliente : [];
   const userMsgs = histcliente.filter((m: any) => m.role === "user" || !m.role);
   
-  // Detectar si es el primer mensaje del caso (enviar lista de temas)
+  // Detectar si es el primer mensaje del caso (bienvenida + lista de temas)
   if (userMsgs.length === 1) {
+    // 1. Enviar mensaje de bienvenida
+    const welcomeText =
+      "¡Hola! Bienvenido al soporte de Sekunet.\n\n" +
+      "Soy su asistente virtual y estaré encantado de ayudarle. " +
+      "A continuación encontrará nuestras opciones de soporte. " +
+      "Por favor, seleccione el tema que más se ajuste a su consulta.";
+    await sendWhatsAppText(phone, welcomeText, evoCfg);
+
+    // 2. Enviar lista de temas (con pequeña pausa visual)
     await sendWhatsAppList(
       phone,
       "Soporte Sekunet",
@@ -158,7 +167,7 @@ async function handleWhatsAppFlow(supabase: any, caso: any, text: string, phone:
       WHATSAPP_TOPICS,
       evoCfg
     );
-    return { handled: true, reply: "Lista de temas enviada" };
+    return { handled: true, reply: "Bienvenida + lista de temas enviada" };
   }
 
   // Detectar tema seleccionado (primer mensaje después de la lista)

@@ -30,28 +30,35 @@ export default async function MiGestionPage({ searchParams }: { searchParams: { 
     );
   }
   
-  // Buscar casos donde el agente haya enviado mensajes (histtecnico)
+  // Buscar casos activos asignados al agente (assigned_to)
   const { data: allCases, error } = await supabase
     .from("sek_cases")
     .select("*")
     .neq("canal", "simulator")
     .order("created_at", { ascending: false })
     .limit(200);
-  
+
   if (error) console.error("[mi-gestion] sek_cases error:", error.message);
-  
-  // Filtrar casos donde el agente actual haya participado (por email o nombre)
+
+  // Mi Gestión: casos activos asignados a este agente (o histórico como respaldo)
   const myCases = (allCases || []).filter(c => {
+    const estado = String(c.estado || "").toLowerCase();
+    // Excluir cerrados y resueltos (van a Bandeja)
+    if (estado === "cerrado" || estado === "resuelto") return false;
+
+    // Prioridad: assigned_to = mi email
+    const assigned = String(c.assigned_to || "").toLowerCase();
+    if (assigned && assigned === agentEmail.toLowerCase()) return true;
+
+    // Respaldo: casos antiguos sin assigned_to pero con mensajes del agente
     const histtecnico = Array.isArray(c.histtecnico) ? c.histtecnico : [];
-    const hasMyMessage = histtecnico.some((e: any) => {
+    return histtecnico.some((e: any) => {
       const author = String(e?.author || "").toLowerCase();
-      // Buscar por email o por nombre
-      return author === agentEmail.toLowerCase() || 
+      return author === agentEmail.toLowerCase() ||
              author.includes(agentEmail.toLowerCase()) ||
              (agentName && author.includes(agentName.toLowerCase())) ||
              (agentFullName && author.includes(agentFullName));
     });
-    return hasMyMessage;
   });
   
   console.log(`[mi-gestion] Agente: ${agentEmail} (${agentFullName}), Total casos: ${allCases?.length || 0}, Mis casos: ${myCases.length}`);

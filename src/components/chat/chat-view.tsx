@@ -633,7 +633,8 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   const display = ci.nombre || ci.telefono || asText(sekCase.title) || "Cliente";
   const estadoLower = String(sekCase.estado || "").toLowerCase();
   const cerrado = estadoLower === "cerrado" || estadoLower === "resuelto";
-  const isEscalado = estadoLower === "escalado" || estadoLower === "ia_atendiendo";
+  const iaAtendiendo = estadoLower === "ia_atendiendo";
+  const isEscalado = estadoLower === "escalado";
 
   async function acceptCase() {
     if (accepting || !agentEmail) return;
@@ -969,13 +970,13 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
         />
       )}
 
-      {/* ── Accept banner for escalated cases ── */}
+      {/* ── Accept banner para casos escalados (Soporte Avanzado) ── */}
       {isEscalado && (
         <div className="flex-shrink-0 border-t border-border bg-amber-50 dark:bg-amber-900/20 px-3 sm:px-4 py-3 px-safe">
           <div className="flex items-center gap-2 sm:gap-3">
             <div className="flex-1">
               <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">
-                {estadoLower === "ia_atendiendo" ? "El asistente IA esta atendiendo este caso" : "Este caso fue escalado por el asistente y espera un agente"}
+                Este caso fue escalado por el asistente y espera un agente
               </p>
               <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">
                 {(sekCase.cliente as any)?.equipo ? `Equipo: ${(sekCase.cliente as any).equipo}` : ""}
@@ -987,13 +988,33 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-brand-700 hover:bg-brand-800 text-white font-semibold text-sm transition-colors disabled:opacity-50 shadow-md"
             >
               <HandMetal className="h-4 w-4" />
-              {accepting ? "Aceptando..." : "Aceptar conversacion"}
+              {accepting ? "Tomando..." : "Tomar caso"}
             </button>
           </div>
         </div>
       )}
 
+      {/* ── Aviso de bloqueo: la IA está atendiendo (Smart Inbox) ── */}
+      {iaAtendiendo && (
+        <div className="flex-shrink-0 border-t border-border bg-violet-50 dark:bg-violet-900/20 px-3 sm:px-4 py-4 px-safe">
+          <div className="flex items-center gap-3">
+            <div className="h-9 w-9 shrink-0 rounded-full bg-violet-500/15 text-violet-500 grid place-items-center">
+              <Bot className="h-5 w-5" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-violet-800 dark:text-violet-200">
+                El asistente inteligente está atendiendo este caso
+              </p>
+              <p className="text-xs text-violet-700/80 dark:text-violet-300/80 mt-0.5">
+                Puede ver la conversación, pero no responder. El caso se habilitará cuando la IA lo escale a Soporte Avanzado.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Input bar ── */}
+      {!iaAtendiendo && (
       <div className="flex-shrink-0 border-t border-border bg-card px-safe pb-safe">
         {/* Modo: Responder / Nota interna */}
         <div className="flex items-center gap-1 px-3 pt-2">
@@ -1106,6 +1127,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
           </Button>
         </div>
       </div>
+      )}
 
       {/* ── Modal de Calificación al Cliente ── */}
       {showRatingModal && (

@@ -7,12 +7,13 @@ import { LogoutButton } from "@/components/logout-button";
 import { Avatar } from "@/components/ui/avatar";
 import { SidebarLink } from "@/components/sidebar-link";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
-import { Inbox, ShieldCheck, ChevronRight, Wrench, FolderKanban } from "lucide-react";
+import { Inbox, ShieldCheck, ChevronRight, Wrench, FolderKanban, Bot } from "lucide-react";
 import type { SekAgent } from "@/lib/types";
 import { GodModeWrapper } from "@/components/god-mode-wrapper";
 import { SidebarUserPanel } from "@/components/sidebar-user-panel";
 import { N2Badge } from "@/components/n2-badge";
 import { InboxBadge } from "@/components/inbox-badge";
+import { SmartInboxBadge } from "@/components/smart-inbox-badge";
 
 export const dynamic = 'force-dynamic';
 
@@ -36,7 +37,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     .from("sek_cases")
     .select("*", { count: "exact", head: true })
     .eq("estado", "escalado")
-    .contains("tags", ["n2"]);
+    .is("assigned_to", null);
+
+  // Contar casos en Smart Inbox (IA atendiendo)
+  const { count: smartCount } = await supabase
+    .from("sek_cases")
+    .select("*", { count: "exact", head: true })
+    .eq("estado", "ia_atendiendo")
+    .neq("canal", "simulator");
 
   // Contar casos sin responder para badge de Bandeja
   const { data: inboxCases } = await supabase
@@ -125,9 +133,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         )}
 
         <nav className="flex-1 p-3 space-y-1">
-          <SidebarLink href="/inbox" icon={<Inbox className="h-4 w-4" />} badge={<InboxBadge initialCount={inboxUnread} />}>Bandeja</SidebarLink>
+          <SidebarLink href="/smart-inbox" icon={<Bot className="h-4 w-4" />} badge={<SmartInboxBadge initialCount={smartCount ?? 0} />}>Smart Inbox</SidebarLink>
           <SidebarLink href="/soporte-avanzado" icon={<Wrench className="h-4 w-4" />} badge={<N2Badge initialCount={n2Count ?? 0} />}>Soporte Avanzado</SidebarLink>
           <SidebarLink href="/mi-gestion" icon={<FolderKanban className="h-4 w-4" />}>Mi Bandeja de Gestión</SidebarLink>
+          <SidebarLink href="/inbox" icon={<Inbox className="h-4 w-4" />} badge={<InboxBadge initialCount={inboxUnread} />}>Bandeja</SidebarLink>
         </nav>
 
         <div className="flex items-center gap-1 px-4 pb-2 pt-2">

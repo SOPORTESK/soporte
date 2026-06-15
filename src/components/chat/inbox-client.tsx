@@ -11,28 +11,45 @@ import { clienteInfo, asText, customerKey } from "@/lib/utils";
 
 /* ── Filtrar casos según el tipo de contenedor ── */
 function filterCasesByContainer(cases: SekCase[], containerType: string | undefined, currentAgentEmail: string | null, currentAgentName: string | null): SekCase[] {
-  if (!containerType || containerType === "inbox") return cases;
-  
+  // Smart Inbox: SOLO casos nuevos que la IA está atendiendo (visibles por todos, no editables)
+  if (containerType === "smart-inbox") {
+    return cases.filter(c => String(c.estado || "").toLowerCase() === "ia_atendiendo");
+  }
+
+  // Soporte Avanzado: casos escalados por la IA que aún NO ha tomado ningún agente
   if (containerType === "soporte-avanzado") {
     return cases.filter(c => {
-      const tags = Array.isArray(c.tags) ? c.tags : [];
-      return tags.some((t: string) => t.toLowerCase().includes("n2"));
+      const estado = String(c.estado || "").toLowerCase();
+      return estado === "escalado" && !c.assigned_to;
     });
   }
-  
+
+  // Mi Bandeja de Gestión: casos activos asignados al agente actual
   if (containerType === "mi-gestion") {
     return cases.filter(c => {
+      const estado = String(c.estado || "").toLowerCase();
+      if (estado === "cerrado" || estado === "resuelto") return false;
+      const assigned = String(c.assigned_to || "").toLowerCase();
+      if (assigned && currentAgentEmail && assigned === currentAgentEmail.toLowerCase()) return true;
+      // Respaldo: casos antiguos sin assigned_to pero con mensajes del agente
       const histtecnico = Array.isArray(c.histtecnico) ? c.histtecnico : [];
       return histtecnico.some((e: any) => {
         const author = String(e?.author || "").toLowerCase();
-        // Buscar por email o por nombre
         const emailMatch = currentAgentEmail && (author === currentAgentEmail.toLowerCase() || author.includes(currentAgentEmail.toLowerCase()));
         const nameMatch = currentAgentName && (author.includes(currentAgentName.toLowerCase()));
         return emailMatch || nameMatch;
       });
     });
   }
-  
+
+  // Bandeja: histórico/vista pública de casos ya atendidos (cerrados o resueltos)
+  if (!containerType || containerType === "inbox") {
+    return cases.filter(c => {
+      const estado = String(c.estado || "").toLowerCase();
+      return estado === "cerrado" || estado === "resuelto";
+    });
+  }
+
   return cases;
 }
 
@@ -194,7 +211,7 @@ function playEscaladoAlert() {
 
 export function InboxClient({
   initialCases, initialSelectedId, containerType
-}: { initialCases: SekCase[]; initialSelectedId: string | null; containerType?: "inbox" | "soporte-avanzado" | "mi-gestion" }) {
+}: { initialCases: SekCase[]; initialSelectedId: string | null; containerType?: "inbox" | "smart-inbox" | "soporte-avanzado" | "mi-gestion" }) {
   const router = useRouter();
   const params = useSearchParams();
   const [cases, setCases] = React.useState<SekCase[]>(initialCases);

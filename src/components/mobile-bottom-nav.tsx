@@ -4,7 +4,7 @@ import { Suspense, useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import {
-  Inbox, Wrench, FolderKanban, ShieldCheck, User,
+  Inbox, Wrench, FolderKanban, ShieldCheck, User, Bot,
   X, Camera, Lock, Eye, EyeOff, ChevronUp, LogOut,
   Moon, Sun, Monitor, Users
 } from "lucide-react";
@@ -79,9 +79,10 @@ function MobileBottomNavInner({ isAdmin, agentName, avatarUrl, agent, onlineAgen
   const hasChatOpen = searchParams.has("c");
 
   const navItems = [
-    { href: "/inbox", label: "Bandeja", icon: Inbox },
+    { href: "/smart-inbox", label: "Smart", icon: Bot },
     { href: "/soporte-avanzado", label: "Soporte", icon: Wrench },
     { href: "/mi-gestion", label: "Gestión", icon: FolderKanban },
+    { href: "/inbox", label: "Bandeja", icon: Inbox },
     ...(isAdmin ? [{ href: "/admin", label: "Admin", icon: ShieldCheck }] : []),
   ];
 
