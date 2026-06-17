@@ -12,7 +12,6 @@ import type { SekAgent } from "@/lib/types";
 import { GodModeWrapper } from "@/components/god-mode-wrapper";
 import { SidebarUserPanel } from "@/components/sidebar-user-panel";
 import { N2Badge } from "@/components/n2-badge";
-import { InboxBadge } from "@/components/inbox-badge";
 import { SmartInboxBadge } from "@/components/smart-inbox-badge";
 
 export const dynamic = 'force-dynamic';
@@ -45,25 +44,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     .select("*", { count: "exact", head: true })
     .eq("estado", "ia_atendiendo")
     .neq("canal", "simulator");
-
-  // Contar casos sin responder para badge de Bandeja
-  const { data: inboxCases } = await supabase
-    .from("sek_cases")
-    .select("histcliente, histtecnico, estado")
-    .in("estado", ["escalado", "abierto", "ia_atendiendo"])
-    .neq("canal", "simulator")
-    .limit(100);
-  const inboxUnread = (inboxCases || []).filter((c: any) => {
-    const estado = String(c.estado || "").toLowerCase();
-    if (estado === "escalado") return true;
-    const hc = Array.isArray(c.histcliente) ? c.histcliente : [];
-    const ht = Array.isArray(c.histtecnico) ? c.histtecnico : [];
-    if (hc.length === 0) return false;
-    const lastUserMsg = [...hc].reverse().find((m: any) => m.role === "user");
-    if (!lastUserMsg) return false;
-    const lastUserTime = new Date(lastUserMsg.time || 0).getTime();
-    return !ht.some((t: any) => new Date(t.time || 0).getTime() > lastUserTime && t.role !== "nota");
-  }).length;
 
   if (!a) {
     return (
@@ -136,7 +116,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <SidebarLink href="/smart-inbox" icon={<Bot className="h-4 w-4" />} badge={<SmartInboxBadge initialCount={smartCount ?? 0} />}>Smart Inbox</SidebarLink>
           <SidebarLink href="/soporte-avanzado" icon={<Wrench className="h-4 w-4" />} badge={<N2Badge initialCount={n2Count ?? 0} />}>Soporte Avanzado</SidebarLink>
           <SidebarLink href="/mi-gestion" icon={<FolderKanban className="h-4 w-4" />}>Mi Bandeja de Gestión</SidebarLink>
-          <SidebarLink href="/inbox" icon={<Inbox className="h-4 w-4" />} badge={<InboxBadge initialCount={inboxUnread} />}>Bandeja</SidebarLink>
+          <SidebarLink href="/inbox" icon={<Inbox className="h-4 w-4" />}>Bandeja</SidebarLink>
         </nav>
 
         <div className="flex items-center gap-1 px-4 pb-2 pt-2">

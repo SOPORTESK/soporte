@@ -10,9 +10,17 @@ interface EvolutionConfig {
 const DEFAULT_KEY = "evolution_api_config";
 
 export async function getEvolutionConfig(): Promise<EvolutionConfig> {
+  // PRIORIDAD 1: variables de entorno (.env.local) — siempre mandan
+  const envUrl = process.env.EVOLUTION_API_URL || "";
+  const envKey = process.env.EVOLUTION_API_KEY || "";
+  const envInstance = process.env.EVOLUTION_INSTANCE || "";
+  if (envUrl && envKey && envInstance) {
+    return { url: envUrl, apiKey: envKey, instance: envInstance };
+  }
+
   const supabase = createServiceClient();
 
-  // 1. Intentar leer de Supabase (cifrado)
+  // 2. Fallback a Supabase (cifrado)
   try {
     const { data, error } = await supabase
       .from("sek_app_settings")
@@ -24,21 +32,17 @@ export async function getEvolutionConfig(): Promise<EvolutionConfig> {
       const raw = decrypt(data.value, data.iv, data.tag);
       const parsed = JSON.parse(raw) as EvolutionConfig;
       return {
-        url: parsed.url || process.env.EVOLUTION_API_URL || "",
-        apiKey: parsed.apiKey || process.env.EVOLUTION_API_KEY || "",
-        instance: parsed.instance || process.env.EVOLUTION_INSTANCE || "",
+        url: parsed.url || envUrl,
+        apiKey: parsed.apiKey || envKey,
+        instance: parsed.instance || envInstance,
       };
     }
   } catch (e) {
-    // tabla no existe o error de descifrado — fallback a env
+    // tabla no existe o error de descifrado
   }
 
-  // 2. Fallback a variables de entorno
-  return {
-    url: process.env.EVOLUTION_API_URL || "",
-    apiKey: process.env.EVOLUTION_API_KEY || "",
-    instance: process.env.EVOLUTION_INSTANCE || "",
-  };
+  // 3. Último fallback
+  return { url: envUrl, apiKey: envKey, instance: envInstance };
 }
 
 export async function saveEvolutionConfig(cfg: EvolutionConfig): Promise<void> {

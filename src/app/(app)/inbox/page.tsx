@@ -13,17 +13,11 @@ export default async function InboxPage({ searchParams }: { searchParams: { c?: 
     .limit(200);
   if (error) console.error("[inbox] sek_cases error:", error.message);
 
-  // Bandeja = histórico: SOLO casos cerrados o resueltos
-  const cases = (allCases || []).filter(c => {
-    const estado = String(c.estado || "").toLowerCase();
-    return estado === "cerrado" || estado === "resuelto";
-  });
-
   const selectedId = searchParams.c ?? null;
 
   return (
     <InboxClient
-      initialCases={(cases as any[]) || []}
+      initialCases={(allCases as any[]) || []}
       initialSelectedId={selectedId}
       containerType={"inbox" as const}
     />

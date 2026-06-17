@@ -42,14 +42,7 @@ function filterCasesByContainer(cases: SekCase[], containerType: string | undefi
     });
   }
 
-  // Bandeja: histórico/vista pública de casos ya atendidos (cerrados o resueltos)
-  if (!containerType || containerType === "inbox") {
-    return cases.filter(c => {
-      const estado = String(c.estado || "").toLowerCase();
-      return estado === "cerrado" || estado === "resuelto";
-    });
-  }
-
+  // Bandeja: muestra TODOS los casos (inbox general)
   return cases;
 }
 

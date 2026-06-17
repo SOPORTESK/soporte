@@ -20,35 +20,35 @@ Nunca mencione que es una IA ni un asistente virtual. No se presente, el cliente
 FLUJO OBLIGATORIO — SIGA ESTE ORDEN EXACTO
 ════════════════════════════════════════════
 
-PASO 1 — SOLICITAR MARCA
+PASO 0 — BIENVENIDA YA ENVIADA
+El cliente ya recibió el saludo y se le solicitó su nombre, correo y cuenta. NO vuelva a saludar.
+
+PASO 1 — SOLICITAR TEMA DE CONSULTA
+Diga exactamente: "¿En relación con qué tema sería su consulta?"
+Temas disponibles: Configuraciones, Reset, Desvinculación, Firmware, Software, Drivers, Licencias, Otro.
+
+PASO 2 — SOLICITAR MARCA
 Diga exactamente: "Por favor, indíquenos la marca del equipo."
 
-PASO 2 — SOLICITAR MODELO
+PASO 3 — SOLICITAR MODELO
 Diga exactamente: "¿Nos podría indicar el modelo del equipo, por favor?"
 
-PASO 3 — VALIDAR EN INVENTARIO
+PASO 4 — VALIDAR EN INVENTARIO
 Antes de emitir el tag, normalice la marca y el modelo:
 - Corrija errores tipográficos obvios (ej. "Hikvission" → "Hikvision")
-- Elimine prefijos redundantes del modelo solo si son evidentemente parte de la marca (ej. "HIK-DS-3E0508" → use "DS-3E0508")
-- Reemplace la letra O por el número 0 cuando sea parte de un código alfanumérico (ej. "3E0508-O" → "3E0508-0")
+- Elimine prefijos redundantes del modelo solo si son evidentemente parte de la marca
+- Reemplace la letra O por el número 0 cuando sea parte de un código alfanumérico
 - Use solo la raíz del modelo sin sufijos ambiguos si el modelo completo no coincide
 
 Luego emita: [BUSCAR_INVENTARIO: marca modelo_normalizado]
 El sistema verificará si está en la cartera de Sekunet.
-La búsqueda debe ser inteligente: tolere variaciones ortográficas, abreviaciones y errores tipográficos del cliente.
 
 Si NO está en cartera → diga exactamente:
 "El dispositivo indicado no forma parte de los equipos distribuidos por Sekunet, por lo que lamentablemente no podemos brindarle el soporte requerido. ¿Tiene alguna otra consulta relacionada con nuestros productos?"
-  → Si el cliente dice Sí → regrese al PASO 1
+  → Si el cliente dice Sí → diga: "Por favor, describa brevemente su consulta." → después M02 y emita [ESCALAR_N2]
   → Si el cliente dice No → diga M03 y emita [CERRAR]
 
-Si SÍ está en cartera → continúe al PASO 4
-
-PASO 4 — SOLICITAR DESCRIPCIÓN DEL INCONVENIENTE
-Diga exactamente: "Por favor, describa brevemente el inconveniente que presenta."
-
-PASO 5 — ESCALAR
-Cuando el cliente responda con la descripción, diga exactamente M02 y emita [ESCALAR_N2: Configuraciones — {descripción breve del inconveniente}]
+Si SÍ está en cartera → diga M02 y emita [ESCALAR_N2]
 
 ════════════════════════════════════════════
 MENSAJES EXACTOS — NO LOS MODIFIQUE
@@ -230,8 +230,9 @@ async function processTags(text: string, caseId: string): Promise<string> {
 // Textos de bienvenida que NO deben enviarse a Llama
 const WELCOME_TEXTS = [
   "Reciba un cordial saludo de parte del equipo de Soporte Sekunet. Gracias por contactarnos.",
-  "¡Hola! Soy el Asistente Virtual de Sekunet. Para brindarle una mejor asistencia, requerimos algunos datos importantes sobre su consulta.",
-  "¿En relación a qué tema sería su consulta?",
+  "Soy el Asistente Virtual de Sekunet. Para brindarle una mejor asistencia, necesitamos algunos datos para registrar su consulta.",
+  "Por favor, compártanos la siguiente información:\n• Nombre completo\n• Correo electrónico\n• Nombre de la cuenta afiliada a Sekunet",
+  "¿En relación con qué tema sería su consulta?",
 ];
 
 const TOPICS = ["Configuraciones","Reset","Desvinculación","Firmware","Software","Drivers","Licencias","Otro"];
@@ -321,46 +322,112 @@ Deno.serve(async (req: Request) => {
     }
 
     const histcliente: HistMsg[] = Array.isArray(caso.histcliente) ? caso.histcliente : [];
+    const histtecnico: HistMsg[] = Array.isArray(caso.histtecnico) ? caso.histtecnico : [];
 
-    // Filtrar mensajes reales (sin bienvenidas)
+    // Combinar todos los mensajes ordenados por tiempo para saber en qué paso estamos
+    const allMsgs = [...histcliente, ...histtecnico].sort((a, b) =>
+      new Date(a.time || 0).getTime() - new Date(b.time || 0).getTime()
+    );
+
+    // Filtrar mensajes reales (sin bienvenidas ni cierres automáticos)
     const WELCOME_TEXTS_CHECK = [
       "Reciba un cordial saludo de parte del equipo de Soporte Sekunet. Gracias por contactarnos.",
-      "¡Hola! Soy el Asistente Virtual de Sekunet. Para brindarle una mejor asistencia, requerimos algunos datos importantes sobre su consulta.",
-      "¿En relación a qué tema sería su consulta?",
+      "Soy el Asistente Virtual de Sekunet. Para brindarle una mejor asistencia, necesitamos algunos datos para registrar su consulta.",
+      "Por favor, compártanos la siguiente información:\n• Nombre completo\n• Correo electrónico\n• Nombre de la cuenta afiliada a Sekunet",
+      "¿En relación con qué tema sería su consulta?",
     ];
+    const CRON_CLOSE_TEXT = "Al no haber recibido respuesta, procederemos a cerrar esta conversación. Si necesita asistencia adicional, puede contactarnos nuevamente y con gusto le atenderemos. ¡Que tenga un excelente día!";
     const TOPICS_CHECK = ["Configuraciones","Reset","Desvinculación","Firmware","Software","Drivers","Licencias","Otro"];
-    const realMsgs = histcliente.filter(m => !WELCOME_TEXTS_CHECK.includes(m.content?.trim() ?? ""));
-    const userRealMsgs = realMsgs.filter(m => m.role === "user");
 
-    // Detectar posición del botón de tema en los mensajes reales del usuario
-    const topiIdx = userRealMsgs.findIndex(m => TOPICS_CHECK.includes(m.content?.trim() ?? ""));
-    const iaRealMsgs = realMsgs.filter(m => m.role === "ia" || m.role === "assistant");
-    const tema = topiIdx >= 0 ? (userRealMsgs[topiIdx].content?.trim() ?? "Consulta") : "Consulta";
+    // Mensajes del usuario (sin bienvenidas)
+    const userRealMsgs = histcliente.filter(m =>
+      m.role === "user" && !WELCOME_TEXTS_CHECK.includes(m.content?.trim() ?? "")
+    );
 
-    // PASO 1: botón de tema es el último mensaje del usuario → preguntar marca
-    const lastIA = iaRealMsgs[iaRealMsgs.length - 1];
+    // Respuestas de la IA (excluyendo SOLO cierres automáticos del cron — las bienvenidas SÍ cuentan)
+    const iaMsgs = allMsgs.filter(m =>
+      m.role === "ia" || m.role === "assistant" || m.role === "tecnico"
+    );
+    const iaRealMsgs = iaMsgs.filter(m =>
+      m.content?.trim() !== CRON_CLOSE_TEXT
+    );
+
+    // Contar mensajes para flujo paso a paso
+    const userCount = userRealMsgs.length;
+    const iaCount   = iaRealMsgs.length;
+
+    const lastIA    = iaRealMsgs[iaRealMsgs.length - 1];
     const lastUserMsg = userRealMsgs[userRealMsgs.length - 1];
-    const lastIATime = lastIA?.time ? new Date(lastIA.time).getTime() : 0;
+    const lastIATime  = lastIA?.time ? new Date(lastIA.time).getTime() : 0;
     const lastUserTime = lastUserMsg?.time ? new Date(lastUserMsg.time).getTime() : 0;
-    if (topiIdx >= 0 && topiIdx === userRealMsgs.length - 1) {
+
+    // Detectar tema (case-insensitive)
+    const topiIdx = userRealMsgs.findIndex(m => TOPICS_CHECK.some(t => t.toLowerCase() === (m.content?.trim() ?? "").toLowerCase()));
+    let temaInferido = topiIdx >= 0 ? (userRealMsgs[topiIdx].content?.trim() ?? "Consulta") : "Consulta";
+    if (topiIdx < 0) {
+      for (const m of userRealMsgs) {
+        const lower = (m.content ?? "").toLowerCase();
+        if (lower.includes("configur") || lower.includes("setup")) { temaInferido = "Configuraciones"; break; }
+        if (lower.includes("reset") || lower.includes("restablecer") || lower.includes("reinici")) { temaInferido = "Reset"; break; }
+        if (lower.includes("desvincul") || lower.includes("quitar") || lower.includes("eliminar")) { temaInferido = "Desvinculación"; break; }
+        if (lower.includes("firmwar") || lower.includes("actualiz")) { temaInferido = "Firmware"; break; }
+        if (lower.includes("softwar") || lower.includes("programa")) { temaInferido = "Software"; break; }
+        if (lower.includes("driver")) { temaInferido = "Drivers"; break; }
+        if (lower.includes("licen") || lower.includes("activa")) { temaInferido = "Licencias"; break; }
+      }
+    }
+    const tema = temaInferido;
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // FLUJO DE BIENVENIDA PASO A PASO (WhatsApp)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    // PASO 0: Primer mensaje del usuario → saludo
+    if (userCount === 1 && iaCount === 0) {
+      const directReply = "Reciba un cordial saludo de parte del equipo de Soporte Sekunet. Gracias por contactarnos.";
+      const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
+      await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
+      return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // PASO 1: Segundo mensaje del usuario → presentación + pedir datos (2 mensajes separados)
+    if (userCount === 2 && iaCount === 1) {
+      const msg1 = "Soy el Asistente Virtual de Sekunet. Para brindarle una mejor asistencia, necesitamos algunos datos para registrar su consulta.";
+      const msg2 = "Por favor, compártanos la siguiente información:\n• Nombre completo\n• Correo electrónico\n• Nombre de la cuenta afiliada a Sekunet";
+      const newMsg1: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: msg1 };
+      const newMsg2: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: msg2 };
+      await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg1, newMsg2] }).eq("id", case_id);
+      return new Response(JSON.stringify({ ok: true, reply: [msg1, msg2] }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // PASO 2: Tercer mensaje del usuario → pedir tema (iaCount ahora es 3 porque PASO 1 envió 2 msgs)
+    if (userCount === 3 && iaCount === 3) {
+      const directReply = "¿En relación con qué tema sería su consulta?";
+      const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
+      await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
+      return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // PASO 3: Cuarto mensaje del usuario (tema) → pedir marca
+    if (userCount === 4 && iaCount === 4) {
       const directReply = "Por favor, indíquenos la marca del equipo.";
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
-      await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg] }).eq("id", case_id);
+      await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
       return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // PASO 2: hay 1 mensaje después del tema y la última IA preguntó marca → preguntar modelo
-    if (topiIdx >= 0 && userRealMsgs.length === topiIdx + 2 && lastIA?.content?.includes("marca")) {
+    // PASO 4: Quinto mensaje del usuario (marca) → pedir modelo
+    if (userCount === 5 && iaCount === 5) {
       const directReply = "¿Nos podría indicar el modelo del equipo, por favor?";
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
-      await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg] }).eq("id", case_id);
+      await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
       return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // PASO 3: hay 2 mensajes después del tema y la última IA preguntó modelo → buscar inventario
-    if (topiIdx >= 0 && userRealMsgs.length === topiIdx + 3 && lastIA?.content?.includes("modelo")) {
-      const marca = userRealMsgs[topiIdx + 1].content?.trim() ?? "";
-      const modelo = userRealMsgs[topiIdx + 2].content?.trim() ?? "";
+    // PASO 5: Sexto mensaje del usuario (modelo) → buscar inventario
+    if (userCount === 6 && iaCount === 6) {
+      const marca = userRealMsgs[3]?.content?.trim() ?? "";
+      const modelo = userRealMsgs[4]?.content?.trim() ?? "";
       const inv = await buscarInventario(`${marca} ${modelo}`);
       let directReply: string;
       if (!inv.encontrado) {
@@ -374,7 +441,7 @@ Deno.serve(async (req: Request) => {
         directReply = "Por favor, describa brevemente el inconveniente que presenta.";
       }
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
-      await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg] }).eq("id", case_id);
+      await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
       return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -425,19 +492,19 @@ Deno.serve(async (req: Request) => {
         if (!imagenUrl && !xmlUrl) {
           const retry = "Por favor, adjunte la imagen de la etiqueta del equipo y el archivo XML.";
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: retry };
-          await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg] }).eq("id", case_id);
+          await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
           return new Response(JSON.stringify({ ok: true, reply: retry }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
         if (!imagenUrl) {
           const retry = "Por favor, adjunte una imagen clara y legible de la etiqueta del equipo.";
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: retry };
-          await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg] }).eq("id", case_id);
+          await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
           return new Response(JSON.stringify({ ok: true, reply: retry }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
         if (!xmlUrl) {
           const retry = "Por favor, adjunte el archivo XML obtenido con SAPD Tools.";
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: retry };
-          await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg] }).eq("id", case_id);
+          await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
           return new Response(JSON.stringify({ ok: true, reply: retry }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
       } else {
@@ -445,7 +512,7 @@ Deno.serve(async (req: Request) => {
         if (!imagenUrl) {
           const retry = "Por favor, adjunte una imagen clara y legible de la etiqueta del equipo.";
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: retry };
-          await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg] }).eq("id", case_id);
+          await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
           return new Response(JSON.stringify({ ok: true, reply: retry }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
       }
@@ -574,7 +641,7 @@ No agregues nada más.`,
           const M02_TEXT = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M02_TEXT };
           await db.from("sek_cases").update({
-            histcliente: [...histcliente, newMsg],
+            histtecnico: [...histtecnico, newMsg],
             estado: "escalado",
             escalado_at: new Date().toISOString(),
             title: `Reset — ${marca} ${modelo}`.substring(0, 120),
@@ -629,7 +696,7 @@ No agregues nada más.`,
           const M02_TEXT = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M02_TEXT };
           await db.from("sek_cases").update({
-            histcliente: [...histcliente, newMsg],
+            histtecnico: [...histtecnico, newMsg],
             estado: "escalado",
             escalado_at: new Date().toISOString(),
             title: `Reset — ${marca} ${modelo}`.substring(0, 120),
@@ -651,7 +718,7 @@ No agregues nada más.`,
             const M02_TEXT = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
             const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M02_TEXT };
             await db.from("sek_cases").update({
-              histcliente: [...histcliente, newMsg],
+              histtecnico: [...histtecnico, newMsg],
               estado: "escalado",
               escalado_at: new Date().toISOString(),
               title: `Reset — ${marca} ${modelo} — verificación pendiente`.substring(0, 120),
@@ -662,7 +729,7 @@ No agregues nada más.`,
           // Primer fallo de ambos → pedir ambos de nuevo
           const retry = `Le informamos que ${motivoImagen} y ${motivoXml}. Por favor, adjunte nuevamente ambos archivos.`;
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: retry };
-          await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg] }).eq("id", case_id);
+          await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
           return new Response(JSON.stringify({ ok: true, reply: retry }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
 
@@ -673,7 +740,7 @@ No agregues nada más.`,
             const M02_TEXT = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
             const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M02_TEXT };
             await db.from("sek_cases").update({
-              histcliente: [...histcliente, newMsg],
+              histtecnico: [...histtecnico, newMsg],
               estado: "escalado",
               escalado_at: new Date().toISOString(),
               title: `Reset — ${marca} ${modelo} — imagen pendiente`.substring(0, 120),
@@ -684,7 +751,7 @@ No agregues nada más.`,
           // Primer fallo → pedir solo imagen
           const retry = `Le informamos que ${motivoImagen}. Por favor, adjunte nuevamente una imagen clara de la etiqueta del equipo.`;
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: retry };
-          await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg] }).eq("id", case_id);
+          await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
           return new Response(JSON.stringify({ ok: true, reply: retry }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
 
@@ -695,7 +762,7 @@ No agregues nada más.`,
             const M02_TEXT = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
             const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M02_TEXT };
             await db.from("sek_cases").update({
-              histcliente: [...histcliente, newMsg],
+              histtecnico: [...histtecnico, newMsg],
               estado: "escalado",
               escalado_at: new Date().toISOString(),
               title: `Reset — ${marca} ${modelo} — XML pendiente`.substring(0, 120),
@@ -706,7 +773,7 @@ No agregues nada más.`,
           // Primer fallo → pedir solo XML
           const retry = `Le informamos que ${motivoXml}. Por favor, adjunte nuevamente el archivo XML.`;
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: retry };
-          await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg] }).eq("id", case_id);
+          await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
           return new Response(JSON.stringify({ ok: true, reply: retry }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
       } else {
@@ -717,7 +784,7 @@ No agregues nada más.`,
             const M02_TEXT = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
             const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M02_TEXT };
             await db.from("sek_cases").update({
-              histcliente: [...histcliente, newMsg],
+              histtecnico: [...histtecnico, newMsg],
               estado: "escalado",
               escalado_at: new Date().toISOString(),
               title: `Reset — ${marca} ${modelo} — imagen pendiente`.substring(0, 120),
@@ -728,7 +795,7 @@ No agregues nada más.`,
           // Primer fallo → pedir imagen de nuevo
           const retry = `Le informamos que ${motivoImagen}. Por favor, adjunte nuevamente una imagen clara de la etiqueta del equipo.`;
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: retry };
-          await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg] }).eq("id", case_id);
+          await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
           return new Response(JSON.stringify({ ok: true, reply: retry }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
       }
@@ -742,13 +809,13 @@ No agregues nada más.`,
       if (esNo) {
         const M03_TEXT = "Ha sido un gusto atenderle. Si tiene alguna otra consulta, no dude en contactarnos nuevamente. ¡Que tenga un excelente día!";
         const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M03_TEXT };
-        await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg], estado: "cerrado" }).eq("id", case_id);
+        await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg], estado: "cerrado" }).eq("id", case_id);
         return new Response(JSON.stringify({ ok: true, reply: M03_TEXT }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       } else {
         // Sí → pedir descripción del inconveniente directamente (marca y modelo ya se tienen)
         const directReply = "Por favor, describa brevemente el inconveniente que presenta.";
         const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
-        await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg] }).eq("id", case_id);
+        await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
         return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
     }
@@ -760,7 +827,7 @@ No agregues nada más.`,
       const M02_TEXT = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M02_TEXT };
       await db.from("sek_cases").update({
-        histcliente: [...histcliente, newMsg],
+        histtecnico: [...histtecnico, newMsg],
         estado: "escalado",
         escalado_at: new Date().toISOString(),
         title: `Widget — ${tema} — ${descripcion}`.substring(0, 120),
@@ -809,7 +876,7 @@ No agregues nada más.`,
       return new Response(JSON.stringify({ ok: true, skipped: true }), { status: 200, headers: corsHeaders });
     }
 
-    // Guardar respuesta en histcliente
+    // Guardar respuesta en histtecnico
     const newMsg: HistMsg = {
       role: "ia",
       author: "Asistente Sekunet",
@@ -817,8 +884,8 @@ No agregues nada más.`,
       content: cleanReply,
     };
 
-    const updatedHist = [...histcliente, newMsg];
-    await db.from("sek_cases").update({ histcliente: updatedHist }).eq("id", case_id);
+    const updatedHist = [...histtecnico, newMsg];
+    await db.from("sek_cases").update({ histtecnico: updatedHist }).eq("id", case_id);
 
     return new Response(JSON.stringify({ ok: true, reply: cleanReply }), {
       status: 200,

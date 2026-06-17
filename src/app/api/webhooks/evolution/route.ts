@@ -34,176 +34,50 @@ function isDuplicateMessage(jid: string | null | undefined, content: string | nu
   return false;
 }
 
-// ─── WHATSAPP FLOW DIRECTO (igual al widget) ────────────────────────────────────────
-const WHATSAPP_TOPICS = ["Configuraciones", "Reset", "Desvinculación", "Firmware", "Software", "Drivers", "Licencias", "Otro"];
-
-async function sendWhatsAppList(phone: string, title: string, subtitle: string, buttonText: string, options: string[], evoCfg: any) {
+// Helper para enviar mensaje de texto por WhatsApp vía Evolution
+async function sendWhatsAppText(phone: string, text: string, evoCfg: any): Promise<boolean> {
   try {
-    const listSections = [{
-      title: "Seleccione una opción",
-      rows: options.map((opt, idx) => ({ id: String(idx + 1), title: opt }))
-    }];
-    
-    const body = {
-      number: phone,
-      listMessage: {
-        title,
-        subtitle,
-        buttonText,
-        sections: listSections
-      }
-    };
-    
-    const res = await fetch(`${evoCfg.url.replace(/\/$/, "")}/message/sendList/${encodeURIComponent(evoCfg.instance)}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", apikey: evoCfg.apiKey },
-      body: JSON.stringify(body)
-    });
-    
-    if (!res.ok) {
-      const err = await res.text();
-      console.error("[evo-webhook] Error sending list:", res.status, err);
+    if (!evoCfg?.url || !evoCfg?.apiKey || !evoCfg?.instance) {
+      console.error("[evo-webhook] Evo config incompleta:", { url: !!evoCfg?.url, key: !!evoCfg?.apiKey, instance: !!evoCfg?.instance });
+      return false;
     }
-  } catch (e: any) {
-    console.error("[evo-webhook] Exception sending list:", e.message);
-  }
-}
-
-async function sendWhatsAppText(phone: string, text: string, evoCfg: any) {
-  try {
     const to = phone.toString().trim();
-    const formattedTo = to.includes("@") ? to : `${to.replace(/[^0-9]/g, "")}@s.whatsapp.net`;
-    
-    const res = await fetch(`${evoCfg.url.replace(/\/$/, "")}/message/sendText/${encodeURIComponent(evoCfg.instance)}`, {
+    const formattedTo = to.replace(/[^0-9]/g, "");
+    const url = `${evoCfg.url.replace(/\/$/, "")}/message/sendText/${encodeURIComponent(evoCfg.instance)}`;
+    console.log(`[evo-webhook] Enviando WhatsApp a ${formattedTo}:`, text.slice(0, 60) + "...");
+    const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json", apikey: evoCfg.apiKey },
       body: JSON.stringify({ number: formattedTo, text })
     });
-    
     if (!res.ok) {
       const err = await res.text();
       console.error("[evo-webhook] Error sending text:", res.status, err);
+      return false;
     }
+    console.log("[evo-webhook] Mensaje enviado exitosamente");
+    return true;
   } catch (e: any) {
     console.error("[evo-webhook] Exception sending text:", e.message);
+    return false;
   }
 }
 
-async function buscarInventarioWhatsApp(supabase: any, query: string): Promise<{ encontrado: boolean; detalle: string }> {
-  try {
-    const tokens = query.trim().split(/\s+/).filter((t: string) => t.length >= 2);
-    if (tokens.length === 0) return { encontrado: false, detalle: "Consulta vacía." };
-
-    const brandToken = tokens[0];
-
-    const { data: brandRows } = await supabase
-      .from("sek_inventario")
-      .select("id,codigo,nombre,marca,modelo,categoria")
-      .ilike("marca", `%${brandToken}%`)
-      .limit(50);
-
-    if (!brandRows || brandRows.length === 0) {
-      return { encontrado: false, detalle: `La marca "${brandToken}" no está en la cartera de Sekunet.` };
+// Enviar uno o varios mensajes con pausa entre ellos (simula conversación natural)
+async function sendWhatsAppMessages(phone: string, reply: string | string[], evoCfg: any): Promise<void> {
+  const messages = Array.isArray(reply) ? reply : [reply];
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    if (!msg || !msg.trim()) continue;
+    const sent = await sendWhatsAppText(phone || "", msg, evoCfg);
+    if (!sent) {
+      console.error(`[evo-webhook] FALLÓ envío WhatsApp mensaje ${i + 1}/${messages.length}`);
     }
-
-    if (tokens.length === 1) {
-      return { encontrado: true, detalle: `Marca en cartera: ${brandRows[0].marca}` };
+    // Pausa de 1.5s entre mensajes (excepto el último)
+    if (i < messages.length - 1) {
+      await new Promise(r => setTimeout(r, 1500));
     }
-
-    const modelTokens: string[] = [];
-    for (const t of tokens.slice(1)) {
-      modelTokens.push(t);
-      t.split("-").filter((s: string) => s.length >= 2).forEach((s: string) => modelTokens.push(s));
-    }
-
-    const matchCount = new Map<string, { record: any; count: number }>();
-    for (const r of brandRows) {
-      matchCount.set(String(r.id), { record: r, count: 0 });
-    }
-    for (const mt of modelTokens) {
-      for (const [key, val] of matchCount.entries()) {
-        const hay = `${val.record.modelo || ""} ${val.record.nombre || ""} ${val.record.codigo || ""}`.toLowerCase();
-        if (hay.includes(mt.toLowerCase())) matchCount.get(key)!.count++;
-      }
-    }
-
-    const sorted = Array.from(matchCount.values()).sort((a, b) => b.count - a.count);
-    const best = sorted[0];
-
-    if (best.count === 0) {
-      return { encontrado: false, detalle: `El modelo no se encontró en la cartera de Sekunet para la marca "${brandToken}".` };
-    }
-
-    return {
-      encontrado: true,
-      detalle: `Equipo en cartera: ${best.record.marca} ${best.record.modelo}${best.record.nombre ? " — " + best.record.nombre : ""}`,
-    };
-  } catch (e: any) {
-    console.error("[evo-webhook] Error inventario:", e.message);
-    return { encontrado: false, detalle: "Error consultando inventario." };
   }
-}
-
-async function handleWhatsAppFlow(supabase: any, caso: any, text: string, phone: string, evoCfg: any) {
-  const histcliente = Array.isArray(caso.histcliente) ? caso.histcliente : [];
-  const userMsgs = histcliente.filter((m: any) => m.role === "user" || !m.role);
-  
-  // Detectar si es el primer mensaje del caso (bienvenida + lista de temas)
-  if (userMsgs.length === 1) {
-    // 1. Enviar mensaje de bienvenida
-    const welcomeText =
-      "¡Hola! Bienvenido al soporte de Sekunet.\n\n" +
-      "Soy su asistente virtual y estaré encantado de ayudarle. " +
-      "A continuación encontrará nuestras opciones de soporte. " +
-      "Por favor, seleccione el tema que más se ajuste a su consulta.";
-    await sendWhatsAppText(phone, welcomeText, evoCfg);
-
-    // 2. Enviar lista de temas (con pequeña pausa visual)
-    await sendWhatsAppList(
-      phone,
-      "Soporte Sekunet",
-      "Seleccione el tema de su consulta",
-      "Ver opciones",
-      WHATSAPP_TOPICS,
-      evoCfg
-    );
-    return { handled: true, reply: "Bienvenida + lista de temas enviada" };
-  }
-
-  // Detectar tema seleccionado (primer mensaje después de la lista)
-  const temaSeleccionado = WHATSAPP_TOPICS.find(t => userMsgs.length === 2 && text === t);
-  if (temaSeleccionado) {
-    await sendWhatsAppText(phone, "Por favor, indíquenos la marca del equipo.", evoCfg);
-    return { handled: true, reply: "Solicitando marca" };
-  }
-
-  // Detectar marca (tercer mensaje)
-  if (userMsgs.length === 3) {
-    await sendWhatsAppText(phone, "¿Nos podría indicar el modelo del equipo, por favor?", evoCfg);
-    return { handled: true, reply: "Solicitando modelo" };
-  }
-
-  // Detectar modelo (cuarto mensaje) → buscar inventario
-  if (userMsgs.length === 4) {
-    const marca = userMsgs[1]?.content || "";
-    const modelo = text;
-    const inv = await buscarInventarioWhatsApp(supabase, `${marca} ${modelo}`);
-    
-    if (!inv.encontrado) {
-      await sendWhatsAppText(
-        phone,
-        "El dispositivo indicado no forma parte de los equipos distribuidos por Sekunet, por lo que lamentablemente no podemos brindarle el soporte requerido. ¿Tiene alguna otra consulta relacionada con nuestros productos?",
-        evoCfg
-      );
-    } else if (temaSeleccionado === "Reset") {
-      await sendWhatsAppText(phone, "Por favor, adjunte una imagen clara y legible de la etiqueta del equipo.", evoCfg);
-    } else {
-      await sendWhatsAppText(phone, "Por favor, describa brevemente el inconveniente que presenta.", evoCfg);
-    }
-    return { handled: true, reply: inv.detalle };
-  }
-
-  return { handled: false };
 }
 
 async function processIncomingReaction(supabase: any, targetMessageId: string, emoji: string | null, author: string) {
@@ -522,18 +396,26 @@ function extractText(payload: any): string | null {
 }
 
 export async function POST(req: NextRequest) {
+  console.log("[evo-webhook] === INICIO WEBHOOK ===");
   const supabase = createServiceClient();
   let payload: any = null;
   try { payload = await req.json(); } catch { payload = null; }
+  console.log("[evo-webhook] Payload recibido, event:", payload?.event);
 
+  console.log("[evo-webhook] Paso 1: getEvolutionConfig...");
   const evoCfg = await getEvolutionConfig();
   const EVO_URL = evoCfg.url;
   const EVO_KEY = evoCfg.apiKey;
   const EVO_INSTANCE = evoCfg.instance;
+  console.log("[evo-webhook] Paso 1 OK - Evo config:", { url: EVO_URL, instance: EVO_INSTANCE, keyPresente: !!EVO_KEY });
 
-  // Extraer datos para verificar duplicados
+  console.log("[evo-webhook] Paso 2: extractText...");
   let text = extractText(payload);
+  console.log("[evo-webhook] Paso 2 OK - text:", text?.slice(0, 50));
+
+  console.log("[evo-webhook] Paso 3: extractJid...");
   const jid = await extractJid(payload, EVO_URL, EVO_KEY, EVO_INSTANCE);
+  console.log("[evo-webhook] Paso 3 OK - jid:", jid);
 
   // Ignorar mensajes de grupos de WhatsApp
   if (jid && String(jid).endsWith("@g.us")) {
@@ -541,14 +423,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, skipped: "group" });
   }
 
+  console.log("[evo-webhook] Paso 4: jidToPhone...");
   const phone = jidToPhone(jid);
+  console.log("[evo-webhook] Paso 4 OK - phone:", phone);
+
   const msgObj = get(payload, "data.messages.0.message") || get(payload, "data.message") || get(payload, "message");
   const dupMediaUrl = msgObj?.imageMessage?.url || msgObj?.videoMessage?.url || msgObj?.documentMessage?.url;
   
-  // Verificar si es duplicado
+  console.log("[evo-webhook] Paso 5: verificar duplicado...");
   if (isDuplicateMessage(jid, text, dupMediaUrl)) {
+    console.log("[evo-webhook] Paso 5: DUPLICADO, saliendo");
     return NextResponse.json({ ok: true, duplicate: true });
   }
+  console.log("[evo-webhook] Paso 5 OK - no es duplicado");
 
   if (!payload) return NextResponse.json({ ok: true });
 
@@ -864,6 +751,7 @@ export async function POST(req: NextRequest) {
     ? { role: "tecnico", time: now, content: text || "", author: "Soporte Sekunet", mediaUrl, mediaType: finalMediaType, fileName, messageId: keyId, fromMe: true } as any
     : { role: "user", time: now, content: text || "", mediaUrl, mediaType: finalMediaType, fileName, messageId: keyId, fromMe: false } as any;
 
+  console.log("[evo-webhook] Paso 6: buscando casos abiertos...");
   try {
     const { data: openCases } = await supabase
       .from("sek_cases")
@@ -872,8 +760,7 @@ export async function POST(req: NextRequest) {
       .not("estado", "in", '("cerrado","resuelto")')
       .order("created_at", { ascending: false })
       .limit(50);
-
-
+    console.log("[evo-webhook] Paso 6 OK - casos encontrados:", openCases?.length || 0);
 
     let existing = null;
     if (openCases) {
@@ -887,10 +774,10 @@ export async function POST(req: NextRequest) {
         return false;
       });
     }
-
-
+    console.log("[evo-webhook] Paso 7: caso existente:", existing ? existing.id : "ninguno");
 
     if (existing) {
+      console.log("[evo-webhook] Paso 8: procesando caso existente, isOutgoing:", isOutgoing);
       if (isOutgoing) {
         // Mensaje saliente: guardar en histtecnico
         const hist = Array.isArray(existing.histtecnico) ? existing.histtecnico : [];
@@ -956,6 +843,7 @@ export async function POST(req: NextRequest) {
           .eq("id", existing.id);
       } else {
         // Mensaje entrante: guardar en histcliente
+        console.log("[evo-webhook] Paso 9: guardando mensaje entrante en histcliente...");
         const hist = Array.isArray(existing.histcliente) ? existing.histcliente : [];
         const updated = [...hist, entry];
 
@@ -983,17 +871,10 @@ export async function POST(req: NextRequest) {
             title: pushName ? `WhatsApp — ${pushName}` : (currentCase?.title || `WhatsApp — ${jid}`)
           })
           .eq("id", existing.id);
+        console.log("[evo-webhook] Paso 9 OK - mensaje guardado en histcliente");
       }
-      // Manejar flujo directo de WhatsApp (igual al widget) antes de llamar ia-agent
       if (!isOutgoing) {
-        const flowResult = await handleWhatsAppFlow(supabase, existing, text || "", phone || jid || "", evoCfg);
-        
-        if (flowResult.handled) {
-          console.log(`[evo-webhook] Flujo directo manejó el mensaje, no invocar ia-agent`);
-          return NextResponse.json({ ok: true, flow_handled: true });
-        }
-        
-        // Si el flujo directo no lo manejó, invocar ia-agent
+        console.log("[evo-webhook] Paso 10: preparando envío de respuesta...");
         const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
         const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
         if (SUPABASE_URL && SERVICE_KEY) {
@@ -1008,24 +889,40 @@ export async function POST(req: NextRequest) {
               console.error(`[evo-webhook] Error actualizando estado del caso ${existing.id}:`, updErr);
             }
           }
+          // Si la IA está atendiendo o el caso está escalado, invocar seka-whatsapp
           if (currentEstado === "ia_atendiendo" || currentEstado === "escalado") {
-            console.log(`[evo-webhook] Invocando seka-whatsapp para caso ${existing.id}, estado: ${currentEstado}`);
-            fetch(`${SUPABASE_URL}/functions/v1/seka-whatsapp`, {
-              method: "POST",
-              headers: {
-                "Authorization": `Bearer ${SERVICE_KEY}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({ case_id: existing.id, force_estado: currentEstado }),
-            }).catch((err) => {
-              console.error(`[evo-webhook] Error invocando ia-agent para caso ${existing.id}:`, err?.message || err);
-            });
+            console.log(`[evo-webhook] Invocando seka-whatsapp para caso existente ${existing.id}, estado: ${currentEstado}`);
+            try {
+              const iaRes = await fetch(`${SUPABASE_URL}/functions/v1/seka-whatsapp`, {
+                method: "POST",
+                headers: {
+                  "Authorization": `Bearer ${SERVICE_KEY}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ case_id: existing.id, force_estado: currentEstado }),
+              });
+              console.log(`[evo-webhook] seka-whatsapp status:`, iaRes.status);
+              const iaData = await iaRes.json().catch((e) => {
+                console.error(`[evo-webhook] Error parseando respuesta JSON:`, e);
+                return {};
+              });
+              console.log(`[evo-webhook] seka-whatsapp reply:`, iaData.reply ? (Array.isArray(iaData.reply) ? `${iaData.reply.length} mensajes` : "1 mensaje") : "ausente", "error:", iaData.error || "ninguno");
+              if (iaData.reply) {
+                await sendWhatsAppMessages(phone || jid || "", iaData.reply, evoCfg);
+              } else {
+                console.warn(`[evo-webhook] seka-whatsapp no devolvió reply para caso ${existing.id}:`, iaData);
+              }
+            } catch (err: any) {
+              console.error(`[evo-webhook] Error invocando seka-whatsapp para caso ${existing.id}:`, err?.message || err);
+            }
           }
         }
       }
+      console.log("[evo-webhook] === FIN CASO EXISTENTE - retornando ok ===");
       return NextResponse.json({ ok: true });
     }
 
+    console.log("[evo-webhook] Paso 11: creando nuevo caso...");
     if (isOutgoing) {
       await supabase.from("sek_cases").insert({
         canal: "whatsapp",
@@ -1063,16 +960,29 @@ export async function POST(req: NextRequest) {
       console.log(`[evo-webhook] Env vars check: SUPABASE_URL=${SUPABASE_URL2 ? "present" : "missing"}, SERVICE_KEY=${SERVICE_KEY2 ? "present" : "missing"}, newCase.id=${newCase?.id}`);
       if (SUPABASE_URL2 && SERVICE_KEY2 && newCase?.id) {
         console.log(`[evo-webhook] Invocando seka-whatsapp para NUEVO caso ${newCase.id}`);
-        fetch(`${SUPABASE_URL2}/functions/v1/seka-whatsapp`, {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${SERVICE_KEY2}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ case_id: newCase.id, force_estado: "ia_atendiendo" }),
-        }).catch((err) => {
-          console.error(`[evo-webhook] Error invocando ia-agent para nuevo caso ${newCase.id}:`, err?.message || err);
-        });
+        try {
+          const iaRes = await fetch(`${SUPABASE_URL2}/functions/v1/seka-whatsapp`, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${SERVICE_KEY2}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ case_id: newCase.id, force_estado: "ia_atendiendo" }),
+          });
+          console.log(`[evo-webhook] seka-whatsapp status (nuevo caso):`, iaRes.status);
+          const iaData = await iaRes.json().catch((e) => {
+            console.error(`[evo-webhook] Error parseando respuesta JSON (nuevo caso):`, e);
+            return {};
+          });
+          console.log(`[evo-webhook] seka-whatsapp reply (nuevo caso):`, iaData.reply ? (Array.isArray(iaData.reply) ? `${iaData.reply.length} mensajes` : "1 mensaje") : "ausente", "error:", iaData.error || "ninguno");
+          if (iaData.reply) {
+            await sendWhatsAppMessages(phone || jid || "", iaData.reply, evoCfg);
+          } else {
+            console.warn(`[evo-webhook] seka-whatsapp no devolvió reply para nuevo caso ${newCase.id}:`, iaData);
+          }
+        } catch (err: any) {
+          console.error(`[evo-webhook] Error invocando seka-whatsapp para nuevo caso ${newCase.id}:`, err?.message || err);
+        }
       }
     }
     return NextResponse.json({ ok: true });
