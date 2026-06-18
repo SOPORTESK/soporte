@@ -187,11 +187,11 @@ export function EvolutionConfigPanel() {
       <div className="mt-4 p-3 rounded-xl bg-muted/30 border border-border/40 text-xs space-y-2">
         <p className="font-semibold text-muted-foreground">Cambiar número de WhatsApp:</p>
         <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
-          <li>Asegúrese de que Evolution API esté encendido (arranca solo al iniciar sesión en Windows).</li>
-          <li>Abra el panel de Evolution: <a href="http://localhost:7001/manager" target="_blank" rel="noreferrer" className="text-brand-600 hover:underline inline-flex items-center gap-1">localhost:7001/manager <ExternalLink className="h-3 w-3" /></a></li>
-          <li>Vaya a la instancia actual y haga clic en <strong>Desconectar</strong> (Logout).</li>
-          <li>Luego haga clic en <strong>Conectar</strong> y escanee el QR con el nuevo número.</li>
-          <li>El webhook ya está configurado automáticamente.</li>
+          <li>Asegúrese de guardar la URL de su Evolution API en la nube (ej. Render) arriba.</li>
+          <li>En la sección de abajo, haga clic en <strong>Obtener QR</strong>.</li>
+          <li>Inicie sesión en el panel de Evolution con su API KEY Global (usualmente <code>SEKUNET_EVO_KEY_123</code>).</li>
+          <li>Vaya a la instancia <strong>sekunet</strong> (o créela si no existe).</li>
+          <li>Haga clic en el botón QR para escanear con su celular. El webhook ya estará configurado.</li>
         </ol>
       </div>
     </section>

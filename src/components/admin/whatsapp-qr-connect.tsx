@@ -8,7 +8,7 @@ export function WhatsAppQRConnect() {
   const [checking, setChecking] = React.useState(false);
   const [instance, setInstance] = React.useState("sekunet");
   const [evoUrl, setEvoUrl] = React.useState("http://localhost:7001");
-  const [showManager, setShowManager] = React.useState(false);
+  const [qrCode, setQrCode] = React.useState<string | null>(null);
   const [lastError, setLastError] = React.useState<string | null>(null);
   const [lastResponse, setLastResponse] = React.useState<string | null>(null);
 
@@ -44,6 +44,7 @@ export function WhatsAppQRConnect() {
         if (inst) {
           const state = String(inst.connectionStatus || inst.state || inst.status || "").toLowerCase();
           setStatus(state === "open" || state === "connected" ? "open" : state === "connecting" ? "connecting" : "close");
+          if (state === "open" || state === "connected") setQrCode(null);
           setChecking(false);
           return;
         }
@@ -54,6 +55,7 @@ export function WhatsAppQRConnect() {
         const inst = r2.data?.instance || r2.data;
         const state = String(inst?.state || "").toLowerCase();
         setStatus(state === "open" || state === "connected" ? "open" : state === "connecting" ? "connecting" : "close");
+        if (state === "open" || state === "connected") setQrCode(null);
         setChecking(false);
         return;
       }
@@ -75,6 +77,7 @@ export function WhatsAppQRConnect() {
       if (!r.ok) throw new Error(`HTTP ${r.status}: ${JSON.stringify(r.data)}`);
       toast.success("Sesión cerrada. Puede generar QR ahora.");
       setStatus("close");
+      setQrCode(null);
     } catch (e: any) {
       toast.error("Error cerrando sesión: " + (e?.message || e));
       setLastError(String(e?.message || e));
@@ -82,7 +85,25 @@ export function WhatsAppQRConnect() {
   }
 
   async function fetchQR() {
-    setShowManager(true);
+    setChecking(true);
+    setLastError(null);
+    setQrCode(null);
+    try {
+      const r = await evoProxy(`/instance/connect/${encodeURIComponent(instance)}`, "GET");
+      setLastResponse(`connect: HTTP ${r.status}\n${JSON.stringify(r.data).slice(0, 500)}`);
+      if (r.ok && r.data?.base64) {
+        setQrCode(r.data.base64);
+        setStatus("connecting");
+        toast.success("QR generado con éxito.");
+      } else {
+        throw new Error("No se devolvió código QR base64.");
+      }
+    } catch (e: any) {
+      toast.error("Error obteniendo QR: " + (e?.message || e));
+      setLastError(String(e?.message || e));
+    } finally {
+      setChecking(false);
+    }
   }
 
   // Verificar estado al montar
@@ -162,17 +183,13 @@ export function WhatsAppQRConnect() {
         </details>
       )}
 
-      {showManager && (
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>Panel de Evolution — Login con <strong>SEKUNET_EVO_KEY_123</strong></span>
-            <button onClick={() => setShowManager(false)} className="text-red-500 hover:text-red-600 font-bold px-2">X</button>
-          </div>
-          <iframe
-            src={`${evoUrl.replace(/\/$/, "")}/manager`}
-            className="w-full h-[500px] rounded-xl border border-border bg-white"
-            title="Evolution Manager"
-          />
+      {qrCode && (
+        <div className="mt-4 p-4 flex flex-col items-center bg-white rounded-xl border border-border">
+          <p className="text-sm font-bold text-slate-800 mb-2">Escanee este código con WhatsApp</p>
+          <img src={qrCode} alt="WhatsApp QR Code" className="w-64 h-64 object-contain" />
+          <p className="text-xs text-slate-500 mt-2 text-center">
+            Vaya a Dispositivos Vinculados en su celular y escanee este código.
+          </p>
         </div>
       )}
     </div>
