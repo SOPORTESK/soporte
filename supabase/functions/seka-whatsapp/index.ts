@@ -394,11 +394,63 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify({ ok: true, reply: [directReply, msg1, msg2] }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // PASO 1: Segundo mensaje del usuario (datos proporcionados) → pedir tema
+    // PASO 1: Segundo mensaje del usuario (datos proporcionados) → extraer datos y pedir tema
     if (userCount === 2 && iaCount === 3) {
+      // Extraer nombre, correo y cuenta del mensaje del cliente usando IA
+      const datosMsg = userRealMsgs[userRealMsgs.length - 1]?.content ?? "";
+      let nombreExtraido = "";
+      let correoExtraido = "";
+      let cuentaExtraida = "";
+
+      try {
+        const extractMessages: NimMessage[] = [
+          {
+            role: "system",
+            content: `Eres un extractor de datos de contacto. Del siguiente mensaje de un cliente, extrae:
+- nombre: el nombre completo de la persona
+- correo: el correo electrónico
+- cuenta: el nombre de la cuenta o empresa afiliada a Sekunet
+
+Responde SOLO con JSON válido: {"nombre": "...", "correo": "...", "cuenta": "..."}
+Si algún dato no está presente, usa cadena vacía "". No inventes datos.`,
+          },
+          { role: "user", content: datosMsg },
+        ];
+        const extractRaw = await callLlama(extractMessages);
+        const jsonMatch = extractRaw.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          nombreExtraido = (parsed.nombre || "").trim();
+          correoExtraido = (parsed.correo || "").trim();
+          cuentaExtraida = (parsed.cuenta || "").trim();
+          console.log(`[seka-whatsapp] Datos extraídos - nombre: ${nombreExtraido}, correo: ${correoExtraido}, cuenta: ${cuentaExtraida}`);
+        }
+      } catch (e: any) {
+        console.error("[seka-whatsapp] Error extrayendo datos del cliente:", e.message);
+      }
+
+      // Actualizar el campo cliente con los datos extraídos + teléfono existente
+      const currentCliente = typeof caso.cliente === "object" ? caso.cliente : {};
+      const updatedCliente: Record<string, unknown> = { ...currentCliente };
+      if (nombreExtraido) updatedCliente.nombre = nombreExtraido;
+      if (correoExtraido) updatedCliente.correo = correoExtraido;
+      if (cuentaExtraida) updatedCliente.cuenta = cuentaExtraida;
+
+      // Actualizar también el título del caso con el nombre real del cliente
+      const nuevoTitle = nombreExtraido
+        ? `WhatsApp — ${nombreExtraido}`
+        : (typeof caso.cliente === "object" && caso.cliente?.nombre ? `WhatsApp — ${caso.cliente.nombre}` : undefined);
+
       const directReply = "¿En relación con qué tema sería su consulta?";
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
-      await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
+
+      const updatePayload: Record<string, unknown> = {
+        histtecnico: [...histtecnico, newMsg],
+        cliente: updatedCliente,
+      };
+      if (nuevoTitle) updatePayload.title = nuevoTitle;
+
+      await db.from("sek_cases").update(updatePayload).eq("id", case_id);
       return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
