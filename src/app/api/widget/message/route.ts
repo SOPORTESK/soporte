@@ -52,6 +52,26 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: updateErr.message }, { status: 500 });
     }
 
+    // Disparar ia-agent para que responda al mensaje
+    const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+    const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+    if (SUPABASE_URL && SERVICE_KEY && role === "user") {
+      try {
+        // Hacemos el fetch en "fire and forget" o con await, pero como es Vercel,
+        // no bloquearemos la respuesta al widget para que la UI sea rápida.
+        fetch(`${SUPABASE_URL}/functions/v1/ia-agent`, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${SERVICE_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ case_id: session_id }),
+        }).catch(err => console.error("[widget-webhook] Error background ia-agent:", err));
+      } catch (err) {
+        console.error("[widget-webhook] Error invocando ia-agent:", err);
+      }
+    }
+
     return NextResponse.json({ ok: true, entry });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message ?? "Error inesperado" }, { status: 500 });
