@@ -6,13 +6,7 @@ import { InventoryClient } from "@/components/admin/inventory-client";
 
 export const dynamic = "force-dynamic";
 
-const ITEMS_PER_PAGE = 50;
-
-export default async function AdminInventarioPage({ 
-  searchParams 
-}: { 
-  searchParams: { page?: string } 
-}) {
+export default async function AdminInventarioPage() {
   const supabase = createClient();
   
   // Verificar rol del usuario
@@ -26,23 +20,17 @@ export default async function AdminInventarioPage({
   const isAdmin = currentAgent?.rol === "admin" || currentAgent?.rol === "superadmin";
   const isSuperadmin = currentAgent?.rol === "superadmin";
   
-  // Calcular página actual
-  const currentPage = Math.max(1, parseInt(searchParams.page || "1", 10));
-  const offset = (currentPage - 1) * ITEMS_PER_PAGE;
-  
   // Obtener conteo total
   const { count: totalCount } = await supabase
     .from("sek_inventario")
     .select("*", { count: "exact", head: true });
   
-
-
-  // Obtener items paginados
+  // Obtener todos los items (límite razonable para memoria)
   const { data: items } = await supabase
     .from("sek_inventario")
     .select("*")
     .order("created_at", { ascending: false })
-    .range(offset, offset + ITEMS_PER_PAGE - 1);
+    .limit(10000);
 
   // Estadísticas globales (de todos los items, no solo la página)
   const { data: allStats } = await supabase
@@ -63,8 +51,6 @@ export default async function AdminInventarioPage({
   ).sort(([a], [b]) => a.localeCompare(b));
   
   const formatNumber = (num: number) => new Intl.NumberFormat('en-US').format(num);
-  
-  const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
 
   return (
     <div className="max-w-7xl mx-auto p-6 lg:p-8 space-y-8">
@@ -131,17 +117,14 @@ export default async function AdminInventarioPage({
         </div>
       </section>
 
-      {/* Tabla de Inventario con Paginación */}
+      {/* Tabla de Inventario */}
       <section className="rounded-2xl border border-border bg-card overflow-hidden">
         <div className="p-4 border-b border-border bg-muted/30 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Search className="h-4 w-4 text-muted-foreground" />
             <span className="text-sm font-medium">
-              Mostrando {items?.length || 0} de {formatNumber(totalItems)} artículos
+              Base de Conocimiento
             </span>
-          </div>
-          <div className="text-sm text-muted-foreground">
-            Página {currentPage} de {totalPages}
           </div>
         </div>
         
@@ -159,62 +142,6 @@ export default async function AdminInventarioPage({
               isSuperadmin={isSuperadmin}
             />
             
-            {/* Controles de Paginación */}
-            {totalPages > 1 && (
-              <div className="p-4 border-t border-border bg-muted/30 flex items-center justify-between">
-                <Link
-                  href={`/admin/inventario?page=${Math.max(1, currentPage - 1)}`}
-                  className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                    currentPage === 1 
-                      ? "pointer-events-none opacity-50 text-muted-foreground" 
-                      : "bg-brand-700 text-white hover:bg-brand-800"
-                  }`}
-                >
-                  <ChevronLeft className="h-4 w-4" /> Anterior
-                </Link>
-                
-                <div className="flex items-center gap-1">
-                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                    const pageNum = i + 1;
-                    return (
-                      <Link
-                        key={pageNum}
-                        href={`/admin/inventario?page=${pageNum}`}
-                        className={`w-8 h-8 rounded-lg text-sm font-medium flex items-center justify-center transition-colors ${
-                          currentPage === pageNum
-                            ? "bg-brand-700 text-white"
-                            : "text-muted-foreground hover:bg-muted"
-                        }`}
-                      >
-                        {pageNum}
-                      </Link>
-                    );
-                  })}
-                  {totalPages > 5 && (
-                    <>
-                      <span className="text-muted-foreground px-1">...</span>
-                      <Link
-                        href={`/admin/inventario?page=${totalPages}`}
-                        className="w-8 h-8 rounded-lg text-sm font-medium flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors"
-                      >
-                        {totalPages}
-                      </Link>
-                    </>
-                  )}
-                </div>
-                
-                <Link
-                  href={`/admin/inventario?page=${Math.min(totalPages, currentPage + 1)}`}
-                  className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                    currentPage === totalPages 
-                      ? "pointer-events-none opacity-50 text-muted-foreground" 
-                      : "bg-brand-700 text-white hover:bg-brand-800"
-                  }`}
-                >
-                  Siguiente <ChevronRight className="h-4 w-4" />
-                </Link>
-              </div>
-            )}
           </>
         )}
       </section>
