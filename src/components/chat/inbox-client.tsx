@@ -295,8 +295,10 @@ export function InboxClient({
   const mergedCases = React.useMemo(() => mergeGroups(filteredCases), [filteredCases]);
   const prevMergedRef = React.useRef<SekCase[]>(mergedCases);
   const escaladosPendientes = React.useMemo(() => {
-    return mergedCases.filter(c => String(c.estado).toLowerCase() === "escalado");
-  }, [mergedCases]);
+    // Computar desde la lista global "cases" para que el banner aparezca en todas las bandejas (incluyendo Mi Gestión)
+    const escalated = cases.filter(c => String(c.estado).toLowerCase() === "escalado");
+    return mergeGroups(escalated);
+  }, [cases]);
 
   React.useEffect(() => {
     const source = params.get("source");

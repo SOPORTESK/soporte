@@ -670,7 +670,8 @@ export async function POST(req: NextRequest) {
         const currentCliente = typeof existing.cliente === "object" ? existing.cliente : {};
         const updatedCliente = { 
           ...currentCliente, 
-          nombre: pushName || currentCliente.nombre,
+          nombre: currentCliente.nombre || pushName,
+          whatsapp_name: pushName || currentCliente.whatsapp_name,
           telefono_real: senderPn || currentCliente.telefono_real
         };
         await supabase
@@ -906,7 +907,8 @@ export async function POST(req: NextRequest) {
         const currentCliente = typeof currentCase?.cliente === "object" ? currentCase.cliente : {};
         const updatedCliente = { 
           ...currentCliente, 
-          nombre: pushName || currentCliente.nombre,
+          nombre: currentCliente.nombre || pushName,
+          whatsapp_name: pushName || currentCliente.whatsapp_name,
           telefono_real: senderPn || currentCliente.telefono_real
         };
 
@@ -995,6 +997,7 @@ export async function POST(req: NextRequest) {
         cliente: { 
           telefono: senderPn || phone || jid,
           nombre: pushName || null,
+          whatsapp_name: pushName || null,
           telefono_real: senderPn || null
         },
         histcliente: [entry],

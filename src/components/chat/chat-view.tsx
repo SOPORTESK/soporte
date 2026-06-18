@@ -1,5 +1,6 @@
 "use client";
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import {
   ArrowLeft, MoreVertical, Phone, Send, Paperclip, Bot,
   Mail, Building2, User, StickyNote, Zap, CheckCircle2,
@@ -96,6 +97,7 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
 }
 
 export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; onBack: () => void }) {
+  const router = useRouter();
   const supabase = React.useMemo(() => createClient(), []);
   const [sekCase, setSekCase] = React.useState<SekCase>(initialCase);
   const [messages, setMessages] = React.useState<UnifiedMessage[]>([]);
@@ -649,6 +651,9 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       setSekCase(prev => ({ ...prev, estado: "abierto", assigned_to: agentEmail }));
       toast.success("Caso aceptado");
       fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "busy" }) });
+      
+      // Prevent the ChatView from disappearing by navigating to Mi Gestión where the case is currently assigned.
+      router.push(`/mi-gestion?c=${targetId}`);
     } catch (e: any) {
       toast.error("Error al aceptar", { description: e?.message });
     } finally {
