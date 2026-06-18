@@ -1,7 +1,5 @@
 import { createServiceClient } from "@/lib/supabase/service";
 
-const CLOSE_MSG = "Al no haber recibido respuesta, procederemos a cerrar esta conversación. Si necesita asistencia adicional, puede contactarnos nuevamente y con gusto le atenderemos. ¡Que tenga un excelente día!";
-
 function pickPhone(c: any): string | null {
   if (typeof c?.cliente === "object") {
     const telReal = String(c.cliente?.telefono_real || "").trim();
@@ -45,11 +43,13 @@ export function startLocalCronJobs() {
 
       const supabase = createServiceClient();
       
-      // Consultar casos de whatsapp pendientes o cerrados recientes
+      // Consultar solo casos de whatsapp ABIERTOS (no cerrados/resueltos/escalados)
+      // Los casos cerrados ya fueron atendidos por auto-close, no reenviar nada.
       const { data: cases, error } = await supabase
         .from("sek_cases")
         .select("id, canal, customer_phone, cliente, histcliente, histtecnico, estado")
         .eq("canal", "whatsapp")
+        .not("estado", "in", '("cerrado","resuelto","escalado")')
         .order("updated_at", { ascending: false })
         .limit(50);
 
@@ -58,15 +58,21 @@ export function startLocalCronJobs() {
       for (const c of cases) {
         let changed = false;
         
-        // 1. Revisar histtecnico (auto-close messages)
+        // NOTA: los mensajes de cierre (auto-close) son enviados directamente por la
+        // Supabase Edge Function "auto-close". El cron-bridge NO debe reenviarlos
+        // para evitar duplicados. Solo manejamos mensajes de la IA aquí.
+
+        // Revisar histtecnico solo para mensajes de IA (role=ia) que quedaron sin messageId
         const histTec = Array.isArray(c.histtecnico) ? [...c.histtecnico] : [];
+
+        // Revisar histcliente (IA agent messages)
+        // histtecnico: mensajes de IA sin messageId (los de role=ia que envió seka-whatsapp)
         for (let i = 0; i < histTec.length; i++) {
           const m = histTec[i];
-          if (m && m.role === "tecnico" && m.content === CLOSE_MSG && !m.messageId) {
-            const guardKey = `close:${c.id}:${m.time}`;
-            // Si ya lo enviamos en este proceso, no reenviar (aunque aún no tenga messageId persistido)
+          if (m && (m.role === "ia" || m.role === "assistant") && m.author === "Asistente Sekunet" && !m.messageId && m.content) {
+            const guardKey = `ia-tec:${c.id}:${m.time}`;
             if (alreadySent.has(guardKey)) continue;
-            console.log(`[local-cron-bridge] Detectado mensaje de cierre auto-close pendiente para caso ${c.id}`);
+            console.log(`[local-cron-bridge] Detectado mensaje de IA en histtecnico pendiente para caso ${c.id}`);
             const phone = pickPhone(c);
             if (phone) {
               try {
@@ -74,33 +80,26 @@ export function startLocalCronJobs() {
                 const res = await fetch(endpoint, {
                   method: "POST",
                   headers: { "Content-Type": "application/json", apikey: EVO_KEY },
-                  body: JSON.stringify({ number: phone, text: CLOSE_MSG })
+                  body: JSON.stringify({ number: phone, text: m.content })
                 });
-                
                 const resData = await res.json().catch(() => ({}));
-                // Marcar como enviado siempre para evitar reintentos infinitos
                 alreadySent.add(guardKey);
                 if (res.ok) {
                   const msgId = resData?.key?.id || `local-${Date.now()}`;
-                  histTec[i] = {
-                    ...m,
-                    messageId: msgId,
-                    fromMe: true
-                  };
+                  histTec[i] = { ...m, messageId: msgId, fromMe: true };
                   changed = true;
-                  console.log(`[local-cron-bridge] Mensaje de cierre enviado con éxito a ${phone}, id: ${msgId}`);
+                  console.log(`[local-cron-bridge] Mensaje IA (histtecnico) enviado a ${phone}, id: ${msgId}`);
                 } else {
-                  console.error(`[local-cron-bridge] Error enviando mensaje de cierre a ${phone}:`, res.status, resData);
+                  console.error(`[local-cron-bridge] Error enviando IA (histtecnico) a ${phone}:`, res.status, resData);
                 }
               } catch (err: any) {
                 alreadySent.add(guardKey);
-                console.error(`[local-cron-bridge] Excepción enviando mensaje de cierre a ${phone}:`, err.message);
+                console.error(`[local-cron-bridge] Excepción enviando IA (histtecnico) a ${phone}:`, err.message);
               }
             }
           }
         }
 
-        // 2. Revisar histcliente (IA agent messages)
         const histCli = Array.isArray(c.histcliente) ? [...c.histcliente] : [];
         for (let i = 0; i < histCli.length; i++) {
           const m = histCli[i];

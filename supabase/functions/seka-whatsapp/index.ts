@@ -382,52 +382,46 @@ Deno.serve(async (req: Request) => {
     // FLUJO DE BIENVENIDA PASO A PASO (WhatsApp)
     // ═══════════════════════════════════════════════════════════════════════
 
-    // PASO 0: Primer mensaje del usuario → saludo
+    // PASO 0: Primer mensaje del usuario → saludo + presentación + pedir datos (3 mensajes separados)
     if (userCount === 1 && iaCount === 0) {
       const directReply = "Reciba un cordial saludo de parte del equipo de Soporte Sekunet. Gracias por contactarnos.";
-      const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
-      await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
-      return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-
-    // PASO 1: Segundo mensaje del usuario → presentación + pedir datos (2 mensajes separados)
-    if (userCount === 2 && iaCount === 1) {
       const msg1 = "Soy el Asistente Virtual de Sekunet. Para brindarle una mejor asistencia, necesitamos algunos datos para registrar su consulta.";
       const msg2 = "Por favor, compártanos la siguiente información:\n• Nombre completo\n• Correo electrónico\n• Nombre de la cuenta afiliada a Sekunet";
-      const newMsg1: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: msg1 };
-      const newMsg2: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: msg2 };
-      await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg1, newMsg2] }).eq("id", case_id);
-      return new Response(JSON.stringify({ ok: true, reply: [msg1, msg2] }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const newMsg0: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
+      const newMsg1: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date(Date.now() + 10).toISOString(), content: msg1 };
+      const newMsg2: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date(Date.now() + 20).toISOString(), content: msg2 };
+      await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg0, newMsg1, newMsg2] }).eq("id", case_id);
+      return new Response(JSON.stringify({ ok: true, reply: [directReply, msg1, msg2] }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // PASO 2: Tercer mensaje del usuario → pedir tema (iaCount ahora es 3 porque PASO 1 envió 2 msgs)
-    if (userCount === 3 && iaCount === 3) {
+    // PASO 1: Segundo mensaje del usuario (datos proporcionados) → pedir tema
+    if (userCount === 2 && iaCount === 3) {
       const directReply = "¿En relación con qué tema sería su consulta?";
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
       await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
       return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // PASO 3: Cuarto mensaje del usuario (tema) → pedir marca
-    if (userCount === 4 && iaCount === 4) {
+    // PASO 2: Tercer mensaje del usuario (tema seleccionado) → pedir marca
+    if (userCount === 3 && iaCount === 4) {
       const directReply = "Por favor, indíquenos la marca del equipo.";
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
       await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
       return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // PASO 4: Quinto mensaje del usuario (marca) → pedir modelo
-    if (userCount === 5 && iaCount === 5) {
+    // PASO 3: Cuarto mensaje del usuario (marca indicada) → pedir modelo
+    if (userCount === 4 && iaCount === 5) {
       const directReply = "¿Nos podría indicar el modelo del equipo, por favor?";
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
       await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
       return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // PASO 5: Sexto mensaje del usuario (modelo) → buscar inventario
-    if (userCount === 6 && iaCount === 6) {
-      const marca = userRealMsgs[3]?.content?.trim() ?? "";
-      const modelo = userRealMsgs[4]?.content?.trim() ?? "";
+    // PASO 4: Quinto mensaje del usuario (modelo indicado) → buscar inventario
+    if (userCount === 5 && iaCount === 6) {
+      const marca = topiIdx >= 0 ? (userRealMsgs[topiIdx + 1]?.content?.trim() ?? "") : (userRealMsgs[3]?.content?.trim() ?? "");
+      const modelo = topiIdx >= 0 ? (userRealMsgs[topiIdx + 2]?.content?.trim() ?? "") : (userRealMsgs[4]?.content?.trim() ?? "");
       const inv = await buscarInventario(`${marca} ${modelo}`);
       let directReply: string;
       if (!inv.encontrado) {

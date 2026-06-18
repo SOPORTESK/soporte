@@ -177,15 +177,42 @@ Deno.serve(async (req) => {
     const { data: check } = await db.from("sek_cases").select("estado").eq("id", caso.id).maybeSingle();
     if (!check || check.estado === "cerrado" || check.estado === "resuelto") continue;
 
-    // SI EL CANAL ES WHATSAPP, ENVIAR EL MENSAJE REAL POR WHATSAPP VÍA EVOLUTION API!
+    // SI EL CANAL ES WHATSAPP, resolver teléfono primero
     const canalLower = String(caso.canal || "").toLowerCase().trim();
-    
-    // Resolver el teléfono real del cliente: priorizar telefono_real > telefono > customer_phone
     const clienteObj = typeof caso.cliente === "object" ? caso.cliente : {};
     const realPhone = clienteObj?.telefono_real || clienteObj?.telefono || caso.customer_phone || "";
-    
+
     console.log(`[auto-close] Caso ${caso.id} - Canal: '${canalLower}', customer_phone: ${caso.customer_phone || "SIN"}, telefono_real: ${clienteObj?.telefono_real || "SIN"}, resolved: ${realPhone || "SIN"}`);
-    
+
+    // ACTUALIZAR LA BD PRIMERO (atómico con condición de estado) para evitar race condition.
+    // Si otro proceso ya lo cerró, el update afectará 0 filas y no enviamos nada.
+    const closeEntry = {
+      role: "tecnico",
+      content: CLOSE_MSG,
+      time: new Date().toISOString(),
+      author: "Soporte Sekunet",
+    };
+    const newHist = [...(caso.histtecnico ?? []), closeEntry];
+
+    const { error: updateErr, count: updatedCount } = await db
+      .from("sek_cases")
+      .update({ estado: "cerrado", histtecnico: newHist })
+      .eq("id", caso.id)
+      .not("estado", "in", '("cerrado","resuelto")')
+      .select("id", { count: "exact", head: true });
+
+    if (updateErr) {
+      console.error("[auto-close] Error cerrando caso", caso.id, updateErr.message);
+      continue;
+    }
+
+    // Si updatedCount es 0, otro proceso ya lo cerró — no enviar WhatsApp
+    if (!updatedCount || updatedCount === 0) {
+      console.log(`[auto-close] Caso ${caso.id} ya fue cerrado por otro proceso, saltando`);
+      continue;
+    }
+
+    // Solo llegar aquí si somos el proceso que realmente cerró el caso
     let msgId: string | null = null;
     if (canalLower === "whatsapp" && realPhone) {
       console.log(`[auto-close] Enviando mensaje de cierre por WhatsApp a ${realPhone}`);
@@ -196,26 +223,13 @@ Deno.serve(async (req) => {
       console.error(`[auto-close] Caso ${caso.id} es WhatsApp pero NO tiene teléfono real!`);
     }
 
-    /* Agregar mensaje de cierre al historial del cliente */
-    const closeEntry = {
-      role: "tecnico",
-      content: CLOSE_MSG,
-      time: new Date().toISOString(),
-      author: "Soporte Sekunet",
-      messageId: msgId || undefined,
-      fromMe: msgId ? true : undefined
-    };
-    const newHist = [...(caso.histtecnico ?? []), closeEntry];
-
-    const { error: updateErr } = await db
-      .from("sek_cases")
-      .update({ estado: "cerrado", histtecnico: newHist })
-      .eq("id", caso.id)
-      .not("estado", "in", '("cerrado","resuelto")');
-
-    if (updateErr) {
-      console.error("[auto-close] Error cerrando caso", caso.id, updateErr.message);
-      continue;
+    // Si Evolution devolvió un messageId, actualizar histtecnico con él
+    if (msgId) {
+      const updatedEntry = { ...closeEntry, messageId: msgId, fromMe: true };
+      const updatedHist = [...(caso.histtecnico ?? []), updatedEntry];
+      await db.from("sek_cases")
+        .update({ histtecnico: updatedHist })
+        .eq("id", caso.id);
     }
 
     // Aprendizaje: generar resumen antes de pasar al siguiente caso
