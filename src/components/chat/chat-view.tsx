@@ -385,7 +385,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       // Envío por WhatsApp vía Evolution API (solo mensajes no-nota y canal whatsapp)
       const isWhatsApp = String(sekCase.canal || "").toLowerCase() === "whatsapp";
       if (!isNota && isWhatsApp) {
-        // Disparar en segundo plano, sin bloquear la UI
+        // Disparar en segundo plano
         fetch("/api/evolution/send", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -396,7 +396,16 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
             mediaType: mediaType || undefined,
             fileName: fileName || undefined,
           })
-        }).catch(() => {});
+        }).then(async res => {
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            toast.error("Error al enviar a WhatsApp", { description: data.error || "Evolution API falló" });
+            // Revertir estado si falló en Evolution? (Opcional, pero al menos mostramos el error)
+          }
+        }).catch(err => {
+          console.error("Fetch evolution/send failed:", err);
+          toast.error("Error de red al enviar a WhatsApp");
+        });
       }
     } catch (e: any) {
       toast.error("No se pudo enviar", { description: (e as any)?.message });
