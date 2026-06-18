@@ -78,10 +78,9 @@ export function startLocalCronJobs() {
                 });
                 
                 const resData = await res.json().catch(() => ({}));
+                // Marcar como enviado siempre para evitar reintentos infinitos
+                alreadySent.add(guardKey);
                 if (res.ok) {
-                  // Marcar como enviado SIEMPRE que la respuesta sea OK, exista o no key.id.
-                  // Esto evita el reenvío infinito cada 15s cuando Evolution no devuelve key.id.
-                  alreadySent.add(guardKey);
                   const msgId = resData?.key?.id || `local-${Date.now()}`;
                   histTec[i] = {
                     ...m,
@@ -94,6 +93,7 @@ export function startLocalCronJobs() {
                   console.error(`[local-cron-bridge] Error enviando mensaje de cierre a ${phone}:`, res.status, resData);
                 }
               } catch (err: any) {
+                alreadySent.add(guardKey);
                 console.error(`[local-cron-bridge] Excepción enviando mensaje de cierre a ${phone}:`, err.message);
               }
             }
@@ -120,8 +120,10 @@ export function startLocalCronJobs() {
                 });
                 
                 const resData = await res.json().catch(() => ({}));
+                // Marcar como enviado incluso si falla (ej. 400 Bad Request por nÃºmero invÃ¡lido)
+                // para evitar loops infinitos DDoSeando la API.
+                alreadySent.add(guardKey);
                 if (res.ok) {
-                  alreadySent.add(guardKey);
                   const msgId = resData?.key?.id || `local-${Date.now()}`;
                   histCli[i] = {
                     ...m,
@@ -129,12 +131,14 @@ export function startLocalCronJobs() {
                     fromMe: true
                   };
                   changed = true;
-                  console.log(`[local-cron-bridge] Mensaje de IA enviado con éxito a ${phone}, id: ${msgId}`);
+                  console.log(`[local-cron-bridge] Mensaje de IA enviado con Ã©xito a ${phone}, id: ${msgId}`);
                 } else {
                   console.error(`[local-cron-bridge] Error enviando mensaje de IA a ${phone}:`, res.status, resData);
                 }
               } catch (err: any) {
-                console.error(`[local-cron-bridge] Excepción enviando mensaje de IA a ${phone}:`, err.message);
+                // Si hay excepciÃ³n de red, aÃºn asÃ­ lo marcamos para no trabar el thread indefinidamente
+                alreadySent.add(guardKey);
+                console.error(`[local-cron-bridge] ExcepciÃ³n enviando mensaje de IA a ${phone}:`, err.message);
               }
             }
           }
