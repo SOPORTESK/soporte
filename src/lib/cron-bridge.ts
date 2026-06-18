@@ -60,45 +60,10 @@ export function startLocalCronJobs() {
         
         // NOTA: los mensajes de cierre (auto-close) son enviados directamente por la
         // Supabase Edge Function "auto-close". El cron-bridge NO debe reenviarlos
-        // para evitar duplicados. Solo manejamos mensajes de la IA aquí.
+        // para evitar duplicados. Solo manejamos mensajes de la IA de Widget aquí.
+        // Los mensajes de WhatsApp (histtecnico) son enviados por el Webhook de Vercel.
 
-        // Revisar histtecnico solo para mensajes de IA (role=ia) que quedaron sin messageId
         const histTec = Array.isArray(c.histtecnico) ? [...c.histtecnico] : [];
-
-        // Revisar histcliente (IA agent messages)
-        // histtecnico: mensajes de IA sin messageId (los de role=ia que envió seka-whatsapp)
-        for (let i = 0; i < histTec.length; i++) {
-          const m = histTec[i];
-          if (m && (m.role === "ia" || m.role === "assistant") && m.author === "Asistente Sekunet" && !m.messageId && m.content) {
-            const guardKey = `ia-tec:${c.id}:${m.time}`;
-            if (alreadySent.has(guardKey)) continue;
-            console.log(`[local-cron-bridge] Detectado mensaje de IA en histtecnico pendiente para caso ${c.id}`);
-            const phone = pickPhone(c);
-            if (phone) {
-              try {
-                const endpoint = `${EVO_URL.replace(/\/$/, "")}/message/sendText/${encodeURIComponent(EVO_INSTANCE)}`;
-                const res = await fetch(endpoint, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json", apikey: EVO_KEY },
-                  body: JSON.stringify({ number: phone, text: m.content })
-                });
-                const resData = await res.json().catch(() => ({}));
-                alreadySent.add(guardKey);
-                if (res.ok) {
-                  const msgId = resData?.key?.id || `local-${Date.now()}`;
-                  histTec[i] = { ...m, messageId: msgId, fromMe: true };
-                  changed = true;
-                  console.log(`[local-cron-bridge] Mensaje IA (histtecnico) enviado a ${phone}, id: ${msgId}`);
-                } else {
-                  console.error(`[local-cron-bridge] Error enviando IA (histtecnico) a ${phone}:`, res.status, resData);
-                }
-              } catch (err: any) {
-                alreadySent.add(guardKey);
-                console.error(`[local-cron-bridge] Excepción enviando IA (histtecnico) a ${phone}:`, err.message);
-              }
-            }
-          }
-        }
 
         const histCli = Array.isArray(c.histcliente) ? [...c.histcliente] : [];
         for (let i = 0; i < histCli.length; i++) {
