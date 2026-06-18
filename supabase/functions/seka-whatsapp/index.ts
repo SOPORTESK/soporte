@@ -233,18 +233,48 @@ const WELCOME_TEXTS = [
   "Soy el Asistente Virtual de Sekunet. Para brindarle una mejor asistencia, necesitamos algunos datos para registrar su consulta.",
   "Por favor, compártanos la siguiente información:\n• Nombre completo\n• Correo electrónico\n• Nombre de la cuenta afiliada a Sekunet",
   "¿En relación con qué tema sería su consulta?",
+  `¿En relación con qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Drivers\n7. Licencias\n8. Otro\n\nResponda con el número o el nombre del tema.`
 ];
 
 const TOPICS = ["Configuraciones","Reset","Desvinculación","Firmware","Software","Drivers","Licencias","Otro"];
+
+// Mapa de respuesta numérica → tema (para el menú de texto)
+const TOPIC_NUMBER_MAP: Record<string, string> = {
+  "1": "Configuraciones",
+  "2": "Reset",
+  "3": "Desvinculación",
+  "4": "Firmware",
+  "5": "Software",
+  "6": "Drivers",
+  "7": "Licencias",
+  "8": "Otro",
+};
+
+// Normaliza respuesta del usuario al nombre oficial del tema (acepta número o texto parcial)
+function resolveTopicFromText(input: string): string | null {
+  const trimmed = input.trim();
+  // Respuesta numérica directa
+  if (TOPIC_NUMBER_MAP[trimmed]) return TOPIC_NUMBER_MAP[trimmed];
+  // Respuesta de texto exacta (case-insensitive)
+  const lower = trimmed.toLowerCase();
+  for (const t of TOPICS) {
+    if (t.toLowerCase() === lower) return t;
+  }
+  // Coincidencia parcial
+  for (const t of TOPICS) {
+    if (lower.includes(t.toLowerCase()) || t.toLowerCase().includes(lower)) return t;
+  }
+  return null;
+}
 
 // ─── CONSTRUIR MENSAJES PARA LLAMA ───────────────────────────────────────────
 function buildMessages(hist: HistMsg[], invContext: string | null): NimMessage[] {
   // Filtrar mensajes de bienvenida — Llama no debe verlos
   const filtered = hist.filter(m => !WELCOME_TEXTS.includes(m.content?.trim() ?? ""));
 
-  // Detectar el tema seleccionado (primer mensaje de usuario que sea un botón de tema)
-  const temaMsg = hist.find(m => m.role === "user" && TOPICS.includes(m.content?.trim() ?? ""));
-  const tema = temaMsg?.content?.trim() ?? "Configuraciones";
+  // Detectar el tema seleccionado (acepta número o texto exacto/parcial)
+  const temaMsg = hist.find(m => m.role === "user" && resolveTopicFromText(m.content?.trim() ?? "") !== null);
+  const tema = temaMsg ? (resolveTopicFromText(temaMsg.content?.trim() ?? "") ?? "Configuraciones") : "Configuraciones";
 
   // Construir system prompt con el tema inyectado
   const systemWithTema = SYSTEM_PROMPT.replace("{{TEMA}}", tema)
@@ -254,8 +284,8 @@ function buildMessages(hist: HistMsg[], invContext: string | null): NimMessage[]
 
   for (const m of filtered) {
     if (m.role === "user" || m.role === "assistant" || m.role === "ia") {
-      // Saltar si es el mensaje del botón de tema (ya está en el system prompt)
-      if (m.role === "user" && TOPICS.includes(m.content?.trim() ?? "")) continue;
+      // Saltar si es el mensaje de selección de tema (ya está en el system prompt)
+      if (m.role === "user" && resolveTopicFromText(m.content?.trim() ?? "") !== null) continue;
 
       const nimRole: "user" | "assistant" = (m.role === "user") ? "user" : "assistant";
 
@@ -335,9 +365,13 @@ Deno.serve(async (req: Request) => {
       "Soy el Asistente Virtual de Sekunet. Para brindarle una mejor asistencia, necesitamos algunos datos para registrar su consulta.",
       "Por favor, compártanos la siguiente información:\n• Nombre completo\n• Correo electrónico\n• Nombre de la cuenta afiliada a Sekunet",
       "¿En relación con qué tema sería su consulta?",
+      `¿En relación con qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Drivers\n7. Licencias\n8. Otro\n\nResponda con el número o el nombre del tema.`
     ];
     const CRON_CLOSE_TEXT = "Al no haber recibido respuesta, procederemos a cerrar esta conversación. Si necesita asistencia adicional, puede contactarnos nuevamente y con gusto le atenderemos. ¡Que tenga un excelente día!";
     const TOPICS_CHECK = ["Configuraciones","Reset","Desvinculación","Firmware","Software","Drivers","Licencias","Otro"];
+    // El mensaje del menú de tema ahora tiene múltiples líneas — incluirlo en textos a ignorar
+    const MENU_TEMA_PREFIX = "¿En relación con qué tema sería su consulta?";
+    const MENU_TEXTO = `¿En relación con qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Drivers\n7. Licencias\n8. Otro\n\nResponda con el número o el nombre del tema.`;
 
     // Mensajes del usuario (sin bienvenidas)
     const userRealMsgs = histcliente.filter(m =>
@@ -361,9 +395,9 @@ Deno.serve(async (req: Request) => {
     const lastIATime  = lastIA?.time ? new Date(lastIA.time).getTime() : 0;
     const lastUserTime = lastUserMsg?.time ? new Date(lastUserMsg.time).getTime() : 0;
 
-    // Detectar tema (case-insensitive)
-    const topiIdx = userRealMsgs.findIndex(m => TOPICS_CHECK.some(t => t.toLowerCase() === (m.content?.trim() ?? "").toLowerCase()));
-    let temaInferido = topiIdx >= 0 ? (userRealMsgs[topiIdx].content?.trim() ?? "Consulta") : "Consulta";
+    // Detectar tema — acepta número (1-8), texto exacto o parcial
+    const topiIdx = userRealMsgs.findIndex(m => resolveTopicFromText(m.content?.trim() ?? "") !== null);
+    let temaInferido = topiIdx >= 0 ? (resolveTopicFromText(userRealMsgs[topiIdx].content?.trim() ?? "") ?? "Consulta") : "Consulta";
     if (topiIdx < 0) {
       for (const m of userRealMsgs) {
         const lower = (m.content ?? "").toLowerCase();
@@ -395,6 +429,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // PASO 1: Segundo mensaje del usuario (datos proporcionados) → extraer datos y pedir tema
+    // También activar si el usuario ya respondió con datos aunque iaCount difiera (caso borde)
     if (userCount === 2 && iaCount === 3) {
       // Extraer nombre, correo y cuenta del mensaje del cliente usando IA
       const datosMsg = userRealMsgs[userRealMsgs.length - 1]?.content ?? "";
@@ -441,31 +476,8 @@ Si algún dato no está presente, usa cadena vacía "". No inventes datos.`,
         ? `WhatsApp — ${nombreExtraido}`
         : ((caso.cliente && typeof caso.cliente === "object" && caso.cliente?.nombre) ? `WhatsApp — ${caso.cliente.nombre}` : undefined);
 
-      const directReplyText = "¿En relación con qué tema sería su consulta?";
-      const listReply = {
-        type: "list",
-        content: directReplyText, // Fallback o para historial
-        listData: {
-          title: "¿En relación con qué tema sería su consulta?",
-          description: "Seleccione una opción de la lista para continuar",
-          buttonText: "Ver temas",
-          sections: [
-            {
-              title: "Temas de Soporte",
-              rows: [
-                { title: "Configuraciones", rowId: "Configuraciones" },
-                { title: "Reset", rowId: "Reset" },
-                { title: "Desvinculación", rowId: "Desvinculación" },
-                { title: "Firmware", rowId: "Firmware" },
-                { title: "Software", rowId: "Software" },
-                { title: "Drivers", rowId: "Drivers" },
-                { title: "Licencias", rowId: "Licencias" },
-                { title: "Otro", rowId: "Otro" }
-              ]
-            }
-          ]
-        }
-      };
+      // Menú de texto numerado (compatible con todos los conectores, incluyendo Baileys)
+      const directReplyText = `¿En relación con qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Drivers\n7. Licencias\n8. Otro\n\nResponda con el número o el nombre del tema.`;
       
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReplyText };
 
@@ -476,10 +488,10 @@ Si algún dato no está presente, usa cadena vacía "". No inventes datos.`,
       if (nuevoTitle) updatePayload.title = nuevoTitle;
 
       await db.from("sek_cases").update(updatePayload).eq("id", case_id);
-      return new Response(JSON.stringify({ ok: true, reply: listReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ ok: true, reply: directReplyText }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // PASO 2: Tercer mensaje del usuario (tema seleccionado) → pedir marca
+    // PASO 2: Tercer mensaje del usuario (tema seleccionado, acepta número 1-8 o texto) → pedir marca
     if (userCount === 3 && iaCount === 4) {
       const directReply = "Por favor, indíquenos la marca del equipo.";
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };

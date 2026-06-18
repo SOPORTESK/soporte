@@ -24,21 +24,12 @@ function filterCasesByContainer(cases: SekCase[], containerType: string | undefi
     });
   }
 
-  // Mi Bandeja de Gestión: casos activos asignados al agente actual
+  // Mi Bandeja de Gestión: todos los casos activos (no cerrados/resueltos)
   if (containerType === "mi-gestion") {
     return cases.filter(c => {
       const estado = String(c.estado || "").toLowerCase();
       if (estado === "cerrado" || estado === "resuelto") return false;
-      const assigned = String(c.assigned_to || "").toLowerCase();
-      if (assigned && currentAgentEmail && assigned === currentAgentEmail.toLowerCase()) return true;
-      // Respaldo: casos antiguos sin assigned_to pero con mensajes del agente
-      const histtecnico = Array.isArray(c.histtecnico) ? c.histtecnico : [];
-      return histtecnico.some((e: any) => {
-        const author = String(e?.author || "").toLowerCase();
-        const emailMatch = currentAgentEmail && (author === currentAgentEmail.toLowerCase() || author.includes(currentAgentEmail.toLowerCase()));
-        const nameMatch = currentAgentName && (author.includes(currentAgentName.toLowerCase()));
-        return emailMatch || nameMatch;
-      });
+      return true;
     });
   }
 
