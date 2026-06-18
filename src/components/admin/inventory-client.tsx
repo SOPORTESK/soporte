@@ -201,7 +201,7 @@ export function InventoryClient({ items, statsPorMarca, totalModelos, isAdmin, i
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {filteredItems.map((i) => (
+            {filteredItems.slice(0, 50).map((i) => (
               <tr key={i.id} className="hover:bg-muted/30 transition-colors">
                 <td className="p-3 text-muted-foreground whitespace-nowrap">{i.marca || "—"}</td>
                 <td className="p-3 text-muted-foreground font-mono text-xs whitespace-nowrap">{i.modelo || "—"}</td>
@@ -210,6 +210,16 @@ export function InventoryClient({ items, statsPorMarca, totalModelos, isAdmin, i
             ))}
           </tbody>
         </table>
+        {filteredItems.length > 50 && (
+          <div className="p-4 text-center text-sm text-muted-foreground">
+            Mostrando 50 de {filteredItems.length} resultados. Usa la búsqueda para refinar.
+          </div>
+        )}
+        {filteredItems.length === 0 && (
+          <div className="p-8 text-center text-sm text-muted-foreground">
+            No se encontraron resultados para "{searchTerm}"
+          </div>
+        )}
       </div>
 
       {/* Modal Editar/Crear */}

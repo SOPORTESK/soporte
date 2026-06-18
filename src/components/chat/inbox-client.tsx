@@ -24,13 +24,10 @@ function filterCasesByContainer(cases: SekCase[], containerType: string | undefi
     });
   }
 
-  // Mi Bandeja de Gestión: todos los casos activos (no cerrados/resueltos)
+  // Mi Bandeja de Gestión: todos los casos asignados al agente actual, sin importar su estado
   if (containerType === "mi-gestion") {
-    return cases.filter(c => {
-      const estado = String(c.estado || "").toLowerCase();
-      if (estado === "cerrado" || estado === "resuelto") return false;
-      return true;
-    });
+    if (!currentAgentEmail) return [];
+    return cases.filter(c => c.assigned_to === currentAgentEmail);
   }
 
   // Bandeja: muestra TODOS los casos (inbox general)

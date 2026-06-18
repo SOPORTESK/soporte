@@ -27,17 +27,24 @@ export default async function EstadisticasClientePage() {
   const hoy = new Date(); hoy.setHours(0,0,0,0);
 
   // ── Parsear cliente helper
-  const parseCliente = (raw: unknown): { nombre: string; telefono: string; correo: string; cedula: string } => {
-    if (!raw) return { nombre: "Anónimo", telefono: "—", correo: "", cedula: "" };
+  const parseCliente = (raw: unknown): { nombre: string; telefono: string; correo: string; cedula: string; cuenta: string } => {
+    if (!raw) return { nombre: "Anónimo", telefono: "—", correo: "", cedula: "", cuenta: "" };
     try {
       const c = typeof raw === "string" ? JSON.parse(raw) : raw as Record<string, string>;
+      const cuenta = c.cuenta || c.empresa || c.account || c.company || "";
+      const nombrePersonal = c.nombre || c.name || "Anónimo";
+      
+      // Si hay cuenta inscrita, ese es el nombre principal (B2B). Si no, el nombre físico.
+      const nombre = cuenta ? cuenta : nombrePersonal;
+
       return {
-        nombre: c.nombre || c.name || "Anónimo",
+        nombre,
         telefono: c.telefono || c.phone || "—",
         correo: c.correo || c.email || "",
         cedula: c.cedula || "",
+        cuenta
       };
-    } catch { return { nombre: "Anónimo", telefono: "—", correo: "", cedula: "" }; }
+    } catch { return { nombre: "Anónimo", telefono: "—", correo: "", cedula: "", cuenta: "" }; }
   };
 
   // ── Leer calificación del cliente desde objeto cliente
@@ -49,9 +56,9 @@ export default async function EstadisticasClientePage() {
     return v != null && !isNaN(n) && n >= 1 && n <= 5 ? n : null;
   };
 
-  // ── Agrupar por cliente — clave: cédula > correo > teléfono > nombre+primerCasoId
+  // ── Agrupar por cliente — clave: cuenta > cédula > correo > teléfono > nombre+primerCasoId
   const mapa: Record<string, {
-    nombre: string; telefono: string; correo: string; cedula: string;
+    nombre: string; telefono: string; correo: string; cedula: string; cuenta: string;
     total: number; resueltos: number; abiertos: number;
     calificaciones: number[]; canales: Record<string, number>;
     primerCaso: string; ultimoCaso: string; ultimoCasoId: string | number;
@@ -59,11 +66,11 @@ export default async function EstadisticasClientePage() {
   }> = {};
 
   (casos || []).forEach(c => {
-    const { nombre, telefono, correo, cedula } = parseCliente(c.cliente);
-    // Clave única: prioridad cedula > correo > telefono; si ninguno, cada caso es su propio cliente
-    const key = cedula || correo || (telefono !== "—" ? telefono : `_id_${c.id}`);
+    const { nombre, telefono, correo, cedula, cuenta } = parseCliente(c.cliente);
+    // Clave única: prioridad cuenta > cedula > correo > telefono; si ninguno, cada caso es su propio cliente
+    const key = cuenta || cedula || correo || (telefono !== "—" ? telefono : `_id_${c.id}`);
     if (!mapa[key]) {
-      mapa[key] = { nombre, telefono, correo, cedula, total: 0, resueltos: 0, abiertos: 0, calificaciones: [], canales: {}, primerCaso: c.created_at, ultimoCaso: c.created_at, ultimoCasoId: c.id, cats: [] };
+      mapa[key] = { nombre, telefono, correo, cedula, cuenta, total: 0, resueltos: 0, abiertos: 0, calificaciones: [], canales: {}, primerCaso: c.created_at, ultimoCaso: c.created_at, ultimoCasoId: c.id, cats: [] };
     }
     const m = mapa[key];
     m.total++;
@@ -211,14 +218,14 @@ export default async function EstadisticasClientePage() {
   // Mapa key → casos del cliente para tendencia
   const casosPorCliente: Record<string, any[]> = {};
   (casos || []).forEach(c => {
-    const { cedula, correo, telefono } = parseCliente(c.cliente);
-    const key = cedula || correo || (telefono !== "—" ? telefono : `_id_${c.id}`);
+    const { cuenta, cedula, correo, telefono } = parseCliente(c.cliente);
+    const key = cuenta || cedula || correo || (telefono !== "—" ? telefono : `_id_${c.id}`);
     if (!casosPorCliente[key]) casosPorCliente[key] = [];
     casosPorCliente[key].push(c);
   });
 
   const perfiles: PerfilCliente[] = topClientes.map(c => {
-    const key = c.cedula || c.correo || (c.telefono !== "—" ? c.telefono : "");
+    const key = c.cuenta || c.cedula || c.correo || (c.telefono !== "—" ? c.telefono : "");
     const casosCliente = casosPorCliente[key] || [];
 
     const antiguedadDias = Math.max(1, Math.floor((hoy.getTime() - new Date(c.primerCaso).getTime()) / 86400000));

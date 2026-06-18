@@ -3,7 +3,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft, MoreVertical, Phone, Send, Paperclip, Bot,
-  Mail, Building2, User, StickyNote, Zap, CheckCircle2,
+  Mail, Building2, User, UserPlus, StickyNote, Zap, CheckCircle2,
   XCircle, Image as ImageIcon, FileText, Music, Video,
   Download, X, ChevronDown, History, HandMetal, Star, Tag, AlertTriangle,
   Mic, Play, Pause, Square, Smile, Trash2
@@ -766,6 +766,17 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
             </button>
             {showActions && (
               <div className="absolute right-0 top-10 z-50 w-56 rounded-xl border border-border bg-card shadow-xl py-1">
+                {iaAtendiendo && (
+                  <>
+                    <button
+                      onClick={() => { acceptCase(); setShowActions(false); }}
+                      className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-muted transition-colors text-blue-500 font-medium"
+                    >
+                      <UserPlus className="h-4 w-4" /> Tomar caso
+                    </button>
+                    <div className="border-t border-border/50 my-1" />
+                  </>
+                )}
                 <button
                   onClick={toggleCaso}
                   className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-muted transition-colors"

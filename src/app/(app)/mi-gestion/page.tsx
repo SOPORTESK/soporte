@@ -30,30 +30,25 @@ export default async function MiGestionPage({ searchParams }: { searchParams: { 
     );
   }
   
-  // Buscar casos activos asignados al agente (assigned_to)
-  const { data: allCases, error } = await supabase
+  // Buscar casos asignados al agente (assigned_to) sin importar su estado
+  const { data: myCases, error } = await supabase
     .from("sek_cases")
     .select("*")
     .neq("canal", "simulator")
+    .eq("assigned_to", agentEmail)
     .order("created_at", { ascending: false })
     .limit(200);
 
   if (error) console.error("[mi-gestion] sek_cases error:", error.message);
-
-  // Mi Gestión: todos los casos activos (no cerrados/resueltos)
-  const myCases = (allCases || []).filter(c => {
-    const estado = String(c.estado || "").toLowerCase();
-    if (estado === "cerrado" || estado === "resuelto") return false;
-    return true;
-  });
   
-  console.log(`[mi-gestion] Agente: ${agentEmail} (${agentFullName}), Total casos: ${allCases?.length || 0}, Mis casos: ${myCases.length}`);
+  const myCasesArray = myCases || [];
+  console.log(`[mi-gestion] Agente: ${agentEmail} (${agentFullName}), Mis casos: ${myCasesArray.length}`);
   
-  const selectedId = searchParams.c || (myCases?.[0]?.id ? String(myCases[0].id) : null);
+  const selectedId = searchParams.c || (myCasesArray[0]?.id ? String(myCasesArray[0].id) : null);
 
   return (
     <InboxClient
-      initialCases={(myCases as any[]) || []}
+      initialCases={myCasesArray as any[]}
       initialSelectedId={selectedId}
       containerType={"mi-gestion" as const}
     />

@@ -9,6 +9,25 @@ const CLOSE_MSG = "Al no haber recibido respuesta, procederemos a cerrar esta co
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
 
+// ── WARM-UP: despertar Render antes de enviar mensajes ──
+async function warmUpEvolution(): Promise<boolean> {
+  const EVO_URL = Deno.env.get("EVOLUTION_API_URL") || "";
+  if (!EVO_URL) return false;
+  try {
+    console.log("[auto-close] Warm-up: despertando Evolution API en Render...");
+    const start = Date.now();
+    const res = await fetch(EVO_URL.replace(/\/$/, "") + "/", {
+      signal: AbortSignal.timeout(55000),
+    });
+    const elapsed = Date.now() - start;
+    console.log(`[auto-close] Warm-up completado en ${elapsed}ms, status: ${res.status}`);
+    return res.ok;
+  } catch (e: any) {
+    console.error("[auto-close] Warm-up falló:", e.message);
+    return false;
+  }
+}
+
 async function sendViaEvolution(phone: string, text: string): Promise<string | null> {
   const EVO_URL = Deno.env.get("EVOLUTION_API_URL") || "";
   const EVO_KEY = Deno.env.get("EVOLUTION_API_KEY") || "";
@@ -43,7 +62,8 @@ async function sendViaEvolution(phone: string, text: string): Promise<string | n
     const res = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json", apikey: EVO_KEY },
-      body: JSON.stringify({ number: to, text })
+      body: JSON.stringify({ number: to, text }),
+      signal: AbortSignal.timeout(30000),
     });
     
     const resText = await res.text();
@@ -124,6 +144,9 @@ Deno.serve(async (req) => {
     }), { status: 200, headers: { "Content-Type": "application/json" } });
   }
 
+  // ── WARM-UP: despertar Render ANTES de procesar casos ──
+  await warmUpEvolution();
+
   const { data: casos, error } = await db
     .from("sek_cases")
     .select("id, canal, estado, histcliente, histtecnico, created_at, assigned_to, customer_phone, cliente")
@@ -194,20 +217,20 @@ Deno.serve(async (req) => {
     };
     const newHist = [...(caso.histtecnico ?? []), closeEntry];
 
-    const { error: updateErr, count: updatedCount } = await db
+    const { data: updatedCases, error: updateErr } = await db
       .from("sek_cases")
       .update({ estado: "cerrado", histtecnico: newHist })
       .eq("id", caso.id)
       .not("estado", "in", '("cerrado","resuelto")')
-      .select("id", { count: "exact", head: true });
+      .select("id");
 
     if (updateErr) {
       console.error("[auto-close] Error cerrando caso", caso.id, updateErr.message);
       continue;
     }
 
-    // Si updatedCount es 0, otro proceso ya lo cerró — no enviar WhatsApp
-    if (!updatedCount || updatedCount === 0) {
+    // Si updatedCases es vacío, otro proceso ya lo cerró — no enviar WhatsApp
+    if (!updatedCases || updatedCases.length === 0) {
       console.log(`[auto-close] Caso ${caso.id} ya fue cerrado por otro proceso, saltando`);
       continue;
     }
@@ -225,11 +248,15 @@ Deno.serve(async (req) => {
 
     // Si Evolution devolvió un messageId, actualizar histtecnico con él
     if (msgId) {
-      const updatedEntry = { ...closeEntry, messageId: msgId, fromMe: true };
-      const updatedHist = [...(caso.histtecnico ?? []), updatedEntry];
-      await db.from("sek_cases")
-        .update({ histtecnico: updatedHist })
-        .eq("id", caso.id);
+      const { data: latest } = await db.from("sek_cases").select("histtecnico").eq("id", caso.id).maybeSingle();
+      if (latest && latest.histtecnico) {
+        const h = latest.histtecnico;
+        if (h.length > 0) {
+          h[h.length - 1].messageId = msgId;
+          h[h.length - 1].fromMe = true;
+          await db.from("sek_cases").update({ histtecnico: h }).eq("id", caso.id);
+        }
+      }
     }
 
     // Aprendizaje: generar resumen antes de pasar al siguiente caso

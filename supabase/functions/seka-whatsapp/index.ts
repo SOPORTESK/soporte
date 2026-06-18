@@ -476,7 +476,6 @@ Si algún dato no está presente, usa cadena vacía "". No inventes datos.`,
         ? `WhatsApp — ${nombreExtraido}`
         : ((caso.cliente && typeof caso.cliente === "object" && caso.cliente?.nombre) ? `WhatsApp — ${caso.cliente.nombre}` : undefined);
 
-      // Menú de texto numerado (compatible con todos los conectores, incluyendo Baileys)
       const directReplyText = `¿En relación con qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Drivers\n7. Licencias\n8. Otro\n\nResponda con el número o el nombre del tema.`;
       
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReplyText };
@@ -491,7 +490,7 @@ Si algún dato no está presente, usa cadena vacía "". No inventes datos.`,
       return new Response(JSON.stringify({ ok: true, reply: directReplyText }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // PASO 2: Tercer mensaje del usuario (tema seleccionado, acepta número 1-8 o texto) → pedir marca
+    // PASO 2: Tercer mensaje del usuario (tema seleccionado) → pedir marca
     if (userCount === 3 && iaCount === 4) {
       const directReply = "Por favor, indíquenos la marca del equipo.";
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
@@ -511,18 +510,35 @@ Si algún dato no está presente, usa cadena vacía "". No inventes datos.`,
     if (userCount === 5 && iaCount === 6) {
       const marca = topiIdx >= 0 ? (userRealMsgs[topiIdx + 1]?.content?.trim() ?? "") : (userRealMsgs[3]?.content?.trim() ?? "");
       const modelo = topiIdx >= 0 ? (userRealMsgs[topiIdx + 2]?.content?.trim() ?? "") : (userRealMsgs[4]?.content?.trim() ?? "");
-      const inv = await buscarInventario(`${marca} ${modelo}`);
+      
+      const esNegativaModelo = /^no\b|no (la |lo )?tengo|no s[eé]/i.test(modelo);
       let directReply: string;
-      if (!inv.encontrado) {
-        directReply = "El dispositivo indicado no forma parte de los equipos distribuidos por Sekunet, por lo que lamentablemente no podemos brindarle el soporte requerido. ¿Tiene alguna otra consulta relacionada con nuestros productos?";
-      } else if (tema === "Reset") {
-        const esHikvision = /hik/i.test(marca);
-        directReply = esHikvision
-          ? "Como parte de los requisitos del fabricante, requerimos una imagen clara y legible de la etiqueta del equipo y el archivo XML, el cual puede obtener mediante la herramienta SAPD Tools en la opción \"Olvidé mi contraseña\", ubicada en la parte inferior derecha del software. Por favor, adjunte ambos archivos."
-          : "Por favor, adjunte una imagen clara y legible de la etiqueta del equipo.";
+      
+      if (esNegativaModelo) {
+         if (tema === "Reset" || tema === "Desvinculación") {
+            directReply = "No se preocupe. Por favor, adjunte una imagen clara y legible de la etiqueta del equipo; allí suele venir el modelo.";
+            if (tema === "Reset" && /hik/i.test(marca)) {
+               directReply = "No se preocupe. Por favor, adjunte una imagen clara y legible de la etiqueta del equipo y el archivo XML (obtenido desde SAPD Tools). En la etiqueta podremos verificar el modelo.";
+            }
+         } else {
+            directReply = "Entendido. Para poder asistirle mejor, por favor describa brevemente el inconveniente que presenta.";
+         }
       } else {
-        directReply = "Por favor, describa brevemente el inconveniente que presenta.";
+         const inv = await buscarInventario(`${marca} ${modelo}`);
+         if (!inv.encontrado) {
+           directReply = "El dispositivo indicado no forma parte de los equipos distribuidos por Sekunet, por lo que lamentablemente no podemos brindarle el soporte requerido. ¿Tiene alguna otra consulta relacionada con nuestros productos?";
+         } else if (tema === "Reset") {
+           const esHikvision = /hik/i.test(marca);
+           directReply = esHikvision
+             ? "Como parte de los requisitos del fabricante, requerimos una imagen clara y legible de la etiqueta del equipo y el archivo XML, el cual puede obtener mediante la herramienta SAPD Tools en la opción \"Olvidé mi contraseña\", ubicada en la parte inferior derecha del software. Por favor, adjunte ambos archivos."
+             : "Por favor, adjunte una imagen clara y legible de la etiqueta del equipo.";
+         } else if (tema === "Desvinculación") {
+           directReply = "Como parte de los requisitos del fabricante, requerimos una imagen clara y legible de la etiqueta del equipo. Por favor, adjunte esta imagen.";
+         } else {
+           directReply = "Por favor, describa brevemente el inconveniente que presenta.";
+         }
       }
+      
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
       await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
       return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -533,8 +549,6 @@ Si algún dato no está presente, usa cadena vacía "". No inventes datos.`,
     const MSG_RESET_PIDE_IMAGEN = "adjunte nuevamente una imagen clara";
     const MSG_RESET_PIDE_XML = "adjunte nuevamente el archivo XML";
     if ((lastIA?.content?.includes(MSG_RESET_PIDE_ARCHIVOS) || lastIA?.content?.includes(MSG_RESET_PIDE_IMAGEN) || lastIA?.content?.includes(MSG_RESET_PIDE_XML)) && lastUserTime > lastIATime) {
-      // Buscar archivos en TODOS los mensajes del usuario después de dar el modelo (paso 3)
-      // Esto captura archivos enviados en cualquier orden (XML primero, imagen después, o viceversa)
       const modeloMsg = topiIdx >= 0 ? userRealMsgs[topiIdx + 2] : null;
       const modeloTime = modeloMsg ? new Date(modeloMsg.time ?? 0).getTime() : 0;
       const mensajesDesdePedido = userRealMsgs.filter(m => {
@@ -542,13 +556,36 @@ Si algún dato no está presente, usa cadena vacía "". No inventes datos.`,
         return mTime > modeloTime;
       });
       
-      const tieneArchivos = mensajesDesdePedido.some(m => m.mediaUrl);
-      if (!tieneArchivos) {
-        // El usuario escribió pero no adjuntó archivos, no procesar todavía
-        return new Response(JSON.stringify({ ok: true, skipped: true }), { status: 200, headers: corsHeaders });
-      }
       const marca = topiIdx >= 0 ? (userRealMsgs[topiIdx + 1]?.content?.trim() ?? "") : "";
       const modelo = topiIdx >= 0 ? (userRealMsgs[topiIdx + 2]?.content?.trim() ?? "") : "";
+
+      const tieneArchivos = mensajesDesdePedido.some(m => m.mediaUrl);
+      if (!tieneArchivos) {
+        const ultimoMsj = userRealMsgs[userRealMsgs.length - 1]?.content?.trim().toLowerCase() || "";
+        const esEspera = /esper|minut|dame|deme|un momento|ahorita|voy|ya casi/i.test(ultimoMsj);
+        
+        if (esEspera) {
+           return new Response(JSON.stringify({ ok: true, skipped: true }), { status: 200, headers: corsHeaders });
+        }
+        
+        const msgs = buildMessages(histcliente, null);
+        msgs[0].content += `\n\nATENCIÓN: El sistema está esperando que el cliente adjunte una fotografía de la etiqueta del equipo (marca: ${marca}, modelo: ${modelo}) para continuar. El cliente ha respondido sin adjuntar foto.
+Ayúdele indicando amablemente dónde suele ubicarse la etiqueta en este tipo de equipos.
+IMPORTANTE: Al finalizar, recuérdele amablemente que es indispensable adjuntar la foto para continuar. NO resuelva la duda técnica principal, solo asístale para encontrar la etiqueta.`;
+        
+        let aiReply = await callLlama(msgs);
+        aiReply = await processTags(aiReply, case_id);
+        aiReply = aiReply.replace(/__INV__.*?__INV__/gs, "").trim();
+
+        // Agregar forzosamente la frase gatillo para asegurar que la siguiente vez la condición de "PIDE_ARCHIVOS" siga activa
+        if (!aiReply.toLowerCase().includes("imagen clara y legible de la etiqueta")) {
+           aiReply += "\n\nPor favor, asegúrese de enviarnos una imagen clara y legible de la etiqueta para poder continuar.";
+        }
+
+        const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: aiReply };
+        await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
+        return new Response(JSON.stringify({ ok: true, reply: aiReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
       const esHikvision = /hik/i.test(marca);
 
       // Buscar archivos en todos los mensajes desde el pedido
@@ -570,8 +607,8 @@ Si algún dato no está presente, usa cadena vacía "". No inventes datos.`,
 
       console.log("[seka-whatsapp] Archivos recibidos - imagen:", !!imagenUrl, "XML:", !!xmlUrl, "esHikvision:", esHikvision, "totalMsgs:", mensajesDesdePedido.length);
 
-      // Para Hikvision: requiere ambos archivos
-      if (esHikvision) {
+      // Para Hikvision (en Reset): requiere ambos archivos
+      if (esHikvision && tema === "Reset") {
         if (!imagenUrl && !xmlUrl) {
           const retry = "Por favor, adjunte la imagen de la etiqueta del equipo y el archivo XML.";
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: retry };
@@ -606,8 +643,8 @@ Si algún dato no está presente, usa cadena vacía "". No inventes datos.`,
       let motivoImagen = "";
       let motivoXml = "";
 
-      // Verificar según la marca
-      if (esHikvision) {
+      // Verificar según la marca (Hikvision en Reset)
+      if (esHikvision && tema === "Reset") {
         // Hikvision: extraer y comparar S/N
         let snImagen = "";
         let imagenLegible = false;
@@ -727,8 +764,8 @@ No agregues nada más.`,
             histtecnico: [...histtecnico, newMsg],
             estado: "escalado",
             escalado_at: new Date().toISOString(),
-            title: `Reset — ${marca} ${modelo}`.substring(0, 120),
-            tags: ["reset", "n2"],
+            title: `${tema} — ${marca} ${modelo}`.substring(0, 120),
+            tags: [tema === "Desvinculación" ? "desvinculacion" : "reset", "n2"],
           }).eq("id", case_id);
           return new Response(JSON.stringify({ ok: true, reply: M02_TEXT }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
@@ -782,8 +819,8 @@ No agregues nada más.`,
             histtecnico: [...histtecnico, newMsg],
             estado: "escalado",
             escalado_at: new Date().toISOString(),
-            title: `Reset — ${marca} ${modelo}`.substring(0, 120),
-            tags: ["reset", "n2"],
+            title: `${tema} — ${marca} ${modelo}`.substring(0, 120),
+            tags: [tema === "Desvinculación" ? "desvinculacion" : "reset", "n2"],
           }).eq("id", case_id);
           return new Response(JSON.stringify({ ok: true, reply: M02_TEXT }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
@@ -793,7 +830,7 @@ No agregues nada más.`,
       const yaReintentoImagen = iaRealMsgs.some(m => m.content?.includes(MSG_RESET_PIDE_IMAGEN));
       const yaReintentoXML = iaRealMsgs.some(m => m.content?.includes(MSG_RESET_PIDE_XML));
 
-      if (esHikvision) {
+      if (esHikvision && tema === "Reset") {
         // Hikvision: manejo de ambos archivos
         if (!imagenOk && !xmlOk) {
           // Ambos fallaron y ya se reintentó → escalar con nota
@@ -804,8 +841,8 @@ No agregues nada más.`,
               histtecnico: [...histtecnico, newMsg],
               estado: "escalado",
               escalado_at: new Date().toISOString(),
-              title: `Reset — ${marca} ${modelo} — verificación pendiente`.substring(0, 120),
-              tags: ["reset", "n2", "verificacion_pendiente"],
+              title: `${tema} — ${marca} ${modelo} — verificación pendiente`.substring(0, 120),
+              tags: [tema === "Desvinculación" ? "desvinculacion" : "reset", "n2", "verificacion_pendiente"],
             }).eq("id", case_id);
             return new Response(JSON.stringify({ ok: true, reply: M02_TEXT }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
           }
@@ -826,8 +863,8 @@ No agregues nada más.`,
               histtecnico: [...histtecnico, newMsg],
               estado: "escalado",
               escalado_at: new Date().toISOString(),
-              title: `Reset — ${marca} ${modelo} — imagen pendiente`.substring(0, 120),
-              tags: ["reset", "n2", "imagen_pendiente"],
+              title: `${tema} — ${marca} ${modelo} — imagen pendiente`.substring(0, 120),
+              tags: [tema === "Desvinculación" ? "desvinculacion" : "reset", "n2", "imagen_pendiente"],
             }).eq("id", case_id);
             return new Response(JSON.stringify({ ok: true, reply: M02_TEXT }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
           }
@@ -848,8 +885,8 @@ No agregues nada más.`,
               histtecnico: [...histtecnico, newMsg],
               estado: "escalado",
               escalado_at: new Date().toISOString(),
-              title: `Reset — ${marca} ${modelo} — XML pendiente`.substring(0, 120),
-              tags: ["reset", "n2", "xml_pendiente"],
+              title: `${tema} — ${marca} ${modelo} — XML pendiente`.substring(0, 120),
+              tags: [tema === "Desvinculación" ? "desvinculacion" : "reset", "n2", "xml_pendiente"],
             }).eq("id", case_id);
             return new Response(JSON.stringify({ ok: true, reply: M02_TEXT }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
           }
@@ -870,8 +907,8 @@ No agregues nada más.`,
               histtecnico: [...histtecnico, newMsg],
               estado: "escalado",
               escalado_at: new Date().toISOString(),
-              title: `Reset — ${marca} ${modelo} — imagen pendiente`.substring(0, 120),
-              tags: ["reset", "n2", "imagen_pendiente"],
+              title: `${tema} — ${marca} ${modelo} — imagen pendiente`.substring(0, 120),
+              tags: [tema === "Desvinculación" ? "desvinculacion" : "reset", "n2", "imagen_pendiente"],
             }).eq("id", case_id);
             return new Response(JSON.stringify({ ok: true, reply: M02_TEXT }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
           }
