@@ -73,7 +73,10 @@ async function sendWhatsAppMessages(phone: string, reply: string | string[], evo
     if (!sent) {
       console.error(`[evo-webhook] FALLÓ envío WhatsApp mensaje ${i + 1}/${messages.length}`);
     }
-    // Pausa eliminada: Vercel aborta la request si toma mucho tiempo. Evolution los encola igual.
+    // Pausa de 1.5s entre mensajes (excepto el último)
+    if (i < messages.length - 1) {
+      await new Promise(r => setTimeout(r, 1500));
+    }
   }
 }
 
