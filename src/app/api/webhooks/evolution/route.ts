@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getEvolutionConfig } from "@/lib/evolution-config";
 
+export const maxDuration = 60; // Evita el timeout de 10s en Vercel Hobby
+
 const get = (obj: any, path: string) => path.split(".").reduce((o, k) => (o && o[k] !== undefined ? o[k] : undefined), obj);
 
 // Map global para trackear mensajes procesados recientemente (evita duplicados)
@@ -35,7 +37,7 @@ function isDuplicateMessage(jid: string | null | undefined, content: string | nu
 }
 
 // Helper para enviar mensaje de texto por WhatsApp vía Evolution
-async function sendWhatsAppText(phone: string, text: string, evoCfg: any): Promise<boolean> {
+async function sendWhatsAppText(phone: string, text: string, evoCfg: any, delayMs: number = 0): Promise<boolean> {
   try {
     if (!evoCfg?.url || !evoCfg?.apiKey || !evoCfg?.instance) {
       console.error("[evo-webhook] Evo config incompleta:", { url: !!evoCfg?.url, key: !!evoCfg?.apiKey, instance: !!evoCfg?.instance });
@@ -45,10 +47,16 @@ async function sendWhatsAppText(phone: string, text: string, evoCfg: any): Promi
     const formattedTo = to.replace(/[^0-9]/g, "");
     const url = `${evoCfg.url.replace(/\/$/, "")}/message/sendText/${encodeURIComponent(evoCfg.instance)}`;
     console.log(`[evo-webhook] Enviando WhatsApp a ${formattedTo}:`, text.slice(0, 60) + "...");
+    
+    const payload: any = { number: formattedTo, text };
+    if (delayMs > 0) {
+      payload.delay = delayMs;
+    }
+
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json", apikey: evoCfg.apiKey },
-      body: JSON.stringify({ number: formattedTo, text })
+      body: JSON.stringify(payload)
     });
     if (!res.ok) {
       const err = await res.text();
@@ -69,11 +77,14 @@ async function sendWhatsAppMessages(phone: string, reply: string | string[], evo
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
     if (!msg || !msg.trim()) continue;
-    const sent = await sendWhatsAppText(phone || "", msg, evoCfg);
+    
+    // Evolution API mostrará "escribiendo..." durante este tiempo
+    const delayMs = 2500; 
+    
+    const sent = await sendWhatsAppText(phone || "", msg, evoCfg, delayMs);
     if (!sent) {
       console.error(`[evo-webhook] FALLÓ envío WhatsApp mensaje ${i + 1}/${messages.length}`);
     }
-    // Pausa eliminada para evitar el timeout de Vercel
   }
 }
 
