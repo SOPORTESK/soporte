@@ -441,8 +441,33 @@ Si algún dato no está presente, usa cadena vacía "". No inventes datos.`,
         ? `WhatsApp — ${nombreExtraido}`
         : (typeof caso.cliente === "object" && caso.cliente?.nombre ? `WhatsApp — ${caso.cliente.nombre}` : undefined);
 
-      const directReply = "¿En relación con qué tema sería su consulta?";
-      const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
+      const directReplyText = "¿En relación con qué tema sería su consulta?";
+      const listReply = {
+        type: "list",
+        content: directReplyText, // Fallback o para historial
+        listData: {
+          title: "¿En relación con qué tema sería su consulta?",
+          description: "Seleccione una opción de la lista para continuar",
+          buttonText: "Ver temas",
+          sections: [
+            {
+              title: "Temas de Soporte",
+              rows: [
+                { title: "Configuraciones", rowId: "Configuraciones" },
+                { title: "Reset", rowId: "Reset" },
+                { title: "Desvinculación", rowId: "Desvinculación" },
+                { title: "Firmware", rowId: "Firmware" },
+                { title: "Software", rowId: "Software" },
+                { title: "Drivers", rowId: "Drivers" },
+                { title: "Licencias", rowId: "Licencias" },
+                { title: "Otro", rowId: "Otro" }
+              ]
+            }
+          ]
+        }
+      };
+      
+      const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReplyText };
 
       const updatePayload: Record<string, unknown> = {
         histtecnico: [...histtecnico, newMsg],
@@ -451,7 +476,7 @@ Si algún dato no está presente, usa cadena vacía "". No inventes datos.`,
       if (nuevoTitle) updatePayload.title = nuevoTitle;
 
       await db.from("sek_cases").update(updatePayload).eq("id", case_id);
-      return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ ok: true, reply: listReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // PASO 2: Tercer mensaje del usuario (tema seleccionado) → pedir marca

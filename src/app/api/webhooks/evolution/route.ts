@@ -71,17 +71,59 @@ async function sendWhatsAppText(phone: string, text: string, evoCfg: any, delayM
   }
 }
 
+// Helper para enviar listas interactivas por WhatsApp vía Evolution
+async function sendWhatsAppList(phone: string, listData: any, evoCfg: any, delayMs: number = 0): Promise<boolean> {
+  try {
+    if (!evoCfg?.url || !evoCfg?.apiKey || !evoCfg?.instance) {
+      return false;
+    }
+    const to = phone.toString().trim();
+    const formattedTo = to.replace(/[^0-9]/g, "");
+    const url = `${evoCfg.url.replace(/\/$/, "")}/message/sendList/${encodeURIComponent(evoCfg.instance)}`;
+    console.log(`[evo-webhook] Enviando lista WhatsApp a ${formattedTo}:`, listData.title);
+
+    const payload: any = { number: formattedTo, ...listData };
+    if (delayMs > 0) {
+      payload.delay = delayMs;
+    }
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: evoCfg.apiKey },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      console.error("[evo-webhook] Error sending list:", res.status, err);
+      return false;
+    }
+    console.log("[evo-webhook] Lista enviada exitosamente");
+    return true;
+  } catch (e: any) {
+    console.error("[evo-webhook] Exception sending list:", e.message);
+    return false;
+  }
+}
+
 // Enviar uno o varios mensajes con pausa entre ellos (simula conversación natural)
-async function sendWhatsAppMessages(phone: string, reply: string | string[], evoCfg: any): Promise<void> {
+async function sendWhatsAppMessages(phone: string, reply: any | any[], evoCfg: any): Promise<void> {
   const messages = Array.isArray(reply) ? reply : [reply];
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
-    if (!msg || !msg.trim()) continue;
+    if (!msg) continue;
     
     // Evolution API mostrará "escribiendo..." durante este tiempo
     const delayMs = 2500; 
     
-    const sent = await sendWhatsAppText(phone || "", msg, evoCfg, delayMs);
+    let sent = false;
+    if (typeof msg === "object" && msg.type === "list") {
+      sent = await sendWhatsAppList(phone || "", msg.listData, evoCfg, delayMs);
+    } else {
+      const text = typeof msg === "object" ? msg.content : msg;
+      if (!text || !text.trim()) continue;
+      sent = await sendWhatsAppText(phone || "", text, evoCfg, delayMs);
+    }
+
     if (!sent) {
       console.error(`[evo-webhook] FALLÓ envío WhatsApp mensaje ${i + 1}/${messages.length}`);
     }
