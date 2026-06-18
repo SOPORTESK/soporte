@@ -217,7 +217,7 @@ export function InventoryClient({ items, statsPorMarca, totalModelos, isAdmin, i
         )}
         {filteredItems.length === 0 && (
           <div className="p-8 text-center text-sm text-muted-foreground">
-            No se encontraron resultados para "{searchTerm}"
+            No se encontraron resultados para &quot;{searchTerm}&quot;
           </div>
         )}
       </div>
