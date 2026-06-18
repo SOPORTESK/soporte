@@ -667,7 +667,7 @@ export async function POST(req: NextRequest) {
         .maybeSingle();
 
       if (existing) {
-        const currentCliente = typeof existing.cliente === "object" ? existing.cliente : {};
+        const currentCliente = (existing.cliente && typeof existing.cliente === "object") ? existing.cliente : {};
         const updatedCliente = { 
           ...currentCliente, 
           nombre: currentCliente.nombre || pushName,
@@ -904,7 +904,7 @@ export async function POST(req: NextRequest) {
           .eq("id", existing.id)
           .maybeSingle();
 
-        const currentCliente = typeof currentCase?.cliente === "object" ? currentCase.cliente : {};
+        const currentCliente = (currentCase?.cliente && typeof currentCase.cliente === "object") ? currentCase.cliente : {};
         const updatedCliente = { 
           ...currentCliente, 
           nombre: currentCliente.nombre || pushName,

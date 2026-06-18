@@ -430,7 +430,7 @@ Si algún dato no está presente, usa cadena vacía "". No inventes datos.`,
       }
 
       // Actualizar el campo cliente con los datos extraídos + teléfono existente
-      const currentCliente = typeof caso.cliente === "object" ? caso.cliente : {};
+      const currentCliente = (caso.cliente && typeof caso.cliente === "object") ? caso.cliente : {};
       const updatedCliente: Record<string, unknown> = { ...currentCliente };
       if (nombreExtraido) updatedCliente.nombre = nombreExtraido;
       if (correoExtraido) updatedCliente.correo = correoExtraido;
@@ -439,7 +439,7 @@ Si algún dato no está presente, usa cadena vacía "". No inventes datos.`,
       // Actualizar también el título del caso con el nombre real del cliente
       const nuevoTitle = nombreExtraido
         ? `WhatsApp — ${nombreExtraido}`
-        : (typeof caso.cliente === "object" && caso.cliente?.nombre ? `WhatsApp — ${caso.cliente.nombre}` : undefined);
+        : ((caso.cliente && typeof caso.cliente === "object" && caso.cliente?.nombre) ? `WhatsApp — ${caso.cliente.nombre}` : undefined);
 
       const directReplyText = "¿En relación con qué tema sería su consulta?";
       const listReply = {
