@@ -4,9 +4,8 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const NVIDIA_KEY   = Deno.env.get("NVIDIA_API_KEY") ?? "";
 const GEMINI_KEY   = Deno.env.get("GEMINI_API_KEY") ?? "";
+const OPENROUTER_KEY = Deno.env.get("OPENROUTER_API_KEY") ?? "";
 const NIM_BASE     = "https://integrate.api.nvidia.com/v1";
-const LLAMA_MODEL  = "meta/llama-3.2-11b-vision-instruct";
-const GEMINI_MODEL = "gemini-2.0-flash";
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
 
@@ -86,8 +85,50 @@ interface NimMessage {
   content: string | Array<{ type: string; text?: string; image_url?: { url: string } }>;
 }
 
-// ─── LLAMAR GEMINI (fallback) ────────────────────────────────────────────────
-async function callGeminiFallback(messages: NimMessage[]): Promise<string> {
+// ─── MOTOR DE IA RESILIENTE (AI ROUTER) ───────────────────────────────────────
+type AIProvider = "nvidia" | "openrouter" | "google";
+interface ModelConfig {
+  provider: AIProvider;
+  model: string;
+}
+
+const AI_FALLBACK_CHAIN: ModelConfig[] = [
+  { provider: "nvidia", model: "meta/llama-3.2-11b-vision-instruct" },
+  { provider: "nvidia", model: "meta/llama-3.2-90b-vision-instruct" },
+  { provider: "openrouter", model: "meta-llama/llama-3.2-11b-vision-instruct:free" },
+  { provider: "openrouter", model: "qwen/qwen-2-vl-7b-instruct:free" },
+  { provider: "google", model: "gemini-2.0-flash" },
+  { provider: "google", model: "gemini-1.5-flash" }
+];
+
+async function callNvidia(model: string, messages: NimMessage[]): Promise<string> {
+  const res = await fetch(`${NIM_BASE}/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${NVIDIA_KEY}` },
+    body: JSON.stringify({ model, messages, temperature: 0.2, max_tokens: 512, stream: false }),
+  });
+  if (!res.ok) throw new Error(`Status ${res.status}`);
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content?.trim() ?? "";
+}
+
+async function callOpenRouter(model: string, messages: NimMessage[]): Promise<string> {
+  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: { 
+      "Content-Type": "application/json", 
+      "Authorization": `Bearer ${OPENROUTER_KEY}`,
+      "HTTP-Referer": "https://sekunet.com",
+      "X-Title": "Chat Sekunet"
+    },
+    body: JSON.stringify({ model, messages, temperature: 0.2, max_tokens: 512, stream: false }),
+  });
+  if (!res.ok) throw new Error(`Status ${res.status}`);
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content?.trim() ?? "";
+}
+
+async function callGoogle(model: string, messages: NimMessage[]): Promise<string> {
   const system = messages.find(m => m.role === "system");
   const turns = messages.filter(m => m.role !== "system");
   const contents = turns.map(m => ({
@@ -96,43 +137,35 @@ async function callGeminiFallback(messages: NimMessage[]): Promise<string> {
   }));
   const body: any = { contents, generationConfig: { temperature: 0.2, maxOutputTokens: 512 } };
   if (system) body.systemInstruction = { parts: [{ text: system.content as string }] };
+  
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
     { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
   );
-  if (!res.ok) throw new Error(`gemini_fallback_error:${res.status}`);
+  if (!res.ok) throw new Error(`Status ${res.status}`);
   const data = await res.json();
   return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? "";
 }
 
-// ─── LLAMAR LLAMA VISION (con fallback Gemini) ───────────────────────────────
-async function callLlama(messages: NimMessage[]): Promise<string> {
-  try {
-    const res = await fetch(`${NIM_BASE}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${NVIDIA_KEY}`,
-      },
-      body: JSON.stringify({
-        model: LLAMA_MODEL,
-        messages,
-        temperature: 0.2,
-        max_tokens: 512,
-        stream: false,
-      }),
-    });
-    if (!res.ok) {
-      const err = await res.text();
-      console.error("[seka-widget] Llama error:", res.status, err);
-      throw new Error(`llama_error:${res.status}`);
+async function callAIWithFallbacks(messages: NimMessage[]): Promise<string> {
+  const errors: string[] = [];
+  
+  for (const config of AI_FALLBACK_CHAIN) {
+    try {
+      if (config.provider === "nvidia") {
+        return await callNvidia(config.model, messages);
+      } else if (config.provider === "openrouter") {
+        return await callOpenRouter(config.model, messages);
+      } else if (config.provider === "google") {
+        return await callGoogle(config.model, messages);
+      }
+    } catch (e: any) {
+      console.warn(`[AI Router] Falló ${config.provider} -> ${config.model}: ${e.message}`);
+      errors.push(`${config.model}(${e.message})`);
     }
-    const data = await res.json();
-    return data.choices?.[0]?.message?.content?.trim() ?? "";
-  } catch (e: any) {
-    console.warn("[seka-widget] Llama falló, usando Gemini como fallback:", e.message);
-    return await callGeminiFallback(messages);
   }
+  
+  throw new Error(`AI Router agotó todos los fallbacks. Errores: ${errors.join(", ")}`);
 }
 
 // ─── BUSCAR EN INVENTARIO ─────────────────────────────────────────────────────
@@ -306,8 +339,12 @@ Deno.serve(async (req: Request) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  let globalCaseId: string | null = null;
+  let globalHistCliente: HistMsg[] = [];
+
   try {
     const { case_id } = await req.json();
+    globalCaseId = case_id;
     if (!case_id) return new Response(JSON.stringify({ error: "case_id requerido" }), { status: 400, headers: corsHeaders });
 
     // Cargar caso
@@ -329,6 +366,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const histcliente: HistMsg[] = Array.isArray(caso.histcliente) ? caso.histcliente : [];
+    globalHistCliente = histcliente;
 
     // Filtrar mensajes reales (sin bienvenidas)
     const WELCOME_TEXTS_CHECK = [
@@ -408,7 +446,7 @@ Responde SOLO con JSON válido:
         { role: "system", content: supervisorPrompt },
         { role: "user", content: "Analiza la conversación y decide la siguiente acción." },
       ];
-      const supervisorRaw = await callLlama(supervisorMessages);
+      const supervisorRaw = await callAIWithFallbacks(supervisorMessages);
       console.log("[seka-widget] Supervisor raw:", supervisorRaw);
       const jsonMatch = supervisorRaw.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
@@ -423,7 +461,7 @@ Responde SOLO con JSON válido:
     if (!supervisorResult) {
       console.warn("[seka-widget] Supervisor falló, usando LLM directo como fallback");
       const messages = buildMessages(histcliente, null);
-      let rawReply = await callLlama(messages);
+      let rawReply = await callAIWithFallbacks(messages);
       let cleanReply = await processTags(rawReply, case_id);
       cleanReply = cleanReply.replace(/__INV__.*?__INV__/gs, "").trim();
       if (!cleanReply) return new Response(JSON.stringify({ ok: true, skipped: true }), { status: 200, headers: corsHeaders });
@@ -654,7 +692,7 @@ No agregues nada más.`,
               ],
             },
           ];
-          const visionRaw = await callLlama(visionMessages);
+          const visionRaw = await callAIWithFallbacks(visionMessages);
           const jsonMatch = visionRaw.match(/\{[\s\S]*\}/);
           if (jsonMatch) {
             const result = JSON.parse(jsonMatch[0]);
@@ -696,7 +734,7 @@ No agregues nada más.`,
               { role: "system", content: `Extrae el número de serie del siguiente XML. Responde SOLO con el S/N, nada más. Si no hay S/N, responde "NONE".` },
               { role: "user", content: xmlText.substring(0, 4000) },
             ];
-            const xmlRaw = await callLlama(xmlMessages);
+            const xmlRaw = await callAIWithFallbacks(xmlMessages);
             const cleaned = xmlRaw.trim().replace(/["`]/g, "");
             if (cleaned && cleaned !== "NONE" && cleaned.length > 3 && cleaned.length < 50) {
               snXml = cleaned;
@@ -770,7 +808,7 @@ No agregues nada más.`,
               ],
             },
           ];
-          const visionRaw = await callLlama(visionMessages);
+          const visionRaw = await callAIWithFallbacks(visionMessages);
           const jsonMatch = visionRaw.match(/\{[\s\S]*\}/);
           if (jsonMatch) {
             const result = JSON.parse(jsonMatch[0]);
@@ -871,7 +909,7 @@ No agregues nada más.`,
 
     // Construir mensajes y llamar a Llama
     const messages = buildMessages(histcliente, null);
-    let rawReply = await callLlama(messages);
+    let rawReply = await callAIWithFallbacks(messages);
     console.log("[seka-widget] Raw reply:", rawReply);
 
     // Si Llama emitió [BUSCAR_INVENTARIO], resolver y rellamar con resultado como system message
@@ -885,7 +923,7 @@ No agregues nada más.`,
 
         // Agregar resultado como mensaje system y rellamar
         const messages2 = [...messages, { role: "system" as const, content: invResult }];
-        rawReply = await callLlama(messages2);
+        rawReply = await callAIWithFallbacks(messages2);
         console.log("[seka-widget] Reply tras inventario:", rawReply);
       }
     }
@@ -926,7 +964,37 @@ No agregues nada más.`,
     });
 
   } catch (e: any) {
-    console.error("[seka-widget] ERROR:", e.message);
+    console.error("[seka-widget] ERROR CRITICO:", e.message);
+    
+    // Paracaídas de Emergencia (Panic Fallback)
+    if (globalCaseId) {
+      try {
+        const M02_PANIC = "En este momento nuestros sistemas automatizados están experimentando intermitencias. Su chat ha sido transferido y en un momento será atendido por uno de nuestros agentes.";
+        const newMsg: HistMsg = {
+          role: "ia",
+          author: "Asistente Sekunet (Emergencia)",
+          time: new Date().toISOString(),
+          content: M02_PANIC,
+        };
+        const updatedHist = [...globalHistCliente, newMsg];
+        await db.from("sek_cases").update({
+          histcliente: updatedHist,
+          estado: "escalado",
+          escalado_at: new Date().toISOString(),
+          n2_reason: "Falla crítica de IA (Panic Fallback)",
+        }).eq("id", globalCaseId);
+        
+        console.warn(`[seka-widget] Paracaídas activado para el caso ${globalCaseId}`);
+        // Retornamos 200 con el mensaje de pánico para que no se quede colgado
+        return new Response(JSON.stringify({ ok: true, reply: M02_PANIC }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      } catch (panicError: any) {
+        console.error("[seka-widget] Falla en el paracaídas de emergencia:", panicError.message);
+      }
+    }
+    
     return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: corsHeaders });
   }
 });
