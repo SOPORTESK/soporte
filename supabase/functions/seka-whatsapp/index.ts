@@ -436,226 +436,350 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify({ ok: true, reply: [directReply, msg1, msg2] }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // PASO 1: Segundo mensaje del usuario (datos proporcionados) → extraer datos y pedir tema
-    // También activar si el usuario ya respondió con datos aunque iaCount difiera (caso borde)
-    if (userCount === 2 && iaCount === 3) {
-      // Extraer nombre, correo y cuenta del mensaje del cliente usando IA
-      const datosMsg = userRealMsgs[userRealMsgs.length - 1]?.content ?? "";
-      let nombreExtraido = "";
-      let correoExtraido = "";
-      let cuentaExtraida = "";
+    // ═══════════════════════════════════════════════════════════════════════
+    // SUPERVISOR DE IA — Analiza cada mensaje del usuario con inteligencia
+    // ═══════════════════════════════════════════════════════════════════════
 
-      try {
-        const extractMessages: NimMessage[] = [
-          {
-            role: "system",
-            content: `Eres un extractor de datos de contacto. Del siguiente mensaje de un cliente, extrae:
-- nombre: el nombre completo de la persona
-- correo: el correo electrónico
-- cuenta: el nombre de la cuenta o empresa afiliada a Sekunet
+    // ── Paso 1: Construir resumen de la conversación para el Supervisor ──
+    const conversationSummary = allMsgs.map(m => {
+      const who = m.role === "user" ? "CLIENTE" : "ASISTENTE";
+      const hasMedia = m.mediaUrl ? ` [ADJUNTO: ${m.mediaType || "archivo"}${m.fileName ? " — " + m.fileName : ""}]` : "";
+      return `${who}: ${m.content || "(sin texto)"}${hasMedia}`;
+    }).join("\n");
 
-Responde SOLO con JSON válido: {"nombre": "...", "correo": "...", "cuenta": "..."}
-Si algún dato no está presente, usa cadena vacía "". No inventes datos.`,
-          },
-          { role: "user", content: datosMsg },
-        ];
-        const extractRaw = await callLlama(extractMessages);
-        const jsonMatch = extractRaw.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0]);
-          nombreExtraido = (parsed.nombre || "").trim();
-          correoExtraido = (parsed.correo || "").trim();
-          cuentaExtraida = (parsed.cuenta || "").trim();
-          console.log(`[seka-whatsapp] Datos extraídos - nombre: ${nombreExtraido}, correo: ${correoExtraido}, cuenta: ${cuentaExtraida}`);
-        }
-      } catch (e: any) {
-        console.error("[seka-whatsapp] Error extrayendo datos del cliente:", e.message);
+    // ── Paso 2: Consultar al Supervisor de IA ──
+    const supervisorPrompt = `Eres el Supervisor Inteligente del chat de soporte de Sekunet (Costa Rica). Tu trabajo es ANALIZAR la conversación completa y decidir qué información ya se recopiló y cuál falta.
+
+CONVERSACIÓN COMPLETA:
+${conversationSummary}
+
+DATOS ACTUALES DEL CASO EN BASE DE DATOS:
+- nombre: ${(caso.cliente as any)?.nombre || ""}
+- correo: ${(caso.cliente as any)?.correo || ""}
+- cuenta: ${(caso.cliente as any)?.cuenta || ""}
+
+CONTEXTO: El asistente sigue este flujo de recopilación de datos:
+1. Nombre, correo y cuenta del cliente
+2. Tema de consulta (Configuraciones, Reset, Desvinculación, Firmware, Software, Drivers, Licencias, Otro)
+3. Marca del equipo
+4. Modelo del equipo
+5. Para Reset/Desvinculación: imagen de etiqueta (y XML para Hikvision en Reset)
+6. Para otros temas: descripción del problema
+
+REGLAS DE ANÁLISIS:
+- Si el cliente envió un código como "DS-3E0505P-E-M", "NVR-108MH", "IPC-T221H" eso es un MODELO, no una marca. Los modelos suelen tener guiones, números y letras mezclados.
+- Si el cliente envió una sola palabra como "Hikvision", "Dahua", "Epcom", "ZKTeco", eso es una MARCA.
+- Si el cliente envió marca y modelo juntos (ej: "Hikvision DS-2CD2143G2-I"), extrae ambos.
+- Si el cliente envía un modelo sin marca, intenta inferir la marca por el prefijo (DS- = Hikvision, IPC-/NVR- puede ser Dahua, etc.).
+- Si el cliente ya proporcionó datos en mensajes anteriores, no los pidas de nuevo.
+- Si el cliente pide hablar con una persona/agente/humano, marca accion como "ESCALAR_INMEDIATO".
+- Si el cliente se despide (adiós, gracias, hasta luego), marca accion como "CERRAR".
+- Analiza errores tipográficos: "Hikvission" = "Hikvision", "Daua" = "Dahua".
+
+Responde SOLO con JSON válido:
+{
+  "nombre": "nombre extraído o vacío",
+  "correo": "correo extraído o vacío",
+  "cuenta": "cuenta/empresa extraída o vacía",
+  "tema": "uno de: Configuraciones|Reset|Desvinculación|Firmware|Software|Drivers|Licencias|Otro|null",
+  "marca": "marca detectada o inferida, o vacío",
+  "modelo": "modelo detectado, o vacío",
+  "tiene_imagen": true/false,
+  "tiene_xml": true/false,
+  "descripcion_problema": "si el cliente ya describió su problema, ponerlo aquí, sino vacío",
+  "accion": "una de: PEDIR_DATOS|PEDIR_TEMA|PEDIR_MARCA|PEDIR_MODELO|PEDIR_MARCA_Y_MODELO|BUSCAR_INVENTARIO|PEDIR_ETIQUETA|PEDIR_ETIQUETA_Y_XML|PEDIR_DESCRIPCION|ESCALAR|ESCALAR_INMEDIATO|CERRAR|CONTINUAR",
+  "razon": "explicación breve de por qué elegiste esa acción",
+  "respuesta_sugerida": "la respuesta que debería enviar el asistente al cliente (máx 2 oraciones, formal, sin emojis, tratando de usted)"
+}`;
+
+    let supervisorResult: any = null;
+    try {
+      const supervisorMessages: NimMessage[] = [
+        { role: "system", content: supervisorPrompt },
+        { role: "user", content: "Analiza la conversación y decide la siguiente acción." },
+      ];
+      const supervisorRaw = await callLlama(supervisorMessages);
+      console.log("[seka-whatsapp] Supervisor raw:", supervisorRaw);
+      const jsonMatch = supervisorRaw.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        supervisorResult = JSON.parse(jsonMatch[0]);
+        console.log("[seka-whatsapp] Supervisor result:", JSON.stringify(supervisorResult));
       }
-
-      // Lógica de unificación inteligente (Fuzzy Match) para la cuenta
-      if (cuentaExtraida && cuentaExtraida.trim().length > 2) {
-        try {
-          const levenshtein = (a: string, b: string): number => {
-            if (a.length === 0) return b.length;
-            if (b.length === 0) return a.length;
-            const matrix = Array(b.length + 1).fill(null).map(() => Array(a.length + 1).fill(null));
-            for (let i = 0; i <= a.length; i += 1) matrix[0][i] = i;
-            for (let j = 0; j <= b.length; j += 1) matrix[j][0] = j;
-            for (let j = 1; j <= b.length; j += 1) {
-              for (let i = 1; i <= a.length; i += 1) {
-                const ind = a[i - 1] === b[j - 1] ? 0 : 1;
-                matrix[j][i] = Math.min(matrix[j][i - 1] + 1, matrix[j - 1][i] + 1, matrix[j - 1][i - 1] + ind);
-              }
-            }
-            return matrix[b.length][a.length];
-          };
-
-          const { data: recentCases } = await db.from("sek_cases")
-            .select("cliente")
-            .order("created_at", { ascending: false })
-            .limit(500);
-
-          if (recentCases) {
-            const uniqueAccounts = new Set<string>();
-            for (const c of recentCases) {
-              if (c.cliente && typeof c.cliente === "object" && (c.cliente as any).cuenta) {
-                const acc = String((c.cliente as any).cuenta).trim();
-                if (acc.length > 2) uniqueAccounts.add(acc);
-              }
-            }
-
-            let bestMatch = cuentaExtraida;
-            let bestScore = 0;
-            const target = cuentaExtraida.toLowerCase();
-            
-            for (const acc of uniqueAccounts) {
-              const candidate = acc.toLowerCase();
-              if (candidate === target) {
-                bestMatch = acc;
-                bestScore = 1;
-                break;
-              }
-              const dist = levenshtein(target, candidate);
-              const score = 1 - (dist / Math.max(target.length, candidate.length));
-              
-              if (score > bestScore && score > 0.7) { // 70% de similitud mínima
-                bestScore = score;
-                bestMatch = acc;
-              }
-            }
-
-            if (bestScore > 0 && bestMatch !== cuentaExtraida) {
-              console.log(`[seka-whatsapp] Fuzzy match: unificando "${cuentaExtraida}" -> "${bestMatch}" (score: ${bestScore.toFixed(2)})`);
-              cuentaExtraida = bestMatch;
-            }
-          }
-        } catch (e: any) {
-          console.error("[seka-whatsapp] Error en fuzzy match de cuenta:", e.message);
-        }
-      }
-
-      // Actualizar el campo cliente con los datos extraídos + teléfono existente
-      const currentCliente = (caso.cliente && typeof caso.cliente === "object") ? caso.cliente : {};
-      const updatedCliente: Record<string, unknown> = { ...currentCliente };
-      if (nombreExtraido) updatedCliente.nombre = nombreExtraido;
-      if (correoExtraido) updatedCliente.correo = correoExtraido;
-      if (cuentaExtraida) updatedCliente.cuenta = cuentaExtraida;
-
-      // Actualizar también el título del caso con el nombre real del cliente
-      const nuevoTitle = nombreExtraido
-        ? `WhatsApp — ${nombreExtraido}`
-        : ((caso.cliente && typeof caso.cliente === "object" && caso.cliente?.nombre) ? `WhatsApp — ${caso.cliente.nombre}` : undefined);
-
-      const directReplyText = `¿En relación con qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Drivers\n7. Licencias\n8. Otro\n\nResponda con el número o el nombre del tema.`;
-      
-      const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReplyText };
-
-      const updatePayload: Record<string, unknown> = {
-        histtecnico: [...histtecnico, newMsg],
-        cliente: updatedCliente,
-      };
-      if (nuevoTitle) updatePayload.title = nuevoTitle;
-
-      await db.from("sek_cases").update(updatePayload).eq("id", case_id);
-      return new Response(JSON.stringify({ ok: true, reply: directReplyText }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    } catch (e: any) {
+      console.error("[seka-whatsapp] Supervisor error:", e.message);
     }
 
-    // ─── ENRUTAMIENTO BASADO EN EL ÚLTIMO MENSAJE DE LA IA ───
-    const lastIAContent = lastIA?.content?.toLowerCase() || "";
-    const isAskingTopic = lastIAContent.includes("relación con qué tema");
-    const isAskingBrand = lastIAContent.includes("indíquenos la marca");
-    const isAskingModel = lastIAContent.includes("indicar el modelo");
-
-    // PASO 2: El usuario responde al tema -> Pedir marca
-    if (isAskingTopic && lastUserTime > lastIATime) {
-      const directReply = "Por favor, indíquenos la marca del equipo.";
-      const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
+    // ── Si el supervisor falló, usar fallback con el flujo anterior ──
+    if (!supervisorResult) {
+      console.warn("[seka-whatsapp] Supervisor falló, usando LLM directo como fallback");
+      const messages = buildMessages(histcliente, null);
+      let rawReply = await callLlama(messages);
+      let cleanReply = await processTags(rawReply, case_id);
+      cleanReply = cleanReply.replace(/__INV__.*?__INV__/gs, "").trim();
+      if (!cleanReply) return new Response(JSON.stringify({ ok: true, skipped: true }), { status: 200, headers: corsHeaders });
+      const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: cleanReply };
       await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
+      return new Response(JSON.stringify({ ok: true, reply: cleanReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ── Paso 3: Actualizar datos del cliente si el supervisor extrajo nuevos ──
+    const currentCliente = (caso.cliente && typeof caso.cliente === "object") ? caso.cliente : {};
+    const updatedCliente: Record<string, unknown> = { ...currentCliente };
+    let clienteChanged = false;
+    
+    if (supervisorResult.nombre && !(currentCliente as any).nombre) {
+      updatedCliente.nombre = supervisorResult.nombre;
+      clienteChanged = true;
+    }
+    if (supervisorResult.correo && !(currentCliente as any).correo) {
+      updatedCliente.correo = supervisorResult.correo;
+      clienteChanged = true;
+    }
+    if (supervisorResult.cuenta && !(currentCliente as any).cuenta) {
+      // Fuzzy match para la cuenta
+      let cuentaFinal = supervisorResult.cuenta;
+      try {
+        const levenshtein = (a: string, b: string): number => {
+          if (a.length === 0) return b.length;
+          if (b.length === 0) return a.length;
+          const matrix = Array(b.length + 1).fill(null).map(() => Array(a.length + 1).fill(null));
+          for (let i = 0; i <= a.length; i += 1) matrix[0][i] = i;
+          for (let j = 0; j <= b.length; j += 1) matrix[j][0] = j;
+          for (let j = 1; j <= b.length; j += 1) {
+            for (let i = 1; i <= a.length; i += 1) {
+              const ind = a[i - 1] === b[j - 1] ? 0 : 1;
+              matrix[j][i] = Math.min(matrix[j][i - 1] + 1, matrix[j - 1][i] + 1, matrix[j - 1][i - 1] + ind);
+            }
+          }
+          return matrix[b.length][a.length];
+        };
+        const { data: recentCases } = await db.from("sek_cases").select("cliente").order("created_at", { ascending: false }).limit(500);
+        if (recentCases) {
+          const uniqueAccounts = new Set<string>();
+          for (const c of recentCases) {
+            if (c.cliente && typeof c.cliente === "object" && (c.cliente as any).cuenta) {
+              const acc = String((c.cliente as any).cuenta).trim();
+              if (acc.length > 2) uniqueAccounts.add(acc);
+            }
+          }
+          const target = cuentaFinal.toLowerCase();
+          let bestMatch = cuentaFinal;
+          let bestScore = 0;
+          for (const acc of uniqueAccounts) {
+            const candidate = acc.toLowerCase();
+            if (candidate === target) { bestMatch = acc; bestScore = 1; break; }
+            const dist = levenshtein(target, candidate);
+            const score = 1 - (dist / Math.max(target.length, candidate.length));
+            if (score > bestScore && score > 0.7) { bestScore = score; bestMatch = acc; }
+          }
+          if (bestScore > 0 && bestMatch !== cuentaFinal) {
+            console.log(`[seka-whatsapp] Fuzzy match cuenta: "${cuentaFinal}" -> "${bestMatch}" (${bestScore.toFixed(2)})`);
+            cuentaFinal = bestMatch;
+          }
+        }
+      } catch (e: any) {
+        console.error("[seka-whatsapp] Fuzzy match error:", e.message);
+      }
+      updatedCliente.cuenta = cuentaFinal;
+      clienteChanged = true;
+    }
+
+    // Actualizar título si tenemos nombre
+    const nuevoTitle = (updatedCliente.nombre)
+      ? `WhatsApp — ${updatedCliente.nombre}`
+      : undefined;
+
+    // ── Paso 4: Ejecutar la ACCIÓN que decidió el Supervisor ──
+    const accion = (supervisorResult.accion || "CONTINUAR").toUpperCase();
+    const marcaSupervisor = supervisorResult.marca || "";
+    const modeloSupervisor = supervisorResult.modelo || "";
+    const temaSupervisor = supervisorResult.tema || tema;
+
+    console.log(`[seka-whatsapp] Supervisor acción: ${accion}, marca: ${marcaSupervisor}, modelo: ${modeloSupervisor}, tema: ${temaSupervisor}`);
+
+    // ── ACCIÓN: CERRAR ──
+    if (accion === "CERRAR") {
+      const M03_TEXT = "Ha sido un gusto atenderle. Si tiene alguna otra consulta, no dude en contactarnos nuevamente. ¡Que tenga un excelente día!";
+      const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M03_TEXT };
+      const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg], estado: "cerrado" };
+      if (clienteChanged) upd.cliente = updatedCliente;
+      await db.from("sek_cases").update(upd).eq("id", case_id);
+      return new Response(JSON.stringify({ ok: true, reply: M03_TEXT }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ── ACCIÓN: ESCALAR INMEDIATO (cliente pidió hablar con un humano) ──
+    if (accion === "ESCALAR_INMEDIATO") {
+      const M02_TEXT = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
+      const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M02_TEXT };
+      const upd: Record<string, unknown> = {
+        histtecnico: [...histtecnico, newMsg],
+        estado: "escalado",
+        escalado_at: new Date().toISOString(),
+        n2_reason: "Solicitud directa del cliente",
+      };
+      if (clienteChanged) upd.cliente = updatedCliente;
+      if (nuevoTitle) upd.title = nuevoTitle;
+      await db.from("sek_cases").update(upd).eq("id", case_id);
+      return new Response(JSON.stringify({ ok: true, reply: M02_TEXT }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ── ACCIÓN: PEDIR DATOS (nombre, correo, cuenta) ──
+    if (accion === "PEDIR_DATOS") {
+      const directReply = supervisorResult.respuesta_sugerida || "Por favor, compártanos la siguiente información:\n• Nombre completo\n• Correo electrónico\n• Nombre de la cuenta afiliada a Sekunet";
+      const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
+      const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
+      if (clienteChanged) upd.cliente = updatedCliente;
+      await db.from("sek_cases").update(upd).eq("id", case_id);
       return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // PASO 3 Y 4: El usuario responde a la marca o al modelo
-    if ((isAskingBrand || isAskingModel) && lastUserTime > lastIATime) {
-      // Recopilar lo que el usuario ha dicho desde que se le pidió el tema
-      let userResponsesAfterTopic = "";
-      if (topiIdx >= 0) {
-        for (let i = topiIdx + 1; i < userRealMsgs.length; i++) {
-          userResponsesAfterTopic += userRealMsgs[i].content + " ";
-        }
-      } else {
-        userResponsesAfterTopic = lastUserMsg.content;
-      }
-
-      // Evaluar si en sus respuestas ya nos dio suficiente información para encontrar el modelo
-      const inv = await buscarInventario(userResponsesAfterTopic);
-
-      let directReply = "";
-      let skipToValidation = false;
-
-      // Si estábamos preguntando la marca, pero mágicamente ya encontró el inventario (ej. mandó el modelo directo)
-      if (isAskingBrand) {
-        if (inv.encontrado) {
-          // ¡Intuitivo! El usuario mandó el modelo de una vez y lo encontramos. Saltamos pedir modelo.
-          skipToValidation = true;
-        } else {
-          // No lo encontró directo, tal vez sí mandó solo la marca. Pedimos modelo.
-          directReply = "¿Nos podría indicar el modelo del equipo, por favor?";
-          const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
-          await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
-          return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        }
-      }
-
-      // Si estábamos preguntando el modelo, o si saltamos directo a validación
-      if (isAskingModel || skipToValidation) {
-        const esNegativaModelo = /^no\b|no (la |lo )?tengo|no s[eé]/i.test(lastUserMsg.content.trim());
-        
-        if (esNegativaModelo) {
-           if (tema === "Reset" || tema === "Desvinculación") {
-              directReply = "No se preocupe. Por favor, adjunte una imagen clara y legible de la etiqueta del equipo; allí suele venir el modelo.";
-              if (tema === "Reset" && /hik/i.test(userResponsesAfterTopic)) {
-                 directReply = "No se preocupe. Por favor, adjunte una imagen clara y legible de la etiqueta del equipo y el archivo XML (obtenido desde SAPD Tools). En la etiqueta podremos verificar el modelo.";
-              }
-           } else {
-              directReply = "Entendido. Para poder asistirle mejor, por favor describa brevemente el inconveniente que presenta.";
-           }
-        } else {
-           if (!inv.encontrado) {
-             directReply = "El dispositivo indicado no forma parte de los equipos distribuidos por Sekunet, por lo que lamentablemente no podemos brindarle el soporte requerido. ¿Tiene alguna otra consulta relacionada con nuestros productos?";
-           } else if (tema === "Reset") {
-             const esHikvision = /hik/i.test(inv.detalle || userResponsesAfterTopic);
-             directReply = esHikvision
-               ? "Como parte de los requisitos del fabricante, requerimos una imagen clara y legible de la etiqueta del equipo y el archivo XML, el cual puede obtener mediante la herramienta SAPD Tools en la opción \"Olvidé mi contraseña\", ubicada en la parte inferior derecha del software. Por favor, adjunte ambos archivos."
-               : "Por favor, adjunte una imagen clara y legible de la etiqueta del equipo.";
-           } else if (tema === "Desvinculación") {
-             directReply = "Como parte de los requisitos del fabricante, requerimos una imagen clara y legible de la etiqueta del equipo. Por favor, adjunte esta imagen.";
-           } else {
-             directReply = "Por favor, describa brevemente el inconveniente que presenta.";
-           }
-        }
-        
-        const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
-        await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
-        return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
+    // ── ACCIÓN: PEDIR TEMA ──
+    if (accion === "PEDIR_TEMA") {
+      const directReply = `¿En relación con qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Drivers\n7. Licencias\n8. Otro\n\nResponda con el número o el nombre del tema.`;
+      const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
+      const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
+      if (clienteChanged) upd.cliente = updatedCliente;
+      if (nuevoTitle) upd.title = nuevoTitle;
+      await db.from("sek_cases").update(upd).eq("id", case_id);
+      return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // PASO RESET-4: verificar archivos según marca
+    // ── ACCIÓN: PEDIR MARCA ──
+    if (accion === "PEDIR_MARCA") {
+      const directReply = supervisorResult.respuesta_sugerida || "Por favor, indíquenos la marca del equipo.";
+      const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
+      const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
+      if (clienteChanged) upd.cliente = updatedCliente;
+      await db.from("sek_cases").update(upd).eq("id", case_id);
+      return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ── ACCIÓN: PEDIR MODELO ──
+    if (accion === "PEDIR_MODELO") {
+      const directReply = supervisorResult.respuesta_sugerida || "¿Nos podría indicar el modelo del equipo, por favor?";
+      const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
+      const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
+      if (clienteChanged) upd.cliente = updatedCliente;
+      await db.from("sek_cases").update(upd).eq("id", case_id);
+      return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ── ACCIÓN: PEDIR MARCA Y MODELO (cuando no tiene ninguno) ──
+    if (accion === "PEDIR_MARCA_Y_MODELO") {
+      const directReply = supervisorResult.respuesta_sugerida || "Por favor, indíquenos la marca y el modelo del equipo.";
+      const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
+      const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
+      if (clienteChanged) upd.cliente = updatedCliente;
+      await db.from("sek_cases").update(upd).eq("id", case_id);
+      return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ── ACCIÓN: BUSCAR_INVENTARIO (tiene marca y/o modelo, verificar en BD) ──
+    if (accion === "BUSCAR_INVENTARIO") {
+      const searchQuery = `${marcaSupervisor} ${modeloSupervisor}`.trim();
+      const inv = await buscarInventario(searchQuery);
+      
+      let directReply: string;
+      if (!inv.encontrado) {
+        directReply = "El dispositivo indicado no forma parte de los equipos distribuidos por Sekunet, por lo que lamentablemente no podemos brindarle el soporte requerido. ¿Tiene alguna otra consulta relacionada con nuestros productos?";
+      } else if (temaSupervisor === "Reset") {
+        const esHikvision = /hik/i.test(inv.detalle || marcaSupervisor);
+        directReply = esHikvision
+          ? "Como parte de los requisitos del fabricante, requerimos una imagen clara y legible de la etiqueta del equipo y el archivo XML, el cual puede obtener mediante la herramienta SAPD Tools en la opción \"Olvidé mi contraseña\", ubicada en la parte inferior derecha del software. Por favor, adjunte ambos archivos."
+          : "Por favor, adjunte una imagen clara y legible de la etiqueta del equipo.";
+      } else if (temaSupervisor === "Desvinculación") {
+        directReply = "Como parte de los requisitos del fabricante, requerimos una imagen clara y legible de la etiqueta del equipo. Por favor, adjunte esta imagen.";
+      } else {
+        directReply = "Por favor, describa brevemente el inconveniente que presenta.";
+      }
+      
+      const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
+      const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
+      if (clienteChanged) upd.cliente = updatedCliente;
+      if (inv.encontrado && (marcaSupervisor || modeloSupervisor)) {
+        upd.title = `${temaSupervisor} — ${inv.detalle}`.substring(0, 120);
+      }
+      await db.from("sek_cases").update(upd).eq("id", case_id);
+      return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ── ACCIÓN: PEDIR ETIQUETA (Reset/Desvinculación — no Hikvision) ──
+    if (accion === "PEDIR_ETIQUETA") {
+      const directReply = supervisorResult.respuesta_sugerida || "Por favor, adjunte una imagen clara y legible de la etiqueta del equipo.";
+      const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
+      const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
+      if (clienteChanged) upd.cliente = updatedCliente;
+      await db.from("sek_cases").update(upd).eq("id", case_id);
+      return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ── ACCIÓN: PEDIR ETIQUETA Y XML (Reset Hikvision) ──
+    if (accion === "PEDIR_ETIQUETA_Y_XML") {
+      const directReply = supervisorResult.respuesta_sugerida || "Como parte de los requisitos del fabricante, requerimos una imagen clara y legible de la etiqueta del equipo y el archivo XML, el cual puede obtener mediante la herramienta SAPD Tools en la opción \"Olvidé mi contraseña\", ubicada en la parte inferior derecha del software. Por favor, adjunte ambos archivos.";
+      const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
+      const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
+      if (clienteChanged) upd.cliente = updatedCliente;
+      await db.from("sek_cases").update(upd).eq("id", case_id);
+      return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ── ACCIÓN: PEDIR DESCRIPCIÓN (temas que no son Reset/Desvinculación) ──
+    if (accion === "PEDIR_DESCRIPCION") {
+      const directReply = supervisorResult.respuesta_sugerida || "Por favor, describa brevemente el inconveniente que presenta.";
+      const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
+      const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
+      if (clienteChanged) upd.cliente = updatedCliente;
+      await db.from("sek_cases").update(upd).eq("id", case_id);
+      return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ── ACCIÓN: ESCALAR (todo listo, pasar a humano) ──
+    if (accion === "ESCALAR") {
+      const M02_TEXT = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
+      const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M02_TEXT };
+      const upd: Record<string, unknown> = {
+        histtecnico: [...histtecnico, newMsg],
+        estado: "escalado",
+        escalado_at: new Date().toISOString(),
+      };
+      if (clienteChanged) upd.cliente = updatedCliente;
+      if (marcaSupervisor || modeloSupervisor) {
+        upd.title = `${temaSupervisor} — ${marcaSupervisor} ${modeloSupervisor}`.trim().substring(0, 120);
+      } else if (nuevoTitle) {
+        upd.title = nuevoTitle;
+      }
+      await db.from("sek_cases").update(upd).eq("id", case_id);
+      return new Response(JSON.stringify({ ok: true, reply: M02_TEXT }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ── ACCIÓN: CONTINUAR (el supervisor sugiere una respuesta libre/contextual) ──
+    // Esto es para casos donde el supervisor entiende el contexto pero la acción no cae en ninguna categoría fija.
+    // Ejemplo: el cliente pregunta algo fuera de lo esperado, pide aclaración, etc.
+    if (supervisorResult.respuesta_sugerida) {
+      const directReply = supervisorResult.respuesta_sugerida;
+      const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
+      const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
+      if (clienteChanged) upd.cliente = updatedCliente;
+      if (nuevoTitle) upd.title = nuevoTitle;
+      await db.from("sek_cases").update(upd).eq("id", case_id);
+      return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ── PASO RESET-4: verificar archivos según marca (se mantiene la lógica de seguridad) ──
     const MSG_RESET_PIDE_ARCHIVOS = "imagen clara y legible de la etiqueta";
     const MSG_RESET_PIDE_IMAGEN = "adjunte nuevamente una imagen clara";
     const MSG_RESET_PIDE_XML = "adjunte nuevamente el archivo XML";
     if ((lastIA?.content?.includes(MSG_RESET_PIDE_ARCHIVOS) || lastIA?.content?.includes(MSG_RESET_PIDE_IMAGEN) || lastIA?.content?.includes(MSG_RESET_PIDE_XML)) && lastUserTime > lastIATime) {
-      const modeloMsg = topiIdx >= 0 ? userRealMsgs[topiIdx + 2] : null;
-      const modeloTime = modeloMsg ? new Date(modeloMsg.time ?? 0).getTime() : 0;
-      const mensajesDesdePedido = userRealMsgs.filter(m => {
+      // Buscar archivos en mensajes recientes
+      const recentUserMsgs = userRealMsgs.filter(m => {
         const mTime = new Date(m.time ?? 0).getTime();
-        return mTime > modeloTime;
+        return mTime > lastIATime - 60000; // Mensajes del último minuto antes y después del pedido de la IA
       });
       
-      const marca = topiIdx >= 0 ? (userRealMsgs[topiIdx + 1]?.content?.trim() ?? "") : "";
-      const modelo = topiIdx >= 0 ? (userRealMsgs[topiIdx + 2]?.content?.trim() ?? "") : "";
+      const marca = marcaSupervisor || "";
+      const modelo = modeloSupervisor || "";
 
-      const tieneArchivos = mensajesDesdePedido.some(m => m.mediaUrl);
+      const tieneArchivos = recentUserMsgs.some(m => m.mediaUrl);
       if (!tieneArchivos) {
         const ultimoMsj = userRealMsgs[userRealMsgs.length - 1]?.content?.trim().toLowerCase() || "";
         const esEspera = /esper|minut|dame|deme|un momento|ahorita|voy|ya casi/i.test(ultimoMsj);
@@ -664,6 +788,7 @@ Si algún dato no está presente, usa cadena vacía "". No inventes datos.`,
            return new Response(JSON.stringify({ ok: true, skipped: true }), { status: 200, headers: corsHeaders });
         }
         
+        // Usar IA para ayudar al cliente a encontrar la etiqueta
         const msgs = buildMessages(histcliente, null);
         msgs[0].content += `\n\nATENCIÓN: El sistema está esperando que el cliente adjunte una fotografía de la etiqueta del equipo (marca: ${marca}, modelo: ${modelo}) para continuar. El cliente ha respondido sin adjuntar foto.
 Ayúdele indicando amablemente dónde suele ubicarse la etiqueta en este tipo de equipos.
@@ -673,7 +798,6 @@ IMPORTANTE: Al finalizar, recuérdele amablemente que es indispensable adjuntar 
         aiReply = await processTags(aiReply, case_id);
         aiReply = aiReply.replace(/__INV__.*?__INV__/gs, "").trim();
 
-        // Agregar forzosamente la frase gatillo para asegurar que la siguiente vez la condición de "PIDE_ARCHIVOS" siga activa
         if (!aiReply.toLowerCase().includes("imagen clara y legible de la etiqueta")) {
            aiReply += "\n\nPor favor, asegúrese de enviarnos una imagen clara y legible de la etiqueta para poder continuar.";
         }
@@ -684,10 +808,10 @@ IMPORTANTE: Al finalizar, recuérdele amablemente que es indispensable adjuntar 
       }
       const esHikvision = /hik/i.test(marca);
 
-      // Buscar archivos en todos los mensajes desde el pedido
+      // Buscar archivos en todos los mensajes recientes
       let imagenUrl: string | null = null;
       let xmlUrl: string | null = null;
-      for (const m of mensajesDesdePedido) {
+      for (const m of recentUserMsgs) {
         if (m.mediaUrl) {
           const mType = (m.mediaType || "").toLowerCase();
           const mName = (m.fileName || "").toLowerCase();
@@ -701,10 +825,10 @@ IMPORTANTE: Al finalizar, recuérdele amablemente que es indispensable adjuntar 
         }
       }
 
-      console.log("[seka-whatsapp] Archivos recibidos - imagen:", !!imagenUrl, "XML:", !!xmlUrl, "esHikvision:", esHikvision, "totalMsgs:", mensajesDesdePedido.length);
+      console.log("[seka-whatsapp] Archivos recibidos - imagen:", !!imagenUrl, "XML:", !!xmlUrl, "esHikvision:", esHikvision, "totalMsgs:", recentUserMsgs.length);
 
       // Para Hikvision (en Reset): requiere ambos archivos
-      if (esHikvision && tema === "Reset") {
+      if (esHikvision && temaSupervisor === "Reset") {
         if (!imagenUrl && !xmlUrl) {
           const retry = "Por favor, adjunte la imagen de la etiqueta del equipo y el archivo XML.";
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: retry };
@@ -724,7 +848,6 @@ IMPORTANTE: Al finalizar, recuérdele amablemente que es indispensable adjuntar 
           return new Response(JSON.stringify({ ok: true, reply: retry }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
       } else {
-        // Para otras marcas: solo requiere imagen
         if (!imagenUrl) {
           const retry = "Por favor, adjunte una imagen clara y legible de la etiqueta del equipo.";
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: retry };
@@ -739,9 +862,7 @@ IMPORTANTE: Al finalizar, recuérdele amablemente que es indispensable adjuntar 
       let motivoImagen = "";
       let motivoXml = "";
 
-      // Verificar según la marca (Hikvision en Reset)
-      if (esHikvision && tema === "Reset") {
-        // Hikvision: extraer y comparar S/N
+      if (esHikvision && temaSupervisor === "Reset") {
         let snImagen = "";
         let imagenLegible = false;
         try {
@@ -774,14 +895,12 @@ No agregues nada más.`,
           motivoImagen = "no fue posible analizar la imagen";
         }
 
-        // Extraer S/N del XML directamente (sin LLM)
         let snXml = "";
         let xmlValido = false;
         try {
           const xmlResponse = await fetch(xmlUrl!);
           const xmlText = await xmlResponse.text();
           console.log("[seka-whatsapp] XML content (first 500):", xmlText.substring(0, 500));
-          // Buscar S/N con patrones comunes de Hikvision SAPD Tools
           const snPatterns = [
             /<serialNumber>([^<]+)<\/serialNumber>/i,
             /<deviceSerialNo>([^<]+)<\/deviceSerialNo>/i,
@@ -801,7 +920,6 @@ No agregues nada más.`,
               break;
             }
           }
-          // Fallback: si no matcheó ningún patrón, usar LLM
           if (!snXml) {
             console.log("[seka-whatsapp] No se encontró S/N con regex, usando LLM...");
             const xmlMessages: NimMessage[] = [
@@ -823,20 +941,16 @@ No agregues nada más.`,
           motivoXml = "no fue posible leer el archivo XML";
         }
 
-        // Comparar S/N y determinar si ambos son válidos
         imagenOk = imagenLegible && snImagen.length > 0;
         xmlOk = xmlValido && snXml.length > 0;
         
-        // Si ambos tienen S/N, verificar que coincidan (comparación flexible)
         let snCoinciden = false;
         if (imagenOk && xmlOk) {
           const normalizeSn = (sn: string) => sn.replace(/[\s\-_\.]/g, "").toUpperCase();
           const nImg = normalizeSn(snImagen);
           const nXml = normalizeSn(snXml);
-          // Exacto, uno contiene al otro, o comparten >=6 chars consecutivos
           snCoinciden = nImg === nXml || nImg.includes(nXml) || nXml.includes(nImg);
           if (!snCoinciden && nImg.length >= 6 && nXml.length >= 6) {
-            // Buscar subcadena común de al menos 6 caracteres
             for (let len = Math.min(nImg.length, nXml.length); len >= 6; len--) {
               for (let i = 0; i <= nImg.length - len; i++) {
                 if (nXml.includes(nImg.substring(i, i + len))) { snCoinciden = true; break; }
@@ -852,7 +966,6 @@ No agregues nada más.`,
 
         console.log("[seka-whatsapp] S/N - imagen:", JSON.stringify(snImagen), "XML:", JSON.stringify(snXml), "coinciden:", snCoinciden);
 
-        // Si ambos pasaron Y los S/N coinciden → escalar normalmente
         if (imagenOk && xmlOk && snCoinciden) {
           const M02_TEXT = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M02_TEXT };
@@ -860,22 +973,19 @@ No agregues nada más.`,
             histtecnico: [...histtecnico, newMsg],
             estado: "escalado",
             escalado_at: new Date().toISOString(),
-            title: `${tema} — ${marca} ${modelo}`.substring(0, 120),
-            tags: [tema === "Desvinculación" ? "desvinculacion" : "reset", "n2"],
+            title: `${temaSupervisor} — ${marca} ${modelo}`.substring(0, 120),
+            tags: [temaSupervisor === "Desvinculación" ? "desvinculacion" : "reset"],
           }).eq("id", case_id);
           return new Response(JSON.stringify({ ok: true, reply: M02_TEXT }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
 
-        // Si ambos archivos tienen S/N válido PERO no coinciden → pedir de nuevo
         if (imagenOk && xmlOk && !snCoinciden) {
-          // Marcar ambos como fallidos para que la lógica de reintento los pida de nuevo
           imagenOk = false;
           xmlOk = false;
           motivoImagen = "el número de serie de la imagen no coincide con el del archivo XML";
           motivoXml = "el número de serie del XML no coincide con el de la imagen";
         }
       } else {
-        // Otras marcas: solo verificar imagen (legible + coincide marca/modelo)
         try {
           const visionMessages: NimMessage[] = [
             {
@@ -907,7 +1017,6 @@ No agregues nada más.`,
 
         console.log("[seka-whatsapp] Verificación imagen (no Hikvision):", imagenOk);
 
-        // Si la imagen es válida → escalar
         if (imagenOk) {
           const M02_TEXT = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M02_TEXT };
@@ -915,141 +1024,84 @@ No agregues nada más.`,
             histtecnico: [...histtecnico, newMsg],
             estado: "escalado",
             escalado_at: new Date().toISOString(),
-            title: `${tema} — ${marca} ${modelo}`.substring(0, 120),
-            tags: [tema === "Desvinculación" ? "desvinculacion" : "reset", "n2"],
+            title: `${temaSupervisor} — ${marca} ${modelo}`.substring(0, 120),
+            tags: [temaSupervisor === "Desvinculación" ? "desvinculacion" : "reset"],
           }).eq("id", case_id);
           return new Response(JSON.stringify({ ok: true, reply: M02_TEXT }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
       }
 
-      // Si alguno falló → manejar según marca y archivo específico
+      // Si alguno falló → manejar reintentos
       const yaReintentoImagen = iaRealMsgs.some(m => m.content?.includes(MSG_RESET_PIDE_IMAGEN));
       const yaReintentoXML = iaRealMsgs.some(m => m.content?.includes(MSG_RESET_PIDE_XML));
 
-      if (esHikvision && tema === "Reset") {
-        // Hikvision: manejo de ambos archivos
+      if (esHikvision && temaSupervisor === "Reset") {
         if (!imagenOk && !xmlOk) {
-          // Ambos fallaron y ya se reintentó → escalar con nota
           if (yaReintentoImagen && yaReintentoXML) {
             const M02_TEXT = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
             const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M02_TEXT };
             await db.from("sek_cases").update({
-              histtecnico: [...histtecnico, newMsg],
-              estado: "escalado",
-              escalado_at: new Date().toISOString(),
-              title: `${tema} — ${marca} ${modelo} — verificación pendiente`.substring(0, 120),
-              tags: [tema === "Desvinculación" ? "desvinculacion" : "reset", "n2", "verificacion_pendiente"],
+              histtecnico: [...histtecnico, newMsg], estado: "escalado", escalado_at: new Date().toISOString(),
+              title: `${temaSupervisor} — ${marca} ${modelo} — verificación pendiente`.substring(0, 120),
+              tags: ["reset", "verificacion_pendiente"],
             }).eq("id", case_id);
             return new Response(JSON.stringify({ ok: true, reply: M02_TEXT }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
           }
-          // Primer fallo de ambos → pedir ambos de nuevo
           const retry = `Le informamos que ${motivoImagen} y ${motivoXml}. Por favor, adjunte nuevamente ambos archivos.`;
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: retry };
           await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
           return new Response(JSON.stringify({ ok: true, reply: retry }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
-
         if (!imagenOk) {
-          // Imagen falló
           if (yaReintentoImagen) {
-            // Ya se reintentó → escalar con nota
             const M02_TEXT = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
             const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M02_TEXT };
             await db.from("sek_cases").update({
-              histtecnico: [...histtecnico, newMsg],
-              estado: "escalado",
-              escalado_at: new Date().toISOString(),
-              title: `${tema} — ${marca} ${modelo} — imagen pendiente`.substring(0, 120),
-              tags: [tema === "Desvinculación" ? "desvinculacion" : "reset", "n2", "imagen_pendiente"],
+              histtecnico: [...histtecnico, newMsg], estado: "escalado", escalado_at: new Date().toISOString(),
+              title: `${temaSupervisor} — ${marca} ${modelo} — imagen pendiente`.substring(0, 120),
+              tags: ["reset", "imagen_pendiente"],
             }).eq("id", case_id);
             return new Response(JSON.stringify({ ok: true, reply: M02_TEXT }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
           }
-          // Primer fallo → pedir solo imagen
           const retry = `Le informamos que ${motivoImagen}. Por favor, adjunte nuevamente una imagen clara de la etiqueta del equipo.`;
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: retry };
           await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
           return new Response(JSON.stringify({ ok: true, reply: retry }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
-
         if (!xmlOk) {
-          // XML falló
           if (yaReintentoXML) {
-            // Ya se reintentó → escalar con nota
             const M02_TEXT = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
             const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M02_TEXT };
             await db.from("sek_cases").update({
-              histtecnico: [...histtecnico, newMsg],
-              estado: "escalado",
-              escalado_at: new Date().toISOString(),
-              title: `${tema} — ${marca} ${modelo} — XML pendiente`.substring(0, 120),
-              tags: [tema === "Desvinculación" ? "desvinculacion" : "reset", "n2", "xml_pendiente"],
+              histtecnico: [...histtecnico, newMsg], estado: "escalado", escalado_at: new Date().toISOString(),
+              title: `${temaSupervisor} — ${marca} ${modelo} — XML pendiente`.substring(0, 120),
+              tags: ["reset", "xml_pendiente"],
             }).eq("id", case_id);
             return new Response(JSON.stringify({ ok: true, reply: M02_TEXT }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
           }
-          // Primer fallo → pedir solo XML
           const retry = `Le informamos que ${motivoXml}. Por favor, adjunte nuevamente el archivo XML.`;
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: retry };
           await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
           return new Response(JSON.stringify({ ok: true, reply: retry }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
       } else {
-        // Otras marcas: solo manejo de imagen
         if (!imagenOk) {
           if (yaReintentoImagen) {
-            // Ya se reintentó → escalar con nota
             const M02_TEXT = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
             const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M02_TEXT };
             await db.from("sek_cases").update({
-              histtecnico: [...histtecnico, newMsg],
-              estado: "escalado",
-              escalado_at: new Date().toISOString(),
-              title: `${tema} — ${marca} ${modelo} — imagen pendiente`.substring(0, 120),
-              tags: [tema === "Desvinculación" ? "desvinculacion" : "reset", "n2", "imagen_pendiente"],
+              histtecnico: [...histtecnico, newMsg], estado: "escalado", escalado_at: new Date().toISOString(),
+              title: `${temaSupervisor} — ${marca} ${modelo} — imagen pendiente`.substring(0, 120),
+              tags: [temaSupervisor === "Desvinculación" ? "desvinculacion" : "reset", "imagen_pendiente"],
             }).eq("id", case_id);
             return new Response(JSON.stringify({ ok: true, reply: M02_TEXT }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
           }
-          // Primer fallo → pedir imagen de nuevo
           const retry = `Le informamos que ${motivoImagen}. Por favor, adjunte nuevamente una imagen clara de la etiqueta del equipo.`;
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: retry };
           await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
           return new Response(JSON.stringify({ ok: true, reply: retry }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
       }
-    }
-
-    // PASO 3b: la última IA preguntó si tiene otra consulta (fuera de cartera) → detectar Sí/No
-    const MSG_FUERA_CARTERA = "El dispositivo indicado no forma parte de los equipos distribuidos por Sekunet";
-    if (lastIA?.content?.includes(MSG_FUERA_CARTERA)) {
-      const respuesta = userRealMsgs[userRealMsgs.length - 1].content?.trim().toLowerCase() ?? "";
-      const esNo = /^no\b|^neg|^gracias|^no,|^no\s|^nop/.test(respuesta);
-      if (esNo) {
-        const M03_TEXT = "Ha sido un gusto atenderle. Si tiene alguna otra consulta, no dude en contactarnos nuevamente. ¡Que tenga un excelente día!";
-        const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M03_TEXT };
-        await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg], estado: "cerrado" }).eq("id", case_id);
-        return new Response(JSON.stringify({ ok: true, reply: M03_TEXT }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      } else {
-        // Sí → pedir descripción del inconveniente directamente (marca y modelo ya se tienen)
-        const directReply = "Por favor, describa brevemente el inconveniente que presenta.";
-        const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
-        await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
-        return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-    }
-
-
-    // PASO 4: la última IA pidió descripción Y el último usuario respondió después → escalar
-    if (lastIA?.content?.includes("describa brevemente") && lastUserTime > lastIATime) {
-      const descripcion = lastUserMsg?.content?.trim() ?? "";
-      const M02_TEXT = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
-      const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M02_TEXT };
-      await db.from("sek_cases").update({
-        histtecnico: [...histtecnico, newMsg],
-        estado: "escalado",
-        escalado_at: new Date().toISOString(),
-        title: `Widget — ${tema} — ${descripcion}`.substring(0, 120),
-        tags: ["n2"],
-      }).eq("id", case_id);
-      return new Response(JSON.stringify({ ok: true, reply: M02_TEXT }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // Construir mensajes y llamar a Llama
