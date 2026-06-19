@@ -149,13 +149,13 @@ export default async function EstadisticasAtencionPage() {
   const statsPorAgente: Record<string, {
     email: string; nombre: string; totalAtendidos: number; resueltos: number; activos: number;
     escalados: number; calificaciones: number[]; tiemposResolucion: number[]; ultimoCaso: string;
-    urgentes: number; casos7d: number; tiemposEfectivos: number[];
+    urgentes: number; casos7d: number; tiemposEfectivos: number[]; tiemposEspera: number[];
   }> = {};
 
   casosConAsig.forEach(caso => {
     const email = caso.assigned_to!.toLowerCase();
     if (!statsPorAgente[email]) {
-      statsPorAgente[email] = { email, nombre: agenteMap[email] || caso.assigned_to!, totalAtendidos: 0, resueltos: 0, activos: 0, escalados: 0, calificaciones: [], tiemposResolucion: [], ultimoCaso: caso.title || "Caso sin título", urgentes: 0, casos7d: 0, tiemposEfectivos: [] };
+      statsPorAgente[email] = { email, nombre: agenteMap[email] || caso.assigned_to!, totalAtendidos: 0, resueltos: 0, activos: 0, escalados: 0, calificaciones: [], tiemposResolucion: [], ultimoCaso: caso.title || "Caso sin título", urgentes: 0, casos7d: 0, tiemposEfectivos: [], tiemposEspera: [] };
     }
     const s = statsPorAgente[email];
     s.totalAtendidos++;
@@ -179,6 +179,17 @@ export default async function EstadisticasAtencionPage() {
       const te = tiempoEfectivo((caso as any).histtecnico, (caso as any).histcliente, (caso as any).accepted_at);
       if (te > 0) s.tiemposEfectivos.push(te);
     }
+    if (caso.accepted_at) {
+      const tAccepted = new Date(caso.accepted_at).getTime();
+      let lastMsgTime = new Date(caso.created_at).getTime();
+      const allMsgs = [...(Array.isArray((caso as any).histcliente) ? (caso as any).histcliente : []), ...(Array.isArray((caso as any).histtecnico) ? (caso as any).histtecnico : [])];
+      allMsgs.forEach((m: any) => {
+        const t = m.time ? new Date(m.time).getTime() : 0;
+        if (!isNaN(t) && t < tAccepted && t > lastMsgTime) lastMsgTime = t;
+      });
+      const espera = Math.round((tAccepted - lastMsgTime) / 60000);
+      if (espera >= 0) s.tiemposEspera.push(espera);
+    }
     const cal = getCal(caso); if (cal !== null) s.calificaciones.push(cal);
     if (caso.prioridad === "urgente") s.urgentes++;
     if (new Date(caso.created_at) >= hace7dias) s.casos7d++;
@@ -199,7 +210,9 @@ export default async function EstadisticasAtencionPage() {
     const tasaEsc = s.totalAtendidos > 0 ? Math.round((s.escalados / s.totalAtendidos) * 100) : 0;
     const avgEfectivo = s.tiemposEfectivos.length > 0
       ? Math.round(s.tiemposEfectivos.reduce((a, b) => a + b, 0) / s.tiemposEfectivos.length) : 0;
-    return { ...s, avgCalificacion: avgCal > 0 ? avgCal.toFixed(1) : "N/A", avgSLA, tasa: Math.round(tasa), score, tasaEsc, avgEfectivo };
+    const avgEspera = s.tiemposEspera.length > 0
+      ? Math.round(s.tiemposEspera.reduce((a, b) => a + b, 0) / s.tiemposEspera.length) : 0;
+    return { ...s, avgCalificacion: avgCal > 0 ? avgCal.toFixed(1) : "N/A", avgSLA, tasa: Math.round(tasa), score, tasaEsc, avgEfectivo, avgEspera };
   }).sort((a, b) => b.score - a.score);
 
   // ── Canales / Categorías (solo humanos)
@@ -466,6 +479,8 @@ export default async function EstadisticasAtencionPage() {
                 Total: a.totalAtendidos, Resueltos: a.resueltos, Activos: a.activos,
                 Escalados: a.escalados, Tasa_Escalado_Pct: a.tasaEsc,
                 Calificacion_Avg: a.avgCalificacion, SLA_Avg_min: a.avgSLA,
+                Tiempo_Espera_Avg_min: a.avgEspera,
+                Tiempo_Efectivo_Avg_min: (a as any).avgEfectivo,
                 Urgentes: a.urgentes, Casos_7d: a.casos7d
               }))}
               fileName="Reporte_Desempeño_Atencion_Sekunet"
@@ -481,6 +496,7 @@ export default async function EstadisticasAtencionPage() {
                   <th className="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground">Score</th>
                   <th className="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground">Resueltos</th>
                   <th className="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground">Escalados</th>
+                  <th className="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground whitespace-nowrap">T. Espera</th>
                   <th className="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground">SLA</th>
                   <th className="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground whitespace-nowrap">T. Efectivo</th>
                   <th className="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground">Rating</th>
@@ -526,6 +542,12 @@ export default async function EstadisticasAtencionPage() {
                       <td className="px-3 py-3 text-center">
                         <span className={`text-sm font-black tabular-nums ${a.tasaEsc > 15 ? "text-rose-500" : a.tasaEsc > 5 ? "text-amber-500" : "text-emerald-500"}`}>{a.tasaEsc}%</span>
                         <p className="text-[10px] text-muted-foreground">{a.escalados} casos</p>
+                      </td>
+                      <td className="px-3 py-3 text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          <Clock className="h-3 w-3 text-violet-500" />
+                          <span className="font-black tabular-nums text-violet-500 text-sm">{formatSLA((a as any).avgEspera)}</span>
+                        </div>
                       </td>
                       <td className="px-3 py-3 text-center">
                         <div className="flex items-center justify-center gap-1">
