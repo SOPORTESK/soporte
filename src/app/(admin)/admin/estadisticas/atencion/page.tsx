@@ -66,6 +66,22 @@ export default async function EstadisticasAtencionPage() {
   const slaGt4h = tiemposTodos.filter(t => t > 240).length;
   const avgSlaGlobal = tiemposTodos.length > 0 ? Math.round(tiemposTodos.reduce((a, b) => a + b, 0) / tiemposTodos.length) : 0;
 
+  // ── Tiempo en Cola (Wait Time): desde que pasa del Smart Agent hasta que el humano lo atiende (accepted_at)
+  const tiemposEspera = casosConAsig
+    .filter(c => c.accepted_at)
+    .map(c => {
+      const tAccepted = new Date(c.accepted_at!).getTime();
+      let lastMsgTime = new Date(c.created_at).getTime();
+      const allMsgs = [...(Array.isArray((c as any).histcliente) ? (c as any).histcliente : []), ...(Array.isArray((c as any).histtecnico) ? (c as any).histtecnico : [])];
+      allMsgs.forEach((m: any) => {
+        const t = m.time ? new Date(m.time).getTime() : 0;
+        if (!isNaN(t) && t < tAccepted && t > lastMsgTime) lastMsgTime = t;
+      });
+      return Math.round((tAccepted - lastMsgTime) / 60000);
+    })
+    .filter(t => t >= 0);
+  const avgEsperaGlobal = tiemposEspera.length > 0 ? Math.round(tiemposEspera.reduce((a, b) => a + b, 0) / tiemposEspera.length) : 0;
+
   // ── Prioridades (solo humanos)
   const prioridades: Record<string, number> = { urgente: 0, alta: 0, media: 0, baja: 0 };
   casosConAsig.forEach(c => { if (c.prioridad && prioridades[c.prioridad] !== undefined) prioridades[c.prioridad]++; });
@@ -230,13 +246,15 @@ export default async function EstadisticasAtencionPage() {
       </header>
 
       {/* ── KPIs FILA 1: Operacionales ── */}
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         {[
           { label: "Total Casos",      value: totalCasos.toString(),  icon: Users,        color: "text-brand-500",   bg: "bg-brand-500/10",   sub: `${totalActivos} activos ahora`              },
           { label: "Tasa Resolución",  value: `${tasaResolucion}%`,   icon: CheckCircle,  color: "text-emerald-500", bg: "bg-emerald-500/10", sub: `${totalResueltos} de ${totalCasos} resueltos` },
-          { label: "SLA Promedio",     value: formatSLA(avgSlaGlobal),icon: Clock,        color: "text-sky-500",     bg: "bg-sky-500/10",     sub: `Solo agentes humanos · ${tiemposTodos.length} medidos`   },
+          { label: "Tiempo en Cola",   value: formatSLA(avgEsperaGlobal), icon: Clock,    color: "text-violet-500",  bg: "bg-violet-500/10",  sub: `Espera por agente humano` },
+          { label: "SLA Promedio",     value: formatSLA(avgSlaGlobal),icon: Clock,        color: "text-sky-500",     bg: "bg-sky-500/10",     sub: `Tiempo resolviendo (agentes)`   },
           { label: "Satisfacción",     value: avgSatisfaccionGlobal !== "N/A" ? `${avgSatisfaccionGlobal}/5` : "—", icon: Star, color: "text-amber-400", bg: "bg-amber-400/10", sub: `${todasCals.length} calificaciones` },
         ].map((k, i) => (
+
           <div key={i} className="relative rounded-2xl border border-border bg-card p-5 overflow-hidden hover:shadow-xl hover:-translate-y-0.5 transition-all ring-1 ring-border/50">
             <div className={`absolute -top-8 -right-8 h-28 w-28 rounded-full ${k.bg} blur-2xl`} />
             <div className="relative">
