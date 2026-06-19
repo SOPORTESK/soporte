@@ -143,20 +143,28 @@ async function buscarInventario(query: string): Promise<{ encontrado: boolean; d
 
     const brandToken = tokens[0];
 
-    // PASO 1 OBLIGATORIO: verificar que la marca exista — si no, fin inmediato
+    // PASO 1: buscar en la base de datos (puede ser marca o modelo)
     const { data: brandRows } = await db
       .from("sek_inventario")
       .select("id,codigo,nombre,marca,modelo,categoria")
-      .ilike("marca", `%${brandToken}%`)
+      .or(`marca.ilike.%${brandToken}%,modelo.ilike.%${brandToken}%`)
       .limit(50);
 
     if (!brandRows || brandRows.length === 0) {
-      return { encontrado: false, detalle: `La marca "${brandToken}" no está en la cartera de Sekunet.` };
+      return { encontrado: false, detalle: `El equipo "${brandToken}" no está en la cartera de Sekunet.` };
     }
 
-    // PASO 2: dentro de los registros de esa marca, buscar el modelo
+    // Si encontramos una coincidencia directa del modelo con el primer token
+    const directModelMatch = brandRows.find(r => r.modelo && r.modelo.toLowerCase().includes(brandToken.toLowerCase()));
+    if (directModelMatch) {
+      return { 
+        encontrado: true, 
+        detalle: `Equipo en cartera: ${directModelMatch.marca} ${directModelMatch.modelo}${directModelMatch.nombre ? " — " + directModelMatch.nombre : ""}` 
+      };
+    }
+
+    // Si solo hay un token y coincidió con marca
     if (tokens.length === 1) {
-      // Solo se proporcionó marca — la marca existe
       return { encontrado: true, detalle: `Marca en cartera: ${brandRows[0].marca}` };
     }
 
@@ -552,58 +560,84 @@ Si algún dato no está presente, usa cadena vacía "". No inventes datos.`,
       return new Response(JSON.stringify({ ok: true, reply: directReplyText }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // PASO 2: Tercer mensaje del usuario (tema seleccionado) → pedir marca
-    if (userCount === 3 && iaCount === 4) {
+    // ─── ENRUTAMIENTO BASADO EN EL ÚLTIMO MENSAJE DE LA IA ───
+    const lastIAContent = lastIA?.content?.toLowerCase() || "";
+    const isAskingTopic = lastIAContent.includes("relación con qué tema");
+    const isAskingBrand = lastIAContent.includes("indíquenos la marca");
+    const isAskingModel = lastIAContent.includes("indicar el modelo");
+
+    // PASO 2: El usuario responde al tema -> Pedir marca
+    if (isAskingTopic && lastUserTime > lastIATime) {
       const directReply = "Por favor, indíquenos la marca del equipo.";
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
       await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
       return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // PASO 3: Cuarto mensaje del usuario (marca indicada) → pedir modelo
-    if (userCount === 4 && iaCount === 5) {
-      const directReply = "¿Nos podría indicar el modelo del equipo, por favor?";
-      const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
-      await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
-      return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-
-    // PASO 4: Quinto mensaje del usuario (modelo indicado) → buscar inventario
-    if (userCount === 5 && iaCount === 6) {
-      const marca = topiIdx >= 0 ? (userRealMsgs[topiIdx + 1]?.content?.trim() ?? "") : (userRealMsgs[3]?.content?.trim() ?? "");
-      const modelo = topiIdx >= 0 ? (userRealMsgs[topiIdx + 2]?.content?.trim() ?? "") : (userRealMsgs[4]?.content?.trim() ?? "");
-      
-      const esNegativaModelo = /^no\b|no (la |lo )?tengo|no s[eé]/i.test(modelo);
-      let directReply: string;
-      
-      if (esNegativaModelo) {
-         if (tema === "Reset" || tema === "Desvinculación") {
-            directReply = "No se preocupe. Por favor, adjunte una imagen clara y legible de la etiqueta del equipo; allí suele venir el modelo.";
-            if (tema === "Reset" && /hik/i.test(marca)) {
-               directReply = "No se preocupe. Por favor, adjunte una imagen clara y legible de la etiqueta del equipo y el archivo XML (obtenido desde SAPD Tools). En la etiqueta podremos verificar el modelo.";
-            }
-         } else {
-            directReply = "Entendido. Para poder asistirle mejor, por favor describa brevemente el inconveniente que presenta.";
-         }
+    // PASO 3 Y 4: El usuario responde a la marca o al modelo
+    if ((isAskingBrand || isAskingModel) && lastUserTime > lastIATime) {
+      // Recopilar lo que el usuario ha dicho desde que se le pidió el tema
+      let userResponsesAfterTopic = "";
+      if (topiIdx >= 0) {
+        for (let i = topiIdx + 1; i < userRealMsgs.length; i++) {
+          userResponsesAfterTopic += userRealMsgs[i].content + " ";
+        }
       } else {
-         const inv = await buscarInventario(`${marca} ${modelo}`);
-         if (!inv.encontrado) {
-           directReply = "El dispositivo indicado no forma parte de los equipos distribuidos por Sekunet, por lo que lamentablemente no podemos brindarle el soporte requerido. ¿Tiene alguna otra consulta relacionada con nuestros productos?";
-         } else if (tema === "Reset") {
-           const esHikvision = /hik/i.test(marca);
-           directReply = esHikvision
-             ? "Como parte de los requisitos del fabricante, requerimos una imagen clara y legible de la etiqueta del equipo y el archivo XML, el cual puede obtener mediante la herramienta SAPD Tools en la opción \"Olvidé mi contraseña\", ubicada en la parte inferior derecha del software. Por favor, adjunte ambos archivos."
-             : "Por favor, adjunte una imagen clara y legible de la etiqueta del equipo.";
-         } else if (tema === "Desvinculación") {
-           directReply = "Como parte de los requisitos del fabricante, requerimos una imagen clara y legible de la etiqueta del equipo. Por favor, adjunte esta imagen.";
-         } else {
-           directReply = "Por favor, describa brevemente el inconveniente que presenta.";
-         }
+        userResponsesAfterTopic = lastUserMsg.content;
       }
-      
-      const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
-      await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
-      return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+      // Evaluar si en sus respuestas ya nos dio suficiente información para encontrar el modelo
+      const inv = await buscarInventario(userResponsesAfterTopic);
+
+      let directReply = "";
+      let skipToValidation = false;
+
+      // Si estábamos preguntando la marca, pero mágicamente ya encontró el inventario (ej. mandó el modelo directo)
+      if (isAskingBrand) {
+        if (inv.encontrado) {
+          // ¡Intuitivo! El usuario mandó el modelo de una vez y lo encontramos. Saltamos pedir modelo.
+          skipToValidation = true;
+        } else {
+          // No lo encontró directo, tal vez sí mandó solo la marca. Pedimos modelo.
+          directReply = "¿Nos podría indicar el modelo del equipo, por favor?";
+          const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
+          await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
+          return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+      }
+
+      // Si estábamos preguntando el modelo, o si saltamos directo a validación
+      if (isAskingModel || skipToValidation) {
+        const esNegativaModelo = /^no\b|no (la |lo )?tengo|no s[eé]/i.test(lastUserMsg.content.trim());
+        
+        if (esNegativaModelo) {
+           if (tema === "Reset" || tema === "Desvinculación") {
+              directReply = "No se preocupe. Por favor, adjunte una imagen clara y legible de la etiqueta del equipo; allí suele venir el modelo.";
+              if (tema === "Reset" && /hik/i.test(userResponsesAfterTopic)) {
+                 directReply = "No se preocupe. Por favor, adjunte una imagen clara y legible de la etiqueta del equipo y el archivo XML (obtenido desde SAPD Tools). En la etiqueta podremos verificar el modelo.";
+              }
+           } else {
+              directReply = "Entendido. Para poder asistirle mejor, por favor describa brevemente el inconveniente que presenta.";
+           }
+        } else {
+           if (!inv.encontrado) {
+             directReply = "El dispositivo indicado no forma parte de los equipos distribuidos por Sekunet, por lo que lamentablemente no podemos brindarle el soporte requerido. ¿Tiene alguna otra consulta relacionada con nuestros productos?";
+           } else if (tema === "Reset") {
+             const esHikvision = /hik/i.test(inv.detalle || userResponsesAfterTopic);
+             directReply = esHikvision
+               ? "Como parte de los requisitos del fabricante, requerimos una imagen clara y legible de la etiqueta del equipo y el archivo XML, el cual puede obtener mediante la herramienta SAPD Tools en la opción \"Olvidé mi contraseña\", ubicada en la parte inferior derecha del software. Por favor, adjunte ambos archivos."
+               : "Por favor, adjunte una imagen clara y legible de la etiqueta del equipo.";
+           } else if (tema === "Desvinculación") {
+             directReply = "Como parte de los requisitos del fabricante, requerimos una imagen clara y legible de la etiqueta del equipo. Por favor, adjunte esta imagen.";
+           } else {
+             directReply = "Por favor, describa brevemente el inconveniente que presenta.";
+           }
+        }
+        
+        const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
+        await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
+        return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
     }
 
     // PASO RESET-4: verificar archivos según marca
