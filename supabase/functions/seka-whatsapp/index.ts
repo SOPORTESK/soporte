@@ -633,6 +633,17 @@ Responde SOLO con JSON válido:
 
     console.log(`[seka-whatsapp] Supervisor acción: ${accion}, marca: ${marcaSupervisor}, modelo: ${modeloSupervisor}, tema: ${temaSupervisor}`);
 
+    // ── REGLA DE NEGOCIO: SIN CUENTA ──
+    const cuentaDetectada = String(updatedCliente.cuenta || "").toLowerCase().trim();
+    if (cuentaDetectada === "sin cuenta" || cuentaDetectada === "no tengo" || cuentaDetectada === "cliente final") {
+      const M_NO_CUENTA = "Gracias por comunicarse con Sekunet. Nuestro servicio de soporte técnico es un beneficio exclusivo para nuestra red de clientes y distribuidores autorizados. Le recomendamos contactar a su proveedor directo o instalador para que pueda asistirle con su requerimiento. ¡Que tenga un excelente día!";
+      const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M_NO_CUENTA };
+      const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg], estado: "cerrado" };
+      if (clienteChanged) upd.cliente = updatedCliente;
+      await db.from("sek_cases").update(upd).eq("id", case_id);
+      return new Response(JSON.stringify({ ok: true, reply: M_NO_CUENTA }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     // ── ACCIÓN: CERRAR ──
     if (accion === "CERRAR") {
       const M03_TEXT = "Ha sido un gusto atenderle. Si tiene alguna otra consulta, no dude en contactarnos nuevamente. ¡Que tenga un excelente día!";

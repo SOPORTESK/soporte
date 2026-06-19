@@ -417,15 +417,13 @@ CONTEXTO: El asistente ya saludó al cliente y el cliente ya seleccionó un tema
 6. Escalado a agente humano
 
 REGLAS DE ANÁLISIS:
-- Si el cliente envió un código como "DS-3E0505P-E-M", "NVR-108MH", "IPC-T221H" eso es un MODELO, no una marca. Los modelos suelen tener guiones, números y letras mezclados.
+- Si el cliente envió un código como "DS-3E0505P-E-M", "NVR-108MH", "IPC-T221H" eso es un MODELO, no una marca.
 - Si el cliente envió una sola palabra como "Hikvision", "Dahua", "Epcom", "ZKTeco", eso es una MARCA.
-- Si el cliente envió marca y modelo juntos (ej: "Hikvision DS-2CD2143G2-I"), extrae ambos.
-- Si el cliente envía un modelo sin marca, intenta inferir la marca por el prefijo (DS- = Hikvision, IPC-/NVR- puede ser Dahua, etc.).
-- Si el cliente ya proporcionó datos en mensajes anteriores, no los pidas de nuevo.
+- Si el cliente envió marca y modelo juntos, extrae ambos. Si el cliente solo dio el modelo, NO pidas la marca de nuevo si ya la infieres o si ya dio el modelo. Si ya tienes modelo, la acción debe avanzar, nunca regreses a PEDIR_MARCA.
+- Si el cliente ya proporcionó datos (incluso si dijo que no tiene), NUNCA los pidas de nuevo.
 - Si el cliente pide hablar con una persona/agente/humano, marca accion como "ESCALAR_INMEDIATO".
 - Si el cliente se despide (adiós, gracias, hasta luego), marca accion como "CERRAR".
 - Analiza errores tipográficos: "Hikvission" = "Hikvision", "Daua" = "Dahua".
-- Si el asistente ya preguntó la marca y el cliente respondió con algo que parece un modelo (tiene guiones y números), NO pidas la marca de nuevo. Infiere la marca del modelo.
 
 Responde SOLO con JSON válido:
 {
@@ -477,6 +475,15 @@ Responde SOLO con JSON válido:
     const temaSupervisor = supervisorResult.tema || tema;
 
     console.log(`[seka-widget] Supervisor acción: ${accion}, marca: ${marcaSupervisor}, modelo: ${modeloSupervisor}, tema: ${temaSupervisor}`);
+
+    // ── REGLA DE NEGOCIO: SIN CUENTA ──
+    const cuentaDetectada = String(supervisorResult.cuenta || (caso.cliente as any)?.cuenta || "").toLowerCase().trim();
+    if (cuentaDetectada === "sin cuenta" || cuentaDetectada === "no tengo" || cuentaDetectada === "cliente final") {
+      const M_NO_CUENTA = "Gracias por comunicarse con Sekunet. Nuestro servicio de soporte técnico es un beneficio exclusivo para nuestra red de clientes y distribuidores autorizados. Le recomendamos contactar a su proveedor directo o instalador para que pueda asistirle con su requerimiento. ¡Que tenga un excelente día!";
+      const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M_NO_CUENTA };
+      await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg], estado: "cerrado" }).eq("id", case_id);
+      return new Response(JSON.stringify({ ok: true, reply: M_NO_CUENTA }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
 
     // ── ACCIÓN: CERRAR ──
     if (accion === "CERRAR") {
