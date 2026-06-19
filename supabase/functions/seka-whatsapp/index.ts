@@ -464,6 +464,68 @@ Si algún dato no está presente, usa cadena vacía "". No inventes datos.`,
         console.error("[seka-whatsapp] Error extrayendo datos del cliente:", e.message);
       }
 
+      // Lógica de unificación inteligente (Fuzzy Match) para la cuenta
+      if (cuentaExtraida && cuentaExtraida.trim().length > 2) {
+        try {
+          const levenshtein = (a: string, b: string): number => {
+            if (a.length === 0) return b.length;
+            if (b.length === 0) return a.length;
+            const matrix = Array(b.length + 1).fill(null).map(() => Array(a.length + 1).fill(null));
+            for (let i = 0; i <= a.length; i += 1) matrix[0][i] = i;
+            for (let j = 0; j <= b.length; j += 1) matrix[j][0] = j;
+            for (let j = 1; j <= b.length; j += 1) {
+              for (let i = 1; i <= a.length; i += 1) {
+                const ind = a[i - 1] === b[j - 1] ? 0 : 1;
+                matrix[j][i] = Math.min(matrix[j][i - 1] + 1, matrix[j - 1][i] + 1, matrix[j - 1][i - 1] + ind);
+              }
+            }
+            return matrix[b.length][a.length];
+          };
+
+          const { data: recentCases } = await db.from("sek_cases")
+            .select("cliente")
+            .order("created_at", { ascending: false })
+            .limit(500);
+
+          if (recentCases) {
+            const uniqueAccounts = new Set<string>();
+            for (const c of recentCases) {
+              if (c.cliente && typeof c.cliente === "object" && (c.cliente as any).cuenta) {
+                const acc = String((c.cliente as any).cuenta).trim();
+                if (acc.length > 2) uniqueAccounts.add(acc);
+              }
+            }
+
+            let bestMatch = cuentaExtraida;
+            let bestScore = 0;
+            const target = cuentaExtraida.toLowerCase();
+            
+            for (const acc of uniqueAccounts) {
+              const candidate = acc.toLowerCase();
+              if (candidate === target) {
+                bestMatch = acc;
+                bestScore = 1;
+                break;
+              }
+              const dist = levenshtein(target, candidate);
+              const score = 1 - (dist / Math.max(target.length, candidate.length));
+              
+              if (score > bestScore && score > 0.7) { // 70% de similitud mínima
+                bestScore = score;
+                bestMatch = acc;
+              }
+            }
+
+            if (bestScore > 0 && bestMatch !== cuentaExtraida) {
+              console.log(`[seka-whatsapp] Fuzzy match: unificando "${cuentaExtraida}" -> "${bestMatch}" (score: ${bestScore.toFixed(2)})`);
+              cuentaExtraida = bestMatch;
+            }
+          }
+        } catch (e: any) {
+          console.error("[seka-whatsapp] Error en fuzzy match de cuenta:", e.message);
+        }
+      }
+
       // Actualizar el campo cliente con los datos extraídos + teléfono existente
       const currentCliente = (caso.cliente && typeof caso.cliente === "object") ? caso.cliente : {};
       const updatedCliente: Record<string, unknown> = { ...currentCliente };
