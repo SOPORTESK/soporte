@@ -33,6 +33,10 @@ export async function DELETE(
       const name = parts[parts.length - 1];
       console.log("[DELETE /api/cases/[id]] Buscando casos con nombre de cliente:", name);
       query = query.ilike("cliente->>nombre", name);
+    } else if (id.startsWith("cuenta:")) {
+      const cuenta = id.substring(7);
+      console.log("[DELETE /api/cases/[id]] Buscando casos con cuenta B2B:", cuenta);
+      query = query.or(`cliente->>cuenta.ilike.${cuenta},cliente->>empresa.ilike.${cuenta}`);
     } else if (id.startsWith("case:")) {
       const caseId = id.substring(5);
       console.log("[DELETE /api/cases/[id]] Buscando caso individual por clave:", caseId);
