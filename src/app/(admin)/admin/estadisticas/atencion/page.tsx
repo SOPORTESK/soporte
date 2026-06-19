@@ -10,7 +10,7 @@ export default async function EstadisticasAtencionPage() {
 
   const { data: todosLosCasos } = await supabase
     .from("sek_cases")
-    .select("id, assigned_to, created_at, updated_at, estado, cliente, title, canal, cat, prioridad, histtecnico, histcliente, accepted_at");
+    .select("id, assigned_to, created_at, updated_at, estado, cliente, title, canal, cat, prioridad, histtecnico, histcliente, accepted_at, escalado_at");
 
   const casos = todosLosCasos || [];
 
@@ -182,11 +182,19 @@ export default async function EstadisticasAtencionPage() {
     if (caso.accepted_at) {
       const tAccepted = new Date(caso.accepted_at).getTime();
       let lastMsgTime = new Date(caso.created_at).getTime();
-      const allMsgs = [...(Array.isArray((caso as any).histcliente) ? (caso as any).histcliente : []), ...(Array.isArray((caso as any).histtecnico) ? (caso as any).histtecnico : [])];
-      allMsgs.forEach((m: any) => {
-        const t = m.time ? new Date(m.time).getTime() : 0;
-        if (!isNaN(t) && t < tAccepted && t > lastMsgTime) lastMsgTime = t;
-      });
+      
+      // Si la IA registró exactamente cuándo lo escaló, usamos eso como inicio de espera.
+      if (caso.escalado_at) {
+        lastMsgTime = new Date(caso.escalado_at).getTime();
+      } else {
+        // Fallback: usar el último mensaje antes de la aceptación
+        const allMsgs = [...(Array.isArray((caso as any).histcliente) ? (caso as any).histcliente : []), ...(Array.isArray((caso as any).histtecnico) ? (caso as any).histtecnico : [])];
+        allMsgs.forEach((m: any) => {
+          const t = m.time ? new Date(m.time).getTime() : 0;
+          if (!isNaN(t) && t < tAccepted && t > lastMsgTime) lastMsgTime = t;
+        });
+      }
+      
       const espera = Math.round((tAccepted - lastMsgTime) / 60000);
       if (espera >= 0) s.tiemposEspera.push(espera);
     }
