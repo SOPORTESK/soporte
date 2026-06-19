@@ -485,7 +485,6 @@ Deno.serve(async (req: Request) => {
       return `${who}: ${m.content || "(sin texto)"}${hasMedia}`;
     }).join("\n");
 
-    // ── Paso 2: Consultar al Supervisor de IA ──
     const supervisorPrompt = `Eres el Supervisor Inteligente del chat de soporte de Sekunet (Costa Rica). Tu trabajo es ANALIZAR la conversación completa y decidir qué información ya se recopiló y cuál falta.
 
 CONVERSACIÓN COMPLETA:
@@ -505,20 +504,19 @@ CONTEXTO: El asistente sigue este flujo de recopilación de datos:
 6. Para otros temas: descripción del problema
 
 REGLAS DE ANÁLISIS:
-- Si el cliente envió un código como "DS-3E0505P-E-M", "NVR-108MH", "IPC-T221H" eso es un MODELO, no una marca. Los modelos suelen tener guiones, números y letras mezclados.
+- Si el cliente indica que NO TIENE cuenta, empresa o correo (ej: "no tengo", "ninguna", "cliente final"), extrae ese campo como "Sin cuenta" o "Sin correo". ¡NUNCA lo dejes vacío y NO lo vuelvas a pedir!
+- Si el cliente envió un código como "DS-3E0505P-E-M", "NVR-108MH", "IPC-T221H" eso es un MODELO, no una marca.
 - Si el cliente envió una sola palabra como "Hikvision", "Dahua", "Epcom", "ZKTeco", eso es una MARCA.
-- Si el cliente envió marca y modelo juntos (ej: "Hikvision DS-2CD2143G2-I"), extrae ambos.
-- Si el cliente envía un modelo sin marca, intenta inferir la marca por el prefijo (DS- = Hikvision, IPC-/NVR- puede ser Dahua, etc.).
-- Si el cliente ya proporcionó datos en mensajes anteriores, no los pidas de nuevo.
+- Si el cliente envió marca y modelo juntos, extrae ambos. Si el cliente solo dio el modelo, NO pidas la marca. Si ya tienes modelo, la acción debe avanzar a BUSCAR_INVENTARIO o PEDIR_DESCRIPCION, nunca regreses a PEDIR_MARCA.
+- Si el cliente ya proporcionó datos (incluso si dijo que no tiene), NUNCA los pidas de nuevo.
 - Si el cliente pide hablar con una persona/agente/humano, marca accion como "ESCALAR_INMEDIATO".
 - Si el cliente se despide (adiós, gracias, hasta luego), marca accion como "CERRAR".
-- Analiza errores tipográficos: "Hikvission" = "Hikvision", "Daua" = "Dahua".
 
 Responde SOLO con JSON válido:
 {
   "nombre": "nombre extraído o vacío",
-  "correo": "correo extraído o vacío",
-  "cuenta": "cuenta/empresa extraída o vacía",
+  "correo": "correo extraído, 'Sin correo', o vacío",
+  "cuenta": "cuenta/empresa extraída, 'Sin cuenta', o vacía",
   "tema": "uno de: Configuraciones|Reset|Desvinculación|Firmware|Software|Drivers|Licencias|Otro|null",
   "marca": "marca detectada o inferida, o vacío",
   "modelo": "modelo detectado, o vacío",
@@ -536,7 +534,7 @@ Responde SOLO con JSON válido:
         { role: "system", content: supervisorPrompt },
         { role: "user", content: "Analiza la conversación y decide la siguiente acción." },
       ];
-      const supervisorRaw = await callLlama(supervisorMessages);
+      const supervisorRaw = await callAIWithFallbacks(supervisorMessages);
       console.log("[seka-whatsapp] Supervisor raw:", supervisorRaw);
       const jsonMatch = supervisorRaw.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
@@ -551,7 +549,7 @@ Responde SOLO con JSON válido:
     if (!supervisorResult) {
       console.warn("[seka-whatsapp] Supervisor falló, usando LLM directo como fallback");
       const messages = buildMessages(histcliente, null);
-      let rawReply = await callLlama(messages);
+      let rawReply = await callAIWithFallbacks(messages);
       let cleanReply = await processTags(rawReply, case_id);
       cleanReply = cleanReply.replace(/__INV__.*?__INV__/gs, "").trim();
       if (!cleanReply) return new Response(JSON.stringify({ ok: true, skipped: true }), { status: 200, headers: corsHeaders });
@@ -832,7 +830,7 @@ Responde SOLO con JSON válido:
 Ayúdele indicando amablemente dónde suele ubicarse la etiqueta en este tipo de equipos.
 IMPORTANTE: Al finalizar, recuérdele amablemente que es indispensable adjuntar la foto para continuar. NO resuelva la duda técnica principal, solo asístale para encontrar la etiqueta.`;
         
-        let aiReply = await callLlama(msgs);
+        let aiReply = await callAIWithFallbacks(msgs);
         aiReply = await processTags(aiReply, case_id);
         aiReply = aiReply.replace(/__INV__.*?__INV__/gs, "").trim();
 
@@ -920,7 +918,7 @@ No agregues nada más.`,
               ],
             },
           ];
-          const visionRaw = await callLlama(visionMessages);
+          const visionRaw = await callAIWithFallbacks(visionMessages);
           const jsonMatch = visionRaw.match(/\{[\s\S]*\}/);
           if (jsonMatch) {
             const result = JSON.parse(jsonMatch[0]);
@@ -964,7 +962,7 @@ No agregues nada más.`,
               { role: "system", content: `Extrae el número de serie del siguiente XML. Responde SOLO con el S/N, nada más. Si no hay S/N, responde "NONE".` },
               { role: "user", content: xmlText.substring(0, 4000) },
             ];
-            const xmlRaw = await callLlama(xmlMessages);
+            const xmlRaw = await callAIWithFallbacks(xmlMessages);
             const cleaned = xmlRaw.trim().replace(/["`]/g, "");
             if (cleaned && cleaned !== "NONE" && cleaned.length > 3 && cleaned.length < 50) {
               snXml = cleaned;
@@ -1041,7 +1039,7 @@ No agregues nada más.`,
               ],
             },
           ];
-          const visionRaw = await callLlama(visionMessages);
+          const visionRaw = await callAIWithFallbacks(visionMessages);
           const jsonMatch = visionRaw.match(/\{[\s\S]*\}/);
           if (jsonMatch) {
             const result = JSON.parse(jsonMatch[0]);
@@ -1144,7 +1142,7 @@ No agregues nada más.`,
 
     // Construir mensajes y llamar a Llama
     const messages = buildMessages(histcliente, null);
-    let rawReply = await callLlama(messages);
+    let rawReply = await callAIWithFallbacks(messages);
     console.log("[seka-whatsapp] Raw reply:", rawReply);
 
     // Si Llama emitió [BUSCAR_INVENTARIO], resolver y rellamar con resultado como system message
@@ -1158,7 +1156,7 @@ No agregues nada más.`,
 
         // Agregar resultado como mensaje system y rellamar
         const messages2 = [...messages, { role: "system" as const, content: invResult }];
-        rawReply = await callLlama(messages2);
+        rawReply = await callAIWithFallbacks(messages2);
         console.log("[seka-whatsapp] Reply tras inventario:", rawReply);
       }
     }
