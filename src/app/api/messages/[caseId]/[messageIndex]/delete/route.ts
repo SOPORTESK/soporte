@@ -104,6 +104,7 @@ export async function POST(
             body: JSON.stringify({
               remoteJid: targetJid,
               fromMe: (messageObj as any).fromMe ?? (historyType === "histtecnico"),
+              messageId: messageId,
               id: messageId
             })
           });

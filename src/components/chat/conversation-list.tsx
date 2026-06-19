@@ -298,11 +298,6 @@ export function ConversationList({
                       <Badge variant="default" className="text-[10px]">Nuevo</Badge>
                     )}
                     {c.prioridad === "urgente" && <Badge variant="danger" className="text-[10px]">Urgente</Badge>}
-                    {(() => {
-                      const tags = Array.isArray(c.tags) ? c.tags : [];
-                      const hasN2 = tags.some((t: string) => t.toLowerCase().includes("n2"));
-                      return hasN2 ? <span className="inline-flex items-center rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-semibold text-white">N2</span> : null;
-                    })()}
                     {c.unread_count > 0 && <Badge variant="default" className="text-[10px]">{c.unread_count}</Badge>}
                   </div>
                 </div>
