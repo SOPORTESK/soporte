@@ -508,10 +508,11 @@ REGLAS DE ANÁLISIS:
 - Si el cliente envió un código como "DS-3E0505P-E-M", "NVR-108MH", "IPC-T221H" eso es un MODELO, no una marca.
 - Si el cliente envió una sola palabra como "Hikvision", "Dahua", "Epcom", "ZKTeco", eso es una MARCA.
 - Si el cliente envió marca y modelo juntos, extrae ambos. Si el cliente solo dio el modelo, NO pidas la marca. Si ya tienes modelo, la acción debe avanzar a BUSCAR_INVENTARIO o PEDIR_DESCRIPCION, nunca regreses a PEDIR_MARCA.
+- Si el tema es "Otro", NO pidas marca ni modelo, pide directamente la descripción del problema (accion: "PEDIR_DESCRIPCION").
 - Si el cliente ya proporcionó datos (incluso si dijo que no tiene), NUNCA los pidas de nuevo.
+- Si el cliente pregunta por precios, cotizaciones, compras o ventas, marca accion como "VENTAS".
 - Si el cliente pide hablar con una persona/agente/humano, marca accion como "ESCALAR_INMEDIATO".
 - Si el cliente se despide (adiós, gracias, hasta luego), marca accion como "CERRAR".
-
 Responde SOLO con JSON válido:
 {
   "nombre": "nombre extraído o vacío",
@@ -523,7 +524,7 @@ Responde SOLO con JSON válido:
   "tiene_imagen": true/false,
   "tiene_xml": true/false,
   "descripcion_problema": "si el cliente ya describió su problema, ponerlo aquí, sino vacío",
-  "accion": "una de: PEDIR_DATOS|PEDIR_TEMA|PEDIR_MARCA|PEDIR_MODELO|PEDIR_MARCA_Y_MODELO|BUSCAR_INVENTARIO|PEDIR_ETIQUETA|PEDIR_ETIQUETA_Y_XML|PEDIR_DESCRIPCION|ESCALAR|ESCALAR_INMEDIATO|CERRAR|CONTINUAR",
+  "accion": "una de: PEDIR_DATOS|PEDIR_TEMA|PEDIR_MARCA|PEDIR_MODELO|PEDIR_MARCA_Y_MODELO|BUSCAR_INVENTARIO|PEDIR_ETIQUETA|PEDIR_ETIQUETA_Y_XML|PEDIR_DESCRIPCION|ESCALAR|ESCALAR_INMEDIATO|CERRAR|VENTAS|CONTINUAR",
   "razon": "explicación breve de por qué elegiste esa acción",
   "respuesta_sugerida": "la respuesta que debería enviar el asistente al cliente (máx 2 oraciones, formal, sin emojis, tratando de usted)"
 }`;
@@ -563,16 +564,26 @@ Responde SOLO con JSON válido:
     const updatedCliente: Record<string, unknown> = { ...currentCliente };
     let clienteChanged = false;
     
-    if (supervisorResult.nombre && !(currentCliente as any).nombre) {
-      updatedCliente.nombre = supervisorResult.nombre;
-      clienteChanged = true;
+    const isValidExtractedString = (val: any) => typeof val === "string" && val.trim() !== "" && val !== "vacío" && val !== "(vacío)" && val !== "null";
+
+    if (isValidExtractedString(supervisorResult.nombre)) {
+      const oldNombre = String((currentCliente as any).nombre || "").trim();
+      if (!oldNombre || oldNombre === "." || /^[\d\+\-\s]+$/.test(oldNombre) || oldNombre === "(vacío)") {
+        updatedCliente.nombre = supervisorResult.nombre;
+        clienteChanged = true;
+      }
     }
-    if (supervisorResult.correo && !(currentCliente as any).correo) {
-      updatedCliente.correo = supervisorResult.correo;
-      clienteChanged = true;
+    if (isValidExtractedString(supervisorResult.correo)) {
+      const oldCorreo = String((currentCliente as any).correo || "").trim();
+      if (!oldCorreo || oldCorreo === "(vacío)") {
+        updatedCliente.correo = supervisorResult.correo;
+        clienteChanged = true;
+      }
     }
-    if (supervisorResult.cuenta && !(currentCliente as any).cuenta) {
-      // Fuzzy match para la cuenta
+    if (isValidExtractedString(supervisorResult.cuenta)) {
+      const oldCuenta = String((currentCliente as any).cuenta || "").trim();
+      if (!oldCuenta || oldCuenta === "(vacío)") {
+        // Fuzzy match para la cuenta
       let cuentaFinal = supervisorResult.cuenta;
       try {
         const levenshtein = (a: string, b: string): number => {
@@ -618,6 +629,7 @@ Responde SOLO con JSON válido:
       }
       updatedCliente.cuenta = cuentaFinal;
       clienteChanged = true;
+      }
     }
 
     // Actualizar título si tenemos nombre
@@ -626,10 +638,28 @@ Responde SOLO con JSON válido:
       : undefined;
 
     // ── Paso 4: Ejecutar la ACCIÓN que decidió el Supervisor ──
-    const accion = (supervisorResult.accion || "CONTINUAR").toUpperCase();
+    let accion = (supervisorResult.accion || "CONTINUAR").toUpperCase();
     const marcaSupervisor = supervisorResult.marca || "";
     const modeloSupervisor = supervisorResult.modelo || "";
     const temaSupervisor = supervisorResult.tema || tema;
+
+    const validActions = ["CERRAR", "ESCALAR", "ESCALAR_INMEDIATO", "PEDIR_DATOS", "PEDIR_TEMA", "PEDIR_MARCA", "PEDIR_MODELO", "PEDIR_MARCA_Y_MODELO", "BUSCAR_INVENTARIO", "PEDIR_ETIQUETA", "PEDIR_ETIQUETA_Y_XML", "PEDIR_DESCRIPCION", "VENTAS"];
+    if (!validActions.includes(accion) && !supervisorResult.respuesta_sugerida) {
+      console.warn(`[seka-whatsapp] Accion ${accion} sin respuesta_sugerida. Aplicando heuristica.`);
+      if (!updatedCliente.nombre || !updatedCliente.correo || !updatedCliente.cuenta) {
+        accion = "PEDIR_DATOS";
+      } else if (!temaSupervisor) {
+        accion = "PEDIR_TEMA";
+      } else if (!marcaSupervisor && !modeloSupervisor) {
+        accion = "PEDIR_MARCA_Y_MODELO";
+      } else if (!marcaSupervisor) {
+        accion = "PEDIR_MARCA";
+      } else if (!modeloSupervisor) {
+        accion = "PEDIR_MODELO";
+      } else {
+        accion = "BUSCAR_INVENTARIO";
+      }
+    }
 
     console.log(`[seka-whatsapp] Supervisor acción: ${accion}, marca: ${marcaSupervisor}, modelo: ${modeloSupervisor}, tema: ${temaSupervisor}`);
 
@@ -652,6 +682,16 @@ Responde SOLO con JSON válido:
       if (clienteChanged) upd.cliente = updatedCliente;
       await db.from("sek_cases").update(upd).eq("id", case_id);
       return new Response(JSON.stringify({ ok: true, reply: M03_TEXT }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ── ACCIÓN: VENTAS ──
+    if (accion === "VENTAS") {
+      const M04_TEXT = "Esta consulta corresponde al departamento de ventas. Le invitamos a contactarlos al +506 2290 5585, vía WhatsApp al +506 8757 5820 o al correo info@sekunet.com. Ha sido un gusto atenderle. ¡Que tenga un excelente día!";
+      const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M04_TEXT };
+      const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg], estado: "cerrado" };
+      if (clienteChanged) upd.cliente = updatedCliente;
+      await db.from("sek_cases").update(upd).eq("id", case_id);
+      return new Response(JSON.stringify({ ok: true, reply: M04_TEXT }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // ── ACCIÓN: ESCALAR INMEDIATO (cliente pidió hablar con un humano) ──
