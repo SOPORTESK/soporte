@@ -740,12 +740,12 @@ Responde SOLO con JSON válido:
     if (accion !== "CERRAR" && accion !== "VENTAS" && !isSinCuenta) {
       if (!updatedCliente.nombre || !updatedCliente.correo || !updatedCliente.cuenta) {
         accion = "PEDIR_DATOS";
-        if (!supervisorResult.respuesta_sugerida || supervisorResult.accion !== "PEDIR_DATOS") {
+        if (!supervisorResult.respuesta_sugerida || supervisorResult.accion !== "PEDIR_DATOS" || true) {
           const faltan = [];
           if (!updatedCliente.nombre) faltan.push("su nombre completo");
           if (!updatedCliente.correo) faltan.push("su correo electrónico");
-          if (!updatedCliente.cuenta) faltan.push("el nombre de la cuenta afiliada a Sekunet");
-          supervisorResult.respuesta_sugerida = `Por favor, compártanos ${faltan.join(" y ")} para poder registrar su consulta.`;
+          if (!updatedCliente.cuenta) faltan.push("la cuenta afiliada a Sekunet");
+          supervisorResult.respuesta_sugerida = `Por favor, proporciónenos ${faltan.join(" y ")} para poder ayudarlo mejor.`;
         }
       }
     }
