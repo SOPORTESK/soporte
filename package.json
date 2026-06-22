@@ -56,8 +56,9 @@
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",
-    "@supabase/supabase-js": "^2.45.4",
+    "@supabase/supabase-js": "^2.108.2",
     "clsx": "^2.1.1",
+    "electron-updater": "^6.8.3",
     "lucide-react": "^0.453.0",
     "mammoth": "^1.12.0",
     "next": "14.2.15",
@@ -68,8 +69,7 @@
     "sonner": "^1.5.0",
     "tailwind-merge": "^2.5.4",
     "tesseract.js": "^7.0.0",
-    "xlsx": "^0.18.5",
-    "electron-updater": "^6.8.3"
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/node": "^22.7.5",

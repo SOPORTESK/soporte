@@ -3,8 +3,8 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
-const INACTIVITY_MINUTES_DEFAULT = 5;   // canales humanos (whatsapp, etc.)
-const INACTIVITY_MINUTES_IA = 5;        // widget atendido por IA — mismo umbral que manual
+const INACTIVITY_MINUTES_DEFAULT = 20;   // canales humanos (whatsapp, etc.)
+const INACTIVITY_MINUTES_IA = 20;        // widget atendido por IA — mismo umbral que manual
 const CLOSE_MSG = "Al no haber recibido respuesta, procederemos a cerrar esta conversación. Si necesita asistencia adicional, puede contactarnos nuevamente y con gusto le atenderemos. ¡Que tenga un excelente día!";
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
@@ -150,7 +150,9 @@ Deno.serve(async (req) => {
   const { data: casos, error } = await db
     .from("sek_cases")
     .select("id, canal, estado, histcliente, histtecnico, created_at, assigned_to, customer_phone, cliente")
-    .not("estado", "in", '("cerrado","resuelto","escalado")')
+    .neq("estado", "cerrado")
+    .neq("estado", "resuelto")
+    .neq("estado", "escalado")
     .neq("canal", "simulator")
     .limit(200);
 
@@ -192,13 +194,17 @@ Deno.serve(async (req) => {
     // inactividad del agente/IA, lo cual es inaceptable).
     if (allMsgs.length === 0) continue;
     const last = allMsgs[allMsgs.length - 1];
+    
+    // Si el último mensaje fue del cliente, el CLIENTE está esperando respuesta del Agente o IA.
+    // NUNCA cerrar el caso si es culpa nuestra que no se ha respondido.
     if (last.role === "user") continue;
+    
     const elapsed = now - new Date(last.time).getTime();
     if (elapsed < threshold) continue;
 
     // Verificar que el caso siga abierto justo antes de cerrar (evita doble cierre en race condition)
     const { data: check } = await db.from("sek_cases").select("estado").eq("id", caso.id).maybeSingle();
-    if (!check || check.estado === "cerrado" || check.estado === "resuelto") continue;
+    if (!check || check.estado === "cerrado" || check.estado === "resuelto" || check.estado === "escalado") continue;
 
     // SI EL CANAL ES WHATSAPP, resolver teléfono primero
     const canalLower = String(caso.canal || "").toLowerCase().trim();

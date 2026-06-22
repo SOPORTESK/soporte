@@ -21,6 +21,7 @@ FLUJO OBLIGATORIO — SIGA ESTE ORDEN EXACTO
 
 PASO 1 — SOLICITAR MARCA
 Diga exactamente: "Por favor, indíquenos la marca del equipo."
+Excepción: Si el cliente eligió el tema "Otro", SALTE el Paso 1 y 2, y pase directo a pedir la descripción de su consulta.
 
 PASO 2 — SOLICITAR MODELO
 Diga exactamente: "¿Nos podría indicar el modelo del equipo, por favor?"
@@ -38,7 +39,7 @@ La búsqueda debe ser inteligente: tolere variaciones ortográficas, abreviacion
 
 Si NO está en cartera → diga exactamente:
 "El dispositivo indicado no forma parte de los equipos distribuidos por Sekunet, por lo que lamentablemente no podemos brindarle el soporte requerido. ¿Tiene alguna otra consulta relacionada con nuestros productos?"
-  → Si el cliente dice Sí → regrese al PASO 1
+  → Si el cliente dice Sí → NO pida marca ni modelo, pida directamente la descripción de su nueva consulta (accion: "PEDIR_DESCRIPCION")
   → Si el cliente dice No → diga M03 y emita [CERRAR]
 
 Si SÍ está en cartera → continúe al PASO 4
@@ -106,6 +107,7 @@ async function callNvidia(model: string, messages: NimMessage[]): Promise<string
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${NVIDIA_KEY}` },
     body: JSON.stringify({ model, messages, temperature: 0.2, max_tokens: 512, stream: false }),
+    signal: AbortSignal.timeout(12000)
   });
   if (!res.ok) throw new Error(`Status ${res.status}`);
   const data = await res.json();
@@ -122,6 +124,7 @@ async function callOpenRouter(model: string, messages: NimMessage[]): Promise<st
       "X-Title": "Chat Sekunet"
     },
     body: JSON.stringify({ model, messages, temperature: 0.2, max_tokens: 512, stream: false }),
+    signal: AbortSignal.timeout(12000)
   });
   if (!res.ok) throw new Error(`Status ${res.status}`);
   const data = await res.json();
@@ -140,7 +143,7 @@ async function callGoogle(model: string, messages: NimMessage[]): Promise<string
   
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
-    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(12000) }
   );
   if (!res.ok) throw new Error(`Status ${res.status}`);
   const data = await res.json();
@@ -424,7 +427,7 @@ REGLAS DE ANÁLISIS:
 - Si el cliente envió marca y modelo juntos, extrae ambos. Si el cliente solo dio el modelo, NO pidas la marca de nuevo si ya la infieres o si ya dio el modelo. Si ya tienes modelo, la acción debe avanzar, nunca regreses a PEDIR_MARCA.
 - Si el tema es "Otro", NO pidas marca ni modelo, pide directamente la descripción del problema (accion: "PEDIR_DESCRIPCION").
 - Si el cliente ya proporcionó datos (incluso si dijo que no tiene), NUNCA los pidas de nuevo.
-- Si el cliente pregunta por precios, cotizaciones, compras o ventas, marca accion como "VENTAS".
+- REGLA CRÍTICA DE VENTAS: Si el mensaje del usuario tiene CUALQUIER intención de compra, venta, precios, stock o cotizaciones (incluso con errores ortográficos graves como "venbden", "komprar", "cuanto kuesta"), DEBES obligatoriamente marcar la accion como "VENTAS" sin importar en qué paso del flujo te encuentres.
 - Si el cliente pide hablar con una persona/agente/humano, marca accion como "ESCALAR_INMEDIATO".
 - Si el cliente se despide (adiós, gracias, hasta luego), marca accion como "CERRAR".
 - Analiza errores tipográficos: "Hikvission" = "Hikvision", "Daua" = "Dahua".
@@ -478,6 +481,42 @@ Responde SOLO con JSON válido:
     const modeloSupervisor = supervisorResult.modelo || "";
     const temaSupervisor = supervisorResult.tema || tema;
 
+    // ── FORZAR REGLAS CRÍTICAS (evitar alucinaciones del LLM) ──
+    if (tema === "Otro" && (accion === "PEDIR_MARCA" || accion === "PEDIR_MODELO" || accion === "PEDIR_MARCA_Y_MODELO")) {
+      console.log("[seka-widget] Forzando PEDIR_DESCRIPCION para tema Otro");
+      accion = "PEDIR_DESCRIPCION";
+      supervisorResult.respuesta_sugerida = "Por favor, describa brevemente su consulta o inconveniente.";
+    }
+
+    const lastUserMsgContent = userRealMsgs[userRealMsgs.length - 1]?.content || "";
+    const lastIAContent = iaRealMsgs[iaRealMsgs.length - 1]?.content || "";
+
+    if (accion === "PEDIR_DESCRIPCION" && lastIAContent.includes("describa brevemente")) {
+      console.log("[seka-widget] Ya se había pedido descripción. Forzando ESCALAR.");
+      accion = "ESCALAR";
+    }
+
+    if (/precio|rpecio|prec|cotiza|comprar|compra|ventas|venta|venden|vender|vendemos|costo|cuanto cuesta|cuánto cuesta|cuanto vale|cuánto vale|tienen en stock/i.test(lastUserMsgContent)) {
+      console.log("[seka-widget] Detectada intención de VENTAS por heurística.");
+      accion = "VENTAS";
+    }
+
+    // ── ANTI-LOOP GENERAL (Máx 2 intentos repetidos) ──
+    const lastIAContent1 = iaRealMsgs[iaRealMsgs.length - 1]?.content || "";
+    const lastIAContent2 = iaRealMsgs[iaRealMsgs.length - 2]?.content || "";
+    
+    let currentActionString = "";
+    if (accion === "PEDIR_MARCA") currentActionString = "Por favor, indíquenos la marca del equipo.";
+    if (accion === "PEDIR_MODELO") currentActionString = "¿Nos podría indicar el modelo del equipo, por favor?";
+    if (accion === "PEDIR_MARCA_Y_MODELO") currentActionString = "Por favor, indíquenos la marca y el modelo del equipo.";
+    if (accion === "PEDIR_ETIQUETA") currentActionString = "Por favor, adjunte una imagen clara y legible de la etiqueta del equipo.";
+    if (accion === "PEDIR_ETIQUETA_Y_XML") currentActionString = "requerimos una imagen clara y legible de la etiqueta del equipo y el archivo XML";
+    
+    if (currentActionString && lastIAContent1.includes(currentActionString) && lastIAContent2.includes(currentActionString)) {
+       console.log("[seka-widget] Detectado bucle de 3 repeticiones. Escalando.");
+       accion = "ESCALAR";
+    }
+
     const validActions = ["CERRAR", "ESCALAR", "ESCALAR_INMEDIATO", "PEDIR_DATOS", "PEDIR_TEMA", "PEDIR_MARCA", "PEDIR_MODELO", "PEDIR_MARCA_Y_MODELO", "BUSCAR_INVENTARIO", "PEDIR_ETIQUETA", "PEDIR_ETIQUETA_Y_XML", "PEDIR_DESCRIPCION"];
     if (!validActions.includes(accion) && !supervisorResult.respuesta_sugerida) {
       console.warn(`[seka-widget] Accion ${accion} sin respuesta_sugerida. Aplicando heuristica.`);
@@ -499,7 +538,7 @@ Responde SOLO con JSON válido:
     // ── REGLA DE NEGOCIO: SIN CUENTA ──
     const cuentaDetectada = String(supervisorResult.cuenta || (caso.cliente as any)?.cuenta || "").toLowerCase().trim();
     if (cuentaDetectada === "sin cuenta" || cuentaDetectada === "no tengo" || cuentaDetectada === "cliente final") {
-      const M_NO_CUENTA = "Gracias por comunicarse con Sekunet. Nuestro servicio de soporte técnico es un beneficio exclusivo para nuestra red de clientes y distribuidores autorizados. Le recomendamos contactar a su proveedor directo o instalador para que pueda asistirle con su requerimiento. ¡Que tenga un excelente día!";
+      const M_NO_CUENTA = "Gracias por comunicarse con Sekunet.\n\nLe informamos que nuestro servicio de soporte técnico es un beneficio exclusivo para clientes y distribuidores autorizados de nuestra red.\n\nPor este motivo, le recomendamos contactar directamente a su proveedor o instalador, quien podrá brindarle la asistencia correspondiente con su requerimiento.\n\nAgradecemos su comprensión y le deseamos un excelente día.";
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M_NO_CUENTA };
       await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg], estado: "cerrado" }).eq("id", case_id);
       return new Response(JSON.stringify({ ok: true, reply: M_NO_CUENTA }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -536,7 +575,7 @@ Responde SOLO con JSON válido:
 
     // ── ACCIÓN: PEDIR TEMA ──
     if (accion === "PEDIR_TEMA") {
-      const directReply = supervisorResult.respuesta_sugerida || "¿En relación a qué tema sería su consulta?";
+      const directReply = "¿En relación a qué tema sería su consulta?";
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
       await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg] }).eq("id", case_id);
       return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -544,7 +583,7 @@ Responde SOLO con JSON válido:
 
     // ── ACCIÓN: PEDIR MARCA ──
     if (accion === "PEDIR_MARCA") {
-      const directReply = supervisorResult.respuesta_sugerida || "Por favor, indíquenos la marca del equipo.";
+      const directReply = "Por favor, indíquenos la marca del equipo.";
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
       await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg] }).eq("id", case_id);
       return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -552,7 +591,7 @@ Responde SOLO con JSON válido:
 
     // ── ACCIÓN: PEDIR MODELO ──
     if (accion === "PEDIR_MODELO") {
-      const directReply = supervisorResult.respuesta_sugerida || "¿Nos podría indicar el modelo del equipo, por favor?";
+      const directReply = "¿Nos podría indicar el modelo del equipo, por favor?";
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
       await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg] }).eq("id", case_id);
       return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -560,7 +599,7 @@ Responde SOLO con JSON válido:
 
     // ── ACCIÓN: PEDIR MARCA Y MODELO ──
     if (accion === "PEDIR_MARCA_Y_MODELO") {
-      const directReply = supervisorResult.respuesta_sugerida || "Por favor, indíquenos la marca y el modelo del equipo.";
+      const directReply = "Por favor, indíquenos la marca y el modelo del equipo.";
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
       await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg] }).eq("id", case_id);
       return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -596,7 +635,7 @@ Responde SOLO con JSON válido:
 
     // ── ACCIÓN: PEDIR ETIQUETA ──
     if (accion === "PEDIR_ETIQUETA") {
-      const directReply = supervisorResult.respuesta_sugerida || "Por favor, adjunte una imagen clara y legible de la etiqueta del equipo.";
+      const directReply = "Por favor, adjunte una imagen clara y legible de la etiqueta del equipo.";
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
       await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg] }).eq("id", case_id);
       return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -604,7 +643,7 @@ Responde SOLO con JSON válido:
 
     // ── ACCIÓN: PEDIR ETIQUETA Y XML ──
     if (accion === "PEDIR_ETIQUETA_Y_XML") {
-      const directReply = supervisorResult.respuesta_sugerida || "Como parte de los requisitos del fabricante, requerimos una imagen clara y legible de la etiqueta del equipo y el archivo XML, el cual puede obtener mediante la herramienta SAPD Tools en la opción \"Olvidé mi contraseña\", ubicada en la parte inferior derecha del software. Por favor, adjunte ambos archivos.";
+      const directReply = "Como parte de los requisitos del fabricante, requerimos una imagen clara y legible de la etiqueta del equipo y el archivo XML, el cual puede obtener mediante la herramienta SAPD Tools en la opción \"Olvidé mi contraseña\", ubicada en la parte inferior derecha del software. Por favor, adjunte ambos archivos.";
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
       await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg] }).eq("id", case_id);
       return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -612,7 +651,7 @@ Responde SOLO con JSON válido:
 
     // ── ACCIÓN: PEDIR DESCRIPCIÓN ──
     if (accion === "PEDIR_DESCRIPCION") {
-      const directReply = supervisorResult.respuesta_sugerida || "Por favor, describa brevemente el inconveniente que presenta.";
+      const directReply = "Por favor, describa brevemente el inconveniente que presenta.";
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
       await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg] }).eq("id", case_id);
       return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });

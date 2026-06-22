@@ -802,18 +802,18 @@ export async function POST(req: NextRequest) {
     ? { role: "tecnico", time: now, content: text || "", author: "Soporte Sekunet", mediaUrl, mediaType: finalMediaType, fileName, messageId: keyId, fromMe: true } as any
     : { role: "user", time: now, content: text || "", mediaUrl, mediaType: finalMediaType, fileName, messageId: keyId, fromMe: false } as any;
 
-  console.log("[evo-webhook] Paso 6: buscando casos abiertos...");
+  console.log("[evo-webhook] Paso 6: buscando casos recientes...");
   try {
     const { data: openCases } = await supabase
       .from("sek_cases")
-      .select("id, histcliente, histtecnico, estado, customer_phone, cliente, title")
+      .select("id, histcliente, histtecnico, estado, customer_phone, cliente, title, created_at")
       .eq("canal", "whatsapp")
-      .not("estado", "in", '("cerrado","resuelto")')
       .order("created_at", { ascending: false })
       .limit(50);
     console.log("[evo-webhook] Paso 6 OK - casos encontrados:", openCases?.length || 0);
 
     let existing = null;
+    let reopenClosedCase = false;
     if (openCases) {
       existing = openCases.find((c: any) => {
         if (c.customer_phone === jid) return true;
@@ -824,6 +824,18 @@ export async function POST(req: NextRequest) {
         if (senderPn && (t === senderPn || tReal === senderPn || c.customer_phone === senderPn)) return true;
         return false;
       });
+      
+      if (existing && (existing.estado === "cerrado" || existing.estado === "resuelto")) {
+        // Re-usar casos cerrados solo si fueron creados en las últimas 48 horas (evita multiplicar chats de un mismo cliente el mismo día)
+        const createdAt = new Date(existing.created_at).getTime();
+        const nowMs = new Date().getTime();
+        if (nowMs - createdAt < 48 * 60 * 60 * 1000) {
+           reopenClosedCase = true;
+           console.log("[evo-webhook] Reabriendo caso cerrado reciente:", existing.id);
+        } else {
+           existing = null; // Muy viejo, crear uno nuevo
+        }
+      }
     }
     console.log("[evo-webhook] Paso 7: caso existente:", existing ? existing.id : "ninguno");
 
@@ -920,7 +932,8 @@ export async function POST(req: NextRequest) {
             last_message_preview: (text || "").slice(0, 200),
             customer_phone: jid,
             cliente: updatedCliente,
-            title: pushName ? `WhatsApp — ${pushName}` : (currentCase?.title || `WhatsApp — ${jid}`)
+            title: pushName ? `WhatsApp — ${pushName}` : (currentCase?.title || `WhatsApp — ${jid}`),
+            ...(reopenClosedCase ? { estado: "ia_atendiendo" } : {})
           })
           .eq("id", existing.id);
         console.log("[evo-webhook] Paso 9 OK - mensaje guardado en histcliente");
@@ -931,7 +944,7 @@ export async function POST(req: NextRequest) {
         const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
         if (SUPABASE_URL && SERVICE_KEY) {
           // Asegurar que el caso esté en ia_atendiendo para que ia-agent lo procese
-          let currentEstado = existing.estado;
+          let currentEstado = reopenClosedCase ? "ia_atendiendo" : existing.estado;
           if (currentEstado === "pendiente") {
             const { error: updErr } = await supabase.from("sek_cases").update({ estado: "ia_atendiendo" }).eq("id", existing.id);
             if (!updErr) {
