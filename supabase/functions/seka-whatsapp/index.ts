@@ -892,31 +892,26 @@ Responde SOLO con JSON válido:
       console.log("[seka-whatsapp] Cuenta a nombre personal → se usa el nombre del cliente como cuenta.");
     }
 
-    // GATE 1 — Nombre y CUENTA obligatorios (el correo NO bloquea el flujo).
-    if (accion !== "CERRAR" && accion !== "VENTAS" && accion !== "ESCALAR_INMEDIATO" && !isSinCuenta) {
-      if (!updatedCliente.nombre || !updatedCliente.cuenta) {
-        // Contar cuántas veces ya re-pedimos la cuenta (frase clave del recordatorio).
-        const accountReaskCount = iaRealMsgs.filter(m => (m.content || "").toLowerCase().includes("nombre de la cuenta es indispensable")).length;
+    // GATE 1 — Lógica de cierre por insistencia en pedir la cuenta.
+    if (accion === "PEDIR_CUENTA" && !isSinCuenta) {
+      // Contar cuántas veces ya re-pedimos la cuenta (frase clave del recordatorio).
+      const accountReaskCount = iaRealMsgs.filter(m => (m.content || "").toLowerCase().includes("nombre de la cuenta es indispensable")).length;
 
-        // Tras 2 recordatorios sin éxito: cerrar la conversación cortésmente.
-        if (!updatedCliente.cuenta && accountReaskCount >= 2) {
-          console.log("[seka-whatsapp] Cuenta no proporcionada tras 2 recordatorios → cerrando conversación.");
-          const M_SIN_CUENTA_CIERRE = "Lamentamos no poder continuar en esta ocasión. Para brindarle soporte necesitamos el nombre de la cuenta registrada con Sekunet, y no hemos podido confirmarlo.\n\nLe invitamos a contactar a su proveedor o instalador, o a escribirnos nuevamente cuando tenga a mano el nombre de su cuenta. Agradecemos su comprensión y le deseamos un excelente día.";
-          const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M_SIN_CUENTA_CIERRE };
-          const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg], estado: "cerrado" };
-          if (clienteChanged) upd.cliente = updatedCliente;
-          if (nuevoTitle) upd.title = nuevoTitle;
-          await db.from("sek_cases").update(upd).eq("id", case_id);
-          return new Response(JSON.stringify({ ok: true, reply: M_SIN_CUENTA_CIERRE }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        }
-
-        accion = "PEDIR_DATOS";
-        const faltan = [];
-        if (!updatedCliente.nombre) faltan.push("su nombre completo");
-        if (!updatedCliente.cuenta) faltan.push("el nombre de la cuenta afiliada a Sekunet");
-        // La frase "nombre de la cuenta es indispensable" se usa para contar recordatorios.
-        supervisorResult.respuesta_sugerida = `Para poder ayudarle necesitamos ${faltan.join(" y ")}. El nombre de la cuenta es indispensable: sin una cuenta registrada con Sekunet no podemos continuar con el soporte. Si la cuenta está a su nombre personal, puede indicárnoslo.`;
+      // Tras 2 recordatorios sin éxito: cerrar la conversación cortésmente.
+      if (accountReaskCount >= 2) {
+        console.log("[seka-whatsapp] Cuenta no proporcionada tras 2 recordatorios → cerrando conversación.");
+        const M_SIN_CUENTA_CIERRE = "Lamentamos no poder continuar en esta ocasión. Para brindarle soporte necesitamos el nombre de la cuenta registrada con Sekunet, y no hemos podido confirmarlo.\n\nLe invitamos a contactar a su proveedor o instalador, o a escribirnos nuevamente cuando tenga a mano el nombre de su cuenta. Agradecemos su comprensión y le deseamos un excelente día.";
+        const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M_SIN_CUENTA_CIERRE };
+        const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg], estado: "cerrado" };
+        if (clienteChanged) upd.cliente = updatedCliente;
+        if (nuevoTitle) upd.title = nuevoTitle;
+        await db.from("sek_cases").update(upd).eq("id", case_id);
+        return new Response(JSON.stringify({ ok: true, reply: M_SIN_CUENTA_CIERRE }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
+
+      // Si es la primera o segunda vez que pedimos la cuenta, inyectamos la frase de advertencia
+      // para que el bot sea firme y podamos contarla en el próximo mensaje.
+      supervisorResult.respuesta_sugerida = `El nombre de la cuenta es indispensable: sin una cuenta registrada con Sekunet no podemos continuar con el soporte. Por favor, indíquenos el nombre de su empresa o cuenta afiliada. Si está a su nombre personal, puede indicárnoslo.`;
     }
 
     // GATE 2 — Con datos completos pero sin tema elegido por el cliente, mostrar la lista de temas.
