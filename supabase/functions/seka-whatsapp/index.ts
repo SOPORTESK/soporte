@@ -190,62 +190,83 @@ async function buscarInventario(query: string): Promise<{ encontrado: boolean; d
     const tokens = query.trim().split(/\s+/).filter((t: string) => t.length >= 2);
     if (tokens.length === 0) return { encontrado: false, detalle: "Consulta vacía." };
 
-    const brandToken = tokens[0];
+    let brandToken = tokens[0];
+    let modelTokens = tokens.slice(1);
 
-    // PASO 1: buscar en la base de datos (puede ser marca o modelo)
-    const { data: brandRows } = await db
-      .from("sek_inventario")
-      .select("id,codigo,nombre,marca,modelo,categoria")
-      .or(`marca.ilike.%${brandToken}%,modelo.ilike.%${brandToken}%`)
-      .limit(50);
-
-    if (!brandRows || brandRows.length === 0) {
-      return { encontrado: false, detalle: `El equipo "${brandToken}" no está en la cartera de Sekunet.` };
-    }
-
-    // Si encontramos una coincidencia directa del modelo con el primer token
-    const directModelMatch = brandRows.find(r => r.modelo && r.modelo.toLowerCase().includes(brandToken.toLowerCase()));
-    if (directModelMatch) {
+    // Caso 1: Solo hay un token (solo dio la marca o solo dio el modelo)
+    if (modelTokens.length === 0) {
+      const { data: singleRows } = await db
+        .from("sek_inventario")
+        .select("id,codigo,nombre,marca,modelo,categoria")
+        .or(`marca.ilike.%${brandToken}%,modelo.ilike.%${brandToken}%,nombre.ilike.%${brandToken}%`)
+        .limit(10);
+      
+      if (!singleRows || singleRows.length === 0) {
+        return { encontrado: false, detalle: `El equipo "${brandToken}" no está en la cartera de Sekunet.` };
+      }
       return { 
         encontrado: true, 
-        detalle: `Equipo en cartera: ${directModelMatch.marca} ${directModelMatch.modelo}${directModelMatch.nombre ? " — " + directModelMatch.nombre : ""}` 
+        detalle: `Equipo en cartera: ${singleRows[0].marca} ${singleRows[0].modelo || ""}` 
       };
     }
 
-    // Si solo hay un token y coincidió con marca
-    if (tokens.length === 1) {
-      return { encontrado: true, detalle: `Marca en cartera: ${brandRows[0].marca}` };
+    // Caso 2: Marca y Modelo. El modelo puede tener guiones o espacios.
+    // Ej: query = "Hikvision DS-7104HGHI-F1"
+    const rawModel = modelTokens.join(""); // "DS-7104HGHI-F1"
+    const cleanedModelTokens = rawModel.split(/[-_]+/).filter(x => x.length >= 2);
+    const fuzzyModel = `%${cleanedModelTokens.join("%")}%`; // "%DS%7104HGHI%F1%"
+
+    // Intentar buscar combinando la marca y el modelo difuso
+    const { data: brandModelRows } = await db
+      .from("sek_inventario")
+      .select("id,codigo,nombre,marca,modelo,categoria")
+      .ilike("marca", `%${brandToken}%`)
+      .or(`modelo.ilike.${fuzzyModel},nombre.ilike.${fuzzyModel}`)
+      .limit(10);
+
+    if (brandModelRows && brandModelRows.length > 0) {
+      const best = brandModelRows[0];
+      return {
+        encontrado: true,
+        detalle: `Equipo en cartera: ${best.marca} ${best.modelo}${best.nombre ? " — " + best.nombre : ""}`,
+      };
     }
 
-    const modelTokens: string[] = [];
-    for (const t of tokens.slice(1)) {
-      modelTokens.push(t);
-      t.split("-").filter((s: string) => s.length >= 2).forEach((s: string) => modelTokens.push(s));
+    // Caso 3: Fallback. Quizás el usuario dio el modelo primero, o la marca no coincide exactamente.
+    // Busquemos puramente por el modelo difuso.
+    const { data: modelOnlyRows } = await db
+      .from("sek_inventario")
+      .select("id,codigo,nombre,marca,modelo,categoria")
+      .or(`modelo.ilike.${fuzzyModel},nombre.ilike.${fuzzyModel}`)
+      .limit(10);
+
+    if (modelOnlyRows && modelOnlyRows.length > 0) {
+      const best = modelOnlyRows[0];
+      return {
+        encontrado: true,
+        detalle: `Equipo en cartera: ${best.marca} ${best.modelo}${best.nombre ? " — " + best.nombre : ""}`,
+      };
     }
 
-    // Puntuar solo registros que ya coinciden con la marca
-    const matchCount = new Map<string, { record: any; count: number }>();
-    for (const r of brandRows) {
-      matchCount.set(String(r.id), { record: r, count: 0 });
-    }
-    for (const mt of modelTokens) {
-      for (const [key, val] of matchCount.entries()) {
-        const hay = `${val.record.modelo || ""} ${val.record.nombre || ""} ${val.record.codigo || ""}`.toLowerCase();
-        if (hay.includes(mt.toLowerCase())) matchCount.get(key)!.count++;
+    // Caso 4: Último recurso, buscar el token más largo como si fuera el modelo (ignorar marca)
+    const longestToken = [...tokens].sort((a, b) => b.length - a.length)[0];
+    if (longestToken.length > 4) {
+      const { data: longestRows } = await db
+        .from("sek_inventario")
+        .select("id,codigo,nombre,marca,modelo,categoria")
+        .or(`modelo.ilike.%${longestToken}%,nombre.ilike.%${longestToken}%`)
+        .limit(10);
+      
+      if (longestRows && longestRows.length > 0) {
+        const best = longestRows[0];
+        return {
+          encontrado: true,
+          detalle: `Equipo en cartera: ${best.marca} ${best.modelo}${best.nombre ? " — " + best.nombre : ""}`,
+        };
       }
     }
 
-    const sorted = Array.from(matchCount.values()).sort((a, b) => b.count - a.count);
-    const best = sorted[0];
-
-    if (best.count === 0) {
-      return { encontrado: false, detalle: `El modelo no se encontró en la cartera de Sekunet para la marca "${brandToken}".` };
-    }
-
-    return {
-      encontrado: true,
-      detalle: `Equipo en cartera: ${best.record.marca} ${best.record.modelo}${best.record.nombre ? " — " + best.record.nombre : ""}`,
-    };
+    return { encontrado: false, detalle: `El modelo no se encontró en la cartera de Sekunet para la búsqueda "${query}".` };
   } catch (e: any) {
     console.error("[seka-whatsapp] Error inventario:", e.message);
     return { encontrado: false, detalle: "Error consultando inventario." };
