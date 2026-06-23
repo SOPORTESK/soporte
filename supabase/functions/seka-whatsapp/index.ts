@@ -899,6 +899,23 @@ Responde SOLO con JSON válido:
       console.log("[seka-whatsapp] Cuenta a nombre personal → se usa el nombre del cliente como cuenta.");
     }
 
+    // GATE 0 — FORZAR RECOPILACIÓN DE DATOS (Red de Seguridad contra Alucinaciones)
+    if (accion !== "CERRAR" && accion !== "VENTAS" && accion !== "ESCALAR_INMEDIATO") {
+      if (!updatedCliente.nombre) {
+        console.log("[seka-whatsapp] Forzando PEDIR_NOMBRE por datos incompletos.");
+        accion = "PEDIR_NOMBRE";
+        supervisorResult.respuesta_sugerida = "";
+      } else if (!updatedCliente.correo) {
+        console.log("[seka-whatsapp] Forzando PEDIR_CORREO por datos incompletos.");
+        accion = "PEDIR_CORREO";
+        supervisorResult.respuesta_sugerida = "";
+      } else if (!updatedCliente.cuenta) {
+        console.log("[seka-whatsapp] Forzando PEDIR_CUENTA por datos incompletos.");
+        accion = "PEDIR_CUENTA";
+        supervisorResult.respuesta_sugerida = "";
+      }
+    }
+
     // GATE 1 — Lógica de cierre por insistencia en pedir la cuenta.
     if (accion === "PEDIR_CUENTA" && !isSinCuenta) {
       // Contar cuántas veces ya re-pedimos la cuenta (frase de reintento).
