@@ -529,6 +529,9 @@ CONTEXTO: El asistente sigue este flujo de recopilación de datos:
 5. Para Reset/Desvinculación: imagen de etiqueta (y XML para Hikvision en Reset)
 6. Para otros temas: descripción del problema
 
+REGLA DE ORO / PRIORIDAD MÁXIMA:
+- VENTAS Y COTIZACIONES: Si el mensaje del usuario tiene CUALQUIER intención comercial, de compra, venta, precios, stock, distribuciones o cotizaciones (incluso con errores ortográficos como "venbden", "komprar", "cuanto kuesta", o preguntas como "¿VENDEN CÁMARAS DAHUA?"), DEBES OBLIGATORIAMENTE marcar la accion como "VENTAS" inmediatamente, ignorando todas las demás reglas y pasos.
+
 REGLAS DE ANÁLISIS:
 - Si el cliente indica EXPRESAMENTE que NO TIENE cuenta o empresa (ej: "no tengo", "ninguna", "cliente final"), extrae la cuenta como "Sin cuenta". PERO si el cliente simplemente omite el dato en su respuesta (ej. da su nombre y correo pero no menciona la empresa), DEBES dejar el campo cuenta vacío ("") para que el sistema lo vuelva a pedir. NUNCA extraigas el nombre de la cuenta o empresa a partir del dominio o texto del correo electrónico. Si el usuario no escribe explícitamente el nombre de su cuenta, debes dejarlo vacío.
 - REGLA DE CUENTA PERSONAL: Si el cliente indica que la cuenta está a su nombre personal o repite su nombre (ej: "está a mi nombre", "a nombre de Juan", "a título personal", "la cuenta es mía"), extrae SU NOMBRE EXACTO (ej: "Juan") como el valor de la "cuenta". Es VÁLIDO que el nombre de la cuenta sea igual al nombre del cliente (registro a título personal). NUNCA extraigas frases relativas como "a mi nombre" o "yo mismo".
@@ -547,7 +550,6 @@ REGLAS DE ANÁLISIS:
 - Si el cliente envió marca y modelo juntos, extrae ambos. Si el cliente solo dio el modelo, NO pidas la marca. Si ya tienes modelo, la acción debe avanzar a BUSCAR_INVENTARIO o PEDIR_DESCRIPCION, nunca regreses a PEDIR_MARCA.
 - Si el tema es "Otro", NO pidas marca ni modelo, pide directamente la descripción del problema (accion: "PEDIR_DESCRIPCION").
 - Si el cliente ya proporcionó datos (even if he said he doesn't have them), NUNCA los pidas de nuevo.
-- REGLA CRÍTICA DE VENTAS: Si el mensaje del usuario tiene CUALQUIER intención de compra, venta, precios, stock o cotizaciones (incluso con errores ortográficos graves como "venbden", "komprar", "cuanto kuesta"), DEBES obligatoriamente marcar la accion como "VENTAS" sin importar en qué paso del flujo te encuentres.
 - Si el cliente pide hablar con una persona/agente/humano, marca accion como "ESCALAR_INMEDIATO".
 - REGLA DE FRUSTRACIÓN: Si el cliente muestra enojo evidente, reclamo, insultos, o lleva varios mensajes sin avanzar y se nota molesto, marca "sentimiento" como "muy_molesto" y la accion como "ESCALAR_INMEDIATO". No insistas en pedir más datos.
 - Si el cliente se despide (adiós, gracias, hasta luego), marca accion como "CERRAR".
@@ -794,6 +796,17 @@ Responde SOLO con JSON válido:
       console.log("[seka-whatsapp] Forzando PEDIR_DESCRIPCION para tema Otro");
       accion = "PEDIR_DESCRIPCION";
       supervisorResult.respuesta_sugerida = "Por favor, describa brevemente su consulta o inconveniente.";
+    }
+
+    // ── VERIFICACIÓN DE INVENTARIO OBLIGATORIA (Si hay nueva marca o modelo) ──
+    if ((marcaSupervisor || modeloSupervisor) && accion !== "CERRAR" && accion !== "VENTAS" && accion !== "BUSCAR_INVENTARIO") {
+      const searchQuery = `${marcaSupervisor} ${modeloSupervisor}`.trim();
+      const invCheck = await buscarInventario(searchQuery);
+      if (!invCheck.encontrado) {
+        console.log(`[seka-whatsapp] Marca/Modelo (${searchQuery}) NO está en inventario. Forzando BUSCAR_INVENTARIO.`);
+        accion = "BUSCAR_INVENTARIO";
+        supervisorResult.respuesta_sugerida = "";
+      }
     }
 
     const lastIAContent = iaRealMsgs[iaRealMsgs.length - 1]?.content || "";
