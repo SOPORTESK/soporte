@@ -117,43 +117,17 @@ async function sendWhatsAppMessages(phone: string, reply: any | any[], evoCfg: a
     
     let sent = false;
     
-    // Interceptar pregunta de menú y convertirla a lista interactiva
-    let isMenu = false;
-    if (typeof msg === "string" || (typeof msg === "object" && msg.content)) {
-      const checkText = typeof msg === "object" ? msg.content : msg;
-      if (checkText && (checkText.includes("¿En relación con qué tema sería su consulta?") || checkText.includes("¿En relación a qué tema sería su consulta?"))) {
-        isMenu = true;
-      }
+    // Interceptar pregunta corta y convertirla en el menú de texto completo
+    let text = typeof msg === "object" ? msg.content : msg;
+    if (text && (text.trim() === "¿En relación con qué tema sería su consulta?" || text.trim() === "¿En relación a qué tema sería su consulta?")) {
+      text = "¿En relación con qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Drivers\n7. Licencias\n8. Otro\n\nResponda con el número o el nombre del tema.";
     }
 
-    if ((typeof msg === "object" && msg.type === "list") || isMenu) {
-      let listData = typeof msg === "object" && msg.type === "list" ? msg.listData : null;
-      if (!listData) {
-        listData = {
-          title: "¿En relación a qué tema sería su consulta?",
-          description: "Seleccione el tema principal para brindarle el mejor soporte técnico.",
-          buttonText: "Ver temas",
-          sections: [
-            {
-              title: "Opciones de Soporte",
-              rows: [
-                { title: "Configuraciones", description: "Configuración general de equipos", rowId: "1" },
-                { title: "Reset", description: "Restablecer contraseñas o valores de fábrica", rowId: "2" },
-                { title: "Desvinculación", description: "Desvincular equipo de una cuenta", rowId: "3" },
-                { title: "Firmware", description: "Actualización de sistema", rowId: "4" },
-                { title: "Software", description: "Problemas con programas", rowId: "5" },
-                { title: "Drivers", description: "Controladores de dispositivo", rowId: "6" },
-                { title: "Licencias", description: "Activación o estado de licencias", rowId: "7" },
-                { title: "Otro", description: "Otro tipo de consulta técnica", rowId: "8" }
-              ]
-            }
-          ]
-        };
-      }
-      sent = await sendWhatsAppList(phone || "", listData, evoCfg, delayMs);
+    if (!text || !text.trim()) continue;
+    
+    if (typeof msg === "object" && msg.type === "list") {
+      sent = await sendWhatsAppList(phone || "", msg.listData, evoCfg, delayMs);
     } else {
-      const text = typeof msg === "object" ? msg.content : msg;
-      if (!text || !text.trim()) continue;
       sent = await sendWhatsAppText(phone || "", text, evoCfg, delayMs);
     }
 

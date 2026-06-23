@@ -511,7 +511,7 @@ CONTEXTO: El asistente sigue este flujo de recopilación de datos:
 6. Para otros temas: descripción del problema
 
 REGLAS DE ANÁLISIS:
-- Si el cliente indica EXPRESAMENTE que NO TIENE cuenta o empresa (ej: "no tengo", "ninguna", "cliente final"), extrae la cuenta como "Sin cuenta". PERO si el cliente simplemente omite el dato en su respuesta (ej. da su nombre y correo pero no menciona la empresa), DEBES dejar el campo cuenta vacío ("") para que el sistema lo vuelva a pedir.
+- Si el cliente indica EXPRESAMENTE que NO TIENE cuenta o empresa (ej: "no tengo", "ninguna", "cliente final"), extrae la cuenta como "Sin cuenta". PERO si el cliente simplemente omite el dato en su respuesta (ej. da su nombre y correo pero no menciona la empresa), DEBES dejar el campo cuenta vacío ("") para que el sistema lo vuelva a pedir. NUNCA extraigas el nombre de la cuenta o empresa a partir del dominio o texto del correo electrónico. Si el usuario no escribe explícitamente el nombre de su cuenta, debes dejarlo vacío.
 - REGLA DE CUENTA PERSONAL: Si el cliente indica que la cuenta está a su nombre personal o repite su nombre (ej: "está a mi nombre", "a nombre de Juan"), extrae SU NOMBRE EXACTO (ej: "Juan") como el valor de la "cuenta". NUNCA extraigas frases relativas como "a mi nombre" o "yo mismo".
 - Si el cliente envió un código como "DS-3E0505P-E-M", "NVR-108MH", "IPC-T221H" eso es un MODELO, no una marca.
 - Si el cliente envió una sola palabra como "Hikvision", "Dahua", "Epcom", "ZKTeco", eso es una MARCA.
