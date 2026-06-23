@@ -118,8 +118,8 @@ async function callNvidia(model: string, messages: NimMessage[]): Promise<string
   const res = await fetch(`${NIM_BASE}/chat/completions`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${NVIDIA_KEY}` },
-    body: JSON.stringify({ model, messages, temperature: 0.2, max_tokens: 1024, stream: false }),
-    signal: AbortSignal.timeout(12000)
+    body: JSON.stringify({ model, messages, temperature: 0.2, max_tokens: 1024, stream: false, response_format: { type: "json_object" } }),
+    signal: AbortSignal.timeout(25000)
   });
   if (!res.ok) throw new Error(`Status ${res.status}`);
   const data = await res.json();
@@ -135,8 +135,8 @@ async function callOpenRouter(model: string, messages: NimMessage[]): Promise<st
       "HTTP-Referer": "https://sekunet.com",
       "X-Title": "Chat Sekunet"
     },
-    body: JSON.stringify({ model, messages, temperature: 0.2, max_tokens: 1024, stream: false }),
-    signal: AbortSignal.timeout(12000)
+    body: JSON.stringify({ model, messages, temperature: 0.2, max_tokens: 1024, stream: false, response_format: { type: "json_object" } }),
+    signal: AbortSignal.timeout(25000)
   });
   if (!res.ok) throw new Error(`Status ${res.status}`);
   const data = await res.json();
@@ -150,12 +150,12 @@ async function callGoogle(model: string, messages: NimMessage[]): Promise<string
     role: m.role === "user" ? "user" : "model",
     parts: [{ text: typeof m.content === "string" ? m.content : (m.content as any[]).find((p:any) => p.type==="text")?.text ?? "" }],
   }));
-  const body: any = { contents, generationConfig: { temperature: 0.2, maxOutputTokens: 1024 } };
+  const body: any = { contents, generationConfig: { temperature: 0.2, maxOutputTokens: 1024, responseMimeType: "application/json" } };
   if (system) body.systemInstruction = { parts: [{ text: system.content as string }] };
   
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
-    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(12000) }
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(25000) }
   );
   if (!res.ok) throw new Error(`Status ${res.status}`);
   const data = await res.json();
@@ -601,6 +601,9 @@ Responde SOLO con JSON válido:
       }
     } catch (e: any) {
       console.error("[seka-whatsapp] Supervisor error:", e.message);
+      if (typeof supervisorRaw !== 'undefined') {
+          await db.from("sek_cases").update({ notasInternas: "JSON_PARSE_ERROR: " + e.message + " | RAW: " + supervisorRaw.substring(0, 500) }).eq("id", case_id);
+      }
     }
 
     // ── Paso 3: Inicializar datos del cliente ──
@@ -655,11 +658,7 @@ Responde SOLO con JSON válido:
       }
 
       // Si los datos están completos pero el AI falló y estamos en el fallback,
-      // lanzamos un error amigable o intentamos avanzar al tema si aún no hay.
-      if (!replyDatos) {
-         replyDatos = "El sistema está experimentando una alta demanda y no pudo procesar su solicitud en este momento. Por favor, intente enviarnos su último mensaje nuevamente en unos minutos.";
-      }
-
+      // usaremos un modelo no estructurado como salvavidas final.
       if (replyDatos) {
         const newMsgDatos: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: replyDatos };
         if (clienteChanged) {
@@ -670,16 +669,24 @@ Responde SOLO con JSON válido:
         return new Response(JSON.stringify({ ok: true, reply: replyDatos }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      // El código a continuación nunca debería alcanzarse ahora porque replyDatos siempre se define.
-
-      const messages = buildMessages(histcliente, null);
-      let rawReply = await callAIWithFallbacks(messages);
-      let cleanReply = await processTags(rawReply, case_id);
-      cleanReply = cleanReply.replace(/__INV__.*?__INV__/gs, "").trim();
-      if (!cleanReply) return new Response(JSON.stringify({ ok: true, skipped: true }), { status: 200, headers: corsHeaders });
-      const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: cleanReply };
-      await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
-      return new Response(JSON.stringify({ ok: true, reply: cleanReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      console.log("[seka-whatsapp] Datos de cliente completos, intentando LLM no estructurado como salvavidas...");
+      try {
+        const messages = buildMessages(histcliente, null);
+        let rawReply = await callAIWithFallbacks(messages);
+        let cleanReply = await processTags(rawReply, case_id);
+        cleanReply = cleanReply.replace(/__INV__.*?__INV__/gs, "").trim();
+        if (!cleanReply) return new Response(JSON.stringify({ ok: true, skipped: true }), { status: 200, headers: corsHeaders });
+        const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: cleanReply };
+        await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
+        return new Response(JSON.stringify({ ok: true, reply: cleanReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      } catch (fallbackErr: any) {
+        console.error("[seka-whatsapp] Salvavidas no estructurado también falló:", fallbackErr.message);
+        // Sólo como último recurso si TODO falla:
+        const panicReply = "Disculpe, estoy teniendo intermitencias con la red. Un agente humano revisará su caso a la brevedad.";
+        const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: panicReply };
+        await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
+        return new Response(JSON.stringify({ ok: true, reply: panicReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
     }
 
     // ── Paso 3: Actualizar datos del cliente si el supervisor extrajo nuevos ──
