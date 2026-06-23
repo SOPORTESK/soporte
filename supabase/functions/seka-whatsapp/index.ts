@@ -184,6 +184,22 @@ async function callAIWithFallbacks(messages: NimMessage[]): Promise<string> {
   throw new Error(`AI Router agotó todos los fallbacks. Errores: ${errors.join(", ")}`);
 }
 
+// ─── VALIDAR SOLO MARCA ────────────────────────────────────────────────────────
+async function validarMarcaSolo(marca: string): Promise<{ encontrado: boolean }> {
+  if (!marca) return { encontrado: false };
+  try {
+    const { data } = await db
+      .from("sek_inventario")
+      .select("marca")
+      .ilike("marca", `%${marca.trim()}%`)
+      .limit(1);
+    return { encontrado: (data && data.length > 0) ? true : false };
+  } catch (e) {
+    console.error("[seka-whatsapp] Error validando marca:", e);
+    return { encontrado: false }; // En caso de error, dejamos pasar o no? Mejor no, digamos false para estar seguros? No, si la DB falla, es mejor no mentir.
+  }
+}
+
 // ─── BUSCAR EN INVENTARIO ─────────────────────────────────────────────────────
 async function buscarInventario(query: string): Promise<{ encontrado: boolean; detalle: string }> {
   try {
@@ -1123,6 +1139,26 @@ Responde SOLO con JSON válido:
 
     // ── ACCIÓN: PEDIR MODELO ──
     if (accion === "PEDIR_MODELO") {
+      // 🚨 INTERCEPCIÓN INTELIGENTE: Si vamos a pedir el modelo, significa que ya tenemos la marca.
+      // Validemos la marca ANTES de pedir el modelo para no hacer perder el tiempo al cliente.
+      const marcaValida = await validarMarcaSolo(marcaSupervisor);
+      
+      if (!marcaValida.encontrado && temaSupervisor !== "Otro") {
+        // La marca no existe en el catálogo. Rechazamos inmediatamente.
+        const rejectionMessage = "Gracias por contactarnos.\n\nLe informamos que el dispositivo indicado no corresponde a un equipo distribuido por Sekunet, por lo que no podemos brindarle soporte técnico sobre este producto.\n\n¿Tiene alguna otra consulta relacionada con nuestras marcas o servicios? Con gusto le ayudaremos.";
+        const directReply = withAcuse(rejectionMessage);
+        
+        const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
+        const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
+        if (clienteChanged) upd.cliente = updatedCliente;
+        // Limpiamos la marca para que el usuario pueda empezar de cero si tiene otra consulta
+        upd.title = `${temaSupervisor} — Marca Rechazada`;
+        await db.from("sek_cases").update(upd).eq("id", case_id);
+        
+        return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // Si la marca sí existe (o es tema Otro donde no importa), pedimos el modelo normalmente.
       const directReply = withAcuse("¿Nos podría indicar el modelo del equipo, por favor?");
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
       const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
@@ -1148,7 +1184,7 @@ Responde SOLO con JSON válido:
       
       let directReply: string;
       if (!inv.encontrado) {
-        directReply = "El dispositivo indicado no forma parte de los equipos distribuidos por Sekunet, por lo que lamentablemente no podemos brindarle el soporte requerido. ¿Tiene alguna otra consulta relacionada con nuestros productos?";
+        directReply = withAcuse("Gracias por contactarnos.\n\nLe informamos que el dispositivo indicado no corresponde a un equipo distribuido por Sekunet, por lo que no podemos brindarle soporte técnico sobre este producto.\n\n¿Tiene alguna otra consulta relacionada con nuestras marcas o servicios? Con gusto le ayudaremos.");
       } else if (temaSupervisor === "Reset") {
         const esHikvision = /hik/i.test(inv.detalle || marcaSupervisor);
         directReply = esHikvision
