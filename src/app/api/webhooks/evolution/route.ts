@@ -10,6 +10,15 @@ const get = (obj: any, path: string) => path.split(".").reduce((o, k) => (o && o
 const processedMessages = new Map<string, number>();
 const DUPLICATE_WINDOW_MS = 30000; // 30 segundos
 
+// Cola en memoria para operaciones de base de datos atómicas por usuario (evita sobreescribir histcliente)
+const dbMutexMap = new Map<string, Promise<void>>();
+async function atomicDbUpdate(jid: string, updateFn: () => Promise<void>) {
+  const current = dbMutexMap.get(jid) || Promise.resolve();
+  const next = current.then(updateFn).catch((e) => console.error("[evo-webhook] Error en atomicDbUpdate:", e));
+  dbMutexMap.set(jid, next);
+  await next;
+}
+
 function getMessageKey(jid: string | null | undefined, content: string | null | undefined, mediaUrl?: string): string {
   const key = mediaUrl ? `${jid}:${mediaUrl}` : `${jid}:${content?.slice(0, 50)}`;
   return key;
@@ -101,6 +110,24 @@ async function sendWhatsAppList(phone: string, listData: any, evoCfg: any, delay
     return true;
   } catch (e: any) {
     console.error("[evo-webhook] Exception sending list:", e.message);
+    return false;
+  }
+}
+
+// Helper para enviar estado de escribiendo (composing)
+async function sendWhatsAppPresence(phone: string, evoCfg: any, presence: "composing" | "available" | "unavailable" = "composing"): Promise<boolean> {
+  try {
+    if (!evoCfg?.url || !evoCfg?.apiKey || !evoCfg?.instance) return false;
+    const to = phone.toString().trim().replace(/[^0-9]/g, "");
+    const url = `${evoCfg.url.replace(/\/$/, "")}/chat/sendPresence/${encodeURIComponent(evoCfg.instance)}`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: evoCfg.apiKey },
+      body: JSON.stringify({ number: to, presence, delay: 0 })
+    });
+    return res.ok;
+  } catch (e: any) {
+    console.error("[evo-webhook] Exception sending presence:", e.message);
     return false;
   }
 }
@@ -913,35 +940,35 @@ export async function POST(req: NextRequest) {
           .eq("id", existing.id);
       } else {
         // Mensaje entrante: guardar en histcliente
-        console.log("[evo-webhook] Paso 9: guardando mensaje entrante en histcliente...");
-        const hist = Array.isArray(existing.histcliente) ? existing.histcliente : [];
-        const updated = [...hist, entry];
+        console.log("[evo-webhook] Paso 9: guardando mensaje entrante en histcliente de forma atómica...");
+        
+        await atomicDbUpdate(existing.id, async () => {
+          // Refetch del historial más reciente para evitar la condición de carrera
+          const { data: latestCase } = await supabase.from("sek_cases").select("histcliente, title, cliente").eq("id", existing.id).single();
+          const hist = Array.isArray(latestCase?.histcliente) ? latestCase.histcliente : [];
+          const updated = [...hist, entry];
 
-        const { data: currentCase } = await supabase
-          .from("sek_cases")
-          .select("cliente, title")
-          .eq("id", existing.id)
-          .maybeSingle();
+          const currentCliente = (latestCase?.cliente && typeof latestCase.cliente === "object") ? latestCase.cliente : {};
+          const updatedCliente = { 
+            ...currentCliente, 
+            whatsapp_name: pushName || currentCliente.whatsapp_name,
+            telefono_real: senderPn || currentCliente.telefono_real
+          };
 
-        const currentCliente = (currentCase?.cliente && typeof currentCase.cliente === "object") ? currentCase.cliente : {};
-        const updatedCliente = { 
-          ...currentCliente, 
-          whatsapp_name: pushName || currentCliente.whatsapp_name,
-          telefono_real: senderPn || currentCliente.telefono_real
-        };
-
-        await supabase
-          .from("sek_cases")
-          .update({ 
-            histcliente: updated, 
-            last_message_at: now, 
-            last_message_preview: (text || "").slice(0, 200),
-            customer_phone: jid,
-            cliente: updatedCliente,
-            title: pushName ? `WhatsApp — ${pushName}` : (currentCase?.title || `WhatsApp — ${jid}`),
-            ...(reopenClosedCase ? { estado: "ia_atendiendo" } : {})
-          })
-          .eq("id", existing.id);
+          await supabase
+            .from("sek_cases")
+            .update({ 
+              histcliente: updated, 
+              last_message_at: now, 
+              last_message_preview: (text || "").slice(0, 200),
+              customer_phone: jid,
+              cliente: updatedCliente,
+              title: pushName ? `WhatsApp — ${pushName}` : (latestCase?.title || `WhatsApp — ${jid}`),
+              ...(reopenClosedCase ? { estado: "ia_atendiendo" } : {})
+            })
+            .eq("id", existing.id);
+        });
+        
         console.log("[evo-webhook] Paso 9 OK - mensaje guardado en histcliente");
       }
       if (!isOutgoing) {
@@ -962,6 +989,18 @@ export async function POST(req: NextRequest) {
           }
           // Si la IA está atendiendo o el caso está escalado, invocar seka-whatsapp
           if (currentEstado === "ia_atendiendo" || currentEstado === "escalado") {
+            
+            // INDICADOR DE ESCRIBIENDO Y DEBOUNCING (Evita llamar a la IA en ráfaga)
+            await sendWhatsAppPresence(phone || jid || "", evoCfg, "composing");
+            console.log(`[evo-webhook] Pausa de 3s para agrupar mensajes concurrentes...`);
+            await new Promise(resolve => setTimeout(resolve, 3000));
+            
+            const { data: checkCase } = await supabase.from("sek_cases").select("last_message_at").eq("id", existing.id).single();
+            if (checkCase && new Date(checkCase.last_message_at).getTime() > new Date(now).getTime()) {
+               console.log(`[evo-webhook] Abortando IA para caso ${existing.id}, llegó un mensaje más reciente durante la pausa.`);
+               return NextResponse.json({ ok: true, skipped: "newer_message" });
+            }
+
             console.log(`[evo-webhook] Invocando seka-whatsapp para caso existente ${existing.id}, estado: ${currentEstado}`);
             try {
               const iaRes = await fetch(`${SUPABASE_URL}/functions/v1/seka-whatsapp`, {
