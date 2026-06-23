@@ -77,6 +77,7 @@ REGLAS ABSOLUTAS
 - Si el cliente muestra enojo o frustración evidente → valide en una frase, diga M02 y emita [ESCALAR_N2: cliente requiere atención prioritaria]. No insista en recopilar datos.
 - No diagnostique ni dé pasos técnicos ni soluciones. Su único rol es recopilar datos, confirmar y escalar.
 - Si el cliente se despide → diga M03 y emita [CERRAR]
+- Si el cliente pregunta por VENTAS, precios, cotizaciones, compras, stock o garantías → emita la acción VENTAS. NO pida marca ni modelo.
 - Nunca haga dos preguntas en un mismo mensaje.
 - Nunca invente información ni asuma datos que el cliente no escribió explícitamente.
 - Respete el orden de los pasos. No salte ninguno.
@@ -824,7 +825,12 @@ Responde SOLO con JSON válido:
       if (idioma === "en" && typeof supervisorResult.respuesta_sugerida === "string" && supervisorResult.respuesta_sugerida.trim()) {
         return supervisorResult.respuesta_sugerida.trim();
       }
-      return acuse ? `${acuse}\n\n${text}` : text;
+      if (!acuse) return text;
+      // Protección contra IA desobediente: si el acuse contiene una pregunta, ignorarlo para no duplicar.
+      if (acuse.includes("?")) return text;
+      // Protección contra IA repitiendo el mismo texto
+      if (text.includes(acuse) || acuse.includes(text)) return text;
+      return `${acuse}\n\n${text}`;
     };
 
     // Construye el motivo de escalado (resumen ejecutivo para el agente humano).
