@@ -616,20 +616,60 @@ Responde SOLO con JSON válido:
       let replyDatos = "";
       if (!cliFallback.nombre) {
         const isRetry = lastIaContentFallback.includes("nombre") || lastIaContentFallback.includes("llamarle");
-        replyDatos = isRetry ? "El nombre ingresado no parece estar completo o válido. Por favor, indíquenos su nombre y al menos un apellido para registrar su caso." : "Para comenzar, ¿me podría indicar su nombre completo?";
-      } else if (!cliFallback.correo) {
+        if (isRetry && lastUserMsgContent.length >= 2) {
+          console.log("[seka-whatsapp] Fallback: Extrayendo nombre ingenuamente:", lastUserMsgContent);
+          updatedCliente.nombre = lastUserMsgContent;
+          cliFallback.nombre = lastUserMsgContent;
+          clienteChanged = true;
+          replyDatos = "Gracias. ¿Me podría indicar su correo electrónico?";
+        } else {
+          replyDatos = isRetry ? "El nombre ingresado no parece estar completo o válido. Por favor, indíquenos su nombre y al menos un apellido para registrar su caso." : "Para comenzar, ¿me podría indicar su nombre completo?";
+        }
+      } 
+      
+      if (!cliFallback.correo && !replyDatos) {
         const isRetry = lastIaContentFallback.includes("correo") || lastIaContentFallback.includes("email");
-        replyDatos = isRetry ? "El correo ingresado no tiene un formato válido. Por favor, escriba su correo electrónico real para poder contactarle." : "Gracias. ¿Me podría indicar su correo electrónico?";
-      } else if (!cliFallback.cuenta) {
+        if (isRetry && lastUserMsgContent.includes("@")) {
+          console.log("[seka-whatsapp] Fallback: Extrayendo correo ingenuamente:", lastUserMsgContent);
+          updatedCliente.correo = lastUserMsgContent;
+          cliFallback.correo = lastUserMsgContent;
+          clienteChanged = true;
+          replyDatos = "Perfecto. Por último, ¿cuál es el nombre de la empresa o cuenta afiliada a Sekunet?";
+        } else {
+          replyDatos = isRetry ? "El correo ingresado no tiene un formato válido. Por favor, escriba su correo electrónico real para poder contactarle." : "Gracias. ¿Me podría indicar su correo electrónico?";
+        }
+      } 
+      
+      if (!cliFallback.cuenta && !replyDatos) {
         const isRetry = lastIaContentFallback.includes("cuenta") || lastIaContentFallback.includes("empresa") || lastIaContentFallback.includes("afiliada");
-        replyDatos = isRetry ? "El nombre de la cuenta ingresada no es válido. Por favor, ¿cuál es el nombre de la empresa o cuenta afiliada a Sekunet?" : "Perfecto. Por último, ¿cuál es el nombre de la empresa o cuenta afiliada a Sekunet?";
+        if (isRetry && lastUserMsgContent.length >= 2) {
+          console.log("[seka-whatsapp] Fallback: Extrayendo cuenta ingenuamente:", lastUserMsgContent);
+          updatedCliente.cuenta = lastUserMsgContent;
+          cliFallback.cuenta = lastUserMsgContent;
+          clienteChanged = true;
+          replyDatos = "¿En relación a qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Drivers\n7. Licencias\n8. Otro\n\nResponda con el número o el nombre del tema.";
+        } else {
+          replyDatos = isRetry ? "El nombre de la cuenta ingresada no es válido. Por favor, ¿cuál es el nombre de la empresa o cuenta afiliada a Sekunet?" : "Perfecto. Por último, ¿cuál es el nombre de la empresa o cuenta afiliada a Sekunet?";
+        }
+      }
+
+      // Si los datos están completos pero el AI falló y estamos en el fallback,
+      // lanzamos un error amigable o intentamos avanzar al tema si aún no hay.
+      if (!replyDatos) {
+         replyDatos = "El sistema está experimentando una alta demanda y no pudo procesar su solicitud en este momento. Por favor, intente enviarnos su último mensaje nuevamente en unos minutos.";
       }
 
       if (replyDatos) {
         const newMsgDatos: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: replyDatos };
-        await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsgDatos] }).eq("id", case_id);
+        if (clienteChanged) {
+           await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsgDatos], cliente: updatedCliente }).eq("id", case_id);
+        } else {
+           await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsgDatos] }).eq("id", case_id);
+        }
         return new Response(JSON.stringify({ ok: true, reply: replyDatos }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
+
+      // El código a continuación nunca debería alcanzarse ahora porque replyDatos siempre se define.
 
       const messages = buildMessages(histcliente, null);
       let rawReply = await callAIWithFallbacks(messages);
