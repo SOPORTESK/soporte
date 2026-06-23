@@ -603,23 +603,26 @@ Responde SOLO con JSON válido:
       console.error("[seka-whatsapp] Supervisor error:", e.message);
     }
 
+    // ── Paso 3: Inicializar datos del cliente ──
+    const currentCliente = (caso.cliente && typeof caso.cliente === "object") ? caso.cliente : {};
+    const updatedCliente: Record<string, unknown> = { ...currentCliente };
+    let clienteChanged = false;
+
     // ── Si el supervisor falló, usar fallback con el flujo anterior ──
     if (!supervisorResult) {
       console.warn("[seka-whatsapp] Supervisor falló, usando LLM directo como fallback");
 
       // RED DE SEGURIDAD: aunque el supervisor falle, el NOMBRE y la CUENTA son obligatorios.
       // No delegamos al Asistente libre si faltan, para no saltarnos la cuenta.
-      const cliFallback = (caso.cliente && typeof caso.cliente === "object") ? (caso.cliente as any) : {};
       
       const lastIaContentFallback = (iaRealMsgs[iaRealMsgs.length - 1]?.content || "").toLowerCase();
       
       let replyDatos = "";
-      if (!cliFallback.nombre) {
+      if (!updatedCliente.nombre) {
         const isRetry = lastIaContentFallback.includes("nombre") || lastIaContentFallback.includes("llamarle");
         if (isRetry && lastUserMsgContent.length >= 2) {
           console.log("[seka-whatsapp] Fallback: Extrayendo nombre ingenuamente:", lastUserMsgContent);
           updatedCliente.nombre = lastUserMsgContent;
-          cliFallback.nombre = lastUserMsgContent;
           clienteChanged = true;
           replyDatos = "Gracias. ¿Me podría indicar su correo electrónico?";
         } else {
@@ -627,12 +630,11 @@ Responde SOLO con JSON válido:
         }
       } 
       
-      if (!cliFallback.correo && !replyDatos) {
+      if (!updatedCliente.correo && !replyDatos) {
         const isRetry = lastIaContentFallback.includes("correo") || lastIaContentFallback.includes("email");
         if (isRetry && lastUserMsgContent.includes("@")) {
           console.log("[seka-whatsapp] Fallback: Extrayendo correo ingenuamente:", lastUserMsgContent);
           updatedCliente.correo = lastUserMsgContent;
-          cliFallback.correo = lastUserMsgContent;
           clienteChanged = true;
           replyDatos = "Perfecto. Por último, ¿cuál es el nombre de la empresa o cuenta afiliada a Sekunet?";
         } else {
@@ -640,12 +642,11 @@ Responde SOLO con JSON válido:
         }
       } 
       
-      if (!cliFallback.cuenta && !replyDatos) {
+      if (!updatedCliente.cuenta && !replyDatos) {
         const isRetry = lastIaContentFallback.includes("cuenta") || lastIaContentFallback.includes("empresa") || lastIaContentFallback.includes("afiliada");
         if (isRetry && lastUserMsgContent.length >= 2) {
           console.log("[seka-whatsapp] Fallback: Extrayendo cuenta ingenuamente:", lastUserMsgContent);
           updatedCliente.cuenta = lastUserMsgContent;
-          cliFallback.cuenta = lastUserMsgContent;
           clienteChanged = true;
           replyDatos = "¿En relación a qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Drivers\n7. Licencias\n8. Otro\n\nResponda con el número o el nombre del tema.";
         } else {
@@ -682,9 +683,7 @@ Responde SOLO con JSON válido:
     }
 
     // ── Paso 3: Actualizar datos del cliente si el supervisor extrajo nuevos ──
-    const currentCliente = (caso.cliente && typeof caso.cliente === "object") ? caso.cliente : {};
-    const updatedCliente: Record<string, unknown> = { ...currentCliente };
-    let clienteChanged = false;
+    // (La inicialización de currentCliente, updatedCliente y clienteChanged se movió arriba del fallback)
     
     const isValidExtractedString = (val: any) => typeof val === "string" && val.trim() !== "" && val !== "vacío" && val !== "(vacío)" && val !== "null" && !val.startsWith("PEDIR_");
 
