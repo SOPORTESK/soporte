@@ -926,7 +926,6 @@ export async function POST(req: NextRequest) {
         const currentCliente = (currentCase?.cliente && typeof currentCase.cliente === "object") ? currentCase.cliente : {};
         const updatedCliente = { 
           ...currentCliente, 
-          nombre: currentCliente.nombre || pushName,
           whatsapp_name: pushName || currentCliente.whatsapp_name,
           telefono_real: senderPn || currentCliente.telefono_real
         };
