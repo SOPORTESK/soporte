@@ -575,6 +575,13 @@ Responde SOLO con JSON válido:
     
     const isValidExtractedString = (val: any) => typeof val === "string" && val.trim() !== "" && val !== "vacío" && val !== "(vacío)" && val !== "null";
 
+    // Extracción forzosa de correo mediante Regex para no depender 100% de la IA
+    let regexEmail = "";
+    const emailMatch = lastUserMsgContent.match(/[\w.-]+@[\w.-]+\.\w+/);
+    if (emailMatch) {
+      regexEmail = emailMatch[0];
+    }
+
     if (isValidExtractedString(supervisorResult.nombre)) {
       const oldNombre = String((currentCliente as any).nombre || "").trim();
       if (!oldNombre || oldNombre === "." || /^[\d\+\-\s]+$/.test(oldNombre) || oldNombre === "(vacío)") {
@@ -582,10 +589,14 @@ Responde SOLO con JSON válido:
         clienteChanged = true;
       }
     }
-    if (isValidExtractedString(supervisorResult.correo)) {
+    
+    // Usar el correo del LLM o el del Regex como respaldo
+    const finalCorreo = supervisorResult.correo && isValidExtractedString(supervisorResult.correo) ? supervisorResult.correo : regexEmail;
+    
+    if (isValidExtractedString(finalCorreo)) {
       const oldCorreo = String((currentCliente as any).correo || "").trim();
       if (!oldCorreo || oldCorreo === "(vacío)") {
-        updatedCliente.correo = supervisorResult.correo;
+        updatedCliente.correo = finalCorreo;
         clienteChanged = true;
       }
     }
