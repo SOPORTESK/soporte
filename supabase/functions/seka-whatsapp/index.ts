@@ -10,10 +10,20 @@ const NIM_BASE     = "https://integrate.api.nvidia.com/v1";
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
 
 // ─── SYSTEM PROMPT ────────────────────────────────────────────────────────────
-const SYSTEM_PROMPT = `Usted es el Asistente Virtual de Sekunet (Costa Rica), especialista de soporte técnico.
-Trate siempre de usted. Sin emojis. Máximo 2 oraciones por respuesta.
-Una sola pregunta o instrucción por mensaje. Espere respuesta antes de continuar.
-Nunca mencione que es una IA ni un asistente virtual. No se presente, el cliente ya fue saludado.
+const SYSTEM_PROMPT = `Usted es el Asistente de Soporte de Sekunet (Costa Rica), la primera línea de atención al cliente.
+Su misión es ofrecer una experiencia de clase mundial: cálida, eficiente y profesional, mientras recopila la información necesaria para que un agente humano resuelva el caso sin tener que volver a preguntar.
+
+════════════════════════════════════════════
+IDENTIDAD Y TONO
+════════════════════════════════════════════
+- Trate siempre de "usted". Sin emojis. Tono cortés, humano y seguro, nunca robótico.
+- Máximo 2 oraciones por mensaje. Una sola pregunta o instrucción por mensaje. Espere respuesta antes de continuar.
+- Nunca mencione que es una IA, un bot o un asistente virtual. No se presente: el cliente ya fue saludado.
+- ACUSE DE RECIBO: antes de cada nueva pregunta, reconozca brevemente lo que el cliente acaba de aportar ("Perfecto, ya registré la marca." / "Gracias, tomo nota."). Esto hace la conversación natural; no es una pregunta adicional.
+- EMPATÍA: si el cliente expresa molestia, urgencia o frustración, valídelo en una frase ("Lamento el inconveniente, le ayudo de inmediato.") antes de continuar.
+- IDIOMA: responda en el mismo idioma en que escribe el cliente (español o inglés). Si escribe en inglés, traduzca naturalmente sus respuestas y los mensajes guía.
+- EXPECTATIVAS: cuando escale, deje claro qué sigue ("Un agente continuará su caso en breve.").
+- PROGRESO SIN REPETIR: nunca vuelva a pedir un dato ya proporcionado. Si el cliente ya dio varios datos juntos, agradézcalos y avance al siguiente faltante.
 
 ════════════════════════════════════════════
 FLUJO OBLIGATORIO — SIGA ESTE ORDEN EXACTO
@@ -23,15 +33,14 @@ PASO 0 — BIENVENIDA YA ENVIADA
 El cliente ya recibió el saludo y se le solicitó su nombre, correo y cuenta. NO vuelva a saludar.
 
 PASO 1 — SOLICITAR TEMA DE CONSULTA
-Diga exactamente: "¿En relación con qué tema sería su consulta?"
-Temas disponibles: Configuraciones, Reset, Desvinculación, Firmware, Software, Drivers, Licencias, Otro.
+Pida el tema de la consulta de forma cordial. Temas disponibles: Configuraciones, Reset, Desvinculación, Firmware, Software, Drivers, Licencias, Otro.
 
 PASO 2 — SOLICITAR MARCA
-Diga exactamente: "Por favor, indíquenos la marca del equipo."
+Pida la marca del equipo, reconociendo primero el tema elegido.
 Excepción: Si el cliente eligió el tema "Otro", SALTE el Paso 1 y 2, y pase directo a pedir la descripción de su consulta.
 
 PASO 3 — SOLICITAR MODELO
-Diga exactamente: "¿Nos podría indicar el modelo del equipo, por favor?"
+Pida el modelo del equipo, agradeciendo la marca.
 
 PASO 4 — VALIDAR EN INVENTARIO
 Antes de emitir el tag, normalice la marca y el modelo:
@@ -48,11 +57,12 @@ Si NO está en cartera → diga exactamente:
   → Si el cliente dice Sí → NO pida marca ni modelo, pida directamente la descripción de su nueva consulta (accion: "PEDIR_DESCRIPCION")
   → Si el cliente dice No → diga M03 y emita [CERRAR]
 
-Si SÍ está en cartera → diga M02 y emita [ESCALAR_N2]
+Si SÍ está en cartera → CONFIRME EL CASO en una frase breve (recap: tema + equipo) y luego diga M02 y emita [ESCALAR_N2].
 
 ════════════════════════════════════════════
 MENSAJES EXACTOS — NO LOS MODIFIQUE
 ════════════════════════════════════════════
+(Puede anteceder un acuse de recibo o un recap breve, pero el texto de M02/M03 debe aparecer íntegro y sin alteración.)
 
 M02:
 "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes."
@@ -64,11 +74,13 @@ M03:
 REGLAS ABSOLUTAS
 ════════════════════════════════════════════
 - Si el cliente pide hablar con una persona en cualquier momento → diga M02 y emita [ESCALAR_N2: solicitud del cliente]. Inmediatamente, sin preguntar nada más.
-- No diagnostique ni dé pasos técnicos. Su único rol es recopilar datos y escalar.
+- Si el cliente muestra enojo o frustración evidente → valide en una frase, diga M02 y emita [ESCALAR_N2: cliente requiere atención prioritaria]. No insista en recopilar datos.
+- No diagnostique ni dé pasos técnicos ni soluciones. Su único rol es recopilar datos, confirmar y escalar.
 - Si el cliente se despide → diga M03 y emita [CERRAR]
 - Nunca haga dos preguntas en un mismo mensaje.
-- Nunca invente información.
-- Respete el orden de los pasos. No salte ninguno.`;
+- Nunca invente información ni asuma datos que el cliente no escribió explícitamente.
+- Respete el orden de los pasos. No salte ninguno.
+- Siempre que escale, garantice al cliente que no tendrá que repetir la información ya brindada.`;
 
 // ─── INTERFACES ───────────────────────────────────────────────────────────────
 interface HistMsg {
@@ -318,11 +330,13 @@ function buildMessages(hist: HistMsg[], invContext: string | null): NimMessage[]
 
   // Detectar el tema seleccionado (acepta número o texto exacto/parcial)
   const temaMsg = hist.find(m => m.role === "user" && resolveTopicFromText(m.content?.trim() ?? "") !== null);
-  const tema = temaMsg ? (resolveTopicFromText(temaMsg.content?.trim() ?? "") ?? "Configuraciones") : "Configuraciones";
+  const tema = temaMsg ? resolveTopicFromText(temaMsg.content?.trim() ?? "") : null;
 
   // Construir system prompt con el tema inyectado
-  const systemWithTema = SYSTEM_PROMPT.replace("{{TEMA}}", tema)
-    + `\n\nEl cliente seleccionó el tema: ${tema}. Inicie el flujo correspondiente.`;
+  let systemWithTema = SYSTEM_PROMPT.replace("{{TEMA}}", tema || "ninguno");
+  if (tema) {
+    systemWithTema += `\n\nEl cliente seleccionó el tema: ${tema}. Inicie el flujo correspondiente.`;
+  }
 
   const messages: NimMessage[] = [{ role: "system", content: systemWithTema }];
 
@@ -355,7 +369,11 @@ function buildMessages(hist: HistMsg[], invContext: string | null): NimMessage[]
   // Si no hay mensajes de usuario reales aún, agregar uno ficticio para arrancar el flujo
   const hasUserMsg = messages.some(m => m.role === "user");
   if (!hasUserMsg) {
-    messages.push({ role: "user", content: `El cliente seleccionó el tema: ${tema}. Por favor inicie el flujo.` });
+    if (tema) {
+      messages.push({ role: "user", content: `El cliente seleccionó el tema: ${tema}. Por favor inicie el flujo.` });
+    } else {
+      messages.push({ role: "user", content: `El cliente inició el chat. Por favor inicie el flujo pidiendo los datos requeridos.` });
+    }
   }
 
   return messages;
@@ -441,6 +459,7 @@ Deno.serve(async (req: Request) => {
 
     const lastIA    = iaRealMsgs[iaRealMsgs.length - 1];
     const lastUserMsg = userRealMsgs[userRealMsgs.length - 1];
+    const lastUserMsgContent = lastUserMsg?.content || "";
     const lastIATime  = lastIA?.time ? new Date(lastIA.time).getTime() : 0;
     const lastUserTime = lastUserMsg?.time ? new Date(lastUserMsg.time).getTime() : 0;
 
@@ -492,7 +511,7 @@ Deno.serve(async (req: Request) => {
       return `${who}: ${m.content || "(sin texto)"}${hasMedia}`;
     }).join("\n");
 
-    const supervisorPrompt = `Eres el Supervisor Inteligente del chat de soporte de Sekunet (Costa Rica). Tu trabajo es ANALIZAR la conversación completa y decidir qué información ya se recopiló y cuál falta.
+    const supervisorPrompt = `Eres el Supervisor Inteligente del chat de soporte de Sekunet (Costa Rica), equivalente a un sistema de triaje de atención al cliente de clase mundial. Tu trabajo es ANALIZAR la conversación completa, entender la situación e intención del cliente, y decidir con precisión qué información ya se recopiló, cuál falta y cuál es el siguiente paso óptimo.
 
 CONVERSACIÓN COMPLETA:
 ${conversationSummary}
@@ -513,6 +532,9 @@ CONTEXTO: El asistente sigue este flujo de recopilación de datos:
 REGLAS DE ANÁLISIS:
 - Si el cliente indica EXPRESAMENTE que NO TIENE cuenta o empresa (ej: "no tengo", "ninguna", "cliente final"), extrae la cuenta como "Sin cuenta". PERO si el cliente simplemente omite el dato en su respuesta (ej. da su nombre y correo pero no menciona la empresa), DEBES dejar el campo cuenta vacío ("") para que el sistema lo vuelva a pedir. NUNCA extraigas el nombre de la cuenta o empresa a partir del dominio o texto del correo electrónico. Si el usuario no escribe explícitamente el nombre de su cuenta, debes dejarlo vacío.
 - REGLA DE CUENTA PERSONAL: Si el cliente indica que la cuenta está a su nombre personal o repite su nombre (ej: "está a mi nombre", "a nombre de Juan"), extrae SU NOMBRE EXACTO (ej: "Juan") como el valor de la "cuenta". NUNCA extraigas frases relativas como "a mi nombre" o "yo mismo".
+- PROHIBIDO DEDUCIR LA CUENTA DEL CORREO: NUNCA generes el valor de "cuenta" a partir del correo (ni de la parte antes de @, ni del dominio). Ejemplo: con "innoviocr@outlook.com" NO escribas "Innovio CR" ni "Innovio". Si el cliente no escribió textualmente el nombre de su empresa/cuenta, deja "cuenta" VACÍA.
+- PROHIBIDO ASUMIR EL TEMA: NUNCA inventes ni infieras el "tema". Si el cliente no eligió explícitamente uno de los 8 temas, deja "tema" en null y usa accion "PEDIR_TEMA". Jamás escribas frases como "su consulta sobre configuraciones" si el cliente no lo dijo.
+- ORDEN OBLIGATORIO: Mientras falte cualquiera de los datos (nombre, correo o cuenta), la accion debe ser "PEDIR_DATOS". No avances a tema, marca ni modelo hasta tener los tres datos.
 - Si el cliente envió un código como "DS-3E0505P-E-M", "NVR-108MH", "IPC-T221H" eso es un MODELO, no una marca.
 - Si el cliente envió una sola palabra como "Hikvision", "Dahua", "Epcom", "ZKTeco", eso es una MARCA.
 - Si el cliente envió marca y modelo juntos, extrae ambos. Si el cliente solo dio el modelo, NO pidas la marca. Si ya tienes modelo, la acción debe avanzar a BUSCAR_INVENTARIO o PEDIR_DESCRIPCION, nunca regreses a PEDIR_MARCA.
@@ -520,8 +542,19 @@ REGLAS DE ANÁLISIS:
 - Si el cliente ya proporcionó datos (even if he said he doesn't have them), NUNCA los pidas de nuevo.
 - REGLA CRÍTICA DE VENTAS: Si el mensaje del usuario tiene CUALQUIER intención de compra, venta, precios, stock o cotizaciones (incluso con errores ortográficos graves como "venbden", "komprar", "cuanto kuesta"), DEBES obligatoriamente marcar la accion como "VENTAS" sin importar en qué paso del flujo te encuentres.
 - Si el cliente pide hablar con una persona/agente/humano, marca accion como "ESCALAR_INMEDIATO".
+- REGLA DE FRUSTRACIÓN: Si el cliente muestra enojo evidente, reclamo, insultos, o lleva varios mensajes sin avanzar y se nota molesto, marca "sentimiento" como "muy_molesto" y la accion como "ESCALAR_INMEDIATO". No insistas en pedir más datos.
 - Si el cliente se despide (adiós, gracias, hasta luego), marca accion como "CERRAR".
 - Interpreta errores ortográficos libremente. Ej: "reced" o "rese" = "Reset", "borrar" = "Desvinculación", "fimwar" = "Firmware", "marac" = "marca", etc. Usa el sentido común.
+
+REGLAS DE EXPERIENCIA PREMIUM (NUEVAS):
+- ACUSE DE RECIBO: en el campo "acuse" genera una frase breve, cálida y natural que reconozca lo último que aportó el cliente o valide su situación (ej: "Perfecto, ya registré la marca." / "Gracias, tomo nota." / "Lamento el inconveniente."). NO debe contener preguntas. Déjalo vacío solo si no aplica (ej. primer dato o despedida).
+- IDIOMA: detecta el idioma del cliente y ponlo en "idioma" ("es" o "en"). Si es "en", redacta "acuse", "respuesta_sugerida" y "resumen_handoff" en inglés natural.
+- SENTIMIENTO: clasifica el ánimo del cliente en "sentimiento" (positivo | neutral | molesto | muy_molesto).
+- URGENCIA: estima la urgencia del caso en "urgencia" (baja | media | alta | critica). Sistemas caídos, accesos perdidos o impacto operativo = alta/critica.
+- RESUMEN PARA EL AGENTE: en "resumen_handoff" escribe un resumen ejecutivo de 1-2 líneas para el agente humano (cliente, cuenta, tema, equipo, qué se solicitó y qué falta). Esto evita que el agente vuelva a preguntar.
+- CONFIANZA: en "confianza" indica tu nivel de certeza en la extracción (alta | media | baja). Si es baja por ambigüedad, prefiere una respuesta_sugerida que pida una aclaración cortés en lugar de asumir.
+- No inventes datos. Si dudas, confírmalo con el cliente antes de darlo por válido.
+
 Responde SOLO con JSON válido:
 {
   "nombre": "nombre extraído o vacío",
@@ -535,7 +568,13 @@ Responde SOLO con JSON válido:
   "descripcion_problema": "si el cliente ya describió su problema, ponerlo aquí, sino vacío",
   "accion": "una de: PEDIR_DATOS|PEDIR_TEMA|PEDIR_MARCA|PEDIR_MODELO|PEDIR_MARCA_Y_MODELO|BUSCAR_INVENTARIO|PEDIR_ETIQUETA|PEDIR_ETIQUETA_Y_XML|PEDIR_DESCRIPCION|ESCALAR|ESCALAR_INMEDIATO|CERRAR|VENTAS|CONTINUAR",
   "razon": "explicación breve de por qué elegiste esa acción",
-  "respuesta_sugerida": "la respuesta que debería enviar el asistente al cliente (máx 2 oraciones, formal, sin emojis, tratando de usted)"
+  "acuse": "frase breve de acuse de recibo o empatía, sin preguntas, o vacío",
+  "idioma": "es o en",
+  "sentimiento": "positivo|neutral|molesto|muy_molesto",
+  "urgencia": "baja|media|alta|critica",
+  "confianza": "alta|media|baja",
+  "resumen_handoff": "resumen ejecutivo de 1-2 líneas para el agente humano",
+  "respuesta_sugerida": "la respuesta que debería enviar el asistente al cliente (máx 2 oraciones, formal, sin emojis, tratando de usted, en el idioma del cliente)"
 }`;
 
     let supervisorResult: any = null;
@@ -573,7 +612,11 @@ Responde SOLO con JSON válido:
     const updatedCliente: Record<string, unknown> = { ...currentCliente };
     let clienteChanged = false;
     
-    const isValidExtractedString = (val: any) => typeof val === "string" && val.trim() !== "" && val !== "vacío" && val !== "(vacío)" && val !== "null";
+    const isValidExtractedString = (val: any) => {
+      if (typeof val !== "string") return false;
+      const lower = val.toLowerCase().trim();
+      return lower !== "" && lower !== "vacío" && lower !== "vacía" && lower !== "null" && lower !== "n/a" && lower !== "na" && lower !== "none" && lower !== "no especificada" && lower !== "no especificado" && lower !== "no indica" && lower !== "ninguna";
+    };
 
     // Extracción forzosa de correo mediante Regex para no depender 100% de la IA
     let regexEmail = "";
@@ -606,9 +649,14 @@ Responde SOLO con JSON válido:
       const isBadOldCuenta = oldCuentaLower === "a mi nombre" || oldCuentaLower === "mi nombre" || oldCuentaLower === "yo mismo" || oldCuentaLower === "personal";
       let cuentaAlucinada = false;
       if (regexEmail) {
-        const emailLocalPart = regexEmail.split('@')[0].toLowerCase();
-        const cuentaExtractLower = supervisorResult.cuenta.toLowerCase();
-        if (emailLocalPart.includes(cuentaExtractLower) || cuentaExtractLower.includes(emailLocalPart)) cuentaAlucinada = true;
+        // Normalizar: minúsculas y solo alfanuméricos (ignora espacios y signos).
+        // Así detectamos cuentas derivadas del correo como "Innovio CR" → "innoviocr".
+        const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+        const emailLocalPart = norm(regexEmail.split('@')[0]);
+        const cuentaNorm = norm(supervisorResult.cuenta);
+        if (cuentaNorm.length >= 3 && (emailLocalPart.includes(cuentaNorm) || cuentaNorm.includes(emailLocalPart))) {
+          cuentaAlucinada = true;
+        }
       }
       if (!oldCuenta || oldCuenta === "(vacío)" || isBadOldCuenta) {
         if (cuentaAlucinada) {
@@ -674,6 +722,36 @@ Responde SOLO con JSON válido:
     const modeloSupervisor = supervisorResult.modelo || "";
     const temaSupervisor = supervisorResult.tema || tema;
 
+    // ── CAMPOS PREMIUM (experiencia de clase mundial) ──
+    const idioma = (supervisorResult.idioma === "en") ? "en" : "es";
+    const sentimiento = String(supervisorResult.sentimiento || "neutral").toLowerCase();
+    const urgencia = String(supervisorResult.urgencia || "media").toLowerCase();
+    const acuse = (typeof supervisorResult.acuse === "string" && supervisorResult.acuse.trim() && !/^(vac[íi]o|null|none)$/i.test(supervisorResult.acuse.trim()))
+      ? supervisorResult.acuse.trim()
+      : "";
+    const handoffSummary = (typeof supervisorResult.resumen_handoff === "string" && supervisorResult.resumen_handoff.trim() && !/^(vac[íi]o|null|none)$/i.test(supervisorResult.resumen_handoff.trim()))
+      ? supervisorResult.resumen_handoff.trim()
+      : "";
+
+    // Antepone un acuse de recibo a las respuestas de pasos. En inglés, prefiere la respuesta del supervisor.
+    // El texto base (en español) se conserva íntegro para no romper los matchers anti-loop.
+    const withAcuse = (text: string): string => {
+      if (idioma === "en" && typeof supervisorResult.respuesta_sugerida === "string" && supervisorResult.respuesta_sugerida.trim()) {
+        return supervisorResult.respuesta_sugerida.trim();
+      }
+      return acuse ? `${acuse}\n\n${text}` : text;
+    };
+
+    // Construye el motivo de escalado (resumen ejecutivo para el agente humano).
+    const buildN2Reason = (fallback: string): string => handoffSummary || fallback;
+    const urgencyTags = (urgencia === "alta" || urgencia === "critica") ? [`urgencia_${urgencia}`] : [];
+
+    // ── AUTO-ESCALADO POR FRUSTRACIÓN (triaje prioritario) ──
+    if (sentimiento === "muy_molesto" && accion !== "CERRAR" && accion !== "VENTAS") {
+      console.log("[seka-whatsapp] Cliente muy molesto → escalado prioritario.");
+      accion = "ESCALAR_INMEDIATO";
+    }
+
     // ── FORZAR REGLAS CRÍTICAS (evitar alucinaciones del LLM) ──
     if (tema === "Otro" && (accion === "PEDIR_MARCA" || accion === "PEDIR_MODELO" || accion === "PEDIR_MARCA_Y_MODELO")) {
       console.log("[seka-whatsapp] Forzando PEDIR_DESCRIPCION para tema Otro");
@@ -681,7 +759,6 @@ Responde SOLO con JSON válido:
       supervisorResult.respuesta_sugerida = "Por favor, describa brevemente su consulta o inconveniente.";
     }
 
-    const lastUserMsgContent = userRealMsgs[userRealMsgs.length - 1]?.content || "";
     const lastIAContent = iaRealMsgs[iaRealMsgs.length - 1]?.content || "";
 
     if (accion === "PEDIR_DESCRIPCION" && lastIAContent.includes("describa brevemente")) {
@@ -713,7 +790,7 @@ Responde SOLO con JSON válido:
     const validActions = ["CERRAR", "ESCALAR", "ESCALAR_INMEDIATO", "PEDIR_DATOS", "PEDIR_TEMA", "PEDIR_MARCA", "PEDIR_MODELO", "PEDIR_MARCA_Y_MODELO", "BUSCAR_INVENTARIO", "PEDIR_ETIQUETA", "PEDIR_ETIQUETA_Y_XML", "PEDIR_DESCRIPCION", "VENTAS"];
     if (!validActions.includes(accion) && !supervisorResult.respuesta_sugerida) {
       console.warn(`[seka-whatsapp] Accion ${accion} sin respuesta_sugerida. Aplicando heuristica.`);
-      if (!updatedCliente.nombre || !updatedCliente.correo || !updatedCliente.cuenta) {
+      if (!updatedCliente.nombre || !updatedCliente.cuenta) {
         accion = "PEDIR_DATOS";
       } else if (!temaSupervisor) {
         accion = "PEDIR_TEMA";
@@ -756,17 +833,67 @@ Responde SOLO con JSON válido:
       updatedCliente.cuenta = "sin cuenta"; // Forzar para que el siguiente bloque lo procese correctamente
     }
 
-    // Si falta alguno de los 3 datos, y la intención no es de ventas o cierre
-    if (accion !== "CERRAR" && accion !== "VENTAS" && !isSinCuenta) {
-      if (!updatedCliente.nombre || !updatedCliente.correo || !updatedCliente.cuenta) {
-        accion = "PEDIR_DATOS";
-        if (!supervisorResult.respuesta_sugerida || supervisorResult.accion !== "PEDIR_DATOS" || true) {
-          const faltan = [];
-          if (!updatedCliente.nombre) faltan.push("su nombre completo");
-          if (!updatedCliente.correo) faltan.push("su correo electrónico");
-          if (!updatedCliente.cuenta) faltan.push("la cuenta afiliada a Sekunet");
-          supervisorResult.respuesta_sugerida = `Por favor, proporciónenos ${faltan.join(" y ")} para poder ayudarlo mejor.`;
+    // ── VALIDACIÓN DETERMINÍSTICA: la CUENTA es lo más importante ──
+    // Los casos se registran por nombre de cuenta. La cuenta es OBLIGATORIA; el correo es OPCIONAL.
+
+    // Descartar cualquier cuenta que parezca derivada del correo, incluso si ya estaba guardada.
+    if (!isSinCuenta) {
+      const correoActual = String(updatedCliente.correo || "");
+      const cuentaActual = String(updatedCliente.cuenta || "");
+      if (correoActual.includes("@") && cuentaActual) {
+        const normc = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+        const localPart = normc(correoActual.split("@")[0]);
+        const cuentaN = normc(cuentaActual);
+        if (cuentaN.length >= 3 && (localPart.includes(cuentaN) || cuentaN.includes(localPart))) {
+          console.log(`[seka-whatsapp] Cuenta "${cuentaActual}" parece derivada del correo. Se descarta y se vuelve a pedir.`);
+          updatedCliente.cuenta = "";
+          clienteChanged = true;
         }
+      }
+    }
+
+    // CUENTA A NOMBRE/TÍTULO PERSONAL: si el cliente indica que la cuenta está a su propio
+    // nombre, el nombre del cliente ES el nombre de la cuenta (registro a título personal).
+    const personalAccountPattern = /(a\s*mi\s*nombre|mi\s*propio\s*nombre|a\s*t[íi]tulo\s*personal|nombre\s*personal|a\s*nombre\s*personal|cuenta\s*personal|est[áa]\s*a\s*mi\s*nombre|a\s*mi\s*propio\s*nombre|es\s*personal|a\s*nombre\s*m[íi]o|m[íi]a)/i;
+    if (!isSinCuenta && !updatedCliente.cuenta && updatedCliente.nombre && personalAccountPattern.test(lastUserMsgContent)) {
+      updatedCliente.cuenta = String(updatedCliente.nombre);
+      clienteChanged = true;
+      console.log("[seka-whatsapp] Cuenta a nombre personal → se usa el nombre del cliente como cuenta.");
+    }
+
+    // GATE 1 — Nombre y CUENTA obligatorios (el correo NO bloquea el flujo).
+    if (accion !== "CERRAR" && accion !== "VENTAS" && accion !== "ESCALAR_INMEDIATO" && !isSinCuenta) {
+      if (!updatedCliente.nombre || !updatedCliente.cuenta) {
+        // Contar cuántas veces ya re-pedimos la cuenta (frase clave del recordatorio).
+        const accountReaskCount = iaRealMsgs.filter(m => (m.content || "").toLowerCase().includes("nombre de la cuenta es indispensable")).length;
+
+        // Tras 2 recordatorios sin éxito: cerrar la conversación cortésmente.
+        if (!updatedCliente.cuenta && accountReaskCount >= 2) {
+          console.log("[seka-whatsapp] Cuenta no proporcionada tras 2 recordatorios → cerrando conversación.");
+          const M_SIN_CUENTA_CIERRE = "Lamentamos no poder continuar en esta ocasión. Para brindarle soporte necesitamos el nombre de la cuenta registrada con Sekunet, y no hemos podido confirmarlo.\n\nLe invitamos a contactar a su proveedor o instalador, o a escribirnos nuevamente cuando tenga a mano el nombre de su cuenta. Agradecemos su comprensión y le deseamos un excelente día.";
+          const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M_SIN_CUENTA_CIERRE };
+          const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg], estado: "cerrado" };
+          if (clienteChanged) upd.cliente = updatedCliente;
+          if (nuevoTitle) upd.title = nuevoTitle;
+          await db.from("sek_cases").update(upd).eq("id", case_id);
+          return new Response(JSON.stringify({ ok: true, reply: M_SIN_CUENTA_CIERRE }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+
+        accion = "PEDIR_DATOS";
+        const faltan = [];
+        if (!updatedCliente.nombre) faltan.push("su nombre completo");
+        if (!updatedCliente.cuenta) faltan.push("el nombre de la cuenta afiliada a Sekunet");
+        // Mensaje cortés. La frase "nombre de la cuenta es indispensable" se usa para contar recordatorios.
+        supervisorResult.respuesta_sugerida = `Para poder ayudarle necesitamos ${faltan.join(" y ")}. El nombre de la cuenta es indispensable: sin una cuenta registrada con Sekunet no podemos continuar con el soporte. Si la cuenta está a su nombre personal, puede indicárnoslo.`;
+      }
+    }
+
+    // GATE 2 — Con datos completos pero sin tema elegido por el cliente, mostrar la lista de temas.
+    const temaElegidoPorCliente = topiIdx >= 0;
+    if (accion !== "CERRAR" && accion !== "VENTAS" && accion !== "ESCALAR_INMEDIATO" && accion !== "PEDIR_DATOS") {
+      if (updatedCliente.nombre && updatedCliente.cuenta && !temaElegidoPorCliente) {
+        console.log("[seka-whatsapp] Datos completos sin tema elegido → mostrando lista de temas.");
+        accion = "PEDIR_TEMA";
       }
     }
 
@@ -801,25 +928,27 @@ Responde SOLO con JSON válido:
       return new Response(JSON.stringify({ ok: true, reply: M04_TEXT }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // ── ACCIÓN: ESCALAR INMEDIATO (cliente pidió hablar con un humano) ──
+    // ── ACCIÓN: ESCALAR INMEDIATO (cliente pidió hablar con un humano o requiere prioridad) ──
     if (accion === "ESCALAR_INMEDIATO") {
       const M02_TEXT = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
-      const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M02_TEXT };
+      const replyText = withAcuse(M02_TEXT);
+      const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: replyText };
       const upd: Record<string, unknown> = {
         histtecnico: [...histtecnico, newMsg],
         estado: "escalado",
         escalado_at: new Date().toISOString(),
-        n2_reason: "Solicitud directa del cliente",
+        n2_reason: buildN2Reason(sentimiento === "muy_molesto" ? "Cliente requiere atención prioritaria" : "Solicitud directa del cliente"),
       };
+      if (urgencyTags.length) upd.tags = urgencyTags;
       if (clienteChanged) upd.cliente = updatedCliente;
       if (nuevoTitle) upd.title = nuevoTitle;
       await db.from("sek_cases").update(upd).eq("id", case_id);
-      return new Response(JSON.stringify({ ok: true, reply: M02_TEXT }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ ok: true, reply: replyText }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // ── ACCIÓN: PEDIR DATOS (nombre, correo, cuenta) ──
     if (accion === "PEDIR_DATOS") {
-      const directReply = supervisorResult.respuesta_sugerida || "Por favor, compártanos la siguiente información:\n• Nombre completo\n• Correo electrónico\n• Nombre de la cuenta afiliada a Sekunet";
+      const directReply = withAcuse(supervisorResult.respuesta_sugerida || "Por favor, compártanos la siguiente información:\n• Nombre completo\n• Correo electrónico\n• Nombre de la cuenta afiliada a Sekunet");
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
       const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
       if (clienteChanged) upd.cliente = updatedCliente;
@@ -829,7 +958,7 @@ Responde SOLO con JSON válido:
 
     // ── ACCIÓN: PEDIR TEMA ──
     if (accion === "PEDIR_TEMA") {
-      const directReply = "¿En relación a qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Drivers\n7. Licencias\n8. Otro\n\nResponda con el número o el nombre del tema.";
+      const directReply = withAcuse("¿En relación a qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Drivers\n7. Licencias\n8. Otro\n\nResponda con el número o el nombre del tema.");
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
       const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
       if (clienteChanged) upd.cliente = updatedCliente;
@@ -840,7 +969,7 @@ Responde SOLO con JSON válido:
 
     // ── ACCIÓN: PEDIR MARCA ──
     if (accion === "PEDIR_MARCA") {
-      const directReply = "Por favor, indíquenos la marca del equipo.";
+      const directReply = withAcuse("Por favor, indíquenos la marca del equipo.");
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
       const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
       if (clienteChanged) upd.cliente = updatedCliente;
@@ -850,7 +979,7 @@ Responde SOLO con JSON válido:
 
     // ── ACCIÓN: PEDIR MODELO ──
     if (accion === "PEDIR_MODELO") {
-      const directReply = "¿Nos podría indicar el modelo del equipo, por favor?";
+      const directReply = withAcuse("¿Nos podría indicar el modelo del equipo, por favor?");
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
       const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
       if (clienteChanged) upd.cliente = updatedCliente;
@@ -860,7 +989,7 @@ Responde SOLO con JSON válido:
 
     // ── ACCIÓN: PEDIR MARCA Y MODELO (cuando no tiene ninguno) ──
     if (accion === "PEDIR_MARCA_Y_MODELO") {
-      const directReply = "Por favor, indíquenos la marca y el modelo del equipo.";
+      const directReply = withAcuse("Por favor, indíquenos la marca y el modelo del equipo.");
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
       const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
       if (clienteChanged) upd.cliente = updatedCliente;
@@ -886,7 +1015,8 @@ Responde SOLO con JSON válido:
       } else {
         directReply = "Por favor, describa brevemente el inconveniente que presenta.";
       }
-      
+
+      directReply = withAcuse(directReply);
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
       const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
       if (clienteChanged) upd.cliente = updatedCliente;
@@ -899,7 +1029,7 @@ Responde SOLO con JSON válido:
 
     // ── ACCIÓN: PEDIR ETIQUETA (Reset/Desvinculación — no Hikvision) ──
     if (accion === "PEDIR_ETIQUETA") {
-      const directReply = "Por favor, adjunte una imagen clara y legible de la etiqueta del equipo.";
+      const directReply = withAcuse("Por favor, adjunte una imagen clara y legible de la etiqueta del equipo.");
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
       const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
       if (clienteChanged) upd.cliente = updatedCliente;
@@ -909,7 +1039,7 @@ Responde SOLO con JSON válido:
 
     // ── ACCIÓN: PEDIR ETIQUETA Y XML (Reset Hikvision) ──
     if (accion === "PEDIR_ETIQUETA_Y_XML") {
-      const directReply = "Como parte de los requisitos del fabricante, requerimos una imagen clara y legible de la etiqueta del equipo y el archivo XML, el cual puede obtener mediante la herramienta SAPD Tools en la opción \"Olvidé mi contraseña\", ubicada en la parte inferior derecha del software. Por favor, adjunte ambos archivos.";
+      const directReply = withAcuse("Como parte de los requisitos del fabricante, requerimos una imagen clara y legible de la etiqueta del equipo y el archivo XML, el cual puede obtener mediante la herramienta SAPD Tools en la opción \"Olvidé mi contraseña\", ubicada en la parte inferior derecha del software. Por favor, adjunte ambos archivos.");
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
       const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
       if (clienteChanged) upd.cliente = updatedCliente;
@@ -919,7 +1049,7 @@ Responde SOLO con JSON válido:
 
     // ── ACCIÓN: PEDIR DESCRIPCIÓN (temas que no son Reset/Desvinculación) ──
     if (accion === "PEDIR_DESCRIPCION") {
-      const directReply = "Por favor, describa brevemente el inconveniente que presenta.";
+      const directReply = withAcuse("Por favor, describa brevemente el inconveniente que presenta.");
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
       const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
       if (clienteChanged) upd.cliente = updatedCliente;
@@ -930,12 +1060,15 @@ Responde SOLO con JSON válido:
     // ── ACCIÓN: ESCALAR (todo listo, pasar a humano) ──
     if (accion === "ESCALAR") {
       const M02_TEXT = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
-      const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M02_TEXT };
+      const replyText = withAcuse(M02_TEXT);
+      const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: replyText };
       const upd: Record<string, unknown> = {
         histtecnico: [...histtecnico, newMsg],
         estado: "escalado",
         escalado_at: new Date().toISOString(),
+        n2_reason: buildN2Reason(`${temaSupervisor} — recopilación completada`),
       };
+      if (urgencyTags.length) upd.tags = urgencyTags;
       if (clienteChanged) upd.cliente = updatedCliente;
       if (marcaSupervisor || modeloSupervisor) {
         upd.title = `${temaSupervisor} — ${marcaSupervisor} ${modeloSupervisor}`.trim().substring(0, 120);
@@ -943,7 +1076,7 @@ Responde SOLO con JSON válido:
         upd.title = nuevoTitle;
       }
       await db.from("sek_cases").update(upd).eq("id", case_id);
-      return new Response(JSON.stringify({ ok: true, reply: M02_TEXT }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ ok: true, reply: replyText }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // ── ACCIÓN: CONTINUAR (el supervisor sugiere una respuesta libre/contextual) ──
