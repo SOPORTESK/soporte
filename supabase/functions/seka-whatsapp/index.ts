@@ -900,8 +900,8 @@ Responde SOLO con JSON válido:
 
     // GATE 1 — Lógica de cierre por insistencia en pedir la cuenta.
     if (accion === "PEDIR_CUENTA" && !isSinCuenta) {
-      // Contar cuántas veces ya re-pedimos la cuenta (frase clave del recordatorio).
-      const accountReaskCount = iaRealMsgs.filter(m => (m.content || "").toLowerCase().includes("nombre de la cuenta es indispensable")).length;
+      // Contar cuántas veces ya re-pedimos la cuenta (frase de reintento).
+      const accountReaskCount = iaRealMsgs.filter(m => (m.content || "").includes("nombre de la cuenta ingresada no es válido")).length;
 
       // Tras 2 recordatorios sin éxito: cerrar la conversación cortésmente.
       if (accountReaskCount >= 2) {
@@ -914,10 +914,6 @@ Responde SOLO con JSON válido:
         await db.from("sek_cases").update(upd).eq("id", case_id);
         return new Response(JSON.stringify({ ok: true, reply: M_SIN_CUENTA_CIERRE }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
-
-      // Si es la primera o segunda vez que pedimos la cuenta, inyectamos la frase de advertencia
-      // para que el bot sea firme y podamos contarla en el próximo mensaje.
-      supervisorResult.respuesta_sugerida = `El nombre de la cuenta es indispensable: sin una cuenta registrada con Sekunet no podemos continuar con el soporte. Por favor, indíquenos el nombre de su empresa o cuenta afiliada. Si está a su nombre personal, puede indicárnoslo.`;
     }
 
     // GATE 2 — Con datos completos pero sin tema elegido por el cliente, mostrar la lista de temas.
