@@ -540,8 +540,8 @@ REGLAS DE ANÁLISIS:
   3. Si ya tienes nombre y correo, pero falta la cuenta, la accion debe ser "PEDIR_CUENTA".
   NUNCA pidas dos datos juntos. NO avances a pedir tema, marca ni modelo hasta tener los tres datos.
 - VALIDACIÓN DE DATOS FALSOS: Debes verificar de forma intuitiva que los datos proporcionados sean reales y lógicos.
-  - Nombres: Si el cliente proporciona un nombre obviamente falso, caracteres aleatorios (ej: "ryjuky", "asdf"), números, o palabras sin sentido, recházalo. ES OBLIGATORIO dejar el campo "nombre" vacío ("") y en "respuesta_sugerida" debes poner EXACTAMENTE: "El nombre ingresado no parece válido. Por favor, indíquenos un nombre real y válido para registrar su caso."
-  - Correos: Si el cliente proporciona un correo evidentemente falso o de prueba (ej: "1@1.com", "a@a.com", "wef@wrf.we"), recházalo. ES OBLIGATORIO dejar el campo "correo" vacío ("") y en "respuesta_sugerida" debes poner EXACTAMENTE: "El correo ingresado no tiene un formato válido. Por favor, escriba su correo electrónico real para poder contactarle."
+  - Nombres: Si el cliente proporciona un nombre obviamente falso, caracteres aleatorios (ej: "ryjuky", "asdf"), números, o palabras sin sentido, recházalo. ES OBLIGATORIO dejar el campo "nombre" vacío ("") y en "respuesta_sugerida" debes usar este texto exacto (sin comillas): El nombre ingresado no parece válido. Por favor, indíquenos un nombre real y válido para registrar su caso.
+  - Correos: Si el cliente proporciona un correo evidentemente falso o de prueba (ej: "1@1.com", "a@a.com", "wef@wrf.we"), recházalo. ES OBLIGATORIO dejar el campo "correo" vacío ("") y en "respuesta_sugerida" debes usar este texto exacto (sin comillas): El correo ingresado no tiene un formato válido. Por favor, escriba su correo electrónico real para poder contactarle.
 - Si el cliente envió un código como "DS-3E0505P-E-M", "NVR-108MH", "IPC-T221H" eso es un MODELO, no una marca.
 - Si el cliente envió una sola palabra como "Hikvision", "Dahua", "Epcom", "ZKTeco", eso es una MARCA.
 - Si el cliente envió marca y modelo juntos, extrae ambos. Si el cliente solo dio el modelo, NO pidas la marca. Si ya tienes modelo, la acción debe avanzar a BUSCAR_INVENTARIO o PEDIR_DESCRIPCION, nunca regreses a PEDIR_MARCA.
@@ -608,13 +608,19 @@ Responde SOLO con JSON válido:
       // RED DE SEGURIDAD: aunque el supervisor falle, el NOMBRE y la CUENTA son obligatorios.
       // No delegamos al Asistente libre si faltan, para no saltarnos la cuenta.
       const cliFallback = (caso.cliente && typeof caso.cliente === "object") ? (caso.cliente as any) : {};
+      
+      const lastIaContentFallback = (iaRealMsgs[iaRealMsgs.length - 1]?.content || "").toLowerCase();
+      
       let replyDatos = "";
       if (!cliFallback.nombre) {
-        replyDatos = "Para comenzar, ¿me podría indicar su nombre completo?";
+        const isRetry = lastIaContentFallback.includes("nombre") || lastIaContentFallback.includes("llamarle");
+        replyDatos = isRetry ? "El nombre ingresado no parece ser válido. Por favor, indíquenos un nombre real y válido para registrar su caso." : "Para comenzar, ¿me podría indicar su nombre completo?";
       } else if (!cliFallback.correo) {
-        replyDatos = "Gracias. ¿Me podría indicar su correo electrónico?";
+        const isRetry = lastIaContentFallback.includes("correo") || lastIaContentFallback.includes("email");
+        replyDatos = isRetry ? "El correo ingresado no tiene un formato válido. Por favor, escriba su correo electrónico real para poder contactarle." : "Gracias. ¿Me podría indicar su correo electrónico?";
       } else if (!cliFallback.cuenta) {
-        replyDatos = "Perfecto. Por último, ¿cuál es el nombre de la empresa o cuenta afiliada a Sekunet?";
+        const isRetry = lastIaContentFallback.includes("cuenta") || lastIaContentFallback.includes("empresa") || lastIaContentFallback.includes("afiliada");
+        replyDatos = isRetry ? "El nombre de la cuenta ingresada no es válido. Por favor, ¿cuál es el nombre de la empresa o cuenta afiliada a Sekunet?" : "Perfecto. Por último, ¿cuál es el nombre de la empresa o cuenta afiliada a Sekunet?";
       }
 
       if (replyDatos) {
