@@ -540,8 +540,9 @@ REGLAS DE ANÁLISIS:
   3. Si ya tienes nombre y correo, pero falta la cuenta, la accion debe ser "PEDIR_CUENTA".
   NUNCA pidas dos datos juntos. NO avances a pedir tema, marca ni modelo hasta tener los tres datos.
 - VALIDACIÓN DE DATOS FALSOS: Debes verificar de forma intuitiva que los datos proporcionados sean reales y lógicos.
-  - Nombres: Si el cliente proporciona un nombre obviamente falso, caracteres aleatorios, números, o palabras sin sentido (ej: "123", "asdf", "yo", "usuario", "aa"), recházalo. Deja el campo "nombre" vacío ("") y en "respuesta_sugerida" pídele amablemente un nombre válido.
-  - Correos: Si el cliente proporciona un correo evidentemente falso o de prueba (ej: "1@1.com", "a@a.com", "correo@correo.com", "asd@asd.com"), recházalo. Deja el campo "correo" vacío ("") y en "respuesta_sugerida" indícale que el correo no parece válido y solicítale uno real.
+  - Nombres: Si el cliente proporciona un nombre obviamente falso, caracteres aleatorios (ej: "ryjuky", "asdf"), números, o palabras sin sentido, recházalo. ES OBLIGATORIO dejar el campo "nombre" vacío ("").
+  - Correos: Si el cliente proporciona un correo evidentemente falso o de prueba (ej: "1@1.com", "a@a.com", "wef@wrf.we"), recházalo. ES OBLIGATORIO dejar el campo "correo" vacío ("").
+  - IMPORTANTE: Si rechazas cualquier dato, DEBES obligatoriamente escribir un mensaje de corrección en "respuesta_sugerida" indicando que el dato es inválido.
 - Si el cliente envió un código como "DS-3E0505P-E-M", "NVR-108MH", "IPC-T221H" eso es un MODELO, no una marca.
 - Si el cliente envió una sola palabra como "Hikvision", "Dahua", "Epcom", "ZKTeco", eso es una MARCA.
 - Si el cliente envió marca y modelo juntos, extrae ambos. Si el cliente solo dio el modelo, NO pidas la marca. Si ya tienes modelo, la acción debe avanzar a BUSCAR_INVENTARIO o PEDIR_DESCRIPCION, nunca regreses a PEDIR_MARCA.
@@ -975,11 +976,30 @@ Responde SOLO con JSON válido:
     // ── ACCIÓN: PEDIR NOMBRE, CORREO, CUENTA ──
     if (accion === "PEDIR_NOMBRE" || accion === "PEDIR_CORREO" || accion === "PEDIR_CUENTA") {
       let defaultReply = "";
-      if (accion === "PEDIR_NOMBRE") defaultReply = "Para comenzar, ¿me podría indicar su nombre completo?";
-      if (accion === "PEDIR_CORREO") defaultReply = "Gracias. ¿Me podría indicar su correo electrónico?";
-      if (accion === "PEDIR_CUENTA") defaultReply = "Perfecto. Por último, ¿cuál es el nombre de la empresa o cuenta afiliada a Sekunet?";
+      const lastIaContent = (lastIA?.content || "").toLowerCase();
+      const isRetry = (accion === "PEDIR_NOMBRE" && lastIaContent.includes("nombre completo")) ||
+                      (accion === "PEDIR_CORREO" && lastIaContent.includes("correo electrónico")) ||
+                      (accion === "PEDIR_CUENTA" && lastIaContent.includes("cuenta afiliada"));
 
-      const directReply = withAcuse(supervisorResult.respuesta_sugerida || defaultReply);
+      if (accion === "PEDIR_NOMBRE") {
+        defaultReply = isRetry ? "El nombre ingresado no parece ser válido. Por favor, indíquenos su nombre completo real." : "Para comenzar, ¿me podría indicar su nombre completo?";
+      }
+      if (accion === "PEDIR_CORREO") {
+        defaultReply = isRetry ? "El correo ingresado no tiene un formato válido o parece de prueba. Por favor, indíquenos su correo electrónico real para poder contactarle." : "Gracias. ¿Me podría indicar su correo electrónico?";
+      }
+      if (accion === "PEDIR_CUENTA") {
+        defaultReply = isRetry ? "El nombre de la cuenta ingresada no es válido. Por favor, ¿cuál es el nombre de la empresa o cuenta afiliada a Sekunet?" : "Perfecto. Por último, ¿cuál es el nombre de la empresa o cuenta afiliada a Sekunet?";
+      }
+
+      let directReply = supervisorResult.respuesta_sugerida;
+      if (!directReply) {
+        // Si la IA no generó una respuesta personalizada, usamos el default. 
+        // Si es un reintento (error del usuario), omitimos el 'acuse' ("Gracias.") para no sonar sarcásticos.
+        directReply = isRetry ? defaultReply : withAcuse(defaultReply);
+      } else {
+        directReply = withAcuse(directReply);
+      }
+
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
       const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
       if (clienteChanged) upd.cliente = updatedCliente;
