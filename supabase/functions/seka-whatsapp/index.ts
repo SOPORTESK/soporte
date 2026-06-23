@@ -540,9 +540,8 @@ REGLAS DE ANÁLISIS:
   3. Si ya tienes nombre y correo, pero falta la cuenta, la accion debe ser "PEDIR_CUENTA".
   NUNCA pidas dos datos juntos. NO avances a pedir tema, marca ni modelo hasta tener los tres datos.
 - VALIDACIÓN DE DATOS FALSOS: Debes verificar de forma intuitiva que los datos proporcionados sean reales y lógicos.
-  - Nombres: Si el cliente proporciona un nombre obviamente falso, caracteres aleatorios (ej: "ryjuky", "asdf"), números, o palabras sin sentido, recházalo. ES OBLIGATORIO dejar el campo "nombre" vacío ("").
-  - Correos: Si el cliente proporciona un correo evidentemente falso o de prueba (ej: "1@1.com", "a@a.com", "wef@wrf.we"), recházalo. ES OBLIGATORIO dejar el campo "correo" vacío ("").
-  - IMPORTANTE: Si rechazas cualquier dato, DEBES obligatoriamente escribir un mensaje de corrección en "respuesta_sugerida" indicando que el dato es inválido.
+  - Nombres: Si el cliente proporciona un nombre obviamente falso, caracteres aleatorios (ej: "ryjuky", "asdf"), números, o palabras sin sentido, recházalo. ES OBLIGATORIO dejar el campo "nombre" vacío ("") y en "respuesta_sugerida" debes poner EXACTAMENTE: "El nombre ingresado no parece válido. Por favor, indíquenos un nombre real y válido para registrar su caso."
+  - Correos: Si el cliente proporciona un correo evidentemente falso o de prueba (ej: "1@1.com", "a@a.com", "wef@wrf.we"), recházalo. ES OBLIGATORIO dejar el campo "correo" vacío ("") y en "respuesta_sugerida" debes poner EXACTAMENTE: "El correo ingresado no tiene un formato válido. Por favor, escriba su correo electrónico real para poder contactarle."
 - Si el cliente envió un código como "DS-3E0505P-E-M", "NVR-108MH", "IPC-T221H" eso es un MODELO, no una marca.
 - Si el cliente envió una sola palabra como "Hikvision", "Dahua", "Epcom", "ZKTeco", eso es una MARCA.
 - Si el cliente envió marca y modelo juntos, extrae ambos. Si el cliente solo dio el modelo, NO pidas la marca. Si ya tienes modelo, la acción debe avanzar a BUSCAR_INVENTARIO o PEDIR_DESCRIPCION, nunca regreses a PEDIR_MARCA.
@@ -977,24 +976,25 @@ Responde SOLO con JSON válido:
     if (accion === "PEDIR_NOMBRE" || accion === "PEDIR_CORREO" || accion === "PEDIR_CUENTA") {
       let defaultReply = "";
       const lastIaContent = (lastIA?.content || "").toLowerCase();
-      const isRetry = (accion === "PEDIR_NOMBRE" && lastIaContent.includes("nombre completo")) ||
-                      (accion === "PEDIR_CORREO" && lastIaContent.includes("correo electrónico")) ||
-                      (accion === "PEDIR_CUENTA" && lastIaContent.includes("cuenta afiliada"));
+      
+      // Ampliamos la detección de reintento para atrapar variaciones del LLM
+      const isRetry = (accion === "PEDIR_NOMBRE" && (lastIaContent.includes("nombre") || lastIaContent.includes("llamarle"))) ||
+                      (accion === "PEDIR_CORREO" && (lastIaContent.includes("correo") || lastIaContent.includes("email"))) ||
+                      (accion === "PEDIR_CUENTA" && (lastIaContent.includes("cuenta") || lastIaContent.includes("empresa") || lastIaContent.includes("afiliada")));
 
       if (accion === "PEDIR_NOMBRE") {
-        defaultReply = isRetry ? "El nombre ingresado no parece ser válido. Por favor, indíquenos su nombre completo real." : "Para comenzar, ¿me podría indicar su nombre completo?";
+        defaultReply = isRetry ? "El nombre ingresado no parece ser válido. Por favor, indíquenos un nombre real y válido para registrar su caso." : "Para comenzar, ¿me podría indicar su nombre completo?";
       }
       if (accion === "PEDIR_CORREO") {
-        defaultReply = isRetry ? "El correo ingresado no tiene un formato válido o parece de prueba. Por favor, indíquenos su correo electrónico real para poder contactarle." : "Gracias. ¿Me podría indicar su correo electrónico?";
+        defaultReply = isRetry ? "El correo ingresado no tiene un formato válido. Por favor, escriba su correo electrónico real para poder contactarle." : "Gracias. ¿Me podría indicar su correo electrónico?";
       }
       if (accion === "PEDIR_CUENTA") {
         defaultReply = isRetry ? "El nombre de la cuenta ingresada no es válido. Por favor, ¿cuál es el nombre de la empresa o cuenta afiliada a Sekunet?" : "Perfecto. Por último, ¿cuál es el nombre de la empresa o cuenta afiliada a Sekunet?";
       }
 
       let directReply = supervisorResult.respuesta_sugerida;
-      if (!directReply) {
-        // Si la IA no generó una respuesta personalizada, usamos el default. 
-        // Si es un reintento (error del usuario), omitimos el 'acuse' ("Gracias.") para no sonar sarcásticos.
+      if (!directReply || isRetry) {
+        // Si es un reintento, ignoramos la respuesta suave de la IA y usamos el defaultReply estricto
         directReply = isRetry ? defaultReply : withAcuse(defaultReply);
       } else {
         directReply = withAcuse(directReply);
