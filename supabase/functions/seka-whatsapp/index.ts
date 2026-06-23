@@ -488,7 +488,7 @@ Deno.serve(async (req: Request) => {
     if (userCount === 1 && iaCount === 0) {
       const directReply = "Reciba un cordial saludo de parte del equipo de Soporte Sekunet. Gracias por contactarnos.";
       const msg1 = "Soy el Asistente Virtual de Sekunet. Para brindarle una mejor asistencia, necesitamos algunos datos para registrar su consulta.";
-      const msg2 = "Por favor, compártanos la siguiente información:\n• Nombre completo\n• Correo electrónico\n• Nombre de la cuenta afiliada a Sekunet";
+      const msg2 = "Para comenzar, ¿me podría indicar su nombre completo?";
       const newMsg0: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
       const newMsg1: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date(Date.now() + 10).toISOString(), content: msg1 };
       const newMsg2: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date(Date.now() + 20).toISOString(), content: msg2 };
@@ -534,7 +534,14 @@ REGLAS DE ANÁLISIS:
 - REGLA DE CUENTA PERSONAL: Si el cliente indica que la cuenta está a su nombre personal o repite su nombre (ej: "está a mi nombre", "a nombre de Juan", "a título personal", "la cuenta es mía"), extrae SU NOMBRE EXACTO (ej: "Juan") como el valor de la "cuenta". Es VÁLIDO que el nombre de la cuenta sea igual al nombre del cliente (registro a título personal). NUNCA extraigas frases relativas como "a mi nombre" o "yo mismo".
 - PROHIBIDO DEDUCIR LA CUENTA DEL CORREO: NUNCA generes el valor de "cuenta" a partir del correo (ni de la parte antes de @, ni del dominio). Ejemplo: con "innoviocr@outlook.com" NO escribas "Innovio CR" ni "Innovio". Si el cliente no escribió textualmente el nombre de su empresa/cuenta, deja "cuenta" VACÍA.
 - PROHIBIDO ASUMIR EL TEMA: NUNCA inventes ni infieras el "tema". Si el cliente no eligió explícitamente uno de los 8 temas, deja "tema" en null y usa accion "PEDIR_TEMA". Jamás escribas frases como "su consulta sobre configuraciones" si el cliente no lo dijo.
-- ORDEN OBLIGATORIO: El NOMBRE y el NOMBRE DE LA CUENTA son obligatorios; el correo es OPCIONAL (el cliente puede continuar sin correo). Mientras falte el nombre o la cuenta, la accion debe ser "PEDIR_DATOS". No avances a tema, marca ni modelo hasta tener nombre y cuenta.
+- ORDEN OBLIGATORIO (PASO A PASO): Los datos iniciales deben pedirse UNO POR UNO.
+  1. Si falta el nombre, la accion debe ser "PEDIR_NOMBRE".
+  2. Si ya tienes el nombre pero falta el correo, la accion debe ser "PEDIR_CORREO".
+  3. Si ya tienes nombre y correo, pero falta la cuenta, la accion debe ser "PEDIR_CUENTA".
+  NUNCA pidas dos datos juntos. NO avances a pedir tema, marca ni modelo hasta tener los tres datos.
+- VALIDACIÓN DE DATOS FALSOS: Debes verificar de forma intuitiva que los datos proporcionados sean reales y lógicos.
+  - Nombres: Si el cliente proporciona un nombre obviamente falso, caracteres aleatorios, números, o palabras sin sentido (ej: "123", "asdf", "yo", "usuario", "aa"), recházalo. Deja el campo "nombre" vacío ("") y en "respuesta_sugerida" pídele amablemente un nombre válido.
+  - Correos: Si el cliente proporciona un correo evidentemente falso o de prueba (ej: "1@1.com", "a@a.com", "correo@correo.com", "asd@asd.com"), recházalo. Deja el campo "correo" vacío ("") y en "respuesta_sugerida" indícale que el correo no parece válido y solicítale uno real.
 - Si el cliente envió un código como "DS-3E0505P-E-M", "NVR-108MH", "IPC-T221H" eso es un MODELO, no una marca.
 - Si el cliente envió una sola palabra como "Hikvision", "Dahua", "Epcom", "ZKTeco", eso es una MARCA.
 - Si el cliente envió marca y modelo juntos, extrae ambos. Si el cliente solo dio el modelo, NO pidas la marca. Si ya tienes modelo, la acción debe avanzar a BUSCAR_INVENTARIO o PEDIR_DESCRIPCION, nunca regreses a PEDIR_MARCA.
@@ -566,7 +573,7 @@ Responde SOLO con JSON válido:
   "tiene_imagen": true/false,
   "tiene_xml": true/false,
   "descripcion_problema": "si el cliente ya describió su problema, ponerlo aquí, sino vacío",
-  "accion": "una de: PEDIR_DATOS|PEDIR_TEMA|PEDIR_MARCA|PEDIR_MODELO|PEDIR_MARCA_Y_MODELO|BUSCAR_INVENTARIO|PEDIR_ETIQUETA|PEDIR_ETIQUETA_Y_XML|PEDIR_DESCRIPCION|ESCALAR|ESCALAR_INMEDIATO|CERRAR|VENTAS|CONTINUAR",
+  "accion": "una de: PEDIR_NOMBRE|PEDIR_CORREO|PEDIR_CUENTA|PEDIR_TEMA|PEDIR_MARCA|PEDIR_MODELO|PEDIR_MARCA_Y_MODELO|BUSCAR_INVENTARIO|PEDIR_ETIQUETA|PEDIR_ETIQUETA_Y_XML|PEDIR_DESCRIPCION|ESCALAR|ESCALAR_INMEDIATO|CERRAR|VENTAS|CONTINUAR",
   "razon": "explicación breve de por qué elegiste esa acción",
   "acuse": "frase breve de acuse de recibo o empatía, sin preguntas, o vacío",
   "idioma": "es o en",
@@ -601,11 +608,16 @@ Responde SOLO con JSON válido:
       // RED DE SEGURIDAD: aunque el supervisor falle, el NOMBRE y la CUENTA son obligatorios.
       // No delegamos al Asistente libre si faltan, para no saltarnos la cuenta.
       const cliFallback = (caso.cliente && typeof caso.cliente === "object") ? (caso.cliente as any) : {};
-      if (!cliFallback.nombre || !cliFallback.cuenta) {
-        const faltan: string[] = [];
-        if (!cliFallback.nombre) faltan.push("su nombre completo");
-        if (!cliFallback.cuenta) faltan.push("el nombre de la cuenta afiliada a Sekunet");
-        const replyDatos = `Para continuar necesitamos ${faltan.join(" y ")}. El nombre de la cuenta es indispensable, ya que con él registramos su caso.`;
+      let replyDatos = "";
+      if (!cliFallback.nombre) {
+        replyDatos = "Para comenzar, ¿me podría indicar su nombre completo?";
+      } else if (!cliFallback.correo) {
+        replyDatos = "Gracias. ¿Me podría indicar su correo electrónico?";
+      } else if (!cliFallback.cuenta) {
+        replyDatos = "Perfecto. Por último, ¿cuál es el nombre de la empresa o cuenta afiliada a Sekunet?";
+      }
+
+      if (replyDatos) {
         const newMsgDatos: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: replyDatos };
         await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsgDatos] }).eq("id", case_id);
         return new Response(JSON.stringify({ ok: true, reply: replyDatos }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -965,9 +977,14 @@ Responde SOLO con JSON válido:
       return new Response(JSON.stringify({ ok: true, reply: replyText }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // ── ACCIÓN: PEDIR DATOS (nombre, correo, cuenta) ──
-    if (accion === "PEDIR_DATOS") {
-      const directReply = withAcuse(supervisorResult.respuesta_sugerida || "Por favor, compártanos la siguiente información:\n• Nombre completo\n• Correo electrónico\n• Nombre de la cuenta afiliada a Sekunet");
+    // ── ACCIÓN: PEDIR NOMBRE, CORREO, CUENTA ──
+    if (accion === "PEDIR_NOMBRE" || accion === "PEDIR_CORREO" || accion === "PEDIR_CUENTA") {
+      let defaultReply = "";
+      if (accion === "PEDIR_NOMBRE") defaultReply = "Para comenzar, ¿me podría indicar su nombre completo?";
+      if (accion === "PEDIR_CORREO") defaultReply = "Gracias. ¿Me podría indicar su correo electrónico?";
+      if (accion === "PEDIR_CUENTA") defaultReply = "Perfecto. Por último, ¿cuál es el nombre de la empresa o cuenta afiliada a Sekunet?";
+
+      const directReply = withAcuse(supervisorResult.respuesta_sugerida || defaultReply);
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
       const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
       if (clienteChanged) upd.cliente = updatedCliente;
