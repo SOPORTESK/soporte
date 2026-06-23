@@ -873,21 +873,9 @@ Responde SOLO con JSON válido:
     // ── VALIDACIÓN DETERMINÍSTICA: la CUENTA es lo más importante ──
     // Los casos se registran por nombre de cuenta. La cuenta es OBLIGATORIA; el correo es OPCIONAL.
 
-    // Descartar cualquier cuenta que parezca derivada del correo, incluso si ya estaba guardada.
-    if (!isSinCuenta) {
-      const correoActual = String(updatedCliente.correo || "");
-      const cuentaActual = String(updatedCliente.cuenta || "");
-      if (correoActual.includes("@") && cuentaActual) {
-        const normc = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
-        const localPart = normc(correoActual.split("@")[0]);
-        const cuentaN = normc(cuentaActual);
-        if (cuentaN.length >= 3 && (localPart.includes(cuentaN) || cuentaN.includes(localPart))) {
-          console.log(`[seka-whatsapp] Cuenta "${cuentaActual}" parece derivada del correo. Se descarta y se vuelve a pedir.`);
-          updatedCliente.cuenta = "";
-          clienteChanged = true;
-        }
-      }
-    }
+    // La validación de cuenta alucinada desde el correo ahora se maneja 
+    // exclusivamente en la extracción inicial (isValidExtractedString)
+    // para respetar si el usuario la digitó explícitamente.
 
     // CUENTA A NOMBRE/TÍTULO PERSONAL: si el cliente indica que la cuenta está a su propio
     // nombre, el nombre del cliente ES el nombre de la cuenta (registro a título personal).
