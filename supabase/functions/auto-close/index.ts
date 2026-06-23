@@ -3,8 +3,8 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
-const INACTIVITY_MINUTES_DEFAULT = 20;   // canales humanos (whatsapp, etc.)
-const INACTIVITY_MINUTES_IA = 20;        // widget atendido por IA — mismo umbral que manual
+const INACTIVITY_MINUTES_DEFAULT = 5;   // canales humanos (whatsapp, etc.)
+const INACTIVITY_MINUTES_IA = 5;        // widget atendido por IA — mismo umbral que manual
 const CLOSE_MSG = "Al no haber recibido respuesta, procederemos a cerrar esta conversación. Si necesita asistencia adicional, puede contactarnos nuevamente y con gusto le atenderemos. ¡Que tenga un excelente día!";
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
