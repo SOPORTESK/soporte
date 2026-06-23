@@ -540,7 +540,7 @@ REGLAS DE ANÁLISIS:
   3. Si ya tienes nombre y correo, pero falta la cuenta, la accion debe ser "PEDIR_CUENTA".
   NUNCA pidas dos datos juntos. NO avances a pedir tema, marca ni modelo hasta tener los tres datos.
 - VALIDACIÓN DE DATOS FALSOS: Debes verificar de forma intuitiva que los datos proporcionados sean reales y lógicos.
-  - Nombres: Si el cliente proporciona un nombre obviamente falso, caracteres aleatorios (ej: "ryjuky", "asdf"), números, o palabras sin sentido, recházalo. ES OBLIGATORIO dejar el campo "nombre" vacío ("") y en "respuesta_sugerida" debes usar este texto exacto (sin comillas): El nombre ingresado no parece válido. Por favor, indíquenos un nombre real y válido para registrar su caso.
+  - Nombres: Si el cliente proporciona solo un nombre sin apellido (ej: "Andrés", "Juan"), o un nombre obviamente falso, caracteres aleatorios (ej: "ryjuky", "asdf"), números, o palabras sin sentido, recházalo. ES OBLIGATORIO dejar el campo "nombre" vacío ("") y en "respuesta_sugerida" debes usar este texto exacto (sin comillas): El nombre ingresado no parece estar completo o válido. Por favor, indíquenos su nombre y al menos un apellido para registrar su caso.
   - Correos: Si el cliente proporciona un correo evidentemente falso o de prueba (ej: "1@1.com", "a@a.com", "wef@wrf.we"), recházalo. ES OBLIGATORIO dejar el campo "correo" vacío ("") y en "respuesta_sugerida" debes usar este texto exacto (sin comillas): El correo ingresado no tiene un formato válido. Por favor, escriba su correo electrónico real para poder contactarle.
 - Si el cliente envió un código como "DS-3E0505P-E-M", "NVR-108MH", "IPC-T221H" eso es un MODELO, no una marca.
 - Si el cliente envió una sola palabra como "Hikvision", "Dahua", "Epcom", "ZKTeco", eso es una MARCA.
@@ -614,7 +614,7 @@ Responde SOLO con JSON válido:
       let replyDatos = "";
       if (!cliFallback.nombre) {
         const isRetry = lastIaContentFallback.includes("nombre") || lastIaContentFallback.includes("llamarle");
-        replyDatos = isRetry ? "El nombre ingresado no parece ser válido. Por favor, indíquenos un nombre real y válido para registrar su caso." : "Para comenzar, ¿me podría indicar su nombre completo?";
+        replyDatos = isRetry ? "El nombre ingresado no parece estar completo o válido. Por favor, indíquenos su nombre y al menos un apellido para registrar su caso." : "Para comenzar, ¿me podría indicar su nombre completo?";
       } else if (!cliFallback.correo) {
         const isRetry = lastIaContentFallback.includes("correo") || lastIaContentFallback.includes("email");
         replyDatos = isRetry ? "El correo ingresado no tiene un formato válido. Por favor, escriba su correo electrónico real para poder contactarle." : "Gracias. ¿Me podría indicar su correo electrónico?";
@@ -989,7 +989,7 @@ Responde SOLO con JSON válido:
                       (accion === "PEDIR_CUENTA" && (lastIaContent.includes("cuenta") || lastIaContent.includes("empresa") || lastIaContent.includes("afiliada")));
 
       if (accion === "PEDIR_NOMBRE") {
-        defaultReply = isRetry ? "El nombre ingresado no parece ser válido. Por favor, indíquenos un nombre real y válido para registrar su caso." : "Para comenzar, ¿me podría indicar su nombre completo?";
+        defaultReply = isRetry ? "El nombre ingresado no parece estar completo o válido. Por favor, indíquenos su nombre y al menos un apellido para registrar su caso." : "Para comenzar, ¿me podría indicar su nombre completo?";
       }
       if (accion === "PEDIR_CORREO") {
         defaultReply = isRetry ? "El correo ingresado no tiene un formato válido. Por favor, escriba su correo electrónico real para poder contactarle." : "Gracias. ¿Me podría indicar su correo electrónico?";
