@@ -118,7 +118,7 @@ async function callNvidia(model: string, messages: NimMessage[]): Promise<string
   const res = await fetch(`${NIM_BASE}/chat/completions`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${NVIDIA_KEY}` },
-    body: JSON.stringify({ model, messages, temperature: 0.2, max_tokens: 512, stream: false }),
+    body: JSON.stringify({ model, messages, temperature: 0.2, max_tokens: 1024, stream: false }),
     signal: AbortSignal.timeout(12000)
   });
   if (!res.ok) throw new Error(`Status ${res.status}`);
@@ -135,7 +135,7 @@ async function callOpenRouter(model: string, messages: NimMessage[]): Promise<st
       "HTTP-Referer": "https://sekunet.com",
       "X-Title": "Chat Sekunet"
     },
-    body: JSON.stringify({ model, messages, temperature: 0.2, max_tokens: 512, stream: false }),
+    body: JSON.stringify({ model, messages, temperature: 0.2, max_tokens: 1024, stream: false }),
     signal: AbortSignal.timeout(12000)
   });
   if (!res.ok) throw new Error(`Status ${res.status}`);
@@ -150,7 +150,7 @@ async function callGoogle(model: string, messages: NimMessage[]): Promise<string
     role: m.role === "user" ? "user" : "model",
     parts: [{ text: typeof m.content === "string" ? m.content : (m.content as any[]).find((p:any) => p.type==="text")?.text ?? "" }],
   }));
-  const body: any = { contents, generationConfig: { temperature: 0.2, maxOutputTokens: 512 } };
+  const body: any = { contents, generationConfig: { temperature: 0.2, maxOutputTokens: 1024 } };
   if (system) body.systemInstruction = { parts: [{ text: system.content as string }] };
   
   const res = await fetch(
@@ -531,10 +531,10 @@ CONTEXTO: El asistente sigue este flujo de recopilación de datos:
 
 REGLAS DE ANÁLISIS:
 - Si el cliente indica EXPRESAMENTE que NO TIENE cuenta o empresa (ej: "no tengo", "ninguna", "cliente final"), extrae la cuenta como "Sin cuenta". PERO si el cliente simplemente omite el dato en su respuesta (ej. da su nombre y correo pero no menciona la empresa), DEBES dejar el campo cuenta vacío ("") para que el sistema lo vuelva a pedir. NUNCA extraigas el nombre de la cuenta o empresa a partir del dominio o texto del correo electrónico. Si el usuario no escribe explícitamente el nombre de su cuenta, debes dejarlo vacío.
-- REGLA DE CUENTA PERSONAL: Si el cliente indica que la cuenta está a su nombre personal o repite su nombre (ej: "está a mi nombre", "a nombre de Juan"), extrae SU NOMBRE EXACTO (ej: "Juan") como el valor de la "cuenta". NUNCA extraigas frases relativas como "a mi nombre" o "yo mismo".
+- REGLA DE CUENTA PERSONAL: Si el cliente indica que la cuenta está a su nombre personal o repite su nombre (ej: "está a mi nombre", "a nombre de Juan", "a título personal", "la cuenta es mía"), extrae SU NOMBRE EXACTO (ej: "Juan") como el valor de la "cuenta". Es VÁLIDO que el nombre de la cuenta sea igual al nombre del cliente (registro a título personal). NUNCA extraigas frases relativas como "a mi nombre" o "yo mismo".
 - PROHIBIDO DEDUCIR LA CUENTA DEL CORREO: NUNCA generes el valor de "cuenta" a partir del correo (ni de la parte antes de @, ni del dominio). Ejemplo: con "innoviocr@outlook.com" NO escribas "Innovio CR" ni "Innovio". Si el cliente no escribió textualmente el nombre de su empresa/cuenta, deja "cuenta" VACÍA.
 - PROHIBIDO ASUMIR EL TEMA: NUNCA inventes ni infieras el "tema". Si el cliente no eligió explícitamente uno de los 8 temas, deja "tema" en null y usa accion "PEDIR_TEMA". Jamás escribas frases como "su consulta sobre configuraciones" si el cliente no lo dijo.
-- ORDEN OBLIGATORIO: Mientras falte cualquiera de los datos (nombre, correo o cuenta), la accion debe ser "PEDIR_DATOS". No avances a tema, marca ni modelo hasta tener los tres datos.
+- ORDEN OBLIGATORIO: El NOMBRE y el NOMBRE DE LA CUENTA son obligatorios; el correo es OPCIONAL (el cliente puede continuar sin correo). Mientras falte el nombre o la cuenta, la accion debe ser "PEDIR_DATOS". No avances a tema, marca ni modelo hasta tener nombre y cuenta.
 - Si el cliente envió un código como "DS-3E0505P-E-M", "NVR-108MH", "IPC-T221H" eso es un MODELO, no una marca.
 - Si el cliente envió una sola palabra como "Hikvision", "Dahua", "Epcom", "ZKTeco", eso es una MARCA.
 - Si el cliente envió marca y modelo juntos, extrae ambos. Si el cliente solo dio el modelo, NO pidas la marca. Si ya tienes modelo, la acción debe avanzar a BUSCAR_INVENTARIO o PEDIR_DESCRIPCION, nunca regreses a PEDIR_MARCA.
@@ -597,6 +597,20 @@ Responde SOLO con JSON válido:
     // ── Si el supervisor falló, usar fallback con el flujo anterior ──
     if (!supervisorResult) {
       console.warn("[seka-whatsapp] Supervisor falló, usando LLM directo como fallback");
+
+      // RED DE SEGURIDAD: aunque el supervisor falle, el NOMBRE y la CUENTA son obligatorios.
+      // No delegamos al Asistente libre si faltan, para no saltarnos la cuenta.
+      const cliFallback = (caso.cliente && typeof caso.cliente === "object") ? (caso.cliente as any) : {};
+      if (!cliFallback.nombre || !cliFallback.cuenta) {
+        const faltan: string[] = [];
+        if (!cliFallback.nombre) faltan.push("su nombre completo");
+        if (!cliFallback.cuenta) faltan.push("el nombre de la cuenta afiliada a Sekunet");
+        const replyDatos = `Para continuar necesitamos ${faltan.join(" y ")}. El nombre de la cuenta es indispensable, ya que con él registramos su caso.`;
+        const newMsgDatos: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: replyDatos };
+        await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsgDatos] }).eq("id", case_id);
+        return new Response(JSON.stringify({ ok: true, reply: replyDatos }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
       const messages = buildMessages(histcliente, null);
       let rawReply = await callAIWithFallbacks(messages);
       let cleanReply = await processTags(rawReply, case_id);
@@ -612,11 +626,7 @@ Responde SOLO con JSON válido:
     const updatedCliente: Record<string, unknown> = { ...currentCliente };
     let clienteChanged = false;
     
-    const isValidExtractedString = (val: any) => {
-      if (typeof val !== "string") return false;
-      const lower = val.toLowerCase().trim();
-      return lower !== "" && lower !== "vacío" && lower !== "vacía" && lower !== "null" && lower !== "n/a" && lower !== "na" && lower !== "none" && lower !== "no especificada" && lower !== "no especificado" && lower !== "no indica" && lower !== "ninguna";
-    };
+    const isValidExtractedString = (val: any) => typeof val === "string" && val.trim() !== "" && val !== "vacío" && val !== "(vacío)" && val !== "null";
 
     // Extracción forzosa de correo mediante Regex para no depender 100% de la IA
     let regexEmail = "";
@@ -650,12 +660,21 @@ Responde SOLO con JSON válido:
       let cuentaAlucinada = false;
       if (regexEmail) {
         // Normalizar: minúsculas y solo alfanuméricos (ignora espacios y signos).
-        // Así detectamos cuentas derivadas del correo como "Innovio CR" → "innoviocr".
         const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
         const emailLocalPart = norm(regexEmail.split('@')[0]);
+        const emailDomainPart = norm(regexEmail.split('@')[1].split('.')[0]);
         const cuentaNorm = norm(supervisorResult.cuenta);
-        if (cuentaNorm.length >= 3 && (emailLocalPart.includes(cuentaNorm) || cuentaNorm.includes(emailLocalPart))) {
-          cuentaAlucinada = true;
+        
+        // Revisar si el usuario digitó la cuenta de forma explícita fuera de su correo
+        const textWithoutEmail = lastUserMsgContent.replace(regexEmail, "");
+        const isExplicitlyTyped = norm(textWithoutEmail).includes(cuentaNorm);
+        
+        if (!isExplicitlyTyped && cuentaNorm.length >= 3) {
+          // Si NO lo digitó explícitamente, pero coincide con partes del correo = alucinación
+          if (emailLocalPart.includes(cuentaNorm) || cuentaNorm.includes(emailLocalPart) ||
+              emailDomainPart.includes(cuentaNorm) || cuentaNorm.includes(emailDomainPart)) {
+            cuentaAlucinada = true;
+          }
         }
       }
       if (!oldCuenta || oldCuenta === "(vacío)" || isBadOldCuenta) {
@@ -854,7 +873,7 @@ Responde SOLO con JSON válido:
 
     // CUENTA A NOMBRE/TÍTULO PERSONAL: si el cliente indica que la cuenta está a su propio
     // nombre, el nombre del cliente ES el nombre de la cuenta (registro a título personal).
-    const personalAccountPattern = /(a\s*mi\s*nombre|mi\s*propio\s*nombre|a\s*t[íi]tulo\s*personal|nombre\s*personal|a\s*nombre\s*personal|cuenta\s*personal|est[áa]\s*a\s*mi\s*nombre|a\s*mi\s*propio\s*nombre|es\s*personal|a\s*nombre\s*m[íi]o|m[íi]a)/i;
+    const personalAccountPattern = /(a\s*mi\s*nombre|mi\s*propio\s*nombre|a\s*t[íi]tulo\s*personal|nombre\s*personal|a\s*nombre\s*personal|cuenta\s*personal|est[áa]\s*a\s*mi\s*nombre|a\s*nombre\s*m[íi]o|cuenta\s*(es\s*)?m[íi]a|es\s*a\s*mi\s*nombre)/i;
     if (!isSinCuenta && !updatedCliente.cuenta && updatedCliente.nombre && personalAccountPattern.test(lastUserMsgContent)) {
       updatedCliente.cuenta = String(updatedCliente.nombre);
       clienteChanged = true;
@@ -883,7 +902,7 @@ Responde SOLO con JSON válido:
         const faltan = [];
         if (!updatedCliente.nombre) faltan.push("su nombre completo");
         if (!updatedCliente.cuenta) faltan.push("el nombre de la cuenta afiliada a Sekunet");
-        // Mensaje cortés. La frase "nombre de la cuenta es indispensable" se usa para contar recordatorios.
+        // La frase "nombre de la cuenta es indispensable" se usa para contar recordatorios.
         supervisorResult.respuesta_sugerida = `Para poder ayudarle necesitamos ${faltan.join(" y ")}. El nombre de la cuenta es indispensable: sin una cuenta registrada con Sekunet no podemos continuar con el soporte. Si la cuenta está a su nombre personal, puede indicárnoslo.`;
       }
     }
