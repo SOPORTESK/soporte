@@ -119,7 +119,7 @@ async function sendWhatsAppMessages(phone: string, reply: any | any[], evoCfg: a
     
     // Interceptar pregunta corta y convertirla en el menú de texto completo
     let text = typeof msg === "object" ? msg.content : msg;
-    if (text && (text.trim() === "¿En relación con qué tema sería su consulta?" || text.trim() === "¿En relación a qué tema sería su consulta?")) {
+    if (text && (text.includes("¿En relación con qué tema") || text.includes("¿En relación a qué tema"))) {
       text = "¿En relación con qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Drivers\n7. Licencias\n8. Otro\n\nResponda con el número o el nombre del tema.";
     }
 

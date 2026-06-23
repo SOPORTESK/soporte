@@ -604,9 +604,17 @@ Responde SOLO con JSON válido:
       const oldCuenta = String((currentCliente as any).cuenta || "").trim();
       const oldCuentaLower = oldCuenta.toLowerCase();
       const isBadOldCuenta = oldCuentaLower === "a mi nombre" || oldCuentaLower === "mi nombre" || oldCuentaLower === "yo mismo" || oldCuentaLower === "personal";
+      let cuentaAlucinada = false;
+      if (regexEmail) {
+        const emailLocalPart = regexEmail.split('@')[0].toLowerCase();
+        const cuentaExtractLower = supervisorResult.cuenta.toLowerCase();
+        if (emailLocalPart.includes(cuentaExtractLower) || cuentaExtractLower.includes(emailLocalPart)) cuentaAlucinada = true;
+      }
       if (!oldCuenta || oldCuenta === "(vacío)" || isBadOldCuenta) {
-        // Fuzzy match para la cuenta
-      let cuentaFinal = supervisorResult.cuenta;
+        if (cuentaAlucinada) {
+           updatedCliente.cuenta = "";
+        } else {
+           let cuentaFinal = supervisorResult.cuenta;
       try {
         const levenshtein = (a: string, b: string): number => {
           if (a.length === 0) return b.length;
@@ -651,8 +659,9 @@ Responde SOLO con JSON válido:
       }
       updatedCliente.cuenta = cuentaFinal;
       clienteChanged = true;
-      }
-    }
+      } // Closes else block
+      } // Closes if (!oldCuenta || ...)
+    } // Closes if (isValidExtractedString...)
 
     // Actualizar título si tenemos nombre
     const nuevoTitle = (updatedCliente.nombre)
