@@ -363,8 +363,8 @@ async function extractJid(payload: any, evoUrl: string, evoKey: string, evoInsta
     get(payload, "wuid"),
     get(payload, "instance.user"),
     get(payload, "data.instance.user"),
-    "50660160394@s.whatsapp.net", // Tu bot
-    "50660160394:1@s.whatsapp.net"
+    "50662777500@s.whatsapp.net", // Tu bot
+    "50662777500:1@s.whatsapp.net"
   ];
 
   let rawJid: string | null = null;
@@ -378,14 +378,21 @@ async function extractJid(payload: any, evoUrl: string, evoKey: string, evoInsta
     const remoteJid = get(msg, "key.remoteJid") || get(msg, "remoteJid");
     const participant = get(msg, "key.participant") || get(msg, "participant");
     
+    const isSelf = (target: string, sj: string) => {
+      if (!sj || !target) return false;
+      const t = String(target).split('@')[0].split(':')[0];
+      const s = String(sj).split('@')[0].split(':')[0];
+      return t === s;
+    };
+
     if (fromMe) {
       // Mensaje saliente: el JID relevante es el destinatario (remoteJid)
-      if (remoteJid && !selfJids.some(sj => remoteJid.includes(sj || "NON_EXISTENT"))) {
+      if (remoteJid && !selfJids.some(sj => isSelf(remoteJid, sj))) {
         rawJid = remoteJid;
       }
-    } else if (participant && !selfJids.some(sj => participant.includes(sj || "NON_EXISTENT"))) {
+    } else if (participant && !selfJids.some(sj => isSelf(participant, sj))) {
       rawJid = participant;
-    } else if (remoteJid && !selfJids.some(sj => remoteJid.includes(sj || "NON_EXISTENT"))) {
+    } else if (remoteJid && !selfJids.some(sj => isSelf(remoteJid, sj))) {
       rawJid = remoteJid;
     }
   }
@@ -400,8 +407,16 @@ async function extractJid(payload: any, evoUrl: string, evoKey: string, evoInsta
       get(payload, "data.participant"),
       get(payload, "participant")
     ];
+    
+    const isSelf = (target: string, sj: string) => {
+      if (!sj || !target) return false;
+      const t = String(target).split('@')[0].split(':')[0];
+      const s = String(sj).split('@')[0].split(':')[0];
+      return t === s;
+    };
+
     for (const c of candidates) {
-      if (c && !selfJids.some(sj => c.includes(sj || "NON_EXISTENT"))) {
+      if (c && !selfJids.some(sj => isSelf(c, sj))) {
         rawJid = c;
         break;
       }
@@ -496,6 +511,12 @@ export async function POST(req: NextRequest) {
   console.log("[evo-webhook] Paso 2: extractText...");
   let text = extractText(payload);
   console.log("[evo-webhook] Paso 2 OK - text:", text?.slice(0, 50));
+
+  // FILTRAR TYPOS: Ignorar mensajes que sean un solo carácter no alfanumérico (ej: "}", "{", "]", etc.)
+  if (text && text.trim().length === 1 && !/^[a-zA-Z0-9áéíóúÁÉÍÓÚñÑ¿?¡!]$/.test(text.trim())) {
+    console.log(`[evo-webhook] Ignorando mensaje por posible typo: "${text.trim()}"`);
+    return NextResponse.json({ ok: true, skipped: "typo" });
+  }
 
   console.log("[evo-webhook] Paso 3: extractJid...");
   const jid = await extractJid(payload, EVO_URL, EVO_KEY, EVO_INSTANCE);
@@ -614,7 +635,7 @@ export async function POST(req: NextRequest) {
                         get(payload, "pushName") || 
                         payload?.data?.messages?.[0]?.pushName ||
                         payload?.data?.message?.pushName;
-    const isBotName = pushNameRaw && (pushNameRaw.includes("Sekunet") || pushNameRaw.includes("Soporte Sekunet"));
+    const isBotName = pushNameRaw && /^(Soporte Sekunet|Asistente Sekunet|Sekunet)$/i.test(pushNameRaw);
     const participant = get(payload, "data.key.participant") || 
                         get(payload, "key.participant") || 
                         payload?.data?.messages?.[0]?.key?.participant || 
@@ -625,8 +646,9 @@ export async function POST(req: NextRequest) {
                          get(payload, "wuid") || 
                          get(payload, "data.wuid") || 
                          "";
-    const officialPhone = jidToPhone(instanceUser) || "50660160394";
-    const isOfficialNumber = !!(participant && (participant.includes(officialPhone) || instanceUser.includes(participant)));
+    const officialPhone = jidToPhone(instanceUser) || "50662777500";
+    const participantPhone = jidToPhone(participant);
+    const isOfficialNumber = !!(participantPhone && participantPhone === officialPhone);
     isOutgoing = !!(fromMe || isBotName || isOfficialNumber);
   } catch {}
 
@@ -690,11 +712,12 @@ export async function POST(req: NextRequest) {
 
   if (pushName || senderPn) {
     try {
+      const searchPhone = phone || senderPn || jid;
       const { data: existing } = await supabase
         .from("sek_cases")
         .select("id, cliente, title")
         .eq("canal", "whatsapp")
-        .eq("customer_phone", jid)
+        .eq("customer_phone", searchPhone)
         .not("estado", "in", '("cerrado","resuelto")')
         .order("created_at", { ascending: false })
         .limit(1)
@@ -840,7 +863,7 @@ export async function POST(req: NextRequest) {
   try {
     const { data: openCases } = await supabase
       .from("sek_cases")
-      .select("id, histcliente, histtecnico, estado, customer_phone, cliente, title, created_at")
+      .select("id, histcliente, histtecnico, estado, customer_phone, cliente, title, created_at, accepted_at")
       .eq("canal", "whatsapp")
       .order("created_at", { ascending: false })
       .limit(50);
@@ -849,7 +872,7 @@ export async function POST(req: NextRequest) {
     let existing = null;
     let reopenClosedCase = false;
     if (openCases) {
-      existing = openCases.find((c: any) => {
+      const matchesPhone = (c: any) => {
         if (c.customer_phone === jid) return true;
         if (phone && c.customer_phone === phone) return true;
         const t = typeof c.cliente === "object" ? c.cliente?.telefono : null;
@@ -857,17 +880,25 @@ export async function POST(req: NextRequest) {
         if (phone && (t === phone || tReal === phone || t === jid || tReal === jid)) return true;
         if (senderPn && (t === senderPn || tReal === senderPn || c.customer_phone === senderPn)) return true;
         return false;
-      });
-      
-      if (existing && (existing.estado === "cerrado" || existing.estado === "resuelto")) {
-        // Re-usar casos cerrados solo si fueron creados en las últimas 48 horas (evita multiplicar chats de un mismo cliente el mismo día)
-        const createdAt = new Date(existing.created_at).getTime();
-        const nowMs = new Date().getTime();
-        if (nowMs - createdAt < 48 * 60 * 60 * 1000) {
-           reopenClosedCase = true;
-           console.log("[evo-webhook] Reabriendo caso cerrado reciente:", existing.id);
-        } else {
-           existing = null; // Muy viejo, crear uno nuevo
+      };
+
+      // 1. Buscar primero un caso ACTIVO (no cerrado/resuelto)
+      const ACTIVE_STATES = ["ia_atendiendo", "pendiente", "escalado", "abierto"];
+      existing = openCases.find((c: any) => ACTIVE_STATES.includes(c.estado) && matchesPhone(c)) || null;
+
+      // 2. Si no hay activo, buscar el cerrado/resuelto más reciente para posible reapertura
+      if (!existing) {
+        const closedCase = openCases.find((c: any) => (c.estado === "cerrado" || c.estado === "resuelto") && matchesPhone(c));
+        if (closedCase) {
+          const isRejectedClient = closedCase.cliente && typeof closedCase.cliente === "object" && (closedCase.cliente as any).cuenta === "sin cuenta";
+          const isRejectedBrand = typeof closedCase.title === "string" && closedCase.title.includes("Marca Rechazada");
+          const createdAt = new Date(closedCase.created_at).getTime();
+          const nowMs = new Date().getTime();
+          if (!isRejectedClient && !isRejectedBrand && (nowMs - createdAt < 48 * 60 * 60 * 1000)) {
+            existing = closedCase;
+            reopenClosedCase = true;
+            console.log("[evo-webhook] Reabriendo caso cerrado reciente:", existing.id);
+          }
         }
       }
     }
@@ -987,6 +1018,16 @@ export async function POST(req: NextRequest) {
               console.error(`[evo-webhook] Error actualizando estado del caso ${existing.id}:`, updErr);
             }
           }
+          // Si el caso está escalado pero aún no aceptado por un humano, la nueva intervención del cliente lo regresa a la IA
+          if (currentEstado === "escalado" && !existing.accepted_at) {
+            const { error: updErr } = await supabase.from("sek_cases").update({ estado: "ia_atendiendo" }).eq("id", existing.id);
+            if (!updErr) {
+              currentEstado = "ia_atendiendo";
+              console.log(`[evo-webhook] Caso escalado ${existing.id} sin aceptar → regresado a ia_atendiendo por nuevo mensaje del cliente`);
+            } else {
+              console.error(`[evo-webhook] Error actualizando estado del caso ${existing.id}:`, updErr);
+            }
+          }
           // Si la IA está atendiendo o el caso está escalado, invocar seka-whatsapp
           if (currentEstado === "ia_atendiendo" || currentEstado === "escalado") {
             
@@ -995,10 +1036,16 @@ export async function POST(req: NextRequest) {
             console.log(`[evo-webhook] Pausa de 3s para agrupar mensajes concurrentes...`);
             await new Promise(resolve => setTimeout(resolve, 3000));
             
-            const { data: checkCase } = await supabase.from("sek_cases").select("last_message_at").eq("id", existing.id).single();
-            if (checkCase && new Date(checkCase.last_message_at).getTime() > new Date(now).getTime()) {
-               console.log(`[evo-webhook] Abortando IA para caso ${existing.id}, llegó un mensaje más reciente durante la pausa.`);
-               return NextResponse.json({ ok: true, skipped: "newer_message" });
+            const { data: checkCase } = await supabase.from("sek_cases").select("last_message_at, histcliente").eq("id", existing.id).single();
+            if (checkCase) {
+              const nowMs = new Date(now).getTime();
+              const lastMsgMs = new Date(checkCase.last_message_at).getTime();
+              // Solo abortar si llegó un mensaje del usuario con timestamp significativamente posterior (>500ms)
+              // Ignorar actualizaciones mínimas (ACKs, presence) que tienen la misma marca de tiempo
+              if (lastMsgMs > nowMs + 500) {
+                console.log(`[evo-webhook] Abortando IA para caso ${existing.id}, llegó un mensaje más reciente (${lastMsgMs - nowMs}ms después).`);
+                return NextResponse.json({ ok: true, skipped: "newer_message" });
+              }
             }
 
             console.log(`[evo-webhook] Invocando seka-whatsapp para caso existente ${existing.id}, estado: ${currentEstado}`);
@@ -1033,16 +1080,18 @@ export async function POST(req: NextRequest) {
     }
 
     console.log("[evo-webhook] Paso 11: creando nuevo caso...");
+    const contactPhone = phone || senderPn || jid;
+
     if (isOutgoing) {
       await supabase.from("sek_cases").insert({
         canal: "whatsapp",
         estado: "pendiente",
         prioridad: "media",
-        customer_phone: jid,
-        cliente: { telefono: phone || jid, nombre: null },
+        customer_phone: contactPhone,
+        cliente: { telefono: contactPhone, nombre: null },
         histcliente: [],
         histtecnico: [entry],
-        title: `WhatsApp — ${phone || jid}`,
+        title: `WhatsApp — ${contactPhone}`,
         last_message_at: now,
         last_message_preview: (text || "").slice(0, 200),
       });
@@ -1051,16 +1100,16 @@ export async function POST(req: NextRequest) {
         canal: "whatsapp",
         estado: "ia_atendiendo",
         prioridad: "media",
-        customer_phone: jid,
+        customer_phone: contactPhone,
         cliente: { 
-          telefono: senderPn || phone || jid,
+          telefono: contactPhone,
           nombre: pushName || null,
           whatsapp_name: pushName || null,
           telefono_real: senderPn || null
         },
         histcliente: [entry],
         histtecnico: [],
-        title: pushName ? `WhatsApp — ${pushName}` : `WhatsApp — ${phone || jid}`,
+        title: pushName ? `WhatsApp — ${pushName}` : `WhatsApp — ${contactPhone}`,
         last_message_at: now,
         last_message_preview: (text || "").slice(0, 200),
       }).select("id").single();
