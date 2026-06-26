@@ -1028,8 +1028,8 @@ export async function POST(req: NextRequest) {
               console.error(`[evo-webhook] Error actualizando estado del caso ${existing.id}:`, updErr);
             }
           }
-          // Si la IA está atendiendo o el caso está escalado, invocar seka-whatsapp
-          if (currentEstado === "ia_atendiendo" || currentEstado === "escalado") {
+          // Solo invocar la IA si el caso está siendo atendido por ella — NUNCA interferir con agentes humanos
+          if (currentEstado === "ia_atendiendo") {
             
             // INDICADOR DE ESCRIBIENDO Y DEBOUNCING (Evita llamar a la IA en ráfaga)
             await sendWhatsAppPresence(phone || jid || "", evoCfg, "composing");
