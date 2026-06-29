@@ -573,7 +573,7 @@ REGLA DE ORO / PRIORIDAD M√ÅXIMA:
 REGLAS DE AN√ÅLISIS:
 - Si el cliente indica EXPRESAMENTE que NO TIENE cuenta o empresa (ej: "no tengo", "ninguna", "cliente final"), extrae la cuenta como "Sin cuenta". PERO si el cliente simplemente omite el dato en su respuesta (ej. da su nombre y correo pero no menciona la empresa), DEBES dejar el campo cuenta vac√≠o ("") para que el sistema lo vuelva a pedir. NUNCA extraigas el nombre de la cuenta o empresa a partir del dominio o texto del correo electr√≥nico. Si el usuario no escribe expl√≠citamente el nombre de su cuenta, debes dejarlo vac√≠o.
 - REGLA DE CUENTA PERSONAL: Si el cliente indica que la cuenta est√° a su nombre personal o repite su nombre (ej: "est√° a mi nombre", "a nombre de Juan", "a t√≠tulo personal", "la cuenta es m√≠a"), extrae SU NOMBRE EXACTO (ej: "Juan") como el valor de la "cuenta". Es V√ÅLIDO que el nombre de la cuenta sea igual al nombre del cliente (registro a t√≠tulo personal). NUNCA extraigas frases relativas como "a mi nombre" o "yo mismo".
-- PROHIBIDO DEDUCIR LA CUENTA DEL CORREO: Si el cliente proporciona SOLO su correo y a˙n no ha respondido a la pregunta de la cuenta, NO inventes la cuenta a partir del correo. Deja la cuenta vacÌa. PERO si el cliente RESPONDE textualmente a la pregunta de la cuenta aportando un nombre (ej: Innoviocr), DEBES extraer ese texto EXACTO en el campo cuenta, °incluso si es idÈntico a la primera parte de su correo! Jam·s rechaces una cuenta explÌcita solo por parecerse al correo.
+- DIFERENCIA ENTRE CORREO Y EMPRESA: El correo siempre tiene formato (ej: x@y.com). El nombre de la empresa puede ser CUALQUIER nombre propio o frase. Lo ˙nico que debes evitar es inventar un nombre de empresa si el usuario SOLO te ha dado el correo. Pero si el usuario te responde la empresa, asume que ese es el nombre y extr·elo exactamente como lo escribiÛ, sin importar nada m·s.
 - PROHIBIDO ASUMIR EL TEMA: NUNCA inventes ni infieras el "tema". Si el cliente no eligi√≥ expl√≠citamente uno de los 8 temas, deja "tema" en null y usa accion "PEDIR_TEMA". Jam√°s escribas frases como "su consulta sobre configuraciones" si el cliente no lo dijo.
 - ORDEN OBLIGATORIO (PASO A PASO): Los datos iniciales deben pedirse UNO POR UNO.
   1. Si falta el nombre, la accion debe ser "PEDIR_NOMBRE".
@@ -1701,5 +1701,6 @@ No agregues nada m√°s.`,
     return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: corsHeaders });
   }
 });
+
 
 
