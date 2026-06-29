@@ -543,7 +543,10 @@ Deno.serve(async (req: Request) => {
     // ═══════════════════════════════════════════════════════════════════════
 
     // ── Paso 1: Construir resumen de la conversación para el Supervisor ──
-    const conversationSummary = allMsgs.map(m => {
+    const conversationSummary = allMsgs.filter(m => {
+      if (m.content && (m.content.includes("procederemos a cerrar esta") || m.content.includes("Ha sido un gusto atenderle") || m.content.includes("Lamentamos no poder continuar"))) return false;
+      return true;
+    }).map(m => {
       const who = m.role === "user" ? "CLIENTE" : "ASISTENTE";
       const hasMedia = m.mediaUrl ? ` [ADJUNTO: ${m.mediaType || "archivo"}${m.fileName ? " — " + m.fileName : ""}]` : "";
       return `${who}: ${m.content || "(sin texto)"}${hasMedia}`;
@@ -573,7 +576,7 @@ REGLA DE ORO / PRIORIDAD MÁXIMA:
 REGLAS DE ANÁLISIS:
 - Si el cliente indica EXPRESAMENTE que NO TIENE cuenta o empresa (ej: "no tengo", "ninguna", "cliente final"), extrae la cuenta como "Sin cuenta". PERO si el cliente simplemente omite el dato en su respuesta (ej. da su nombre y correo pero no menciona la empresa), DEBES dejar el campo cuenta vacío ("") para que el sistema lo vuelva a pedir. NUNCA extraigas el nombre de la cuenta o empresa a partir del dominio o texto del correo electrónico. Si el usuario no escribe explícitamente el nombre de su cuenta, debes dejarlo vacío.
 - REGLA DE CUENTA PERSONAL: Si el cliente indica que la cuenta está a su nombre personal o repite su nombre (ej: "está a mi nombre", "a nombre de Juan", "a título personal", "la cuenta es mía"), extrae SU NOMBRE EXACTO (ej: "Juan") como el valor de la "cuenta". Es VÁLIDO que el nombre de la cuenta sea igual al nombre del cliente (registro a título personal). NUNCA extraigas frases relativas como "a mi nombre" o "yo mismo".
-- DIFERENCIA ENTRE CORREO Y EMPRESA: El correo siempre tiene formato (ej: x@y.com). El nombre de la empresa puede ser CUALQUIER nombre propio o frase. Lo �nico que debes evitar es inventar un nombre de empresa si el usuario SOLO te ha dado el correo. Pero si el usuario te responde la empresa, asume que ese es el nombre y extr�elo exactamente como lo escribi�, sin importar nada m�s.
+- DIFERENCIA ENTRE CORREO Y EMPRESA: El correo siempre tiene formato (ej: x@y.com). El nombre de la empresa puede ser CUALQUIER nombre propio o frase. Lo �nico que debes evitar es inventar un nombre de empresa si el usuario SOLO te ha dado el correo. Pero si el usuario te responde la empresa, asume que ese es el nombre y extr�elo exactamente como lo escribi�, sin importar nada m�s.
 - PROHIBIDO ASUMIR EL TEMA: NUNCA inventes ni infieras el "tema". Si el cliente no eligió explícitamente uno de los 8 temas, deja "tema" en null y usa accion "PEDIR_TEMA". Jamás escribas frases como "su consulta sobre configuraciones" si el cliente no lo dijo.
 - ORDEN OBLIGATORIO (PASO A PASO): Los datos iniciales deben pedirse UNO POR UNO.
   1. Si falta el nombre, la accion debe ser "PEDIR_NOMBRE".
@@ -590,7 +593,7 @@ REGLAS DE ANÁLISIS:
 - Si el cliente ya proporcionó datos (even if he said he doesn't have them), NUNCA los pidas de nuevo.
 - Si el cliente pide hablar con una persona/agente/humano, marca accion como "ESCALAR_INMEDIATO".
 - REGLA DE FRUSTRACIÓN: Si el cliente muestra enojo evidente, reclamo, insultos, o lleva varios mensajes sin avanzar y se nota molesto, marca "sentimiento" como "muy_molesto" y la accion como "ESCALAR_INMEDIATO". No insistas en pedir más datos.
-- REGLA DE CIERRE Y REAPERTURA: Si el cliente se despide (adi�s, gracias, hasta luego), marca accion como "CERRAR". �PERO ATENCI�N! Si notas que el �LTIMO mensaje del Asistente fue un mensaje de cierre (por inactividad o despedida) y el Cliente vuelve a escribir saludando (ej: "hola") o haciendo una consulta, ESTO SIGNIFICA QUE EL CASO SE HA REABIERTO. �NUNCA respondas con "CERRAR" a un mensaje de reapertura! Debes actuar seg�n lo que el cliente necesite o volver a pedir el dato faltante.
+- REGLA DE CIERRE Y REAPERTURA: Si el cliente se despide (adi�s, gracias, hasta luego), marca accion como "CERRAR". �PERO ATENCI�N! Si notas que el �LTIMO mensaje del Asistente fue un mensaje de cierre (por inactividad o despedida) y el Cliente vuelve a escribir saludando (ej: "hola") o haciendo una consulta, ESTO SIGNIFICA QUE EL CASO SE HA REABIERTO. �NUNCA respondas con "CERRAR" a un mensaje de reapertura! Debes actuar seg�n lo que el cliente necesite o volver a pedir el dato faltante.
 - Interpreta errores ortográficos libremente. Ej: "reced" o "rese" = "Reset", "borrar" = "Desvinculación", "fimwar" = "Firmware", "marac" = "marca", etc. Usa el sentido común.
 
 REGLAS DE EXPERIENCIA PREMIUM (NUEVAS):
