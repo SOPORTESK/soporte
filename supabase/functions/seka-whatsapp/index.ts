@@ -543,10 +543,7 @@ Deno.serve(async (req: Request) => {
     // ═══════════════════════════════════════════════════════════════════════
 
     // ── Paso 1: Construir resumen de la conversación para el Supervisor ──
-    const conversationSummary = allMsgs.filter(m => {
-      if (m.content && (m.content.includes(`procederemos a cerrar esta`) || m.content.includes(`Ha sido un gusto atenderle`) || m.content.includes(`Lamentamos no poder continuar`))) return false;
-      return true;
-    }).map(m => {
+    const conversationSummary = allMsgs.map(m => {
       const who = m.role === "user" ? "CLIENTE" : "ASISTENTE";
       const hasMedia = m.mediaUrl ? ` [ADJUNTO: ${m.mediaType || "archivo"}${m.fileName ? " — " + m.fileName : ""}]` : "";
       return `${who}: ${m.content || "(sin texto)"}${hasMedia}`;
@@ -576,7 +573,7 @@ REGLA DE ORO / PRIORIDAD MÁXIMA:
 REGLAS DE ANÁLISIS:
 - Si el cliente indica EXPRESAMENTE que NO TIENE cuenta o empresa (ej: "no tengo", "ninguna", "cliente final"), extrae la cuenta como "Sin cuenta". PERO si el cliente simplemente omite el dato en su respuesta (ej. da su nombre y correo pero no menciona la empresa), DEBES dejar el campo cuenta vacío ("") para que el sistema lo vuelva a pedir. NUNCA extraigas el nombre de la cuenta o empresa a partir del dominio o texto del correo electrónico. Si el usuario no escribe explícitamente el nombre de su cuenta, debes dejarlo vacío.
 - REGLA DE CUENTA PERSONAL: Si el cliente indica que la cuenta está a su nombre personal o repite su nombre (ej: "está a mi nombre", "a nombre de Juan", "a título personal", "la cuenta es mía"), extrae SU NOMBRE EXACTO (ej: "Juan") como el valor de la "cuenta". Es VÁLIDO que el nombre de la cuenta sea igual al nombre del cliente (registro a título personal). NUNCA extraigas frases relativas como "a mi nombre" o "yo mismo".
-- DIFERENCIA ENTRE CORREO Y EMPRESA: El correo siempre tiene formato (ej: x@y.com). El nombre de la empresa puede ser CUALQUIER nombre propio o frase. Lo único que debes evitar es inventar un nombre de empresa si el usuario SOLO te ha dado el correo. Pero si el usuario te responde la empresa, asume que ese es el nombre y extráelo exactamente como lo escribió, sin importar nada más.
+- DIFERENCIA ENTRE CORREO Y EMPRESA: El correo siempre tiene formato (ej: x@y.com). El nombre de la empresa puede ser CUALQUIER nombre propio o frase. PROHIBIDO DEDUCIR LA CUENTA DEL CORREO: NUNCA generes el valor de "cuenta" a partir del correo (ni de la parte antes de @, ni del dominio). Ejemplo: con "innoviocr@outlook.com" NO escribas "Innovio CR" ni "Innovio". Si el cliente no escribió textualmente el nombre de su empresa/cuenta, deja "cuenta" VACÍA. Pero si el usuario te responde la empresa explícitamente, asume que ese es el nombre y extráelo exactamente como lo escribió.
 - PROHIBIDO ASUMIR EL TEMA: NUNCA inventes ni infieras el "tema". Si el cliente no eligió explícitamente uno de los 8 temas, deja "tema" en null y usa accion "PEDIR_TEMA". Jamás escribas frases como "su consulta sobre configuraciones" si el cliente no lo dijo.
 - ORDEN OBLIGATORIO (PASO A PASO): Los datos iniciales deben pedirse UNO POR UNO.
   1. Si falta el nombre, la accion debe ser "PEDIR_NOMBRE".
@@ -1028,8 +1025,8 @@ Responde SOLO con JSON válido:
 
     // GATE 2 — Con datos completos pero sin tema elegido por el cliente, mostrar la lista de temas.
     const temaElegidoPorCliente = topiIdx >= 0;
-    if (accion !== "CERRAR" && accion !== "VENTAS" && accion !== "ESCALAR_INMEDIATO" && accion !== "PEDIR_DATOS") {
-      if (updatedCliente.nombre && updatedCliente.cuenta && !temaElegidoPorCliente) {
+    if (accion !== "CERRAR" && accion !== "VENTAS" && accion !== "ESCALAR_INMEDIATO" && accion !== "PEDIR_DATOS" && accion !== "PEDIR_NOMBRE" && accion !== "PEDIR_CORREO" && accion !== "PEDIR_CUENTA") {
+      if (updatedCliente.nombre && updatedCliente.correo && updatedCliente.cuenta && !temaElegidoPorCliente) {
         console.log("[seka-whatsapp] Datos completos sin tema elegido → mostrando lista de temas.");
         accion = "PEDIR_TEMA";
       }
