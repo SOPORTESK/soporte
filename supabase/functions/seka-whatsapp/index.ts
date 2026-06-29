@@ -697,17 +697,10 @@ REGLAS DE ANÁLISIS:
 - Si el tema es "Otro", NO pidas marca ni modelo, pide directamente la descripción del problema (accion: "PEDIR_DESCRIPCION").
 - Si el cliente ya proporcionó datos (even if he said he doesn't have them), NUNCA los pidas de nuevo.
 - Si el cliente pide hablar con una persona/agente/humano, marca accion como "ESCALAR_INMEDIATO".
-- REGLA DE FRUSTRACIÓN: Si el cliente muestra enojo evidente, reclamo, insultos, o lleva varios mensajes sin avanzar y se nota molesto, marca "sentimiento" como "muy_molesto" y la accion como "ESCALAR_INMEDIATO". No insistas en pedir más datos.
+- REGLA DE FRUSTRACIÓN: Si el cliente muestra enojo evidente, reclamo, insultos, o lleva varios mensajes sin avanzar y se nota molesto, marca accion como "ESCALAR_INMEDIATO". No insistas en pedir más datos.
 - Si el cliente se despide (adiós, gracias, hasta luego), marca accion como "CERRAR".
 - Interpreta errores ortográficos libremente. Ej: "reced" o "rese" = "Reset", "borrar" = "Desvinculación", "fimwar" = "Firmware", "marac" = "marca", etc. Usa el sentido común.
 
-REGLAS DE EXPERIENCIA PREMIUM (NUEVAS):
-- ACUSE DE RECIBO: en el campo "acuse" genera una frase breve, cálida y natural que reconozca lo último que aportó el cliente o valide su situación (ej: "Perfecto, ya registré la marca." / "Gracias, tomo nota." / "Lamento el inconveniente."). NO debe contener preguntas. Déjalo vacío solo si no aplica (ej. primer dato o despedida).
-- IDIOMA: detecta el idioma del cliente y ponlo en "idioma" ("es" o "en"). Si es "en", redacta "acuse", "respuesta_sugerida" y "resumen_handoff" en inglés natural.
-- SENTIMIENTO: clasifica el ánimo del cliente en "sentimiento" (positivo | neutral | molesto | muy_molesto).
-- URGENCIA: estima la urgencia del caso en "urgencia" (baja | media | alta | critica). Sistemas caídos, accesos perdidos o impacto operativo = alta/critica.
-- RESUMEN PARA EL AGENTE: en "resumen_handoff" escribe un resumen ejecutivo de 1-2 líneas para el agente humano (cliente, cuenta, tema, equipo, qué se solicitó y qué falta). Esto evita que el agente vuelva a preguntar.
-- CONFIANZA: en "confianza" indica tu nivel de certeza en la extracción (alta | media | baja). Si es baja por ambigüedad, prefiere una respuesta_sugerida que pida una aclaración cortés en lugar de asumir.
 - No inventes datos. Si dudas, confírmalo con el cliente antes de darlo por válido.
 
 Responde SOLO con JSON válido:
@@ -721,15 +714,8 @@ Responde SOLO con JSON válido:
   "tiene_imagen": true/false,
   "tiene_xml": true/false,
   "descripcion_problema": "si el cliente ya describió su problema, ponerlo aquí, sino vacío",
-  "accion": "una de: PEDIR_NOMBRE|PEDIR_CORREO|PEDIR_CUENTA|PEDIR_TEMA|PEDIR_MARCA|PEDIR_MODELO|PEDIR_MARCA_Y_MODELO|BUSCAR_INVENTARIO|PEDIR_ETIQUETA|PEDIR_ETIQUETA_Y_XML|PEDIR_DESCRIPCION|ESCALAR|ESCALAR_INMEDIATO|CERRAR|VENTAS|CONTINUAR",
-  "razon": "explicación breve de por qué elegiste esa acción",
-  "acuse": "frase breve de acuse de recibo o empatía, sin preguntas, o vacío",
-  "idioma": "es o en",
-  "sentimiento": "positivo|neutral|molesto|muy_molesto",
-  "urgencia": "baja|media|alta|critica",
-  "confianza": "alta|media|baja",
-  "resumen_handoff": "resumen ejecutivo de 1-2 líneas para el agente humano",
-  "respuesta_sugerida": "la respuesta que debería enviar el asistente al cliente (máx 2 oraciones, formal, sin emojis, tratando de usted, en el idioma del cliente)"
+  "accion": "una de: PEDIR_NOMBRE|PEDIR_CORREO|PEDIR_CUENTA|PEDIR_TEMA|PEDIR_MARCA|PEDIR_MODELO|PEDIR_MARCA_Y_MODELO|BUSCAR_INVENTARIO|PEDIR_ETIQUETA|PEDIR_ETIQUETA_Y_XML|PEDIR_DESCRIPCION|ESCALAR|ESCALAR_INMEDIATO|CERRAR|VENTAS|",
+  "razon": "explicación breve de por qué elegiste esa acción"
 }`;
 
     let supervisorResult: any = null;
@@ -953,40 +939,15 @@ Responde SOLO con JSON válido:
     const modeloSupervisor = supervisorResult.modelo || "";
     const temaSupervisor = supervisorResult.tema || tema;
 
-    // ── CAMPOS PREMIUM (experiencia de clase mundial) ──
-    const idioma = (supervisorResult.idioma === "en") ? "en" : "es";
-    const sentimiento = String(supervisorResult.sentimiento || "neutral").toLowerCase();
-    const urgencia = String(supervisorResult.urgencia || "media").toLowerCase();
-    const acuse = (typeof supervisorResult.acuse === "string" && supervisorResult.acuse.trim() && !/^(vac[íi]o|null|none)$/i.test(supervisorResult.acuse.trim()))
-      ? supervisorResult.acuse.trim()
-      : "";
-    const handoffSummary = (typeof supervisorResult.resumen_handoff === "string" && supervisorResult.resumen_handoff.trim() && !/^(vac[íi]o|null|none)$/i.test(supervisorResult.resumen_handoff.trim()))
-      ? supervisorResult.resumen_handoff.trim()
-      : "";
+    // withAcuse eliminado — el bot usa solo textos fijos
+    const withAcuse = (text: string): string => text;
 
-    // Antepone un acuse de recibo a las respuestas de pasos. En inglés, prefiere la respuesta del supervisor.
-    // El texto base (en español) se conserva íntegro para no romper los matchers anti-loop.
-    const withAcuse = (text: string): string => {
-      if (idioma === "en" && typeof supervisorResult.respuesta_sugerida === "string" && supervisorResult.respuesta_sugerida.trim()) {
-        return supervisorResult.respuesta_sugerida.trim();
-      }
-      if (!acuse) return text;
-      // Protección contra IA desobediente: si el acuse contiene una pregunta, ignorarlo para no duplicar.
-      if (acuse.includes("?")) return text;
-      // Protección contra IA repitiendo el mismo texto
-      if (text.includes(acuse) || acuse.includes(text)) return text;
-      return `${acuse}\n\n${text}`;
-    };
+    // Construye el motivo de escalado.
+    const buildN2Reason = (fallback: string): string => fallback;
+    const urgencyTags: string[] = [];
+    const sentimiento = "neutral";
 
-    // Construye el motivo de escalado (resumen ejecutivo para el agente humano).
-    const buildN2Reason = (fallback: string): string => handoffSummary || fallback;
-    const urgencyTags = (urgencia === "alta" || urgencia === "critica") ? [`urgencia_${urgencia}`] : [];
-
-    // ── AUTO-ESCALADO POR FRUSTRACIÓN (triaje prioritario) ──
-    if (sentimiento === "muy_molesto" && accion !== "CERRAR" && accion !== "VENTAS") {
-      console.log("[seka-whatsapp] Cliente muy molesto → escalado prioritario.");
-      accion = "ESCALAR_INMEDIATO";
-    }
+    // (Frustración: el LLM marca directamente ESCALAR_INMEDIATO)
 
     // ── FORZAR REGLAS CRÍTICAS (evitar alucinaciones del LLM) ──
     if (tema === "Otro" && (accion === "PEDIR_MARCA" || accion === "PEDIR_MODELO" || accion === "PEDIR_MARCA_Y_MODELO")) {
@@ -1235,13 +1196,8 @@ Responde SOLO con JSON válido:
         defaultReply = isRetry ? "El nombre de la cuenta ingresada no es válido. Por favor, ¿cuál es el nombre de la empresa o cuenta afiliada a Sekunet?" : "Perfecto. Por último, ¿cuál es el nombre de la empresa o cuenta afiliada a Sekunet?";
       }
 
-      let directReply = supervisorResult.respuesta_sugerida;
-      if (!directReply || isRetry) {
-        // Si es un reintento, ignoramos la respuesta suave de la IA y usamos el defaultReply estricto
-        directReply = isRetry ? defaultReply : withAcuse(defaultReply);
-      } else {
-        directReply = withAcuse(directReply);
-      }
+      // Siempre usar texto fijo — sin respuestas libres del LLM
+      const directReply = defaultReply;
 
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
       const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
@@ -1393,18 +1349,7 @@ Responde SOLO con JSON válido:
       return new Response(JSON.stringify({ ok: true, reply: replyText }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // ── ACCIÓN: CONTINUAR (el supervisor sugiere una respuesta libre/contextual) ──
-    // Esto es para casos donde el supervisor entiende el contexto pero la acción no cae en ninguna categoría fija.
-    // Ejemplo: el cliente pregunta algo fuera de lo esperado, pide aclaración, etc.
-    if (supervisorResult.respuesta_sugerida) {
-      const directReply = supervisorResult.respuesta_sugerida;
-      const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
-      const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
-      if (clienteChanged) upd.cliente = updatedCliente;
-      if (nuevoTitle) upd.title = nuevoTitle;
-      await db.from("sek_cases").update(upd).eq("id", case_id);
-      return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
+    // (Bloque CONTINUAR eliminado — el bot solo usa textos fijos)
 
     // ── PASO RESET-4: verificar archivos según marca (se mantiene la lógica de seguridad) ──
     const MSG_RESET_PIDE_ARCHIVOS = "imagen clara y legible de la etiqueta";
