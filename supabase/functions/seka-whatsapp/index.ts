@@ -107,12 +107,12 @@ interface ModelConfig {
 }
 
 const AI_FALLBACK_CHAIN: ModelConfig[] = [
+  { provider: "google", model: "gemini-2.0-flash" },
+  { provider: "google", model: "gemini-1.5-flash" },
   { provider: "nvidia", model: "meta/llama-3.2-11b-vision-instruct" },
   { provider: "nvidia", model: "meta/llama-3.2-90b-vision-instruct" },
   { provider: "openrouter", model: "meta-llama/llama-3.2-11b-vision-instruct:free" },
-  { provider: "openrouter", model: "qwen/qwen-2-vl-7b-instruct:free" },
-  { provider: "google", model: "gemini-2.0-flash" },
-  { provider: "google", model: "gemini-1.5-flash" }
+  { provider: "openrouter", model: "qwen/qwen-2-vl-7b-instruct:free" }
 ];
 
 async function callNvidia(model: string, messages: NimMessage[]): Promise<string> {
@@ -239,12 +239,17 @@ async function validarMarcaSolo(marca: string): Promise<{ encontrado: boolean; m
     }
 
     // 2. Normalización fonética
-    const { data: allBrands } = await db
-      .from("sek_inventario")
-      .select("marca")
-      .limit(500);
-    if (allBrands && allBrands.length > 0) {
-      const uniqueBrands = [...new Set(allBrands.map((b: any) => b.marca).filter(Boolean))] as string[];
+    let uniqueBrands: string[] = [];
+    if (globalCachedBrands) {
+      uniqueBrands = globalCachedBrands;
+    } else {
+      const { data: allBrands } = await db.from("sek_inventario").select("marca").limit(500);
+      if (allBrands && allBrands.length > 0) {
+        uniqueBrands = [...new Set(allBrands.map((b: any) => b.marca).filter(Boolean))] as string[];
+        globalCachedBrands = uniqueBrands;
+      }
+    }
+    if (uniqueBrands.length > 0) {
       const inputNorm = normalizarFonetico(input);
       
       // 2a. Coincidencia exacta por normalización fonética
