@@ -590,7 +590,7 @@ REGLAS DE AN√ÅLISIS:
 - Si el cliente ya proporcion√≥ datos (even if he said he doesn't have them), NUNCA los pidas de nuevo.
 - Si el cliente pide hablar con una persona/agente/humano, marca accion como "ESCALAR_INMEDIATO".
 - REGLA DE FRUSTRACI√ìN: Si el cliente muestra enojo evidente, reclamo, insultos, o lleva varios mensajes sin avanzar y se nota molesto, marca "sentimiento" como "muy_molesto" y la accion como "ESCALAR_INMEDIATO". No insistas en pedir m√°s datos.
-- Si el cliente se despide (adi√≥s, gracias, hasta luego), marca accion como "CERRAR".
+- REGLA DE CIERRE Y REAPERTURA: Si el cliente se despide (adiÛs, gracias, hasta luego), marca accion como "CERRAR". °PERO ATENCI”N! Si notas que el ⁄LTIMO mensaje del Asistente fue un mensaje de cierre (por inactividad o despedida) y el Cliente vuelve a escribir saludando (ej: "hola") o haciendo una consulta, ESTO SIGNIFICA QUE EL CASO SE HA REABIERTO. °NUNCA respondas con "CERRAR" a un mensaje de reapertura! Debes actuar seg˙n lo que el cliente necesite o volver a pedir el dato faltante.
 - Interpreta errores ortogr√°ficos libremente. Ej: "reced" o "rese" = "Reset", "borrar" = "Desvinculaci√≥n", "fimwar" = "Firmware", "marac" = "marca", etc. Usa el sentido com√∫n.
 
 REGLAS DE EXPERIENCIA PREMIUM (NUEVAS):
@@ -1701,6 +1701,9 @@ No agregues nada m√°s.`,
     return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: corsHeaders });
   }
 });
+
+
+
 
 
 
