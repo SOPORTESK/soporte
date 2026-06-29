@@ -1181,10 +1181,10 @@ Responde SOLO con JSON válido:
       let defaultReply = "";
       const lastIaContent = (lastIA?.content || "").toLowerCase();
       
-      // Ampliamos la detección de reintento para atrapar variaciones del LLM
-      const isRetry = (accion === "PEDIR_NOMBRE" && (lastIaContent.includes("nombre") || lastIaContent.includes("llamarle"))) ||
-                      (accion === "PEDIR_CORREO" && (lastIaContent.includes("correo") || lastIaContent.includes("email"))) ||
-                      (accion === "PEDIR_CUENTA" && (lastIaContent.includes("cuenta") || lastIaContent.includes("empresa") || lastIaContent.includes("afiliada")));
+      // isRetry = true SOLO si el bot ya envió el mensaje de RECHAZO específico (no la pregunta inicial)
+      const isRetry = (accion === "PEDIR_NOMBRE" && lastIaContent.includes("no parece estar completo o válido")) ||
+                      (accion === "PEDIR_CORREO" && lastIaContent.includes("no tiene un formato válido")) ||
+                      (accion === "PEDIR_CUENTA" && lastIaContent.includes("nombre de la cuenta ingresada no es válido"));
 
       if (accion === "PEDIR_NOMBRE") {
         defaultReply = isRetry ? "El nombre ingresado no parece estar completo o válido. Por favor, indíquenos su nombre y al menos un apellido para registrar su caso." : "Para comenzar, ¿me podría indicar su nombre completo?";
