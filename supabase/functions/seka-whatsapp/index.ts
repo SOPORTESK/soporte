@@ -579,7 +579,13 @@ REGLAS DE ANÁLISIS:
   1. Si falta el nombre, la accion debe ser "PEDIR_NOMBRE".
   2. Si ya tienes el nombre pero falta el correo, la accion debe ser "PEDIR_CORREO".
   3. Si ya tienes nombre y correo, pero falta la cuenta, la accion debe ser "PEDIR_CUENTA".
-  NUNCA pidas dos datos juntos. NO avances a pedir tema, marca ni modelo hasta tener los tres datos.
+  4. Si tienes nombre, correo y cuenta, pero falta el tema, la accion debe ser "PEDIR_TEMA".
+  5. REGLA PARA TODOS LOS TEMAS EXCEPTO "Otro":
+     - Si tienes tema pero falta la marca, la accion debe ser "PEDIR_MARCA".
+     - Si tienes tema y marca, pero falta el modelo, la accion debe ser "PEDIR_MODELO".
+     - Cuando tengas marca y modelo, la accion DEBE SER "BUSCAR_INVENTARIO".
+  6. Si el tema es "Otro", NO pidas marca ni modelo, la accion debe ser "PEDIR_DESCRIPCION".
+  NUNCA pidas dos datos juntos. NO avances al siguiente paso si falta el anterior.
 - VALIDACIÓN DE DATOS FALSOS: Debes verificar de forma intuitiva que los datos proporcionados sean reales y lógicos.
   - Nombres: Si el cliente proporciona solo un nombre sin apellido (ej: "Andrés", "Juan"), o un nombre obviamente falso, caracteres aleatorios (ej: "ryjuky", "asdf"), números, o palabras sin sentido, recházalo. ES OBLIGATORIO dejar el campo "nombre" vacío ("") y en "respuesta_sugerida" debes usar este texto exacto (sin comillas): El nombre ingresado no parece estar completo o válido. Por favor, indíquenos su nombre y al menos un apellido para registrar su caso.
   - Correos: Si el cliente indica expresamente que no tiene correo (ej: "no tengo", "ninguno"), extrae "Sin correo" y avanza al siguiente paso. Pero si proporciona un correo evidentemente falso o de prueba (ej: "1@1.com", "a@a.com", "wef@wrf.we"), recházalo. ES OBLIGATORIO dejar el campo "correo" vacío ("") y en "respuesta_sugerida" usar este texto exacto (sin comillas): El correo ingresado no tiene un formato válido. Por favor, escriba su correo electrónico real para poder contactarle.
@@ -926,22 +932,27 @@ Responde SOLO con JSON válido:
        accion = "ESCALAR";
     }
 
-    const validActions = ["CERRAR", "ESCALAR", "ESCALAR_INMEDIATO", "PEDIR_DATOS", "PEDIR_TEMA", "PEDIR_MARCA", "PEDIR_MODELO", "PEDIR_MARCA_Y_MODELO", "BUSCAR_INVENTARIO", "PEDIR_ETIQUETA", "PEDIR_ETIQUETA_Y_XML", "PEDIR_DESCRIPCION", "VENTAS"];
-    if (!validActions.includes(accion) && !supervisorResult.respuesta_sugerida) {
-      console.warn(`[seka-whatsapp] Accion ${accion} sin respuesta_sugerida. Aplicando heuristica.`);
-      if (!updatedCliente.nombre || !updatedCliente.cuenta) {
-        accion = "PEDIR_DATOS";
+    const validActions = ["CERRAR", "ESCALAR", "ESCALAR_INMEDIATO", "PEDIR_DATOS", "PEDIR_NOMBRE", "PEDIR_CORREO", "PEDIR_CUENTA", "PEDIR_TEMA", "PEDIR_MARCA", "PEDIR_MODELO", "PEDIR_MARCA_Y_MODELO", "BUSCAR_INVENTARIO", "PEDIR_ETIQUETA", "PEDIR_ETIQUETA_Y_XML", "PEDIR_DESCRIPCION", "VENTAS"];
+    if (!validActions.includes(accion) || (accion === "CONTINUAR" && (!updatedCliente.nombre || !updatedCliente.cuenta || !temaSupervisor || (temaSupervisor !== "Otro" && (!marcaSupervisor || !modeloSupervisor))))) {
+      console.warn(`[seka-whatsapp] Accion ${accion} requiere heuristica de flujo.`);
+      if (!updatedCliente.nombre || !updatedCliente.correo || !updatedCliente.cuenta) {
+        accion = "PEDIR_NOMBRE"; 
       } else if (!temaSupervisor) {
         accion = "PEDIR_TEMA";
-      } else if (!marcaSupervisor && !modeloSupervisor) {
-        accion = "PEDIR_MARCA_Y_MODELO";
-      } else if (!marcaSupervisor) {
-        accion = "PEDIR_MARCA";
-      } else if (!modeloSupervisor) {
-        accion = "PEDIR_MODELO";
+      } else if (temaSupervisor !== "Otro") {
+        if (!marcaSupervisor && !modeloSupervisor) {
+          accion = "PEDIR_MARCA_Y_MODELO";
+        } else if (!marcaSupervisor) {
+          accion = "PEDIR_MARCA";
+        } else if (!modeloSupervisor) {
+          accion = "PEDIR_MODELO";
+        } else {
+          accion = "BUSCAR_INVENTARIO";
+        }
       } else {
-        accion = "BUSCAR_INVENTARIO";
+        accion = "PEDIR_DESCRIPCION";
       }
+      supervisorResult.respuesta_sugerida = "";
     }
 
     console.log(`[seka-whatsapp] Supervisor acción: ${accion}, marca: ${marcaSupervisor}, modelo: ${modeloSupervisor}, tema: ${temaSupervisor}`);
@@ -1029,6 +1040,25 @@ Responde SOLO con JSON válido:
       if (updatedCliente.nombre && updatedCliente.correo && updatedCliente.cuenta && !temaElegidoPorCliente) {
         console.log("[seka-whatsapp] Datos completos sin tema elegido → mostrando lista de temas.");
         accion = "PEDIR_TEMA";
+      }
+    }
+
+    // GATE 3 — Si hay tema (que no es Otro) pero falta marca o modelo, obligar a pedirlos.
+    if (accion !== "CERRAR" && accion !== "VENTAS" && accion !== "ESCALAR_INMEDIATO" && accion !== "PEDIR_DATOS" && accion !== "PEDIR_NOMBRE" && accion !== "PEDIR_CORREO" && accion !== "PEDIR_CUENTA" && accion !== "PEDIR_TEMA") {
+      if (temaSupervisor && temaSupervisor !== "Otro") {
+        if (!marcaSupervisor && !modeloSupervisor && accion !== "PEDIR_MARCA_Y_MODELO") {
+          console.log("[seka-whatsapp] Faltan marca y modelo → Forzando PEDIR_MARCA_Y_MODELO.");
+          accion = "PEDIR_MARCA_Y_MODELO";
+          supervisorResult.respuesta_sugerida = "";
+        } else if (!marcaSupervisor && modeloSupervisor && accion !== "PEDIR_MARCA") {
+          console.log("[seka-whatsapp] Falta marca → Forzando PEDIR_MARCA.");
+          accion = "PEDIR_MARCA";
+          supervisorResult.respuesta_sugerida = "";
+        } else if (marcaSupervisor && !modeloSupervisor && accion !== "PEDIR_MODELO") {
+          console.log("[seka-whatsapp] Falta modelo → Forzando PEDIR_MODELO.");
+          accion = "PEDIR_MODELO";
+          supervisorResult.respuesta_sugerida = "";
+        }
       }
     }
 
@@ -1702,3 +1732,4 @@ No agregues nada más.`,
     return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: corsHeaders });
   }
 });
+
