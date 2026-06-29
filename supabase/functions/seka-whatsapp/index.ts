@@ -185,20 +185,117 @@ async function callAIWithFallbacks(messages: NimMessage[]): Promise<string> {
 }
 
 // ─── VALIDAR SOLO MARCA ────────────────────────────────────────────────────────
-async function validarMarcaSolo(marca: string): Promise<{ encontrado: boolean }> {
+
+function normalizarFonetico(s: string): string {
+  let n = s.toLowerCase().trim();
+  n = n.normalize("NFD").replace(/[\u0300-\u036f]/g, ""); // quitar acentos
+  // Sustituciones fonéticas combinadas (orden importa)
+  n = n.replace(/tion/g, "sion");
+  n = n.replace(/cion/g, "sion");
+  n = n.replace(/ph/g, "f");
+  n = n.replace(/th/g, "t");
+  n = n.replace(/sh/g, "s");
+  n = n.replace(/wh/g, "w");
+  n = n.replace(/ck/g, "k");
+  n = n.replace(/qu/g, "k");
+  // Letras intercambiables en español
+  n = n.replace(/z/g, "s");     // ezviz → esvis
+  n = n.replace(/b/g, "v");     // esbis → esvis  
+  n = n.replace(/c(?=[eiy])/g, "s"); // ce,ci → se,si
+  // Deduplicar letras consecutivas
+  n = n.replace(/(.)\1+/g, "$1");
+  return n;
+}
+
+function levenshtein(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  const d: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+  for (let i = 0; i <= m; i++) d[i][0] = i;
+  for (let j = 0; j <= n; j++) d[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
+    }
+  }
+  return d[m][n];
+}
+
+async function validarMarcaSolo(marca: string): Promise<{ encontrado: boolean; marcaCorregida?: string }> {
   if (!marca) return { encontrado: false };
+  const input = marca.trim();
   try {
-    const { data } = await db
+    // 1. Búsqueda exacta ilike
+    const { data: exact } = await db
       .from("sek_inventario")
       .select("marca")
-      .ilike("marca", `%${marca.trim()}%`)
+      .ilike("marca", `%${input}%`)
       .limit(1);
-    return { encontrado: (data && data.length > 0) ? true : false };
+    if (exact && exact.length > 0) {
+      console.log(`[seka-whatsapp] Marca encontrada (exacta): "${exact[0].marca}"`);
+      return { encontrado: true, marcaCorregida: exact[0].marca };
+    }
+
+    // 2. Normalización fonética
+    const { data: allBrands } = await db
+      .from("sek_inventario")
+      .select("marca")
+      .limit(500);
+    if (allBrands && allBrands.length > 0) {
+      const uniqueBrands = [...new Set(allBrands.map((b: any) => b.marca).filter(Boolean))] as string[];
+      const inputNorm = normalizarFonetico(input);
+      
+      // 2a. Coincidencia exacta por normalización fonética
+      for (const brand of uniqueBrands) {
+        const brandNorm = normalizarFonetico(brand);
+        if (inputNorm === brandNorm || inputNorm.includes(brandNorm) || brandNorm.includes(inputNorm)) {
+          console.log(`[seka-whatsapp] Marca encontrada por fonética: "${input}" (norm: "${inputNorm}") → "${brand}" (norm: "${brandNorm}")`);
+          return { encontrado: true, marcaCorregida: brand };
+        }
+      }
+
+      // 2b. Levenshtein sobre las formas normalizadas
+      let bestMatch = "";
+      let bestDist = Infinity;
+      for (const brand of uniqueBrands) {
+        const brandNorm = normalizarFonetico(brand);
+        const dist = levenshtein(inputNorm, brandNorm);
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestMatch = brand;
+        }
+      }
+      if (bestDist <= 2 && bestMatch) {
+        console.log(`[seka-whatsapp] Marca encontrada por Levenshtein normalizado (dist=${bestDist}): "${input}" → "${bestMatch}"`);
+        return { encontrado: true, marcaCorregida: bestMatch };
+      }
+
+      // 3. Levenshtein crudo
+      let bestRaw = "";
+      let bestRawDist = Infinity;
+      const inputLower = input.toLowerCase();
+      for (const brand of uniqueBrands) {
+        const dist = levenshtein(inputLower, brand.toLowerCase());
+        if (dist < bestRawDist) {
+          bestRawDist = dist;
+          bestRaw = brand;
+        }
+      }
+      if (input.length >= 5 && bestRawDist <= 2 && bestRaw) {
+         console.log(`[seka-whatsapp] Marca encontrada por Levenshtein crudo (dist=${bestRawDist}): "${input}" → "${bestRaw}"`);
+         return { encontrado: true, marcaCorregida: bestRaw };
+      }
+    }
+    
+    return { encontrado: false };
   } catch (e) {
     console.error("[seka-whatsapp] Error validando marca:", e);
-    return { encontrado: false }; // En caso de error, dejamos pasar o no? Mejor no, digamos false para estar seguros? No, si la DB falla, es mejor no mentir.
+    return { encontrado: false };
   }
 }
+
 
 // ─── BUSCAR EN INVENTARIO ─────────────────────────────────────────────────────
 async function buscarInventario(query: string): Promise<{ encontrado: boolean; detalle: string }> {
@@ -906,8 +1003,10 @@ Responde SOLO con JSON válido:
 
     const lastIAContent = iaRealMsgs[iaRealMsgs.length - 1]?.content || "";
 
-    if (accion === "PEDIR_DESCRIPCION" && lastIAContent.includes("describa brevemente")) {
-      console.log("[seka-whatsapp] Ya se había pedido descripción. Forzando ESCALAR.");
+    // Si el bot ya pidió descripción del problema y el usuario respondió → escalar siempre
+    const botYaPidioDescripcion = lastIAContent.includes("describa brevemente") || lastIAContent.includes("describa el inconveniente") || lastIAContent.includes("describa brevemente el inconveniente");
+    if (botYaPidioDescripcion && lastUserMsgContent.trim().length >= 2) {
+      console.log("[seka-whatsapp] Usuario ya describió el problema. Escalando directamente.");
       accion = "ESCALAR";
     }
 
