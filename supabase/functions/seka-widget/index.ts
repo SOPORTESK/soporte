@@ -163,12 +163,12 @@ async function callAIWithFallbacks(messages: NimMessage[]): Promise<string> {
         return await callGoogle(config.model, messages);
       }
     } catch (e: any) {
-      console.warn(`[AI Router] Falló ${config.provider} -> ${config.model}: ${e.message}`);
+      console.warn(`[AI Router] Modelo no disponible ${config.provider} -> ${config.model}: ${e.message}`);
       errors.push(`${config.model}(${e.message})`);
     }
   }
   
-  throw new Error(`AI Router agotó todos los fallbacks. Errores: ${errors.join(", ")}`);
+  throw new Error(`AI Router agotó todos los modelos. Errores: ${errors.join(", ")}`);
 }
 
 // ─── BUSCAR EN INVENTARIO ─────────────────────────────────────────────────────
@@ -462,9 +462,9 @@ Responde SOLO con JSON válido:
       console.error("[seka-widget] Supervisor error:", e.message);
     }
 
-    // ── Si el supervisor falló, usar fallback con LLM directo ──
+    // ── Si el supervisor no respondió, usar respaldo con LLM directo ──
     if (!supervisorResult) {
-      console.warn("[seka-widget] Supervisor falló, usando LLM directo como fallback");
+      console.warn("[seka-widget] Supervisor no respondió, usando LLM directo como respaldo");
       const messages = buildMessages(histcliente, null);
       let rawReply = await callAIWithFallbacks(messages);
       let cleanReply = await processTags(rawReply, case_id);
@@ -1048,13 +1048,13 @@ No agregues nada más.`,
   } catch (e: any) {
     console.error("[seka-widget] ERROR CRITICO:", e.message);
     
-    // Paracaídas de Emergencia (Panic Fallback)
+    // Respaldo final: escalamos el caso para atención humana
     if (globalCaseId) {
       try {
-        const M02_PANIC = "En este momento nuestros sistemas automatizados están experimentando intermitencias. Su chat ha sido transferido y en un momento será atendido por uno de nuestros agentes.";
+        const M02_PANIC = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
         const newMsg: HistMsg = {
           role: "ia",
-          author: "Asistente Sekunet (Emergencia)",
+          author: "Asistente Sekunet",
           time: new Date().toISOString(),
           content: M02_PANIC,
         };
@@ -1063,17 +1063,16 @@ No agregues nada más.`,
           histcliente: updatedHist,
           estado: "escalado",
           escalado_at: new Date().toISOString(),
-          n2_reason: "Falla crítica de IA (Panic Fallback)",
+          n2_reason: "Escalado por error crítico",
         }).eq("id", globalCaseId);
         
-        console.warn(`[seka-widget] Paracaídas activado para el caso ${globalCaseId}`);
-        // Retornamos 200 con el mensaje de pánico para que no se quede colgado
+        console.warn(`[seka-widget] Escalado final activado para el caso ${globalCaseId}`);
         return new Response(JSON.stringify({ ok: true, reply: M02_PANIC }), {
           status: 200,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       } catch (panicError: any) {
-        console.error("[seka-widget] Falla en el paracaídas de emergencia:", panicError.message);
+        console.error("[seka-widget] Error en el escalado final:", panicError.message);
       }
     }
     

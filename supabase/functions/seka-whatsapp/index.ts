@@ -1611,9 +1611,8 @@ No agregues nada más.`,
       }
     }
 
-    // Construir mensajes y llamar a Llama
-    const messages = buildMessages(histcliente, null);
-    let rawReply = await callAIWithFallbacks(messages);
+    // Construir mensajes y llamar a Llama (solo para fallback si el supervisor no dio respuesta)
+    let rawReply = supervisorResult?.respuesta_sugerida || "Estamos validando su solicitud, deme un momento por favor.";
     console.log("[seka-whatsapp] Raw reply:", rawReply);
 
     // Si Llama emitió [BUSCAR_INVENTARIO], resolver y rellamar con resultado como system message

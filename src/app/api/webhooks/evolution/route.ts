@@ -885,6 +885,28 @@ export async function POST(req: NextRequest) {
       // 1. Buscar primero un caso ACTIVO (no cerrado/resuelto)
       const ACTIVE_STATES = ["ia_atendiendo", "pendiente", "escalado", "abierto"];
       existing = openCases.find((c: any) => ACTIVE_STATES.includes(c.estado) && matchesPhone(c)) || null;
+
+      // 2. Si no hay activo, buscar el cerrado/resuelto más reciente para posible reapertura
+      if (!existing) {
+        const closedCase = openCases.find((c: any) => (c.estado === "cerrado" || c.estado === "resuelto") && matchesPhone(c));
+        if (closedCase) {
+          const isRejectedClient = closedCase.cliente && typeof closedCase.cliente === "object" && (closedCase.cliente as any).cuenta === "sin cuenta";
+          const isRejectedBrand = typeof closedCase.title === "string" && closedCase.title.includes("Marca Rechazada");
+          
+          // Verificar si el caso se cerró por no proporcionar la cuenta (límite de reintentos)
+          const histTecnico = Array.isArray(closedCase.histtecnico) ? closedCase.histtecnico : [];
+          const lastMsg = histTecnico.length > 0 ? histTecnico[histTecnico.length - 1].content || "" : "";
+          const isRejectedAccount = lastMsg.includes("Lamentamos no poder continuar en esta ocasión");
+
+          const createdAt = new Date(closedCase.created_at).getTime();
+          const nowMs = new Date().getTime();
+          if (!isRejectedClient && !isRejectedBrand && !isRejectedAccount && (nowMs - createdAt < 48 * 60 * 60 * 1000)) {
+            existing = closedCase;
+            reopenClosedCase = true;
+            console.log("[evo-webhook] Reabriendo caso cerrado reciente:", existing.id);
+          }
+        }
+      }
     }
     console.log("[evo-webhook] Paso 7: caso existente:", existing ? existing.id : "ninguno");
 

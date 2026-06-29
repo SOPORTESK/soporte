@@ -34,11 +34,20 @@ function filterCasesByContainer(cases: SekCase[], containerType: string | undefi
   return cases;
 }
 
-/* ── Agrupar casos por cliente (un solo chat por cliente, varios casos dentro) ── */
+/* ── Agrupar casos por chat: cada chat es independiente.
+    Se agrupa por teléfono limpio; si no hay teléfono, cada caso es su propio chat.
+    NUNCA se agrupa por nombre de cuenta, para que diferentes personas de la misma
+    empresa aparezcan en chats separados. ── */
+function chatGroupKey(c: SekCase): string {
+  const ci = clienteInfo(c.cliente);
+  const tel = (ci.telefono || c.customer_phone || "").trim().replace(/[^0-9]/g, "");
+  return tel ? `tel:${tel}` : `case:${c.id ?? Math.random().toString(36).slice(2)}`;
+}
+
 function mergeGroups(rawCases: SekCase[]): SekCase[] {
   const groups = new Map<string, SekCase[]>();
   for (const c of rawCases) {
-    const key = customerKey(c);
+    const key = chatGroupKey(c);
     const arr = groups.get(key);
     if (arr) arr.push(c); else groups.set(key, [c]);
   }
@@ -196,6 +205,7 @@ export function InboxClient({
   const router = useRouter();
   const params = useSearchParams();
   const [cases, setCases] = React.useState<SekCase[]>(initialCases);
+  const [allCases, setAllCases] = React.useState<SekCase[]>(initialCases); // Sin filtrar, para banner de escalados
   const [selectedId, setSelectedId] = React.useState<string | null>(initialSelectedId);
   const [unreadTotal, setUnreadTotal] = React.useState(0);
   const [agentEmail, setAgentEmail] = React.useState<string | null>(null);
@@ -283,10 +293,10 @@ export function InboxClient({
   const mergedCases = React.useMemo(() => mergeGroups(filteredCases), [filteredCases]);
   const prevMergedRef = React.useRef<SekCase[]>(mergedCases);
   const escaladosPendientes = React.useMemo(() => {
-    // Computar desde la lista global "cases" para que el banner aparezca en todas las bandejas (incluyendo Mi Gestión)
-    const escalated = cases.filter(c => String(c.estado).toLowerCase() === "escalado");
+    // Computar desde allCases (SIN FILTRAR) para que el banner aparezca SIEMPRE en todas las bandejas
+    const escalated = allCases.filter(c => String(c.estado).toLowerCase() === "escalado");
     return mergeGroups(escalated);
-  }, [cases]);
+  }, [allCases]);
 
   React.useEffect(() => {
     const source = params.get("source");
@@ -337,6 +347,7 @@ export function InboxClient({
             .limit(500);
           if (!data) return;
           const newCases = data as SekCase[];
+          setAllCases(newCases); // Sin filtrar para banner de escalados
           const filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail, agentName);
           setCases(filteredNewCases);
 
@@ -439,6 +450,7 @@ export function InboxClient({
         .limit(500);
       if (!data) return;
       const newCases = data as SekCase[];
+      setAllCases(newCases); // Sin filtrar para banner de escalados
       const filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail, agentName);
       const prevTotal = prevCasesRef.current.length;
       const prevMsgs = prevCasesRef.current.reduce((s, c) => s + (c.histcliente?.length || 0), 0);
@@ -457,6 +469,8 @@ export function InboxClient({
   const selected =
     mergedCases.find(c => String(c.id) === selectedId)
     || mergedCases.find(c => c._group?.caseIds.some(cid => String(cid) === selectedId))
+    || escaladosPendientes.find(c => String(c.id) === selectedId)
+    || escaladosPendientes.find(c => c._group?.caseIds.some(cid => String(cid) === selectedId))
     || null;
 
   const [listWidth, setListWidth] = React.useState<number>(340);
@@ -534,7 +548,12 @@ export function InboxClient({
             </div>
           </div>
           <button
-            onClick={() => selectCase(String(escaladosPendientes[0].id))}
+            onClick={() => {
+              const targetId = String(escaladosPendientes[0]._group?.targetCaseId ?? escaladosPendientes[0].id);
+              console.log("[Inbox] Atender caso clicked — targetId:", targetId, "group:", escaladosPendientes[0]._group);
+              toast.info(`Abriendo caso ${targetId}`);
+              selectCase(targetId);
+            }}
             className="shrink-0 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold rounded-lg transition-colors shadow-sm"
           >
             {escaladosPendientes.length === 1 ? "Atender caso" : "Ver casos"}

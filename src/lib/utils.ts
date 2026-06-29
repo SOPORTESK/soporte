@@ -49,6 +49,8 @@ export function asText(value: unknown, fallback = ""): string {
   return fallback;
 }
 
+const INVALID_ACCOUNT_KEYS = /^(sin\s+cuenta|no\s+tengo(?:\s+cuenta)?|no\s+tengo\s+empresa|no\s+la\s+recuerdo|no\s+lo\s+recuerdo|no\s+recuerdo|no\s+me\s+acuerdo|no\s+la\s+tengo|no\s+lo\s+tengo|no\s+lo\s+s[eé]|no\s+s[eé]|no\s+se|dije\s+que\s+no(?:\s+(?:la|lo|me))?(?:\s+(?:s[eé]|recuerdo|recuerda|acuerdo|acuerda))?|cliente\s+final|ninguna|no\s+tiene|no\s+tiene\s+cuenta)$/i;
+
 export function customerKey(c: {
   cliente?: unknown;
   customer_phone?: string | null;
@@ -56,16 +58,17 @@ export function customerKey(c: {
   canal?: string | null;
 }): string {
   const ci = clienteInfo(c.cliente);
-  
-  // 1. Agrupar estrictamente por Cuenta Afiliada a Sekunet (prioridad absoluta)
-  const cuenta = (ci.cuenta || "").trim().toLowerCase();
-  if (cuenta) return `cuenta:${cuenta}`;
-  
-  // 2. Si no hay cuenta, agrupar por teléfono (necesario para mantener la continuidad en WhatsApp cuando aún no tienen cuenta asignada)
+
+  // 1. El teléfono es el identificador más estable: agrupar primero por teléfono
+  //    (la cuenta puede variar entre casos del mismo cliente: personal vs. empresa).
   const tel = (ci.telefono || c.customer_phone || "").trim();
   if (tel) return `tel:${tel}`;
-  
-  // 3. Si no hay ni cuenta ni teléfono, no agrupar (cada caso es independiente)
+
+  // 2. Si no hay teléfono, agrupar por Cuenta Afiliada a Sekunet (solo si es un nombre válido)
+  const cuenta = (ci.cuenta || "").trim().toLowerCase();
+  if (cuenta && !INVALID_ACCOUNT_KEYS.test(cuenta)) return `cuenta:${cuenta}`;
+
+  // 3. Si no hay ni teléfono ni cuenta válida, no agrupar (cada caso es independiente)
   return `case:${c.id ?? Math.random().toString(36).slice(2)}`;
 }
 
