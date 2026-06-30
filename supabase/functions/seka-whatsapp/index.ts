@@ -1005,9 +1005,7 @@ Responde SOLO con JSON válido:
       } else if (!temaSupervisor) {
         accion = "PEDIR_TEMA";
       } else if (temaSupervisor !== "Otro") {
-        if (!marcaSupervisor && !modeloSupervisor) {
-          accion = "PEDIR_MARCA_Y_MODELO";
-        } else if (!marcaSupervisor) {
+        if (!marcaSupervisor) {
           accion = "PEDIR_MARCA";
         } else if (!modeloSupervisor) {
           accion = "PEDIR_MODELO";
@@ -1219,7 +1217,102 @@ Responde SOLO con JSON válido:
 
     // ── ACCIÓN: PEDIR MARCA ──
     if (accion === "PEDIR_MARCA") {
-      const directReply = withAcuse("Por favor, indíquenos la marca del equipo.");
+      // Si el bot ya pidió la marca y el usuario respondió, verificar la marca contra la BD
+      const botYaPidioMarca = lastIAContent.includes("indíquenos la marca") || lastIAContent.includes("marca del equipo") || lastIAContent.includes("verifique el dato");
+      const botPreguntóConfirmación = lastIAContent.includes("¿Se refiere a") && lastIAContent.includes("Responda Sí o No");
+
+      if (botPreguntóConfirmación) {
+        const userConfirmó = /^(s[ií]|si|yes|correcto|exacto|esa|eso|afirmativo|as[ií] es|aja|aj[áa])[.!?]*$/i.test(lastUserMsgContent.trim());
+        const userNegó = /^(no|nel|nop|negativo|otra|diferente|distint)/i.test(lastUserMsgContent.trim());
+
+        if (userConfirmó) {
+          // Extraer la marca confirmada del mensaje anterior
+          const matchConfMarca = lastIAContent.match(/¿se refiere a "([^"]+)"/i);
+          const marcaConfirmada = matchConfMarca ? matchConfMarca[1] : marcaSupervisor;
+          // Guardar marca confirmada y pedir modelo
+          const directReply = "¿Nos podría indicar el modelo del equipo, por favor?";
+          const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
+          const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
+          const cliObj = { ...updatedCliente, marca: marcaConfirmada };
+          upd.cliente = cliObj;
+          if (nuevoTitle) upd.title = nuevoTitle;
+          await db.from("sek_cases").update(upd).eq("id", case_id);
+          return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+
+        if (userNegó) {
+          const directReply = "Comprendo. Le informamos que el dispositivo indicado no parece corresponder a un equipo distribuido por Sekunet, por lo que no podemos brindarle soporte técnico sobre este producto.\n\n¿Tiene alguna otra consulta relacionada con nuestras marcas o servicios? Con gusto le ayudaremos.";
+          const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
+          const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
+          if (clienteChanged) upd.cliente = updatedCliente;
+          upd.title = `${temaSupervisor} — Marca Rechazada`;
+          await db.from("sek_cases").update(upd).eq("id", case_id);
+          return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+
+        // Respuesta no válida (ni sí ni no)
+        const matchConfMarca2 = lastIAContent.match(/¿se refiere a "([^"]+)"/i);
+        const marcaPreguntada = matchConfMarca2 ? matchConfMarca2[1] : "esa marca";
+        const directReply = `La información ingresada no es válida. Por favor, verifique el dato e inténtelo nuevamente.\n\n¿Se refiere a "${marcaPreguntada}"? Responda Sí o No.`;
+        const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
+        const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
+        if (clienteChanged) upd.cliente = updatedCliente;
+        await db.from("sek_cases").update(upd).eq("id", case_id);
+        return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      if (botYaPidioMarca && marcaSupervisor) {
+        // El usuario dio una marca, validarla contra BD
+        const marcaValida = await validarMarcaSolo(marcaSupervisor);
+        
+        if (marcaValida.encontrado) {
+          const marcaFueCorregida = marcaValida.marcaCorregida && marcaValida.marcaCorregida.toLowerCase() !== marcaSupervisor.toLowerCase();
+          
+          if (marcaFueCorregida) {
+            // Aproximación de escritura → confirmar
+            const directReply = `¿Se refiere a "${marcaValida.marcaCorregida}"? Responda Sí o No.`;
+            const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
+            const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
+            if (clienteChanged) upd.cliente = updatedCliente;
+            await db.from("sek_cases").update(upd).eq("id", case_id);
+            return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          }
+
+          // Marca exacta encontrada → guardar y pedir modelo
+          const directReply = "¿Nos podría indicar el modelo del equipo, por favor?";
+          const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
+          const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
+          const cliObj = { ...updatedCliente, marca: marcaValida.marcaCorregida || marcaSupervisor };
+          upd.cliente = cliObj;
+          if (nuevoTitle) upd.title = nuevoTitle;
+          await db.from("sek_cases").update(upd).eq("id", case_id);
+          return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+
+        // Marca no existe
+        if (temaSupervisor !== "Otro") {
+          const directReply = "Gracias por contactarnos.\n\nLe informamos que el dispositivo indicado no corresponde a un equipo distribuido por Sekunet, por lo que no podemos brindarle soporte técnico sobre este producto.\n\n¿Tiene alguna otra consulta relacionada con nuestras marcas o servicios? Con gusto le ayudaremos.";
+          const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
+          const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
+          if (clienteChanged) upd.cliente = updatedCliente;
+          upd.title = `${temaSupervisor} — Marca Rechazada`;
+          await db.from("sek_cases").update(upd).eq("id", case_id);
+          return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+      }
+
+      if (botYaPidioMarca && !marcaSupervisor) {
+        // El bot pidió la marca pero el LLM no extrajo nada → dato inválido
+        const directReply = "La información ingresada no es válida. Por favor, verifique el dato e inténtelo nuevamente.\n\nPor favor, indíquenos la marca del equipo.";
+        const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
+        const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
+        if (clienteChanged) upd.cliente = updatedCliente;
+        await db.from("sek_cases").update(upd).eq("id", case_id);
+        return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // Primera vez que se pide la marca
+      const directReply = "Por favor, indíquenos la marca del equipo.";
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
       const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
       if (clienteChanged) upd.cliente = updatedCliente;
@@ -1249,6 +1342,16 @@ Responde SOLO con JSON válido:
       }
 
       // Si la marca sí existe (o es tema Otro donde no importa), pedimos el modelo normalmente.
+      // Pero si el bot ya pidió el modelo y el usuario no dio un modelo válido, rechazar
+      const botYaPidioModelo = lastIAContent.includes("modelo del equipo") || lastIAContent.includes("modelo específico");
+      if (botYaPidioModelo && !modeloSupervisor) {
+        const directReply = "La información ingresada no es válida. Por favor, verifique el dato e inténtelo nuevamente.\n\n¿Nos podría indicar el modelo del equipo, por favor?";
+        const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
+        const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
+        if (clienteChanged) upd.cliente = updatedCliente;
+        await db.from("sek_cases").update(upd).eq("id", case_id);
+        return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
       const directReply = withAcuse("¿Nos podría indicar el modelo del equipo, por favor?");
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
       const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
@@ -1257,9 +1360,9 @@ Responde SOLO con JSON válido:
       return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // ── ACCIÓN: PEDIR MARCA Y MODELO (cuando no tiene ninguno) ──
+    // ── ACCIÓN: PEDIR MARCA Y MODELO → redirigir a PEDIR_MARCA (siempre pedir uno por uno) ──
     if (accion === "PEDIR_MARCA_Y_MODELO") {
-      const directReply = withAcuse("Por favor, indíquenos la marca y el modelo del equipo.");
+      const directReply = "Por favor, indíquenos la marca del equipo.";
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
       const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
       if (clienteChanged) upd.cliente = updatedCliente;
