@@ -951,7 +951,12 @@ Responde SOLO con JSON válido:
 
     // ── VERIFICACIÓN DE INVENTARIO OBLIGATORIA (Si hay nueva marca o modelo) ──
     if ((marcaSupervisor || modeloSupervisor) && accion !== "CERRAR" && accion !== "VENTAS" && accion !== "BUSCAR_INVENTARIO") {
-      const searchQuery = `${marcaSupervisor} ${modeloSupervisor}`.trim();
+      let searchMarca = marcaSupervisor;
+      if (searchMarca) {
+        const checkM = await validarMarcaSolo(searchMarca);
+        if (checkM.encontrado && checkM.marcaCorregida) searchMarca = checkM.marcaCorregida;
+      }
+      const searchQuery = `${searchMarca} ${modeloSupervisor}`.trim();
       const invCheck = await buscarInventario(searchQuery);
       if (!invCheck.encontrado) {
         console.log(`[seka-whatsapp] Marca/Modelo (${searchQuery}) NO está en inventario. Forzando BUSCAR_INVENTARIO.`);
@@ -1414,7 +1419,12 @@ Responde SOLO con JSON válido:
 
     // ── ACCIÓN: BUSCAR_INVENTARIO (tiene marca y/o modelo, verificar en BD) ──
     if (accion === "BUSCAR_INVENTARIO") {
-      const searchQuery = `${marcaSupervisor} ${modeloSupervisor}`.trim();
+      let searchMarca = marcaSupervisor;
+      if (searchMarca) {
+        const checkM = await validarMarcaSolo(searchMarca);
+        if (checkM.encontrado && checkM.marcaCorregida) searchMarca = checkM.marcaCorregida;
+      }
+      const searchQuery = `${searchMarca} ${modeloSupervisor}`.trim();
       const inv = await buscarInventario(searchQuery);
       
       let directReply: string;
