@@ -855,30 +855,7 @@ Responde SOLO con JSON válido:
       const oldCuenta = String((currentCliente as any).cuenta || "").trim();
       const oldCuentaLower = oldCuenta.toLowerCase();
       const isBadOldCuenta = oldCuentaLower === "a mi nombre" || oldCuentaLower === "mi nombre" || oldCuentaLower === "yo mismo" || oldCuentaLower === "personal";
-      let cuentaAlucinada = false;
-      if (regexEmail) {
-        // Normalizar: minúsculas y solo alfanuméricos (ignora espacios y signos).
-        const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
-        const emailLocalPart = norm(regexEmail.split('@')[0]);
-        const emailDomainPart = norm(regexEmail.split('@')[1].split('.')[0]);
-        const cuentaNorm = norm(supervisorResult.cuenta);
-        
-        // Revisar si el usuario digitó la cuenta de forma explícita fuera de su correo
-        const textWithoutEmail = lastUserMsgContent.replace(regexEmail, "");
-        const isExplicitlyTyped = norm(textWithoutEmail).includes(cuentaNorm);
-        
-        if (!isExplicitlyTyped && cuentaNorm.length >= 3) {
-          // Si NO lo digitó explícitamente, pero coincide con partes del correo = alucinación
-          if (emailLocalPart.includes(cuentaNorm) || cuentaNorm.includes(emailLocalPart) ||
-              emailDomainPart.includes(cuentaNorm) || cuentaNorm.includes(emailDomainPart)) {
-            cuentaAlucinada = true;
-          }
-        }
-      }
       if (!oldCuenta || oldCuenta === "(vacío)" || isBadOldCuenta) {
-        if (cuentaAlucinada) {
-           updatedCliente.cuenta = "";
-        } else {
            let cuentaFinal = supervisorResult.cuenta;
       try {
         const levenshtein = (a: string, b: string): number => {
@@ -924,7 +901,7 @@ Responde SOLO con JSON válido:
       }
       updatedCliente.cuenta = cuentaFinal;
       clienteChanged = true;
-      } // Closes else block
+
       } // Closes if (!oldCuenta || ...)
     } // Closes if (isValidExtractedString...)
 
