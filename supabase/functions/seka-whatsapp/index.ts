@@ -911,9 +911,26 @@ Responde SOLO con JSON válido:
 
     // ── Paso 4: Ejecutar la ACCIÓN que decidió el Supervisor ──
     let accion = (supervisorResult.accion || "CONTINUAR").toUpperCase();
-    const marcaSupervisor = supervisorResult.marca || "";
-    const modeloSupervisor = supervisorResult.modelo || "";
-    const temaSupervisor = supervisorResult.tema || tema;
+    let marcaSupervisor = supervisorResult.marca || "";
+    let modeloSupervisor = supervisorResult.modelo || "";
+    let temaSupervisor = supervisorResult.tema || tema;
+
+    // ── GESTIÓN DE NUEVA CONSULTA (Si el bot rechazó equipo y el usuario dice Sí) ──
+    const lastIAContentTop = iaRealMsgs[iaRealMsgs.length - 1]?.content || "";
+    const botPreguntoNuevaConsulta = lastIAContentTop.includes("¿Tiene alguna otra consulta");
+    if (botPreguntoNuevaConsulta) {
+      const userConfirmoNueva = /^(s[ií]|si|yes|claro|por supuesto|dale|de una|ok)[.!?]*$/i.test(lastUserMsgContent.trim());
+      if (userConfirmoNueva) {
+        console.log("[seka-whatsapp] Usuario confirmó nueva consulta. Limpiando marca/modelo y forzando PEDIR_DESCRIPCION.");
+        accion = "PEDIR_DESCRIPCION";
+        marcaSupervisor = "";
+        modeloSupervisor = "";
+        temaSupervisor = "Otro";
+        updatedCliente.marca = "";
+        updatedCliente.modelo = "";
+        clienteChanged = true;
+      }
+    }
 
     // withAcuse eliminado — el bot usa solo textos fijos
     const withAcuse = (text: string): string => text;
