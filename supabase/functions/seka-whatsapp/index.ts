@@ -19,7 +19,6 @@ IDENTIDAD Y TONO
 - Trate siempre de "usted". Sin emojis. Tono cortés, humano y seguro, nunca robótico.
 - Máximo 2 oraciones por mensaje. Una sola pregunta o instrucción por mensaje. Espere respuesta antes de continuar.
 - Nunca mencione que es una IA, un bot o un asistente virtual. No se presente: el cliente ya fue saludado.
-- ACUSE DE RECIBO: antes de cada nueva pregunta, reconozca brevemente lo que el cliente acaba de aportar ("Perfecto, ya registré la marca." / "Gracias, tomo nota."). Esto hace la conversación natural; no es una pregunta adicional.
 - EMPATÍA: si el cliente expresa molestia, urgencia o frustración, valídelo en una frase ("Lamento el inconveniente, le ayudo de inmediato.") antes de continuar.
 - IDIOMA: responda en el mismo idioma en que escribe el cliente (español o inglés). Si escribe en inglés, traduzca naturalmente sus respuestas y los mensajes guía.
 - EXPECTATIVAS: cuando escale, deje claro qué sigue ("Un agente continuará su caso en breve.").
@@ -804,7 +803,7 @@ Responde SOLO con JSON válido:
       console.log("[seka-whatsapp] Datos de cliente completos, intentando LLM no estructurado como salvavidas...");
       try {
         const messages = buildMessages(histcliente, null);
-        let rawReply = await callAIWithFallbacks(messages);
+        let rawReply = "[FALLBACK] Lo siento, la IA no devolvió una acción válida para el estado actual. Acción recibida: " + accion;
         let cleanReply = await processTags(rawReply, case_id);
         cleanReply = cleanReply.replace(/__INV__.*?__INV__/gs, "").trim();
         if (!cleanReply) return new Response(JSON.stringify({ ok: true, skipped: true }), { status: 200, headers: corsHeaders });
@@ -1299,28 +1298,75 @@ Responde SOLO con JSON válido:
 
     // ── ACCIÓN: PEDIR MODELO ──
     if (accion === "PEDIR_MODELO") {
-      // 🚨 INTERCEPCIÓN INTELIGENTE: Si vamos a pedir el modelo, significa que ya tenemos la marca.
-      // Validemos la marca ANTES de pedir el modelo para no hacer perder el tiempo al cliente.
+      const botPreguntóConfirmación = lastIAContent.includes("¿Se refiere a") && lastIAContent.includes("Responda Sí o No");
+
+      if (botPreguntóConfirmación) {
+        const userConfirmó = /^(s[ií]|si|yes|correcto|exacto|esa|eso|afirmativo|as[ií] es|aja|aj[áa]|dale|de una)[.!?]*$/i.test(lastUserMsgContent.trim());
+        const userNegó = /^(no|nel|nop|negativo|otra|diferente|distint)/i.test(lastUserMsgContent.trim());
+
+        if (userConfirmó) {
+          const matchConfMarca = lastIAContent.match(/¿se refiere a "([^"]+)"/i);
+          const marcaConfirmada = matchConfMarca ? matchConfMarca[1] : marcaSupervisor;
+          const directReply = "¿Nos podría indicar el modelo del equipo, por favor?";
+          const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
+          const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
+          const cliObj = { ...updatedCliente, marca: marcaConfirmada };
+          upd.cliente = cliObj;
+          if (nuevoTitle) upd.title = nuevoTitle;
+          await db.from("sek_cases").update(upd).eq("id", case_id);
+          return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+
+        if (userNegó) {
+          const directReply = "Comprendo. Le informamos que el dispositivo indicado no parece corresponder a un equipo distribuido por Sekunet, por lo que no podemos brindarle soporte técnico sobre este producto.\n\n¿Tiene alguna otra consulta relacionada con nuestras marcas o servicios? Con gusto le ayudaremos.";
+          const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
+          const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
+          if (clienteChanged) upd.cliente = updatedCliente;
+          upd.title = `${temaSupervisor} — Marca Rechazada`;
+          await db.from("sek_cases").update(upd).eq("id", case_id);
+          return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+
+        const matchConfMarca2 = lastIAContent.match(/¿se refiere a "([^"]+)"/i);
+        const marcaPreguntada = matchConfMarca2 ? matchConfMarca2[1] : "esa marca";
+        const directReply = `La información ingresada no es válida. Por favor, verifique el dato e inténtelo nuevamente.\n\n¿Se refiere a "${marcaPreguntada}"? Responda Sí o No.`;
+        const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
+        const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
+        if (clienteChanged) upd.cliente = updatedCliente;
+        await db.from("sek_cases").update(upd).eq("id", case_id);
+        return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
       const marcaValida = await validarMarcaSolo(marcaSupervisor);
       
       if (!marcaValida.encontrado && temaSupervisor !== "Otro") {
-        // La marca no existe en el catálogo. Rechazamos inmediatamente.
         const rejectionMessage = "Gracias por contactarnos.\n\nLe informamos que el dispositivo indicado no corresponde a un equipo distribuido por Sekunet, por lo que no podemos brindarle soporte técnico sobre este producto.\n\n¿Tiene alguna otra consulta relacionada con nuestras marcas o servicios? Con gusto le ayudaremos.";
         const directReply = withAcuse(rejectionMessage);
         
         const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
         const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
         if (clienteChanged) upd.cliente = updatedCliente;
-        // Limpiamos la marca para que el usuario pueda empezar de cero si tiene otra consulta
         upd.title = `${temaSupervisor} — Marca Rechazada`;
         await db.from("sek_cases").update(upd).eq("id", case_id);
         
         return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      // Si la marca sí existe (o es tema Otro donde no importa), pedimos el modelo normalmente.
-      // Pero si el bot ya pidió el modelo y el usuario no dio un modelo válido, rechazar
-      const botYaPidioModelo = lastIAContent.includes("modelo del equipo") || lastIAContent.includes("modelo específico");
+      if (marcaValida.encontrado) {
+        const marcaFueCorregida = marcaValida.marcaCorregida && marcaValida.marcaCorregida.toLowerCase() !== marcaSupervisor.toLowerCase();
+        const yaEstaGuardada = updatedCliente.marca && updatedCliente.marca.toLowerCase() === marcaValida.marcaCorregida.toLowerCase();
+        
+        if (marcaFueCorregida && !yaEstaGuardada) {
+          const directReply = `¿Se refiere a "${marcaValida.marcaCorregida}"? Responda Sí o No.`;
+          const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
+          const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
+          if (clienteChanged) upd.cliente = updatedCliente;
+          await db.from("sek_cases").update(upd).eq("id", case_id);
+          return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+      }
+
+      const botYaPidioModelo = lastIAContent.includes("modelo del equipo") || lastIAContent.includes("modelo específico") || lastIAContent.includes("verifique el dato");
       if (botYaPidioModelo && !modeloSupervisor) {
         const directReply = "La información ingresada no es válida. Por favor, verifique el dato e inténtelo nuevamente.\n\n¿Nos podría indicar el modelo del equipo, por favor?";
         const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
@@ -1329,10 +1375,12 @@ Responde SOLO con JSON válido:
         await db.from("sek_cases").update(upd).eq("id", case_id);
         return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
+
       const directReply = withAcuse("¿Nos podría indicar el modelo del equipo, por favor?");
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
       const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
-      if (clienteChanged) upd.cliente = updatedCliente;
+      const cliObj = { ...updatedCliente, marca: marcaValida.marcaCorregida || marcaSupervisor };
+      upd.cliente = cliObj;
       await db.from("sek_cases").update(upd).eq("id", case_id);
       return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -1772,7 +1820,7 @@ No agregues nada más.`,
 
     // Construir mensajes y llamar a Llama
     const messages = buildMessages(histcliente, null);
-    let rawReply = await callAIWithFallbacks(messages);
+    let rawReply = "[FALLBACK] Lo siento, la IA no devolvió una acción válida para el estado actual. Acción recibida: " + accion;
     console.log("[seka-whatsapp] Raw reply:", rawReply);
 
     // Si Llama emitió [BUSCAR_INVENTARIO], resolver y rellamar con resultado como system message
