@@ -674,7 +674,7 @@ REGLA DE ORO / PRIORIDAD MÁXIMA:
 REGLAS DE ANÁLISIS:
 - Si el cliente indica EXPRESAMENTE que NO TIENE cuenta o empresa (ej: "no tengo", "ninguna", "cliente final"), extrae la cuenta como "Sin cuenta". PERO si el cliente simplemente omite el dato en su respuesta (ej. da su nombre y correo pero no menciona la empresa), DEBES dejar el campo cuenta vacío ("") para que el sistema lo vuelva a pedir. NUNCA extraigas el nombre de la cuenta o empresa a partir del dominio o texto del correo electrónico. Si el usuario no escribe explícitamente el nombre de su cuenta, debes dejarlo vacío.
 - REGLA DE CUENTA PERSONAL: Si el cliente indica que la cuenta está a su nombre personal o repite su nombre (ej: "está a mi nombre", "a nombre de Juan", "a título personal", "la cuenta es mía"), extrae SU NOMBRE EXACTO (ej: "Juan") como el valor de la "cuenta". Es VÁLIDO que el nombre de la cuenta sea igual al nombre del cliente (registro a título personal). NUNCA extraigas frases relativas como "a mi nombre" o "yo mismo".
-- DIFERENCIA ENTRE CORREO Y EMPRESA: El correo siempre tiene formato (ej: x@y.com). El nombre de la empresa puede ser CUALQUIER nombre propio o frase. PROHIBIDO DEDUCIR LA CUENTA DEL CORREO: NUNCA generes el valor de "cuenta" a partir del correo (ni de la parte antes de @, ni del dominio). Ejemplo: con "innoviocr@outlook.com" NO escribas "Innovio CR" ni "Innovio". Si el cliente no escribió textualmente el nombre de su empresa/cuenta, deja "cuenta" VACÍA. Pero si el usuario te responde la empresa explícitamente, asume que ese es el nombre y extráelo exactamente como lo escribió.
+- DIFERENCIA ENTRE CORREO Y EMPRESA: El correo siempre tiene formato (ej: x@y.com). El nombre de la empresa puede ser CUALQUIER nombre propio o frase. PROHIBIDO DEDUCIR LA CUENTA DEL CORREO: NUNCA generes el valor de "cuenta" a partir del correo (ni de la parte antes de @, ni del dominio). Ejemplo: con "johndoe@miempresa.com" NO escribas "Mi Empresa" ni "John Doe". Si el cliente no escribió textualmente el nombre de su empresa/cuenta, deja "cuenta" VACÍA. Pero si el usuario TE RESPONDE explícitamente el nombre de la empresa (aunque se parezca a su correo), SÍ DEBES extraerlo exactamente como lo escribió.
 - PROHIBIDO ASUMIR EL TEMA: NUNCA inventes ni infieras el "tema". Si el cliente no eligió explícitamente uno de los 8 temas, deja "tema" en null y usa accion "PEDIR_TEMA". Jamás escribas frases como "su consulta sobre configuraciones" si el cliente no lo dijo.
 - ORDEN OBLIGATORIO (PASO A PASO): Los datos iniciales deben pedirse UNO POR UNO.
   1. Si falta el nombre, la accion debe ser "PEDIR_NOMBRE".
@@ -943,29 +943,31 @@ Responde SOLO con JSON válido:
     // (Frustración: el LLM marca directamente ESCALAR_INMEDIATO)
 
     // ── FORZAR REGLAS CRÍTICAS (evitar alucinaciones del LLM) ──
+    const lastIAContent = iaRealMsgs[iaRealMsgs.length - 1]?.content || "";
+
+    const botYaPidioMarca = lastIAContent.includes("indíquenos la marca") || lastIAContent.includes("marca del equipo") || lastIAContent.includes("verifique el dato");
+    
+    // Si pedimos marca y el usuario responde sin números ni guiones, es solo la marca.
+    if (botYaPidioMarca && !/[0-9\-]/.test(lastUserMsgContent)) {
+      marcaSupervisor = lastUserMsgContent.trim();
+      modeloSupervisor = ""; // Evitar que el LLM lo ponga como modelo
+      console.log(`[seka-whatsapp] Heurística fuerte: Asumiendo '${marcaSupervisor}' solo como MARCA.`);
+    }
+
+    // Prevenir que el LLM se salte el modelo
+    if (accion === "BUSCAR_INVENTARIO" && !modeloSupervisor && temaSupervisor !== "Otro") {
+      console.log("[seka-whatsapp] LLM intentó BUSCAR_INVENTARIO sin modelo. Forzando PEDIR_MODELO.");
+      accion = "PEDIR_MODELO";
+    }
+
     if (tema === "Otro" && (accion === "PEDIR_MARCA" || accion === "PEDIR_MODELO" || accion === "PEDIR_MARCA_Y_MODELO")) {
       console.log("[seka-whatsapp] Forzando PEDIR_DESCRIPCION para tema Otro");
       accion = "PEDIR_DESCRIPCION";
       supervisorResult.respuesta_sugerida = "Por favor, describa brevemente su consulta o inconveniente.";
     }
 
-    // ── VERIFICACIÓN DE INVENTARIO OBLIGATORIA (Si hay nueva marca o modelo) ──
-    if ((marcaSupervisor || modeloSupervisor) && accion !== "CERRAR" && accion !== "VENTAS" && accion !== "BUSCAR_INVENTARIO") {
-      let searchMarca = marcaSupervisor;
-      if (searchMarca) {
-        const checkM = await validarMarcaSolo(searchMarca);
-        if (checkM.encontrado && checkM.marcaCorregida) searchMarca = checkM.marcaCorregida;
-      }
-      const searchQuery = `${searchMarca} ${modeloSupervisor}`.trim();
-      const invCheck = await buscarInventario(searchQuery);
-      if (!invCheck.encontrado) {
-        console.log(`[seka-whatsapp] Marca/Modelo (${searchQuery}) NO está en inventario. Forzando BUSCAR_INVENTARIO.`);
-        accion = "BUSCAR_INVENTARIO";
-        supervisorResult.respuesta_sugerida = "";
-      }
-    }
-
-    const lastIAContent = iaRealMsgs[iaRealMsgs.length - 1]?.content || "";
+    // ── VERIFICACION ELIMINADA ──
+    // Se eliminó la verificación de inventario forzada aquí porque causaba rechazos prematuros si el LLM extraía mal el modelo.
 
     // Si el bot ya pidió descripción del problema y el usuario respondió → escalar siempre
     const botYaPidioDescripcion = lastIAContent.includes("describa brevemente") || lastIAContent.includes("describa el inconveniente") || lastIAContent.includes("describa brevemente el inconveniente");
@@ -1104,6 +1106,40 @@ Responde SOLO con JSON válido:
       }
     }
 
+    // ── INTERCEPTAR CONFIRMACIÓN DE MARCA ANTES DE GATE 3 ──
+    const botPreguntóConfirmación = lastIAContent.includes("¿Se refiere a") && lastIAContent.includes("Responda Sí o No");
+    if (botPreguntóConfirmación) {
+      const userConfirmó = /^(s[ií]|si|yes|correcto|exacto|esa|eso|afirmativo|as[ií] es|aja|aj[áa]|dale|de una)[.!?]*$/i.test(lastUserMsgContent.trim());
+      const userNegó = /^(no|nel|nop|negativo|otra|diferente|distint)/i.test(lastUserMsgContent.trim());
+
+      if (userConfirmó) {
+        const matchConfMarca = lastIAContent.match(/¿se refiere a "([^"]+)"/i);
+        if (matchConfMarca) {
+          marcaSupervisor = matchConfMarca[1];
+          updatedCliente.marca = marcaSupervisor;
+          clienteChanged = true;
+          console.log(`[seka-whatsapp] Usuario confirmó marca: ${marcaSupervisor}`);
+        }
+      } else if (userNegó) {
+        const directReply = "Comprendo. Le informamos que el dispositivo indicado no parece corresponder a un equipo distribuido por Sekunet, por lo que no podemos brindarle soporte técnico sobre este producto.\n\n¿Tiene alguna otra consulta relacionada con nuestras marcas o servicios? Con gusto le ayudaremos.";
+        const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
+        const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
+        if (clienteChanged) upd.cliente = updatedCliente;
+        upd.title = `${temaSupervisor || 'Soporte'} — Marca Rechazada`;
+        await db.from("sek_cases").update(upd).eq("id", case_id);
+        return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      } else {
+        const matchConfMarca2 = lastIAContent.match(/¿se refiere a "([^"]+)"/i);
+        const marcaPreguntada = matchConfMarca2 ? matchConfMarca2[1] : "esa marca";
+        const directReply = `La información ingresada no es válida. Por favor, verifique el dato e inténtelo nuevamente.\n\n¿Se refiere a "${marcaPreguntada}"? Responda Sí o No.`;
+        const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
+        const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
+        if (clienteChanged) upd.cliente = updatedCliente;
+        await db.from("sek_cases").update(upd).eq("id", case_id);
+        return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+    }
+
     // GATE 3 — Si hay tema (que no es Otro) pero falta marca o modelo, obligar a pedirlos.
     if (accion !== "CERRAR" && accion !== "VENTAS" && accion !== "ESCALAR_INMEDIATO" && accion !== "PEDIR_DATOS" && accion !== "PEDIR_NOMBRE" && accion !== "PEDIR_CORREO" && accion !== "PEDIR_CUENTA" && accion !== "PEDIR_TEMA") {
       if (temaSupervisor && temaSupervisor !== "Otro") {
@@ -1217,47 +1253,7 @@ Responde SOLO con JSON válido:
     if (accion === "PEDIR_MARCA") {
       // Si el bot ya pidió la marca y el usuario respondió, verificar la marca contra la BD
       const botYaPidioMarca = lastIAContent.includes("indíquenos la marca") || lastIAContent.includes("marca del equipo") || lastIAContent.includes("verifique el dato");
-      const botPreguntóConfirmación = lastIAContent.includes("¿Se refiere a") && lastIAContent.includes("Responda Sí o No");
 
-      if (botPreguntóConfirmación) {
-        const userConfirmó = /^(s[ií]|si|yes|correcto|exacto|esa|eso|afirmativo|as[ií] es|aja|aj[áa])[.!?]*$/i.test(lastUserMsgContent.trim());
-        const userNegó = /^(no|nel|nop|negativo|otra|diferente|distint)/i.test(lastUserMsgContent.trim());
-
-        if (userConfirmó) {
-          // Extraer la marca confirmada del mensaje anterior
-          const matchConfMarca = lastIAContent.match(/¿se refiere a "([^"]+)"/i);
-          const marcaConfirmada = matchConfMarca ? matchConfMarca[1] : marcaSupervisor;
-          // Guardar marca confirmada y pedir modelo
-          const directReply = "¿Nos podría indicar el modelo del equipo, por favor?";
-          const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
-          const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
-          const cliObj = { ...updatedCliente, marca: marcaConfirmada };
-          upd.cliente = cliObj;
-          if (nuevoTitle) upd.title = nuevoTitle;
-          await db.from("sek_cases").update(upd).eq("id", case_id);
-          return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        }
-
-        if (userNegó) {
-          const directReply = "Comprendo. Le informamos que el dispositivo indicado no parece corresponder a un equipo distribuido por Sekunet, por lo que no podemos brindarle soporte técnico sobre este producto.\n\n¿Tiene alguna otra consulta relacionada con nuestras marcas o servicios? Con gusto le ayudaremos.";
-          const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
-          const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
-          if (clienteChanged) upd.cliente = updatedCliente;
-          upd.title = `${temaSupervisor} — Marca Rechazada`;
-          await db.from("sek_cases").update(upd).eq("id", case_id);
-          return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        }
-
-        // Respuesta no válida (ni sí ni no)
-        const matchConfMarca2 = lastIAContent.match(/¿se refiere a "([^"]+)"/i);
-        const marcaPreguntada = matchConfMarca2 ? matchConfMarca2[1] : "esa marca";
-        const directReply = `La información ingresada no es válida. Por favor, verifique el dato e inténtelo nuevamente.\n\n¿Se refiere a "${marcaPreguntada}"? Responda Sí o No.`;
-        const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
-        const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
-        if (clienteChanged) upd.cliente = updatedCliente;
-        await db.from("sek_cases").update(upd).eq("id", case_id);
-        return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
 
       if (botYaPidioMarca && marcaSupervisor) {
         // El usuario dio una marca, validarla contra BD
@@ -1320,45 +1316,6 @@ Responde SOLO con JSON válido:
 
     // ── ACCIÓN: PEDIR MODELO ──
     if (accion === "PEDIR_MODELO") {
-      const botPreguntóConfirmación = lastIAContent.includes("¿Se refiere a") && lastIAContent.includes("Responda Sí o No");
-
-      if (botPreguntóConfirmación) {
-        const userConfirmó = /^(s[ií]|si|yes|correcto|exacto|esa|eso|afirmativo|as[ií] es|aja|aj[áa]|dale|de una)[.!?]*$/i.test(lastUserMsgContent.trim());
-        const userNegó = /^(no|nel|nop|negativo|otra|diferente|distint)/i.test(lastUserMsgContent.trim());
-
-        if (userConfirmó) {
-          const matchConfMarca = lastIAContent.match(/¿se refiere a "([^"]+)"/i);
-          const marcaConfirmada = matchConfMarca ? matchConfMarca[1] : marcaSupervisor;
-          const directReply = "¿Nos podría indicar el modelo del equipo, por favor?";
-          const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
-          const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
-          const cliObj = { ...updatedCliente, marca: marcaConfirmada };
-          upd.cliente = cliObj;
-          if (nuevoTitle) upd.title = nuevoTitle;
-          await db.from("sek_cases").update(upd).eq("id", case_id);
-          return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        }
-
-        if (userNegó) {
-          const directReply = "Comprendo. Le informamos que el dispositivo indicado no parece corresponder a un equipo distribuido por Sekunet, por lo que no podemos brindarle soporte técnico sobre este producto.\n\n¿Tiene alguna otra consulta relacionada con nuestras marcas o servicios? Con gusto le ayudaremos.";
-          const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
-          const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
-          if (clienteChanged) upd.cliente = updatedCliente;
-          upd.title = `${temaSupervisor} — Marca Rechazada`;
-          await db.from("sek_cases").update(upd).eq("id", case_id);
-          return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        }
-
-        const matchConfMarca2 = lastIAContent.match(/¿se refiere a "([^"]+)"/i);
-        const marcaPreguntada = matchConfMarca2 ? matchConfMarca2[1] : "esa marca";
-        const directReply = `La información ingresada no es válida. Por favor, verifique el dato e inténtelo nuevamente.\n\n¿Se refiere a "${marcaPreguntada}"? Responda Sí o No.`;
-        const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
-        const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
-        if (clienteChanged) upd.cliente = updatedCliente;
-        await db.from("sek_cases").update(upd).eq("id", case_id);
-        return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-
       const marcaValida = await validarMarcaSolo(marcaSupervisor);
       
       if (!marcaValida.encontrado && temaSupervisor !== "Otro") {
@@ -1420,16 +1377,47 @@ Responde SOLO con JSON válido:
     // ── ACCIÓN: BUSCAR_INVENTARIO (tiene marca y/o modelo, verificar en BD) ──
     if (accion === "BUSCAR_INVENTARIO") {
       let searchMarca = marcaSupervisor;
+      let marcaEsValida = false;
+      let marcaOriginal = searchMarca;
       if (searchMarca) {
         const checkM = await validarMarcaSolo(searchMarca);
-        if (checkM.encontrado && checkM.marcaCorregida) searchMarca = checkM.marcaCorregida;
+        if (checkM.encontrado) {
+          marcaEsValida = true;
+          if (checkM.marcaCorregida) searchMarca = checkM.marcaCorregida;
+        }
       }
+
+      // HEURÍSTICA: Si en BUSCAR_INVENTARIO la marca tuvo que ser corregida fonéticamente,
+      // y aún no está guardada como la marca confirmada en la BD, preguntamos primero.
+      const marcaFueCorregida = searchMarca && marcaOriginal && searchMarca.toLowerCase() !== marcaOriginal.toLowerCase();
+      const yaEstaGuardada = updatedCliente.marca && updatedCliente.marca.toLowerCase() === searchMarca.toLowerCase();
+      
+      if (marcaFueCorregida && !yaEstaGuardada) {
+        const directReply = `¿Se refiere a "${searchMarca}"? Responda Sí o No.`;
+        const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
+        const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
+        if (clienteChanged) upd.cliente = updatedCliente;
+        await db.from("sek_cases").update(upd).eq("id", case_id);
+        return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
       const searchQuery = `${searchMarca} ${modeloSupervisor}`.trim();
       const inv = await buscarInventario(searchQuery);
       
       let directReply: string;
       if (!inv.encontrado) {
-        directReply = withAcuse("Gracias por contactarnos.\n\nLe informamos que el dispositivo indicado no corresponde a un equipo distribuido por Sekunet, por lo que no podemos brindarle soporte técnico sobre este producto.\n\n¿Tiene alguna otra consulta relacionada con nuestras marcas o servicios? Con gusto le ayudaremos.");
+        if (marcaEsValida) {
+          // La marca es válida (ej. EZVIZ) pero el modelo (ej. ESBIS o algo inventado) no existe.
+          // En lugar de rechazar y cerrar el caso, le pedimos que verifique el modelo.
+          console.log(`[seka-whatsapp] Modelo no encontrado en inventario para marca válida (${searchMarca}). Se pide modelo de nuevo.`);
+          directReply = withAcuse(`No logramos encontrar el modelo "${modeloSupervisor}" en nuestro inventario bajo la marca ${searchMarca}. Por favor, verifique el modelo exacto en la etiqueta de su equipo y escríbalo nuevamente.`);
+          // Forzamos que la IA vuelva a pedir el modelo en el siguiente turno
+          supervisorResult.respuesta_sugerida = directReply;
+          accion = "PEDIR_MODELO"; // Downgrade the action so it doesn't close the case
+        } else {
+          // Si la marca tampoco es válida, ahí sí rechazamos.
+          directReply = withAcuse("Gracias por contactarnos.\n\nLe informamos que el dispositivo indicado no corresponde a un equipo distribuido por Sekunet, por lo que no podemos brindarle soporte técnico sobre este producto.\n\n¿Tiene alguna otra consulta relacionada con nuestras marcas o servicios? Con gusto le ayudaremos.");
+        }
       } else if (temaSupervisor === "Reset") {
         const esHikvision = /hik/i.test(inv.detalle || marcaSupervisor);
         directReply = esHikvision
