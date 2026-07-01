@@ -9,78 +9,6 @@ const NIM_BASE     = "https://integrate.api.nvidia.com/v1";
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
 
-// ─── SYSTEM PROMPT ────────────────────────────────────────────────────────────
-const SYSTEM_PROMPT = `Usted es el Asistente de Soporte de Sekunet (Costa Rica), la primera línea de atención al cliente.
-Su misión es ofrecer una experiencia de clase mundial: cálida, eficiente y profesional, mientras recopila la información necesaria para que un agente humano resuelva el caso sin tener que volver a preguntar.
-
-════════════════════════════════════════════
-IDENTIDAD Y TONO
-════════════════════════════════════════════
-- Trate siempre de "usted". Sin emojis. Tono cortés, humano y seguro, nunca robótico.
-- Máximo 2 oraciones por mensaje. Una sola pregunta o instrucción por mensaje. Espere respuesta antes de continuar.
-- Nunca mencione que es una IA, un bot o un asistente virtual. No se presente: el cliente ya fue saludado.
-- EMPATÍA: si el cliente expresa molestia, urgencia o frustración, valídelo en una frase ("Lamento el inconveniente, le ayudo de inmediato.") antes de continuar.
-- IDIOMA: responda en el mismo idioma en que escribe el cliente (español o inglés). Si escribe en inglés, traduzca naturalmente sus respuestas y los mensajes guía.
-- EXPECTATIVAS: cuando escale, deje claro qué sigue ("Un agente continuará su caso en breve.").
-- PROGRESO SIN REPETIR: nunca vuelva a pedir un dato ya proporcionado. Si el cliente ya dio varios datos juntos, agradézcalos y avance al siguiente faltante.
-
-════════════════════════════════════════════
-FLUJO OBLIGATORIO — SIGA ESTE ORDEN EXACTO
-════════════════════════════════════════════
-
-PASO 0 — BIENVENIDA YA ENVIADA
-El cliente ya recibió el saludo y se le solicitó su nombre, correo y cuenta. NO vuelva a saludar.
-
-PASO 1 — SOLICITAR TEMA DE CONSULTA
-Pida el tema de la consulta de forma cordial. Temas disponibles: Configuraciones, Reset, Desvinculación, Firmware, Software, Drivers, Licencias, Otro.
-
-PASO 2 — SOLICITAR MARCA
-Pida la marca del equipo, reconociendo primero el tema elegido.
-Excepción: Si el cliente eligió el tema "Otro", SALTE el Paso 1 y 2, y pase directo a pedir la descripción de su consulta.
-
-PASO 3 — SOLICITAR MODELO
-Pida el modelo del equipo, agradeciendo la marca.
-
-PASO 4 — VALIDAR EN INVENTARIO
-Antes de emitir el tag, normalice la marca y el modelo:
-- Corrija errores tipográficos obvios (ej. "Hikvission" → "Hikvision")
-- Elimine prefijos redundantes del modelo solo si son evidentemente parte de la marca
-- Reemplace la letra O por el número 0 cuando sea parte de un código alfanumérico
-- Use solo la raíz del modelo sin sufijos ambiguos si el modelo completo no coincide
-
-Luego emita: [BUSCAR_INVENTARIO: marca modelo_normalizado]
-El sistema verificará si está en la cartera de Sekunet.
-
-Si NO está en cartera → diga exactamente:
-"El dispositivo indicado no forma parte de los equipos distribuidos por Sekunet, por lo que lamentablemente no podemos brindarle el soporte requerido. ¿Tiene alguna otra consulta relacionada con nuestros productos?"
-  → Si el cliente dice Sí → NO pida marca ni modelo, pida directamente la descripción de su nueva consulta (accion: "PEDIR_DESCRIPCION")
-  → Si el cliente dice No → diga M03 y emita [CERRAR]
-
-Si SÍ está en cartera → CONFIRME EL CASO en una frase breve (recap: tema + equipo) y luego diga M02 y emita [ESCALAR_N2].
-
-════════════════════════════════════════════
-MENSAJES EXACTOS — NO LOS MODIFIQUE
-════════════════════════════════════════════
-(Puede anteceder un acuse de recibo o un recap breve, pero el texto de M02/M03 debe aparecer íntegro y sin alteración.)
-
-M02:
-"Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes."
-
-M03:
-"Ha sido un gusto atenderle. Si tiene alguna otra consulta, no dude en contactarnos nuevamente. ¡Que tenga un excelente día!"
-
-════════════════════════════════════════════
-REGLAS ABSOLUTAS
-════════════════════════════════════════════
-- Si el cliente pide hablar con una persona en cualquier momento → diga M02 y emita [ESCALAR_N2: solicitud del cliente]. Inmediatamente, sin preguntar nada más.
-- Si el cliente muestra enojo o frustración evidente → valide en una frase, diga M02 y emita [ESCALAR_N2: cliente requiere atención prioritaria]. No insista en recopilar datos.
-- No diagnostique ni dé pasos técnicos ni soluciones. Su único rol es recopilar datos, confirmar y escalar.
-- Si el cliente se despide → diga M03 y emita [CERRAR]
-- Si el cliente pregunta por VENTAS, precios, cotizaciones, compras, stock o garantías → emita la acción VENTAS. NO pida marca ni modelo.
-- Nunca haga dos preguntas en un mismo mensaje.
-- Nunca invente información ni asuma datos que el cliente no escribió explícitamente.
-- Respete el orden de los pasos. No salte ninguno.
-- Siempre que escale, garantice al cliente que no tendrá que repetir la información ya brindada.`;
 
 // ─── INTERFACES ───────────────────────────────────────────────────────────────
 interface HistMsg {
@@ -118,8 +46,8 @@ async function callNvidia(model: string, messages: NimMessage[]): Promise<string
   const res = await fetch(`${NIM_BASE}/chat/completions`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${NVIDIA_KEY}` },
-    body: JSON.stringify({ model, messages, temperature: 0.2, max_tokens: 1024, stream: false, response_format: { type: "json_object" } }),
-    signal: AbortSignal.timeout(25000)
+    body: JSON.stringify({ model, messages, temperature: 0.2, max_tokens: 400, stream: false, response_format: { type: "json_object" } }),
+    signal: AbortSignal.timeout(10000)
   });
   if (!res.ok) throw new Error(`Status ${res.status}`);
   const data = await res.json();
@@ -135,8 +63,8 @@ async function callOpenRouter(model: string, messages: NimMessage[]): Promise<st
       "HTTP-Referer": "https://sekunet.com",
       "X-Title": "Chat Sekunet"
     },
-    body: JSON.stringify({ model, messages, temperature: 0.2, max_tokens: 1024, stream: false, response_format: { type: "json_object" } }),
-    signal: AbortSignal.timeout(25000)
+    body: JSON.stringify({ model, messages, temperature: 0.2, max_tokens: 400, stream: false, response_format: { type: "json_object" } }),
+    signal: AbortSignal.timeout(10000)
   });
   if (!res.ok) throw new Error(`Status ${res.status}`);
   const data = await res.json();
@@ -150,12 +78,12 @@ async function callGoogle(model: string, messages: NimMessage[]): Promise<string
     role: m.role === "user" ? "user" : "model",
     parts: [{ text: typeof m.content === "string" ? m.content : (m.content as any[]).find((p:any) => p.type==="text")?.text ?? "" }],
   }));
-  const body: any = { contents, generationConfig: { temperature: 0.2, maxOutputTokens: 1024, responseMimeType: "application/json" } };
+  const body: any = { contents, generationConfig: { temperature: 0.2, maxOutputTokens: 400, responseMimeType: "application/json" } };
   if (system) body.systemInstruction = { parts: [{ text: system.content as string }] };
   
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
-    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(25000) }
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(10000) }
   );
   if (!res.ok) throw new Error(`Status ${res.status}`);
   const data = await res.json();
@@ -184,6 +112,9 @@ async function callAIWithFallbacks(messages: NimMessage[]): Promise<string> {
 }
 
 // ─── VALIDAR SOLO MARCA ────────────────────────────────────────────────────────
+
+// Caché en memoria de las marcas del inventario (se llena en la primera validación).
+let globalCachedBrands: string[] | null = null;
 
 function normalizarFonetico(s: string): string {
   let n = s.toLowerCase().trim();
@@ -426,7 +357,7 @@ async function processTags(text: string, caseId: string): Promise<string> {
 const WELCOME_TEXTS = [
   "Reciba un cordial saludo de parte del equipo de Soporte Sekunet. Gracias por contactarnos.",
   "Soy el Asistente Virtual de Sekunet. Para brindarle una mejor asistencia, necesitamos algunos datos para registrar su consulta.",
-  "Por favor, compártanos la siguiente información:\n• Nombre completo\n• Correo electrónico\n• Nombre de la cuenta afiliada a Sekunet",
+  "Para comenzar, ¿me podría indicar su nombre completo?",
   "¿En relación con qué tema sería su consulta?",
   `¿En relación con qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Drivers\n7. Licencias\n8. Otro\n\nResponda con el número o el nombre del tema.`
 ];
@@ -471,11 +402,8 @@ function buildMessages(hist: HistMsg[], invContext: string | null): NimMessage[]
   const temaMsg = hist.find(m => m.role === "user" && resolveTopicFromText(m.content?.trim() ?? "") !== null);
   const tema = temaMsg ? resolveTopicFromText(temaMsg.content?.trim() ?? "") : null;
 
-  // Construir system prompt con el tema inyectado
-  let systemWithTema = SYSTEM_PROMPT.replace("{{TEMA}}", tema || "ninguno");
-  if (tema) {
-    systemWithTema += `\n\nEl cliente seleccionó el tema: ${tema}. Inicie el flujo correspondiente.`;
-  }
+  // Construir system prompt de contexto para análisis de imágenes/etiquetas
+  const systemWithTema = `Eres el Asistente de Soporte de Sekunet (Costa Rica). Trato de "usted", sin emojis, máximo 2 oraciones por mensaje.${tema ? ` El cliente seleccionó el tema: ${tema}.` : ""}`;
 
   const messages: NimMessage[] = [{ role: "system", content: systemWithTema }];
 
@@ -517,6 +445,24 @@ function buildMessages(hist: HistMsg[], invContext: string | null): NimMessage[]
 
   return messages;
 }
+
+// ─── HELPERS DE NEGOCIO ─────────────────────────────────────────────────────
+const buildN2Reason = (fallback: string): string => fallback;
+
+/**
+ * Cuenta cuántas veces el bot ya envió el mensaje de "dato inválido"
+ * para el paso actual. Se detecta por la combinación del mensaje genérico
+ * de invalidez + la frase característica del paso (ej: "nombre completo").
+ */
+function contarReintentos(iaMsgs: { content?: string }[], fraseCaracteristica: string): number {
+  return iaMsgs.filter(m =>
+    (m.content || "").includes("La información ingresada no es válida") &&
+    (m.content || "").toLowerCase().includes(fraseCaracteristica.toLowerCase())
+  ).length;
+}
+
+const MSG_CIERRE_REINTENTOS = "Lamentamos no poder continuar. Hemos intentado registrar sus datos en varias ocasiones sin éxito. Le invitamos a contactarnos nuevamente cuando tenga la información a mano. ¡Que tenga un excelente día!";
+const MSG_INVALIDO = "La información ingresada no es válida. Por favor, verifique el dato e inténtelo nuevamente.";
 
 // ─── HANDLER PRINCIPAL ───────────────────────────────────────────────────────
 Deno.serve(async (req: Request) => {
@@ -569,7 +515,7 @@ Deno.serve(async (req: Request) => {
     const WELCOME_TEXTS_CHECK = [
       "Reciba un cordial saludo de parte del equipo de Soporte Sekunet. Gracias por contactarnos.",
       "Soy el Asistente Virtual de Sekunet. Para brindarle una mejor asistencia, necesitamos algunos datos para registrar su consulta.",
-      "Por favor, compártanos la siguiente información:\n• Nombre completo\n• Correo electrónico\n• Nombre de la cuenta afiliada a Sekunet",
+      "Para comenzar, ¿me podría indicar su nombre completo?",
       "¿En relación con qué tema sería su consulta?",
       `¿En relación con qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Drivers\n7. Licencias\n8. Otro\n\nResponda con el número o el nombre del tema.`
     ];
@@ -636,8 +582,94 @@ Deno.serve(async (req: Request) => {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // VALIDACIÓN ESTRICTA DE MENÚ REMOVIDA - EL LLM MANEJA LOS ERRORES
+    // FAST-PATH DETERMINÍSTICO — Recolección de nombre/correo/cuenta SIN LLM
+    // Da respuestas instantáneas. Solo se llama al LLM en pasos avanzados.
     // ═══════════════════════════════════════════════════════════════════════
+    {
+      const cliFP = (caso.cliente && typeof caso.cliente === "object") ? (caso.cliente as any) : {};
+      const lastBotFP = (lastIA?.content || "").toLowerCase();
+      const userRespFP = lastUserMsgContent.trim();
+      const userLowerFP = userRespFP.toLowerCase();
+
+      // Escape hatch: ventas, escalado o petición de humano → dejar al LLM
+      const pareceVentas = /(vend|compr|precio|cotiz|cuánto cuesta|cuanto cuesta|stock|distribu|adquirir|comprar)/i.test(userLowerFP);
+      const pideHumano = /(agente|humano|persona|asesor|ejecutivo|hablar con alguien)/i.test(userLowerFP);
+      const usarFastPath = !pareceVentas && !pideHumano;
+
+      if (usarFastPath) {
+        // ── PASO NOMBRE ──
+        if (!cliFP.nombre && lastBotFP.includes("nombre completo")) {
+          const nombreInvalido = userRespFP.length < 2 || userRespFP.includes("@") || /^\d+$/.test(userRespFP);
+          if (!nombreInvalido) {
+            const cli = { ...cliFP, nombre: userRespFP };
+            const preg = "Gracias. ¿Me podría indicar su correo electrónico?";
+            const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: preg };
+            await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg], cliente: cli }).eq("id", case_id);
+            return new Response(JSON.stringify({ ok: true, reply: preg }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          }
+          const reint = contarReintentos(iaRealMsgs, "nombre completo");
+          if (reint >= 2) {
+            const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: MSG_CIERRE_REINTENTOS };
+            await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg], estado: "cerrado" }).eq("id", case_id);
+            return new Response(JSON.stringify({ ok: true, reply: MSG_CIERRE_REINTENTOS }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          }
+          const preg = `${MSG_INVALIDO}\n\nPara comenzar, ¿me podría indicar su nombre completo?`;
+          const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: preg };
+          await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
+          return new Response(JSON.stringify({ ok: true, reply: preg }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+
+        // ── PASO CORREO ──
+        if (cliFP.nombre && !cliFP.correo && lastBotFP.includes("correo electrónico")) {
+          const negacionCorreo = /(no lo tengo|no tengo|no recuerdo|sin correo|no cuento|ninguno|prefiero no|no quiero)/i.test(userLowerFP);
+          const tieneArroba = userRespFP.includes("@") && /\S+@\S+\.\S+/.test(userRespFP);
+          const pregCuenta = "¿Cuál es el nombre de la empresa o cuenta afiliada a Sekunet?";
+          if (negacionCorreo) {
+            const cli = { ...cliFP, correo: "Sin correo" };
+            const preg = `Entiendo. ${pregCuenta}`;
+            const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: preg };
+            await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg], cliente: cli }).eq("id", case_id);
+            return new Response(JSON.stringify({ ok: true, reply: preg }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          }
+          if (tieneArroba) {
+            const cli = { ...cliFP, correo: userRespFP };
+            const preg = `Gracias. ${pregCuenta}`;
+            const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: preg };
+            await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg], cliente: cli }).eq("id", case_id);
+            return new Response(JSON.stringify({ ok: true, reply: preg }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          }
+          const reint = contarReintentos(iaRealMsgs, "correo electrónico");
+          if (reint >= 2) {
+            const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: MSG_CIERRE_REINTENTOS };
+            await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg], estado: "cerrado" }).eq("id", case_id);
+            return new Response(JSON.stringify({ ok: true, reply: MSG_CIERRE_REINTENTOS }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          }
+          const pregR = `${MSG_INVALIDO}\n\nGracias. ¿Me podría indicar su correo electrónico?`;
+          const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: pregR };
+          await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
+          return new Response(JSON.stringify({ ok: true, reply: pregR }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+
+        // ── PASO CUENTA ──
+        if (cliFP.nombre && cliFP.correo && !cliFP.cuenta && lastBotFP.includes("empresa o cuenta afiliada")) {
+          const negacionCuenta = /(no tengo|no lo tengo|ninguna|cliente final|no cuento|no tengo empresa|no tengo cuenta)/i.test(userLowerFP);
+          if (negacionCuenta) {
+            const cli = { ...cliFP, cuenta: "sin cuenta" };
+            const M_NO_CUENTA = "Gracias por comunicarse con Sekunet.\n\nLe informamos que nuestro servicio de soporte técnico es un beneficio exclusivo para clientes y distribuidores autorizados de nuestra red.\n\nPor este motivo, le recomendamos contactar directamente a su proveedor o instalador, quien podrá brindarle la asistencia correspondiente con su requerimiento.\n\nAgradecemos su comprensión y le deseamos un excelente día.";
+            const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M_NO_CUENTA };
+            await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg], cliente: cli, estado: "cerrado" }).eq("id", case_id);
+            return new Response(JSON.stringify({ ok: true, reply: M_NO_CUENTA }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          }
+          if (userRespFP.length >= 2 && !userRespFP.includes("@")) {
+            const cli = { ...cliFP, cuenta: userRespFP };
+            const menuTemas = "¿En relación a qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Drivers\n7. Licencias\n8. Otro\n\nResponda con el número o el nombre del tema.";
+            const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: menuTemas };
+            await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg], cliente: cli }).eq("id", case_id);
+            return new Response(JSON.stringify({ ok: true, reply: menuTemas }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          }
+        }
+      }
+    }
 
     // ═══════════════════════════════════════════════════════════════════════
     // SUPERVISOR DE IA — Analiza cada mensaje del usuario con inteligencia
@@ -674,13 +706,17 @@ REGLA DE ORO / PRIORIDAD MÁXIMA:
 REGLAS DE ANÁLISIS:
 - Si el cliente indica EXPRESAMENTE que NO TIENE cuenta o empresa (ej: "no tengo", "ninguna", "cliente final"), extrae la cuenta como "Sin cuenta". PERO si el cliente simplemente omite el dato en su respuesta (ej. da su nombre y correo pero no menciona la empresa), DEBES dejar el campo cuenta vacío ("") para que el sistema lo vuelva a pedir. NUNCA extraigas el nombre de la cuenta o empresa a partir del dominio o texto del correo electrónico. Si el usuario no escribe explícitamente el nombre de su cuenta, debes dejarlo vacío.
 - REGLA DE CUENTA PERSONAL: Si el cliente indica que la cuenta está a su nombre personal o repite su nombre (ej: "está a mi nombre", "a nombre de Juan", "a título personal", "la cuenta es mía"), extrae SU NOMBRE EXACTO (ej: "Juan") como el valor de la "cuenta". Es VÁLIDO que el nombre de la cuenta sea igual al nombre del cliente (registro a título personal). NUNCA extraigas frases relativas como "a mi nombre" o "yo mismo".
-- DIFERENCIA ENTRE CORREO Y EMPRESA: El correo siempre tiene formato (ej: x@y.com). El nombre de la empresa puede ser CUALQUIER nombre propio o frase. PROHIBIDO DEDUCIR LA CUENTA DEL CORREO: NUNCA generes el valor de "cuenta" a partir del correo (ni de la parte antes de @, ni del dominio). Ejemplo: con "johndoe@miempresa.com" NO escribas "Mi Empresa" ni "John Doe". Si el cliente no escribió textualmente el nombre de su empresa/cuenta, deja "cuenta" VACÍA. Pero si el usuario TE RESPONDE explícitamente el nombre de la empresa (aunque se parezca a su correo), SÍ DEBES extraerlo exactamente como lo escribió.
+- CORREO Y CUENTA SON CAMPOS COMPLETAMENTE INDEPENDIENTES. NO tienen ninguna relación entre sí. Extrae cada uno SOLO de lo que el cliente escribió explícitamente en respuesta a la pregunta correspondiente:
+  * Campo "correo": SOLO acepta direcciones con arroba (@). Si el cliente no escribió una dirección con @, deja este campo vacío.
+  * Campo "cuenta": SOLO acepta el nombre explícito de la empresa o cliente afiliado. Si el cliente escribió el nombre de su empresa (ej: "INNOVIOCR", "Soporte CR", "Tech SA"), extráelo aquí. NUNCA lo dejes vacío solo porque se parece a algo.
+  * Campo "nombre": SOLO acepta nombres de persona. Si contiene @, es un correo — no un nombre.
+  JAMÁS uses el contenido de un campo para inferir otro. Son independientes.
 - PROHIBIDO ASUMIR EL TEMA: NUNCA inventes ni infieras el "tema". Si el cliente no eligió explícitamente uno de los 8 temas, deja "tema" en null y usa accion "PEDIR_TEMA". Jamás escribas frases como "su consulta sobre configuraciones" si el cliente no lo dijo.
 - ORDEN OBLIGATORIO (PASO A PASO): Los datos iniciales deben pedirse UNO POR UNO.
   1. Si falta el nombre, la accion debe ser "PEDIR_NOMBRE".
-  2. Si ya tienes el nombre pero falta el correo, la accion debe ser "PEDIR_CORREO".
-  3. Si ya tienes nombre y correo, pero falta la cuenta, la accion debe ser "PEDIR_CUENTA".
-  4. Si tienes nombre, correo y cuenta, pero falta el tema, la accion debe ser "PEDIR_TEMA".
+  2. Si ya tienes el nombre pero el campo correo está VACÍO en base de datos (no se ha preguntado ni respondido aún), la accion DEBE ser "PEDIR_CORREO". El correo es OPCIONAL para el cliente: si responde que no lo tiene en cualquier forma, extrae "Sin correo" y en el siguiente mensaje avanza a cuenta. PERO DEBES PREGUNTARLO SIEMPRE — no lo omitas ni lo saltes aunque no sea obligatorio.
+  3. Si ya tienes nombre Y el correo ya fue respondido (tiene valor real o "Sin correo" en base de datos), pero falta la cuenta, la accion debe ser "PEDIR_CUENTA".
+  4. Si tienes nombre, correo respondido y cuenta, pero falta el tema, la accion debe ser "PEDIR_TEMA".
   5. REGLA PARA TODOS LOS TEMAS EXCEPTO "Otro":
      - Si tienes tema pero falta la marca, la accion debe ser "PEDIR_MARCA".
      - Si tienes tema y marca, pero falta el modelo, la accion debe ser "PEDIR_MODELO".
@@ -688,8 +724,8 @@ REGLAS DE ANÁLISIS:
   6. Si el tema es "Otro", NO pidas marca ni modelo, la accion debe ser "PEDIR_DESCRIPCION".
   NUNCA pidas dos datos juntos. NO avances al siguiente paso si falta el anterior.
 - VALIDACIÓN DE DATOS FALSOS: Debes verificar de forma intuitiva que los datos proporcionados sean reales y lógicos.
-  - Nombres: Si el cliente proporciona solo un nombre sin apellido (ej: "Andrés", "Juan"), o un nombre obviamente falso, caracteres aleatorios (ej: "ryjuky", "asdf"), números, o palabras sin sentido, recházalo. ES OBLIGATORIO dejar el campo "nombre" vacío ("") y en "respuesta_sugerida" debes usar este texto exacto (sin comillas): El nombre ingresado no parece estar completo o válido. Por favor, indíquenos su nombre y al menos un apellido para registrar su caso.
-  - Correos: Si el cliente indica expresamente que no tiene correo (ej: "no tengo", "ninguno"), extrae "Sin correo" y avanza al siguiente paso. Pero si proporciona un correo evidentemente falso o de prueba (ej: "1@1.com", "a@a.com", "wef@wrf.we"), recházalo. ES OBLIGATORIO dejar el campo "correo" vacío ("") y en "respuesta_sugerida" usar este texto exacto (sin comillas): El correo ingresado no tiene un formato válido. Por favor, escriba su correo electrónico real para poder contactarle.
+  - Nombres: ¡Si contiene arroba (@) ES UN CORREO, NO UN NOMBRE! Recházalo SOLO si: (a) contiene @, (b) son caracteres completamente aleatorios sin sentido (ej: "ryjuky", "asdf", "qwerty", "123"), o (c) son solo números. ACEPTA cualquier nombre real aunque sea solo un nombre sin apellido (ej: "César", "Juan", "María", "César Batista", "Ana González"). No exijas apellido. En caso de duda, ACEPTA el dato. Solo rechaza lo obviamente inválido.
+  - Correos: El correo es OPCIONAL. Si el cliente indica de cualquier forma que no tiene correo o no lo tiene disponible (ej: "no tengo", "ninguno", "no lo tengo", "no lo tengo a mano", "sin correo", "no tengo correo", "no cuento con correo", "prefiero no darlo"), extrae "Sin correo" y avanza al siguiente paso. Pero si proporciona un correo evidentemente falso o de prueba (ej: "1@1.com", "a@a.com", "wef@wrf.we"), recházalo: ES OBLIGATORIO dejar el campo "correo" vacío ("") y en "respuesta_sugerida" usar este texto exacto (sin comillas): El correo ingresado no tiene un formato válido. Por favor, escriba su correo electrónico real para poder contactarle.
 - Si el cliente envió un código como "DS-3E0505P-E-M", "NVR-108MH", "IPC-T221H" eso es un MODELO, no una marca.
 - Si el cliente envió una sola palabra, nombre corto o abreviatura (ej: "Hikvision", "Dahua", "Epcom", "ZKTeco", "hik", "dha", "zkt", "epc"), ASUME OBLIGATORIAMENTE que es una MARCA y extráelo en el campo "marca". NO dejes la marca vacía si el usuario respondió con 3 o más letras.
 - Si el cliente envió marca y modelo juntos, extrae ambos. Si el cliente solo dio el modelo, NO pidas la marca. Si ya tienes modelo, la acción debe avanzar a BUSCAR_INVENTARIO o PEDIR_DESCRIPCION, nunca regreses a PEDIR_MARCA.
@@ -742,88 +778,47 @@ Responde SOLO con JSON válido:
     const updatedCliente: Record<string, unknown> = { ...currentCliente };
     let clienteChanged = false;
 
-    // ── Si el supervisor falló, usar fallback con el flujo anterior ──
+    // ── Si el supervisor falló, aplicar FALLBACK DETERMINÍSTICO ──
+    // En lugar de escalar, se extrae el dato que el bot acaba de pedir y se pone
+    // accion="CONTINUAR" para delegar el ruteo a la heurística de flujo (más abajo),
+    // que ya maneja correctamente nombre→correo→cuenta→tema→marca→modelo sin retroceder.
     if (!supervisorResult) {
-      console.warn("[seka-whatsapp] Supervisor falló, usando LLM directo como fallback");
+      const cli = currentCliente as any;
+      const lastBotLower = (lastIA?.content || "").toLowerCase();
+      const userRespFallback = lastUserMsgContent.trim();
 
-      // RED DE SEGURIDAD: aunque el supervisor falle, el NOMBRE y la CUENTA son obligatorios.
-      // No delegamos al Asistente libre si faltan, para no saltarnos la cuenta.
-      
-      const lastIaContentFallback = (iaRealMsgs[iaRealMsgs.length - 1]?.content || "").toLowerCase();
-      
-      let replyDatos = "";
-      if (!updatedCliente.nombre) {
-        const isRetry = lastIaContentFallback.includes("nombre") || lastIaContentFallback.includes("llamarle");
-        if (isRetry && lastUserMsgContent.length >= 2) {
-          console.log("[seka-whatsapp] Fallback: Extrayendo nombre ingenuamente:", lastUserMsgContent);
-          updatedCliente.nombre = lastUserMsgContent;
-          clienteChanged = true;
-          replyDatos = "Gracias. ¿Me podría indicar su correo electrónico?";
-        } else {
-          replyDatos = isRetry ? "El nombre ingresado no parece estar completo o válido. Por favor, indíquenos su nombre y al menos un apellido para registrar su caso." : "Para comenzar, ¿me podría indicar su nombre completo?";
-        }
-      } 
-      
-      if (!updatedCliente.correo && !replyDatos) {
-        const isRetry = lastIaContentFallback.includes("correo") || lastIaContentFallback.includes("email");
-        if (isRetry && lastUserMsgContent.includes("@")) {
-          console.log("[seka-whatsapp] Fallback: Extrayendo correo ingenuamente:", lastUserMsgContent);
-          updatedCliente.correo = lastUserMsgContent;
-          clienteChanged = true;
-          replyDatos = "Perfecto. Por último, ¿cuál es el nombre de la empresa o cuenta afiliada a Sekunet?";
-        } else {
-          replyDatos = isRetry ? "El correo ingresado no tiene un formato válido. Por favor, escriba su correo electrónico real para poder contactarle." : "Gracias. ¿Me podría indicar su correo electrónico?";
-        }
-      } 
-      
-      if (!updatedCliente.cuenta && !replyDatos) {
-        const isRetry = lastIaContentFallback.includes("cuenta") || lastIaContentFallback.includes("empresa") || lastIaContentFallback.includes("afiliada");
-        if (isRetry && lastUserMsgContent.length >= 2) {
-          console.log("[seka-whatsapp] Fallback: Extrayendo cuenta ingenuamente:", lastUserMsgContent);
-          updatedCliente.cuenta = lastUserMsgContent;
-          clienteChanged = true;
-          replyDatos = "¿En relación a qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Drivers\n7. Licencias\n8. Otro\n\nResponda con el número o el nombre del tema.";
-        } else {
-          replyDatos = isRetry ? "El nombre de la cuenta ingresada no es válido. Por favor, ¿cuál es el nombre de la empresa o cuenta afiliada a Sekunet?" : "Perfecto. Por último, ¿cuál es el nombre de la empresa o cuenta afiliada a Sekunet?";
-        }
+      let nombreFB = "", marcaFB = "", modeloFB = "";
+      if (!cli.nombre && lastBotLower.includes("nombre completo") && userRespFallback.length >= 2 && !userRespFallback.includes("@")) {
+        nombreFB = userRespFallback;
+      }
+      if (lastBotLower.includes("marca del equipo") && userRespFallback.length >= 2) {
+        marcaFB = userRespFallback;
+      }
+      if (lastBotLower.includes("modelo del equipo") && userRespFallback.length >= 1) {
+        modeloFB = userRespFallback;
+        marcaFB = marcaFB || (cli.marca || "");
       }
 
-      // Si los datos están completos pero el AI falló y estamos en el fallback,
-      // usaremos un modelo no estructurado como salvavidas final.
-      if (replyDatos) {
-        const newMsgDatos: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: replyDatos };
-        if (clienteChanged) {
-           await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsgDatos], cliente: updatedCliente }).eq("id", case_id);
-        } else {
-           await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsgDatos] }).eq("id", case_id);
-        }
-        return new Response(JSON.stringify({ ok: true, reply: replyDatos }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-
-      console.log("[seka-whatsapp] Datos de cliente completos, intentando LLM no estructurado como salvavidas...");
-      try {
-        const messages = buildMessages(histcliente, null);
-        let rawReply = "[FALLBACK] Lo siento, la IA no devolvió una acción válida para el estado actual. Acción recibida: " + accion;
-        let cleanReply = await processTags(rawReply, case_id);
-        cleanReply = cleanReply.replace(/__INV__.*?__INV__/gs, "").trim();
-        if (!cleanReply) return new Response(JSON.stringify({ ok: true, skipped: true }), { status: 200, headers: corsHeaders });
-        const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: cleanReply };
-        await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
-        return new Response(JSON.stringify({ ok: true, reply: cleanReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      } catch (fallbackErr: any) {
-        console.error("[seka-whatsapp] Salvavidas no estructurado también falló:", fallbackErr.message);
-        // Sólo como último recurso si TODO falla:
-        const panicReply = "Disculpe, estoy teniendo intermitencias con la red. Un agente humano revisará su caso a la brevedad.";
-        const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: panicReply };
-        await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
-        return new Response(JSON.stringify({ ok: true, reply: panicReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
+      console.warn("[seka-whatsapp] Supervisor falló — fallback determinístico (CONTINUAR + heurística de flujo).");
+      supervisorResult = {
+        accion: "CONTINUAR",
+        nombre: nombreFB,
+        correo: "",
+        cuenta: "",
+        tema: null,
+        marca: marcaFB,
+        modelo: modeloFB,
+      };
     }
 
     // ── Paso 3: Actualizar datos del cliente si el supervisor extrajo nuevos ──
     // (La inicialización de currentCliente, updatedCliente y clienteChanged se movió arriba del fallback)
     
     const isValidExtractedString = (val: any) => typeof val === "string" && val.trim() !== "" && val !== "vacío" && val !== "(vacío)" && val !== "null" && !val.startsWith("PEDIR_");
+    const correoYaAtendido = (val: any) => {
+      const v = String(val || "").trim().toLowerCase();
+      return v !== "" && (v !== "(vacío)" && v !== "null");
+    };
 
     // Extracción forzosa de correo mediante Regex para no depender 100% de la IA
     let regexEmail = "";
@@ -840,10 +835,12 @@ Responde SOLO con JSON válido:
       }
     }
     
-    // Usar el correo del LLM o el del Regex como respaldo
-    const finalCorreo = supervisorResult.correo && isValidExtractedString(supervisorResult.correo) ? supervisorResult.correo : regexEmail;
-    
-    if (isValidExtractedString(finalCorreo)) {
+    // Guardar correo: acepta valor real (via LLM o regex) y también "Sin correo" como marcador de campo atendido
+    const llmCorreo = supervisorResult.correo || "";
+    const esSinCorreo = llmCorreo.toLowerCase().includes("sin correo");
+    const finalCorreo = llmCorreo && (isValidExtractedString(llmCorreo) || esSinCorreo) ? llmCorreo : regexEmail;
+
+    if (finalCorreo && (isValidExtractedString(finalCorreo) || esSinCorreo)) {
       const oldCorreo = String((currentCliente as any).correo || "").trim();
       if (!oldCorreo || oldCorreo === "(vacío)") {
         updatedCliente.correo = finalCorreo;
@@ -871,7 +868,7 @@ Responde SOLO con JSON válido:
           }
           return matrix[b.length][a.length];
         };
-        const { data: recentCases } = await db.from("sek_cases").select("cliente").order("created_at", { ascending: false }).limit(500);
+        const { data: recentCases } = await db.from("sek_cases").select("cliente").order("created_at", { ascending: false }).limit(100);
         if (recentCases) {
           const uniqueAccounts = new Set<string>();
           for (const c of recentCases) {
@@ -911,8 +908,9 @@ Responde SOLO con JSON válido:
 
     // ── Paso 4: Ejecutar la ACCIÓN que decidió el Supervisor ──
     let accion = (supervisorResult.accion || "CONTINUAR").toUpperCase();
-    let marcaSupervisor = supervisorResult.marca || "";
-    let modeloSupervisor = supervisorResult.modelo || "";
+    // Rescatar marca/modelo de BD si el LLM no los extrajo (evita loop cuando cliente solo envía modelo)
+    let marcaSupervisor = supervisorResult.marca || String(updatedCliente.marca || "").trim();
+    let modeloSupervisor = supervisorResult.modelo || String(updatedCliente.modelo || "").trim();
     let temaSupervisor = supervisorResult.tema || tema;
 
     // ── GESTIÓN DE NUEVA CONSULTA (Si el bot rechazó equipo y el usuario dice Sí) ──
@@ -935,8 +933,7 @@ Responde SOLO con JSON válido:
     // withAcuse eliminado — el bot usa solo textos fijos
     const withAcuse = (text: string): string => text;
 
-    // Construye el motivo de escalado.
-    const buildN2Reason = (fallback: string): string => fallback;
+    // Construye el motivo de escalado — definida a nivel de módulo (ver arriba).
     const urgencyTags: string[] = [];
     const sentimiento = "neutral";
 
@@ -960,26 +957,38 @@ Responde SOLO con JSON válido:
       accion = "PEDIR_MODELO";
     }
 
-    if (tema === "Otro" && (accion === "PEDIR_MARCA" || accion === "PEDIR_MODELO" || accion === "PEDIR_MARCA_Y_MODELO")) {
+    // Si el bot ya pidió descripción del problema y el usuario respondió → escalar siempre
+    // EXCEPCIÓN: temas que requieren etiqueta (Reset/Desvinculación/Firmware) no usan descripción como último paso
+    // IMPORTANTE: este bloque va ANTES del forzado de tema Otro para que el escalado tenga prioridad
+    const temasConEtiqueta = ["Reset", "Desvinculación", "Firmware"];
+    const botYaPidioDescripcion = lastIAContent.includes("describa brevemente") || lastIAContent.includes("describa el inconveniente") || lastIAContent.includes("describa brevemente el inconveniente");
+    if (botYaPidioDescripcion && lastUserMsgContent.trim().length >= 2 && !temasConEtiqueta.includes(tema) && !temasConEtiqueta.includes(temaSupervisor)) {
+      console.log("[seka-whatsapp] Usuario ya describió el problema. Escalando directamente.");
+      accion = "ESCALAR";
+    }
+
+    // Si el bot ya pidió la etiqueta (o etiqueta+XML) y el usuario respondió → escalar siempre
+    const botYaPidioEtiqueta = lastIAContent.includes("adjunte una imagen") || lastIAContent.includes("etiqueta del equipo") || lastIAContent.includes("adjunte ambos archivos");
+    const clienteRespondioEtiqueta = lastUserMsgContent.trim().length >= 1 || supervisorResult.tiene_imagen === true;
+    if (botYaPidioEtiqueta && clienteRespondioEtiqueta) {
+      console.log("[seka-whatsapp] Usuario ya envió etiqueta/archivos. Escalando directamente.");
+      accion = "ESCALAR";
+    }
+
+    if ((tema === "Otro" || temaSupervisor === "Otro") && accion !== "PEDIR_DESCRIPCION" && accion !== "ESCALAR" && accion !== "ESCALAR_INMEDIATO" && accion !== "CERRAR" && accion !== "VENTAS") {
       console.log("[seka-whatsapp] Forzando PEDIR_DESCRIPCION para tema Otro");
       accion = "PEDIR_DESCRIPCION";
-      supervisorResult.respuesta_sugerida = "Por favor, describa brevemente su consulta o inconveniente.";
+      supervisorResult.respuesta_sugerida = "";
     }
 
     // ── VERIFICACION ELIMINADA ──
     // Se eliminó la verificación de inventario forzada aquí porque causaba rechazos prematuros si el LLM extraía mal el modelo.
 
-    // Si el bot ya pidió descripción del problema y el usuario respondió → escalar siempre
-    const botYaPidioDescripcion = lastIAContent.includes("describa brevemente") || lastIAContent.includes("describa el inconveniente") || lastIAContent.includes("describa brevemente el inconveniente");
-    if (botYaPidioDescripcion && lastUserMsgContent.trim().length >= 2) {
-      console.log("[seka-whatsapp] Usuario ya describió el problema. Escalando directamente.");
-      accion = "ESCALAR";
-    }
-
     if (/precio|rpecio|prec|cotiza|comprar|compra|ventas|venta|venden|vender|vendemos|costo|cuanto cuesta|cuánto cuesta|cuanto vale|cuánto vale|tienen en stock/i.test(lastUserMsgContent)) {
       console.log("[seka-whatsapp] Detectada intención de VENTAS por heurística.");
       accion = "VENTAS";
     }
+
 
     // ── ANTI-LOOP GENERAL (Máx 2 intentos repetidos) ──
     const lastIAContent1 = iaRealMsgs[iaRealMsgs.length - 1]?.content || "";
@@ -997,11 +1006,33 @@ Responde SOLO con JSON válido:
        accion = "ESCALAR";
     }
 
+    // Calcular correoRespondido una sola vez, antes de toda la lógica de GATEs y heurísticas
+    const correoEnBD = String((updatedCliente.correo || (currentCliente as any)?.correo) ?? "").trim();
+    let correoRespondido = correoEnBD !== "" && correoEnBD !== "(vacío)" && correoEnBD !== "null";
+
+    // DEFENSA ANTI-RETROCESO: el correo es OPCIONAL. Si el bot ya lo preguntó antes en el
+    // historial (y el cliente ya avanzó a pasos posteriores), NUNCA se debe volver a pedir,
+    // aunque el valor se haya perdido por una race condition de mensajes en ráfaga.
+    if (!correoRespondido) {
+      const botYaPreguntoCorreo = iaRealMsgs.some(m => (m.content || "").toLowerCase().includes("correo electrónico"));
+      if (botYaPreguntoCorreo) {
+        updatedCliente.correo = "Sin correo";
+        clienteChanged = true;
+        correoRespondido = true;
+        console.log("[seka-whatsapp] Correo ya fue preguntado antes; se marca 'Sin correo' para no retroceder el flujo.");
+      }
+    }
+
     const validActions = ["CERRAR", "ESCALAR", "ESCALAR_INMEDIATO", "PEDIR_DATOS", "PEDIR_NOMBRE", "PEDIR_CORREO", "PEDIR_CUENTA", "PEDIR_TEMA", "PEDIR_MARCA", "PEDIR_MODELO", "PEDIR_MARCA_Y_MODELO", "BUSCAR_INVENTARIO", "PEDIR_ETIQUETA", "PEDIR_ETIQUETA_Y_XML", "PEDIR_DESCRIPCION", "VENTAS"];
     if (!validActions.includes(accion) || (accion === "CONTINUAR" && (!updatedCliente.nombre || !updatedCliente.cuenta || !temaSupervisor || (temaSupervisor !== "Otro" && (!marcaSupervisor || !modeloSupervisor))))) {
       console.warn(`[seka-whatsapp] Accion ${accion} requiere heuristica de flujo.`);
-      if (!updatedCliente.nombre || !updatedCliente.correo || !updatedCliente.cuenta) {
-        accion = "PEDIR_NOMBRE"; 
+      const correoOkHeur = correoRespondido || (String(updatedCliente.correo || "").trim() !== "");
+      if (!updatedCliente.nombre) {
+        accion = "PEDIR_NOMBRE";
+      } else if (!correoOkHeur) {
+        accion = "PEDIR_CORREO";
+      } else if (!updatedCliente.cuenta) {
+        accion = "PEDIR_CUENTA";
       } else if (!temaSupervisor) {
         accion = "PEDIR_TEMA";
       } else if (temaSupervisor !== "Otro") {
@@ -1020,30 +1051,41 @@ Responde SOLO con JSON válido:
 
     console.log(`[seka-whatsapp] Supervisor acción: ${accion}, marca: ${marcaSupervisor}, modelo: ${modeloSupervisor}, tema: ${temaSupervisor}`);
 
-    // ── REGLA DE NEGOCIO ESTRICTA: DATOS INCOMPLETOS ──
+    // ── REGLA DE NEGOCIO ESTRICTA: CORREO Y CUENTA COMPLETAMENTE SEPARADOS ──
     const cuentaCheck = String(updatedCliente.cuenta || "").toLowerCase().trim();
     const lastBotMsg = iaRealMsgs[iaRealMsgs.length - 1]?.content || "";
-    
-    // Contar cuántas veces hemos pedido el correo
-    let emailAskCount = 0;
-    for (const msg of iaRealMsgs) {
-      if (msg.content?.toLowerCase().includes("correo electrónico")) emailAskCount++;
-    }
-    
-    const userSaysNoData = lastUserMsgContent.toLowerCase().includes("no lo tengo") || lastUserMsgContent.toLowerCase().includes("no tengo") || lastUserMsgContent.toLowerCase().includes("no recuerdo");
-    
-    // Si ya pedimos el correo 2 veces (inicial + 1 recordatorio) o el cliente dice no tenerlo, lo marcamos como "Sin correo"
-    if (!updatedCliente.correo && (emailAskCount >= 2 || userSaysNoData)) {
+    const lastUserLower = lastUserMsgContent.toLowerCase();
+
+    // CORREO: marcar como "Sin correo" SOLO si el bot estaba preguntando el correo
+    const botPreguntabaCorreo = lastBotMsg.toLowerCase().includes("correo electrónico");
+    const usuarioDiceNoTieneCorreo = botPreguntabaCorreo && (
+      lastUserLower.includes("no lo tengo") ||
+      lastUserLower.includes("no tengo") ||
+      lastUserLower.includes("no recuerdo") ||
+      lastUserLower.includes("sin correo") ||
+      lastUserLower.includes("no cuento") ||
+      lastUserLower.includes("no tengo correo")
+    );
+    if (!updatedCliente.correo && usuarioDiceNoTieneCorreo) {
       updatedCliente.correo = "Sin correo";
+      clienteChanged = true;
+      console.log("[seka-whatsapp] Correo marcado como \"Sin correo\" por respuesta negativa del cliente.");
     }
 
-    const askingForAccountOnly = lastBotMsg.includes("afiliada a Sekunet") && !lastBotMsg.includes("correo electrónico");
-    const isSinCuentaByText = (askingForAccountOnly && userSaysNoData) || lastUserMsgContent.toLowerCase().includes("no tengo cuenta") || lastUserMsgContent.toLowerCase().includes("no tengo empresa");
-    
-    const isSinCuenta = cuentaCheck === "sin cuenta" || cuentaCheck === "no tengo" || cuentaCheck === "cliente final" || isSinCuentaByText;
-    
+    // CUENTA: detectar "sin cuenta" SOLO si el bot estaba preguntando la cuenta
+    const botPreguntabaCuenta = lastBotMsg.toLowerCase().includes("afiliada a sekunet") && !lastBotMsg.toLowerCase().includes("correo electrónico");
+    const usuarioDiceNoTieneCuenta = botPreguntabaCuenta && (
+      lastUserLower.includes("no tengo") ||
+      lastUserLower.includes("no lo tengo") ||
+      lastUserLower.includes("no tengo cuenta") ||
+      lastUserLower.includes("no tengo empresa") ||
+      lastUserLower.includes("cliente final") ||
+      lastUserLower.includes("ninguna")
+    );
+    const isSinCuenta = cuentaCheck === "sin cuenta" || cuentaCheck === "no tengo" || cuentaCheck === "cliente final" || usuarioDiceNoTieneCuenta;
+
     if (isSinCuenta) {
-      updatedCliente.cuenta = "sin cuenta"; // Forzar para que el siguiente bloque lo procese correctamente
+      updatedCliente.cuenta = "sin cuenta";
     }
 
     // ── VALIDACIÓN DETERMINÍSTICA: la CUENTA es lo más importante ──
@@ -1068,8 +1110,8 @@ Responde SOLO con JSON válido:
         console.log("[seka-whatsapp] Forzando PEDIR_NOMBRE por datos incompletos.");
         accion = "PEDIR_NOMBRE";
         supervisorResult.respuesta_sugerida = "";
-      } else if (!updatedCliente.correo) {
-        console.log("[seka-whatsapp] Forzando PEDIR_CORREO por datos incompletos.");
+      } else if (!correoRespondido) {
+        console.log("[seka-whatsapp] Forzando PEDIR_CORREO — correo vacío en BD.");
         accion = "PEDIR_CORREO";
         supervisorResult.respuesta_sugerida = "";
       } else if (!updatedCliente.cuenta) {
@@ -1100,7 +1142,8 @@ Responde SOLO con JSON válido:
     // GATE 2 — Con datos completos pero sin tema elegido por el cliente, mostrar la lista de temas.
     const temaElegidoPorCliente = topiIdx >= 0;
     if (accion !== "CERRAR" && accion !== "VENTAS" && accion !== "ESCALAR_INMEDIATO" && accion !== "PEDIR_DATOS" && accion !== "PEDIR_NOMBRE" && accion !== "PEDIR_CORREO" && accion !== "PEDIR_CUENTA") {
-      if (updatedCliente.nombre && updatedCliente.correo && updatedCliente.cuenta && !temaElegidoPorCliente) {
+      const correoOkGate2 = correoRespondido || (String(updatedCliente.correo || "").trim() !== "");
+      if (updatedCliente.nombre && correoOkGate2 && updatedCliente.cuenta && !temaElegidoPorCliente) {
         console.log("[seka-whatsapp] Datos completos sin tema elegido → mostrando lista de temas.");
         accion = "PEDIR_TEMA";
       }
@@ -1141,7 +1184,7 @@ Responde SOLO con JSON válido:
     }
 
     // GATE 3 — Si hay tema (que no es Otro) pero falta marca o modelo, obligar a pedirlos.
-    if (accion !== "CERRAR" && accion !== "VENTAS" && accion !== "ESCALAR_INMEDIATO" && accion !== "PEDIR_DATOS" && accion !== "PEDIR_NOMBRE" && accion !== "PEDIR_CORREO" && accion !== "PEDIR_CUENTA" && accion !== "PEDIR_TEMA") {
+    if (accion !== "CERRAR" && accion !== "VENTAS" && accion !== "ESCALAR_INMEDIATO" && accion !== "ESCALAR" && accion !== "PEDIR_DESCRIPCION" && accion !== "PEDIR_DATOS" && accion !== "PEDIR_NOMBRE" && accion !== "PEDIR_CORREO" && accion !== "PEDIR_CUENTA" && accion !== "PEDIR_TEMA") {
       if (temaSupervisor && temaSupervisor !== "Otro") {
         if (!marcaSupervisor && !modeloSupervisor && accion !== "PEDIR_MARCA_Y_MODELO") {
           console.log("[seka-whatsapp] Faltan marca y modelo → Forzando PEDIR_MARCA_Y_MODELO.");
@@ -1210,26 +1253,71 @@ Responde SOLO con JSON válido:
 
     // ── ACCIÓN: PEDIR NOMBRE, CORREO, CUENTA ──
     if (accion === "PEDIR_NOMBRE" || accion === "PEDIR_CORREO" || accion === "PEDIR_CUENTA") {
-      let defaultReply = "";
-      const lastIaContent = (lastIA?.content || "").toLowerCase();
-      
-      // isRetry = true SOLO si el bot ya envió el mensaje de RECHAZO específico (no la pregunta inicial)
-      const isRetry = (accion === "PEDIR_NOMBRE" && lastIaContent.includes("no parece estar completo o válido")) ||
-                      (accion === "PEDIR_CORREO" && lastIaContent.includes("no tiene un formato válido")) ||
-                      (accion === "PEDIR_CUENTA" && lastIaContent.includes("nombre de la cuenta ingresada no es válido"));
+      let pregunta = "";
+      let fraseCaract = "";
 
       if (accion === "PEDIR_NOMBRE") {
-        defaultReply = isRetry ? "El nombre ingresado no parece estar completo o válido. Por favor, indíquenos su nombre y al menos un apellido para registrar su caso." : "Para comenzar, ¿me podría indicar su nombre completo?";
-      }
-      if (accion === "PEDIR_CORREO") {
-        defaultReply = isRetry ? "El correo ingresado no tiene un formato válido. Por favor, escriba su correo electrónico real para poder contactarle." : "Gracias. ¿Me podría indicar su correo electrónico?";
-      }
-      if (accion === "PEDIR_CUENTA") {
-        defaultReply = isRetry ? "El nombre de la cuenta ingresada no es válido. Por favor, ¿cuál es el nombre de la empresa o cuenta afiliada a Sekunet?" : "Perfecto. Por último, ¿cuál es el nombre de la empresa o cuenta afiliada a Sekunet?";
+        pregunta = "Para comenzar, ¿me podría indicar su nombre completo?";
+        fraseCaract = "nombre completo";
+      } else if (accion === "PEDIR_CORREO") {
+        pregunta = "Gracias. ¿Me podría indicar su correo electrónico?";
+        fraseCaract = "correo electrónico";
+      } else {
+        pregunta = "Entiendo. ¿Cuál es el nombre de la empresa o cuenta afiliada a Sekunet?";
+        fraseCaract = "empresa o cuenta afiliada";
       }
 
-      // Siempre usar texto fijo — sin respuestas libres del LLM
-      const directReply = defaultReply;
+      const reintentos = contarReintentos(iaRealMsgs, fraseCaract);
+
+      if (reintentos >= 2) {
+        const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: MSG_CIERRE_REINTENTOS };
+        const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg], estado: "cerrado" };
+        if (clienteChanged) upd.cliente = updatedCliente;
+        await db.from("sek_cases").update(upd).eq("id", case_id);
+        return new Response(JSON.stringify({ ok: true, reply: MSG_CIERRE_REINTENTOS }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // Para PEDIR_CUENTA: si el bot acaba de preguntar la cuenta, extraer directamente del mensaje del usuario
+      if (accion === "PEDIR_CUENTA") {
+        const lastIaForCuenta = (lastIA?.content || "").toLowerCase();
+        const botPreguntabaCuentaAhora = lastIaForCuenta.includes("empresa o cuenta afiliada");
+        const frasesSinCuenta = ["no tengo", "no lo tengo", "ninguna", "cliente final", "no cuento", "no tengo empresa", "no tengo cuenta"];
+        const clienteDeclaroSinCuenta = frasesSinCuenta.some(f => lastUserMsgContent.toLowerCase().includes(f));
+
+        if (botPreguntabaCuentaAhora && !clienteDeclaroSinCuenta && lastUserMsgContent.trim().length >= 2) {
+          // El cliente respondió algo concreto — tomarlo como nombre de cuenta directamente
+          const cuentaDirecta = lastUserMsgContent.trim();
+          updatedCliente.cuenta = cuentaDirecta;
+          clienteChanged = true;
+          const menuTemas = "¿En relación a qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Drivers\n7. Licencias\n8. Otro\n\nResponda con el número o el nombre del tema.";
+          const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: menuTemas };
+          const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg], cliente: updatedCliente };
+          if (nuevoTitle) upd.title = nuevoTitle;
+          await db.from("sek_cases").update(upd).eq("id", case_id);
+          return new Response(JSON.stringify({ ok: true, reply: menuTemas }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+      }
+
+      // Para PEDIR_CORREO: si el cliente declaró no tener correo, guardar "Sin correo" y avanzar
+      if (accion === "PEDIR_CORREO") {
+        const frasesSinCorreo = ["no lo tengo", "no tengo", "no recuerdo", "sin correo", "no cuento", "no tengo correo", "ninguno", "no lo tengo a mano", "prefiero no", "no quiero"];
+        const clienteDeclaroSinCorreo = frasesSinCorreo.some(f => lastUserMsgContent.toLowerCase().includes(f));
+        if (clienteDeclaroSinCorreo && !updatedCliente.correo) {
+          updatedCliente.correo = "Sin correo";
+          clienteChanged = true;
+          const preguntaCuenta = "Entiendo. ¿Cuál es el nombre de la empresa o cuenta afiliada a Sekunet?";
+          const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: preguntaCuenta };
+          const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg], cliente: updatedCliente };
+          await db.from("sek_cases").update(upd).eq("id", case_id);
+          return new Response(JSON.stringify({ ok: true, reply: preguntaCuenta }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+      }
+
+      const lastIaContent = (lastIA?.content || "").toLowerCase();
+      const botYaPidio = lastIaContent.includes(fraseCaract.toLowerCase());
+      const directReply = (botYaPidio && reintentos < 2)
+        ? `${MSG_INVALIDO}\n\n${pregunta}`
+        : pregunta;
 
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
       const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
@@ -1240,7 +1328,23 @@ Responde SOLO con JSON válido:
 
     // ── ACCIÓN: PEDIR TEMA ──
     if (accion === "PEDIR_TEMA") {
-      const directReply = withAcuse("¿En relación a qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Drivers\n7. Licencias\n8. Otro\n\nResponda con el número o el nombre del tema.");
+      const MENU_TEMAS = "¿En relación a qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Drivers\n7. Licencias\n8. Otro\n\nResponda con el número o el nombre del tema.";
+      const reintentsoTema = contarReintentos(iaRealMsgs, "tema sería su consulta");
+
+      if (reintentsoTema >= 2) {
+        const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: MSG_CIERRE_REINTENTOS };
+        const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg], estado: "cerrado" };
+        if (clienteChanged) upd.cliente = updatedCliente;
+        await db.from("sek_cases").update(upd).eq("id", case_id);
+        return new Response(JSON.stringify({ ok: true, reply: MSG_CIERRE_REINTENTOS }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const lastIaContentTema = (lastIA?.content || "").toLowerCase();
+      const botYaPidioTema = lastIaContentTema.includes("tema sería su consulta");
+      const directReply = (botYaPidioTema && reintentsoTema < 2)
+        ? `${MSG_INVALIDO}\n\n${MENU_TEMAS}`
+        : MENU_TEMAS;
+
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
       const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
       if (clienteChanged) upd.cliente = updatedCliente;
@@ -1296,8 +1400,16 @@ Responde SOLO con JSON válido:
       }
 
       if (botYaPidioMarca && !marcaSupervisor) {
-        // El bot pidió la marca pero el LLM no extrajo nada → dato inválido
-        const directReply = "La información ingresada no es válida. Por favor, verifique el dato e inténtelo nuevamente.\n\nPor favor, indíquenos la marca del equipo.";
+        // El bot pidió la marca pero el LLM no extrajo nada → reintento o cierre
+        const reintMarc = contarReintentos(iaRealMsgs, "marca del equipo");
+        if (reintMarc >= 2) {
+          const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: MSG_CIERRE_REINTENTOS };
+          const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg], estado: "cerrado" };
+          if (clienteChanged) upd.cliente = updatedCliente;
+          await db.from("sek_cases").update(upd).eq("id", case_id);
+          return new Response(JSON.stringify({ ok: true, reply: MSG_CIERRE_REINTENTOS }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        const directReply = `${MSG_INVALIDO}\n\nPor favor, indíquenos la marca del equipo.`;
         const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
         const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
         if (clienteChanged) upd.cliente = updatedCliente;
@@ -1347,7 +1459,15 @@ Responde SOLO con JSON válido:
 
       const botYaPidioModelo = lastIAContent.includes("modelo del equipo") || lastIAContent.includes("modelo específico") || lastIAContent.includes("verifique el dato");
       if (botYaPidioModelo && !modeloSupervisor) {
-        const directReply = "La información ingresada no es válida. Por favor, verifique el dato e inténtelo nuevamente.\n\n¿Nos podría indicar el modelo del equipo, por favor?";
+        const reintModel = contarReintentos(iaRealMsgs, "modelo del equipo");
+        if (reintModel >= 2) {
+          const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: MSG_CIERRE_REINTENTOS };
+          const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg], estado: "cerrado" };
+          if (clienteChanged) upd.cliente = updatedCliente;
+          await db.from("sek_cases").update(upd).eq("id", case_id);
+          return new Response(JSON.stringify({ ok: true, reply: MSG_CIERRE_REINTENTOS }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        const directReply = `${MSG_INVALIDO}\n\n¿Nos podría indicar el modelo del equipo, por favor?`;
         const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
         const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
         if (clienteChanged) upd.cliente = updatedCliente;
@@ -1404,40 +1524,46 @@ Responde SOLO con JSON válido:
       const searchQuery = `${searchMarca} ${modeloSupervisor}`.trim();
       const inv = await buscarInventario(searchQuery);
       
-      let directReply: string;
       if (!inv.encontrado) {
-        if (marcaEsValida) {
-          // La marca es válida (ej. EZVIZ) pero el modelo (ej. ESBIS o algo inventado) no existe.
-          // En lugar de rechazar y cerrar el caso, le pedimos que verifique el modelo.
-          console.log(`[seka-whatsapp] Modelo no encontrado en inventario para marca válida (${searchMarca}). Se pide modelo de nuevo.`);
-          directReply = withAcuse(`No logramos encontrar el modelo "${modeloSupervisor}" en nuestro inventario bajo la marca ${searchMarca}. Por favor, verifique el modelo exacto en la etiqueta de su equipo y escríbalo nuevamente.`);
-          // Forzamos que la IA vuelva a pedir el modelo en el siguiente turno
-          supervisorResult.respuesta_sugerida = directReply;
-          accion = "PEDIR_MODELO"; // Downgrade the action so it doesn't close the case
-        } else {
-          // Si la marca tampoco es válida, ahí sí rechazamos.
-          directReply = withAcuse("Gracias por contactarnos.\n\nLe informamos que el dispositivo indicado no corresponde a un equipo distribuido por Sekunet, por lo que no podemos brindarle soporte técnico sobre este producto.\n\n¿Tiene alguna otra consulta relacionada con nuestras marcas o servicios? Con gusto le ayudaremos.");
+        // El modelo no encontrado NUNCA es motivo para terminar el soporte.
+        // Solo pedimos el modelo nuevamente, manteniendo la marca guardada.
+        console.log(`[seka-whatsapp] Modelo "${modeloSupervisor}" no encontrado para ${searchMarca}. Pidiendo modelo nuevamente.`);
+        const reintModelo = contarReintentos(iaRealMsgs, "modelo del equipo") + contarReintentos(iaRealMsgs, "verifique el modelo");
+        let directReply: string;
+        if (reintModelo >= 2) {
+          // Tras 2 reintentos sin encontrar, escalar a agente humano
+          directReply = "No logramos identificar el equipo en nuestro sistema. En un momento le atenderá uno de nuestros agentes para asistirle personalmente.";
+          const newMsgEsc: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
+          const cliSave = { ...updatedCliente, marca: searchMarca };
+          await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsgEsc], estado: "escalado", escalado_at: new Date().toISOString(), n2_reason: buildN2Reason("Modelo no encontrado en inventario"), cliente: cliSave }).eq("id", case_id);
+          return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
+        directReply = `No logramos identificar el modelo "${modeloSupervisor || "indicado"}" bajo la marca ${searchMarca}. Por favor, verifique el modelo exacto en la etiqueta de su equipo y escríbalo nuevamente.`;
+        const newMsgInv: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
+        // Guardar la marca validada y limpiar el modelo incorrecto para que en el siguiente
+        // turno no se rescate y se vuelva a buscar con el valor errado.
+        const cliConMarca = { ...updatedCliente, marca: searchMarca, modelo: "" };
+        await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsgInv], cliente: cliConMarca }).eq("id", case_id);
+        return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       } else if (temaSupervisor === "Reset") {
         const esHikvision = /hik/i.test(inv.detalle || marcaSupervisor);
-        directReply = esHikvision
-          ? "Como parte de los requisitos del fabricante, requerimos una imagen clara y legible de la etiqueta del equipo y el archivo XML, el cual puede obtener mediante la herramienta SAPD Tools en la opción \"Olvidé mi contraseña\", ubicada en la parte inferior derecha del software. Por favor, adjunte ambos archivos."
-          : "Por favor, adjunte una imagen clara y legible de la etiqueta del equipo.";
-      } else if (temaSupervisor === "Desvinculación") {
-        directReply = "Como parte de los requisitos del fabricante, requerimos una imagen clara y legible de la etiqueta del equipo. Por favor, adjunte esta imagen.";
+        accion = esHikvision ? "PEDIR_ETIQUETA_Y_XML" : "PEDIR_ETIQUETA";
+      } else if (temaSupervisor === "Desvinculación" || temaSupervisor === "Firmware") {
+        accion = "PEDIR_ETIQUETA";
       } else {
-        directReply = "Por favor, describa brevemente el inconveniente que presenta.";
+        accion = "PEDIR_DESCRIPCION";
       }
 
-      directReply = withAcuse(directReply);
-      const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
-      const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
-      if (clienteChanged) upd.cliente = updatedCliente;
       if (inv.encontrado && (marcaSupervisor || modeloSupervisor)) {
-        upd.title = `${temaSupervisor} — ${inv.detalle}`.substring(0, 120);
+        const nuevoTitleInv = `${temaSupervisor} — ${inv.detalle}`.substring(0, 120);
+        if (clienteChanged) {
+          await db.from("sek_cases").update({ cliente: updatedCliente, title: nuevoTitleInv }).eq("id", case_id);
+        } else {
+          await db.from("sek_cases").update({ title: nuevoTitleInv }).eq("id", case_id);
+        }
+      } else if (clienteChanged) {
+        await db.from("sek_cases").update({ cliente: updatedCliente }).eq("id", case_id);
       }
-      await db.from("sek_cases").update(upd).eq("id", case_id);
-      return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // ── ACCIÓN: PEDIR ETIQUETA (Reset/Desvinculación — no Hikvision) ──
@@ -1833,61 +1959,17 @@ No agregues nada más.`,
       }
     }
 
-    // Construir mensajes y llamar a Llama
-    const messages = buildMessages(histcliente, null);
-    let rawReply = "[FALLBACK] Lo siento, la IA no devolvió una acción válida para el estado actual. Acción recibida: " + accion;
-    console.log("[seka-whatsapp] Raw reply:", rawReply);
-
-    // Si Llama emitió [BUSCAR_INVENTARIO], resolver y rellamar con resultado como system message
-    if (/\[BUSCAR_INVENTARIO:/i.test(rawReply)) {
-      const invMatch = rawReply.match(/\[BUSCAR_INVENTARIO:\s*([^\]]+)\]/i);
-      if (invMatch) {
-        const inv = await buscarInventario(invMatch[1].trim());
-        const invResult = inv.encontrado
-          ? `[RESULTADO_INVENTARIO] El equipo "${invMatch[1].trim()}" SÍ está en la cartera de Sekunet. ${inv.detalle}. ACCIÓN: escriba al cliente exactamente esto: "Por favor, describa brevemente el inconveniente que presenta."`
-          : `[RESULTADO_INVENTARIO] El equipo "${invMatch[1].trim()}" NO está en la cartera de Sekunet. ACCIÓN: escriba al cliente exactamente esto: "El dispositivo indicado no forma parte de los equipos distribuidos por Sekunet, por lo que lamentablemente no podemos brindarle el soporte requerido. ¿Tiene alguna otra consulta relacionada con nuestros productos?"`;
-
-        // Agregar resultado como mensaje system y rellamar
-        const messages2 = [...messages, { role: "system" as const, content: invResult }];
-        rawReply = await callAIWithFallbacks(messages2);
-        console.log("[seka-whatsapp] Reply tras inventario:", rawReply);
-      }
-    }
-
-    // Reemplazar etiquetas de mensaje por su texto exacto
-    const M02 = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
-    const M03 = "Ha sido un gusto atenderle. Si tiene alguna otra consulta, no dude en contactarnos nuevamente. ¡Que tenga un excelente día!";
-    const M04 = "Agradecemos mucho su interés.\n\nLe informamos que su consulta corresponde al Departamento de Ventas. Con gusto podrán asistirle a través de los siguientes medios:\n\n• Teléfono: +506 2290 5585\n• WhatsApp: +506 8757 5820\n• Correo electrónico: info@sekunet.com\n\nSerá un gusto atenderle por cualquiera de estos canales.\n\n¡Le deseamos un excelente día!";
-    rawReply = rawReply
-      .replace(/\bM02\b/g, M02)
-      .replace(/\bM03\b/g, M03)
-      .replace(/\bM04\b/g, M04);
-
-    // Procesar otros tags (ESCALAR_N2, CERRAR) y limpiar texto
-    let cleanReply = await processTags(rawReply, case_id);
-
-    // Limpiar contexto interno si quedó en el texto
-    cleanReply = cleanReply.replace(/__INV__.*?__INV__/gs, "").trim();
-
-    if (!cleanReply) {
-      return new Response(JSON.stringify({ ok: true, skipped: true }), { status: 200, headers: corsHeaders });
-    }
-
-    // Guardar respuesta en histtecnico
-    const newMsg: HistMsg = {
-      role: "ia",
-      author: "Asistente Sekunet",
-      time: new Date().toISOString(),
-      content: cleanReply,
-    };
-
-    const updatedHist = [...histtecnico, newMsg];
-    await db.from("sek_cases").update({ histtecnico: updatedHist }).eq("id", case_id);
-
-    return new Response(JSON.stringify({ ok: true, reply: cleanReply }), {
-      status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    console.warn(`[seka-whatsapp] Acción no resuelta por ningún handler: "${accion}". Escalando como medida de seguridad.`);
+    const M02_UNHANDLED = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
+    const replyUnhandled = withAcuse(M02_UNHANDLED);
+    const newMsgUnhandled: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: replyUnhandled };
+    await db.from("sek_cases").update({
+      histtecnico: [...histtecnico, newMsgUnhandled],
+      estado: "escalado",
+      escalado_at: new Date().toISOString(),
+      n2_reason: buildN2Reason(`Acción no resuelta: ${accion}`),
+    }).eq("id", case_id);
+    return new Response(JSON.stringify({ ok: true, reply: replyUnhandled }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
   } catch (e: any) {
     console.error("[seka-whatsapp] ERROR CRITICO:", e.message);
