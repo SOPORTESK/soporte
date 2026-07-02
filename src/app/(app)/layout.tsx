@@ -13,6 +13,7 @@ import { GodModeWrapper } from "@/components/god-mode-wrapper";
 import { SidebarUserPanel } from "@/components/sidebar-user-panel";
 import { N2Badge } from "@/components/n2-badge";
 import { SmartInboxBadge } from "@/components/smart-inbox-badge";
+import { EscalatedCasesBanner } from "@/components/escalated-cases-banner";
 
 export const dynamic = 'force-dynamic';
 
@@ -127,6 +128,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
       {/* ── Main content area ── */}
       <main id="main" className="flex-1 min-w-0 min-h-0 flex flex-col">
+        <EscalatedCasesBanner />
         {children}
       </main>
     </div>
