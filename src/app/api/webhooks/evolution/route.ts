@@ -1002,23 +1002,9 @@ export async function POST(req: NextRequest) {
               console.error(`[evo-webhook] Error actualizando estado del caso ${existing.id}:`, updErr);
             }
           }
-          // Si el caso está escalado pero aún no aceptado por un humano, la nueva intervención del cliente
-          // lo regresa a la IA — SOLO si el escalado ocurrió hace más de 60s (para no deshacer el escalado
-          // inmediatamente por el eco del propio mensaje saliente de la IA).
-          if (currentEstado === "escalado" && !existing.accepted_at) {
-            const escaladoAt = existing.escalado_at ? new Date(existing.escalado_at).getTime() : 0;
-            const segsDesdeEscalado = (Date.now() - escaladoAt) / 1000;
-            if (segsDesdeEscalado > 60) {
-              const { error: updErr } = await supabase.from("sek_cases").update({ estado: "ia_atendiendo" }).eq("id", existing.id);
-              if (!updErr) {
-                currentEstado = "ia_atendiendo";
-                console.log(`[evo-webhook] Caso escalado ${existing.id} sin aceptar (${Math.round(segsDesdeEscalado)}s) → regresado a ia_atendiendo`);
-              } else {
-                console.error(`[evo-webhook] Error actualizando estado del caso ${existing.id}:`, updErr);
-              }
-            } else {
-              console.log(`[evo-webhook] Caso escalado ${existing.id} ignorando reversión (${Math.round(segsDesdeEscalado)}s desde escalado, muy reciente).`);
-            }
+          // Si el caso está escalado (con o sin agente), NO invocar la IA — esperar a que un agente lo tome
+          if (currentEstado === "escalado") {
+            console.log(`[evo-webhook] Caso ${existing.id} escalado — no se invoca IA, esperando agente humano.`);
           }
           // Solo invocar la IA si el caso está siendo atendido por ella — NUNCA interferir con agentes humanos
           if (currentEstado === "ia_atendiendo") {
