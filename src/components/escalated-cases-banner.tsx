@@ -49,8 +49,6 @@ export function EscalatedCasesBanner() {
 
   if (escalated.length === 0) return null;
 
-  const first = escalated[0];
-
   return (
     <div className="shrink-0 bg-orange-500/10 border-b border-orange-500/20 px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 z-40 relative">
       <div className="flex items-center gap-3">
@@ -71,16 +69,10 @@ export function EscalatedCasesBanner() {
         </div>
       </div>
       <button
-        onClick={() => {
-          if (first.id) {
-            router.push(`/soporte-avanzado?c=${first.id}`);
-          } else {
-            router.push("/soporte-avanzado");
-          }
-        }}
+        onClick={() => router.push("/soporte-avanzado")}
         className="shrink-0 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold rounded-lg transition-colors shadow-sm"
       >
-        {escalated.length === 1 ? "Atender caso" : "Ver casos"}
+        Ver buzón
       </button>
     </div>
   );
