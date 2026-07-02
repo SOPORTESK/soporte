@@ -140,10 +140,10 @@ async function sendWhatsAppMessages(phone: string, reply: any | any[], evoCfg: a
     if (!msg) continue;
     
     // Evolution API mostrará "escribiendo..." durante este tiempo
-    const delayMs = 2500; 
-    
+    const delayMs = 800;
+
     let sent = false;
-    
+
     // Interceptar pregunta corta y convertirla en el menú de texto completo
     let text = typeof msg === "object" ? msg.content : msg;
     if (text && (text.includes("¿En relación con qué tema") || text.includes("¿En relación a qué tema"))) {
@@ -151,7 +151,7 @@ async function sendWhatsAppMessages(phone: string, reply: any | any[], evoCfg: a
     }
 
     if (!text || !text.trim()) continue;
-    
+
     if (typeof msg === "object" && msg.type === "list") {
       sent = await sendWhatsAppList(phone || "", msg.listData, evoCfg, delayMs);
     } else {
@@ -162,10 +162,9 @@ async function sendWhatsAppMessages(phone: string, reply: any | any[], evoCfg: a
       console.error(`[evo-webhook] FALLÓ envío WhatsApp mensaje ${i + 1}/${messages.length}`);
     }
 
-    // Esperar a que Evolution termine el delay de este mensaje antes de enviar el siguiente.
-    // Esto evita que los mensajes se encolen en desorden o se pierdan en ráfagas.
+    // Breve pausa entre mensajes para mantener orden sin hacerlo lento
     if (i < messages.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, delayMs + 1000));
+      await new Promise(resolve => setTimeout(resolve, 600));
     }
   }
 }
@@ -1018,8 +1017,8 @@ export async function POST(req: NextRequest) {
             
             // INDICADOR DE ESCRIBIENDO Y DEBOUNCING (Evita llamar a la IA en ráfaga)
             await sendWhatsAppPresence(phone || jid || "", evoCfg, "composing");
-            console.log(`[evo-webhook] Pausa de 3s para agrupar mensajes concurrentes...`);
-            await new Promise(resolve => setTimeout(resolve, 3000));
+            console.log(`[evo-webhook] Pausa de 1s para agrupar mensajes concurrentes...`);
+            await new Promise(resolve => setTimeout(resolve, 1000));
             
             const { data: checkCase } = await supabase.from("sek_cases").select("last_message_at, histcliente").eq("id", existing.id).single();
             if (checkCase) {
