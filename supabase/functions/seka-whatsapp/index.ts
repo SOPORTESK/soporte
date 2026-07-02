@@ -962,7 +962,7 @@ Responde SOLO con JSON válido:
     // IMPORTANTE: este bloque va ANTES del forzado de tema Otro para que el escalado tenga prioridad
     const temasConEtiqueta = ["Reset", "Desvinculación", "Firmware"];
     const botYaPidioDescripcion = lastIAContent.includes("describa brevemente") || lastIAContent.includes("describa el inconveniente") || lastIAContent.includes("describa brevemente el inconveniente");
-    if (botYaPidioDescripcion && lastUserMsgContent.trim().length >= 2 && !temasConEtiqueta.includes(tema) && !temasConEtiqueta.includes(temaSupervisor)) {
+    if (botYaPidioDescripcion && lastUserMsgContent.trim().length >= 2 && !temasConEtiqueta.includes(temaSupervisor)) {
       console.log("[seka-whatsapp] Usuario ya describió el problema. Escalando directamente.");
       accion = "ESCALAR";
     }

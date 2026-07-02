@@ -379,12 +379,34 @@ export function InboxClient({
               const msgTime = last?.time ? new Date(last.time).getTime() : 0;
               const isRecent = (Date.now() - msgTime) < 5 * 60 * 1000;
               if (isRecent) {
-                toast.info(`💬 Nuevo mensaje de ${name}`, {
+                const estadoC = String(changed.estado || "").toLowerCase();
+                const esIa = estadoC === "ia_atendiendo";
+                toast.info(esIa ? `🤖 Nuevo caso en Smart Inbox: ${name}` : `💬 Nuevo mensaje de ${name}`, {
                   description: asText(last?.content).slice(0, 80),
-                  action: { label: "Ver", onClick: () => selectCase(String(changed.id)) }
+                  duration: 10000,
+                  action: { label: "Ver", onClick: () => {
+                    if (esIa) router.push("/smart-inbox");
+                    selectCase(String(changed.id));
+                  }}
                 });
                 setUnreadTotal(p => p + 1);
               }
+            }
+          }
+
+          /* 🔔 Nuevo caso creado directamente (INSERT) */
+          if (payload.eventType === "INSERT") {
+            const insCase = payload.new as SekCase;
+            const insEstado = String(insCase?.estado || "").toLowerCase();
+            if (insEstado === "ia_atendiendo") {
+              const ci = clienteInfo(insCase.cliente);
+              const name = ci.nombre || ci.telefono || asText(insCase.title) || "Cliente";
+              playNotif();
+              toast.info(`🤖 Nuevo caso en Smart Inbox: ${name}`, {
+                description: "La IA está recopilando la información del cliente.",
+                duration: 10000,
+                action: { label: "Ver", onClick: () => router.push("/smart-inbox") }
+              });
             }
           }
 
@@ -560,6 +582,7 @@ export function InboxClient({
           </button>
         </div>
       )}
+
       <div className="flex flex-1 overflow-hidden">
       {/* Lista: visible en móvil solo cuando NO hay caso seleccionado */}
       <div
