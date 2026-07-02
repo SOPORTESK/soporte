@@ -30,8 +30,8 @@ function filterCasesByContainer(cases: SekCase[], containerType: string | undefi
     return cases.filter(c => c.assigned_to === currentAgentEmail);
   }
 
-  // Bandeja: muestra TODOS los casos (inbox general)
-  return cases;
+  // Bandeja: SOLO casos cerrados (inbox general)
+  return cases.filter(c => ["cerrado", "resuelto"].includes(String(c.estado || "").toLowerCase()));
 }
 
 /* ── Agrupar casos por chat: cada chat es independiente.

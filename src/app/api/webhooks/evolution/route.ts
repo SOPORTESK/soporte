@@ -1008,9 +1008,10 @@ export async function POST(req: NextRequest) {
               console.error(`[evo-webhook] Error actualizando estado del caso ${existing.id}:`, updErr);
             }
           }
-          // Si el caso está escalado (con o sin agente), NO invocar la IA — esperar a que un agente lo tome
-          if (currentEstado === "escalado") {
-            console.log(`[evo-webhook] Caso ${existing.id} escalado — no se invoca IA, esperando agente humano.`);
+          // Estados donde la IA NUNCA debe actuar: escalado, ya tomado por humano, o cerrado
+          const skipIAStates = ["escalado", "abierto", "cerrado", "resuelto"];
+          if (skipIAStates.includes(currentEstado)) {
+            console.log(`[evo-webhook] Caso ${existing.id} en estado "${currentEstado}" — no se invoca IA, esperando agente humano.`);
           }
           // Solo invocar la IA si el caso está siendo atendido por ella — NUNCA interferir con agentes humanos
           if (currentEstado === "ia_atendiendo") {
