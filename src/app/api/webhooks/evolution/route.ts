@@ -161,6 +161,12 @@ async function sendWhatsAppMessages(phone: string, reply: any | any[], evoCfg: a
     if (!sent) {
       console.error(`[evo-webhook] FALLÓ envío WhatsApp mensaje ${i + 1}/${messages.length}`);
     }
+
+    // Esperar a que Evolution termine el delay de este mensaje antes de enviar el siguiente.
+    // Esto evita que los mensajes se encolen en desorden o se pierdan en ráfagas.
+    if (i < messages.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, delayMs + 1000));
+    }
   }
 }
 

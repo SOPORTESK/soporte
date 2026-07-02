@@ -337,10 +337,10 @@ async function processTags(text: string, caseId: string): Promise<string> {
   // [ESCALAR_N2: ...]
   const escMatch = text.match(/\[ESCALAR_N2:\s*([^\]]+)\]/i);
   if (escMatch) {
-    await db.from("sek_cases").update({
+    await safeUpdateCase({
       estado: "escalado",
       n2_reason: escMatch[1].trim(),
-    }).eq("id", caseId);
+    }, caseId);
     result = result.replace(escMatch[0], "").trim();
   }
 
@@ -448,6 +448,22 @@ function buildMessages(hist: HistMsg[], invContext: string | null): NimMessage[]
 
 // ─── HELPERS DE NEGOCIO ─────────────────────────────────────────────────────
 const buildN2Reason = (fallback: string): string => fallback;
+
+/**
+ * Actualiza un caso de forma resiliente. Si la tabla aún no tiene la columna
+ * n2_reason (ej. migración pendiente), reintenta sin ese campo en vez de fallar.
+ */
+async function safeUpdateCase(update: Record<string, unknown>, caseId: string): Promise<void> {
+  const { error } = await db.from("sek_cases").update(update).eq("id", caseId);
+  if (error && error.message && error.message.toLowerCase().includes("n2_reason")) {
+    console.warn("[seka-whatsapp] Columna n2_reason no existe, reintentando sin ella:", error.message);
+    const { n2_reason: _, ...fallbackUpdate } = update;
+    const { error: retryErr } = await db.from("sek_cases").update(fallbackUpdate).eq("id", caseId);
+    if (retryErr) throw new Error(`safeUpdateCase fallback error: ${retryErr.message}`);
+    return;
+  }
+  if (error) throw new Error(`safeUpdateCase error: ${error.message}`);
+}
 
 /**
  * Cuenta cuántas veces el bot ya envió el mensaje de "dato inválido"
@@ -1247,7 +1263,7 @@ Responde SOLO con JSON válido:
       if (urgencyTags.length) upd.tags = urgencyTags;
       if (clienteChanged) upd.cliente = updatedCliente;
       if (nuevoTitle) upd.title = nuevoTitle;
-      await db.from("sek_cases").update(upd).eq("id", case_id);
+      await safeUpdateCase(upd, case_id);
       return new Response(JSON.stringify({ ok: true, reply: replyText }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -1535,7 +1551,7 @@ Responde SOLO con JSON válido:
           directReply = "No logramos identificar el equipo en nuestro sistema. En un momento le atenderá uno de nuestros agentes para asistirle personalmente.";
           const newMsgEsc: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
           const cliSave = { ...updatedCliente, marca: searchMarca };
-          await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsgEsc], estado: "escalado", escalado_at: new Date().toISOString(), n2_reason: buildN2Reason("Modelo no encontrado en inventario"), cliente: cliSave }).eq("id", case_id);
+          await safeUpdateCase({ histtecnico: [...histtecnico, newMsgEsc], estado: "escalado", escalado_at: new Date().toISOString(), n2_reason: buildN2Reason("Modelo no encontrado en inventario"), cliente: cliSave }, case_id);
           return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
         directReply = `No logramos identificar el modelo "${modeloSupervisor || "indicado"}" bajo la marca ${searchMarca}. Por favor, verifique el modelo exacto en la etiqueta de su equipo y escríbalo nuevamente.`;
@@ -1614,7 +1630,7 @@ Responde SOLO con JSON válido:
       } else if (nuevoTitle) {
         upd.title = nuevoTitle;
       }
-      await db.from("sek_cases").update(upd).eq("id", case_id);
+      await safeUpdateCase(upd, case_id);
       return new Response(JSON.stringify({ ok: true, reply: replyText }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -1963,12 +1979,12 @@ No agregues nada más.`,
     const M02_UNHANDLED = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
     const replyUnhandled = withAcuse(M02_UNHANDLED);
     const newMsgUnhandled: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: replyUnhandled };
-    await db.from("sek_cases").update({
+    await safeUpdateCase({
       histtecnico: [...histtecnico, newMsgUnhandled],
       estado: "escalado",
       escalado_at: new Date().toISOString(),
       n2_reason: buildN2Reason(`Acción no resuelta: ${accion}`),
-    }).eq("id", case_id);
+    }, case_id);
     return new Response(JSON.stringify({ ok: true, reply: replyUnhandled }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
   } catch (e: any) {
@@ -1985,12 +2001,12 @@ No agregues nada más.`,
           content: M02_PANIC,
         };
         const updatedHist = [...globalHistTecnico, newMsg];
-        await db.from("sek_cases").update({
+        await safeUpdateCase({
           histtecnico: updatedHist,
           estado: "escalado",
           escalado_at: new Date().toISOString(),
           n2_reason: "Falla crítica de IA (Panic Fallback)",
-        }).eq("id", globalCaseId);
+        }, globalCaseId);
         
         console.warn(`[seka-whatsapp] Paracaídas activado para el caso ${globalCaseId}`);
         // Retornamos 200 con el mensaje de pánico para que no se quede colgado
