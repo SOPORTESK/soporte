@@ -4,9 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { AlertTriangle } from "lucide-react";
-import { toast } from "sonner";
 import type { SekCase } from "@/lib/types";
-import { clienteInfo, asText } from "@/lib/utils";
 
 /**
  * Banner persistente que muestra casos escalados sin agente asignado.
@@ -52,7 +50,6 @@ export function EscalatedCasesBanner() {
   if (escalated.length === 0) return null;
 
   const first = escalated[0];
-  const cliente = clienteInfo(first.cliente);
 
   return (
     <div className="shrink-0 bg-orange-500/10 border-b border-orange-500/20 px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 z-40 relative">
@@ -63,7 +60,7 @@ export function EscalatedCasesBanner() {
         <div>
           <p className="text-sm font-bold text-orange-600 dark:text-orange-400">
             {escalated.length === 1
-              ? `Caso sin atender: ${cliente.nombre || asText(first.title) || "Cliente"}`
+              ? "Caso sin atender"
               : `Hay ${escalated.length} casos sin atender esperando asignación`}
           </p>
           <p className="text-xs text-orange-600/80 dark:text-orange-400/80">
@@ -76,8 +73,7 @@ export function EscalatedCasesBanner() {
       <button
         onClick={() => {
           if (first.id) {
-            toast.info(`Abriendo caso ${first.id}`);
-            router.push(`/soporte-avanzado?case=${first.id}`);
+            router.push(`/soporte-avanzado?c=${first.id}`);
           } else {
             router.push("/soporte-avanzado");
           }
