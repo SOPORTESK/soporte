@@ -1,13 +1,18 @@
 "use client";
 
 import * as React from "react";
-import { MessageCircle, X, Send, Loader2, Minimize2, Maximize2 } from "lucide-react";
+import { MessageCircle, X, Send, Loader2, Minimize2, Maximize2, GripVertical } from "lucide-react";
 import { toast } from "sonner";
 
 interface TechMessage {
   role: "user" | "assistant";
   content: string;
   time: string;
+}
+
+interface Position {
+  x: number;
+  y: number;
 }
 
 export function FloatingTechAssistant() {
@@ -18,8 +23,25 @@ export function FloatingTechAssistant() {
   const [loading, setLoading] = React.useState(false);
   const [sessionId, setSessionId] = React.useState<string | null>(null);
   const [caseId, setCaseId] = React.useState<string | null>(null);
+  const [position, setPosition] = React.useState<Position>({ x: -1, y: -1 }); // -1 = bottom-right default
+  const [isDragging, setIsDragging] = React.useState(false);
+  const dragStartRef = React.useRef<{ x: number; y: number; initialX: number; initialY: number } | null>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLTextAreaElement>(null);
+  const containerRef = React.useRef<HTMLDivElement>(null);
+
+  // Restaurar posición guardada
+  React.useEffect(() => {
+    const saved = sessionStorage.getItem("sek_tech_assistant_pos");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved) as Position;
+        if (typeof parsed.x === "number" && typeof parsed.y === "number") {
+          setPosition(parsed);
+        }
+      } catch { /* ignorar */ }
+    }
+  }, []);
 
   // Detectar caso actual desde la URL (?c=...)
   React.useEffect(() => {
@@ -97,6 +119,54 @@ export function FloatingTechAssistant() {
     }
   };
 
+  const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(value, max));
+
+  const startDrag = (e: React.MouseEvent | React.TouchEvent) => {
+    if (!containerRef.current) return;
+    const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
+    const clientY = "touches" in e ? e.touches[0].clientY : e.clientY;
+    const rect = containerRef.current.getBoundingClientRect();
+    dragStartRef.current = {
+      x: clientX,
+      y: clientY,
+      initialX: rect.left,
+      initialY: rect.top,
+    };
+    setIsDragging(true);
+  };
+
+  const onDrag = React.useCallback((e: MouseEvent | TouchEvent) => {
+    if (!dragStartRef.current || !containerRef.current) return;
+    const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
+    const clientY = "touches" in e ? e.touches[0].clientY : e.clientY;
+    const deltaX = clientX - dragStartRef.current.x;
+    const deltaY = clientY - dragStartRef.current.y;
+    const newX = clamp(dragStartRef.current.initialX + deltaX, 8, window.innerWidth - containerRef.current.offsetWidth - 8);
+    const newY = clamp(dragStartRef.current.initialY + deltaY, 8, window.innerHeight - containerRef.current.offsetHeight - 8);
+    setPosition({ x: newX, y: newY });
+  }, []);
+
+  const stopDrag = React.useCallback(() => {
+    if (!dragStartRef.current) return;
+    dragStartRef.current = null;
+    setIsDragging(false);
+    sessionStorage.setItem("sek_tech_assistant_pos", JSON.stringify(position));
+  }, [position]);
+
+  React.useEffect(() => {
+    if (!isDragging) return;
+    window.addEventListener("mousemove", onDrag);
+    window.addEventListener("mouseup", stopDrag);
+    window.addEventListener("touchmove", onDrag, { passive: false });
+    window.addEventListener("touchend", stopDrag);
+    return () => {
+      window.removeEventListener("mousemove", onDrag);
+      window.removeEventListener("mouseup", stopDrag);
+      window.removeEventListener("touchmove", onDrag);
+      window.removeEventListener("touchend", stopDrag);
+    };
+  }, [isDragging, onDrag, stopDrag]);
+
   if (!isOpen) {
     return (
       <button
@@ -110,10 +180,19 @@ export function FloatingTechAssistant() {
   }
 
   return (
-    <div className={`fixed bottom-6 right-6 z-50 flex flex-col rounded-2xl border border-border bg-card shadow-2xl overflow-hidden transition-all duration-300 ${isMinimized ? "h-14 w-72" : "h-[500px] w-80 sm:w-96"}`}>
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-violet-600 to-indigo-600 text-white">
+    <div
+      ref={containerRef}
+      className={`fixed z-50 flex flex-col rounded-2xl border border-border bg-card shadow-2xl overflow-hidden transition-all duration-300 ${isMinimized ? "h-14 w-72" : "h-[500px] w-80 sm:w-96"}`}
+      style={position.x >= 0 && position.y >= 0 ? { left: position.x, top: position.y, right: "auto", bottom: "auto" } : { right: "1.5rem", bottom: "1.5rem" }}
+    >
+      {/* Header arrastrable */}
+      <div
+        className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-violet-600 to-indigo-600 text-white cursor-grab active:cursor-grabbing"
+        onMouseDown={startDrag}
+        onTouchStart={startDrag}
+      >
         <div className="flex items-center gap-2">
+          <GripVertical className="h-4 w-4 opacity-60" />
           <MessageCircle className="h-4 w-4" />
           <span className="text-sm font-semibold">Asistente Técnico</span>
           {caseId && <span className="ml-2 text-[10px] bg-white/20 px-1.5 py-0.5 rounded">Caso</span>}
@@ -121,6 +200,8 @@ export function FloatingTechAssistant() {
         <div className="flex items-center gap-1">
           <button
             onClick={() => setIsMinimized(!isMinimized)}
+            onMouseDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
             className="p-1 rounded hover:bg-white/20"
             aria-label={isMinimized ? "Maximizar" : "Minimizar"}
           >
@@ -128,6 +209,8 @@ export function FloatingTechAssistant() {
           </button>
           <button
             onClick={() => setIsOpen(false)}
+            onMouseDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
             className="p-1 rounded hover:bg-white/20"
             aria-label="Cerrar"
           >
