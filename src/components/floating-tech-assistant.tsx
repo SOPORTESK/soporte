@@ -3,6 +3,8 @@
 import * as React from "react";
 import { MessageCircle, X, Send, Loader2, Minimize2, Maximize2, GripVertical } from "lucide-react";
 import { toast } from "sonner";
+import ReactDraggable, { DraggableEvent, DraggableData } from "react-draggable";
+const Draggable = ReactDraggable as any;
 
 interface TechMessage {
   role: "user" | "assistant";
@@ -23,15 +25,10 @@ export function FloatingTechAssistant() {
   const [loading, setLoading] = React.useState(false);
   const [sessionId, setSessionId] = React.useState<string | null>(null);
   const [caseId, setCaseId] = React.useState<string | null>(null);
-  const [position, setPosition] = React.useState<Position>({ x: -1, y: -1 }); // -1 = bottom-right default
+  const [position, setPosition] = React.useState<Position>({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = React.useState(false);
-  const positionRef = React.useRef(position);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLTextAreaElement>(null);
-  const containerRef = React.useRef<HTMLDivElement>(null);
-  const headerRef = React.useRef<HTMLDivElement>(null);
-
-  React.useEffect(() => { positionRef.current = position; }, [position]);
 
   // Restaurar posición guardada
   React.useEffect(() => {
@@ -122,64 +119,48 @@ export function FloatingTechAssistant() {
     }
   };
 
-  const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(value, max));
-
-  const startDrag = (e: React.MouseEvent | React.TouchEvent) => {
-    if (!containerRef.current || !headerRef.current) return;
-    const startX = "touches" in e ? e.touches[0].clientX : e.clientX;
-    const startY = "touches" in e ? e.touches[0].clientY : e.clientY;
-    const rect = containerRef.current.getBoundingClientRect();
-
-    setIsDragging(true);
-
-    const handleMove = (ev: MouseEvent | TouchEvent) => {
-      const cx = "touches" in ev ? ev.touches[0].clientX : ev.clientX;
-      const cy = "touches" in ev ? ev.touches[0].clientY : ev.clientY;
-      const newX = clamp(rect.left + (cx - startX), 8, window.innerWidth - rect.width - 8);
-      const newY = clamp(rect.top + (cy - startY), 8, window.innerHeight - rect.height - 8);
-      setPosition({ x: newX, y: newY });
-    };
-
-    const handleUp = () => {
-      setIsDragging(false);
-      window.removeEventListener("mousemove", handleMove);
-      window.removeEventListener("mouseup", handleUp);
-      window.removeEventListener("touchmove", handleMove);
-      window.removeEventListener("touchend", handleUp);
-      sessionStorage.setItem("sek_tech_assistant_pos", JSON.stringify(positionRef.current));
-    };
-
-    window.addEventListener("mousemove", handleMove);
-    window.addEventListener("mouseup", handleUp);
-    window.addEventListener("touchmove", handleMove, { passive: false });
-    window.addEventListener("touchend", handleUp);
+  const handleDragStop = (_e: DraggableEvent, data: DraggableData) => {
+    setIsDragging(false);
+    const next = { x: data.x, y: data.y };
+    setPosition(next);
+    sessionStorage.setItem("sek_tech_assistant_pos", JSON.stringify(next));
   };
 
   if (!isOpen) {
     return (
-      <button
-        onClick={() => setIsOpen(true)}
-        className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-violet-600 text-white shadow-lg shadow-violet-600/30 hover:bg-violet-700 transition-all hover:scale-105"
-        aria-label="Asistente técnico"
+      <Draggable
+        defaultPosition={position}
+        onStart={() => setIsDragging(true)}
+        onStop={handleDragStop}
+        bounds="body"
+        handle=".sek-tech-drag-handle"
       >
-        <MessageCircle className="h-6 w-6" />
-      </button>
+        <button
+          onClick={() => setIsOpen(true)}
+          className="sek-tech-drag-handle fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-violet-600 text-white shadow-lg shadow-violet-600/30 hover:bg-violet-700 transition-all hover:scale-105"
+          aria-label="Asistente técnico"
+        >
+          <MessageCircle className="h-6 w-6" />
+        </button>
+      </Draggable>
     );
   }
 
   return (
-    <div
-      ref={containerRef}
-      className={`fixed z-50 flex flex-col rounded-2xl border border-border bg-card shadow-2xl overflow-hidden ${isDragging ? "" : "transition-all duration-300"} ${isMinimized ? "h-14 w-72" : "h-[500px] w-80 sm:w-96"}`}
-      style={position.x >= 0 && position.y >= 0 ? { left: position.x, top: position.y, right: "auto", bottom: "auto" } : { right: "1.5rem", bottom: "1.5rem" }}
+    <Draggable
+      defaultPosition={position}
+      onStart={() => setIsDragging(true)}
+      onStop={handleDragStop}
+      bounds="body"
+      handle=".sek-tech-drag-handle"
     >
-      {/* Header arrastrable */}
       <div
-        ref={headerRef}
-        className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-violet-600 to-indigo-600 text-white cursor-grab active:cursor-grabbing select-none touch-none"
-        onMouseDown={startDrag}
-        onTouchStart={startDrag}
+        className={`fixed z-50 flex flex-col rounded-2xl border border-border bg-card shadow-2xl overflow-hidden ${isDragging ? "" : "transition-all duration-300"} ${isMinimized ? "h-14 w-72" : "h-[500px] w-80 sm:w-96"}`}
       >
+        {/* Header arrastrable */}
+        <div
+          className="sek-tech-drag-handle flex items-center justify-between px-4 py-3 bg-gradient-to-r from-violet-600 to-indigo-600 text-white cursor-grab active:cursor-grabbing select-none"
+        >
         <div className="flex items-center gap-2">
           <GripVertical className="h-4 w-4 opacity-60" />
           <MessageCircle className="h-4 w-4" />
@@ -269,5 +250,6 @@ export function FloatingTechAssistant() {
         </>
       )}
     </div>
+    </Draggable>
   );
 }
