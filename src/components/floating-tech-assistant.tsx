@@ -94,10 +94,10 @@ export function FloatingTechAssistant() {
     }
   }, [messages, isOpen]);
 
-  const handleSend = async () => {
-    if (!input.trim() || loading) return;
-    const text = input.trim();
-    setInput("");
+  const handleSend = async (text?: string) => {
+    const messageText = text?.trim() || input.trim();
+    if (!messageText || loading) return;
+    if (!text) setInput("");
     setLoading(true);
 
     try {
@@ -105,7 +105,7 @@ export function FloatingTechAssistant() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: text,
+          message: messageText,
           case_id: caseId,
           session_id: sessionId,
         }),
@@ -154,13 +154,16 @@ export function FloatingTechAssistant() {
     setPanelPosition({ x: data.x, y: data.y });
   };
 
-  const startNewCaseChat = () => {
+  const startNewCaseChat = async () => {
     const params = new URLSearchParams(window.location.search);
     const c = params.get("c");
     setCaseId(c);
     setSessionId(null);
     setMessages([]);
     sessionStorage.removeItem("sek_tech_assistant_session");
+    if (c) {
+      await handleSend("Analiza este caso y ofrece: 1) posibles diagnósticos, 2) sugerencias de solución, 3) preguntas predeterminadas para hacerle al cliente.");
+    }
   };
 
   const openFromBubble = () => {
@@ -303,7 +306,7 @@ export function FloatingTechAssistant() {
                 className="flex-1 resize-none rounded-xl border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/30 min-h-[40px] max-h-[120px]"
               />
               <button
-                onClick={handleSend}
+                onClick={() => handleSend()}
                 disabled={!input.trim() || loading}
                 className="h-10 w-10 flex items-center justify-center rounded-full bg-violet-600 text-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-violet-700"
                 aria-label="Enviar"
