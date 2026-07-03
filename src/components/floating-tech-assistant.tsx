@@ -26,7 +26,6 @@ export function FloatingTechAssistant() {
   const [sessionId, setSessionId] = React.useState<string | null>(null);
   const [caseId, setCaseId] = React.useState<string | null>(null);
   const [position, setPosition] = React.useState<Position>({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = React.useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLTextAreaElement>(null);
 
@@ -120,7 +119,6 @@ export function FloatingTechAssistant() {
   };
 
   const handleDragStop = (_e: DraggableEvent, data: DraggableData) => {
-    setIsDragging(false);
     const next = { x: data.x, y: data.y };
     setPosition(next);
     sessionStorage.setItem("sek_tech_assistant_pos", JSON.stringify(next));
@@ -130,7 +128,6 @@ export function FloatingTechAssistant() {
     return (
       <Draggable
         defaultPosition={position}
-        onStart={() => setIsDragging(true)}
         onStop={handleDragStop}
         bounds="body"
         handle=".sek-tech-drag-handle"
@@ -149,13 +146,12 @@ export function FloatingTechAssistant() {
   return (
     <Draggable
       defaultPosition={position}
-      onStart={() => setIsDragging(true)}
       onStop={handleDragStop}
       bounds="body"
       handle=".sek-tech-drag-handle"
     >
       <div
-        className={`fixed z-50 flex flex-col rounded-2xl border border-border bg-card shadow-2xl overflow-hidden ${isDragging ? "" : "transition-all duration-300"} ${isMinimized ? "h-14 w-72" : "h-[500px] w-80 sm:w-96"}`}
+        className={`fixed z-50 flex flex-col rounded-2xl border border-border bg-card shadow-2xl overflow-hidden ${isMinimized ? "h-14 w-72" : "h-[500px] w-80 sm:w-96"}`}
       >
         {/* Header arrastrable */}
         <div
