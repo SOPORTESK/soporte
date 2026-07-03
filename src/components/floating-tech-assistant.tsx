@@ -162,7 +162,7 @@ export function FloatingTechAssistant() {
     setMessages([]);
     sessionStorage.removeItem("sek_tech_assistant_session");
     if (c) {
-      await handleSend("Analiza este caso y ofrece: 1) posibles diagnósticos, 2) sugerencias de solución, 3) preguntas predeterminadas para hacerle al cliente.");
+      await handleSend("Analiza el caso técnico actual. No describas el estado administrativo del caso. Concéntrate en: 1) posibles causas técnicas del problema, 2) pasos de diagnóstico recomendados, 3) preguntas técnicas que el técnico puede hacer al cliente para obtener más información.");
     }
   };
 
