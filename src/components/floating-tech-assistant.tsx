@@ -124,38 +124,35 @@ export function FloatingTechAssistant() {
 
   const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(value, max));
 
-  const startDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+  const startDrag = (e: React.MouseEvent | React.TouchEvent) => {
     if (!containerRef.current || !headerRef.current) return;
-    const header = headerRef.current;
-    const startX = e.clientX;
-    const startY = e.clientY;
+    const startX = "touches" in e ? e.touches[0].clientX : e.clientX;
+    const startY = "touches" in e ? e.touches[0].clientY : e.clientY;
     const rect = containerRef.current.getBoundingClientRect();
 
-    try {
-      header.setPointerCapture(e.pointerId);
-    } catch {
-      // Si no se puede capturar el pointer, seguimos con listeners globales
-    }
     setIsDragging(true);
 
-    const handleMove = (ev: PointerEvent) => {
-      const newX = clamp(rect.left + (ev.clientX - startX), 8, window.innerWidth - rect.width - 8);
-      const newY = clamp(rect.top + (ev.clientY - startY), 8, window.innerHeight - rect.height - 8);
+    const handleMove = (ev: MouseEvent | TouchEvent) => {
+      const cx = "touches" in ev ? ev.touches[0].clientX : ev.clientX;
+      const cy = "touches" in ev ? ev.touches[0].clientY : ev.clientY;
+      const newX = clamp(rect.left + (cx - startX), 8, window.innerWidth - rect.width - 8);
+      const newY = clamp(rect.top + (cy - startY), 8, window.innerHeight - rect.height - 8);
       setPosition({ x: newX, y: newY });
     };
 
-    const handleUp = (ev: PointerEvent) => {
+    const handleUp = () => {
       setIsDragging(false);
-      try { header.releasePointerCapture(ev.pointerId); } catch { /* ok */ }
-      window.removeEventListener("pointermove", handleMove);
-      window.removeEventListener("pointerup", handleUp);
-      window.removeEventListener("pointercancel", handleUp);
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+      window.removeEventListener("touchmove", handleMove);
+      window.removeEventListener("touchend", handleUp);
       sessionStorage.setItem("sek_tech_assistant_pos", JSON.stringify(positionRef.current));
     };
 
-    window.addEventListener("pointermove", handleMove);
-    window.addEventListener("pointerup", handleUp);
-    window.addEventListener("pointercancel", handleUp);
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp);
+    window.addEventListener("touchmove", handleMove, { passive: false });
+    window.addEventListener("touchend", handleUp);
   };
 
   if (!isOpen) {
@@ -179,8 +176,9 @@ export function FloatingTechAssistant() {
       {/* Header arrastrable */}
       <div
         ref={headerRef}
-        className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-violet-600 to-indigo-600 text-white cursor-grab active:cursor-grabbing"
-        onPointerDown={startDrag}
+        className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-violet-600 to-indigo-600 text-white cursor-grab active:cursor-grabbing select-none touch-none"
+        onMouseDown={startDrag}
+        onTouchStart={startDrag}
       >
         <div className="flex items-center gap-2">
           <GripVertical className="h-4 w-4 opacity-60" />
@@ -191,7 +189,8 @@ export function FloatingTechAssistant() {
         <div className="flex items-center gap-1">
           <button
             onClick={() => setIsMinimized(!isMinimized)}
-            onPointerDown={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
             className="p-1 rounded hover:bg-white/20"
             aria-label={isMinimized ? "Maximizar" : "Minimizar"}
           >
@@ -199,7 +198,8 @@ export function FloatingTechAssistant() {
           </button>
           <button
             onClick={() => setIsOpen(false)}
-            onPointerDown={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
             className="p-1 rounded hover:bg-white/20"
             aria-label="Cerrar"
           >
