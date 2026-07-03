@@ -8,7 +8,7 @@
 create table if not exists public.sek_tech_assistant_chats (
   id uuid primary key default gen_random_uuid(),
   agent_id text not null, -- email del técnico que usa el asistente
-  case_id uuid references public.sek_cases(id) on delete set null,
+  case_id text references public.sek_cases(id) on delete set null,
   messages jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
