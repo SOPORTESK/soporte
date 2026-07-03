@@ -25,7 +25,6 @@ export function FloatingTechAssistant() {
   const [caseId, setCaseId] = React.useState<string | null>(null);
   const [position, setPosition] = React.useState<Position>({ x: -1, y: -1 }); // -1 = bottom-right default
   const [isDragging, setIsDragging] = React.useState(false);
-  const dragStartRef = React.useRef<{ x: number; y: number; initialX: number; initialY: number } | null>(null);
   const positionRef = React.useRef(position);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLTextAreaElement>(null);
@@ -126,49 +125,36 @@ export function FloatingTechAssistant() {
 
   const startDrag = (e: React.MouseEvent | React.TouchEvent) => {
     if (!containerRef.current) return;
-    const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
-    const clientY = "touches" in e ? e.touches[0].clientY : e.clientY;
+    e.preventDefault();
+    const startX = "touches" in e ? e.touches[0].clientX : e.clientX;
+    const startY = "touches" in e ? e.touches[0].clientY : e.clientY;
     const rect = containerRef.current.getBoundingClientRect();
-    dragStartRef.current = {
-      x: clientX,
-      y: clientY,
-      initialX: rect.left,
-      initialY: rect.top,
-    };
+
     setIsDragging(true);
-  };
 
-  const onDrag = React.useCallback((e: MouseEvent | TouchEvent) => {
-    if (!dragStartRef.current || !containerRef.current) return;
-    const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
-    const clientY = "touches" in e ? e.touches[0].clientY : e.clientY;
-    const deltaX = clientX - dragStartRef.current.x;
-    const deltaY = clientY - dragStartRef.current.y;
-    const newX = clamp(dragStartRef.current.initialX + deltaX, 8, window.innerWidth - containerRef.current.offsetWidth - 8);
-    const newY = clamp(dragStartRef.current.initialY + deltaY, 8, window.innerHeight - containerRef.current.offsetHeight - 8);
-    setPosition({ x: newX, y: newY });
-  }, []);
-
-  const stopDrag = React.useCallback(() => {
-    if (!dragStartRef.current) return;
-    dragStartRef.current = null;
-    setIsDragging(false);
-    sessionStorage.setItem("sek_tech_assistant_pos", JSON.stringify(positionRef.current));
-  }, []);
-
-  React.useEffect(() => {
-    if (!isDragging) return;
-    window.addEventListener("mousemove", onDrag);
-    window.addEventListener("mouseup", stopDrag);
-    window.addEventListener("touchmove", onDrag, { passive: false });
-    window.addEventListener("touchend", stopDrag);
-    return () => {
-      window.removeEventListener("mousemove", onDrag);
-      window.removeEventListener("mouseup", stopDrag);
-      window.removeEventListener("touchmove", onDrag);
-      window.removeEventListener("touchend", stopDrag);
+    const handleMove = (ev: MouseEvent | TouchEvent) => {
+      if (!containerRef.current) return;
+      const cx = "touches" in ev ? ev.touches[0].clientX : ev.clientX;
+      const cy = "touches" in ev ? ev.touches[0].clientY : ev.clientY;
+      const newX = clamp(rect.left + (cx - startX), 8, window.innerWidth - rect.width - 8);
+      const newY = clamp(rect.top + (cy - startY), 8, window.innerHeight - rect.height - 8);
+      setPosition({ x: newX, y: newY });
     };
-  }, [isDragging, onDrag, stopDrag]);
+
+    const handleUp = () => {
+      setIsDragging(false);
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+      window.removeEventListener("touchmove", handleMove);
+      window.removeEventListener("touchend", handleUp);
+      sessionStorage.setItem("sek_tech_assistant_pos", JSON.stringify(positionRef.current));
+    };
+
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp);
+    window.addEventListener("touchmove", handleMove, { passive: false });
+    window.addEventListener("touchend", handleUp);
+  };
 
   if (!isOpen) {
     return (
