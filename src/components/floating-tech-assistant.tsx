@@ -154,6 +154,15 @@ export function FloatingTechAssistant() {
     setPanelPosition({ x: data.x, y: data.y });
   };
 
+  const startNewCaseChat = () => {
+    const params = new URLSearchParams(window.location.search);
+    const c = params.get("c");
+    setCaseId(c);
+    setSessionId(null);
+    setMessages([]);
+    sessionStorage.removeItem("sek_tech_assistant_session");
+  };
+
   const openFromBubble = () => {
     const rect = bubbleRef.current?.getBoundingClientRect();
     const bubbleSize = 56;
@@ -210,7 +219,18 @@ export function FloatingTechAssistant() {
           <GripVertical className="h-4 w-4 opacity-60" />
           <MessageCircle className="h-4 w-4" />
           <span className="text-sm font-semibold">Asistente Técnico</span>
-          {caseId && <span className="ml-2 text-[10px] bg-white/20 px-1.5 py-0.5 rounded">Caso</span>}
+          {caseId && (
+            <button
+              type="button"
+              onClick={startNewCaseChat}
+              onMouseDown={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+              className="ml-2 text-[10px] bg-white/20 hover:bg-white/30 px-1.5 py-0.5 rounded cursor-pointer"
+              title="Iniciar nueva conversación con el caso abierto"
+            >
+              Caso
+            </button>
+          )}
         </div>
         <div className="flex items-center gap-1">
           <button
