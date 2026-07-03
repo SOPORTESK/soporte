@@ -26,9 +26,12 @@ export function FloatingTechAssistant() {
   const [position, setPosition] = React.useState<Position>({ x: -1, y: -1 }); // -1 = bottom-right default
   const [isDragging, setIsDragging] = React.useState(false);
   const dragStartRef = React.useRef<{ x: number; y: number; initialX: number; initialY: number } | null>(null);
+  const positionRef = React.useRef(position);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLTextAreaElement>(null);
   const containerRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => { positionRef.current = position; }, [position]);
 
   // Restaurar posición guardada
   React.useEffect(() => {
@@ -150,8 +153,8 @@ export function FloatingTechAssistant() {
     if (!dragStartRef.current) return;
     dragStartRef.current = null;
     setIsDragging(false);
-    sessionStorage.setItem("sek_tech_assistant_pos", JSON.stringify(position));
-  }, [position]);
+    sessionStorage.setItem("sek_tech_assistant_pos", JSON.stringify(positionRef.current));
+  }, []);
 
   React.useEffect(() => {
     if (!isDragging) return;
@@ -182,7 +185,7 @@ export function FloatingTechAssistant() {
   return (
     <div
       ref={containerRef}
-      className={`fixed z-50 flex flex-col rounded-2xl border border-border bg-card shadow-2xl overflow-hidden transition-all duration-300 ${isMinimized ? "h-14 w-72" : "h-[500px] w-80 sm:w-96"}`}
+      className={`fixed z-50 flex flex-col rounded-2xl border border-border bg-card shadow-2xl overflow-hidden ${isDragging ? "" : "transition-all duration-300"} ${isMinimized ? "h-14 w-72" : "h-[500px] w-80 sm:w-96"}`}
       style={position.x >= 0 && position.y >= 0 ? { left: position.x, top: position.y, right: "auto", bottom: "auto" } : { right: "1.5rem", bottom: "1.5rem" }}
     >
       {/* Header arrastrable */}
