@@ -136,10 +136,18 @@ export function FloatingTechAssistant() {
     }
   };
 
+  const handleBubbleDrag = (_e: DraggableEvent, data: DraggableData) => {
+    setBubblePosition({ x: data.x, y: data.y });
+  };
+
   const handleBubbleDragStop = (_e: DraggableEvent, data: DraggableData) => {
     const next = clampPosition({ x: data.x, y: data.y }, 56, 8);
     setBubblePosition(next);
     sessionStorage.setItem("sek_tech_assistant_bubble_pos_v2", JSON.stringify(next));
+  };
+
+  const handlePanelDrag = (_e: DraggableEvent, data: DraggableData) => {
+    setPanelPosition({ x: data.x, y: data.y });
   };
 
   const handlePanelDragStop = (_e: DraggableEvent, data: DraggableData) => {
@@ -148,21 +156,25 @@ export function FloatingTechAssistant() {
 
   const openFromBubble = () => {
     const rect = bubbleRef.current?.getBoundingClientRect();
+    const bubbleSize = 56;
     const panelWidth = typeof window !== "undefined" && window.innerWidth >= 640 ? 384 : 320;
     const panelHeight = 500;
     const padding = 8;
-    const left = rect?.left ?? Math.max(0, window.innerWidth - panelWidth - padding);
-    const top = rect?.top ?? Math.max(0, window.innerHeight - panelHeight - padding);
-    const clampedX = Math.max(padding, Math.min(left, window.innerWidth - panelWidth - padding));
-    const clampedY = Math.max(padding, Math.min(top, window.innerHeight - panelHeight - padding));
-    setPanelPosition({ x: clampedX, y: clampedY });
+    // Posicionar el panel con su esquina inferior-derecha en la esquina inferior-derecha de la burbuja
+    // (expande desde la burbuja hacia arriba-izquierda)
+    let left = (rect?.left ?? window.innerWidth - bubbleSize - padding) + bubbleSize - panelWidth;
+    let top = (rect?.top ?? window.innerHeight - bubbleSize - padding) + bubbleSize - panelHeight;
+    left = Math.max(padding, Math.min(left, window.innerWidth - panelWidth - padding));
+    top = Math.max(padding, Math.min(top, window.innerHeight - panelHeight - padding));
+    setPanelPosition({ x: left, y: top });
     setIsOpen(true);
   };
 
   if (!isOpen) {
     return (
       <Draggable
-        defaultPosition={bubblePosition}
+        position={bubblePosition}
+        onDrag={handleBubbleDrag}
         onStop={handleBubbleDragStop}
         bounds={typeof window !== "undefined" ? { left: 8, top: 8, right: window.innerWidth - 64, bottom: window.innerHeight - 64 } : undefined}
         handle=".sek-tech-drag-handle"
@@ -181,7 +193,8 @@ export function FloatingTechAssistant() {
 
   return (
     <Draggable
-      defaultPosition={panelPosition}
+      position={panelPosition}
+      onDrag={handlePanelDrag}
       onStop={handlePanelDragStop}
       bounds={typeof window !== "undefined" ? { left: 8, top: 8, right: window.innerWidth - 392, bottom: window.innerHeight - 508 } : undefined}
       handle=".sek-tech-drag-handle"
