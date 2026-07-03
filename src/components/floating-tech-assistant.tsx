@@ -25,7 +25,15 @@ export function FloatingTechAssistant() {
   const [loading, setLoading] = React.useState(false);
   const [sessionId, setSessionId] = React.useState<string | null>(null);
   const [caseId, setCaseId] = React.useState<string | null>(null);
-  const [bubblePosition, setBubblePosition] = React.useState<Position>({ x: 0, y: 0 });
+  const [bubblePosition, setBubblePosition] = React.useState<Position>(() => {
+    const bubbleSize = 56;
+    const padding = 24;
+    if (typeof window === "undefined") return { x: 0, y: 0 };
+    return {
+      x: Math.max(padding, window.innerWidth - bubbleSize - padding),
+      y: Math.max(padding, window.innerHeight - bubbleSize - padding),
+    };
+  });
   const [panelPosition, setPanelPosition] = React.useState<Position>({ x: 0, y: 0 });
   const bubbleRef = React.useRef<HTMLButtonElement>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
@@ -33,23 +41,24 @@ export function FloatingTechAssistant() {
 
   // Restaurar posición guardada de la burbuja
   React.useEffect(() => {
-    const saved = sessionStorage.getItem("sek_tech_assistant_bubble_pos");
+    const saved = sessionStorage.getItem("sek_tech_assistant_bubble_pos_v2");
     if (saved) {
       try {
         const parsed = JSON.parse(saved) as Position;
         if (typeof parsed.x === "number" && typeof parsed.y === "number") {
-          const bubbleSize = 56;
-          const padding = 8;
-          const maxX = Math.max(0, window.innerWidth - bubbleSize - padding);
-          const maxY = Math.max(0, window.innerHeight - bubbleSize - padding);
-          setBubblePosition({
-            x: Math.max(padding, Math.min(parsed.x, maxX)),
-            y: Math.max(padding, Math.min(parsed.y, maxY)),
-          });
+          setBubblePosition(clampPosition(parsed, 56, 8));
         }
       } catch { /* ignorar */ }
     }
   }, []);
+
+  const clampPosition = (pos: Position, size: number, padding: number): Position => {
+    if (typeof window === "undefined") return pos;
+    return {
+      x: Math.max(padding, Math.min(pos.x, window.innerWidth - size - padding)),
+      y: Math.max(padding, Math.min(pos.y, window.innerHeight - size - padding)),
+    };
+  };
 
   // Detectar caso actual desde la URL (?c=...)
   React.useEffect(() => {
@@ -128,9 +137,9 @@ export function FloatingTechAssistant() {
   };
 
   const handleBubbleDragStop = (_e: DraggableEvent, data: DraggableData) => {
-    const next = { x: data.x, y: data.y };
+    const next = clampPosition({ x: data.x, y: data.y }, 56, 8);
     setBubblePosition(next);
-    sessionStorage.setItem("sek_tech_assistant_bubble_pos", JSON.stringify(next));
+    sessionStorage.setItem("sek_tech_assistant_bubble_pos_v2", JSON.stringify(next));
   };
 
   const handlePanelDragStop = (_e: DraggableEvent, data: DraggableData) => {
@@ -155,13 +164,13 @@ export function FloatingTechAssistant() {
       <Draggable
         defaultPosition={bubblePosition}
         onStop={handleBubbleDragStop}
-        bounds="body"
+        bounds={typeof window !== "undefined" ? { left: 8, top: 8, right: window.innerWidth - 64, bottom: window.innerHeight - 64 } : undefined}
         handle=".sek-tech-drag-handle"
       >
         <button
           ref={bubbleRef}
           onClick={openFromBubble}
-          className="sek-tech-drag-handle fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-violet-600 text-white shadow-lg shadow-violet-600/30 hover:bg-violet-700 transition-all hover:scale-105"
+          className="sek-tech-drag-handle fixed top-0 left-0 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-violet-600 text-white shadow-lg shadow-violet-600/30 hover:bg-violet-700 transition-all hover:scale-105"
           aria-label="Asistente técnico"
         >
           <MessageCircle className="h-6 w-6" />
@@ -172,9 +181,9 @@ export function FloatingTechAssistant() {
 
   return (
     <Draggable
-      position={panelPosition}
+      defaultPosition={panelPosition}
       onStop={handlePanelDragStop}
-      bounds="body"
+      bounds={typeof window !== "undefined" ? { left: 8, top: 8, right: window.innerWidth - 392, bottom: window.innerHeight - 508 } : undefined}
       handle=".sek-tech-drag-handle"
     >
       <div
