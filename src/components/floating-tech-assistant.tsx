@@ -25,7 +25,9 @@ export function FloatingTechAssistant() {
   const [loading, setLoading] = React.useState(false);
   const [sessionId, setSessionId] = React.useState<string | null>(null);
   const [caseId, setCaseId] = React.useState<string | null>(null);
-  const [position, setPosition] = React.useState<Position>({ x: 0, y: 0 });
+  const [bubblePosition, setBubblePosition] = React.useState<Position>({ x: 0, y: 0 });
+  const [panelPosition, setPanelPosition] = React.useState<Position>({ x: 0, y: 0 });
+  const bubbleRef = React.useRef<HTMLButtonElement>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLTextAreaElement>(null);
 
@@ -36,7 +38,7 @@ export function FloatingTechAssistant() {
       try {
         const parsed = JSON.parse(saved) as Position;
         if (typeof parsed.x === "number" && typeof parsed.y === "number") {
-          setPosition(parsed);
+          setBubblePosition(parsed);
         }
       } catch { /* ignorar */ }
     }
@@ -118,22 +120,40 @@ export function FloatingTechAssistant() {
     }
   };
 
-  const handleDragStop = (_e: DraggableEvent, data: DraggableData) => {
+  const handleBubbleDragStop = (_e: DraggableEvent, data: DraggableData) => {
     const next = { x: data.x, y: data.y };
-    setPosition(next);
+    setBubblePosition(next);
     sessionStorage.setItem("sek_tech_assistant_pos", JSON.stringify(next));
+  };
+
+  const handlePanelDragStop = (_e: DraggableEvent, data: DraggableData) => {
+    setPanelPosition({ x: data.x, y: data.y });
+  };
+
+  const openFromBubble = () => {
+    const rect = bubbleRef.current?.getBoundingClientRect();
+    const panelWidth = typeof window !== "undefined" && window.innerWidth >= 640 ? 384 : 320;
+    const panelHeight = 500;
+    const padding = 8;
+    const left = rect?.left ?? Math.max(0, window.innerWidth - panelWidth - padding);
+    const top = rect?.top ?? Math.max(0, window.innerHeight - panelHeight - padding);
+    const clampedX = Math.max(padding, Math.min(left, window.innerWidth - panelWidth - padding));
+    const clampedY = Math.max(padding, Math.min(top, window.innerHeight - panelHeight - padding));
+    setPanelPosition({ x: clampedX, y: clampedY });
+    setIsOpen(true);
   };
 
   if (!isOpen) {
     return (
       <Draggable
-        defaultPosition={position}
-        onStop={handleDragStop}
+        defaultPosition={bubblePosition}
+        onStop={handleBubbleDragStop}
         bounds="body"
         handle=".sek-tech-drag-handle"
       >
         <button
-          onClick={() => setIsOpen(true)}
+          ref={bubbleRef}
+          onClick={openFromBubble}
           className="sek-tech-drag-handle fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-violet-600 text-white shadow-lg shadow-violet-600/30 hover:bg-violet-700 transition-all hover:scale-105"
           aria-label="Asistente técnico"
         >
@@ -145,13 +165,13 @@ export function FloatingTechAssistant() {
 
   return (
     <Draggable
-      defaultPosition={position}
-      onStop={handleDragStop}
+      position={panelPosition}
+      onStop={handlePanelDragStop}
       bounds="body"
       handle=".sek-tech-drag-handle"
     >
       <div
-        className={`fixed z-50 flex flex-col rounded-2xl border border-border bg-card shadow-2xl overflow-hidden ${isMinimized ? "h-14 w-72" : "h-[500px] w-80 sm:w-96"}`}
+        className={`fixed top-0 left-0 z-50 flex flex-col rounded-2xl border border-border bg-card shadow-2xl overflow-hidden ${isMinimized ? "h-14 w-72" : "h-[500px] w-80 sm:w-96"}`}
       >
         {/* Header arrastrable */}
         <div
