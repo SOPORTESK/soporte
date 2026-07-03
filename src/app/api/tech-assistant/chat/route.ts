@@ -39,6 +39,17 @@ export async function POST(req: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
+    // Validar case_id: si no existe en sek_cases, no lo guardamos
+    let validCaseId: string | null = null;
+    if (case_id) {
+      const { data: caseData } = await serviceClient
+        .from("sek_cases")
+        .select("id")
+        .eq("id", case_id)
+        .maybeSingle();
+      if (caseData) validCaseId = case_id;
+    }
+
     // Recuperar o crear sesión de chat
     let chatId = session_id;
     let messages: TechMessage[] = [];
@@ -60,7 +71,7 @@ export async function POST(req: NextRequest) {
     if (!chatId) {
       const { data: created, error: createErr } = await serviceClient
         .from("sek_tech_assistant_chats")
-        .insert({ agent_id: user.email, case_id: case_id || null, messages: [] })
+        .insert({ agent_id: user.email, case_id: validCaseId, messages: [] })
         .select("id")
         .single();
       if (createErr || !created) {
@@ -76,7 +87,7 @@ export async function POST(req: NextRequest) {
     // Guardar mensaje del usuario
     await serviceClient
       .from("sek_tech_assistant_chats")
-      .update({ messages: updatedMessages, case_id: case_id || null })
+      .update({ messages: updatedMessages, case_id: validCaseId })
       .eq("id", chatId)
       .eq("agent_id", user.email);
 
