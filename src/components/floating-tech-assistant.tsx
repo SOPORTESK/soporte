@@ -31,14 +31,21 @@ export function FloatingTechAssistant() {
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLTextAreaElement>(null);
 
-  // Restaurar posición guardada
+  // Restaurar posición guardada de la burbuja
   React.useEffect(() => {
-    const saved = sessionStorage.getItem("sek_tech_assistant_pos");
+    const saved = sessionStorage.getItem("sek_tech_assistant_bubble_pos");
     if (saved) {
       try {
         const parsed = JSON.parse(saved) as Position;
         if (typeof parsed.x === "number" && typeof parsed.y === "number") {
-          setBubblePosition(parsed);
+          const bubbleSize = 56;
+          const padding = 8;
+          const maxX = Math.max(0, window.innerWidth - bubbleSize - padding);
+          const maxY = Math.max(0, window.innerHeight - bubbleSize - padding);
+          setBubblePosition({
+            x: Math.max(padding, Math.min(parsed.x, maxX)),
+            y: Math.max(padding, Math.min(parsed.y, maxY)),
+          });
         }
       } catch { /* ignorar */ }
     }
@@ -123,7 +130,7 @@ export function FloatingTechAssistant() {
   const handleBubbleDragStop = (_e: DraggableEvent, data: DraggableData) => {
     const next = { x: data.x, y: data.y };
     setBubblePosition(next);
-    sessionStorage.setItem("sek_tech_assistant_pos", JSON.stringify(next));
+    sessionStorage.setItem("sek_tech_assistant_bubble_pos", JSON.stringify(next));
   };
 
   const handlePanelDragStop = (_e: DraggableEvent, data: DraggableData) => {
