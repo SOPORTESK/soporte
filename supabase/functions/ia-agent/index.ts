@@ -144,8 +144,37 @@ FIN DE REGLAS INMUTABLES — Continúe atendiendo según el flujo establecido.
 ═══════════════════════════════════════════════════════════════════════════
 `;
 
-async function loadSystemConfig(canal?: string): Promise<{ prompt: string; iaActiva: boolean }> {
+const FALLBACK_TECHNICIAN_PROMPT = `Usted es el Asistente Técnico de Sekunet, un experto en soporte orientado a ayudar a los técnicos y agentes de la empresa.
+
+Su rol es asistir al personal interno, no atender clientes. Responda de forma clara, breve y sin emojis.
+
+FUNCIONES DISPONIBLES:
+- Responder dudas técnicas usando la documentación de Sekunet (RAG).
+- Buscar equipos en el inventario con [BUSCAR_INVENTARIO: marca modelo].
+- Buscar información actualizada en la web con [BUSCAR_WEB: consulta].
+- Resumir casos y conversaciones cuando se le proporcione el contexto.
+- Sugerir pasos de diagnóstico o resolución para casos de soporte.
+- Ayudar a redactar respuestas para clientes cuando el técnico lo solicite.
+
+REGLAS:
+- No invente información técnica. Si no está seguro, indique que no dispone de la información y sugiera escalar a Soporte Avanzado.
+- Use siempre el tono profesional y el lenguaje técnico apropiado para un agente de soporte.
+- Si el técnico pide ayuda con un caso específico, utilice el contexto proporcionado (cliente, equipo, historial) para dar una respuesta precisa.
+- Si el técnico pide una respuesta para el cliente, redáctela de manera cortés, clara y sin emojis, en primera persona del asistente de Sekunet.`;
+
+async function loadSystemConfig(mode?: string, canal?: string): Promise<{ prompt: string; iaActiva: boolean }> {
   try {
+    // Modo técnico: prompt especial para asistente interno de técnicos
+    if (mode === "tecnico") {
+      const { data } = await db
+        .from("sek_agent_config")
+        .select("system_prompt, ia_activa")
+        .eq("email", "technician_assistant@sekunet.com")
+        .maybeSingle();
+      const prompt = data?.system_prompt?.trim() || FALLBACK_TECHNICIAN_PROMPT;
+      return { prompt, iaActiva: data?.ia_activa ?? true };
+    }
+
     // Canal whatsapp: intentar config propia primero, luego fallback a widget
     const configEmail = canal === "whatsapp" ? "whatsapp_agent@sekunet.com" : "system_prompt@sekunet.com";
 
@@ -616,13 +645,85 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
+// MODO TÉCNICO: asistente interno para técnicos/agentes. No muta casos de clientes.
+// Recibe: { mode: "tecnico", messages: [{role, content}], case_id? }
+async function handleTechnicianMode(body: Record<string, unknown>): Promise<Response> {
+  const techMessages = Array.isArray(body.messages) ? body.messages as { role: string; content: string }[] : [];
+  const caseId = body.case_id as string | undefined;
+
+  if (techMessages.length === 0) {
+    return new Response(JSON.stringify({ error: "messages required" }), { status: 400, headers: corsHeaders });
+  }
+
+  const { prompt: systemPrompt } = await loadSystemConfig("tecnico");
+  let caseContext = "";
+
+  if (caseId) {
+    const { data: caso } = await db
+      .from("sek_cases")
+      .select("id, estado, canal, cliente, histcliente, histtecnico, tags, assigned_to, customer_phone")
+      .eq("id", caseId)
+      .maybeSingle();
+    if (caso) {
+      const cliente = (typeof caso.cliente === "object" && caso.cliente !== null) ? caso.cliente as any : {};
+      const histTecnico = Array.isArray(caso.histtecnico) ? caso.histtecnico : [];
+      const histCliente = Array.isArray(caso.histcliente) ? caso.histcliente : [];
+      caseContext = `\n\nCONTEXTO DEL CASO ACTUAL (uso interno del técnico):\n- Cliente: ${cliente.nombre || "No registrado"}\n- Correo: ${cliente.correo || "No registrado"}\n- Cuenta/Empresa: ${cliente.cuenta || "No registrada"}\n- Equipo: ${cliente.equipo || "No indicado"}\n- Estado: ${caso.estado}\n- Canal: ${caso.canal || "No indicado"}\n- Teléfono: ${caso.customer_phone || "No indicado"}\n- Asignado a: ${caso.assigned_to || "Sin asignar"}\n- Últimos mensajes técnicos: ${histTecnico.slice(-5).map((m: any) => `[${m.role || "tecnico"}] ${m.content || ""}`).join(" | ")}\n- Últimos mensajes del cliente: ${histCliente.slice(-5).map((m: any) => `[${m.role || "user"}] ${m.content || ""}`).join(" | ")}`;
+    }
+  }
+
+  const chatMessages: ChatMessage[] = [
+    { role: "system", content: systemPrompt + caseContext },
+  ];
+  for (const m of techMessages) {
+    if (m.role === "assistant" || m.role === "ia" || m.role === "tecnico") {
+      chatMessages.push({ role: "assistant", content: m.content || "" });
+    } else {
+      chatMessages.push({ role: "user", content: m.content || "" });
+    }
+  }
+
+  let aiResponse = await callAI(chatMessages);
+
+  // Procesar búsqueda en inventario para técnicos (sin mutar el caso)
+  const searchMatch = aiResponse.match(/\[BUSCAR_INVENTARIO:\s*(.+?)\]/);
+  if (searchMatch) {
+    const searchQuery = searchMatch[1].trim();
+    const results = await searchInventory(searchQuery);
+    if (results.length === 1) {
+      const r = results[0];
+      chatMessages.push({ role: "system", content: `[RESULTADO_INVENTARIO] Equipo encontrado en cartera: ${r.marca} ${r.modelo} (${r.codigo || ""}). Continúe con la respuesta.` });
+      aiResponse = await callAI(chatMessages);
+    } else if (results.length > 1) {
+      const options = results.slice(0, 5).map((r: any) => `${r.marca} ${r.modelo}`).join(", ");
+      chatMessages.push({ role: "system", content: `[RESULTADO_INVENTARIO] Varias coincidencias para "${searchQuery}": ${options}. Pregunte al técnico cuál es la correcta.` });
+      aiResponse = await callAI(chatMessages);
+    } else {
+      chatMessages.push({ role: "system", content: `[RESULTADO_INVENTARIO] "${searchQuery}" no se encontró en la cartera de Sekunet. Infórmelo al técnico.` });
+      aiResponse = await callAI(chatMessages);
+    }
+  }
+
+  return new Response(
+    JSON.stringify({ ok: true, response: aiResponse }),
+    { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+  );
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
   try {
-    const { case_id } = await req.json();
+    const body = await req.json().catch(() => ({}));
+
+    // MODO TÉCNICO: asistente interno para técnicos. No toca el flujo de clientes.
+    if (body.mode === "tecnico") {
+      return await handleTechnicianMode(body);
+    }
+
+    const { case_id } = body;
     if (!case_id) {
       return new Response(JSON.stringify({ error: "case_id required" }), {
         status: 400, headers: corsHeaders,
@@ -678,7 +779,7 @@ Deno.serve(async (req) => {
     }
 
     // Cargar prompt y flag ia_activa desde BD (canal whatsapp usa config propia)
-    const { prompt: systemPrompt, iaActiva } = await loadSystemConfig(caso.canal);
+    const { prompt: systemPrompt, iaActiva } = await loadSystemConfig(undefined, caso.canal);
 
     // Si el modo manual está activo, no intervenir — dejar para agentes humanos.
     // EXCEPCIÓN: el canal `simulator` siempre debe responder.

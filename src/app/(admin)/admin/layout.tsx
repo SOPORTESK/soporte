@@ -14,6 +14,7 @@ import { MobileNav } from "@/components/admin/mobile-nav";
 import { GodModeAdminWrapper } from "@/components/god-mode-admin-wrapper";
 import { GodModeGuard } from "@/components/god-mode-guard";
 import { EscalatedCasesBanner } from "@/components/escalated-cases-banner";
+import { FloatingTechAssistant } from "@/components/floating-tech-assistant";
 
 export const dynamic = 'force-dynamic';
 
@@ -131,6 +132,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             {children}
           </main>
         </div>
+        <FloatingTechAssistant />
       </GodModeAdminWrapper>
     </GodModeGuard>
   );

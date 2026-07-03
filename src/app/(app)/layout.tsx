@@ -14,6 +14,7 @@ import { SidebarUserPanel } from "@/components/sidebar-user-panel";
 import { N2Badge } from "@/components/n2-badge";
 import { SmartInboxBadge } from "@/components/smart-inbox-badge";
 import { EscalatedCasesBanner } from "@/components/escalated-cases-banner";
+import { FloatingTechAssistant } from "@/components/floating-tech-assistant";
 
 export const dynamic = 'force-dynamic';
 
@@ -141,6 +142,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       agent={{ email: a.email, nombre: a.nombre, apellido: a.apellido, rol: a.rol, avatar_url: a.avatar_url, status: a.status }}
       onlineAgents={onlineAgents || []}
     />
+    <FloatingTechAssistant />
     </div>
     </GodModeWrapper>
   );
