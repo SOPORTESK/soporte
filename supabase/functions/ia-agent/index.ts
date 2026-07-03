@@ -659,11 +659,22 @@ async function handleTechnicianMode(body: Record<string, unknown>): Promise<Resp
   let caseContext = "";
 
   if (caseId) {
-    const { data: caso } = await db
+    let query = db
       .from("sek_cases")
       .select("id, estado, canal, cliente, histcliente, histtecnico, tags, assigned_to, customer_phone")
-      .eq("id", caseId)
-      .maybeSingle();
+      .limit(1);
+
+    // Resolver claves de agrupación del chat: tel:<numero> o case:<id>
+    if (caseId.startsWith("tel:")) {
+      const phone = caseId.substring(4).trim();
+      query = query.ilike("customer_phone", `%${phone}%`);
+    } else if (caseId.startsWith("case:")) {
+      query = query.eq("id", caseId.substring(5));
+    } else {
+      query = query.eq("id", caseId);
+    }
+
+    const { data: caso } = await query.maybeSingle();
     if (caso) {
       const cliente = (typeof caso.cliente === "object" && caso.cliente !== null) ? caso.cliente as any : {};
       const histTecnico = Array.isArray(caso.histtecnico) ? caso.histtecnico : [];

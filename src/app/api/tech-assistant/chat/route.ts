@@ -39,15 +39,20 @@ export async function POST(req: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    // Validar case_id: si no existe en sek_cases, no lo guardamos
+    // Validar case_id: resolver claves de agrupación tel: y case:
     let validCaseId: string | null = null;
     if (case_id) {
-      const { data: caseData } = await serviceClient
-        .from("sek_cases")
-        .select("id")
-        .eq("id", case_id)
-        .maybeSingle();
-      if (caseData) validCaseId = case_id;
+      let caseQuery = serviceClient.from("sek_cases").select("id").limit(1);
+      if (case_id.startsWith("tel:")) {
+        const phone = case_id.substring(4).trim();
+        caseQuery = caseQuery.ilike("customer_phone", `%${phone}%`);
+      } else if (case_id.startsWith("case:")) {
+        caseQuery = caseQuery.eq("id", case_id.substring(5));
+      } else {
+        caseQuery = caseQuery.eq("id", case_id);
+      }
+      const { data: caseData } = await caseQuery.maybeSingle();
+      if (caseData) validCaseId = caseData.id;
     }
 
     // Recuperar o crear sesión de chat
@@ -106,7 +111,7 @@ export async function POST(req: NextRequest) {
           },
           body: JSON.stringify({
             mode: "tecnico",
-            case_id: case_id || undefined,
+            case_id: validCaseId || undefined,
             messages: updatedMessages.map(m => ({ role: m.role, content: m.content })),
           }),
         });
