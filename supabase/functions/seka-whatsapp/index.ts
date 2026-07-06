@@ -442,10 +442,10 @@ const WELCOME_TEXTS = [
   "Soy el Asistente Virtual de Sekunet. Para brindarle una mejor asistencia, necesitamos algunos datos para registrar su consulta.",
   "Para comenzar, ¿me podría indicar su nombre completo?",
   "¿En relación con qué tema sería su consulta?",
-  `¿En relación con qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Drivers\n7. Licencias\n8. Otro\n\nResponda con el número o el nombre del tema.`
+  `¿En relación con qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Licencias\n7. Otro\n\nResponda con el número o el nombre del tema.`
 ];
 
-const TOPICS = ["Configuraciones","Reset","Desvinculación","Firmware","Software","Drivers","Licencias","Otro"];
+const TOPICS = ["Configuraciones","Reset","Desvinculación","Firmware","Software","Licencias","Otro"];
 
 // Mapa de respuesta numérica → tema (para el menú de texto)
 const TOPIC_NUMBER_MAP: Record<string, string> = {
@@ -454,9 +454,8 @@ const TOPIC_NUMBER_MAP: Record<string, string> = {
   "3": "Desvinculación",
   "4": "Firmware",
   "5": "Software",
-  "6": "Drivers",
-  "7": "Licencias",
-  "8": "Otro",
+  "6": "Licencias",
+  "7": "Otro",
 };
 
 // Normaliza respuesta del usuario al nombre oficial del tema (acepta número o texto parcial)
@@ -632,13 +631,13 @@ Deno.serve(async (req: Request) => {
       "Soy el Asistente Virtual de Sekunet. Para brindarle una mejor asistencia, necesitamos algunos datos para registrar su consulta.",
       "Para comenzar, ¿me podría indicar su nombre completo?",
       "¿En relación con qué tema sería su consulta?",
-      `¿En relación con qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Drivers\n7. Licencias\n8. Otro\n\nResponda con el número o el nombre del tema.`
+      `¿En relación con qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Licencias\n7. Otro\n\nResponda con el número o el nombre del tema.`
     ];
     const CRON_CLOSE_TEXT = "Al no haber recibido respuesta, procederemos a cerrar esta conversación. Si necesita asistencia adicional, puede contactarnos nuevamente y con gusto le atenderemos. ¡Que tenga un excelente día!";
-    const TOPICS_CHECK = ["Configuraciones","Reset","Desvinculación","Firmware","Software","Drivers","Licencias","Otro"];
+    const TOPICS_CHECK = ["Configuraciones","Reset","Desvinculación","Firmware","Software","Licencias","Otro"];
     // El mensaje del menú de tema ahora tiene múltiples líneas — incluirlo en textos a ignorar
     const MENU_TEMA_PREFIX = "¿En relación con qué tema sería su consulta?";
-    const MENU_TEXTO = `¿En relación con qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Drivers\n7. Licencias\n8. Otro\n\nResponda con el número o el nombre del tema.`;
+    const MENU_TEXTO = `¿En relación con qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Licencias\n7. Otro\n\nResponda con el número o el nombre del tema.`;
 
     // Mensajes del usuario (sin bienvenidas)
     const userRealMsgs = histcliente.filter(m =>
@@ -674,7 +673,6 @@ Deno.serve(async (req: Request) => {
         if (lower.includes("desvincul") || lower.includes("quitar") || lower.includes("eliminar")) { temaInferido = "Desvinculación"; break; }
         if (lower.includes("firmwar") || lower.includes("actualiz")) { temaInferido = "Firmware"; break; }
         if (lower.includes("softwar") || lower.includes("programa")) { temaInferido = "Software"; break; }
-        if (lower.includes("driver")) { temaInferido = "Drivers"; break; }
         if (lower.includes("licen") || lower.includes("activa")) { temaInferido = "Licencias"; break; }
       }
     }
@@ -777,7 +775,7 @@ Deno.serve(async (req: Request) => {
           }
           if (userRespFP.length >= 2 && !userRespFP.includes("@")) {
             const cli = { ...cliFP, cuenta: userRespFP };
-            const menuTemas = "¿En relación a qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Drivers\n7. Licencias\n8. Otro\n\nResponda con el número o el nombre del tema.";
+            const menuTemas = "¿En relación a qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Licencias\n7. Otro\n\nResponda con el número o el nombre del tema.";
             const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: menuTemas };
             await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg], cliente: cli }).eq("id", case_id);
             return new Response(JSON.stringify({ ok: true, reply: menuTemas }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -809,7 +807,7 @@ DATOS ACTUALES DEL CASO EN BASE DE DATOS:
 
 CONTEXTO: El asistente sigue este flujo de recopilación de datos:
 1. Nombre, correo y cuenta del cliente
-2. Tema de consulta (Configuraciones, Reset, Desvinculación, Firmware, Software, Drivers, Licencias, Otro)
+2. Tema de consulta (Configuraciones, Reset, Desvinculación, Firmware, Software, Licencias, Otro)
 3. Marca del equipo
 4. Modelo del equipo
 5. Para Reset/Desvinculación: imagen de etiqueta (y XML para Hikvision en Reset)
@@ -858,7 +856,7 @@ Responde SOLO con JSON válido:
   "nombre": "nombre extraído o vacío",
   "correo": "correo extraído, 'Sin correo', o vacío",
   "cuenta": "cuenta/empresa extraída, 'Sin cuenta', o vacía",
-  "tema": "uno de: Configuraciones|Reset|Desvinculación|Firmware|Software|Drivers|Licencias|Otro|null",
+  "tema": "uno de: Configuraciones|Reset|Desvinculación|Firmware|Software|Licencias|Otro|null",
   "marca": "marca detectada o inferida, o vacío",
   "modelo": "modelo detectado, o vacío",
   "tiene_imagen": true/false,
@@ -1048,7 +1046,7 @@ Responde SOLO con JSON válido:
     const temaPersistido = String((currentCliente as any).tema || "").trim();
     // Detección robusta: tomar la respuesta del cliente AL MENÚ de temas específicamente,
     // en vez de cualquier mensaje (evita falsos positivos de coincidencia parcial con
-    // nombre/correo/cuenta, p. ej. una cuenta corta que "coincide" con Software/Drivers).
+    // nombre/correo/cuenta, p. ej. una cuenta corta que "coincide" con Software/Licencias).
     let temaMenu = "";
     const menuIdx = allMsgs.map((m, i) => ({ m, i }))
       .filter(({ m }) => (m.role === "ia" || m.role === "assistant") && (m.content || "").includes("número o el nombre del tema"))
@@ -1713,7 +1711,7 @@ No agregues nada más.`,
           const cuentaDirecta = lastUserMsgContent.trim();
           updatedCliente.cuenta = cuentaDirecta;
           clienteChanged = true;
-          const menuTemas = "¿En relación a qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Drivers\n7. Licencias\n8. Otro\n\nResponda con el número o el nombre del tema.";
+          const menuTemas = "¿En relación a qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Licencias\n7. Otro\n\nResponda con el número o el nombre del tema.";
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: menuTemas };
           const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg], cliente: updatedCliente };
           if (nuevoTitle) upd.title = nuevoTitle;
@@ -1752,7 +1750,7 @@ No agregues nada más.`,
 
     // ── ACCIÓN: PEDIR TEMA ──
     if (accion === "PEDIR_TEMA") {
-      const MENU_TEMAS = "¿En relación a qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Drivers\n7. Licencias\n8. Otro\n\nResponda con el número o el nombre del tema.";
+      const MENU_TEMAS = "¿En relación a qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Licencias\n7. Otro\n\nResponda con el número o el nombre del tema.";
       const reintentsoTema = contarReintentos(iaRealMsgs, "tema sería su consulta");
 
       if (reintentsoTema >= 2) {
