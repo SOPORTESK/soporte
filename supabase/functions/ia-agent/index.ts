@@ -532,6 +532,49 @@ Analiza el documento COMPLETAMENTE:
   }
 }
 
+// ── Búsqueda RAG en base de conocimiento Sekunet (sek_doc_chunks) ──
+async function searchRAG(query: string, limit = 5): Promise<{ content: string; source_label?: string; doc_name?: string }[]> {
+  if (!query || query.trim().length < 3) return [];
+  const normalized = query.toLowerCase().replace(/[^a-z0-9\s\-áéíóúñ]/gi, "");
+  const terms = normalized.split(/\s+/).filter((t) => t.length >= 3 && !STOPWORDS.has(t));
+  if (terms.length === 0) return [];
+
+  try {
+    // Búsqueda por ILIKE en contenido: cada término debe aparecer en el chunk.
+    let dbQuery = db.from("sek_doc_chunks").select("content,source_label,doc_name").limit(limit * 2);
+    for (const term of terms) {
+      dbQuery = dbQuery.ilike("content", `%${term}%`);
+    }
+    const { data, error } = await dbQuery;
+    if (error) {
+      console.error("[ia-agent] Error RAG:", error.message);
+      return [];
+    }
+    const rows = (data || []) as any[];
+    // Deduplicar por contenido y limitar
+    const seen = new Set<string>();
+    const out: { content: string; source_label?: string; doc_name?: string }[] = [];
+    for (const r of rows) {
+      const c = String(r.content || "").trim();
+      if (!c || seen.has(c)) continue;
+      seen.add(c);
+      out.push({ content: c, source_label: r.source_label, doc_name: r.doc_name });
+      if (out.length >= limit) break;
+    }
+    return out;
+  } catch (e: any) {
+    console.error("[ia-agent] Excepción RAG:", e.message);
+    return [];
+  }
+}
+
+const STOPWORDS = new Set([
+  "que", "como", "cual", "cuando", "donde", "por", "para", "con", "sin", "sobre", "bajo", "ante", "entre", "desde", "hasta", "hacia", "segun",
+  "the", "and", "for", "with", "from", "what", "how", "when", "where", "why", "this", "that", "there", "then",
+  "hola", "buenos", "buenas", "tardes", "dias", "noches", "gracias", "por favor", "favor", "please", "thank",
+  "sekunet", "cliente", "tecnico", "agente", "caso", "problema", "equipo", "soporte", "ayuda",
+]);
+
 async function searchInventory(query: string): Promise<any[]> {
   const normalized = query.toLowerCase().replace(/[^a-z0-9\s\-]/g, "");
   const terms = normalized.split(/\s+/).filter((t) => t.length >= 2);
@@ -689,8 +732,20 @@ async function handleTechnicianMode(body: Record<string, unknown>): Promise<Resp
     }
   }
 
+  // Última pregunta del técnico para buscar en la base de conocimiento
+  const lastUserMsg = [...techMessages].reverse().find((m) => m.role !== "assistant" && m.role !== "ia" && m.role !== "tecnico");
+  let ragContext = "";
+  if (lastUserMsg && lastUserMsg.content) {
+    const ragResults = await searchRAG(lastUserMsg.content, 5);
+    if (ragResults.length > 0) {
+      ragContext = "\n\nBASE DE CONOCIMIENTO SEKUNET (RAG):\n" + ragResults
+        .map((r, i) => `[${i + 1}] ${r.source_label || "Documento"}: ${r.doc_name || "Sekunet"}\n${r.content}`)
+        .join("\n\n");
+    }
+  }
+
   const chatMessages: ChatMessage[] = [
-    { role: "system", content: systemPrompt + caseContext },
+    { role: "system", content: systemPrompt + caseContext + ragContext },
   ];
   for (const m of techMessages) {
     if (m.role === "assistant" || m.role === "ia" || m.role === "tecnico") {
