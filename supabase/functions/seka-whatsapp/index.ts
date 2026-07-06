@@ -251,8 +251,25 @@ async function validarMarcaSolo(marca: string): Promise<{ encontrado: boolean; m
 }
 
 
+// ─── DETECTAR NÚMERO DE SERIE (no modelo) ───────────────────────────────────────
+function pareceNumeroSerie(valor: string): boolean {
+  if (!valor) return false;
+  const v = valor.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+  // Patrones típicos de serial number: 1 letra + 7+ dígitos, o 8+ dígitos puros.
+  if (/^[A-Z]\d{7,}$/.test(v)) return true;
+  if (/^\d{8,}$/.test(v)) return true;
+  return false;
+}
+
 // ─── VALIDAR MODELO: INVENTARIO + FUENTE EXTERNA ──────────────────────────────
 async function validarModelo(marca: string, modelo: string): Promise<{ valido: boolean; fuente: "inventario" | "externo" | "no_encontrado"; detalle: string }> {
+  if (!modelo || modelo.trim().length < 2) {
+    return { valido: false, fuente: "no_encontrado", detalle: "El modelo no puede estar vacío" };
+  }
+  if (pareceNumeroSerie(modelo)) {
+    return { valido: false, fuente: "no_encontrado", detalle: "Ese valor parece un número de serie, no un modelo. Por favor indique el modelo del equipo." };
+  }
+
   const query = `${marca} ${modelo}`.trim();
   const inv = await buscarInventario(query);
   if (inv.encontrado) {
@@ -266,14 +283,13 @@ async function validarModelo(marca: string, modelo: string): Promise<{ valido: b
   }
 
   try {
-    const webQuery = `${marca} ${modelo} modelo especificaciones`;
     const searchRes = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${GEMINI_KEY}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: `Busca información técnica actualizada sobre el modelo "${modelo}" de la marca "${marca}". ¿Es un modelo real/auténtico de este fabricante? Responde SOLO con una línea JSON: {"existe": true/false, "razon": "motivo breve"}. No agregues nada más.` }] }],
+          contents: [{ parts: [{ text: `Verifica si "${modelo}" es un número de modelo válido (NO un número de serie) para la marca "${marca}". Un modelo incluye letras, guiones y números como "DS-2CD2143G2-IU" o "DHI-IPC-HDW1230T-S5". Un número de serie suele ser una letra seguida de puros dígitos. Responde SOLO con una línea JSON: {"existe": true/false, "razon": "motivo breve"}. No agregues nada más.` }] }],
           generationConfig: { maxOutputTokens: 200, temperature: 0.2 },
           tools: [{ googleSearch: {} }],
         }),
@@ -290,10 +306,7 @@ async function validarModelo(marca: string, modelo: string): Promise<{ valido: b
         }
         return { valido: false, fuente: "externo", detalle: result.razon || "Modelo no encontrado en búsqueda web" };
       }
-      // Si no devolvió JSON estricto, considerar que la búsqueda sí arrojó resultados.
-      if (webResult && webResult.length > 10) {
-        return { valido: true, fuente: "externo", detalle: "Modelo encontrado en búsqueda web" };
-      }
+      // Si no devolvió JSON estricto, NO aceptar por defecto; exigir validación explícita.
     }
   } catch (e: any) {
     console.error("[seka-whatsapp] Error en búsqueda web de modelo:", e.message);
