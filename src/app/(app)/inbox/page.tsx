@@ -11,8 +11,9 @@ export default async function InboxPage({ searchParams }: { searchParams: { c?: 
     .select("*")
     .neq("canal", "simulator")
     .in("estado", ["cerrado", "resuelto"])
+    .order("last_message_at", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false })
-    .limit(200);
+    .limit(1000);
   if (error) console.error("[inbox] sek_cases error:", error.message);
 
   const selectedId = searchParams.c ?? null;

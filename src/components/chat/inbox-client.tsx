@@ -343,8 +343,9 @@ export function InboxClient({
           const { data } = await supabase
             .from("sek_cases").select("*")
             .neq("canal", "simulator")
+            .order("last_message_at", { ascending: false, nullsFirst: false })
             .order("created_at", { ascending: false })
-            .limit(500);
+            .limit(1000);
           if (!data) return;
           const newCases = data as SekCase[];
           setAllCases(newCases); // Sin filtrar para banner de escalados
@@ -468,8 +469,9 @@ export function InboxClient({
       const { data } = await supabase
         .from("sek_cases").select("*")
         .neq("canal", "simulator")
+        .order("last_message_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false })
-        .limit(500);
+        .limit(1000);
       if (!data) return;
       const newCases = data as SekCase[];
       setAllCases(newCases); // Sin filtrar para banner de escalados

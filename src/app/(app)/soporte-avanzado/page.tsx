@@ -11,8 +11,9 @@ export default async function SoporteAvanzadoPage({ searchParams }: { searchPara
     .from("sek_cases")
     .select("*")
     .neq("canal", "simulator")
+    .order("last_message_at", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false })
-    .limit(200);
+    .limit(1000);
 
   if (error) console.error("[soporte-avanzado] sek_cases error:", error.message);
 

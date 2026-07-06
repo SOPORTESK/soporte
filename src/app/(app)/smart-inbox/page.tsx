@@ -11,8 +11,9 @@ export default async function SmartInboxPage({ searchParams }: { searchParams: {
     .from("sek_cases")
     .select("*")
     .neq("canal", "simulator")
+    .order("last_message_at", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false })
-    .limit(200);
+    .limit(1000);
 
   if (error) console.error("[smart-inbox] sek_cases error:", error.message);
 

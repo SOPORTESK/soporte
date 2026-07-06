@@ -36,8 +36,9 @@ export default async function MiGestionPage({ searchParams }: { searchParams: { 
     .select("*")
     .neq("canal", "simulator")
     .eq("assigned_to", agentEmail)
+    .order("last_message_at", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false })
-    .limit(200);
+    .limit(1000);
 
   if (error) console.error("[mi-gestion] sek_cases error:", error.message);
   
