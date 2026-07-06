@@ -728,7 +728,12 @@ async function handleTechnicianMode(body: Record<string, unknown>): Promise<Resp
       const cliente = (typeof caso.cliente === "object" && caso.cliente !== null) ? caso.cliente as any : {};
       const histTecnico = Array.isArray(caso.histtecnico) ? caso.histtecnico : [];
       const histCliente = Array.isArray(caso.histcliente) ? caso.histcliente : [];
-      caseContext = `\n\nCONTEXTO DEL CASO ACTUAL (uso interno del técnico):\n- Cliente: ${cliente.nombre || "No registrado"}\n- Correo: ${cliente.correo || "No registrado"}\n- Cuenta/Empresa: ${cliente.cuenta || "No registrada"}\n- Equipo: ${cliente.equipo || "No indicado"}\n- Estado: ${caso.estado}\n- Canal: ${caso.canal || "No indicado"}\n- Teléfono: ${caso.customer_phone || "No indicado"}\n- Asignado a: ${caso.assigned_to || "Sin asignar"}\n- Últimos mensajes técnicos: ${histTecnico.slice(-20).map((m: any) => `[${m.role || "tecnico"}] ${m.content || ""}`).join(" | ")}\n- Últimos mensajes del cliente: ${histCliente.slice(-20).map((m: any) => `[${m.role || "user"}] ${m.content || ""}`).join(" | ")}`;
+      const equipoRegistrado = cliente.equipo || (caso.marca ? `${caso.marca || ""} ${caso.modelo || ""}`.trim() : "");
+      const equipoLinea = equipoRegistrado || "No indicado formalmente";
+      const equipoNota = equipoRegistrado
+        ? ""
+        : "\n- NOTA IMPORTANTE: El equipo no está registrado formalmente. REVISE CUIDADOSAMENTE los mensajes anteriores; la marca y el modelo pueden estar mencionados en la conversación del cliente o del técnico. Si los identifica, utilícelos.";
+      caseContext = `\n\nCONTEXTO DEL CASO ACTUAL (uso interno del técnico):\n- Cliente: ${cliente.nombre || "No registrado"}\n- Correo: ${cliente.correo || "No registrado"}\n- Cuenta/Empresa: ${cliente.cuenta || "No registrada"}\n- Equipo: ${equipoLinea}${equipoNota}\n- Estado: ${caso.estado}\n- Canal: ${caso.canal || "No indicado"}\n- Teléfono: ${caso.customer_phone || "No indicado"}\n- Asignado a: ${caso.assigned_to || "Sin asignar"}\n- Últimos mensajes técnicos: ${histTecnico.slice(-50).map((m: any) => `[${m.role || "tecnico"}] ${m.content || ""}`).join(" | ")}\n- Últimos mensajes del cliente: ${histCliente.slice(-50).map((m: any) => `[${m.role || "user"}] ${m.content || ""}`).join(" | ")}`;
     }
   }
 
