@@ -648,7 +648,7 @@ async function learnFromConversation(caso: any, histcliente: any[]): Promise<voi
       .join("\n");
 
     const clienteData = typeof caso.cliente === "object" ? caso.cliente : {};
-    const equipo = clienteData?.equipo || caso.marca ? `${caso.marca || ""} ${caso.modelo || ""}`.trim() : "No identificado";
+    const equipo = clienteData?.equipo || (caso.marca ? `${caso.marca || ""} ${caso.modelo || ""}`.trim() : "No identificado");
     const problema = caso.problema || "No clasificado";
 
     const prompt = `Analiza la siguiente conversación de soporte técnico y genera un resumen estructurado para aprendizaje futuro del sistema. El resumen debe ser CONCISO (máximo 300 palabras) e incluir:
@@ -728,7 +728,7 @@ async function handleTechnicianMode(body: Record<string, unknown>): Promise<Resp
       const cliente = (typeof caso.cliente === "object" && caso.cliente !== null) ? caso.cliente as any : {};
       const histTecnico = Array.isArray(caso.histtecnico) ? caso.histtecnico : [];
       const histCliente = Array.isArray(caso.histcliente) ? caso.histcliente : [];
-      caseContext = `\n\nCONTEXTO DEL CASO ACTUAL (uso interno del técnico):\n- Cliente: ${cliente.nombre || "No registrado"}\n- Correo: ${cliente.correo || "No registrado"}\n- Cuenta/Empresa: ${cliente.cuenta || "No registrada"}\n- Equipo: ${cliente.equipo || "No indicado"}\n- Estado: ${caso.estado}\n- Canal: ${caso.canal || "No indicado"}\n- Teléfono: ${caso.customer_phone || "No indicado"}\n- Asignado a: ${caso.assigned_to || "Sin asignar"}\n- Últimos mensajes técnicos: ${histTecnico.slice(-5).map((m: any) => `[${m.role || "tecnico"}] ${m.content || ""}`).join(" | ")}\n- Últimos mensajes del cliente: ${histCliente.slice(-5).map((m: any) => `[${m.role || "user"}] ${m.content || ""}`).join(" | ")}`;
+      caseContext = `\n\nCONTEXTO DEL CASO ACTUAL (uso interno del técnico):\n- Cliente: ${cliente.nombre || "No registrado"}\n- Correo: ${cliente.correo || "No registrado"}\n- Cuenta/Empresa: ${cliente.cuenta || "No registrada"}\n- Equipo: ${cliente.equipo || "No indicado"}\n- Estado: ${caso.estado}\n- Canal: ${caso.canal || "No indicado"}\n- Teléfono: ${caso.customer_phone || "No indicado"}\n- Asignado a: ${caso.assigned_to || "Sin asignar"}\n- Últimos mensajes técnicos: ${histTecnico.slice(-20).map((m: any) => `[${m.role || "tecnico"}] ${m.content || ""}`).join(" | ")}\n- Últimos mensajes del cliente: ${histCliente.slice(-20).map((m: any) => `[${m.role || "user"}] ${m.content || ""}`).join(" | ")}`;
     }
   }
 
