@@ -73,16 +73,16 @@ export function FloatingTechAssistant() {
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
-  // Cargar sesión previa si existe
+  // Cargar sesión previa desde localStorage (máx 10 mensajes)
   React.useEffect(() => {
     if (!isOpen) return;
-    const saved = sessionStorage.getItem("sek_tech_assistant_session");
+    const saved = localStorage.getItem("sek_tech_assistant_session");
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (parsed.session_id && parsed.messages) {
-          setSessionId(parsed.session_id);
-          setMessages(parsed.messages);
+        if (parsed.messages) {
+          setSessionId(parsed.session_id || null);
+          setMessages(parsed.messages.slice(-10));
         }
       } catch { /* ignorar */ }
     }
@@ -94,11 +94,13 @@ export function FloatingTechAssistant() {
     }
   }, [messages, isOpen]);
 
-  const handleSend = async (text?: string) => {
+  const handleSend = async (text?: string, currentMessages?: TechMessage[]) => {
     const messageText = text?.trim() || input.trim();
     if (!messageText || loading) return;
     if (!text) setInput("");
     setLoading(true);
+
+    const messagesToSend = currentMessages ?? messages;
 
     try {
       const res = await fetch("/api/tech-assistant/chat", {
@@ -107,20 +109,18 @@ export function FloatingTechAssistant() {
         body: JSON.stringify({
           message: messageText,
           case_id: caseId,
-          session_id: sessionId,
+          messages: messagesToSend.slice(-9),
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Error del asistente");
 
-      setMessages(data.messages || []);
-      if (data.session_id) {
-        setSessionId(data.session_id);
-        sessionStorage.setItem("sek_tech_assistant_session", JSON.stringify({
-          session_id: data.session_id,
-          messages: data.messages || [],
-        }));
-      }
+      const finalMessages = (data.messages || []).slice(-10);
+      setMessages(finalMessages);
+      localStorage.setItem("sek_tech_assistant_session", JSON.stringify({
+        session_id: sessionId || null,
+        messages: finalMessages,
+      }));
     } catch (e: any) {
       toast.error(e?.message || "Error del asistente técnico");
     } finally {
@@ -160,9 +160,9 @@ export function FloatingTechAssistant() {
     setCaseId(c);
     setSessionId(null);
     setMessages([]);
-    sessionStorage.removeItem("sek_tech_assistant_session");
+    localStorage.removeItem("sek_tech_assistant_session");
     if (c) {
-      await handleSend("Analiza el caso técnico actual. No describas el estado administrativo del caso. Concéntrate en: 1) posibles causas técnicas del problema, 2) pasos de diagnóstico recomendados, 3) preguntas técnicas que el técnico puede hacer al cliente para obtener más información.");
+      await handleSend("Analiza el caso técnico actual. No describas el estado administrativo del caso. Concéntrate en: 1) posibles causas técnicas del problema, 2) pasos de diagnóstico recomendados, 3) preguntas técnicas que el técnico puede hacer al cliente para obtener más información.", []);
     }
   };
 

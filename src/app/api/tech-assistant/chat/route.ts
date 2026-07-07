@@ -12,11 +12,13 @@ interface TechMessage {
 
 export async function POST(req: NextRequest) {
   try {
-    const { message, case_id, session_id } = await req.json();
+    const { message, case_id, messages: clientMessages } = await req.json();
 
     if (!message || typeof message !== "string" || !message.trim()) {
       return NextResponse.json({ error: "Mensaje requerido" }, { status: 400 });
     }
+
+    const messages: TechMessage[] = Array.isArray(clientMessages) ? clientMessages as TechMessage[] : [];
 
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
@@ -55,46 +57,9 @@ export async function POST(req: NextRequest) {
       if (caseData) validCaseId = caseData.id;
     }
 
-    // Recuperar o crear sesión de chat
-    let chatId = session_id;
-    let messages: TechMessage[] = [];
-
-    if (chatId) {
-      const { data: existing } = await serviceClient
-        .from("sek_tech_assistant_chats")
-        .select("messages")
-        .eq("id", chatId)
-        .eq("agent_id", user.email)
-        .maybeSingle();
-      if (existing) {
-        messages = Array.isArray(existing.messages) ? existing.messages as TechMessage[] : [];
-      } else {
-        chatId = undefined;
-      }
-    }
-
-    if (!chatId) {
-      const { data: created, error: createErr } = await serviceClient
-        .from("sek_tech_assistant_chats")
-        .insert({ agent_id: user.email, case_id: validCaseId, messages: [] })
-        .select("id")
-        .single();
-      if (createErr || !created) {
-        return NextResponse.json({ error: createErr?.message || "Error creando sesión" }, { status: 500 });
-      }
-      chatId = created.id;
-    }
-
     const now = new Date().toISOString();
     const userMsg: TechMessage = { role: "user", content: message.trim(), time: now };
     const updatedMessages = [...messages, userMsg];
-
-    // Guardar mensaje del usuario
-    await serviceClient
-      .from("sek_tech_assistant_chats")
-      .update({ messages: updatedMessages, case_id: validCaseId })
-      .eq("id", chatId)
-      .eq("agent_id", user.email);
 
     // Llamar ia-agent en modo técnico
     const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -130,16 +95,8 @@ export async function POST(req: NextRequest) {
     const assistantMsg: TechMessage = { role: "assistant", content: responseText, time: new Date().toISOString() };
     const finalMessages = [...updatedMessages, assistantMsg];
 
-    // Guardar respuesta del asistente
-    await serviceClient
-      .from("sek_tech_assistant_chats")
-      .update({ messages: finalMessages })
-      .eq("id", chatId)
-      .eq("agent_id", user.email);
-
     return NextResponse.json({
       ok: true,
-      session_id: chatId,
       response: responseText,
       messages: finalMessages,
     });
