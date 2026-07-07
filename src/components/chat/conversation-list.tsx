@@ -1,6 +1,8 @@
 "use client";
 import * as React from "react";
-import { Search, MessageSquarePlus, Star, Clock, Trash2, Smartphone, Globe } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Search, MessageSquarePlus, Star, Clock, Trash2, Smartphone, Globe, Loader2, X, Send } from "lucide-react";
+import { toast } from "sonner";
 import { Avatar, Badge } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { cn, formatTime, asText, clienteInfo } from "@/lib/utils";
@@ -30,12 +32,23 @@ function lastMessage(c: SekCase): { content: string; time: string } | null {
 export function ConversationList({
   cases, selectedId, onSelect, agentRole, onDeleteSuccess
 }: { cases: SekCase[]; selectedId: string | null; onSelect: (id: string) => void; agentRole?: string; onDeleteSuccess?: (id: string) => void }) {
+  const router = useRouter();
   const [query, setQuery] = React.useState("");
   const [channelFilter, setChannelFilter] = React.useState<ChannelFilter>("all");
   const [tick, setTick] = React.useState(0);
   const [deletingId, setDeletingId] = React.useState<string | null>(null);
   const [confirmId, setConfirmId] = React.useState<string | null>(null);
-  
+
+  const [open, setOpen] = React.useState(false);
+  const [channel, setChannel] = React.useState<"whatsapp" | "widget">("whatsapp");
+  const [phone, setPhone] = React.useState("");
+  const [name, setName] = React.useState("");
+  const [email, setEmail] = React.useState("");
+  const [account, setAccount] = React.useState("");
+  const [cedula, setCedula] = React.useState("");
+  const [message, setMessage] = React.useState("");
+  const [loading, setLoading] = React.useState(false);
+
   const isAdmin = agentRole === "admin" || agentRole === "superadmin";
 
   React.useEffect(() => {
@@ -62,6 +75,31 @@ export function ConversationList({
     }
   };
 
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!phone.trim() || !message.trim()) return;
+    setLoading(true);
+    try {
+      const res = await fetch("/api/cases/outbound", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channel, phone, name, email, account, cedula, message }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Error al crear conversación");
+      toast.success("Conversación iniciada");
+      setOpen(false);
+      setPhone(""); setName(""); setEmail(""); setAccount(""); setCedula(""); setMessage("");
+      if (data.case_id) {
+        onSelect(data.case_id);
+        router.push(`/inbox?c=${data.case_id}`);
+      }
+    } catch (e: any) {
+      toast.error("No se pudo iniciar la conversación", { description: e?.message });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const filtered = React.useMemo(() => {
     const list = cases.filter(c => {
@@ -163,8 +201,9 @@ export function ConversationList({
         <div className="flex items-center justify-between">
           <h1 className="text-lg sm:text-xl font-bold">Conversaciones</h1>
           <button
+            onClick={() => setOpen(true)}
             className="h-9 w-9 grid place-items-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted touch-target"
-            aria-label="Nueva conversación" title="Nueva conversación (próximamente)"
+            aria-label="Nueva conversación" title="Nueva conversación"
           >
             <MessageSquarePlus className="h-4 w-4" />
           </button>
@@ -337,6 +376,130 @@ export function ConversationList({
           );
         })}
       </ul>
+
+      {open && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/40 backdrop-blur-sm p-4" role="dialog" aria-modal="true" onClick={() => setOpen(false)}>
+          <form
+            onClick={e => e.stopPropagation()}
+            onSubmit={handleSubmit}
+            className="w-full max-w-md rounded-2xl bg-card border border-border p-6 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto"
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold">Nueva conversación</h3>
+              <button type="button" onClick={() => setOpen(false)} className="p-1 rounded-md hover:bg-muted text-muted-foreground">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setChannel("whatsapp")}
+                className={cn(
+                  "flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium border transition-colors",
+                  channel === "whatsapp"
+                    ? "bg-green-500/10 border-green-500 text-green-700 dark:text-green-400"
+                    : "border-border hover:bg-muted"
+                )}
+              >
+                <Smartphone className="h-4 w-4" /> WhatsApp
+              </button>
+              <button
+                type="button"
+                onClick={() => setChannel("widget")}
+                className={cn(
+                  "flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium border transition-colors",
+                  channel === "widget"
+                    ? "bg-blue-500/10 border-blue-500 text-blue-700 dark:text-blue-400"
+                    : "border-border hover:bg-muted"
+                )}
+              >
+                <Globe className="h-4 w-4" /> Widget
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">Teléfono *</label>
+                <Input
+                  value={phone}
+                  onChange={e => setPhone(e.target.value)}
+                  placeholder="50688886666"
+                  required
+                  className="h-10"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">Nombre</label>
+                <Input
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                  placeholder="Cliente"
+                  className="h-10"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">Correo</label>
+                <Input
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  placeholder="cliente@ejemplo.com"
+                  className="h-10"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">Cuenta</label>
+                <Input
+                  value={account}
+                  onChange={e => setAccount(e.target.value)}
+                  placeholder="Cuenta Sekunet"
+                  className="h-10"
+                />
+              </div>
+              {channel === "widget" && (
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">Cédula (para reanudar en widget)</label>
+                  <Input
+                    value={cedula}
+                    onChange={e => setCedula(e.target.value)}
+                    placeholder="123456789"
+                    className="h-10"
+                  />
+                </div>
+              )}
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">Mensaje *</label>
+                <textarea
+                  value={message}
+                  onChange={e => setMessage(e.target.value)}
+                  placeholder="Escriba el mensaje inicial..."
+                  required
+                  rows={4}
+                  className="w-full resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="flex-1 px-4 py-2 rounded-lg border border-border text-sm font-medium hover:bg-muted"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={loading || !phone.trim() || !message.trim()}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                {channel === "whatsapp" ? "Enviar WhatsApp" : "Crear widget"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </aside>
   );
 }

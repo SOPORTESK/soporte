@@ -825,8 +825,16 @@ async function startSession(){
     }
     sid=null;try{localStorage.removeItem("wgt_session")}catch(e){}
   }
-  /* Cada nueva sesión arranca de cero: no reusamos casos previos por cédula.
-     Solo se retoma un caso si localStorage.sek_session existía y sigue vivo (manejado arriba). */
+  /* Buscar caso widget existente por cédula para reanudar conversación iniciada por agente */
+  if(clienteData && clienteData.cedula){
+    try{
+      var exist=await db.from("sek_cases").select("id,histcliente,histtecnico,estado,cliente").eq("canal","widget").not("estado","in","(\"cerrado\",\"resuelto\")").contains("cliente",{cedula:clienteData.cedula}).order("created_at",{ascending:false}).limit(1).maybeSingle();
+      if(exist.data){
+        sid=String(exist.data.id);try{localStorage.setItem("wgt_session",sid)}catch(e){}
+        showChat(exist.data.histcliente,exist.data.histtecnico,exist.data.estado,exist.data.cliente);return;
+      }
+    }catch(e){console.error("[widget] error buscando caso por cédula:",e);}
+  }
   sid=null;
   showChat([],[],"pendiente",clienteData);
 }
