@@ -44,7 +44,12 @@ function inferMimeFromExt(ext: string): string {
     "ogg": "audio/ogg",
     "wav": "audio/wav",
     "zip": "application/zip",
-    "rar": "application/x-rar-compressed"
+    "rar": "application/x-rar-compressed",
+    "exe": "application/x-msdownload",
+    "msi": "application/x-msi",
+    "dmg": "application/x-apple-diskimage",
+    "apk": "application/vnd.android.package-archive",
+    "ipa": "application/octet-stream"
   };
   return map[ext.toLowerCase()] || "application/octet-stream";
 }
