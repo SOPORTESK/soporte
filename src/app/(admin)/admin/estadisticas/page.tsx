@@ -25,6 +25,14 @@ export default async function EstadisticasClientePage() {
     casos = casosFallback as any;
   }
 
+  // Cargar marcas del inventario para validar títulos de casos (RLS staff)
+  const { data: inventario } = await supabase.from("sek_inventario").select("marca").limit(1000);
+  const marcasInventario = new Set(
+    (inventario || [])
+      .map((r: any) => String(r.marca).trim().toLowerCase())
+      .filter(Boolean)
+  );
+
   // ── Fechas
   const hoy = new Date(); hoy.setHours(0,0,0,0);
 
@@ -88,7 +96,7 @@ export default async function EstadisticasClientePage() {
 
   const topClientes = Object.values(mapa).sort((a, b) => b.total - a.total);
 
-  // ── Derivar equipo (marca+modelo) desde columnas, cliente.equipo, o title "Tema — Marca Modelo"
+  // ── Derivar equipo (marca+modelo) desde columnas, cliente.equipo, o title validado con inventario
   const deriveEquipo = (c: any): { marca: string; modelo: string } | null => {
     // 1. Columnas directas (las escribe ia-agent)
     if (c.marca && c.modelo) return { marca: String(c.marca).trim(), modelo: String(c.modelo).trim() };
@@ -102,14 +110,25 @@ export default async function EstadisticasClientePage() {
         return { marca: partes[0], modelo: partes.slice(1).join(" ") };
       }
     }
-    // 3. title con formato "Tema — Marca Modelo" (lo escriben seka-widget/seka-whatsapp)
+    // 3. title con formato "Tema — Marca Modelo" validado contra marcas de inventario
     const title = String(c.title || "").trim();
     const dashParts = title.split("\u2014"); // em-dash "—"
     if (dashParts.length < 2) return null;
-    const equipoPart = dashParts.slice(1).join("\u2014").trim(); // por si el modelo tiene em-dash
-    const eqWords = equipoPart.split(/\s+/).filter(Boolean);
+    const equipoPart = dashParts.slice(1).join("\u2014").trim();
+    // Normalizar: quitar prefijos como "en cartera:"
+    const limpio = equipoPart.replace(/^en\s+cartera[:：]?\s*/i, "").replace(/[:：]\s*$/, "").trim();
+    const eqWords = limpio.split(/\s+/).filter(Boolean);
     if (eqWords.length >= 2) {
-      return { marca: eqWords[0], modelo: eqWords.slice(1).join(" ") };
+      // Buscar la primera palabra que sea una marca conocida del inventario
+      for (let i = 0; i < eqWords.length; i++) {
+        const w = eqWords[i].replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+        if (w && marcasInventario.has(w)) {
+          return {
+            marca: eqWords[i],
+            modelo: eqWords.slice(i + 1).join(" ").replace(/\s*[:：].*$/, "").trim() || eqWords[i + 1] || "",
+          };
+        }
+      }
     }
     return null;
   };
