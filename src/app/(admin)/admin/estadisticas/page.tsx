@@ -168,25 +168,74 @@ export default async function EstadisticasClientePage() {
     instalacion_nueva: "Instalación nueva", deteccion_incendio: "Detección incendio",
     control_acceso: "Control de acceso", intrusion_alarma: "Intrusión / alarma", otro: "Otro",
   };
-  // Mapeo de tags conocidos a etiqueta de problema (los tags que escriben las funciones IA)
+  const normalizeKey = (s: string) =>
+    s.toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+
+  // Mapeo de tags a etiquetas de problema. Los sub-estados de reset/desvinculacion
+  // se agrupan bajo el problema principal para no hacer un reguero de categorías.
   const tagAProblema: Record<string, string> = {
     reset: "Reset contraseña",
+    reset_contrasena: "Reset contraseña",
+    verificacion_pendiente: "Reset contraseña",
+    imagen_pendiente: "Reset contraseña",
+    xml_pendiente: "Reset contraseña",
+    modelo_pendiente: "Reset contraseña",
+    modelo_no_validado: "Reset contraseña",
     desvinculacion: "Desvinculación cuenta",
-    "reset_contrasena": "Reset contraseña",
-    "desvinculacion_cuenta": "Desvinculación cuenta",
+    desvinculacion_cuenta: "Desvinculación cuenta",
+    sin_imagen: "Sin imagen",
+    sin_grabacion: "Sin grabación",
+    sin_acceso_remoto: "Sin acceso remoto",
+    sin_energia: "Sin energía",
+    error_configuracion: "Error de configuración",
+    conectividad_red: "Conectividad / red",
+    dano_fisico: "Daño físico",
+    actualizacion_firmware: "Actualización firmware",
+    instalacion_nueva: "Instalación nueva",
+    deteccion_incendio: "Detección incendio",
+    control_acceso: "Control de acceso",
+    intrusion_alarma: "Intrusión / alarma",
+    otro: "Otro",
   };
   // Tags que NO son problemas (deben ignorarse)
   const tagsNoProblema = new Set(["saliente", "entrante", "urgente", "vip"]);
 
-  // ── Derivar clave de problema: columna problema o tags conocidos
+  // Mapeo de temas del title a etiquetas (fallback cuando no hay tags)
+  const temaAProblema: Record<string, string> = {
+    reset: "Reset contraseña",
+    desvinculacion: "Desvinculación cuenta",
+    configuraciones: "Configuraciones",
+    software: "Software",
+    soporte: "Soporte general",
+    acceso: "Control de acceso",
+    camara: "Cámaras",
+    nvr: "NVR / Grabador",
+    dvr: "DVR / Grabador",
+    alarma: "Alarma / Intrusión",
+    incendio: "Detección incendio",
+    red: "Conectividad / red",
+    firmware: "Actualización firmware",
+  };
+
+  // ── Derivar clave de problema: columna, tags, o tema del title
   const deriveProblema = (c: any): { key: string; label: string } | null => {
     if (c.problema) return { key: c.problema, label: labels[c.problema] || c.problema };
     const tags: string[] = Array.isArray(c.tags) ? c.tags : [];
     for (const t of tags) {
       const tl = String(t).toLowerCase().trim();
       if (tagsNoProblema.has(tl)) continue;
-      if (tagAProblema[tl]) return { key: tl, label: tagAProblema[tl] };
+      if (tagAProblema[tl]) return { key: normalizeKey(tagAProblema[tl]), label: tagAProblema[tl] };
       if (labels[tl]) return { key: tl, label: labels[tl] };
+    }
+    // Fallback: tema del title (antes del em-dash)
+    const title = String(c.title || "").trim();
+    const tema = title.split("\u2014")[0].trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (tema && temaAProblema[tema]) {
+      return { key: tema, label: temaAProblema[tema] };
     }
     return null;
   };
