@@ -110,24 +110,24 @@ export default async function EstadisticasClientePage() {
         return { marca: partes[0], modelo: partes.slice(1).join(" ") };
       }
     }
-    // 3. title con formato "Tema — Marca Modelo" validado contra marcas de inventario
+    // 3. title con formato "Tema — Marca Modelo [— Descripción]" validado contra marcas de inventario
     const title = String(c.title || "").trim();
     const dashParts = title.split("\u2014"); // em-dash "—"
     if (dashParts.length < 2) return null;
     const equipoPart = dashParts.slice(1).join("\u2014").trim();
     // Normalizar: quitar prefijos como "en cartera:"
-    const limpio = equipoPart.replace(/^en\s+cartera[:：]?\s*/i, "").replace(/[:：]\s*$/, "").trim();
+    const limpio = equipoPart.replace(/^en\s+cartera[:：]?\s*/i, "").trim();
     const eqWords = limpio.split(/\s+/).filter(Boolean);
-    if (eqWords.length >= 2) {
-      // Buscar la primera palabra que sea una marca conocida del inventario
-      for (let i = 0; i < eqWords.length; i++) {
-        const w = eqWords[i].replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
-        if (w && marcasInventario.has(w)) {
-          return {
-            marca: eqWords[i],
-            modelo: eqWords.slice(i + 1).join(" ").replace(/\s*[:：].*$/, "").trim() || eqWords[i + 1] || "",
-          };
-        }
+    // Buscar la primera palabra que sea una marca conocida del inventario
+    for (let i = 0; i < eqWords.length; i++) {
+      const w = eqWords[i].replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+      if (w && marcasInventario.has(w)) {
+        // Todo lo que sigue a la marca es modelo + descripción (incluye em-dashes si los hay)
+        const resto = limpio.substring(limpio.indexOf(eqWords[i]) + eqWords[i].length).trim();
+        return {
+          marca: eqWords[i],
+          modelo: resto.replace(/\s*[:：]\s*$/, "").trim(),
+        };
       }
     }
     return null;
