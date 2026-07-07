@@ -13,13 +13,15 @@ export default async function EstadisticasClientePage() {
   // Intentar con columnas nuevas; si fallan (aún no migradas), usar columnas base
   let { data: casos, error: casosErr } = await supabase
     .from("sek_cases")
-    .select("id, estado, cliente, created_at, updated_at, canal, cat, title, prioridad, assigned_to, marca, modelo, resolucion, problema")
+    .select("id, estado, cliente, created_at, updated_at, canal, title, prioridad, assigned_to, marca, modelo, resolucion, problema")
     .order("created_at", { ascending: false });
   if (casosErr) {
-    const { data: casosFallback } = await supabase
+    console.error("[estadisticas] Error consulta completa:", casosErr.message);
+    const { data: casosFallback, error: fallbackErr } = await supabase
       .from("sek_cases")
-      .select("id, estado, cliente, created_at, updated_at, canal, cat, title, prioridad, assigned_to")
+      .select("id, estado, cliente, created_at, updated_at, canal, title, prioridad, assigned_to")
       .order("created_at", { ascending: false });
+    if (fallbackErr) console.error("[estadisticas] Error fallback:", fallbackErr.message);
     casos = casosFallback as any;
   }
 
@@ -80,7 +82,8 @@ export default async function EstadisticasClientePage() {
     m.canales[canal] = (m.canales[canal] || 0) + 1;
     if (c.created_at < m.primerCaso) m.primerCaso = c.created_at;
     if (c.created_at > m.ultimoCaso) { m.ultimoCaso = c.created_at; m.ultimoCasoId = c.id; }
-    if (c.cat && !m.cats.includes(c.cat)) m.cats.push(c.cat);
+    const cat = (c as any).cat as string | undefined;
+    if (cat && !m.cats.includes(cat)) m.cats.push(cat);
   });
 
   const topClientes = Object.values(mapa).sort((a, b) => b.total - a.total);
@@ -95,7 +98,7 @@ export default async function EstadisticasClientePage() {
     if (!c.marca || !c.modelo) return;
     const key = `${c.marca}||${c.modelo}`;
     if (!equipoMap[key]) {
-      equipoMap[key] = { marca: c.marca, modelo: c.modelo, cat: c.cat || "", total: 0, resueltos: 0, clientes: new Set(), ultimoCasoId: c.id, ultimoCasoAt: c.created_at };
+      equipoMap[key] = { marca: c.marca, modelo: c.modelo, cat: (c as any).cat || "", total: 0, resueltos: 0, clientes: new Set(), ultimoCasoId: c.id, ultimoCasoAt: c.created_at };
     }
     const e = equipoMap[key];
     e.total++;
