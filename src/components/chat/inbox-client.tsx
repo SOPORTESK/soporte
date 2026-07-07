@@ -264,8 +264,10 @@ export function InboxClient({
       url.searchParams.set("c", id);
       router.replace(url.pathname + url.search, { scroll: false });
     }
-    // Usar ref para leer el estado actual sin stale closure
-    const exists = casesRef.current.some(c => String(c.id) === id || (c as any)._group?.caseIds?.some((cid: any) => String(cid) === id));
+    // Las claves de grupo (tel:/case:) siempre provienen de la lista renderizada → seleccionar directo.
+    // Solo se carga de Supabase cuando es un id real (numérico/uuid) aún no presente (ej. caso saliente nuevo).
+    const isGroupKey = id.startsWith("tel:") || id.startsWith("case:");
+    const exists = isGroupKey || casesRef.current.some(c => String(c.id) === id || (c as any)._group?.caseIds?.some((cid: any) => String(cid) === id));
     if (exists) {
       setSelectedId(id);
     } else {
