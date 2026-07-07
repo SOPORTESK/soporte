@@ -208,6 +208,7 @@ export function InboxClient({
   const [allCases, setAllCases] = React.useState<SekCase[]>(initialCases); // Sin filtrar, para banner de escalados
   const [selectedId, setSelectedId] = React.useState<string | null>(initialSelectedId);
   const [unreadTotal, setUnreadTotal] = React.useState(0);
+  const [pendingSelectId, setPendingSelectId] = React.useState<string | null>(null);
   const [agentEmail, setAgentEmail] = React.useState<string | null>(null);
   const [agentName, setAgentName] = React.useState<string | null>(null);
   const [agentRole, setAgentRole] = React.useState<string | null>(null);
@@ -253,7 +254,6 @@ export function InboxClient({
   }, [supabase, godModeEmail]);
 
   const selectCase = React.useCallback((id: string) => {
-    setSelectedId(id);
     // En modo PWA standalone no persistir el chat en la URL para que al reabrir
     // la app siempre muestre la bandeja y no el último chat visitado
     const isPwa = window.matchMedia("(display-mode: standalone)").matches ||
@@ -263,7 +263,24 @@ export function InboxClient({
       url.searchParams.set("c", id);
       router.replace(url.pathname + url.search, { scroll: false });
     }
-  }, [router]);
+    // Verificar si el caso ya está en la lista; si no, cargarlo e ir con pendingSelectId
+    setCases(prev => {
+      const exists = prev.some(c => String(c.id) === id || c._group?.caseIds.some(cid => String(cid) === id));
+      if (exists) {
+        setSelectedId(id);
+        return prev;
+      }
+      // No está en lista: cargar desde Supabase e inyectar
+      setPendingSelectId(id);
+      supabase.from("sek_cases").select("*").eq("id", id).maybeSingle().then(({ data }) => {
+        if (data) setCases(p => {
+          if (p.some(c => String(c.id) === String(data.id))) return p;
+          return [data as any, ...p];
+        });
+      });
+      return prev;
+    });
+  }, [router, supabase]);
 
   const handleCaseDeleted = React.useCallback((id: string) => {
     if (selectedId === id) {
@@ -288,6 +305,17 @@ export function InboxClient({
     const effectiveContainer = godModeEmail ? "mi-gestion" : containerType;
     return filterCasesByContainer(cases, effectiveContainer, agentEmail, agentName);
   }, [cases, containerType, agentEmail, agentName, initialCases, godModeEmail]);
+
+  /* Cuando llega un caso pendiente de abrir, seleccionarlo en cuanto esté disponible */
+  React.useEffect(() => {
+    if (!pendingSelectId) return;
+    // Buscar en la lista sin filtrar (cases) para no depender del filtro de containerType
+    const exists = cases.some(c => String(c.id) === pendingSelectId || c._group?.caseIds.some(cid => String(cid) === pendingSelectId));
+    if (exists) {
+      setSelectedId(pendingSelectId);
+      setPendingSelectId(null);
+    }
+  }, [cases, pendingSelectId]);
 
   /* Casos agrupados por cliente (un solo chat por cliente, varios casos dentro) */
   const mergedCases = React.useMemo(() => mergeGroups(filteredCases), [filteredCases]);
@@ -495,7 +523,8 @@ export function InboxClient({
     || mergedCases.find(c => c._group?.caseIds.some(cid => String(cid) === selectedId))
     || escaladosPendientes.find(c => String(c.id) === selectedId)
     || escaladosPendientes.find(c => c._group?.caseIds.some(cid => String(cid) === selectedId))
-    || null;
+    // Fallback: buscar en allCases (sin filtrar) para casos salientes recién creados
+    || (selectedId ? (allCases.find(c => String(c.id) === selectedId) as any || null) : null);
 
   const [listWidth, setListWidth] = React.useState<number>(340);
   const [mounted, setMounted] = React.useState(false);

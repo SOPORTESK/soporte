@@ -86,8 +86,9 @@ export function ConversationList({
       setOpen(false);
       setPhone("");
       if (data.case_id) {
-        // Los casos salientes se asignan al agente → viven en Mi Gestión
-        window.location.assign(`/mi-gestion?c=${data.case_id}`);
+        const cid = String(data.case_id);
+        onSelect(cid);
+        router.replace(`?c=${cid}`, { scroll: false });
       }
     } catch (e: any) {
       toast.error("No se pudo abrir la conversación", { description: e?.message });
