@@ -88,24 +88,7 @@ export default async function EstadisticasClientePage() {
 
   const topClientes = Object.values(mapa).sort((a, b) => b.total - a.total);
 
-  // ── DIAGNÓSTICO TEMPORAL: contar qué campos de equipo tienen los casos
-  const debugEquipos = {
-    conMarcaColumna: (casos || []).filter((c: any) => c.marca && c.modelo).length,
-    conEquipoMatch: (casos || []).filter((c: any) => {
-      const cli = typeof c.cliente === "string" ? (() => { try { return JSON.parse(c.cliente); } catch { return {}; } })() : (c.cliente || {});
-      return cli.equipo_match;
-    }).length,
-    conEquipo: (casos || []).filter((c: any) => {
-      const cli = typeof c.cliente === "string" ? (() => { try { return JSON.parse(c.cliente); } catch { return {}; } })() : (c.cliente || {});
-      return cli.equipo;
-    }).length,
-    muestras: (casos || []).slice(0, 5).map((c: any) => {
-      const cli = typeof c.cliente === "string" ? (() => { try { return JSON.parse(c.cliente); } catch { return {}; } })() : (c.cliente || {});
-      return { title: c.title, marca: c.marca, modelo: c.modelo, equipo: cli.equipo, equipo_match: cli.equipo_match, tags: c.tags };
-    }),
-  };
-
-  // ── Derivar equipo (marca+modelo) desde columnas o, si faltan, desde cliente.equipo_match/equipo
+  // ── Derivar equipo (marca+modelo) desde columnas, cliente.equipo, o title "Tema — Marca Modelo"
   const deriveEquipo = (c: any): { marca: string; modelo: string } | null => {
     // 1. Columnas directas (las escribe ia-agent)
     if (c.marca && c.modelo) return { marca: String(c.marca).trim(), modelo: String(c.modelo).trim() };
@@ -118,6 +101,15 @@ export default async function EstadisticasClientePage() {
       if (partes.length >= 2) {
         return { marca: partes[0], modelo: partes.slice(1).join(" ") };
       }
+    }
+    // 3. title con formato "Tema — Marca Modelo" (lo escriben seka-widget/seka-whatsapp)
+    const title = String(c.title || "").trim();
+    const dashParts = title.split("\u2014"); // em-dash "—"
+    if (dashParts.length < 2) return null;
+    const equipoPart = dashParts.slice(1).join("\u2014").trim(); // por si el modelo tiene em-dash
+    const eqWords = equipoPart.split(/\s+/).filter(Boolean);
+    if (eqWords.length >= 2) {
+      return { marca: eqWords[0], modelo: eqWords.slice(1).join(" ") };
     }
     return null;
   };
@@ -739,33 +731,7 @@ export default async function EstadisticasClientePage() {
       ══════════════════════════════════════════════════════════════════ */}
       <section className="grid gap-4 lg:grid-cols-2">
 
-        {/* Diagnóstico temporal de campos de equipo */}
-      <div className="lg:col-span-2 rounded-2xl border border-border/60 bg-card p-5">
-        <h3 className="text-sm font-black mb-3">Diagnóstico de campos de equipo</h3>
-        <div className="grid grid-cols-3 gap-4 mb-4">
-          <div className="text-center">
-            <p className="text-xs text-muted-foreground">marca/modelo columnas</p>
-            <p className="text-xl font-black text-brand-500">{debugEquipos.conMarcaColumna}</p>
-          </div>
-          <div className="text-center">
-            <p className="text-xs text-muted-foreground">cliente.equipo_match</p>
-            <p className="text-xl font-black text-violet-500">{debugEquipos.conEquipoMatch}</p>
-          </div>
-          <div className="text-center">
-            <p className="text-xs text-muted-foreground">cliente.equipo</p>
-            <p className="text-xl font-black text-sky-500">{debugEquipos.conEquipo}</p>
-          </div>
-        </div>
-        <div className="space-y-1 text-[10px] font-mono text-muted-foreground">
-          {debugEquipos.muestras.map((m, i) => (
-            <div key={i} className="p-2 rounded bg-muted/30 break-all">
-              {JSON.stringify(m)}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Equipos más reportados */}
+        {/* Equipos más reportados */}
         <div className="rounded-2xl border border-border/60 bg-card overflow-hidden">
           <div className="flex items-center justify-between px-5 py-4 border-b border-border/50 bg-gradient-to-r from-sky-500/5 to-transparent">
             <div className="flex items-center gap-2.5">
