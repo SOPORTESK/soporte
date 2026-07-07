@@ -3,7 +3,8 @@ import { createClient } from "@supabase/supabase-js";
 
 export async function POST(req: NextRequest) {
   try {
-    const { email, password, nombre, apellido, rol } = await req.json();
+    const { email, nombre, apellido, rol } = await req.json();
+    if (!email) return NextResponse.json({ error: "El email es obligatorio" }, { status: 400 });
 
     // Usar SERVICE ROLE KEY para gestionar Auth
     const supabaseAdmin = createClient(
@@ -17,17 +18,17 @@ export async function POST(req: NextRequest) {
       }
     );
 
-    // 1. Crear usuario en Auth
-    const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: { nombre, apellido }
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3100";
+
+    // 1. Enviar invitación por email. Supabase Auth envía el correo con link de confirmación.
+    const { data: inviteData, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
+      redirectTo: `${siteUrl}/login`,
+      data: { nombre, apellido }
     });
 
-    if (authError) throw authError;
+    if (inviteError) throw inviteError;
 
-    // 2. Crear entrada en sek_agent_config
+    // 2. Crear entrada en sek_agent_config (pre-registro del agente)
     const { error: dbError } = await supabaseAdmin
       .from("sek_agent_config")
       .insert({
@@ -39,7 +40,7 @@ export async function POST(req: NextRequest) {
 
     if (dbError) throw dbError;
 
-    return NextResponse.json({ success: true, user: authUser.user });
+    return NextResponse.json({ success: true, user: inviteData.user });
 
   } catch (error: any) {
     console.error("Invite error:", error);

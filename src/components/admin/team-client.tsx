@@ -19,6 +19,20 @@ interface TeamClientProps {
   isSuperadmin: boolean;
 }
 
+const Modal = ({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) => (
+  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div className="bg-card border border-border rounded-2xl p-6 max-w-md w-full">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-semibold">{title}</h3>
+        <button onClick={onClose} className="p-1 rounded hover:bg-muted">
+          <X className="h-5 w-5" />
+        </button>
+      </div>
+      {children}
+    </div>
+  </div>
+);
+
 export function TeamClient({ humanAgents, sekaAgent, isSuperadmin }: TeamClientProps) {
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
   const [resettingAgent, setResettingAgent] = useState<Agent | null>(null);
@@ -73,8 +87,8 @@ export function TeamClient({ humanAgents, sekaAgent, isSuperadmin }: TeamClientP
   };
 
   const handleInvite = async () => {
-    if (!formData.email || !formData.password || !formData.nombre) {
-      alert("Email, contraseña y nombre son obligatorios");
+    if (!formData.email || !formData.nombre) {
+      alert("Email y nombre son obligatorios");
       return;
     }
     setLoading(true);
@@ -82,11 +96,17 @@ export function TeamClient({ humanAgents, sekaAgent, isSuperadmin }: TeamClientP
       const res = await fetch("/api/admin/agentes/invite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData)
+        body: JSON.stringify({
+          email: formData.email,
+          nombre: formData.nombre,
+          apellido: formData.apellido,
+          rol: formData.rol
+        })
       });
       if (res.ok) {
-        alert("Agente invitado exitosamente");
-        window.location.reload();
+        alert("Invitación enviada. El usuario recibirá un email para confirmar su cuenta.");
+        setIsInviting(false);
+        setFormData({});
       } else {
         const d = await res.json();
         alert("Error: " + d.error);
@@ -114,20 +134,6 @@ export function TeamClient({ humanAgents, sekaAgent, isSuperadmin }: TeamClientP
     } catch (e) { alert("Error de conexión"); }
     setLoading(false);
   };
-
-  const Modal = ({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) => (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-card border border-border rounded-2xl p-6 max-w-md w-full">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold">{title}</h3>
-          <button onClick={onClose} className="p-1 rounded hover:bg-muted">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
 
   return (
     <>
@@ -220,11 +226,6 @@ export function TeamClient({ humanAgents, sekaAgent, isSuperadmin }: TeamClientP
               type="email" placeholder="Correo electrónico" 
               className="w-full p-2 rounded-lg border bg-background"
               onChange={e => setFormData({...formData, email: e.target.value})}
-            />
-            <input 
-              type="password" placeholder="Contraseña inicial" 
-              className="w-full p-2 rounded-lg border bg-background"
-              onChange={e => setFormData({...formData, password: e.target.value})}
             />
             <select
               value={formData.rol || "tecnico"}
