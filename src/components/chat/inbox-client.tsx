@@ -216,6 +216,7 @@ export function InboxClient({
   const [godModeName, setGodModeName] = React.useState<string | null>(null);
   const supabase = React.useMemo(() => createClient(), []);
   const prevCasesRef = React.useRef<SekCase[]>(initialCases);
+  const casesRef = React.useRef<SekCase[]>(initialCases);
 
   /* Detectar MODO DIOS desde localStorage */
   React.useEffect(() => {
@@ -263,14 +264,12 @@ export function InboxClient({
       url.searchParams.set("c", id);
       router.replace(url.pathname + url.search, { scroll: false });
     }
-    // Verificar si el caso ya está en la lista; si no, cargarlo e ir con pendingSelectId
-    setCases(prev => {
-      const exists = prev.some(c => String(c.id) === id || c._group?.caseIds.some(cid => String(cid) === id));
-      if (exists) {
-        setSelectedId(id);
-        return prev;
-      }
-      // No está en lista: cargar desde Supabase e inyectar
+    // Usar ref para leer el estado actual sin stale closure
+    const exists = casesRef.current.some(c => String(c.id) === id || (c as any)._group?.caseIds?.some((cid: any) => String(cid) === id));
+    if (exists) {
+      setSelectedId(id);
+    } else {
+      // No está en lista: marcar pendiente y cargarlo desde Supabase
       setPendingSelectId(id);
       supabase.from("sek_cases").select("*").eq("id", id).maybeSingle().then(({ data }) => {
         if (data) setCases(p => {
@@ -278,8 +277,7 @@ export function InboxClient({
           return [data as any, ...p];
         });
       });
-      return prev;
-    });
+    }
   }, [router, supabase]);
 
   const handleCaseDeleted = React.useCallback((id: string) => {
@@ -305,6 +303,9 @@ export function InboxClient({
     const effectiveContainer = godModeEmail ? "mi-gestion" : containerType;
     return filterCasesByContainer(cases, effectiveContainer, agentEmail, agentName);
   }, [cases, containerType, agentEmail, agentName, initialCases, godModeEmail]);
+
+  /* Mantener casesRef siempre actualizado para evitar stale closure en selectCase */
+  React.useEffect(() => { casesRef.current = cases; }, [cases]);
 
   /* Cuando llega un caso pendiente de abrir, seleccionarlo en cuanto esté disponible */
   React.useEffect(() => {
