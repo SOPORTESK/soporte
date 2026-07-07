@@ -5,18 +5,34 @@ import { getEvolutionConfig } from "@/lib/evolution-config";
 
 export const dynamic = "force-dynamic";
 
+/** Intenta obtener el nombre de perfil de WhatsApp del número vía Evolution. */
+async function fetchWhatsAppProfileName(cleanPhone: string): Promise<string> {
+  try {
+    const evoCfg = await getEvolutionConfig();
+    if (!evoCfg.url || !evoCfg.apiKey || !evoCfg.instance) return "";
+    const res = await fetch(`${evoCfg.url.replace(/\/$/, "")}/chat/fetchProfile/${encodeURIComponent(evoCfg.instance)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: evoCfg.apiKey },
+      body: JSON.stringify({ number: cleanPhone }),
+    });
+    if (!res.ok) return "";
+    const data = await res.json().catch(() => ({}));
+    return String(data?.name || data?.pushName || data?.verifiedName || "").trim();
+  } catch (e: any) {
+    console.error("[outbound] fetchProfile error:", e?.message);
+    return "";
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const { channel, phone, name, email, account, cedula, message } = await req.json();
+    const { channel, phone } = await req.json();
 
     if (!channel || !["whatsapp", "widget"].includes(channel)) {
       return NextResponse.json({ error: "Canal inválido" }, { status: 400 });
     }
     if (!phone || typeof phone !== "string" || !phone.trim()) {
       return NextResponse.json({ error: "Teléfono requerido" }, { status: 400 });
-    }
-    if (!message || typeof message !== "string" || !message.trim()) {
-      return NextResponse.json({ error: "Mensaje requerido" }, { status: 400 });
     }
 
     const supabase = createClient();
@@ -36,16 +52,44 @@ export async function POST(req: NextRequest) {
     }
 
     const cleanPhone = phone.replace(/[^0-9]/g, "");
-    const displayName = name?.trim() || "Cliente";
-    const agentName = `${agent.nombre || ""} ${agent.apellido || ""}`.trim() || agent.email;
+    if (cleanPhone.length < 8) {
+      return NextResponse.json({ error: "Número inválido" }, { status: 400 });
+    }
+
+    // ── 1. Buscar caso EXISTENTE por número (sincronizar en vez de duplicar) ──
+    const { data: existing } = await serviceClient
+      .from("sek_cases")
+      .select("id, assigned_to, canal")
+      .neq("canal", "simulator")
+      .ilike("customer_phone", `%${cleanPhone}%`)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (existing) {
+      // Tomar el caso si aún no tiene agente asignado; no robar casos de otros.
+      if (!existing.assigned_to) {
+        await serviceClient
+          .from("sek_cases")
+          .update({ assigned_to: agent.email })
+          .eq("id", existing.id);
+      }
+      return NextResponse.json({ ok: true, case_id: existing.id, phone: cleanPhone, existing: true });
+    }
+
+    // ── 2. Número NUEVO: crear caso con datos vacíos (o nombre de perfil WhatsApp) ──
+    let profileName = "";
+    if (channel === "whatsapp") {
+      profileName = await fetchWhatsAppProfileName(cleanPhone);
+    }
+    const displayName = profileName || `+${cleanPhone}`;
 
     const cliente: Record<string, unknown> = {
-      nombre: displayName,
-      correo: email?.trim() || "",
+      nombre: profileName || "",
+      correo: "",
       telefono: cleanPhone,
-      cuenta: account?.trim() || "",
+      cuenta: "",
     };
-    if (cedula?.trim()) cliente.cedula = cedula.trim();
 
     const now = new Date().toISOString();
 
@@ -60,13 +104,9 @@ export async function POST(req: NextRequest) {
         customer_phone: cleanPhone,
         assigned_to: agent.email,
         accepted_at: channel === "whatsapp" ? now : null,
+        tags: ["saliente"],
         histcliente: [],
-        histtecnico: [{
-          role: "tecnico",
-          author: agentName,
-          content: message.trim(),
-          time: now,
-        }],
+        histtecnico: [],
       })
       .select("id")
       .single();
@@ -76,27 +116,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: createError?.message || "Error creando caso" }, { status: 500 });
     }
 
-    if (channel === "whatsapp") {
-      const evoCfg = await getEvolutionConfig();
-      if (evoCfg.url && evoCfg.apiKey && evoCfg.instance) {
-        try {
-          const to = `${cleanPhone}@s.whatsapp.net`;
-          const res = await fetch(`${evoCfg.url.replace(/\/$/, "")}/message/sendText/${encodeURIComponent(evoCfg.instance)}`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", apikey: evoCfg.apiKey },
-            body: JSON.stringify({ number: to, text: message.trim() }),
-          });
-          if (!res.ok) {
-            const body = await res.json().catch(() => ({}));
-            console.error("[outbound] Evolution error:", res.status, body);
-          }
-        } catch (e: any) {
-          console.error("[outbound] Error enviando WhatsApp:", e.message);
-        }
-      }
-    }
-
-    return NextResponse.json({ ok: true, case_id: newCase.id });
+    return NextResponse.json({ ok: true, case_id: newCase.id, phone: cleanPhone, existing: false });
   } catch (e: any) {
     console.error("[outbound] error:", e.message);
     return NextResponse.json({ error: e?.message || "Error inesperado" }, { status: 500 });

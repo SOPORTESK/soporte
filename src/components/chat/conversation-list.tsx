@@ -42,11 +42,6 @@ export function ConversationList({
   const [open, setOpen] = React.useState(false);
   const [channel, setChannel] = React.useState<"whatsapp" | "widget">("whatsapp");
   const [phone, setPhone] = React.useState("");
-  const [name, setName] = React.useState("");
-  const [email, setEmail] = React.useState("");
-  const [account, setAccount] = React.useState("");
-  const [cedula, setCedula] = React.useState("");
-  const [message, setMessage] = React.useState("");
   const [loading, setLoading] = React.useState(false);
 
   const isAdmin = agentRole === "admin" || agentRole === "superadmin";
@@ -77,25 +72,25 @@ export function ConversationList({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!phone.trim() || !message.trim()) return;
+    if (!phone.trim()) return;
     setLoading(true);
     try {
       const res = await fetch("/api/cases/outbound", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ channel, phone, name, email, account, cedula, message }),
+        body: JSON.stringify({ channel, phone }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Error al crear conversación");
-      toast.success("Conversación iniciada");
+      if (!res.ok) throw new Error(data.error || "Error al abrir la conversación");
+      toast.success(data.existing ? "Conversación existente abierta" : "Conversación creada");
       setOpen(false);
-      setPhone(""); setName(""); setEmail(""); setAccount(""); setCedula(""); setMessage("");
+      setPhone("");
       if (data.case_id) {
-        onSelect(data.case_id);
-        router.push(`/inbox?c=${data.case_id}`);
+        // Los casos salientes se asignan al agente → viven en Mi Gestión
+        window.location.assign(`/mi-gestion?c=${data.case_id}`);
       }
     } catch (e: any) {
-      toast.error("No se pudo iniciar la conversación", { description: e?.message });
+      toast.error("No se pudo abrir la conversación", { description: e?.message });
     } finally {
       setLoading(false);
     }
@@ -264,6 +259,7 @@ export function ConversationList({
           const preview = lm?.content || asText(c.last_message_preview) || sub || "Sin mensajes";
           const timeStr = formatTime(lm?.time || c.last_message_at || c.created_at);
           const estadoLower = String(c.estado || "").toLowerCase();
+          const isSaliente = Array.isArray(c.tags) && c.tags.some(t => String(t).toLowerCase() === "saliente");
           const isEscaladoPendiente = estadoLower === "escalado" && !c.accepted_at;
           const minutosEsperando = isEscaladoPendiente && c.escalado_at
             ? Math.floor((Date.now() - new Date(c.escalado_at).getTime()) / 60000)
@@ -307,6 +303,9 @@ export function ConversationList({
                   </div>
                   <p className="text-sm text-muted-foreground truncate mt-0.5">{preview}</p>
                   <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+                    {isSaliente && (
+                      <Badge variant="muted" className="text-[10px] bg-violet-500/15 text-violet-600 dark:text-violet-400">Saliente</Badge>
+                    )}
                     {ci.cuenta && <Badge variant="muted" className="text-[10px]">{ci.cuenta}</Badge>}
                     {/* Etiqueta de estado y conteo de casos agrupados */}
                     {c._group && c._group.totalCases > 1 && (
@@ -418,83 +417,37 @@ export function ConversationList({
               </button>
             </div>
 
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1">Teléfono *</label>
-                <Input
-                  value={phone}
-                  onChange={e => setPhone(e.target.value)}
-                  placeholder="50688886666"
-                  required
-                  className="h-10"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1">Nombre</label>
-                <Input
-                  value={name}
-                  onChange={e => setName(e.target.value)}
-                  placeholder="Cliente"
-                  className="h-10"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1">Correo</label>
-                <Input
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
-                  placeholder="cliente@ejemplo.com"
-                  className="h-10"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1">Cuenta</label>
-                <Input
-                  value={account}
-                  onChange={e => setAccount(e.target.value)}
-                  placeholder="Cuenta Sekunet"
-                  className="h-10"
-                />
-              </div>
-              {channel === "widget" && (
-                <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1">Cédula (para reanudar en widget)</label>
-                  <Input
-                    value={cedula}
-                    onChange={e => setCedula(e.target.value)}
-                    placeholder="123456789"
-                    className="h-10"
-                  />
-                </div>
-              )}
-              <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1">Mensaje *</label>
-                <textarea
-                  value={message}
-                  onChange={e => setMessage(e.target.value)}
-                  placeholder="Escriba el mensaje inicial..."
-                  required
-                  rows={4}
-                  className="w-full resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30"
-                />
-              </div>
+            <div>
+              <label className="block text-xs font-medium text-muted-foreground mb-1">Número de teléfono</label>
+              <Input
+                value={phone}
+                onChange={e => setPhone(e.target.value)}
+                placeholder="50688886666"
+                required
+                autoFocus
+                className="h-11 text-base"
+                onKeyDown={e => { if (e.key === "Enter" && phone.trim() && !loading) handleSubmit(e as any); }}
+              />
+              <p className="text-[11px] text-muted-foreground mt-1.5">
+                Si el número ya existe, se abre su conversación. Si es nuevo, se crea y se etiqueta como <strong>Saliente</strong>.
+              </p>
             </div>
 
-            <div className="flex items-center gap-2 pt-2">
+            <div className="flex items-center gap-2 pt-1">
               <button
                 type="button"
                 onClick={() => setOpen(false)}
-                className="flex-1 px-4 py-2 rounded-lg border border-border text-sm font-medium hover:bg-muted"
+                className="flex-1 px-4 py-2.5 rounded-lg border border-border text-sm font-medium hover:bg-muted"
               >
                 Cancelar
               </button>
               <button
                 type="submit"
-                disabled={loading || !phone.trim() || !message.trim()}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={loading || !phone.trim()}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                {channel === "whatsapp" ? "Enviar WhatsApp" : "Crear widget"}
+                Abrir chat
               </button>
             </div>
           </form>
