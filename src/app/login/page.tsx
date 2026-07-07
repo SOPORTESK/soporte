@@ -35,22 +35,6 @@ function LoginPageContent() {
     } finally { setLoading(false); }
   }
 
-  async function handleMagicLink() {
-    if (!email) { setError("Ingresa tu correo primero"); return; }
-    setLoading(true); setError(null);
-    try {
-      const supabase = createClient();
-      const { error } = await supabase.auth.signInWithOtp({
-        email,
-        options: { emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}` }
-      });
-      if (error) throw error;
-      toast.success("Te enviamos un enlace de acceso a tu correo");
-    } catch (err: any) {
-      setError(err?.message || "No fue posible enviar el enlace");
-    } finally { setLoading(false); }
-  }
-
   async function handleResetPassword() {
     if (!email) { setError("Ingresa tu correo primero para enviarte el enlace de recuperación"); return; }
     setLoading(true); setError(null);
@@ -181,12 +165,7 @@ function LoginPageContent() {
                 </div>
               </div>
               <div className="space-y-1.5">
-                <div className="flex justify-between items-center">
-                  <label htmlFor="password" className="text-sm font-medium">Contraseña</label>
-                  <button type="button" onClick={handleMagicLink} className="text-xs text-brand-700 dark:text-brand-300 hover:underline">
-                    Acceder con enlace por correo
-                  </button>
-                </div>
+                <label htmlFor="password" className="text-sm font-medium">Contraseña</label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" aria-hidden />
                   <Input id="password" type={showPwd ? "text" : "password"} autoComplete="current-password" required
