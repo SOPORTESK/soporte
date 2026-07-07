@@ -96,20 +96,33 @@ export default async function EstadisticasClientePage() {
 
   const topClientes = Object.values(mapa).sort((a, b) => b.total - a.total);
 
-  // ── Derivar equipo (marca+modelo) desde columnas, cliente.equipo, o title validado con inventario
+  // ── Derivar equipo (marca+modelo+descripción) solo si hay valores válidos
   const deriveEquipo = (c: any): { marca: string; modelo: string } | null => {
+    const esMarcaValida = (s: string) => {
+      const w = s.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+      return w.length > 1 && marcasInventario.has(w);
+    };
+
     // 1. Columnas directas (las escribe ia-agent)
-    if (c.marca && c.modelo) return { marca: String(c.marca).trim(), modelo: String(c.modelo).trim() };
+    if (c.marca && c.modelo) {
+      const marca = String(c.marca).trim();
+      const modelo = String(c.modelo).trim();
+      if (esMarcaValida(marca) && modelo.length > 1) {
+        return { marca, modelo };
+      }
+    }
+
     // 2. cliente.equipo_match "Marca Modelo (codigo)" o cliente.equipo "Marca Modelo"
     const cli = typeof c.cliente === "string" ? (() => { try { return JSON.parse(c.cliente); } catch { return {}; } })() : (c.cliente || {});
     const raw = String(cli.equipo_match || cli.equipo || "").trim();
-    if (raw && raw.length > 2) {
+    if (raw && raw.length > 3) {
       const sinCodigo = raw.split("(")[0].trim();
-      const partes = sinCodigo.split(/\s+/);
-      if (partes.length >= 2) {
+      const partes = sinCodigo.split(/\s+/).filter(Boolean);
+      if (partes.length >= 2 && esMarcaValida(partes[0])) {
         return { marca: partes[0], modelo: partes.slice(1).join(" ") };
       }
     }
+
     // 3. title con formato "Tema — Marca Modelo [— Descripción]" validado contra marcas de inventario
     const title = String(c.title || "").trim();
     const dashParts = title.split("\u2014"); // em-dash "—"
@@ -120,14 +133,12 @@ export default async function EstadisticasClientePage() {
     const eqWords = limpio.split(/\s+/).filter(Boolean);
     // Buscar la primera palabra que sea una marca conocida del inventario
     for (let i = 0; i < eqWords.length; i++) {
-      const w = eqWords[i].replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
-      if (w && marcasInventario.has(w)) {
-        // Todo lo que sigue a la marca es modelo + descripción (incluye em-dashes si los hay)
+      if (esMarcaValida(eqWords[i])) {
+        // Todo lo que sigue a la marca es modelo + descripción
         const resto = limpio.substring(limpio.indexOf(eqWords[i]) + eqWords[i].length).trim();
-        return {
-          marca: eqWords[i],
-          modelo: resto.replace(/\s*[:：]\s*$/, "").trim(),
-        };
+        if (resto.length > 1) {
+          return { marca: eqWords[i], modelo: resto.replace(/\s*[:：]\s*$/, "").trim() };
+        }
       }
     }
     return null;
