@@ -484,6 +484,14 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file || !agentEmail) return;
+    const MAX_MB = 50;
+    if (file.size > MAX_MB * 1024 * 1024) {
+      toast.error(`El archivo excede el límite de ${MAX_MB} MB`, {
+        description: `"${file.name}" pesa ${(file.size / 1024 / 1024).toFixed(1)} MB. Comprímaló o compártalo por otro medio.`,
+      });
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
     setUploadingFile(true);
     try {
       const ext = file.name.split(".").pop();
@@ -495,7 +503,13 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       const { data: urlData } = supabase.storage.from("attachments").getPublicUrl(path);
       await send("", urlData.publicUrl, file.type, file.name);
     } catch (err: any) {
-      toast.error("Error al subir archivo", { description: err?.message });
+      const msg: string = err?.message || "";
+      const isSize = msg.toLowerCase().includes("size") || msg.toLowerCase().includes("limit");
+      toast.error("Error al subir archivo", {
+        description: isSize
+          ? `El archivo supera el límite del servidor. Intente con un archivo más pequeño.`
+          : msg,
+      });
     } finally {
       setUploadingFile(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
