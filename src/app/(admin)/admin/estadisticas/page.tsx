@@ -148,24 +148,28 @@ export default async function EstadisticasClientePage() {
   const canalesOrdenados = Object.entries(canalCount).sort(([,a], [,b]) => b - a);
   const canalTotal = Object.values(canalCount).reduce((a, b) => a + b, 0);
 
-  // ── Nuevos vs Recurrentes por mes (últimos 6 meses)
+  // ── Nuevos vs Recurrentes por mes (últimos 6 meses) — comparar en UTC
+  const hoyUtc = new Date();
   const meses6: { label: string; nuevos: number; recurrentes: number }[] = [];
   for (let i = 5; i >= 0; i--) {
-    const desde = new Date(hoy); desde.setDate(1); desde.setMonth(hoy.getMonth() - i);
-    const hasta = new Date(desde); hasta.setMonth(desde.getMonth() + 1);
+    const desde = new Date(Date.UTC(hoyUtc.getUTCFullYear(), hoyUtc.getUTCMonth() - i, 1));
+    const hasta = new Date(Date.UTC(hoyUtc.getUTCFullYear(), hoyUtc.getUTCMonth() - i + 1, 1));
     const clientesEseMes = new Set<string>();
     const clientesAntes = new Set<string>();
     (casos || []).forEach(c => {
+      if (!c.created_at) return;
       const d = new Date(c.created_at);
-      const key = parseCliente(c.cliente); const k = key.cedula || key.correo || (key.telefono !== "—" ? key.telefono : `_id_${c.id}`);
+      const parsed = parseCliente(c.cliente);
+      const k = parsed.cedula || parsed.correo || (parsed.telefono !== "—" ? parsed.telefono : `_id_${c.id}`);
       if (d < desde) clientesAntes.add(k);
       if (d >= desde && d < hasta) clientesEseMes.add(k);
     });
     let nuevos = 0; let recurrentes = 0;
     clientesEseMes.forEach(k => { if (clientesAntes.has(k)) recurrentes++; else nuevos++; });
-    meses6.push({ label: desde.toLocaleDateString("es-CR", { month: "short", year: "2-digit" }), nuevos, recurrentes });
+    meses6.push({ label: desde.toLocaleDateString("es-CR", { month: "short", year: "2-digit", timeZone: "UTC" }), nuevos, recurrentes });
   }
   const meses6Max = Math.max(...meses6.map(m => m.nuevos + m.recurrentes), 1);
+  const meses6Total = meses6.reduce((s, m) => s + m.nuevos + m.recurrentes, 0);
 
   // ── Histograma: distribución de clientes por número de casos
   const histogramaMap: Record<string, number> = { "1": 0, "2": 0, "3-5": 0, "6-10": 0, "11+": 0 };
@@ -406,26 +410,33 @@ export default async function EstadisticasClientePage() {
               <span className="flex items-center gap-1 text-[10px] font-bold text-violet-500"><span className="h-2 w-2 rounded-sm bg-violet-500"/>Recurrentes</span>
             </div>
           </div>
-          <div className="flex items-end gap-3 h-32">
-            {meses6.map((m, i) => (
-              <div key={i} className="flex-1 flex flex-col items-center gap-0.5 group/m relative">
-                <div className="w-full flex flex-col-reverse gap-px" style={{ height: "100%" }}>
-                  <div
-                    className="w-full bg-gradient-to-t from-violet-600/80 to-violet-400/60 rounded-t-none hover:opacity-90 transition-opacity cursor-default"
-                    style={{ height: `${Math.round((m.recurrentes / meses6Max) * 100)}%` }}
-                  />
-                  <div
-                    className="w-full bg-gradient-to-t from-brand-600/80 to-brand-400/60 rounded-t-sm hover:opacity-90 transition-opacity cursor-default"
-                    style={{ height: `${Math.round((m.nuevos / meses6Max) * 100)}%` }}
-                  />
+          {meses6Total === 0 ? (
+            <div className="flex flex-col items-center justify-center h-32 text-muted-foreground/60 gap-2">
+              <BarChart3 className="h-8 w-8 opacity-30" />
+              <span className="text-xs font-medium">Sin datos en los últimos 6 meses</span>
+            </div>
+          ) : (
+            <div className="flex items-end gap-3 h-32">
+              {meses6.map((m, i) => (
+                <div key={i} className="flex-1 flex flex-col items-center gap-0.5 group/m relative">
+                  <div className="w-full flex flex-col-reverse gap-px" style={{ height: "100%" }}>
+                    <div
+                      className="w-full bg-gradient-to-t from-violet-600/80 to-violet-400/60 rounded-t-none hover:opacity-90 transition-opacity cursor-default"
+                      style={{ height: `${Math.round((m.recurrentes / meses6Max) * 100)}%` }}
+                    />
+                    <div
+                      className="w-full bg-gradient-to-t from-brand-600/80 to-brand-400/60 rounded-t-sm hover:opacity-90 transition-opacity cursor-default"
+                      style={{ height: `${Math.round((m.nuevos / meses6Max) * 100)}%` }}
+                    />
+                  </div>
+                  <div className="absolute -top-8 left-1/2 -translate-x-1/2 hidden group-hover/m:flex flex-col items-center bg-foreground text-background text-[9px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap z-10">
+                    <span className="text-brand-300">{m.nuevos} nuevos</span>
+                    <span className="text-violet-300">{m.recurrentes} recurrentes</span>
+                  </div>
                 </div>
-                <div className="absolute -top-8 left-1/2 -translate-x-1/2 hidden group-hover/m:flex flex-col items-center bg-foreground text-background text-[9px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap z-10">
-                  <span className="text-brand-300">{m.nuevos} nuevos</span>
-                  <span className="text-violet-300">{m.recurrentes} recurrentes</span>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
           <div className="flex justify-between mt-2">
             {meses6.map((m, i) => (
               <span key={i} className="flex-1 text-center text-[9px] text-muted-foreground/50">{m.label}</span>
