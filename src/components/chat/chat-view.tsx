@@ -484,7 +484,10 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file || !agentEmail) return;
-    const MAX_MB = 50;
+
+    const isWhatsApp = String(sekCase.canal || "").toLowerCase() === "whatsapp";
+    const MAX_MB = isWhatsApp ? 100 : 50;
+
     if (file.size > MAX_MB * 1024 * 1024) {
       toast.error(`El archivo excede el límite de ${MAX_MB} MB`, {
         description: `"${file.name}" pesa ${(file.size / 1024 / 1024).toFixed(1)} MB. Comprímaló o compártalo por otro medio.`,
@@ -492,23 +495,44 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
+
     setUploadingFile(true);
     try {
-      const ext = file.name.split(".").pop();
-      const path = `cases/${targetId}/${Date.now()}.${ext}`;
-      const { error: upErr } = await supabase.storage
-        .from("attachments")
-        .upload(path, file, { upsert: true, contentType: file.type || undefined });
-      if (upErr) throw upErr;
-      const { data: urlData } = supabase.storage.from("attachments").getPublicUrl(path);
-      await send("", urlData.publicUrl, file.type, file.name);
+      if (isWhatsApp) {
+        // Canal WhatsApp: enviar base64 directo a Evolution, sin pasar por Supabase Storage
+        const reader = new FileReader();
+        const base64 = await new Promise<string>((resolve, reject) => {
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        const res = await fetch("/api/evolution/send-base64", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ case_id: targetId, base64, mimeType: file.type || "application/octet-stream", fileName: file.name }),
+        });
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          throw new Error(d.error || `Error ${res.status}`);
+        }
+        // Registrar en histtecnico con el nombre del archivo (sin URL de storage)
+        await send("", undefined, file.type, file.name);
+      } else {
+        // Otros canales (Widget, etc.): subir a Supabase Storage como antes
+        const ext = file.name.split(".").pop();
+        const path = `cases/${targetId}/${Date.now()}.${ext}`;
+        const { error: upErr } = await supabase.storage
+          .from("attachments")
+          .upload(path, file, { upsert: true, contentType: file.type || undefined });
+        if (upErr) throw upErr;
+        const { data: urlData } = supabase.storage.from("attachments").getPublicUrl(path);
+        await send("", urlData.publicUrl, file.type, file.name);
+      }
     } catch (err: any) {
       const msg: string = err?.message || "";
       const isSize = msg.toLowerCase().includes("size") || msg.toLowerCase().includes("limit");
       toast.error("Error al subir archivo", {
-        description: isSize
-          ? `El archivo supera el límite del servidor. Intente con un archivo más pequeño.`
-          : msg,
+        description: isSize ? `El archivo supera el límite. Intente con un archivo más pequeño.` : msg,
       });
     } finally {
       setUploadingFile(false);
