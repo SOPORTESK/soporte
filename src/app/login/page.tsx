@@ -10,6 +10,16 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { ShieldCheck, Lock, Mail, AlertCircle, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 
+function normalizeEmail(raw: string): string {
+  return raw
+    .toLowerCase()
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ñ/g, "n")
+    .replace(/[^a-z0-9._%+-@]/g, "");
+}
+
 function LoginPageContent() {
   const router = useRouter();
   const params = useSearchParams();
@@ -25,7 +35,8 @@ function LoginPageContent() {
     setError(null); setLoading(true);
     try {
       const supabase = createClient();
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      const normalizedEmail = normalizeEmail(email);
+      const { error } = await supabase.auth.signInWithPassword({ email: normalizedEmail, password });
       if (error) throw error;
       toast.success("Bienvenido a Sekunet Chat");
       router.replace(next);
@@ -40,7 +51,8 @@ function LoginPageContent() {
     setLoading(true); setError(null);
     try {
       const supabase = createClient();
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      const normalizedEmail = normalizeEmail(email);
+      const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
         redirectTo: `${window.location.origin}/auth/callback?next=/admin/settings`
       });
       if (error) throw error;
