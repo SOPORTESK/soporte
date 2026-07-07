@@ -440,7 +440,13 @@ export default async function EstadisticasClientePage() {
               ))}
             </div>
           )}
-          <div className="flex justify-between mt-2">
+          {/* DEBUG: visible mientras se diagnostica el grafico */}
+          <div className="mt-2 flex justify-between text-[9px] text-muted-foreground/40">
+            {meses6.map((m, i) => (
+              <span key={i} className="flex-1 text-center">{m.nuevos + m.recurrentes}</span>
+            ))}
+          </div>
+          <div className="flex justify-between mt-1">
             {meses6.map((m, i) => (
               <span key={i} className="flex-1 text-center text-[9px] text-muted-foreground/50">{m.label}</span>
             ))}
