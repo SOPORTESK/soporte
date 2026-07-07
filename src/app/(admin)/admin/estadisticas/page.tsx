@@ -102,12 +102,16 @@ export default async function EstadisticasClientePage() {
       const w = s.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
       return w.length > 1 && marcasInventario.has(w);
     };
+    const esModeloValido = (s: string) => {
+      const w = s.replace(/[^a-zA-Z0-9]/g, "");
+      return w.length >= 2; // al menos 2 caracteres alfanuméricos reales
+    };
 
     // 1. Columnas directas (las escribe ia-agent)
     if (c.marca && c.modelo) {
       const marca = String(c.marca).trim();
       const modelo = String(c.modelo).trim();
-      if (esMarcaValida(marca) && modelo.length > 1) {
+      if (esMarcaValida(marca) && esModeloValido(modelo)) {
         return { marca, modelo };
       }
     }
@@ -118,7 +122,7 @@ export default async function EstadisticasClientePage() {
     if (raw && raw.length > 3) {
       const sinCodigo = raw.split("(")[0].trim();
       const partes = sinCodigo.split(/\s+/).filter(Boolean);
-      if (partes.length >= 2 && esMarcaValida(partes[0])) {
+      if (partes.length >= 2 && esMarcaValida(partes[0]) && esModeloValido(partes.slice(1).join(" "))) {
         return { marca: partes[0], modelo: partes.slice(1).join(" ") };
       }
     }
@@ -136,7 +140,7 @@ export default async function EstadisticasClientePage() {
       if (esMarcaValida(eqWords[i])) {
         // Todo lo que sigue a la marca es modelo + descripción
         const resto = limpio.substring(limpio.indexOf(eqWords[i]) + eqWords[i].length).trim();
-        if (resto.length > 1) {
+        if (esModeloValido(resto)) {
           return { marca: eqWords[i], modelo: resto.replace(/\s*[:：]\s*$/, "").trim() };
         }
       }
