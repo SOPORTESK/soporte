@@ -421,15 +421,15 @@ export default async function EstadisticasClientePage() {
           ) : (
             <div className="flex items-end gap-3 h-32">
               {meses6.map((m, i) => (
-                <div key={i} className="flex-1 flex flex-col items-center gap-0.5 group/m relative">
-                  <div className="w-full flex flex-col-reverse gap-px" style={{ height: "100%" }}>
+                <div key={i} className="flex-1 h-full flex flex-col justify-end items-center gap-0.5 group/m relative">
+                  <div className="w-full flex flex-col-reverse gap-px justify-end">
                     <div
                       className="w-full bg-gradient-to-t from-violet-600/80 to-violet-400/60 rounded-t-none hover:opacity-90 transition-opacity cursor-default"
-                      style={{ height: `${Math.round((m.recurrentes / meses6Max) * 100)}%` }}
+                      style={{ height: `${Math.round((m.recurrentes / meses6Max) * 128)}px` }}
                     />
                     <div
                       className="w-full bg-gradient-to-t from-brand-600/80 to-brand-400/60 rounded-t-sm hover:opacity-90 transition-opacity cursor-default"
-                      style={{ height: `${Math.round((m.nuevos / meses6Max) * 100)}%` }}
+                      style={{ height: `${Math.round((m.nuevos / meses6Max) * 128)}px` }}
                     />
                   </div>
                   <div className="absolute -top-8 left-1/2 -translate-x-1/2 hidden group-hover/m:flex flex-col items-center bg-foreground text-background text-[9px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap z-10">
@@ -440,13 +440,7 @@ export default async function EstadisticasClientePage() {
               ))}
             </div>
           )}
-          {/* DEBUG: visible mientras se diagnostica el grafico */}
-          <div className="mt-2 flex justify-between text-[9px] text-muted-foreground/40">
-            {meses6.map((m, i) => (
-              <span key={i} className="flex-1 text-center">{m.nuevos + m.recurrentes}</span>
-            ))}
-          </div>
-          <div className="flex justify-between mt-1">
+          <div className="flex justify-between mt-2">
             {meses6.map((m, i) => (
               <span key={i} className="flex-1 text-center text-[9px] text-muted-foreground/50">{m.label}</span>
             ))}
