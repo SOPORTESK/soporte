@@ -13,13 +13,13 @@ export default async function EstadisticasClientePage() {
   // Intentar con columnas nuevas; si fallan (aún no migradas), usar columnas base
   let { data: casos, error: casosErr } = await supabase
     .from("sek_cases")
-    .select("id, estado, cliente, created_at, updated_at, canal, title, prioridad, assigned_to, marca, modelo, resolucion, problema")
+    .select("id, estado, cliente, created_at, updated_at, canal, title, tags, prioridad, assigned_to, marca, modelo, resolucion, problema")
     .order("created_at", { ascending: false });
   if (casosErr) {
     console.error("[estadisticas] Error consulta completa:", casosErr.message);
     const { data: casosFallback, error: fallbackErr } = await supabase
       .from("sek_cases")
-      .select("id, estado, cliente, created_at, updated_at, canal, title, prioridad, assigned_to")
+      .select("id, estado, cliente, created_at, updated_at, canal, title, tags, prioridad, assigned_to")
       .order("created_at", { ascending: false });
     if (fallbackErr) console.error("[estadisticas] Error fallback:", fallbackErr.message);
     casos = casosFallback as any;
@@ -88,17 +88,35 @@ export default async function EstadisticasClientePage() {
 
   const topClientes = Object.values(mapa).sort((a, b) => b.total - a.total);
 
-  // ── Equipos más reportados (solo casos que tienen marca+modelo)
+  // ── Derivar equipo (marca+modelo) desde columnas o, si faltan, desde cliente.equipo_match/equipo
+  const deriveEquipo = (c: any): { marca: string; modelo: string } | null => {
+    // 1. Columnas directas (las escribe ia-agent)
+    if (c.marca && c.modelo) return { marca: String(c.marca).trim(), modelo: String(c.modelo).trim() };
+    // 2. cliente.equipo_match "Marca Modelo (codigo)" o cliente.equipo "Marca Modelo"
+    const cli = typeof c.cliente === "string" ? (() => { try { return JSON.parse(c.cliente); } catch { return {}; } })() : (c.cliente || {});
+    const raw = String(cli.equipo_match || cli.equipo || "").trim();
+    if (raw && raw.length > 2) {
+      const sinCodigo = raw.split("(")[0].trim();
+      const partes = sinCodigo.split(/\s+/);
+      if (partes.length >= 2) {
+        return { marca: partes[0], modelo: partes.slice(1).join(" ") };
+      }
+    }
+    return null;
+  };
+
+  // ── Equipos más reportados (deriva de columnas o de cliente.equipo)
   const equipoMap: Record<string, {
     marca: string; modelo: string; cat: string;
     total: number; resueltos: number;
     clientes: Set<string>; ultimoCasoId: string | number; ultimoCasoAt: string;
   }> = {};
   (casos || []).forEach(c => {
-    if (!c.marca || !c.modelo) return;
-    const key = `${c.marca}||${c.modelo}`;
+    const eq = deriveEquipo(c);
+    if (!eq) return;
+    const key = `${eq.marca}||${eq.modelo}`;
     if (!equipoMap[key]) {
-      equipoMap[key] = { marca: c.marca, modelo: c.modelo, cat: (c as any).cat || "", total: 0, resueltos: 0, clientes: new Set(), ultimoCasoId: c.id, ultimoCasoAt: c.created_at };
+      equipoMap[key] = { marca: eq.marca, modelo: eq.modelo, cat: (c as any).cat || "", total: 0, resueltos: 0, clientes: new Set(), ultimoCasoId: c.id, ultimoCasoAt: c.created_at };
     }
     const e = equipoMap[key];
     e.total++;
@@ -122,14 +140,38 @@ export default async function EstadisticasClientePage() {
     instalacion_nueva: "Instalación nueva", deteccion_incendio: "Detección incendio",
     control_acceso: "Control de acceso", intrusion_alarma: "Intrusión / alarma", otro: "Otro",
   };
+  // Mapeo de tags conocidos a etiqueta de problema (los tags que escriben las funciones IA)
+  const tagAProblema: Record<string, string> = {
+    reset: "Reset contraseña",
+    desvinculacion: "Desvinculación cuenta",
+    "reset_contrasena": "Reset contraseña",
+    "desvinculacion_cuenta": "Desvinculación cuenta",
+  };
+  // Tags que NO son problemas (deben ignorarse)
+  const tagsNoProblema = new Set(["saliente", "entrante", "urgente", "vip"]);
+
+  // ── Derivar clave de problema: columna problema o tags conocidos
+  const deriveProblema = (c: any): { key: string; label: string } | null => {
+    if (c.problema) return { key: c.problema, label: labels[c.problema] || c.problema };
+    const tags: string[] = Array.isArray(c.tags) ? c.tags : [];
+    for (const t of tags) {
+      const tl = String(t).toLowerCase().trim();
+      if (tagsNoProblema.has(tl)) continue;
+      if (tagAProblema[tl]) return { key: tl, label: tagAProblema[tl] };
+      if (labels[tl]) return { key: tl, label: labels[tl] };
+    }
+    return null;
+  };
+
   const problemaMap: Record<string, { label: string; total: number; resueltos: number; ultimoCasoId: string | number }> = {};
   (casos || []).forEach(c => {
-    if (!c.problema) return;
-    if (!problemaMap[c.problema]) {
-      problemaMap[c.problema] = { label: labels[c.problema] || c.problema, total: 0, resueltos: 0, ultimoCasoId: c.id };
+    const p = deriveProblema(c);
+    if (!p) return;
+    if (!problemaMap[p.key]) {
+      problemaMap[p.key] = { label: p.label, total: 0, resueltos: 0, ultimoCasoId: c.id };
     }
-    problemaMap[c.problema].total++;
-    if (c.estado === "resuelto" || c.estado === "cerrado") problemaMap[c.problema].resueltos++;
+    problemaMap[p.key].total++;
+    if (c.estado === "resuelto" || c.estado === "cerrado") problemaMap[p.key].resueltos++;
   });
   const topProblemas = Object.values(problemaMap).sort((a, b) => b.total - a.total);
   const maxProblema = topProblemas[0]?.total || 1;
