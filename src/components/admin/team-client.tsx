@@ -87,8 +87,8 @@ export function TeamClient({ humanAgents, sekaAgent, isSuperadmin }: TeamClientP
   };
 
   const handleInvite = async () => {
-    if (!formData.email || !formData.nombre) {
-      alert("Email y nombre son obligatorios");
+    if (!formData.email || !formData.password || !formData.nombre) {
+      alert("Email, contraseña y nombre son obligatorios");
       return;
     }
     setLoading(true);
@@ -96,15 +96,10 @@ export function TeamClient({ humanAgents, sekaAgent, isSuperadmin }: TeamClientP
       const res = await fetch("/api/admin/agentes/invite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: formData.email,
-          nombre: formData.nombre,
-          apellido: formData.apellido,
-          rol: formData.rol
-        })
+        body: JSON.stringify(formData)
       });
       if (res.ok) {
-        alert("Invitación enviada. El usuario recibirá un email para confirmar su cuenta.");
+        alert("Agente creado exitosamente");
         setIsInviting(false);
         setFormData({});
       } else {
@@ -226,6 +221,11 @@ export function TeamClient({ humanAgents, sekaAgent, isSuperadmin }: TeamClientP
               type="email" placeholder="Correo electrónico" 
               className="w-full p-2 rounded-lg border bg-background"
               onChange={e => setFormData({...formData, email: e.target.value})}
+            />
+            <input 
+              type="password" placeholder="Contraseña inicial" 
+              className="w-full p-2 rounded-lg border bg-background"
+              onChange={e => setFormData({...formData, password: e.target.value})}
             />
             <select
               value={formData.rol || "tecnico"}

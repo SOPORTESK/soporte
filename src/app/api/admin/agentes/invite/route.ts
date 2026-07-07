@@ -30,32 +30,29 @@ export async function POST(req: NextRequest) {
       }
     );
 
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3100";
-
-    // 1. Intentar enviar invitación por email. Si ya existe, enviar reset de contraseña.
-    let authUser: any = null;
-    let isExisting = false;
-    const { data: inviteData, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
-      redirectTo: `${siteUrl}/login`,
-      data: { nombre, apellido }
-    });
-
-    if (inviteError) {
-      const msg = inviteError.message || "";
-      if (msg.toLowerCase().includes("already been registered") || msg.toLowerCase().includes("user already registered")) {
-        isExisting = true;
-        // Buscar el usuario existente
-        const { data: usersData } = await supabaseAdmin.auth.admin.listUsers({});
-        authUser = (usersData?.users || []).find((u: any) => u.email?.toLowerCase() === email);
-      } else {
-        throw inviteError;
-      }
-    } else {
-      authUser = inviteData.user;
+    const { password } = body;
+    if (!password || password.length < 6) {
+      return NextResponse.json({ error: "La contraseña inicial es obligatoria y debe tener al menos 6 caracteres" }, { status: 400 });
     }
 
-    if (!authUser && !isExisting) {
-      return NextResponse.json({ error: "No se pudo obtener el usuario de Auth" }, { status: 500 });
+    // 1. Crear usuario en Auth directamente (flujo original que funciona sin SMTP)
+    const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { nombre, apellido }
+    });
+
+    if (authError) {
+      // Si ya existe, solo registramos/actualizamos en sek_agent_config
+      const msg = authError.message || "";
+      if (msg.toLowerCase().includes("already been registered") || msg.toLowerCase().includes("user already registered")) {
+        const { data: usersData } = await supabaseAdmin.auth.admin.listUsers({});
+        const existingUser = (usersData?.users || []).find((u: any) => u.email?.toLowerCase() === email);
+        if (!existingUser) return NextResponse.json({ error: "No se pudo encontrar el usuario existente" }, { status: 500 });
+      } else {
+        throw authError;
+      }
     }
 
     // 2. Crear/actualizar entrada en sek_agent_config
@@ -71,7 +68,7 @@ export async function POST(req: NextRequest) {
 
     if (dbError) throw dbError;
 
-    return NextResponse.json({ success: true, user: authUser, existing: isExisting });
+    return NextResponse.json({ success: true, user: authUser?.user || null });
 
   } catch (error: any) {
     console.error("Invite error:", error);

@@ -106,8 +106,8 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
   };
 
   const handleInvite = async () => {
-    if (!formData.email || !formData.nombre) {
-      alert("Email y nombre son obligatorios");
+    if (!formData.email || !formData.password || !formData.nombre) {
+      alert("Email, contraseña y nombre son obligatorios");
       return;
     }
     setLoading(true);
@@ -115,18 +115,10 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
       const res = await fetch("/api/admin/agentes/invite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: formData.email,
-          nombre: formData.nombre,
-          apellido: formData.apellido,
-          rol: formData.rol
-        })
+        body: JSON.stringify(formData)
       });
-      if (res.ok) {
-        alert("Invitación enviada. El usuario recibirá un email para confirmar su cuenta.");
-        setIsInviting(false);
-        setFormData({});
-      } else { const d = await res.json(); alert("Error: " + d.error); }
+      if (res.ok) { window.location.reload(); }
+      else { const d = await res.json(); alert("Error: " + d.error); }
     } catch { alert("Error de conexión"); }
     setLoading(false);
   };
@@ -556,6 +548,12 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
               <input type="email" placeholder="correo@ejemplo.com"
                 className="w-full p-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30 transition-all"
                 onChange={e => setFormData({...formData, email: e.target.value})} />
+            </div>
+            <div>
+              <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5 block">Contraseña Inicial</label>
+              <input type="password" placeholder="Mín. 6 caracteres"
+                className="w-full p-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30 transition-all"
+                onChange={e => setFormData({...formData, password: e.target.value})} />
             </div>
             <div>
               <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5 block">Rol</label>
