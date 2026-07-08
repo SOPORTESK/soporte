@@ -56,8 +56,8 @@ export async function POST(req: NextRequest) {
     const to = pickPhone(c);
     if (!to) return NextResponse.json({ error: "Sin teléfono" }, { status: 400 });
 
-    // Evolution acepta base64 como data URI: "data:<mime>;base64,<datos>"
-    const mediaData = base64.startsWith("data:") ? base64 : `data:${mimeType};base64,${base64}`;
+    // Evolution API espera solo el base64 puro (sin prefijo data:)
+    const mediaData = base64.startsWith("data:") ? base64.split(",")[1] : base64;
     const mediatype = detectMediaType(mimeType);
 
     const url = `${evoCfg.url.replace(/\/$/, "")}/message/sendMedia/${encodeURIComponent(evoCfg.instance)}`;
