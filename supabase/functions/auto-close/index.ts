@@ -150,10 +150,9 @@ Deno.serve(async (req) => {
   const { data: casos, error } = await db
     .from("sek_cases")
     .select("id, canal, estado, histcliente, histtecnico, created_at, assigned_to, customer_phone, cliente, escalado_at, auto_close_paused")
-    .neq("estado", "cerrado")
-    .neq("estado", "resuelto")
-    .neq("estado", "escalado")
-    .neq("estado", "pausa")
+    // Solo cerrar casos atendidos por IA (smart) o por un técnico humano (abierto).
+    // NUNCA cerrar casos escalados: el cliente está esperando que un humano lo atienda.
+    .in("estado", ["ia_atendiendo", "abierto"])
     .neq("canal", "simulator")
     .limit(200);
 
@@ -176,15 +175,10 @@ Deno.serve(async (req) => {
       continue;
     }
 
-    // PROTECCIÓN: no cerrar si no tiene assigned_to (nadie lo ha tomado)
-    if (!caso.assigned_to) {
+    // PROTECCIÓN: casos humanos (abierto) no se cierran si nadie los ha tomado aún.
+    // Los casos de IA (ia_atendiendo) sí pueden cerrarse porque la IA ya interactuó.
+    if (caso.estado !== "ia_atendiendo" && !caso.assigned_to) {
       console.log(`[auto-close] Caso ${caso.id} no tiene assigned_to, saltando`);
-      continue;
-    }
-
-    // PROTECCIÓN: no cerrar si tiene escalado_at (está esperando agente humano)
-    if (caso.escalado_at) {
-      console.log(`[auto-close] Caso ${caso.id} tiene escalado_at, saltando`);
       continue;
     }
 

@@ -1,0 +1,23 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+  <meta charset='UTF-8'>
+  <title>QR WhatsApp - Sekunet</title>
+  <script src='https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js'></script>
+</head>
+<body style='display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;margin:0;font-family:sans-serif;background:#111;color:#fff;'>
+  <h2>Escanea este QR para reconectar WhatsApp</h2>
+  <div id='qrcode'></div>
+  <p style='max-width:400px;text-align:center;'>En WhatsApp del teléfono: Menú &rarr; Dispositivos vinculados &rarr; Vincular un dispositivo</p>
+  <script>
+    new QRCode(document.getElementById('qrcode'), {
+      text: $code,
+      width: 300,
+      height: 300,
+      colorDark: '#000000',
+      colorLight: '#ffffff',
+      correctLevel: QRCode.CorrectLevel.M
+    });
+  </script>
+</body>
+</html>
