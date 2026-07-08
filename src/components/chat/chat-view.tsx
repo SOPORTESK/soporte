@@ -688,7 +688,6 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
 
   async function toggleAutoClosePaused() {
     try {
-      const targetId = sekCase.id;
       const res = await fetch("/api/admin/toggle-auto-close-paused", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
