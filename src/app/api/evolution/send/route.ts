@@ -2,24 +2,31 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getEvolutionConfig } from "@/lib/evolution-config";
 
+function normalizePhone(raw: string): string {
+  const digits = raw.replace(/[^0-9]/g, "");
+  // Números de Costa Rica móviles tienen 8 dígitos; si no tiene prefijo, agregar 506.
+  if (digits.length === 8 && !raw.replace(/[^0-9]/g, "").startsWith("506")) return `506${digits}`;
+  return digits;
+}
+
 function pickPhone(c: any): string | null {
   // 1. Prioridad: telefono_real (es el número verdadero desencriptado o vinculado manualmente)
   if (typeof c?.cliente === "object") {
     const telReal = String(c.cliente?.telefono_real || "").trim();
-    if (telReal) return telReal.includes("@") ? telReal : `${telReal.replace(/[^0-9]/g, "")}@s.whatsapp.net`;
+    if (telReal) return telReal.includes("@") ? telReal : `${normalizePhone(telReal)}@s.whatsapp.net`;
   }
 
   // 2. Fallback a customer_phone (puede ser un @lid o jid normal)
   const cust = (c?.customer_phone || "").toString().trim();
   if (cust) {
     if (cust.includes("@")) return cust;
-    return `${cust.replace(/[^0-9]/g, "")}@s.whatsapp.net`;
+    return `${normalizePhone(cust)}@s.whatsapp.net`;
   }
   
   // 3. Fallback a cliente.telefono
   if (typeof c?.cliente === "object") {
     const tel = String(c.cliente?.telefono || "").trim();
-    if (tel) return tel.includes("@") ? tel : `${tel.replace(/[^0-9]/g, "")}@s.whatsapp.net`;
+    if (tel) return tel.includes("@") ? tel : `${normalizePhone(tel)}@s.whatsapp.net`;
   }
   
   return null;
