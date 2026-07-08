@@ -35,6 +35,12 @@ async function gzip(data: string): Promise<Uint8Array> {
 
 Deno.serve(async (req) => {
   const urlObj = new URL(req.url);
+  const authHeader = req.headers.get("Authorization") || "";
+  const expectedAuth = `Bearer ${SERVICE_KEY}`;
+  if (authHeader !== expectedAuth && urlObj.searchParams.get("debug") !== "true") {
+    return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401 });
+  }
+
   if (urlObj.searchParams.get("debug") === "true") {
     const cutoff = new Date(Date.now() - ARCHIVE_DAYS * 24 * 60 * 60 * 1000).toISOString();
     return new Response(JSON.stringify({ archive_days: ARCHIVE_DAYS, cutoff, batch_size: BATCH_SIZE }), {
