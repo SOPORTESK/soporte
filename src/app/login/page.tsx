@@ -24,8 +24,12 @@ function LoginPageContent() {
   const router = useRouter();
   const params = useSearchParams();
   const next = params.get("next") || "/inbox";
+  const [isRegistering, setIsRegistering] = React.useState(false);
+  const [nombre, setNombre] = React.useState("");
+  const [apellido, setApellido] = React.useState("");
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
+  const [confirmPassword, setConfirmPassword] = React.useState("");
   const [showPwd, setShowPwd] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -43,6 +47,35 @@ function LoginPageContent() {
       router.refresh();
     } catch (err: any) {
       setError(err?.message || "No fue posible iniciar sesión");
+    } finally { setLoading(false); }
+  }
+
+  async function handleRegister(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    if (password !== confirmPassword) {
+      setError("Las contraseñas no coinciden");
+      return;
+    }
+    if (!nombre || nombre.trim().length < 2) {
+      setError("El nombre es obligatorio");
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password, nombre, apellido })
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "No se pudo crear la cuenta");
+      toast.success("Cuenta creada. Ahora inicia sesión.");
+      setIsRegistering(false);
+      setPassword("");
+      setConfirmPassword("");
+    } catch (err: any) {
+      setError(err?.message || "No se pudo crear la cuenta");
     } finally { setLoading(false); }
   }
 
@@ -156,8 +189,10 @@ function LoginPageContent() {
         <div className="flex-1 grid place-items-center px-5 sm:px-6 pb-safe">
           <div className="w-full max-w-sm">
             <div className="mb-6 sm:mb-8">
-              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">Iniciar sesión</h2>
-              <p className="text-muted-foreground mt-1.5 sm:mt-2 text-sm sm:text-base">Accede a tu panel de atención al cliente.</p>
+              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">{isRegistering ? "Crear cuenta" : "Iniciar sesión"}</h2>
+              <p className="text-muted-foreground mt-1.5 sm:mt-2 text-sm sm:text-base">
+                {isRegistering ? "Regístrate como agente de soporte." : "Accede a tu panel de atención al cliente."}
+              </p>
             </div>
 
             {error && (
@@ -166,7 +201,23 @@ function LoginPageContent() {
               </div>
             )}
 
-            <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+            <form onSubmit={isRegistering ? handleRegister : handleSubmit} className="space-y-4" noValidate>
+              {isRegistering && (
+                <>
+                  <div className="space-y-1.5">
+                    <label htmlFor="nombre" className="text-sm font-medium">Nombre</label>
+                    <Input id="nombre" type="text" autoComplete="given-name" required
+                      value={nombre} onChange={e => setNombre(e.target.value)}
+                      placeholder="Nombre completo" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label htmlFor="apellido" className="text-sm font-medium">Apellido</label>
+                    <Input id="apellido" type="text" autoComplete="family-name"
+                      value={apellido} onChange={e => setApellido(e.target.value)}
+                      placeholder="Apellido" />
+                  </div>
+                </>
+              )}
               <div className="space-y-1.5">
                 <label htmlFor="email" className="text-sm font-medium">Correo electrónico</label>
                 <div className="relative">
@@ -180,7 +231,7 @@ function LoginPageContent() {
                 <label htmlFor="password" className="text-sm font-medium">Contraseña</label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" aria-hidden />
-                  <Input id="password" type={showPwd ? "text" : "password"} autoComplete="current-password" required
+                  <Input id="password" type={showPwd ? "text" : "password"} autoComplete={isRegistering ? "new-password" : "current-password"} required
                     value={password} onChange={e => setPassword(e.target.value)}
                     className="pl-10 pr-10" placeholder="••••••••" />
                   <button type="button" onClick={() => setShowPwd(s => !s)}
@@ -190,18 +241,34 @@ function LoginPageContent() {
                   </button>
                 </div>
               </div>
+              {isRegistering && (
+                <div className="space-y-1.5">
+                  <label htmlFor="confirmPassword" className="text-sm font-medium">Confirmar contraseña</label>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" aria-hidden />
+                    <Input id="confirmPassword" type={showPwd ? "text" : "password"} autoComplete="new-password" required
+                      value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)}
+                      className="pl-10 pr-10" placeholder="••••••••" />
+                  </div>
+                </div>
+              )}
 
               <Button type="submit" loading={loading} size="lg" className="w-full">
-                Entrar
+                {isRegistering ? "Crear cuenta" : "Entrar"}
               </Button>
             </form>
 
             <div className="mt-4 flex flex-col items-center gap-2">
-              <button type="button" onClick={handleResetPassword} className="text-xs text-muted-foreground hover:text-brand-700 dark:hover:text-brand-300 hover:underline">
-                ¿Olvidaste tu contraseña?
+              <button type="button" onClick={() => { setIsRegistering(!isRegistering); setError(null); }} className="text-xs text-brand-700 dark:text-brand-300 hover:underline">
+                {isRegistering ? "Ya tengo cuenta, iniciar sesión" : "Crear cuenta nueva"}
               </button>
+              {!isRegistering && (
+                <button type="button" onClick={handleResetPassword} className="text-xs text-muted-foreground hover:text-brand-700 dark:hover:text-brand-300 hover:underline">
+                  ¿Olvidaste tu contraseña?
+                </button>
+              )}
               <p className="text-xs text-center text-muted-foreground">
-                Al iniciar sesión aceptas nuestras políticas de privacidad y uso responsable de datos.
+                {isRegistering ? "Al crear la cuenta se registra como agente de soporte." : "Al iniciar sesión aceptas nuestras políticas de privacidad y uso responsable de datos."}
               </p>
             </div>
           </div>
