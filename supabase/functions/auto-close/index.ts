@@ -149,10 +149,11 @@ Deno.serve(async (req) => {
 
   const { data: casos, error } = await db
     .from("sek_cases")
-    .select("id, canal, estado, histcliente, histtecnico, created_at, assigned_to, customer_phone, cliente")
+    .select("id, canal, estado, histcliente, histtecnico, created_at, assigned_to, customer_phone, cliente, escalado_at, auto_close_paused")
     .neq("estado", "cerrado")
     .neq("estado", "resuelto")
     .neq("estado", "escalado")
+    .neq("estado", "pausa")
     .neq("canal", "simulator")
     .limit(200);
 
@@ -169,6 +170,24 @@ Deno.serve(async (req) => {
   let closed = 0;
 
   for (const caso of casos) {
+    // PROTECCIÓN: no cerrar si está pausado manualmente
+    if (caso.auto_close_paused) {
+      console.log(`[auto-close] Caso ${caso.id} tiene auto_close_paused=true, saltando`);
+      continue;
+    }
+
+    // PROTECCIÓN: no cerrar si no tiene assigned_to (nadie lo ha tomado)
+    if (!caso.assigned_to) {
+      console.log(`[auto-close] Caso ${caso.id} no tiene assigned_to, saltando`);
+      continue;
+    }
+
+    // PROTECCIÓN: no cerrar si tiene escalado_at (está esperando agente humano)
+    if (caso.escalado_at) {
+      console.log(`[auto-close] Caso ${caso.id} tiene escalado_at, saltando`);
+      continue;
+    }
+
     /*
      * Solo cerrar si el ÚLTIMO mensaje de toda la conversación es del AGENTE/TÉCNICO.
      * Esto significa que el agente ya respondió y el cliente no ha contestado.

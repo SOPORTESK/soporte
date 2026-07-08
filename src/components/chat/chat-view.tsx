@@ -147,6 +147,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   const [submittingRating, setSubmittingRating] = React.useState(false);
   const [accepting, setAccepting] = React.useState(false);
   const [showClassify, setShowClassify] = React.useState(false);
+  const [autoClosePaused, setAutoClosePaused] = React.useState(!!(initialCase as any).auto_close_paused);
   const [editingPhone, setEditingPhone] = React.useState(false);
   const [realPhoneInput, setRealPhoneInput] = React.useState("");
 
@@ -685,6 +686,26 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   const iaAtendiendo = estadoLower === "ia_atendiendo";
   const isEscalado = estadoLower === "escalado";
 
+  async function toggleAutoClosePaused() {
+    try {
+      const targetId = sekCase.id;
+      const res = await fetch("/api/admin/toggle-auto-close-paused", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ caseId: targetId, paused: !autoClosePaused })
+      });
+      if (res.ok) {
+        setAutoClosePaused(!autoClosePaused);
+        toast.success(autoClosePaused ? "Auto-close reanudado" : "Auto-close pausado");
+      } else {
+        const d = await res.json();
+        toast.error("Error", { description: d.error });
+      }
+    } catch (e) {
+      toast.error("Error de conexión");
+    }
+  }
+
   async function acceptCase() {
     if (accepting || !agentEmail) return;
     setAccepting(true);
@@ -820,8 +841,17 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
                   className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-muted transition-colors"
                 >
                   {cerrado
-                    ? <><CheckCircle2 className="h-4 w-4 text-green-500" /> Reabrir caso</>  
+                    ? <><CheckCircle2 className="h-4 w-4 text-green-500" /> Reabrir caso</>
                     : <><XCircle className="h-4 w-4 text-red-500" /> Cerrar caso</>}
+                </button>
+                <div className="border-t border-border/50 my-1" />
+                <button
+                  onClick={() => { toggleAutoClosePaused(); setShowActions(false); }}
+                  className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-muted transition-colors"
+                >
+                  {autoClosePaused
+                    ? <><Play className="h-4 w-4 text-green-500" /> Reanudar auto-close</>
+                    : <><Pause className="h-4 w-4 text-amber-500" /> Pausar auto-close</>}
                 </button>
                 <div className="border-t border-border/50 my-1" />
                 <button
