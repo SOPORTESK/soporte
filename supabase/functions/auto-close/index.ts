@@ -149,12 +149,12 @@ Deno.serve(async (req) => {
 
   const { data: casos, error } = await db
     .from("sek_cases")
-    .select("id, canal, estado, histcliente, histtecnico, created_at, assigned_to, customer_phone, cliente, escalado_at, auto_close_paused")
+    .select("id, canal, estado, histcliente, histtecnico, created_at, assigned_to, customer_phone, cliente, auto_close_paused")
     // Solo cerrar casos atendidos por IA (smart) o por un técnico humano (abierto).
     // NUNCA cerrar casos escalados: el cliente está esperando que un humano lo atienda.
     .in("estado", ["ia_atendiendo", "abierto"])
     .neq("canal", "simulator")
-    .limit(200);
+    .limit(50);
 
   if (error) {
     console.error("[auto-close] Error al leer casos:", error.message);

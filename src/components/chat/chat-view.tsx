@@ -193,6 +193,58 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   React.useEffect(() => { setSekCase(initialCase); }, [initialCase]);
   React.useEffect(() => { setMessages(unifyMessages(sekCase)); }, [sekCase]);
 
+  /* Cargar historial completo si el caso llegó en modo ligero (sin histcliente/histtecnico) */
+  React.useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const hasHistory = Array.isArray(initialCase.histcliente) || Array.isArray(initialCase.histtecnico);
+      if (hasHistory) return;
+      try {
+        const ids = initialCase._group?.caseIds?.length ? initialCase._group.caseIds : [initialCase.id];
+        const { data } = await supabase
+          .from("sek_cases")
+          .select("id,estado,canal,cliente,assigned_to,customer_phone,created_at,updated_at,last_message_at,last_message_preview,histcliente,histtecnico")
+          .in("id", ids);
+        if (!data || !mounted) return;
+        const casesData = data as SekCase[];
+        const sorted = [...casesData].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+        const targetId2 = initialCase._group?.targetCaseId ?? initialCase.id;
+        const target = sorted.find(c => String(c.id) === String(targetId2)) ?? sorted[sorted.length - 1] ?? casesData[0];
+        const merged = {
+          ...target,
+          id: initialCase.id,
+          cliente: initialCase.cliente ?? target.cliente,
+          estado: (initialCase._group ? (sorted.some(c => {
+            const e = String(c.estado || "").toLowerCase();
+            return e !== "cerrado" && e !== "resuelto";
+          }) ? target.estado : target.estado) : initialCase.estado) as SekCase["estado"],
+          histcliente: [],
+          histtecnico: [],
+          _group: initialCase._group,
+        } as unknown as SekCase;
+        sorted.forEach((c, idx) => {
+          const hc = Array.isArray(c.histcliente) ? c.histcliente : [];
+          const ht = Array.isArray(c.histtecnico) ? c.histtecnico : [];
+          if (idx > 0) {
+            (merged.histtecnico as any[]).push({
+              role: "separator",
+              time: c.created_at,
+              content: `── Nueva conversación · ${new Date(c.created_at).toLocaleDateString("es-CR", { day: "2-digit", month: "short", year: "numeric" })} ──`,
+              author: "",
+              _separator: true,
+            });
+          }
+          hc.forEach((e: any, ei: number) => (merged.histcliente as any[]).push({ ...e, _sourceCaseId: c.id, _sourceIndex: ei }));
+          ht.forEach((e: any, ei: number) => (merged.histtecnico as any[]).push({ ...e, _sourceCaseId: c.id, _sourceIndex: ei }));
+        });
+        if (mounted) setSekCase(merged);
+      } catch (e) {
+        console.error("[chat-view] loadFullCase error:", e);
+      }
+    })();
+    return () => { mounted = false; };
+  }, [initialCase, supabase]);
+
   /* Cargar plantillas */
   React.useEffect(() => {
     supabase.from("sek_plantillas").select("id,nombre,texto,cat").limit(30)
@@ -267,9 +319,13 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       .subscribe();
     presenceChannelRef.current = presenceCh;
 
-    /* Polling de respaldo cada 3s por si Realtime falla */
+    /* Polling de respaldo cada 10s con campos mínimos */
     const poll = setInterval(async () => {
-      const { data } = await supabase.from("sek_cases").select("*").eq("id", targetId).maybeSingle();
+      const { data } = await supabase
+        .from("sek_cases")
+        .select("id,estado,assigned_to,last_message_at,last_message_preview,histcliente,histtecnico")
+        .eq("id", targetId)
+        .maybeSingle();
       if (data && mounted) {
         setSekCase(prev => {
           const hashOf = (c: any) => {

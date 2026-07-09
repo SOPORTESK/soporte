@@ -63,25 +63,29 @@ function mergeGroups(rawCases: SekCase[]): SekCase[] {
       return e !== "cerrado" && e !== "resuelto";
     });
     const target = openCases[openCases.length - 1] ?? sorted[sorted.length - 1];
-    /* Combinar historiales con marcadores de inicio/fin de cada caso */
+    /* Si los casos no traen historial completo (modo ligero), no combinamos mensajes aquí.
+       ChatView se encargará de cargar el historial del caso objetivo. */
+    const hasHistory = sorted.some(c => Array.isArray(c.histcliente) || Array.isArray(c.histtecnico));
     const histcliente: SekHistEntry[] = [];
     const histtecnico: SekHistEntry[] = [];
-    sorted.forEach((c, idx) => {
-      const hc = Array.isArray(c.histcliente) ? c.histcliente : [];
-      const ht = Array.isArray(c.histtecnico) ? c.histtecnico : [];
-      if (idx > 0) {
-        /* Separador entre casos */
-        histtecnico.push({
-          role: "separator",
-          time: c.created_at,
-          content: `── Nueva conversación · ${new Date(c.created_at).toLocaleDateString("es-CR", { day: "2-digit", month: "short", year: "numeric" })} ──`,
-          author: "",
-          _separator: true,
-        } as SekHistEntry);
-      }
-      hc.forEach((e, ei) => histcliente.push({ ...e, _sourceCaseId: c.id, _sourceIndex: ei } as SekHistEntry));
-      ht.forEach((e, ei) => histtecnico.push({ ...e, _sourceCaseId: c.id, _sourceIndex: ei } as SekHistEntry));
-    });
+    if (hasHistory) {
+      sorted.forEach((c, idx) => {
+        const hc = Array.isArray(c.histcliente) ? c.histcliente : [];
+        const ht = Array.isArray(c.histtecnico) ? c.histtecnico : [];
+        if (idx > 0) {
+          /* Separador entre casos */
+          histtecnico.push({
+            role: "separator",
+            time: c.created_at,
+            content: `── Nueva conversación · ${new Date(c.created_at).toLocaleDateString("es-CR", { day: "2-digit", month: "short", year: "numeric" })} ──`,
+            author: "",
+            _separator: true,
+          } as SekHistEntry);
+        }
+        hc.forEach((e, ei) => histcliente.push({ ...e, _sourceCaseId: c.id, _sourceIndex: ei } as SekHistEntry));
+        ht.forEach((e, ei) => histtecnico.push({ ...e, _sourceCaseId: c.id, _sourceIndex: ei } as SekHistEntry));
+      });
+    }
     /* Estado agregado: abierto si hay alguno abierto, si no, el del último */
     const anyOpen = openCases.length > 0;
     /* Prioridad agregada: máxima */
@@ -150,6 +154,21 @@ function mergeGroups(rawCases: SekCase[]): SekCase[] {
 }
 
 const BASE_TITLE = "Sekunet Chat";
+
+// Campos mínimos para la lista del inbox (sin histcliente/histtecnico completos)
+const CASE_LIST_FIELDS = "id,estado,canal,cliente,assigned_to,last_message_at,last_message_preview,unread_count,created_at,updated_at,title,prioridad,tags,customer_phone";
+
+async function fetchCasesMeta(supabase: any, limit = 200) {
+  const { data, error } = await supabase
+    .from("sek_cases")
+    .select(CASE_LIST_FIELDS)
+    .neq("canal", "simulator")
+    .order("last_message_at", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return (data || []) as SekCase[];
+}
 
 function playNotif() {
   try {
@@ -371,20 +390,21 @@ export function InboxClient({
       .channel("cases-list")
       .on("postgres_changes", { event: "*", schema: "public", table: "sek_cases" },
         async (payload) => {
-          const { data } = await supabase
-            .from("sek_cases").select("*")
-            .neq("canal", "simulator")
-            .order("last_message_at", { ascending: false, nullsFirst: false })
-            .order("created_at", { ascending: false })
-            .limit(1000);
-          if (!data) return;
-          const newCases = data as SekCase[];
-          setAllCases(newCases); // Sin filtrar para banner de escalados
-          const filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail, agentName);
-          setCases(filteredNewCases);
+          let filteredNewCases: SekCase[] = [];
+          let newMerged: SekCase[] = [];
+          try {
+            const newCases = await fetchCasesMeta(supabase, 200);
+            if (!newCases) return;
+            setAllCases(newCases); // Sin filtrar para banner de escalados
+            filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail, agentName);
+            setCases(filteredNewCases);
 
-          /* Detectar mensajes nuevos comparando los GRUPOS de cliente (filtrados) */
-          const newMerged = mergeGroups(filteredNewCases);
+            /* Detectar mensajes nuevos comparando los GRUPOS de cliente (filtrados) */
+            newMerged = mergeGroups(filteredNewCases);
+          } catch (e) {
+            console.error("[inbox] realtime fetchCasesMeta error:", e);
+            return;
+          }
           /* IGNORAR: eventos DELETE (eliminación de casos) y eventos que no agregan mensajes del cliente */
           if (payload.eventType !== "DELETE") {
             const changed = newMerged.find(ng => {
@@ -495,28 +515,25 @@ export function InboxClient({
           prevMergedRef.current = newMerged;
         })
       .subscribe();
-    /* Polling de respaldo cada 5s */
+    /* Polling de respaldo cada 30s con metadatos ligeros */
     const poll = setInterval(async () => {
-      const { data } = await supabase
-        .from("sek_cases").select("*")
-        .neq("canal", "simulator")
-        .order("last_message_at", { ascending: false, nullsFirst: false })
-        .order("created_at", { ascending: false })
-        .limit(1000);
-      if (!data) return;
-      const newCases = data as SekCase[];
-      setAllCases(newCases); // Sin filtrar para banner de escalados
-      const filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail, agentName);
-      const prevTotal = prevCasesRef.current.length;
-      const prevMsgs = prevCasesRef.current.reduce((s, c) => s + (c.histcliente?.length || 0), 0);
-      const newTotal = filteredNewCases.length;
-      const newMsgs = filteredNewCases.reduce((s, c) => s + (c.histcliente?.length || 0), 0);
-      if (newTotal !== prevTotal || newMsgs !== prevMsgs) {
-        setCases(filteredNewCases);
-        prevCasesRef.current = filteredNewCases;
-        prevMergedRef.current = mergeGroups(filteredNewCases);
+      try {
+        const newCases = await fetchCasesMeta(supabase, 200);
+        setAllCases(newCases); // Sin filtrar para banner de escalados
+        const filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail, agentName);
+        const prevTotal = prevCasesRef.current.length;
+        const prevMsgs = prevCasesRef.current.reduce((s, c) => s + (c.histcliente?.length || 0), 0);
+        const newTotal = filteredNewCases.length;
+        const newMsgs = filteredNewCases.reduce((s, c) => s + (c.histcliente?.length || 0), 0);
+        if (newTotal !== prevTotal || newMsgs !== prevMsgs) {
+          setCases(filteredNewCases);
+          prevCasesRef.current = filteredNewCases;
+          prevMergedRef.current = mergeGroups(filteredNewCases);
+        }
+      } catch (e) {
+        console.error("[inbox] fetchCasesMeta error:", e);
       }
-    }, 5000);
+    }, 30000);
 
     return () => { clearInterval(poll); supabase.removeChannel(channel); };
   }, [supabase, selectedId, containerType, agentEmail, agentName, selectCase]);
