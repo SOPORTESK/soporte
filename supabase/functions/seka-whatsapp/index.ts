@@ -442,7 +442,7 @@ const WELCOME_TEXTS = [
   "Soy el Asistente Virtual de Sekunet. Para brindarle una mejor asistencia, necesitamos algunos datos para registrar su consulta.",
   "Estimado cliente:\n\nLe informamos que esta conversación podrá ser finalizada o cerrada tras 5 minutos de inactividad.\n\nAgradecemos su atención.",
   "Para comenzar, ¿me podría indicar su nombre completo?",
-  "Nuestro horario de atención es de lunes a viernes de 7:30 a.m. a 5:00 p.m. Será un gusto atenderle.",
+  "Horario de atención\nLunes a Viernes · 7:30 a. m. – 5:00 p. m.\nSerá un gusto atenderle",
   "¿En relación con qué tema sería su consulta?",
   `¿En relación con qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Licencias\n7. Otro\n\nResponda con el número o el nombre del tema.`
 ];
@@ -591,13 +591,17 @@ function isNombrePropioValido(name: string): boolean {
   // Al menos 2 palabras
   const words = trimmed.split(/\s+/).filter(w => w.length > 0);
   if (words.length < 2) return false;
+  // Nombres propios completos rara vez superan 5 palabras
+  if (words.length > 5) return false;
   // Cada palabra al menos 2 caracteres
   if (words.some(w => w.length < 2)) return false;
   // Solo letras, espacios, acentos, ñ, ü, guiones, apóstrofos
   if (/[^a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s\-']/.test(trimmed)) return false;
   // No empezar/terminar con guión o apóstrofo
   if (/^[-']|[-']$/.test(trimmed)) return false;
-  // Lista negra de respuestas comunes que no son nombres
+  // Rechazar palabras completamente en mayúsculas (modelos/marcas como AX PRO)
+  if (words.filter(w => /^[A-ZÁÉÍÓÚÑÜ]{2,}$/.test(w)).length >= 2) return false;
+  // Lista negra de palabras/frases comunes que no son nombres
   const lower = trimmed.toLowerCase();
   const blacklist = [
     "si", "sí", "no", "ok", "hola", "hey", "saludos", "gracias", "de nada",
@@ -606,7 +610,9 @@ function isNombrePropioValido(name: string): boolean {
     "cliente", "no se", "no sé", "ninguno", "no tengo", "no lo se", "no lo sé",
     "whatsapp", "email", "correo", "empresa", "afiliada", "configuraciones",
     "reset", "desvinculacion", "desvinculación", "firmware", "software",
-    "licencias", "otro", "telefono", "teléfono"
+    "licencias", "otro", "telefono", "teléfono", "sobre", "tema", "problema",
+    "consulta", "panel", "cámara", "camara", "dispositivo", "alarma", "sensor",
+    "un", "una", "el", "la", "del", "por", "para", "con", "desde"
   ];
   if (blacklist.some(b => lower.includes(b))) return false;
   return true;
@@ -681,7 +687,7 @@ Deno.serve(async (req: Request) => {
       "Soy el Asistente Virtual de Sekunet. Para brindarle una mejor asistencia, necesitamos algunos datos para registrar su consulta.",
       "Estimado cliente:\n\nLe informamos que esta conversación podrá ser finalizada o cerrada tras 5 minutos de inactividad.\n\nAgradecemos su atención.",
       "Para comenzar, ¿me podría indicar su nombre completo?",
-      "Nuestro horario de atención es de lunes a viernes de 7:30 a.m. a 5:00 p.m. Será un gusto atenderle.",
+      "Horario de atención\nLunes a Viernes · 7:30 a. m. – 5:00 p. m.\nSerá un gusto atenderle",
       "¿En relación con qué tema sería su consulta?",
       `¿En relación con qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Licencias\n7. Otro\n\nResponda con el número o el nombre del tema.`
     ];
@@ -749,7 +755,7 @@ Deno.serve(async (req: Request) => {
       ];
       // Fuera de horario: informar horario de atención antes de la presentación
       if (!isOpenNowCR()) {
-        const msgHorario = "Nuestro horario de atención es de lunes a viernes de 7:30 a.m. a 5:00 p.m. Será un gusto atenderle.";
+        const msgHorario = "Horario de atención\nLunes a Viernes · 7:30 a. m. – 5:00 p. m.\nSerá un gusto atenderle";
         toSend.splice(1, 0, msgHorario);
         newMsgs.splice(1, 0, { role: "ia", author: "Asistente Sekunet", time: new Date(Date.now() + 5).toISOString(), content: msgHorario });
       }
