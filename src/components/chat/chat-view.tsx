@@ -459,11 +459,11 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     if (!overrideContent) setDraft("");
 
     try {
-      const baseHist = targetHisttecnico;
+      const baseHist = Array.isArray(sekCase.histtecnico) ? sekCase.histtecnico : [];
       const newHist = [...baseHist, entry];
       setSekCase(prev => ({ ...prev, histtecnico: newHist }));
       const updates: Record<string, unknown> = { histtecnico: newHist };
-      const targetCerrado = String(targetEstado || "").toLowerCase() === "cerrado" || String(targetEstado || "").toLowerCase() === "resuelto";
+      const targetCerrado = String(sekCase.estado || "").toLowerCase() === "cerrado" || String(sekCase.estado || "").toLowerCase() === "resuelto";
       if (targetCerrado && !isNota) updates.estado = "abierto";
       
       // Auto-aceptar caso si el agente responde y aún no tiene accepted_at
