@@ -201,7 +201,8 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   React.useEffect(() => {
     let mounted = true;
     (async () => {
-      const hasHistory = Array.isArray(initialCase.histcliente) || Array.isArray(initialCase.histtecnico);
+      const hasHistory = (Array.isArray(initialCase.histcliente) && initialCase.histcliente.length > 0) ||
+                         (Array.isArray(initialCase.histtecnico) && initialCase.histtecnico.length > 0);
       if (hasHistory) return;
       try {
         const ids = initialCase._group?.caseIds?.length ? initialCase._group.caseIds : [initialCase.id];
@@ -313,7 +314,20 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
         event: "UPDATE", schema: "public", table: "sek_cases",
         filter: `id=eq.${targetId}`
       }, (payload) => {
-        setSekCase(prev => ({ ...prev, ...(payload.new as any) }));
+        setSekCase(prev => {
+          const newData = payload.new as any;
+          const update: any = { ...newData };
+          // Proteger historial cargado: no reemplazar arrays con datos reales por arrays vacíos
+          if (newData.histcliente !== undefined && Array.isArray(newData.histcliente) && newData.histcliente.length === 0 &&
+              Array.isArray(prev.histcliente) && prev.histcliente.length > 0) {
+            delete update.histcliente;
+          }
+          if (newData.histtecnico !== undefined && Array.isArray(newData.histtecnico) && newData.histtecnico.length === 0 &&
+              Array.isArray(prev.histtecnico) && prev.histtecnico.length > 0) {
+            delete update.histtecnico;
+          }
+          return { ...prev, ...update };
+        });
       })
       .subscribe();
 
@@ -346,8 +360,13 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
             last_message_preview: data.last_message_preview,
           };
           if (!isGrouped) {
-            update.histcliente = data.histcliente;
-            update.histtecnico = data.histtecnico;
+            // No reemplazar historial real por arrays vacíos recibidos en polling
+            if (!(Array.isArray(data.histcliente) && data.histcliente.length === 0 && Array.isArray(prev.histcliente) && prev.histcliente.length > 0)) {
+              update.histcliente = data.histcliente;
+            }
+            if (!(Array.isArray(data.histtecnico) && data.histtecnico.length === 0 && Array.isArray(prev.histtecnico) && prev.histtecnico.length > 0)) {
+              update.histtecnico = data.histtecnico;
+            }
           }
           const hashOf = (c: any) => {
             const hc = c.histcliente || [], ht = c.histtecnico || [];
