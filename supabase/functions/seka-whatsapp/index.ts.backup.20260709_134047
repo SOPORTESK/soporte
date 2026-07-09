@@ -561,39 +561,6 @@ function contarReintentos(iaMsgs: { content?: string }[], fraseCaracteristica: s
 
 const MSG_CIERRE_REINTENTOS = "Lamentamos no poder continuar. Hemos intentado registrar sus datos en varias ocasiones sin éxito. Le invitamos a contactarnos nuevamente cuando tenga la información a mano. ¡Que tenga un excelente día!";
 const MSG_INVALIDO = "La información ingresada no es válida. Por favor, verifique el dato e inténtelo nuevamente.";
-const MSG_NOMBRE_INVALIDO = "No reconocí un nombre completo. Por favor indíqueme su nombre y apellido (por ejemplo: María Chaves).";
-
-function isNombrePropioValido(name: string): boolean {
-  const trimmed = name.trim();
-  if (!trimmed) return false;
-  // Rechazar emails/URLs y caracteres no permitidos
-  if (trimmed.includes("@")) return false;
-  if (/https?:\/\//i.test(trimmed)) return false;
-  // Rechazar si contiene números
-  if (/\d/.test(trimmed)) return false;
-  // Al menos 2 palabras
-  const words = trimmed.split(/\s+/).filter(w => w.length > 0);
-  if (words.length < 2) return false;
-  // Cada palabra al menos 2 caracteres
-  if (words.some(w => w.length < 2)) return false;
-  // Solo letras, espacios, acentos, ñ, ü, guiones, apóstrofos
-  if (/[^a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s\-']/.test(trimmed)) return false;
-  // No empezar/terminar con guión o apóstrofo
-  if (/^[-']|[-']$/.test(trimmed)) return false;
-  // Lista negra de respuestas comunes que no son nombres
-  const lower = trimmed.toLowerCase();
-  const blacklist = [
-    "si", "sí", "no", "ok", "hola", "hey", "saludos", "gracias", "de nada",
-    "buenos dias", "buenas tardes", "buenas noches", "tengo un problema",
-    "necesito ayuda", "ayuda", "urgente", "marca", "modelo", "equipo", "cuenta",
-    "cliente", "no se", "no sé", "ninguno", "no tengo", "no lo se", "no lo sé",
-    "whatsapp", "email", "correo", "empresa", "afiliada", "configuraciones",
-    "reset", "desvinculacion", "desvinculación", "firmware", "software",
-    "licencias", "otro", "telefono", "teléfono"
-  ];
-  if (blacklist.some(b => lower.includes(b))) return false;
-  return true;
-}
 
 // ─── HANDLER PRINCIPAL ───────────────────────────────────────────────────────
 Deno.serve(async (req: Request) => {
@@ -745,7 +712,8 @@ Deno.serve(async (req: Request) => {
       if (usarFastPath) {
         // ── PASO NOMBRE ──
         if (!cliFP.nombre && lastBotFP.includes("nombre completo")) {
-          if (isNombrePropioValido(userRespFP)) {
+          const nombreInvalido = userRespFP.length < 2 || userRespFP.includes("@") || /^\d+$/.test(userRespFP);
+          if (!nombreInvalido) {
             const cli = { ...cliFP, nombre: userRespFP };
             const preg = "Gracias. ¿Me podría indicar su correo electrónico?";
             const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: preg };
@@ -758,7 +726,7 @@ Deno.serve(async (req: Request) => {
             await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg], estado: "cerrado" }).eq("id", case_id);
             return new Response(JSON.stringify({ ok: true, reply: MSG_CIERRE_REINTENTOS }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
           }
-          const preg = `${MSG_NOMBRE_INVALIDO}\n\nPara comenzar, ¿me podría indicar su nombre completo?`;
+          const preg = `${MSG_INVALIDO}\n\nPara comenzar, ¿me podría indicar su nombre completo?`;
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: preg };
           await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
           return new Response(JSON.stringify({ ok: true, reply: preg }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -933,7 +901,7 @@ Responde SOLO con JSON válido:
       const userRespFallback = lastUserMsgContent.trim();
 
       let nombreFB = "", marcaFB = "", modeloFB = "";
-      if (!cli.nombre && lastBotLower.includes("nombre completo") && isNombrePropioValido(userRespFallback)) {
+      if (!cli.nombre && lastBotLower.includes("nombre completo") && userRespFallback.length >= 2 && !userRespFallback.includes("@")) {
         nombreFB = userRespFallback;
       }
       if (lastBotLower.includes("marca del equipo") && userRespFallback.length >= 2) {
