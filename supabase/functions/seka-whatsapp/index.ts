@@ -440,10 +440,27 @@ async function processTags(text: string, caseId: string): Promise<string> {
 const WELCOME_TEXTS = [
   "Reciba un cordial saludo de parte del equipo de Soporte Sekunet. Gracias por contactarnos.",
   "Soy el Asistente Virtual de Sekunet. Para brindarle una mejor asistencia, necesitamos algunos datos para registrar su consulta.",
+  "Estimado cliente:\n\nLe informamos que esta conversación podrá ser finalizada o cerrada tras 5 minutos de inactividad.\n\nAgradecemos su atención.",
   "Para comenzar, ¿me podría indicar su nombre completo?",
+  "Nuestro horario de atención es de lunes a viernes de 7:30 a.m. a 5:00 p.m. Será un gusto atenderle.",
   "¿En relación con qué tema sería su consulta?",
   `¿En relación con qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Licencias\n7. Otro\n\nResponda con el número o el nombre del tema.`
 ];
+
+// Horario de atención: lunes a viernes 7:30 a.m. - 5:00 p.m. (Costa Rica, UTC-6)
+function isOpenNowCR(): boolean {
+  const now = new Date();
+  const utcH = now.getUTCHours();
+  const utcM = now.getUTCMinutes();
+  let crH = utcH - 6;
+  if (crH < 0) crH += 24;
+  const crMin = crH * 60 + utcM;
+  // getUTCDay: 0=domingo, 1=lunes, ..., 6=sábado
+  let dow = now.getUTCDay();
+  if (crH > utcH) dow = (dow + 6) % 7;
+  if (dow === 0 || dow === 6) return false;
+  return crMin >= 450 && crMin < 1020; // 7:30 = 450, 17:00 = 1020
+}
 
 const TOPICS = ["Configuraciones","Reset","Desvinculación","Firmware","Software","Licencias","Otro"];
 
@@ -662,7 +679,9 @@ Deno.serve(async (req: Request) => {
     const WELCOME_TEXTS_CHECK = [
       "Reciba un cordial saludo de parte del equipo de Soporte Sekunet. Gracias por contactarnos.",
       "Soy el Asistente Virtual de Sekunet. Para brindarle una mejor asistencia, necesitamos algunos datos para registrar su consulta.",
+      "Estimado cliente:\n\nLe informamos que esta conversación podrá ser finalizada o cerrada tras 5 minutos de inactividad.\n\nAgradecemos su atención.",
       "Para comenzar, ¿me podría indicar su nombre completo?",
+      "Nuestro horario de atención es de lunes a viernes de 7:30 a.m. a 5:00 p.m. Será un gusto atenderle.",
       "¿En relación con qué tema sería su consulta?",
       `¿En relación con qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Licencias\n7. Otro\n\nResponda con el número o el nombre del tema.`
     ];
@@ -715,16 +734,27 @@ Deno.serve(async (req: Request) => {
     // FLUJO DE BIENVENIDA PASO A PASO (WhatsApp)
     // ═══════════════════════════════════════════════════════════════════════
 
-    // PASO 0: Primer mensaje del usuario → saludo + presentación + pedir datos (3 mensajes separados)
+    // PASO 0: Primer mensaje del usuario → saludo + presentación + advertencia autoclose + pedir datos
     if (userCount === 1 && iaCount === 0) {
       const directReply = "Reciba un cordial saludo de parte del equipo de Soporte Sekunet. Gracias por contactarnos.";
       const msg1 = "Soy el Asistente Virtual de Sekunet. Para brindarle una mejor asistencia, necesitamos algunos datos para registrar su consulta.";
+      const msgAutoclose = "Estimado cliente:\n\nLe informamos que esta conversación podrá ser finalizada o cerrada tras 5 minutos de inactividad.\n\nAgradecemos su atención.";
       const msg2 = "Para comenzar, ¿me podría indicar su nombre completo?";
-      const newMsg0: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
-      const newMsg1: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date(Date.now() + 10).toISOString(), content: msg1 };
-      const newMsg2: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date(Date.now() + 20).toISOString(), content: msg2 };
-      await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg0, newMsg1, newMsg2] }).eq("id", case_id);
-      return new Response(JSON.stringify({ ok: true, reply: [directReply, msg1, msg2] }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const toSend: string[] = [directReply, msg1, msgAutoclose, msg2];
+      const newMsgs: HistMsg[] = [
+        { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply },
+        { role: "ia", author: "Asistente Sekunet", time: new Date(Date.now() + 10).toISOString(), content: msg1 },
+        { role: "ia", author: "Asistente Sekunet", time: new Date(Date.now() + 20).toISOString(), content: msgAutoclose },
+        { role: "ia", author: "Asistente Sekunet", time: new Date(Date.now() + 30).toISOString(), content: msg2 },
+      ];
+      // Fuera de horario: informar horario de atención antes de la presentación
+      if (!isOpenNowCR()) {
+        const msgHorario = "Nuestro horario de atención es de lunes a viernes de 7:30 a.m. a 5:00 p.m. Será un gusto atenderle.";
+        toSend.splice(1, 0, msgHorario);
+        newMsgs.splice(1, 0, { role: "ia", author: "Asistente Sekunet", time: new Date(Date.now() + 5).toISOString(), content: msgHorario });
+      }
+      await db.from("sek_cases").update({ histtecnico: [...histtecnico, ...newMsgs] }).eq("id", case_id);
+      return new Response(JSON.stringify({ ok: true, reply: toSend }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // ═══════════════════════════════════════════════════════════════════════
