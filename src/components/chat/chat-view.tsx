@@ -190,7 +190,11 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   const typingTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const presenceChannelRef = React.useRef<ReturnType<typeof supabase.channel> | null>(null);
 
-  React.useEffect(() => { setSekCase(initialCase); }, [initialCase]);
+  const historyLoadedRef = React.useRef(false);
+  React.useEffect(() => {
+    historyLoadedRef.current = false;
+    setSekCase(initialCase);
+  }, [initialCase?.id]);
   React.useEffect(() => { setMessages(unifyMessages(sekCase)); }, [sekCase]);
 
   /* Cargar historial completo si el caso llegó en modo ligero (sin histcliente/histtecnico) */
@@ -214,10 +218,12 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
           ...target,
           id: initialCase.id,
           cliente: initialCase.cliente ?? target.cliente,
-          estado: (initialCase._group ? (sorted.some(c => {
-            const e = String(c.estado || "").toLowerCase();
-            return e !== "cerrado" && e !== "resuelto";
-          }) ? target.estado : target.estado) : initialCase.estado) as SekCase["estado"],
+          estado: (initialCase._group
+            ? (sorted.some(c => {
+                const e = String(c.estado || "").toLowerCase();
+                return e !== "cerrado" && e !== "resuelto";
+              }) ? "abierto" : target.estado)
+            : initialCase.estado) as SekCase["estado"],
           histcliente: [],
           histtecnico: [],
           _group: initialCase._group,
@@ -237,13 +243,16 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
           hc.forEach((e: any, ei: number) => (merged.histcliente as any[]).push({ ...e, _sourceCaseId: c.id, _sourceIndex: ei }));
           ht.forEach((e: any, ei: number) => (merged.histtecnico as any[]).push({ ...e, _sourceCaseId: c.id, _sourceIndex: ei }));
         });
-        if (mounted) setSekCase(merged);
+        if (mounted) {
+          setSekCase(merged);
+          historyLoadedRef.current = true;
+        }
       } catch (e) {
         console.error("[chat-view] loadFullCase error:", e);
       }
     })();
     return () => { mounted = false; };
-  }, [initialCase, supabase]);
+  }, [initialCase?.id, supabase]);
 
   /* Cargar plantillas */
   React.useEffect(() => {
@@ -328,14 +337,27 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
         .maybeSingle();
       if (data && mounted) {
         setSekCase(prev => {
+          /* Si es un grupo, el historial combinado se cargó una vez; no lo reemplazamos
+             con solo el historial del caso objetivo, porque borraría mensajes antiguos. */
+          const update: any = {
+            estado: data.estado,
+            assigned_to: data.assigned_to,
+            last_message_at: data.last_message_at,
+            last_message_preview: data.last_message_preview,
+          };
+          if (!isGrouped) {
+            update.histcliente = data.histcliente;
+            update.histtecnico = data.histtecnico;
+          }
           const hashOf = (c: any) => {
             const hc = c.histcliente || [], ht = c.histtecnico || [];
             return hc.length + "|" + ht.length + "|" +
-              (hc.length ? (hc[hc.length-1].time || "") + (hc[hc.length-1].read_at || "") : "") + "|" +
-              (ht.length ? (ht[ht.length-1].time || "") + (ht[ht.length-1].read_at || "") : "") + "|" +
+              (hc.length ? (hc[hc.length-1]?.time || "") + (hc[hc.length-1]?.read_at || "") : "") + "|" +
+              (ht.length ? (ht[ht.length-1]?.time || "") + (ht[ht.length-1]?.read_at || "") : "") + "|" +
               (c.estado || "") + "|" + (c.assigned_to || "");
           };
-          return hashOf(prev) === hashOf(data) ? prev : { ...prev, ...data };
+          const merged = { ...prev, ...update };
+          return hashOf(prev) === hashOf(merged) ? prev : merged;
         });
         // Marcar mensajes del cliente sin read_at como leídos (agente tiene el chat abierto)
         const hc = (data.histcliente || []) as any[];
@@ -345,9 +367,9 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
           if ((e.role === "user" || !e.role) && !e.read_at) { changed = true; return { ...e, read_at: now }; }
           return e;
         });
-        if (changed) supabase.from("sek_cases").update({ histcliente: updated }).eq("id", targetId).then(() => {});
+        if (changed && !isGrouped) supabase.from("sek_cases").update({ histcliente: updated }).eq("id", targetId).then(() => {});
       }
-    }, 3000);
+    }, 10000);
 
     // Marcar mensajes del cliente como leídos al abrir el chat
     (async () => {
