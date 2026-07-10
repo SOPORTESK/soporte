@@ -3,7 +3,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft, MoreVertical, Phone, Send, Paperclip, Bot,
-  Mail, Building2, User, UserPlus, StickyNote, Zap, CheckCircle2,
+  Mail, Building2, User, Users, UserPlus, StickyNote, Zap, CheckCircle2,
   XCircle, Image as ImageIcon, FileText, Music, Video,
   Download, X, ChevronDown, History, HandMetal, Star, Tag, AlertTriangle,
   Mic, Play, Pause, Square, Smile, Trash2
@@ -150,6 +150,9 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   const [autoClosePaused, setAutoClosePaused] = React.useState(!!(initialCase as any).auto_close_paused);
   const [editingPhone, setEditingPhone] = React.useState(false);
   const [realPhoneInput, setRealPhoneInput] = React.useState("");
+  const [agents, setAgents] = React.useState<any[]>([]);
+  const [showReassign, setShowReassign] = React.useState(false);
+  const [reassigning, setReassigning] = React.useState(false);
 
   const CATEGORIAS = [
     { value: "sin_imagen", label: "Sin imagen" },
@@ -276,6 +279,24 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   const targetId = initialCase._group?.targetCaseId ?? initialCase.id;
   const targetHisttecnico = initialCase._group?.targetHisttecnico ?? (Array.isArray(initialCase.histtecnico) ? initialCase.histtecnico : []);
   const targetEstado = initialCase._group?.targetEstado ?? initialCase.estado;
+
+  /* Cargar agentes disponibles para reasignación */
+  React.useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const { data, error } = await supabase
+        .from("sek_agent_config")
+        .select("email,nombre,apellido,rol")
+        .in("rol", ["tecnico", "admin", "supervisor"])
+        .order("nombre", { ascending: true });
+      if (error) {
+        console.error("[chat-view] Error cargando agentes:", error.message);
+        return;
+      }
+      if (mounted && data) setAgents(data);
+    })();
+    return () => { mounted = false; };
+  }, [supabase]);
 
   React.useEffect(() => {
     let mounted = true;
@@ -840,6 +861,27 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     }
   }
 
+  async function reassignCase(newAgentEmail: string) {
+    if (reassigning || !newAgentEmail || newAgentEmail === sekCase.assigned_to) return;
+    setReassigning(true);
+    try {
+      const { error } = await supabase.from("sek_cases").update({
+        assigned_to: newAgentEmail,
+        accepted_at: new Date().toISOString(),
+      }).eq("id", targetId);
+      if (error) throw error;
+      setSekCase(prev => ({ ...prev, assigned_to: newAgentEmail }));
+      const agent = agents.find((a: any) => a.email === newAgentEmail);
+      const name = agent ? [agent.nombre, agent.apellido].filter(Boolean).join(" ") : newAgentEmail;
+      toast.success(`Caso reasignado a ${name}`);
+      setShowReassign(false);
+    } catch (e: any) {
+      toast.error("Error al reasignar", { description: e?.message });
+    } finally {
+      setReassigning(false);
+    }
+  }
+
   async function saveRealPhone() {
     try {
       const cleanNum = realPhoneInput.replace(/[^0-9]/g, "");
@@ -947,6 +989,17 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
                     <div className="border-t border-border/50 my-1" />
                   </>
                 )}
+                {!cerrado && (sekCase.estado === "abierto" || sekCase.assigned_to) && (
+                  <>
+                    <button
+                      onClick={() => { setShowReassign(true); setShowActions(false); }}
+                      className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-muted transition-colors"
+                    >
+                      <Users className="h-4 w-4 text-blue-500" /> Reasignar caso
+                    </button>
+                    <div className="border-t border-border/50 my-1" />
+                  </>
+                )}
                 <button
                   onClick={toggleCaso}
                   className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-muted transition-colors"
@@ -1027,6 +1080,53 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
                           </button>
                         ))}
                       </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Panel de reasignación de caso */}
+            {showReassign && (
+              <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm">
+                <div className="bg-card border border-border rounded-t-3xl sm:rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden pb-safe">
+                  <div className="flex items-center justify-between p-5 border-b border-border">
+                    <div className="flex items-center gap-2">
+                      <Users className="h-4 w-4 text-blue-500" />
+                      <p className="font-bold text-sm">Reasignar caso</p>
+                    </div>
+                    <button onClick={() => setShowReassign(false)} className="p-1.5 rounded-lg hover:bg-muted">
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <div className="p-5 space-y-4">
+                    <p className="text-xs text-muted-foreground">
+                      Seleccione el técnico al que desea asignar este caso.
+                    </p>
+                    <div className="max-h-64 overflow-y-auto space-y-1">
+                      {agents.length === 0 && (
+                        <p className="text-sm text-muted-foreground text-center py-4">Cargando agentes...</p>
+                      )}
+                      {agents.map((a: any) => {
+                        const name = [a.nombre, a.apellido].filter(Boolean).join(" ") || a.email;
+                        const isCurrent = a.email === sekCase.assigned_to;
+                        return (
+                          <button
+                            key={a.email}
+                            disabled={isCurrent || reassigning}
+                            onClick={() => reassignCase(a.email)}
+                            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-left transition-colors ${
+                              isCurrent
+                                ? "bg-muted text-muted-foreground cursor-default"
+                                : "hover:bg-muted"
+                            }`}
+                          >
+                            <User className="h-4 w-4 text-muted-foreground" />
+                            <span className="flex-1 truncate">{name}</span>
+                            {isCurrent && <span className="text-[10px] bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded">Actual</span>}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
