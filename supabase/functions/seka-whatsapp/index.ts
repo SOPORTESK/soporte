@@ -442,10 +442,11 @@ const WELCOME_TEXTS = [
   "Soy el Asistente Virtual de Sekunet. Para brindarle una mejor asistencia, necesitamos algunos datos para registrar su consulta.",
   "Estimado cliente:\n\nLe informamos que esta conversación podrá ser finalizada o cerrada tras 5 minutos de inactividad.\n\nAgradecemos su atención.",
   "Para comenzar, ¿me podría indicar su nombre completo?",
-  "Horario de atención\nLunes a Viernes · 7:30 a. m. – 5:00 p. m.\nSerá un gusto atenderle",
   "¿En relación con qué tema sería su consulta?",
   `¿En relación con qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Licencias\n7. Otro\n\nResponda con el número o el nombre del tema.`
 ];
+
+const MSG_HORARIO = "Horario de atención\nLunes a Viernes · 7:30 a. m. – 5:00 p. m.\nSerá un gusto atenderle";
 
 // Horario de atención: lunes a viernes 7:30 a.m. - 5:00 p.m. (Costa Rica, UTC-6)
 function isOpenNowCR(): boolean {
@@ -687,7 +688,6 @@ Deno.serve(async (req: Request) => {
       "Soy el Asistente Virtual de Sekunet. Para brindarle una mejor asistencia, necesitamos algunos datos para registrar su consulta.",
       "Estimado cliente:\n\nLe informamos que esta conversación podrá ser finalizada o cerrada tras 5 minutos de inactividad.\n\nAgradecemos su atención.",
       "Para comenzar, ¿me podría indicar su nombre completo?",
-      "Horario de atención\nLunes a Viernes · 7:30 a. m. – 5:00 p. m.\nSerá un gusto atenderle",
       "¿En relación con qué tema sería su consulta?",
       `¿En relación con qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Licencias\n7. Otro\n\nResponda con el número o el nombre del tema.`
     ];
@@ -740,27 +740,25 @@ Deno.serve(async (req: Request) => {
     // FLUJO DE BIENVENIDA PASO A PASO (WhatsApp)
     // ═══════════════════════════════════════════════════════════════════════
 
-    // PASO 0: Primer mensaje del usuario → saludo + presentación + advertencia autoclose + pedir datos
+    // Fuera de horario: el agente de bienvenida está "apagado" → solo informar horario
+    if (!isOpenNowCR()) {
+      return new Response(JSON.stringify({ ok: true, reply: [MSG_HORARIO] }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // PASO 0: Primer mensaje del usuario dentro de horario → flujo completo de bienvenida
     if (userCount === 1 && iaCount === 0) {
       const directReply = "Reciba un cordial saludo de parte del equipo de Soporte Sekunet. Gracias por contactarnos.";
       const msg1 = "Soy el Asistente Virtual de Sekunet. Para brindarle una mejor asistencia, necesitamos algunos datos para registrar su consulta.";
       const msgAutoclose = "Estimado cliente:\n\nLe informamos que esta conversación podrá ser finalizada o cerrada tras 5 minutos de inactividad.\n\nAgradecemos su atención.";
       const msg2 = "Para comenzar, ¿me podría indicar su nombre completo?";
-      const toSend: string[] = [directReply, msg1, msgAutoclose, msg2];
       const newMsgs: HistMsg[] = [
         { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply },
         { role: "ia", author: "Asistente Sekunet", time: new Date(Date.now() + 10).toISOString(), content: msg1 },
         { role: "ia", author: "Asistente Sekunet", time: new Date(Date.now() + 20).toISOString(), content: msgAutoclose },
         { role: "ia", author: "Asistente Sekunet", time: new Date(Date.now() + 30).toISOString(), content: msg2 },
       ];
-      // Fuera de horario: informar horario de atención antes de la presentación
-      if (!isOpenNowCR()) {
-        const msgHorario = "Horario de atención\nLunes a Viernes · 7:30 a. m. – 5:00 p. m.\nSerá un gusto atenderle";
-        toSend.splice(1, 0, msgHorario);
-        newMsgs.splice(1, 0, { role: "ia", author: "Asistente Sekunet", time: new Date(Date.now() + 5).toISOString(), content: msgHorario });
-      }
       await db.from("sek_cases").update({ histtecnico: [...histtecnico, ...newMsgs] }).eq("id", case_id);
-      return new Response(JSON.stringify({ ok: true, reply: toSend }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ ok: true, reply: [directReply, msg1, msgAutoclose, msg2] }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // ═══════════════════════════════════════════════════════════════════════
