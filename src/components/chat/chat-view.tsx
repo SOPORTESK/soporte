@@ -194,11 +194,50 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   const presenceChannelRef = React.useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   const historyLoadedRef = React.useRef(false);
+  const initialCaseRef = React.useRef(initialCase);
+  React.useEffect(() => { initialCaseRef.current = initialCase; }, [initialCase]);
   React.useEffect(() => {
     historyLoadedRef.current = false;
     setSekCase(initialCase);
   }, [initialCase?.id]);
   React.useEffect(() => { setMessages(unifyMessages(sekCase)); }, [sekCase]);
+
+  /* Helper: combinar casos de un grupo en un único objeto histórico */
+  const buildMergedCase = React.useCallback((baseCase: SekCase, casesData: SekCase[]): SekCase => {
+    const sorted = [...casesData].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    const targetId2 = baseCase._group?.targetCaseId ?? baseCase.id;
+    const target = sorted.find(c => String(c.id) === String(targetId2)) ?? sorted[sorted.length - 1] ?? casesData[0];
+    const merged = {
+      ...target,
+      id: baseCase.id,
+      cliente: baseCase.cliente ?? target.cliente,
+      estado: (baseCase._group
+        ? (sorted.some(c => {
+            const e = String(c.estado || "").toLowerCase();
+            return e !== "cerrado" && e !== "resuelto";
+          }) ? "abierto" : target.estado)
+        : baseCase.estado) as SekCase["estado"],
+      histcliente: [],
+      histtecnico: [],
+      _group: baseCase._group,
+    } as unknown as SekCase;
+    sorted.forEach((c, idx) => {
+      const hc = Array.isArray(c.histcliente) ? c.histcliente : [];
+      const ht = Array.isArray(c.histtecnico) ? c.histtecnico : [];
+      if (idx > 0) {
+        (merged.histtecnico as any[]).push({
+          role: "separator",
+          time: c.created_at,
+          content: `── Nueva conversación · ${new Date(c.created_at).toLocaleDateString("es-CR", { day: "2-digit", month: "short", year: "numeric" })} ──`,
+          author: "",
+          _separator: true,
+        });
+      }
+      hc.forEach((e: any, ei: number) => (merged.histcliente as any[]).push({ ...e, _sourceCaseId: c.id, _sourceIndex: ei }));
+      ht.forEach((e: any, ei: number) => (merged.histtecnico as any[]).push({ ...e, _sourceCaseId: c.id, _sourceIndex: ei }));
+    });
+    return merged;
+  }, []);
 
   /* Cargar historial completo si el caso llegó en modo ligero (sin histcliente/histtecnico) */
   React.useEffect(() => {
@@ -214,39 +253,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
           .select("id,estado,canal,cliente,assigned_to,customer_phone,created_at,updated_at,last_message_at,last_message_preview,histcliente,histtecnico")
           .in("id", ids);
         if (!data || !mounted) return;
-        const casesData = data as SekCase[];
-        const sorted = [...casesData].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-        const targetId2 = initialCase._group?.targetCaseId ?? initialCase.id;
-        const target = sorted.find(c => String(c.id) === String(targetId2)) ?? sorted[sorted.length - 1] ?? casesData[0];
-        const merged = {
-          ...target,
-          id: initialCase.id,
-          cliente: initialCase.cliente ?? target.cliente,
-          estado: (initialCase._group
-            ? (sorted.some(c => {
-                const e = String(c.estado || "").toLowerCase();
-                return e !== "cerrado" && e !== "resuelto";
-              }) ? "abierto" : target.estado)
-            : initialCase.estado) as SekCase["estado"],
-          histcliente: [],
-          histtecnico: [],
-          _group: initialCase._group,
-        } as unknown as SekCase;
-        sorted.forEach((c, idx) => {
-          const hc = Array.isArray(c.histcliente) ? c.histcliente : [];
-          const ht = Array.isArray(c.histtecnico) ? c.histtecnico : [];
-          if (idx > 0) {
-            (merged.histtecnico as any[]).push({
-              role: "separator",
-              time: c.created_at,
-              content: `── Nueva conversación · ${new Date(c.created_at).toLocaleDateString("es-CR", { day: "2-digit", month: "short", year: "numeric" })} ──`,
-              author: "",
-              _separator: true,
-            });
-          }
-          hc.forEach((e: any, ei: number) => (merged.histcliente as any[]).push({ ...e, _sourceCaseId: c.id, _sourceIndex: ei }));
-          ht.forEach((e: any, ei: number) => (merged.histtecnico as any[]).push({ ...e, _sourceCaseId: c.id, _sourceIndex: ei }));
-        });
+        const merged = buildMergedCase(initialCase, data as SekCase[]);
         if (mounted) {
           setSekCase(merged);
           historyLoadedRef.current = true;
@@ -256,7 +263,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       }
     })();
     return () => { mounted = false; };
-  }, [initialCase?.id, supabase]);
+  }, [initialCase?.id, supabase, buildMergedCase]);
 
   /* Cargar plantillas */
   React.useEffect(() => {
@@ -314,22 +321,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       } catch { /* lock timeout en dev - ignorar */ }
     })();
 
-    /* Si es agrupado, el padre (InboxClient) ya maneja polling/realtime de todos los casos */
-    if (isGrouped) {
-      /* Solo presence para typing indicator usando el targetId */
-      const presenceCh = supabase.channel(`wgt-typing-${targetId}`, { config: { presence: { key: "agent" } } })
-        .on("presence", { event: "sync" }, () => {
-          const state = presenceCh.presenceState<{ role: string; typing: boolean }>();
-          const entries = Object.values(state).flat();
-          setClienteTyping(entries.some((e: any) => e.role === "cliente" && e.typing));
-          setAgentTyping(entries.some((e: any) => e.role === "agente" && e.typing));
-        })
-        .subscribe();
-      presenceChannelRef.current = presenceCh;
-      return () => { mounted = false; supabase.removeChannel(presenceCh); };
-    }
-
-    console.log(`[chat-view] Suscribiendo realtime para caso ${targetId}`);
+    console.log(`[chat-view] Suscribiendo realtime para caso ${targetId}${isGrouped ? " (grupo)" : ""}`);
     const channel = supabase
       .channel(`case-${targetId}`)
       .on("system", { event: "*" }, (msg) => {
@@ -338,13 +330,31 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       .on("postgres_changes", {
         event: "UPDATE", schema: "public", table: "sek_cases",
         filter: `id=eq.${targetId}`
-      }, (payload) => {
+      }, async (payload) => {
         console.log(`[chat-view] realtime UPDATE recibido para ${targetId}:`, {
           hasHistcliente: payload.new?.histcliente !== undefined,
           histclienteLen: Array.isArray(payload.new?.histcliente) ? payload.new.histcliente.length : 0,
           hasHisttecnico: payload.new?.histtecnico !== undefined,
           histtecnicoLen: Array.isArray(payload.new?.histtecnico) ? payload.new.histtecnico.length : 0,
         });
+
+        // Para chats agrupados, el payload solo trae el caso objetivo; recargar el historial completo del grupo
+        // para no perder mensajes de otros casos del mismo cliente.
+        if (isGrouped && initialCaseRef.current._group?.caseIds?.length) {
+          try {
+            const { data } = await supabase
+              .from("sek_cases")
+              .select("id,estado,canal,cliente,assigned_to,customer_phone,created_at,updated_at,last_message_at,last_message_preview,histcliente,histtecnico")
+              .in("id", initialCaseRef.current._group.caseIds);
+            if (data && mounted) {
+              setSekCase(buildMergedCase(initialCaseRef.current, data as SekCase[]));
+            }
+          } catch (e) {
+            console.error("[chat-view] realtime reload group error:", e);
+          }
+          return;
+        }
+
         setSekCase(prev => {
           const newData = payload.new as any;
           const update: any = { ...newData };
@@ -377,25 +387,35 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
 
     /* Polling de respaldo cada 10s con campos mínimos */
     const poll = setInterval(async () => {
-      console.log(`[chat-view] polling ${targetId}`);
-      const { data, error } = await supabase
-        .from("sek_cases")
-        .select("id,estado,assigned_to,last_message_at,last_message_preview,histcliente,histtecnico")
-        .eq("id", targetId)
-        .maybeSingle();
-      if (error) { console.error(`[chat-view] polling error:`, error); return; }
-      if (data && mounted) {
-        console.log(`[chat-view] polling data: hc=${Array.isArray(data.histcliente)?data.histcliente.length:0}, ht=${Array.isArray(data.histtecnico)?data.histtecnico.length:0}, last=${data.last_message_preview?.slice(0,40)}`);
-        setSekCase(prev => {
-          /* Si es un grupo, el historial combinado se cargó una vez; no lo reemplazamos
-             con solo el historial del caso objetivo, porque borraría mensajes antiguos. */
-          const update: any = {
-            estado: data.estado,
-            assigned_to: data.assigned_to,
-            last_message_at: data.last_message_at,
-            last_message_preview: data.last_message_preview,
-          };
-          if (!isGrouped) {
+      console.log(`[chat-view] polling ${targetId}${isGrouped ? " (grupo)" : ""}`);
+      try {
+        if (isGrouped && initialCaseRef.current._group?.caseIds?.length) {
+          // Para chats agrupados, recargar el historial completo de todos los casos
+          const { data } = await supabase
+            .from("sek_cases")
+            .select("id,estado,canal,cliente,assigned_to,customer_phone,created_at,updated_at,last_message_at,last_message_preview,histcliente,histtecnico")
+            .in("id", initialCaseRef.current._group.caseIds);
+          if (data && mounted) {
+            setSekCase(buildMergedCase(initialCaseRef.current, data as SekCase[]));
+          }
+          return;
+        }
+
+        const { data, error } = await supabase
+          .from("sek_cases")
+          .select("id,estado,assigned_to,last_message_at,last_message_preview,histcliente,histtecnico")
+          .eq("id", targetId)
+          .maybeSingle();
+        if (error) { console.error(`[chat-view] polling error:`, error); return; }
+        if (data && mounted) {
+          console.log(`[chat-view] polling data: hc=${Array.isArray(data.histcliente)?data.histcliente.length:0}, ht=${Array.isArray(data.histtecnico)?data.histtecnico.length:0}, last=${data.last_message_preview?.slice(0,40)}`);
+          setSekCase(prev => {
+            const update: any = {
+              estado: data.estado,
+              assigned_to: data.assigned_to,
+              last_message_at: data.last_message_at,
+              last_message_preview: data.last_message_preview,
+            };
             // No reemplazar historial real por arrays vacíos recibidos en polling
             if (!(Array.isArray(data.histcliente) && data.histcliente.length === 0 && Array.isArray(prev.histcliente) && prev.histcliente.length > 0)) {
               update.histcliente = data.histcliente;
@@ -403,26 +423,28 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
             if (!(Array.isArray(data.histtecnico) && data.histtecnico.length === 0 && Array.isArray(prev.histtecnico) && prev.histtecnico.length > 0)) {
               update.histtecnico = data.histtecnico;
             }
-          }
-          const hashOf = (c: any) => {
-            const hc = c.histcliente || [], ht = c.histtecnico || [];
-            return hc.length + "|" + ht.length + "|" +
-              (hc.length ? (hc[hc.length-1]?.time || "") + (hc[hc.length-1]?.read_at || "") : "") + "|" +
-              (ht.length ? (ht[ht.length-1]?.time || "") + (ht[ht.length-1]?.read_at || "") : "") + "|" +
-              (c.estado || "") + "|" + (c.assigned_to || "");
-          };
-          const merged = { ...prev, ...update };
-          return hashOf(prev) === hashOf(merged) ? prev : merged;
-        });
-        // Marcar mensajes del cliente sin read_at como leídos (agente tiene el chat abierto)
-        const hc = (data.histcliente || []) as any[];
-        const now = new Date().toISOString();
-        let changed = false;
-        const updated = hc.map((e: any) => {
-          if ((e.role === "user" || !e.role) && !e.read_at) { changed = true; return { ...e, read_at: now }; }
-          return e;
-        });
-        if (changed && !isGrouped) supabase.from("sek_cases").update({ histcliente: updated }).eq("id", targetId).then(() => {});
+            const hashOf = (c: any) => {
+              const hc = c.histcliente || [], ht = c.histtecnico || [];
+              return hc.length + "|" + ht.length + "|" +
+                (hc.length ? (hc[hc.length-1]?.time || "") + (hc[hc.length-1]?.read_at || "") : "") + "|" +
+                (ht.length ? (ht[ht.length-1]?.time || "") + (ht[ht.length-1]?.read_at || "") : "") + "|" +
+                (c.estado || "") + "|" + (c.assigned_to || "");
+            };
+            const merged = { ...prev, ...update };
+            return hashOf(prev) === hashOf(merged) ? prev : merged;
+          });
+          // Marcar mensajes del cliente sin read_at como leídos (agente tiene el chat abierto)
+          const hc = (data.histcliente || []) as any[];
+          const now = new Date().toISOString();
+          let changed = false;
+          const updated = hc.map((e: any) => {
+            if ((e.role === "user" || !e.role) && !e.read_at) { changed = true; return { ...e, read_at: now }; }
+            return e;
+          });
+          if (changed) supabase.from("sek_cases").update({ histcliente: updated }).eq("id", targetId).then(() => {});
+        }
+      } catch (e) {
+        console.error(`[chat-view] polling error:`, e);
       }
     }, 10000);
 
