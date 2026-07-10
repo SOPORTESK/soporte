@@ -1258,6 +1258,25 @@ Responde SOLO con JSON válido:
       }
     }
 
+    // DEFENSA ANTI-RETROCESO CUENTA: si el bot ya pidió cuenta y el cliente ya avanzó a elegir
+    // tema (o más allá), no volver a pedirla. Si no quedó guardada, usar el nombre del cliente
+    // (cuenta a título personal) o "Sin cuenta" como último recurso.
+    const cuentaEnBD = String((updatedCliente.cuenta || (currentCliente as any)?.cuenta) ?? "").trim();
+    let cuentaRespondida = cuentaEnBD !== "" && cuentaEnBD !== "(vacío)" && cuentaEnBD !== "null";
+    if (!cuentaRespondida && temaSupervisor) {
+      const botYaPreguntoCuenta = iaRealMsgs.some(m => (m.content || "").toLowerCase().includes("empresa o cuenta afiliada"));
+      if (botYaPreguntoCuenta) {
+        if (updatedCliente.nombre) {
+          updatedCliente.cuenta = String(updatedCliente.nombre);
+        } else {
+          updatedCliente.cuenta = "Sin cuenta";
+        }
+        clienteChanged = true;
+        cuentaRespondida = true;
+        console.log("[seka-whatsapp] Cuenta ya fue preguntada antes y tema elegido; se evita retroceder a PEDIR_CUENTA.");
+      }
+    }
+
     const validActions = ["CERRAR", "ESCALAR", "ESCALAR_INMEDIATO", "PEDIR_DATOS", "PEDIR_NOMBRE", "PEDIR_CORREO", "PEDIR_CUENTA", "PEDIR_TEMA", "PEDIR_MARCA", "PEDIR_MODELO", "PEDIR_MARCA_Y_MODELO", "BUSCAR_INVENTARIO", "PEDIR_ETIQUETA", "PEDIR_ETIQUETA_Y_XML", "PEDIR_DESCRIPCION", "VENTAS"];
     if (!validActions.includes(accion) || (accion === "CONTINUAR" && (!updatedCliente.nombre || !updatedCliente.cuenta || !temaSupervisor || (temaSupervisor !== "Otro" && (!marcaSupervisor || !modeloSupervisor))))) {
       console.warn(`[seka-whatsapp] Accion ${accion} requiere heuristica de flujo.`);
@@ -1350,7 +1369,7 @@ Responde SOLO con JSON válido:
         console.log("[seka-whatsapp] Forzando PEDIR_CORREO — correo vacío en BD.");
         accion = "PEDIR_CORREO";
         supervisorResult.respuesta_sugerida = "";
-      } else if (!updatedCliente.cuenta) {
+      } else if (!cuentaRespondida) {
         console.log("[seka-whatsapp] Forzando PEDIR_CUENTA por datos incompletos.");
         accion = "PEDIR_CUENTA";
         supervisorResult.respuesta_sugerida = "";
