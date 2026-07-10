@@ -308,12 +308,22 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       return () => { mounted = false; supabase.removeChannel(presenceCh); };
     }
 
+    console.log(`[chat-view] Suscribiendo realtime para caso ${targetId}`);
     const channel = supabase
       .channel(`case-${targetId}`)
+      .on("system", { event: "*" }, (msg) => {
+        console.log(`[chat-view] system event:`, msg.event, msg);
+      })
       .on("postgres_changes", {
         event: "UPDATE", schema: "public", table: "sek_cases",
         filter: `id=eq.${targetId}`
       }, (payload) => {
+        console.log(`[chat-view] realtime UPDATE recibido para ${targetId}:`, {
+          hasHistcliente: payload.new?.histcliente !== undefined,
+          histclienteLen: Array.isArray(payload.new?.histcliente) ? payload.new.histcliente.length : 0,
+          hasHisttecnico: payload.new?.histtecnico !== undefined,
+          histtecnicoLen: Array.isArray(payload.new?.histtecnico) ? payload.new.histtecnico.length : 0,
+        });
         setSekCase(prev => {
           const newData = payload.new as any;
           const update: any = { ...newData };
@@ -329,7 +339,9 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
           return { ...prev, ...update };
         });
       })
-      .subscribe();
+      .subscribe((status, err) => {
+        console.log(`[chat-view] realtime subscription status:`, status, err || "");
+      });
 
     /* Presence para indicador de escritura — mismo canal que widget */
     const presenceCh = supabase.channel(`wgt-typing-${targetId}`, { config: { presence: { key: "agent" } } })
@@ -344,12 +356,15 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
 
     /* Polling de respaldo cada 10s con campos mínimos */
     const poll = setInterval(async () => {
-      const { data } = await supabase
+      console.log(`[chat-view] polling ${targetId}`);
+      const { data, error } = await supabase
         .from("sek_cases")
         .select("id,estado,assigned_to,last_message_at,last_message_preview,histcliente,histtecnico")
         .eq("id", targetId)
         .maybeSingle();
+      if (error) { console.error(`[chat-view] polling error:`, error); return; }
       if (data && mounted) {
+        console.log(`[chat-view] polling data: hc=${Array.isArray(data.histcliente)?data.histcliente.length:0}, ht=${Array.isArray(data.histtecnico)?data.histtecnico.length:0}, last=${data.last_message_preview?.slice(0,40)}`);
         setSekCase(prev => {
           /* Si es un grupo, el historial combinado se cargó una vez; no lo reemplazamos
              con solo el historial del caso objetivo, porque borraría mensajes antiguos. */
