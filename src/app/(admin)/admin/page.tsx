@@ -58,7 +58,7 @@ export default async function AdminDashboardPage() {
   ] = await Promise.all([
     supabase.from("sek_agent_config").select("*", { count: "exact", head: true }),
     supabase.from("sek_cases").select("*", { count: "exact", head: true }),
-    supabase.from("sek_cases").select("*", { count: "exact", head: true }).not("estado", "in", "(\"resuelto\",\"cerrado\")"),
+    supabase.from("sek_cases").select("*", { count: "exact", head: true }).in("estado", ["ia_atendiendo", "abierto", "escalado", "pendiente"]),
     supabase.from("sek_cases").select("*", { count: "exact", head: true }).eq("estado", "escalado"),
     supabase.from("sek_cases").select("*", { count: "exact", head: true }).eq("estado", "ia_atendiendo"),
     supabase.from("sek_channels").select("*", { count: "exact", head: true }),
