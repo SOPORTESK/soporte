@@ -747,6 +747,14 @@ Deno.serve(async (req: Request) => {
 
     // PASO 0: Primer mensaje del usuario dentro de horario → flujo completo de bienvenida
     if (userCount === 1 && iaCount === 0) {
+      // Re-leer histtecnico fresco para evitar doble bienvenida por doble disparo del webhook
+      const { data: freshCheck } = await db.from("sek_cases").select("histtecnico").eq("id", case_id).maybeSingle();
+      const freshHist0: HistMsg[] = Array.isArray(freshCheck?.histtecnico) ? (freshCheck as any).histtecnico : histtecnico;
+      const freshIaCount = freshHist0.filter((m: HistMsg) => m.role === "ia" || m.role === "assistant" || m.role === "tecnico").length;
+      if (freshIaCount > 0) {
+        console.log("[seka-whatsapp] PASO 0: bienvenida ya enviada (freshIaCount=" + freshIaCount + "), omitiendo duplicado.");
+        return new Response(JSON.stringify({ ok: true, skipped: true, dedup: true }), { status: 200, headers: corsHeaders });
+      }
       const directReply = "Reciba un cordial saludo de parte del equipo de Soporte Sekunet. Gracias por contactarnos.";
       const msg1 = "Soy el Asistente Virtual de Sekunet. Para brindarle una mejor asistencia, necesitamos algunos datos para registrar su consulta.";
       const msgAutoclose = "Estimado cliente:\n\nLe informamos que esta conversación podrá ser finalizada o cerrada tras 5 minutos de inactividad.\n\nAgradecemos su atención.";
@@ -757,7 +765,7 @@ Deno.serve(async (req: Request) => {
         { role: "ia", author: "Asistente Sekunet", time: new Date(Date.now() + 20).toISOString(), content: msgAutoclose },
         { role: "ia", author: "Asistente Sekunet", time: new Date(Date.now() + 30).toISOString(), content: msg2 },
       ];
-      await db.from("sek_cases").update({ histtecnico: [...histtecnico, ...newMsgs] }).eq("id", case_id);
+      await db.from("sek_cases").update({ histtecnico: [...freshHist0, ...newMsgs] }).eq("id", case_id);
       return new Response(JSON.stringify({ ok: true, reply: [directReply, msg1, msgAutoclose, msg2] }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
