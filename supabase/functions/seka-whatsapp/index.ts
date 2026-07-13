@@ -581,48 +581,32 @@ const MSG_CIERRE_REINTENTOS = "Lamentamos no poder continuar. Hemos intentado re
 const MSG_INVALIDO = "La información ingresada no es válida. Por favor, verifique el dato e inténtelo nuevamente.";
 const MSG_NOMBRE_INVALIDO = "No reconocí un nombre completo. Por favor indíqueme su nombre y apellido (por ejemplo: María Chaves).";
 
+// Filtros mínimos e infalibles — los casos grises los resuelve el Supervisor (LLM).
 function isNombrePropioValido(name: string): boolean {
   const trimmed = name.trim();
-  if (!trimmed) return false;
-  // Rechazar emails/URLs y caracteres no permitidos
+  if (!trimmed || trimmed.length < 3) return false;
+  // Claramente no es un nombre
   if (trimmed.includes("@")) return false;
   if (/https?:\/\//i.test(trimmed)) return false;
-  // Rechazar si contiene números
   if (/\d/.test(trimmed)) return false;
-  // Al menos 2 palabras
+  // Mínimo 2 palabras (nombre + apellido)
   const words = trimmed.split(/\s+/).filter(w => w.length > 0);
   if (words.length < 2) return false;
-  // Nombres propios completos rara vez superan 5 palabras
-  if (words.length > 5) return false;
-  // Cada palabra al menos 2 caracteres
-  if (words.some(w => w.length < 2)) return false;
-  // Solo letras, espacios, acentos, ñ, ü, guiones, apóstrofos
+  // Máximo 6 palabras (nombres compuestos largos)
+  if (words.length > 6) return false;
+  // Solo letras, acentos, ñ, ü, guiones y apóstrofos
   if (/[^a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s\-']/.test(trimmed)) return false;
-  // No empezar/terminar con guión o apóstrofo
-  if (/^[-']|[-']$/.test(trimmed)) return false;
-  // Rechazar palabras completamente en mayúsculas (modelos/marcas como AX PRO)
-  if (words.filter(w => /^[A-ZÁÉÍÓÚÑÜ]{2,}$/.test(w)).length >= 2) return false;
-  // Lista negra de palabras/frases comunes que no son nombres
+  // Frases obvias que no son nombres (comparación de substring multi-palabra)
+  const obviasNoNombre = [
+    "buenos dias", "buenas tardes", "buenas noches",
+    "tengo un problema", "necesito ayuda", "no lo se", "no lo sé",
+  ];
   const lower = trimmed.toLowerCase();
-  // Frases completas: comparación exacta de substring (multi-palabra)
-  const blacklistPhrases = [
-    "buenos dias", "buenas tardes", "buenas noches", "tengo un problema",
-    "necesito ayuda", "de nada", "no se", "no sé", "no lo se", "no lo sé",
-    "no tengo",
-  ];
-  if (blacklistPhrases.some(b => lower.includes(b))) return false;
-  // Palabras sueltas: coincidencia de palabra completa (\b) para no rechazar
-  // nombres como "Ericka Salazar" (contiene "la"), "Elena" (contiene "el"), etc.
-  const blacklistWords = [
-    "si", "sí", "no", "ok", "hola", "hey", "saludos", "gracias",
-    "ayuda", "urgente", "marca", "modelo", "equipo", "cuenta",
-    "cliente", "ninguno", "whatsapp", "email", "correo", "empresa",
-    "afiliada", "configuraciones", "reset", "desvinculacion", "desvinculación",
-    "firmware", "software", "licencias", "otro", "telefono", "teléfono",
-    "sobre", "tema", "problema", "consulta", "panel", "cámara", "camara",
-    "dispositivo", "alarma", "sensor",
-  ];
-  if (blacklistWords.some(b => new RegExp(`\\b${b}\\b`, "i").test(lower))) return false;
+  if (obviasNoNombre.some(f => lower.includes(f))) return false;
+  // Palabras de una sola sílaba que nunca son nombre: solo si el texto COMPLETO es esa palabra
+  const soloUna = ["si", "sí", "no", "ok", "hola", "hey", "gracias"];
+  if (soloUna.includes(lower)) return false;
+  // Todo lo demás → dejar pasar; el Supervisor lo validará con criterio de IA
   return true;
 }
 
