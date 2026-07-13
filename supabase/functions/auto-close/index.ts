@@ -154,6 +154,7 @@ Deno.serve(async (req) => {
     // NUNCA cerrar casos escalados: el cliente está esperando que un humano lo atienda.
     .in("estado", ["ia_atendiendo", "abierto"])
     .neq("canal", "simulator")
+    .order("created_at", { ascending: true })
     .limit(50);
 
   if (error) {
@@ -175,10 +176,22 @@ Deno.serve(async (req) => {
       continue;
     }
 
-    // PROTECCIÓN: casos humanos (abierto) no se cierran si nadie los ha tomado aún.
-    // Los casos de IA (ia_atendiendo) sí pueden cerrarse porque la IA ya interactuó.
+    // PROTECCIÓN: casos humanos (abierto) sin assigned_to son zombis si llevan más de 24h.
+    // Cerrarlos automáticamente. Si llevan menos de 24h, esperarlos (puede que el agente
+    // aún no haya respondido pero acaba de tomar el caso).
     if (caso.estado !== "ia_atendiendo" && !caso.assigned_to) {
-      console.log(`[auto-close] Caso ${caso.id} no tiene assigned_to, saltando`);
+      const ageMs = now - new Date(caso.created_at).getTime();
+      const ZOMBIE_THRESHOLD_MS = 24 * 60 * 60 * 1000; // 24 horas
+      if (ageMs < ZOMBIE_THRESHOLD_MS) {
+        console.log(`[auto-close] Caso ${caso.id} sin assigned_to pero menor a 24h, saltando`);
+        continue;
+      }
+      console.log(`[auto-close] Caso ${caso.id} zombi (${Math.round(ageMs/3600000)}h sin assigned_to) → cerrando`);
+      const closeEntry = { role: "tecnico", content: CLOSE_MSG, time: new Date().toISOString(), author: "Soporte Sekunet" };
+      await db.from("sek_cases").update({ estado: "cerrado", histtecnico: [...(caso.histtecnico ?? []), closeEntry] })
+        .eq("id", caso.id).not("estado", "in", '("cerrado","resuelto")');
+      closed++;
+      console.log(`[auto-close] Caso zombi ${caso.id} cerrado.`);
       continue;
     }
 
@@ -297,7 +310,7 @@ Deno.serve(async (req) => {
       });
     } catch (e) { console.error("[auto-close] transcript email error:", e); }
 
-    const lastTime = allMsgs.length > 0 ? allMsgs[allMsgs.length - 1].time : caso.created_at;
+    const lastTime = lastAgentTime > 0 ? new Date(lastAgentTime).toISOString() : caso.created_at;
     console.log(`[auto-close] Caso ${caso.id} cerrado por inactividad del cliente (${Math.round((now - new Date(lastTime).getTime()) / 60000)} min)`);
     closed++;
   }
