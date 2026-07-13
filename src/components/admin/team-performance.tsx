@@ -323,6 +323,28 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
           </div>
         </div>
 
+        {/* Column Headers — misma estructura que cada fila: px-6 gap-4 */}
+        <div className="hidden md:flex items-center gap-4 px-6 py-2 border-b border-border bg-muted/10">
+          {/* Rank — w-8 igual que la fila */}
+          <div className="hidden sm:flex w-8 shrink-0" />
+          {/* Avatar+Nombre — flex-1 igual que la fila */}
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <div className="w-12 shrink-0" />
+            <div className="min-w-0" />
+          </div>
+          {/* Stats headers */}
+          <div className="flex items-center gap-4 mr-4">
+            <div className="w-20 text-center"><p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Resueltos</p></div>
+            <div className="w-16 text-center"><p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Tasa</p></div>
+            <div className="w-24 text-center"><p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">SLA</p></div>
+            <div className="w-24 text-center"><p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Calif. cliente</p></div>
+            <div className="w-16 text-center"><p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Trend</p></div>
+          </div>
+          <div className="w-20 text-center"><p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Score</p></div>
+          {/* Actions placeholder — mismo ancho que los botones de acción */}
+          <div className="w-28" />
+        </div>
+
         {/* Agent List */}
         <div className="divide-y divide-border/50">
           {sortedAgents.map((agent, index) => {
@@ -380,11 +402,10 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
                   </div>
 
                   {/* Quick Stats — ancho fijo por columna para alineación perfecta */}
-                  <div className="hidden md:flex items-center">
+                  <div className="hidden md:flex items-center gap-4 mr-4">
                     {/* Resueltos */}
                     <div className="w-20 text-center">
                       <p className="text-xl font-black text-emerald-500 tabular-nums">{agent.resueltos}</p>
-                      <p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Resueltos</p>
                     </div>
 
                     {/* Tasa */}
@@ -407,7 +428,6 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
                         <Clock className="h-3 w-3 text-sky-500" />
                         <p className="text-sm font-black text-sky-500 tabular-nums">{formatSLA(agent.avgSLA)}</p>
                       </div>
-                      <p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">SLA</p>
                     </div>
 
                     {/* Calificación del cliente */}
@@ -418,13 +438,11 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
                           {agent.avgCalificacionCliente !== "N/A" ? agent.avgCalificacionCliente : "—"}
                         </p>
                       </div>
-                      <p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Calif. cliente</p>
                     </div>
 
                     {/* Tendencia */}
                     <div className="w-16 text-center">
                       {getTrendIcon(agent.tendencia)}
-                      <p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground mt-0.5">Trend</p>
                     </div>
                   </div>
 
