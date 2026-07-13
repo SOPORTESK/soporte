@@ -83,7 +83,7 @@ export default async function AdminEquipoPage() {
       }
     }
     const cl = typeof c.cliente === "object" && c.cliente ? c.cliente as any : null;
-    const cal = cl?.csat_rating;
+    const cal = cl?.calificacion_cliente;
     const calNum = Number(cal);
     if (cal != null && !isNaN(calNum) && calNum >= 1 && calNum <= 5) s.calificaciones.push(calNum);
     if (c.created_at >= todayStart) s.casosHoy++;
