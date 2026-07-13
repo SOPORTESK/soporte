@@ -183,36 +183,36 @@ Deno.serve(async (req) => {
     }
 
     /*
-     * Solo cerrar si el ÚLTIMO mensaje de toda la conversación es del AGENTE/TÉCNICO.
-     * Esto significa que el agente ya respondió y el cliente no ha contestado.
-     * Si el último mensaje es del cliente → el cliente espera respuesta → NO cerrar.
+     * Lógica de cierre: comparar el timestamp del ÚLTIMO mensaje del agente/IA
+     * contra el último mensaje del cliente.
+     * - Si el agente respondió DESPUÉS del cliente → elegible para cierre por inactividad.
+     * - Si el cliente escribió DESPUÉS del agente → el cliente espera respuesta → NO cerrar.
      */
-    const allMsgs: { role: string; time: string }[] = [];
-    for (const m of (caso.histcliente ?? [])) {
-      if (m?.time) allMsgs.push({ role: m.role || "user", time: m.time });
-    }
-    for (const m of (caso.histtecnico ?? [])) {
-      if (m?.role === "nota") continue; // ignorar notas internas
-      if (m?.time) allMsgs.push({ role: m.role || "tecnico", time: m.time });
-    }
-    allMsgs.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+
+    // Último mensaje del CLIENTE (histcliente, role: "user")
+    const clientMsgs = (caso.histcliente ?? []).filter((m: any) => m?.time && m?.role === "user");
+    const lastClientTime = clientMsgs.length > 0
+      ? Math.max(...clientMsgs.map((m: any) => new Date(m.time).getTime()))
+      : 0;
+
+    // Último mensaje del AGENTE/IA (histtecnico, excluyendo notas)
+    const agentMsgs = (caso.histtecnico ?? []).filter((m: any) => m?.time && m?.role !== "nota");
+    const lastAgentTime = agentMsgs.length > 0
+      ? Math.max(...agentMsgs.map((m: any) => new Date(m.time).getTime()))
+      : 0;
+
+    // Si nunca hubo respuesta del agente, no cerrar
+    if (lastAgentTime === 0) continue;
+
+    // Si el cliente escribió DESPUÉS del agente (o al mismo tiempo), el cliente espera → NO cerrar
+    if (lastClientTime > lastAgentTime) continue;
 
     // Umbral unificado a 5 min para todos los casos.
     const isIA = caso.estado === "ia_atendiendo";
     const threshold = (isIA ? INACTIVITY_MINUTES_IA : INACTIVITY_MINUTES_DEFAULT) * 60 * 1000;
 
-    // REGLA INMUTABLE: el cierre por inactividad es ÚNICAMENTE por inactividad del CLIENTE.
-    // Si no hay mensajes aún, no cerrar (esperando primer mensaje del cliente).
-    // Si el último mensaje es del cliente, NUNCA cerrar (estaríamos cerrando por
-    // inactividad del agente/IA, lo cual es inaceptable).
-    if (allMsgs.length === 0) continue;
-    const last = allMsgs[allMsgs.length - 1];
-    
-    // Si el último mensaje fue del cliente, el CLIENTE está esperando respuesta del Agente o IA.
-    // NUNCA cerrar el caso si es culpa nuestra que no se ha respondido.
-    if (last.role === "user") continue;
-    
-    const elapsed = now - new Date(last.time).getTime();
+    // Cerrar si pasaron más de 5 min desde la última respuesta del agente sin que el cliente conteste
+    const elapsed = now - lastAgentTime;
     if (elapsed < threshold) continue;
 
     // Verificar que el caso siga abierto justo antes de cerrar (evita doble cierre en race condition)
