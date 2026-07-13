@@ -155,8 +155,10 @@ function mergeGroups(rawCases: SekCase[]): SekCase[] {
 
 const BASE_TITLE = "Sekunet Chat";
 
-// Campos mínimos para la lista del inbox (sin histcliente/histtecnico completos)
-const CASE_LIST_FIELDS = "id,estado,canal,cliente,assigned_to,last_message_at,last_message_preview,unread_count,created_at,updated_at,title,prioridad,tags,customer_phone";
+// Campos para la lista del inbox. Incluye histcliente (solo lectura ligera) para poder
+// detectar mensajes nuevos del cliente y disparar el toast/sonido de notificación —
+// sin histcliente, esa comparación siempre veía longitud 0 y nunca notificaba.
+const CASE_LIST_FIELDS = "id,estado,canal,cliente,assigned_to,last_message_at,last_message_preview,unread_count,created_at,updated_at,title,prioridad,tags,customer_phone,histcliente";
 
 async function fetchCasesMeta(supabase: any, limit = 200) {
   const { data, error } = await supabase

@@ -372,6 +372,12 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       })
       .subscribe((status, err) => {
         console.log(`[chat-view] realtime subscription status:`, status, err || "");
+        // Si el canal se cae (error, timeout o cierre inesperado), reconectar tras 2s
+        // para no depender únicamente del polling en caso de fallas de red prolongadas.
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+          console.warn(`[chat-view] canal realtime perdido (${status}), reintentando en 2s...`);
+          setTimeout(() => { if (mounted) { try { channel.subscribe(); } catch {} } }, 2000);
+        }
       });
 
     /* Presence para indicador de escritura — mismo canal que widget */
@@ -385,8 +391,10 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       .subscribe();
     presenceChannelRef.current = presenceCh;
 
-    /* Polling de respaldo cada 10s con campos mínimos */
-    const poll = setInterval(async () => {
+    /* Función de refetch reutilizable: la usa tanto el polling periódico como
+       el listener de visibilidad (para refrescar de inmediato al volver a la pestaña,
+       cubriendo el caso donde el navegador/OS pausó los timers en segundo plano). */
+    const doPoll = async () => {
       console.log(`[chat-view] polling ${targetId}${isGrouped ? " (grupo)" : ""}`);
       try {
         if (isGrouped && initialCaseRef.current._group?.caseIds?.length) {
@@ -446,7 +454,23 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       } catch (e) {
         console.error(`[chat-view] polling error:`, e);
       }
-    }, 10000);
+    };
+
+    /* Polling de respaldo cada 10s con campos mínimos */
+    const poll = setInterval(doPoll, 10000);
+
+    /* Refetch inmediato al volver a la pestaña/ventana. Cubre el caso donde el
+       navegador o el sistema operativo pausó los timers en segundo plano (pestaña
+       inactiva, minimizada, o equipo suspendido) y se perdieron mensajes nuevos
+       sin que el agente lo notara. */
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        console.log("[chat-view] pestaña visible de nuevo, forzando refetch inmediato");
+        doPoll();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("focus", handleVisibility);
 
     // Marcar mensajes del cliente como leídos al abrir el chat
     (async () => {
@@ -461,7 +485,14 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       if (changed) await supabase.from("sek_cases").update({ histcliente: updated }).eq("id", targetId);
     })();
 
-    return () => { mounted = false; clearInterval(poll); supabase.removeChannel(channel); supabase.removeChannel(presenceCh); };
+    return () => {
+      mounted = false;
+      clearInterval(poll);
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("focus", handleVisibility);
+      supabase.removeChannel(channel);
+      supabase.removeChannel(presenceCh);
+    };
   }, [targetId, supabase, isGrouped]);
 
   React.useEffect(() => {
