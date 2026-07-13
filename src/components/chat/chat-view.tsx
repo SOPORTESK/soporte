@@ -1050,7 +1050,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
             </button>
             {showActions && (
               <div className="absolute right-0 top-10 z-50 w-56 rounded-xl border border-border bg-card shadow-xl py-1">
-                {iaAtendiendo && (
+                {(iaAtendiendo || (estadoLower === "abierto" && !sekCase.assigned_to)) && (
                   <>
                     <button
                       onClick={() => { acceptCase(); setShowActions(false); }}
