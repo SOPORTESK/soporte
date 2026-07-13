@@ -604,18 +604,25 @@ function isNombrePropioValido(name: string): boolean {
   if (words.filter(w => /^[A-ZÁÉÍÓÚÑÜ]{2,}$/.test(w)).length >= 2) return false;
   // Lista negra de palabras/frases comunes que no son nombres
   const lower = trimmed.toLowerCase();
-  const blacklist = [
-    "si", "sí", "no", "ok", "hola", "hey", "saludos", "gracias", "de nada",
+  // Frases completas: comparación exacta de substring (multi-palabra)
+  const blacklistPhrases = [
     "buenos dias", "buenas tardes", "buenas noches", "tengo un problema",
-    "necesito ayuda", "ayuda", "urgente", "marca", "modelo", "equipo", "cuenta",
-    "cliente", "no se", "no sé", "ninguno", "no tengo", "no lo se", "no lo sé",
-    "whatsapp", "email", "correo", "empresa", "afiliada", "configuraciones",
-    "reset", "desvinculacion", "desvinculación", "firmware", "software",
-    "licencias", "otro", "telefono", "teléfono", "sobre", "tema", "problema",
-    "consulta", "panel", "cámara", "camara", "dispositivo", "alarma", "sensor",
-    "un", "una", "el", "la", "del", "por", "para", "con", "desde"
+    "necesito ayuda", "de nada", "no se", "no sé", "no lo se", "no lo sé",
+    "no tengo",
   ];
-  if (blacklist.some(b => lower.includes(b))) return false;
+  if (blacklistPhrases.some(b => lower.includes(b))) return false;
+  // Palabras sueltas: coincidencia de palabra completa (\b) para no rechazar
+  // nombres como "Ericka Salazar" (contiene "la"), "Elena" (contiene "el"), etc.
+  const blacklistWords = [
+    "si", "sí", "no", "ok", "hola", "hey", "saludos", "gracias",
+    "ayuda", "urgente", "marca", "modelo", "equipo", "cuenta",
+    "cliente", "ninguno", "whatsapp", "email", "correo", "empresa",
+    "afiliada", "configuraciones", "reset", "desvinculacion", "desvinculación",
+    "firmware", "software", "licencias", "otro", "telefono", "teléfono",
+    "sobre", "tema", "problema", "consulta", "panel", "cámara", "camara",
+    "dispositivo", "alarma", "sensor",
+  ];
+  if (blacklistWords.some(b => new RegExp(`\\b${b}\\b`, "i").test(lower))) return false;
   return true;
 }
 
