@@ -686,17 +686,35 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     setUploadingFile(true);
     try {
       if (isWhatsApp) {
-        // Canal WhatsApp: enviar base64 directo a Evolution, sin pasar por Supabase Storage
-        const reader = new FileReader();
-        const base64 = await new Promise<string>((resolve, reject) => {
-          reader.onload = () => resolve(reader.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
+        const DIRECT_BASE64_LIMIT = 3 * 1024 * 1024; // 3 MB → base64 directo; mayor → URL pública
+        const caseIdStr = String(targetId);
+        let payload: Record<string, string>;
+
+        if (file.size <= DIRECT_BASE64_LIMIT) {
+          // Archivo pequeño: base64 directo
+          const reader = new FileReader();
+          const base64 = await new Promise<string>((resolve, reject) => {
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+          });
+          payload = { case_id: caseIdStr, base64, mimeType: file.type || "application/octet-stream", fileName: file.name };
+        } else {
+          // Archivo grande: subir a Supabase Storage y enviar URL pública
+          const ext = file.name.split(".").pop() ?? "bin";
+          const path = `cases/${targetId}/${Date.now()}.${ext}`;
+          const { error: upErr } = await supabase.storage
+            .from("attachments")
+            .upload(path, file, { upsert: true, contentType: file.type || undefined });
+          if (upErr) throw upErr;
+          const { data: pub } = supabase.storage.from("attachments").getPublicUrl(path);
+          payload = { case_id: caseIdStr, mediaUrl: pub.publicUrl, mimeType: file.type || "application/octet-stream", fileName: file.name };
+        }
+
         const res = await fetch("/api/evolution/send-base64", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ case_id: targetId, base64, mimeType: file.type || "application/octet-stream", fileName: file.name }),
+          body: JSON.stringify(payload),
         });
         if (!res.ok) {
           const d = await res.json().catch(() => ({}));

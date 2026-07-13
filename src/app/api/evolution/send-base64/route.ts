@@ -31,9 +31,9 @@ function detectMediaType(mime: string): "image" | "video" | "audio" | "document"
 
 export async function POST(req: NextRequest) {
   try {
-    const { case_id, base64, mimeType, fileName } = await req.json().catch(() => ({}));
+    const { case_id, base64, mediaUrl, mimeType, fileName } = await req.json().catch(() => ({}));
 
-    if (!case_id || !base64 || !mimeType || !fileName) {
+    if (!case_id || (!base64 && !mediaUrl) || !mimeType || !fileName) {
       return NextResponse.json({ error: "Faltan parámetros" }, { status: 400 });
     }
 
@@ -56,21 +56,28 @@ export async function POST(req: NextRequest) {
     const to = pickPhone(c);
     if (!to) return NextResponse.json({ error: "Sin teléfono" }, { status: 400 });
 
-    // Evolution API espera solo el base64 puro (sin prefijo data:)
-    const mediaData = base64.startsWith("data:") ? base64.split(",")[1] : base64;
     const mediatype = detectMediaType(mimeType);
+    const baseUrl = evoCfg.url.replace(/\/$/, "");
+    const instance = encodeURIComponent(evoCfg.instance);
 
-    const url = `${evoCfg.url.replace(/\/$/, "")}/message/sendMedia/${encodeURIComponent(evoCfg.instance)}`;
-    const res = await fetch(url, {
+    let evoBody: Record<string, unknown>;
+    let evoEndpoint: string;
+
+    if (mediaUrl) {
+      // Archivo grande: enviar por URL pública (sin pasar base64 por Vercel)
+      evoEndpoint = `${baseUrl}/message/sendMedia/${instance}`;
+      evoBody = { number: to, mediatype, mimetype: mimeType, media: mediaUrl, fileName };
+    } else {
+      // Archivo pequeño: base64 directo
+      const mediaData = base64.startsWith("data:") ? base64.split(",")[1] : base64;
+      evoEndpoint = `${baseUrl}/message/sendMedia/${instance}`;
+      evoBody = { number: to, mediatype, mimetype: mimeType, media: mediaData, fileName };
+    }
+
+    const res = await fetch(evoEndpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json", apikey: evoCfg.apiKey },
-      body: JSON.stringify({
-        number: to,
-        mediatype,
-        mimetype: mimeType,
-        media: mediaData,
-        fileName,
-      }),
+      body: JSON.stringify(evoBody),
     });
 
     if (!res.ok) {
