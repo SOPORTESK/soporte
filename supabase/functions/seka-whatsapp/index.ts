@@ -800,7 +800,9 @@ Deno.serve(async (req: Request) => {
         // ── PASO CORREO ──
         if (cliFP.nombre && !cliFP.correo && lastBotFP.includes("correo electrónico")) {
           const negacionCorreo = /(no lo tengo|no tengo|no recuerdo|sin correo|no cuento|ninguno|prefiero no|no quiero)/i.test(userLowerFP);
-          const tieneArroba = userRespFP.includes("@") && /\S+@\S+\.\S+/.test(userRespFP);
+          // Extraer el PRIMER email válido del mensaje (maneja mensajes multi-línea o con dos correos)
+          const emailMatch = userRespFP.match(/[\w.+\-]+@[\w.\-]+\.[a-zA-Z]{2,}/);
+          const correoExtraido = emailMatch ? emailMatch[0] : null;
           const pregCuenta = "¿Cuál es el nombre de la empresa o cuenta afiliada a Sekunet?";
           if (negacionCorreo) {
             const cli = { ...cliFP, correo: "Sin correo" };
@@ -809,8 +811,8 @@ Deno.serve(async (req: Request) => {
             await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg], cliente: cli }).eq("id", case_id);
             return new Response(JSON.stringify({ ok: true, reply: preg }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
           }
-          if (tieneArroba) {
-            const cli = { ...cliFP, correo: userRespFP };
+          if (correoExtraido) {
+            const cli = { ...cliFP, correo: correoExtraido };
             const preg = `Gracias. ${pregCuenta}`;
             const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: preg };
             await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg], cliente: cli }).eq("id", case_id);
