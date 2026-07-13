@@ -83,7 +83,7 @@ export default async function AdminEquipoPage() {
       }
     }
     const cl = typeof c.cliente === "object" && c.cliente ? c.cliente as any : null;
-    const cal = cl?.calificacion_cliente ?? cl?.calificacion_agente;
+    const cal = cl?.csat_rating;
     const calNum = Number(cal);
     if (cal != null && !isNaN(calNum) && calNum >= 1 && calNum <= 5) s.calificaciones.push(calNum);
     if (c.created_at >= todayStart) s.casosHoy++;
@@ -119,7 +119,7 @@ export default async function AdminEquipoPage() {
       tasaResolucion: tasa,
       avgSLA,
       avgCalificacionCliente: avgCal,
-      calificacionesClienteCount: s.calificaciones.length,
+      calificacionesClienteCount: s.calificaciones.length,  // csat_rating del widget
       casosHoy: s.casosHoy,
       casosEstaSemana: s.casosEstaSemana,
       tendencia,
@@ -142,7 +142,7 @@ export default async function AdminEquipoPage() {
     .filter(t => t > 0);
   const getCal = (c: any): number | null => {
     const cl = typeof c.cliente === "object" && c.cliente ? c.cliente as any : null;
-    const v = cl?.calificacion_cliente ?? cl?.calificacion_agente;
+    const v = cl?.csat_rating;
     const n = Number(v);
     return v != null && !isNaN(n) && n >= 1 && n <= 5 ? n : null;
   };

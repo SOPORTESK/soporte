@@ -84,12 +84,11 @@ export default async function AdminDashboardPage() {
   });
   const avgSla = tiempos.length > 0 ? Math.round(tiempos.reduce((a, b) => a + b, 0) / tiempos.length) : 0;
 
-  // Calificaciones del CLIENTE (hechas por el agente al cerrar el caso). No es rating del operador.
+  // Calificaciones RECIBIDAS por el agente: csat_rating que el cliente envía desde el widget al cerrar el chat.
   const cals = (allCasos ?? []).flatMap(c => {
     const cl = typeof c.cliente === "object" && c.cliente ? c.cliente as any : null;
     const vals: number[] = [];
-    if (cl?.calificacion_cliente && !isNaN(Number(cl.calificacion_cliente))) vals.push(Number(cl.calificacion_cliente));
-    if (cl?.calificacion_agente && !isNaN(Number(cl.calificacion_agente))) vals.push(Number(cl.calificacion_agente));
+    if (cl?.csat_rating && !isNaN(Number(cl.csat_rating))) vals.push(Number(cl.csat_rating));
     return vals;
   });
   const avgSat = cals.length > 0 ? (cals.reduce((a, b) => a + b, 0) / cals.length).toFixed(1) : null;
@@ -342,8 +341,7 @@ export default async function AdminDashboardPage() {
                     perAgent[c.assigned_to].total++;
                     if (c.estado === "resuelto" || c.estado === "cerrado") perAgent[c.assigned_to].resueltos++;
                     const cl = typeof c.cliente === "object" && c.cliente ? c.cliente as any : null;
-                    if (cl?.calificacion_cliente) perAgent[c.assigned_to].cals.push(Number(cl.calificacion_cliente));
-                    else if (cl?.calificacion_agente) perAgent[c.assigned_to].cals.push(Number(cl.calificacion_agente));
+                    if (cl?.csat_rating) perAgent[c.assigned_to].cals.push(Number(cl.csat_rating));
                   });
                   const rows = Object.values(perAgent).sort((a, b) => b.resueltos - a.resueltos);
                   if (rows.length === 0) return (

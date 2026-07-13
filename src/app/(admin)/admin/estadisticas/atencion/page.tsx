@@ -132,7 +132,7 @@ export default async function EstadisticasAtencionPage() {
   // ── Helper para leer calificación desde objeto cliente
   function getCal(c: any): number | null {
     const cl = typeof c.cliente === "object" && c.cliente ? c.cliente as any : null;
-    const v = cl?.calificacion_cliente ?? cl?.calificacion_agente;
+    const v = cl?.csat_rating;
     const n = Number(v);
     return v != null && !isNaN(n) && n >= 1 && n <= 5 ? n : null;
   }
