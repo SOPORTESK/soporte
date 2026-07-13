@@ -830,6 +830,24 @@ Deno.serve(async (req: Request) => {
           return new Response(JSON.stringify({ ok: true, reply: pregR }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
 
+        // ── PASO TEMA (fast-path: si el último bot fue el menú de temas y el cliente responde un número/nombre válido) ──
+        if (cliFP.nombre && cliFP.correo && cliFP.cuenta && !cliFP.tema &&
+            (lastBotFP.includes("número o el nombre del tema") || lastBotFP.includes("tema sería su consulta"))) {
+          const temaResuelto = resolveTopicFromText(userRespFP);
+          if (temaResuelto) {
+            const cli = { ...cliFP, tema: temaResuelto };
+            const pregMarca = "Por favor, indíquenos la marca del equipo.";
+            const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: pregMarca };
+            await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg], cliente: cli }).eq("id", case_id);
+            return new Response(JSON.stringify({ ok: true, reply: pregMarca }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          }
+          // No reconoció el tema → reintentar con el menú
+          const MENU_TEMAS_FP = "¿En relación a qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Licencias\n7. Otro\n\nResponda con el número o el nombre del tema.";
+          const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: MENU_TEMAS_FP };
+          await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
+          return new Response(JSON.stringify({ ok: true, reply: MENU_TEMAS_FP }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+
         // ── PASO CUENTA ──
         if (cliFP.nombre && cliFP.correo && !cliFP.cuenta && lastBotFP.includes("empresa o cuenta afiliada")) {
           const negacionCuenta = /(no tengo|no lo tengo|ninguna|cliente final|no cuento|no tengo empresa|no tengo cuenta)/i.test(userLowerFP);
