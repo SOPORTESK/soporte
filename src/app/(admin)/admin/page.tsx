@@ -84,7 +84,7 @@ export default async function AdminDashboardPage() {
   });
   const avgSla = tiempos.length > 0 ? Math.round(tiempos.reduce((a, b) => a + b, 0) / tiempos.length) : 0;
 
-  // Calificaciones: leer de cliente.calificacion_cliente (widget) o cliente.calificacion_agente
+  // Calificaciones del CLIENTE (hechas por el agente al cerrar el caso). No es rating del operador.
   const cals = (allCasos ?? []).flatMap(c => {
     const cl = typeof c.cliente === "object" && c.cliente ? c.cliente as any : null;
     const vals: number[] = [];
@@ -164,8 +164,8 @@ export default async function AdminDashboardPage() {
             href: "/admin/estadisticas/atencion"
           },
           {
-            label: "Satisfacción", value: avgSat ? `${avgSat} / 5` : "—",
-            sub: `${cals.length} calificaciones`, icon: Star,
+            label: "Calificación del cliente", value: avgSat ? `${avgSat} / 5` : "—",
+            sub: `${cals.length} calificaciones por agente`, icon: Star,
             color: "text-amber-400", ring: "ring-amber-400/20", bg: "bg-amber-400/10",
             href: "/admin/estadisticas/atencion"
           },
@@ -328,7 +328,7 @@ export default async function AdminDashboardPage() {
                   <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Rol</th>
                   <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Casos</th>
                   <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Resueltos</th>
-                  <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Cal.</th>
+                  <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Cal. cliente</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
