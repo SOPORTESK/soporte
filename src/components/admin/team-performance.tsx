@@ -379,16 +379,16 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
                     </div>
                   </div>
 
-                  {/* Quick Stats */}
-                  <div className="hidden md:flex items-center gap-6">
+                  {/* Quick Stats — ancho fijo por columna para alineación perfecta */}
+                  <div className="hidden md:flex items-center">
                     {/* Resueltos */}
-                    <div className="text-center">
+                    <div className="w-20 text-center">
                       <p className="text-xl font-black text-emerald-500 tabular-nums">{agent.resueltos}</p>
                       <p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Resueltos</p>
                     </div>
 
                     {/* Tasa */}
-                    <div className="text-center">
+                    <div className="w-16 text-center">
                       <div className="relative h-12 w-12 mx-auto">
                         <svg className="h-12 w-12 -rotate-90" viewBox="0 0 36 36">
                           <circle cx="18" cy="18" r="15" fill="none" className="stroke-muted/30" strokeWidth="3" />
@@ -402,7 +402,7 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
                     </div>
 
                     {/* SLA */}
-                    <div className="text-center">
+                    <div className="w-24 text-center">
                       <div className="flex items-center justify-center gap-1">
                         <Clock className="h-3 w-3 text-sky-500" />
                         <p className="text-sm font-black text-sky-500 tabular-nums">{formatSLA(agent.avgSLA)}</p>
@@ -411,7 +411,7 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
                     </div>
 
                     {/* Calificación del cliente */}
-                    <div className="text-center">
+                    <div className="w-24 text-center">
                       <div className="flex items-center justify-center gap-0.5">
                         {agent.avgCalificacionCliente !== "N/A" && <Star className="h-3 w-3 text-amber-400 fill-amber-400" />}
                         <p className="text-sm font-black text-amber-400 tabular-nums">
@@ -422,16 +422,18 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
                     </div>
 
                     {/* Tendencia */}
-                    <div className="text-center">
+                    <div className="w-16 text-center">
                       {getTrendIcon(agent.tendencia)}
                       <p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground mt-0.5">Trend</p>
                     </div>
                   </div>
 
                   {/* Score Badge */}
-                  <div className={`hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-xl border ${getPerformanceBg(score)}`}>
-                    <span className={`text-lg font-black tabular-nums ${getPerformanceColor(score)}`}>{score}</span>
-                    <span className="text-[9px] font-bold text-muted-foreground">pts</span>
+                  <div className="w-20 hidden lg:flex items-center justify-center">
+                    <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border ${getPerformanceBg(score)}`}>
+                      <span className={`text-lg font-black tabular-nums ${getPerformanceColor(score)}`}>{score}</span>
+                      <span className="text-[9px] font-bold text-muted-foreground">pts</span>
+                    </div>
                   </div>
 
                   {/* Actions */}
