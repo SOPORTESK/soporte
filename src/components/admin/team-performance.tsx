@@ -323,26 +323,18 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
           </div>
         </div>
 
-        {/* Column Headers — misma estructura que cada fila: px-6 gap-4 */}
-        <div className="hidden md:flex items-center gap-4 px-6 py-2 border-b border-border bg-muted/10">
-          {/* Rank — w-8 igual que la fila */}
-          <div className="hidden sm:flex w-8 shrink-0" />
-          {/* Avatar+Nombre — flex-1 igual que la fila */}
-          <div className="flex items-center gap-3 flex-1 min-w-0">
-            <div className="w-12 shrink-0" />
-            <div className="min-w-0" />
-          </div>
-          {/* Stats headers */}
-          <div className="flex items-center gap-4 mr-4">
-            <div className="w-20 text-center"><p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Resueltos</p></div>
-            <div className="w-16 text-center"><p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Tasa</p></div>
-            <div className="w-24 text-center"><p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">SLA</p></div>
-            <div className="w-24 text-center"><p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Calif. cliente</p></div>
-            <div className="w-16 text-center"><p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Trend</p></div>
-          </div>
-          <div className="w-20 text-center"><p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Score</p></div>
-          {/* Actions placeholder — mismo ancho que los botones de acción */}
-          <div className="w-28" />
+        {/* Column Headers — grid idéntico al de las filas */}
+        <div className="hidden md:grid items-center px-6 py-2 border-b border-border bg-muted/10"
+          style={{ gridTemplateColumns: '2rem 1fr 5rem 4rem 6rem 6rem 4rem 5rem 7rem' }}>
+          <div />{/* rank */}
+          <div />{/* nombre */}
+          <p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground text-center">Resueltos</p>
+          <p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground text-center">Tasa</p>
+          <p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground text-center">SLA</p>
+          <p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground text-center">Calif. cliente</p>
+          <p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground text-center">Trend</p>
+          <p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground text-center">Score</p>
+          <div />{/* actions */}
         </div>
 
         {/* Agent List */}
@@ -356,23 +348,25 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
 
             return (
               <div key={agent.email} className={`group transition-all ${isExpanded ? "bg-muted/20" : "hover:bg-muted/10"}`}>
-                {/* Main Row */}
-                <div className="px-6 py-4 flex items-center gap-4">
+                {/* Main Row — mismo grid que el header */}
+                <div className="hidden md:grid items-center px-6 py-3 gap-x-2"
+                  style={{ gridTemplateColumns: '2rem 1fr 5rem 4rem 6rem 6rem 4rem 5rem 7rem' }}>
+
                   {/* Rank */}
-                  <div className="hidden sm:flex items-center justify-center h-8 w-8 shrink-0">
+                  <div className="flex items-center justify-center">
                     {isTop ? (
                       <div className="h-8 w-8 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 grid place-items-center shadow-lg shadow-amber-500/30">
                         <Award className="h-4 w-4 text-white" />
                       </div>
                     ) : (
-                      <span className="text-lg font-black text-muted-foreground/50 tabular-nums">#{index + 1}</span>
+                      <span className="text-sm font-black text-muted-foreground/50 tabular-nums">#{index + 1}</span>
                     )}
                   </div>
 
                   {/* Avatar + Name */}
-                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                  <div className="flex items-center gap-3 min-w-0">
                     <div className="relative shrink-0">
-                      <div className={`h-12 w-12 rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white grid place-items-center text-sm font-black shadow-md ring-2 ${getPerformanceRing(agent.tasaResolucion)}`}>
+                      <div className={`h-11 w-11 rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white grid place-items-center text-sm font-black shadow-md ring-2 ${getPerformanceRing(agent.tasaResolucion)}`}>
                         {initials}
                       </div>
                       {agent.tendencia === "up" && (
@@ -401,61 +395,54 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
                     </div>
                   </div>
 
-                  {/* Quick Stats — ancho fijo por columna para alineación perfecta */}
-                  <div className="hidden md:flex items-center gap-4 mr-4">
-                    {/* Resueltos */}
-                    <div className="w-20 text-center">
-                      <p className="text-xl font-black text-emerald-500 tabular-nums">{agent.resueltos}</p>
-                    </div>
+                  {/* Resueltos */}
+                  <div className="text-center">
+                    <p className="text-xl font-black text-emerald-500 tabular-nums">{agent.resueltos}</p>
+                  </div>
 
-                    {/* Tasa */}
-                    <div className="w-16 text-center">
-                      <div className="relative h-12 w-12 mx-auto">
-                        <svg className="h-12 w-12 -rotate-90" viewBox="0 0 36 36">
-                          <circle cx="18" cy="18" r="15" fill="none" className="stroke-muted/30" strokeWidth="3" />
-                          <circle cx="18" cy="18" r="15" fill="none" className={`${agent.tasaResolucion >= 80 ? "stroke-emerald-500" : agent.tasaResolucion >= 60 ? "stroke-amber-500" : "stroke-rose-500"}`}
-                            strokeWidth="3" strokeDasharray={`${agent.tasaResolucion * 0.942} 100`} strokeLinecap="round" />
-                        </svg>
-                        <span className={`absolute inset-0 flex items-center justify-center text-[10px] font-black ${getPerformanceColor(agent.tasaResolucion)}`}>
-                          {agent.tasaResolucion}%
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* SLA */}
-                    <div className="w-24 text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        <Clock className="h-3 w-3 text-sky-500" />
-                        <p className="text-sm font-black text-sky-500 tabular-nums">{formatSLA(agent.avgSLA)}</p>
-                      </div>
-                    </div>
-
-                    {/* Calificación del cliente */}
-                    <div className="w-24 text-center">
-                      <div className="flex items-center justify-center gap-0.5">
-                        {agent.avgCalificacionCliente !== "N/A" && <Star className="h-3 w-3 text-amber-400 fill-amber-400" />}
-                        <p className="text-sm font-black text-amber-400 tabular-nums">
-                          {agent.avgCalificacionCliente !== "N/A" ? agent.avgCalificacionCliente : "—"}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Tendencia */}
-                    <div className="w-16 text-center">
-                      {getTrendIcon(agent.tendencia)}
+                  {/* Tasa */}
+                  <div className="flex items-center justify-center">
+                    <div className="relative h-11 w-11">
+                      <svg className="h-11 w-11 -rotate-90" viewBox="0 0 36 36">
+                        <circle cx="18" cy="18" r="15" fill="none" className="stroke-muted/30" strokeWidth="3" />
+                        <circle cx="18" cy="18" r="15" fill="none" className={`${agent.tasaResolucion >= 80 ? "stroke-emerald-500" : agent.tasaResolucion >= 60 ? "stroke-amber-500" : "stroke-rose-500"}`}
+                          strokeWidth="3" strokeDasharray={`${agent.tasaResolucion * 0.942} 100`} strokeLinecap="round" />
+                      </svg>
+                      <span className={`absolute inset-0 flex items-center justify-center text-[10px] font-black ${getPerformanceColor(agent.tasaResolucion)}`}>
+                        {agent.tasaResolucion}%
+                      </span>
                     </div>
                   </div>
 
-                  {/* Score Badge */}
-                  <div className="w-20 hidden lg:flex items-center justify-center">
-                    <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border ${getPerformanceBg(score)}`}>
-                      <span className={`text-lg font-black tabular-nums ${getPerformanceColor(score)}`}>{score}</span>
+                  {/* SLA */}
+                  <div className="flex items-center justify-center gap-1">
+                    <Clock className="h-3 w-3 text-sky-500 shrink-0" />
+                    <p className="text-sm font-black text-sky-500 tabular-nums">{formatSLA(agent.avgSLA)}</p>
+                  </div>
+
+                  {/* Calif. cliente */}
+                  <div className="flex items-center justify-center gap-0.5">
+                    {agent.avgCalificacionCliente !== "N/A" && <Star className="h-3 w-3 text-amber-400 fill-amber-400 shrink-0" />}
+                    <p className="text-sm font-black text-amber-400 tabular-nums">
+                      {agent.avgCalificacionCliente !== "N/A" ? agent.avgCalificacionCliente : "—"}
+                    </p>
+                  </div>
+
+                  {/* Trend */}
+                  <div className="flex items-center justify-center">
+                    {getTrendIcon(agent.tendencia)}
+                  </div>
+
+                  {/* Score */}
+                  <div className="flex items-center justify-center">
+                    <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border ${getPerformanceBg(score)}`}>
+                      <span className={`text-base font-black tabular-nums ${getPerformanceColor(score)}`}>{score}</span>
                       <span className="text-[9px] font-bold text-muted-foreground">pts</span>
                     </div>
                   </div>
 
                   {/* Actions */}
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center justify-end gap-1">
                     <button
                       onClick={() => setExpandedAgent(isExpanded ? null : agent.email)}
                       className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
