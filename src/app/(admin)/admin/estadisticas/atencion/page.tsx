@@ -10,7 +10,7 @@ export default async function EstadisticasAtencionPage() {
 
   const { data: todosLosCasos } = await supabase
     .from("sek_cases")
-    .select("id, assigned_to, created_at, updated_at, estado, cliente, title, canal, cat, prioridad, histtecnico, histcliente, accepted_at, escalado_at");
+    .select("id, assigned_to, created_at, updated_at, closed_at, estado, cliente, title, canal, cat, prioridad, histtecnico, histcliente, accepted_at, escalado_at");
 
   const casos = todosLosCasos || [];
 
@@ -48,7 +48,7 @@ export default async function EstadisticasAtencionPage() {
 
   // ── Histograma SLA (solo humanos)
   const tiemposTodos = casosConAsig
-    .filter(c => (c.estado === "resuelto" || c.estado === "cerrado") && c.updated_at)
+    .filter(c => (c.estado === "resuelto" || c.estado === "cerrado") && ((c as any).closed_at || c.updated_at))
     .map(c => {
       let startTimestamp = c.accepted_at;
       if (!startTimestamp && Array.isArray(c.histtecnico)) {
@@ -56,11 +56,11 @@ export default async function EstadisticasAtencionPage() {
         if (firstMsg) startTimestamp = firstMsg.time;
       }
       const start = startTimestamp ? new Date(startTimestamp) : new Date(c.created_at);
-      const end = new Date(c.updated_at);
+      const end = new Date((c as any).closed_at || c.updated_at);
       if (isNaN(start.getTime()) || isNaN(end.getTime())) return 0;
       return Math.round((end.getTime() - start.getTime()) / 60000);
     })
-    .filter(t => t > 0);
+    .filter(t => t > 0 && t < 10080);
   const slaLt1h = tiemposTodos.filter(t => t <= 60).length;
   const sla1_4h = tiemposTodos.filter(t => t > 60 && t <= 240).length;
   const slaGt4h = tiemposTodos.filter(t => t > 240).length;
@@ -163,17 +163,18 @@ export default async function EstadisticasAtencionPage() {
     if (caso.estado === "escalado") s.escalados++;
     if (caso.estado === "resuelto" || caso.estado === "cerrado") {
       s.resueltos++;
-      if (caso.updated_at) {
+      const closedAt = (caso as any).closed_at || caso.updated_at;
+      if (closedAt) {
         let startTimestamp = caso.accepted_at;
         if (!startTimestamp && Array.isArray(caso.histtecnico)) {
           const firstMsg = caso.histtecnico.find((h: any) => h.role === "tecnico");
           if (firstMsg) startTimestamp = firstMsg.time;
         }
         const start = startTimestamp ? new Date(startTimestamp) : new Date(caso.created_at);
-        const end = new Date(caso.updated_at);
+        const end = new Date(closedAt);
         if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
           const diff = Math.round((end.getTime() - start.getTime()) / 60000);
-          if (diff > 0) s.tiemposResolucion.push(diff);
+          if (diff > 0 && diff < 10080) s.tiemposResolucion.push(diff);
         }
       }
       const te = tiempoEfectivo((caso as any).histtecnico, (caso as any).histcliente, (caso as any).accepted_at);

@@ -31,13 +31,13 @@ export default async function AdminEquipoPage() {
   // ── Fetch performance data ──
   const { data: casos } = await supabase
     .from("sek_cases")
-    .select("id, assigned_to, created_at, updated_at, estado, cliente, canal, accepted_at, histtecnico")
+    .select("id, assigned_to, created_at, updated_at, closed_at, estado, cliente, canal, accepted_at, histtecnico")
     .not("assigned_to", "is", null);
 
   // Todos los casos (IA + humanos) para stats globales
   const { data: todosCasos } = await supabase
     .from("sek_cases")
-    .select("id, assigned_to, created_at, updated_at, estado, cliente, accepted_at, histtecnico, histcliente");
+    .select("id, assigned_to, created_at, updated_at, closed_at, estado, cliente, accepted_at, histtecnico, histcliente");
 
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
@@ -75,10 +75,11 @@ export default async function AdminEquipoPage() {
         }
         
         const start = startTimestamp ? new Date(startTimestamp as string) : new Date(c.created_at);
-        const end = new Date(c.updated_at);
+        const closedAt = (c as any).closed_at || c.updated_at;
+        const end = new Date(closedAt);
         if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
           const diff = Math.round((end.getTime() - start.getTime()) / (1000 * 60));
-          if (diff > 0) s.tiempos.push(diff);
+          if (diff > 0 && diff < 10080) s.tiempos.push(diff);
         }
       }
     }
