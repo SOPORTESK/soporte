@@ -815,7 +815,8 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
         .from("sek_cases")
         .update({ 
           estado: "cerrado",
-          cliente: updatedCliente
+          cliente: updatedCliente,
+          closed_at: new Date().toISOString(),
         })
         .eq("id", targetId);
 

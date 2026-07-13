@@ -188,7 +188,7 @@ Deno.serve(async (req) => {
       }
       console.log(`[auto-close] Caso ${caso.id} zombi (${Math.round(ageMs/3600000)}h sin assigned_to) → cerrando`);
       const closeEntry = { role: "tecnico", content: CLOSE_MSG, time: new Date().toISOString(), author: "Soporte Sekunet" };
-      await db.from("sek_cases").update({ estado: "cerrado", histtecnico: [...(caso.histtecnico ?? []), closeEntry] })
+      await db.from("sek_cases").update({ estado: "cerrado", closed_at: new Date().toISOString(), histtecnico: [...(caso.histtecnico ?? []), closeEntry] })
         .eq("id", caso.id).not("estado", "in", '("cerrado","resuelto")');
       closed++;
       console.log(`[auto-close] Caso zombi ${caso.id} cerrado.`);
@@ -251,7 +251,7 @@ Deno.serve(async (req) => {
 
     const { data: updatedCases, error: updateErr } = await db
       .from("sek_cases")
-      .update({ estado: "cerrado", histtecnico: newHist })
+      .update({ estado: "cerrado", closed_at: new Date().toISOString(), histtecnico: newHist })
       .eq("id", caso.id)
       .not("estado", "in", '("cerrado","resuelto")')
       .select("id");

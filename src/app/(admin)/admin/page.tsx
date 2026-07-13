@@ -65,7 +65,7 @@ export default async function AdminDashboardPage() {
     supabase.from("sek_doc_chunks").select("*", { count: "exact", head: true }),
     supabase.from("sek_inventario").select("*", { count: "exact", head: true }),
     supabase.from("sek_cases").select("id, title, estado, canal, created_at, assigned_to").order("created_at", { ascending: false }).limit(6),
-    supabase.from("sek_cases").select("id, estado, created_at, updated_at, cliente, assigned_to"),
+    supabase.from("sek_cases").select("id, estado, created_at, updated_at, closed_at, cliente, assigned_to"),
     supabase.from("sek_agent_config").select("email, nombre, apellido, rol").neq("email", "system_prompt@sekunet.com"),
     supabase.from("sek_agent_config").select("system_prompt").eq("email", "system_prompt@sekunet.com").maybeSingle(),
   ]);
@@ -76,10 +76,11 @@ export default async function AdminDashboardPage() {
   const tasaResolucion = totalCasosN > 0 ? Math.round((totalResueltos / totalCasosN) * 100) : 0;
 
   const tiempos: number[] = [];
-  allCasos?.forEach(c => {
-    if ((c.estado === "resuelto" || c.estado === "cerrado") && c.created_at && c.updated_at) {
-      const diff = Math.round((new Date(c.updated_at).getTime() - new Date(c.created_at).getTime()) / 60000);
-      if (diff > 0) tiempos.push(diff);
+  allCasos?.forEach((c: any) => {
+    const closedAt = c.closed_at || c.updated_at;
+    if ((c.estado === "resuelto" || c.estado === "cerrado") && c.created_at && closedAt) {
+      const diff = Math.round((new Date(closedAt).getTime() - new Date(c.created_at).getTime()) / 60000);
+      if (diff > 0 && diff < 10080) tiempos.push(diff); // ignorar outliers > 7 días
     }
   });
   const avgSla = tiempos.length > 0 ? Math.round(tiempos.reduce((a, b) => a + b, 0) / tiempos.length) : 0;
@@ -163,8 +164,8 @@ export default async function AdminDashboardPage() {
             href: "/admin/estadisticas/atencion"
           },
           {
-            label: "Calificación del cliente", value: avgSat ? `${avgSat} / 5` : "—",
-            sub: `${cals.length} calificaciones por agente`, icon: Star,
+            label: "Satisfacción", value: avgSat ? `${avgSat} / 5` : "—",
+            sub: cals.length > 0 ? `${cals.length} calificaciones de clientes` : "Sin calificaciones aún", icon: Star,
             color: "text-amber-400", ring: "ring-amber-400/20", bg: "bg-amber-400/10",
             href: "/admin/estadisticas/atencion"
           },
