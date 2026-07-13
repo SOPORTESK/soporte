@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { MessageCircle, X, Send, Loader2, Minimize2, Maximize2, GripVertical } from "lucide-react";
+import { MessageCircle, X, Send, Loader2, Minimize2, Maximize2, GripVertical, Paperclip, FileText, Image as ImageIcon, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import ReactDraggable, { DraggableEvent, DraggableData } from "react-draggable";
 const Draggable = ReactDraggable as any;
@@ -10,6 +10,16 @@ interface TechMessage {
   role: "user" | "assistant";
   content: string;
   time: string;
+  mediaUrl?: string;
+  mediaType?: string;
+  fileName?: string;
+}
+
+interface PendingAttachment {
+  url: string;
+  type: string;
+  name: string;
+  uploading: boolean;
 }
 
 interface Position {
@@ -25,6 +35,7 @@ export function FloatingTechAssistant() {
   const [loading, setLoading] = React.useState(false);
   const [sessionId, setSessionId] = React.useState<string | null>(null);
   const [caseId, setCaseId] = React.useState<string | null>(null);
+  const [pendingAttachment, setPendingAttachment] = React.useState<PendingAttachment | null>(null);
   const [bubblePosition, setBubblePosition] = React.useState<Position>(() => {
     const bubbleSize = 56;
     const padding = 24;
@@ -38,6 +49,7 @@ export function FloatingTechAssistant() {
   const bubbleRef = React.useRef<HTMLButtonElement>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   // Restaurar posición guardada de la burbuja
   React.useEffect(() => {
@@ -96,7 +108,7 @@ export function FloatingTechAssistant() {
 
   const handleSend = async (text?: string, currentMessages?: TechMessage[]) => {
     const messageText = text?.trim() || input.trim();
-    if (!messageText || loading) return;
+    if ((!messageText && !pendingAttachment) || loading) return;
     if (!text) setInput("");
     setLoading(true);
 
@@ -110,12 +122,16 @@ export function FloatingTechAssistant() {
           message: messageText,
           case_id: caseId,
           messages: messagesToSend.slice(-9),
+          mediaUrl: pendingAttachment?.url,
+          mediaType: pendingAttachment?.type,
+          fileName: pendingAttachment?.name,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Error del asistente");
 
       const finalMessages = (data.messages || []).slice(-10);
+      setPendingAttachment(null);
       setMessages(finalMessages);
       localStorage.setItem("sek_tech_assistant_session", JSON.stringify({
         session_id: sessionId || null,
@@ -134,6 +150,34 @@ export function FloatingTechAssistant() {
       e.preventDefault();
       handleSend();
     }
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    const MAX_FILE_SIZE = 10 * 1024 * 1024;
+    if (file.size > MAX_FILE_SIZE) {
+      toast.error("Archivo demasiado grande", { description: "El límite es 10 MB." });
+      return;
+    }
+    setPendingAttachment({ url: "", type: file.type, name: file.name, uploading: true });
+    try {
+      const supabase = (await import("@/lib/supabase/client")).createClient();
+      const path = `tech-assistant/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+      const { data, error } = await supabase.storage.from("attachments").upload(path, file, { contentType: file.type });
+      if (error) throw error;
+      const { data: urlData } = supabase.storage.from("attachments").getPublicUrl(data.path);
+      setPendingAttachment({ url: urlData.publicUrl, type: file.type, name: file.name, uploading: false });
+    } catch (e: any) {
+      toast.error("Error al subir archivo", { description: e?.message });
+      setPendingAttachment(null);
+    }
+  };
+
+  const attachmentIcon = (type: string) => {
+    if (type.startsWith("image/")) return <ImageIcon className="h-4 w-4" />;
+    return <FileText className="h-4 w-4" />;
   };
 
   const handleBubbleDrag = (_e: DraggableEvent, data: DraggableData) => {
@@ -162,7 +206,7 @@ export function FloatingTechAssistant() {
     setMessages([]);
     localStorage.removeItem("sek_tech_assistant_session");
     if (c) {
-      await handleSend("Analiza el caso técnico actual. No describas el estado administrativo del caso. Concéntrate en: 1) posibles causas técnicas del problema, 2) pasos de diagnóstico recomendados, 3) preguntas técnicas que el técnico puede hacer al cliente para obtener más información.", []);
+      await handleSend("Analiza el caso técnico actual. No describas el estado administrativo del caso. Concéntrate en: 1) posibles causas técnicas del problema, 2) pasos de diagnóstico recomendados, 3) información que ya se observa en imágenes, audios, videos o documentos adjuntos, 4) si necesita más datos, indícale al técnico qué debe verificar; nunca pidas archivos al cliente final.", []);
     }
   };
 
@@ -279,6 +323,18 @@ export function FloatingTechAssistant() {
                       : "bg-muted text-foreground rounded-bl-md"
                   }`}
                 >
+                  {m.mediaUrl && (
+                    <a
+                      href={m.mediaUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center gap-2 mb-2 text-xs underline opacity-90 hover:opacity-100"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {attachmentIcon(m.mediaType || "")}
+                      <span className="truncate max-w-[180px]">{m.fileName || "Adjunto"}</span>
+                    </a>
+                  )}
                   <p className="whitespace-pre-wrap">{m.content}</p>
                 </div>
               </div>
@@ -295,19 +351,47 @@ export function FloatingTechAssistant() {
 
           {/* Input */}
           <div className="border-t border-border p-3 bg-card">
+            {pendingAttachment && (
+              <div className="flex items-center gap-2 mb-2 px-2 py-1.5 rounded-lg bg-violet-100 dark:bg-violet-900/30 text-xs">
+                {attachmentIcon(pendingAttachment.type)}
+                <span className="truncate flex-1">{pendingAttachment.name}</span>
+                {pendingAttachment.uploading ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <button onClick={() => setPendingAttachment(null)} className="hover:text-red-500">
+                    <XCircle className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            )}
             <div className="flex items-end gap-2">
+              <input
+                type="file"
+                ref={fileInputRef}
+                className="hidden"
+                onChange={handleFileSelect}
+                accept="image/*,audio/*,video/*,.pdf,.xml,.txt,.doc,.docx,.xls,.xlsx,.zip"
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={loading || !!pendingAttachment}
+                className="h-10 w-10 flex items-center justify-center rounded-full border border-input text-muted-foreground hover:bg-muted disabled:opacity-50"
+                aria-label="Adjuntar archivo"
+              >
+                <Paperclip className="h-4 w-4" />
+              </button>
               <textarea
                 ref={inputRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Escriba su consulta..."
+                placeholder={pendingAttachment ? "Escriba una pregunta sobre el archivo..." : "Escriba su consulta..."}
                 rows={1}
                 className="flex-1 resize-none rounded-xl border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/30 min-h-[40px] max-h-[120px]"
               />
               <button
                 onClick={() => handleSend()}
-                disabled={!input.trim() || loading}
+                disabled={(!input.trim() && !pendingAttachment) || loading}
                 className="h-10 w-10 flex items-center justify-center rounded-full bg-violet-600 text-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-violet-700"
                 aria-label="Enviar"
               >

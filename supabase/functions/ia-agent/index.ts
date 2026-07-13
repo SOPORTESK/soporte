@@ -151,13 +151,20 @@ Su rol es asistir al personal interno. Trabaja con técnicos, no con clientes. R
 ENFOQUE TÉCNICO OBLIGATORIO:
 - Cuando se le proporciona un caso, concéntrese en el diagnóstico técnico: posibles causas, verificaciones, soluciones y herramientas.
 - No analice el estado administrativo del caso (cerrado, inactivo, escalado) ni el porqué de su cierre.
-- Si el caso no tiene suficiente información técnica, pida al técnico los datos que necesita: marca, modelo, síntomas, estado de LEDs, conectividad, etc.
+- Responda basándose en TODO el contenido disponible: mensajes del cliente, mensajes del técnico, historial del caso, documentación adjunta, imágenes, audios, videos y archivos.
+
+ANÁLISIS DE ARCHIVOS ADJUNTOS:
+- El sistema le proporcionará automáticamente análisis de imágenes, audios, videos, PDFs, XMLs y otros documentos adjuntos al caso.
+- Utilice ese análisis para identificar equipos, errores, configuraciones, síntomas y nivel de urgencia.
+- No pida al cliente que envíe más fotos, audios o documentos. Si necesita información adicional, pidásela al técnico que está conversando con usted.
+- Si el análisis de un adjunto es insuficiente para un diagnóstico, indíquele al técnico qué detalle necesita verificar manualmente.
 
 INTERACCIÓN CON EL TÉCNICO:
 - Inicie saludando y preguntando en qué puede ayudar.
 - Si el técnico no hace una consulta clara, ofrézcale opciones técnicas comunes.
-- Responda las dudas del técnico usando el contexto del caso y la documentación.
-- Si el técnico pide redactar una respuesta para el cliente, redáctela cortés, clara y sin emojis.
+- Responda las dudas del técnico usando el contexto del caso, los adjuntos y la documentación.
+- Si el técnico pide redactar una respuesta para el cliente, redáctela cortés, clara y sin emojis, incorporando lo que se observa en los adjuntos.
+- Si el técnico adjunta un archivo, analícelo y responda sobre su contenido.
 
 HERRAMIENTAS DISPONIBLES:
 - Buscar equipos en el inventario con [BUSCAR_INVENTARIO: marca modelo].
@@ -166,7 +173,8 @@ HERRAMIENTAS DISPONIBLES:
 
 REGLAS:
 - No invente información técnica. Si no está seguro, indique que no dispone de la información y sugiera escalar a Soporte Avanzado.
-- Use siempre lenguaje técnico apropiado para un agente de soporte.`;
+- Use siempre lenguaje técnico apropiado para un agente de soporte.
+- NUNCA solicite archivos, fotos, audios ni documentos al cliente final. Cualquier solicitud de información adicional debe dirigirse al técnico.`;
 
 async function loadSystemConfig(mode?: string, canal?: string): Promise<{ prompt: string; iaActiva: boolean }> {
   try {
@@ -697,7 +705,7 @@ const corsHeaders = {
 // MODO TÉCNICO: asistente interno para técnicos/agentes. No muta casos de clientes.
 // Recibe: { mode: "tecnico", messages: [{role, content}], case_id? }
 async function handleTechnicianMode(body: Record<string, unknown>): Promise<Response> {
-  const techMessages = Array.isArray(body.messages) ? body.messages as { role: string; content: string }[] : [];
+  const techMessages = Array.isArray(body.messages) ? body.messages as { role: string; content: string; mediaUrl?: string; mediaType?: string; fileName?: string }[] : [];
   const caseId = body.case_id as string | undefined;
 
   if (techMessages.length === 0) {
@@ -728,12 +736,48 @@ async function handleTechnicianMode(body: Record<string, unknown>): Promise<Resp
       const cliente = (typeof caso.cliente === "object" && caso.cliente !== null) ? caso.cliente as any : {};
       const histTecnico = Array.isArray(caso.histtecnico) ? caso.histtecnico : [];
       const histCliente = Array.isArray(caso.histcliente) ? caso.histcliente : [];
+
+      // Analizar automáticamente archivos adjuntos del caso en la primera interacción (evita re-análisis costoso en cada mensaje)
+      let attachmentAnalysis: string[] = [];
+      if (techMessages.length <= 1) {
+      const allCaseMessages = [...histCliente, ...histTecnico];
+      const attachments = allCaseMessages.filter((m: any) => m.mediaUrl && typeof m.mediaUrl === "string");
+      if (attachments.length > 0) {
+        const uniqueUrls = new Map<string, any>();
+        for (const m of attachments) {
+          if (!uniqueUrls.has(m.mediaUrl)) uniqueUrls.set(m.mediaUrl, m);
+        }
+        const attachmentResults: string[] = [];
+        let idx = 1;
+        for (const [, m] of uniqueUrls) {
+          const analysis = await callGeminiVision(m.mediaUrl, m.mediaType || "", m.content || "");
+          if (analysis) {
+            attachmentResults.push(`[ADJUNTO ${idx} — tipo: ${m.mediaType || "desconocido"}${m.fileName ? ` — ${m.fileName}` : ""}]\n${analysis}`);
+            idx++;
+          }
+        }
+        if (attachmentResults.length > 0) {
+          attachmentAnalysis = attachmentResults;
+        }
+      }
+      }
+
       const equipoRegistrado = cliente.equipo || (caso.marca ? `${caso.marca || ""} ${caso.modelo || ""}`.trim() : "");
       const equipoLinea = equipoRegistrado || "No indicado formalmente";
       const equipoNota = equipoRegistrado
         ? ""
         : "\n- NOTA IMPORTANTE: El equipo no está registrado formalmente. REVISE CUIDADOSAMENTE los mensajes anteriores; la marca y el modelo pueden estar mencionados en la conversación del cliente o del técnico. Si los identifica, utilícelos.";
-      caseContext = `\n\nCONTEXTO DEL CASO ACTUAL (uso interno del técnico):\n- Cliente: ${cliente.nombre || "No registrado"}\n- Correo: ${cliente.correo || "No registrado"}\n- Cuenta/Empresa: ${cliente.cuenta || "No registrada"}\n- Equipo: ${equipoLinea}${equipoNota}\n- Estado: ${caso.estado}\n- Canal: ${caso.canal || "No indicado"}\n- Teléfono: ${caso.customer_phone || "No indicado"}\n- Asignado a: ${caso.assigned_to || "Sin asignar"}\n- Historial técnico completo del caso: ${histTecnico.map((m: any) => `[${m.role || "tecnico"}] ${m.content || ""}`).join(" | ")}\n- Historial del cliente completo del caso: ${histCliente.map((m: any) => `[${m.role || "user"}] ${m.content || ""}`).join(" | ")}`;
+      caseContext = `\n\nCONTEXTO DEL CASO ACTUAL (uso interno del técnico):\n- Cliente: ${cliente.nombre || "No registrado"}\n- Correo: ${cliente.correo || "No registrado"}\n- Cuenta/Empresa: ${cliente.cuenta || "No registrada"}\n- Equipo: ${equipoLinea}${equipoNota}\n- Estado: ${caso.estado}\n- Canal: ${caso.canal || "No indicado"}\n- Teléfono: ${caso.customer_phone || "No indicado"}\n- Asignado a: ${caso.assigned_to || "Sin asignar"}\n- Historial técnico completo del caso: ${histTecnico.map((m: any) => `[${m.role || "tecnico"}] ${m.content || ""}${m.mediaUrl ? ` [ADJUNTO: ${m.mediaType || "archivo"}]` : ""}`).join(" | ")}\n- Historial del cliente completo del caso: ${histCliente.map((m: any) => `[${m.role || "user"}] ${m.content || ""}${m.mediaUrl ? ` [ADJUNTO: ${m.mediaType || "archivo"}]` : ""}`).join(" | ")}${attachmentAnalysis.length > 0 ? `\n\nANÁLISIS AUTOMÁTICO DE ADJUNTOS DEL CLIENTE:\n${attachmentAnalysis.join("\n\n---\n\n")}` : ""}`;
+    }
+  }
+
+  // Analizar adjuntos enviados por el técnico en el último mensaje (imágenes, audios, documentos)
+  let technicianAttachmentAnalysis = "";
+  const lastTechnicianMsg = [...techMessages].reverse().find((m) => m.role === "user" && m.mediaUrl);
+  if (lastTechnicianMsg && lastTechnicianMsg.mediaUrl) {
+    const analysis = await callGeminiVision(lastTechnicianMsg.mediaUrl, lastTechnicianMsg.mediaType || "", lastTechnicianMsg.content || "");
+    if (analysis) {
+      technicianAttachmentAnalysis = `\n\nANÁLISIS DEL ADJUNTO DEL TÉCNICO (${lastTechnicianMsg.fileName || lastTechnicianMsg.mediaType || "archivo"}):\n${analysis}`;
     }
   }
 
@@ -750,7 +794,7 @@ async function handleTechnicianMode(body: Record<string, unknown>): Promise<Resp
   }
 
   const chatMessages: ChatMessage[] = [
-    { role: "system", content: systemPrompt + caseContext + ragContext },
+    { role: "system", content: systemPrompt + caseContext + technicianAttachmentAnalysis + ragContext },
   ];
   for (const m of techMessages) {
     if (m.role === "assistant" || m.role === "ia" || m.role === "tecnico") {

@@ -8,14 +8,17 @@ interface TechMessage {
   role: "user" | "assistant";
   content: string;
   time: string;
+  mediaUrl?: string;
+  mediaType?: string;
+  fileName?: string;
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const { message, case_id, messages: clientMessages } = await req.json();
+    const { message, case_id, messages: clientMessages, mediaUrl, mediaType, fileName } = await req.json();
 
-    if (!message || typeof message !== "string" || !message.trim()) {
-      return NextResponse.json({ error: "Mensaje requerido" }, { status: 400 });
+    if ((!message || typeof message !== "string" || !message.trim()) && (!mediaUrl || typeof mediaUrl !== "string")) {
+      return NextResponse.json({ error: "Mensaje o adjunto requerido" }, { status: 400 });
     }
 
     const messages: TechMessage[] = Array.isArray(clientMessages) ? clientMessages as TechMessage[] : [];
@@ -58,7 +61,14 @@ export async function POST(req: NextRequest) {
     }
 
     const now = new Date().toISOString();
-    const userMsg: TechMessage = { role: "user", content: message.trim(), time: now };
+    const userMsg: TechMessage = {
+      role: "user",
+      content: (message || "").trim(),
+      time: now,
+      mediaUrl: mediaUrl || undefined,
+      mediaType: mediaType || undefined,
+      fileName: fileName || undefined,
+    };
     const updatedMessages = [...messages, userMsg];
 
     // Llamar ia-agent en modo técnico
@@ -77,7 +87,7 @@ export async function POST(req: NextRequest) {
           body: JSON.stringify({
             mode: "tecnico",
             case_id: validCaseId || undefined,
-            messages: updatedMessages.map(m => ({ role: m.role, content: m.content })),
+            messages: updatedMessages.map(m => ({ role: m.role, content: m.content, mediaUrl: m.mediaUrl, mediaType: m.mediaType, fileName: m.fileName })),
           }),
         });
         if (iaRes.ok) {

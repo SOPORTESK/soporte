@@ -441,15 +441,14 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
             const merged = { ...prev, ...update };
             return hashOf(prev) === hashOf(merged) ? prev : merged;
           });
-          // Marcar mensajes del cliente sin read_at como leídos (agente tiene el chat abierto)
-          const hc = (data.histcliente || []) as any[];
-          const now = new Date().toISOString();
-          let changed = false;
-          const updated = hc.map((e: any) => {
-            if ((e.role === "user" || !e.role) && !e.read_at) { changed = true; return { ...e, read_at: now }; }
-            return e;
-          });
-          if (changed) supabase.from("sek_cases").update({ histcliente: updated }).eq("id", targetId).then(() => {});
+          // Marcar mensajes del cliente sin read_at como leídos (agente tiene el chat abierto).
+          // Se usa RPC atómica para evitar race conditions: si llega un mensaje nuevo durante
+          // la lectura/escritura, la función lo conserva al bloquear la fila y re-leer el array.
+          try {
+            await supabase.rpc("mark_histcliente_read", { p_case_id: String(targetId), p_reader_email: agentEmail || undefined });
+          } catch (err: any) {
+            console.error("[chat-view] mark_histcliente_read error:", err?.message || err);
+          }
         }
       } catch (e) {
         console.error(`[chat-view] polling error:`, e);
@@ -472,17 +471,13 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     document.addEventListener("visibilitychange", handleVisibility);
     window.addEventListener("focus", handleVisibility);
 
-    // Marcar mensajes del cliente como leídos al abrir el chat
+    // Marcar mensajes del cliente como leídos al abrir el chat (RPC atómica)
     (async () => {
-      const { data: fresh } = await supabase.from("sek_cases").select("histcliente").eq("id", targetId).maybeSingle();
-      if (!fresh?.histcliente || !mounted) return;
-      const now = new Date().toISOString();
-      let changed = false;
-      const updated = (fresh.histcliente as any[]).map((e: any) => {
-        if ((e.role === "user" || !e.role) && !e.read_at) { changed = true; return { ...e, read_at: now }; }
-        return e;
-      });
-      if (changed) await supabase.from("sek_cases").update({ histcliente: updated }).eq("id", targetId);
+      try {
+        await supabase.rpc("mark_histcliente_read", { p_case_id: String(targetId), p_reader_email: agentEmail || undefined });
+      } catch (err: any) {
+        console.error("[chat-view] mark_histcliente_read (open) error:", err?.message || err);
+      }
     })();
 
     return () => {

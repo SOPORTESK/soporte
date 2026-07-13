@@ -777,10 +777,9 @@ var playingWelcome=false;
 function renderIfChanged(hc,ht){if(playingWelcome)return;var h=hashH(hc,ht);if(h===lastHash)return;var isNew=lastHash&&hc&&hc.length>0;lastHash=h;renderAll(hc,ht);if(isNew){playNotif();haptic(20);var lastMsg=ht&&ht.length>0?ht[ht.length-1]:null;if(lastMsg&&lastMsg.content)showBrowserNotif(lastMsg.content);if(!atBottom){unread++;$("ubadge").textContent=unread;$("ubadge").style.display="flex";$("scroll-btn").classList.add("vis");notifyParent()}}}
 
 async function fetchRender(){if(!sid)return;var r=await db.from("sek_cases").select("histcliente,histtecnico,estado,assigned_to").eq("id",sid).maybeSingle();if(!r.data)return;var hcLen=(r.data.histcliente||[]).length;var htLen=(r.data.histtecnico||[]).length;var newH=hashH(r.data.histcliente,r.data.histtecnico);console.log("[widget] fetchRender hc:"+hcLen+" ht:"+htLen+" hash:"+newH+" lastHash:"+lastHash+" playing:"+playingWelcome);renderIfChanged(r.data.histcliente,r.data.histtecnico);
-  // Marcar mensajes del agente sin read_at como leídos
-  var ht=r.data.histtecnico||[];var now=new Date().toISOString();var chg=false;
-  var uht=ht.map(function(e){if(e.role!=="nota"&&!e.read_at){chg=true;return Object.assign({},e,{read_at:now})}return e});
-  if(chg)db.from("sek_cases").update({histtecnico:uht}).eq("id",sid).then(function(){});if(r.data.assigned_to&&!agenteName){updateAgentHeader(r.data.assigned_to)}var e=String(r.data.estado||"").toLowerCase();if(e==="cerrado"||e==="resuelto")lockChat();else if(e==="escalado")showEscalado();else if(e==="abierto"&&r.data.assigned_to&&!agenteName){updateAgentHeader(r.data.assigned_to)}}
+  // Marcar mensajes del agente sin read_at como leídos usando RPC atómica
+  // para evitar que un mensaje nuevo del agente se pierda por race condition.
+  db.rpc("mark_histtecnico_read",{p_case_id:sid}).then(function(){}).catch(function(e){console.error("[widget] mark_histtecnico_read error:",e)});if(r.data.assigned_to&&!agenteName){updateAgentHeader(r.data.assigned_to)}var e=String(r.data.estado||"").toLowerCase();if(e==="cerrado"||e==="resuelto")lockChat();else if(e==="escalado")showEscalado();else if(e==="abierto"&&r.data.assigned_to&&!agenteName){updateAgentHeader(r.data.assigned_to)}}
 
 function startRT(){
   if(rtCh)try{db.removeChannel(rtCh)}catch(e){}
