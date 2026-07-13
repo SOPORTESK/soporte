@@ -142,7 +142,7 @@ export default async function EstadisticasAtencionPage() {
   const promotores = todasCals.filter(c => c >= 4).length;
   const detractores = todasCals.filter(c => c <= 2).length;
   const nps = todasCals.length > 0 ? Math.round(((promotores - detractores) / todasCals.length) * 100) : null;
-  const avgSatisfaccionGlobal = todasCals.length > 0
+  const avgCalificacionClienteGlobal = todasCals.length > 0
     ? (todasCals.reduce((a, b) => a + b, 0) / todasCals.length).toFixed(1) : "N/A";
 
   // ── Stats por agente
@@ -220,7 +220,7 @@ export default async function EstadisticasAtencionPage() {
       ? Math.round(s.tiemposEfectivos.reduce((a, b) => a + b, 0) / s.tiemposEfectivos.length) : 0;
     const avgEspera = s.tiemposEspera.length > 0
       ? Math.round(s.tiemposEspera.reduce((a, b) => a + b, 0) / s.tiemposEspera.length) : 0;
-    return { ...s, avgCalificacion: avgCal > 0 ? avgCal.toFixed(1) : "N/A", avgSLA, tasa: Math.round(tasa), score, tasaEsc, avgEfectivo, avgEspera };
+    return { ...s, avgCalificacionCliente: avgCal > 0 ? avgCal.toFixed(1) : "N/A", avgSLA, tasa: Math.round(tasa), score, tasaEsc, avgEfectivo, avgEspera };
   }).sort((a, b) => b.score - a.score);
 
   // ── Canales / Categorías (solo humanos)
@@ -273,7 +273,7 @@ export default async function EstadisticasAtencionPage() {
           { label: "Tasa Resolución",  value: `${tasaResolucion}%`,   icon: CheckCircle,  color: "text-emerald-500", bg: "bg-emerald-500/10", sub: `${totalResueltos} de ${totalCasos} resueltos` },
           { label: "Tiempo en Cola",   value: formatSLA(avgEsperaGlobal), icon: Clock,    color: "text-violet-500",  bg: "bg-violet-500/10",  sub: `Espera por agente humano` },
           { label: "SLA Promedio",     value: formatSLA(avgSlaGlobal),icon: Clock,        color: "text-sky-500",     bg: "bg-sky-500/10",     sub: `Tiempo resolviendo (agentes)`   },
-          { label: "Satisfacción",     value: avgSatisfaccionGlobal !== "N/A" ? `${avgSatisfaccionGlobal}/5` : "—", icon: Star, color: "text-amber-400", bg: "bg-amber-400/10", sub: `${todasCals.length} calificaciones` },
+          { label: "Calif. cliente",     value: avgCalificacionClienteGlobal !== "N/A" ? `${avgCalificacionClienteGlobal}/5` : "—", icon: Star, color: "text-amber-400", bg: "bg-amber-400/10", sub: `${todasCals.length} calificaciones del cliente` },
         ].map((k, i) => (
 
           <div key={i} className="relative rounded-2xl border border-border bg-card p-5 overflow-hidden hover:shadow-xl hover:-translate-y-0.5 transition-all ring-1 ring-border/50">
@@ -478,7 +478,7 @@ export default async function EstadisticasAtencionPage() {
               <div className="h-8 w-8 rounded-lg bg-brand-500/10 text-brand-500 grid place-items-center"><BarChart3 className="h-4 w-4" /></div>
               <div>
                 <h2 className="font-black text-sm">Desempeño Individual</h2>
-                <p className="text-[11px] text-muted-foreground">Score compuesto: 40% resolución · 35% satisfacción · 25% SLA</p>
+                <p className="text-[11px] text-muted-foreground">Score compuesto: 40% resolución · 35% calif. del cliente · 25% SLA</p>
               </div>
             </div>
             <StatsExportButton
@@ -486,7 +486,7 @@ export default async function EstadisticasAtencionPage() {
                 Agente: a.nombre, Email: a.email, Score: a.score,
                 Total: a.totalAtendidos, Resueltos: a.resueltos, Activos: a.activos,
                 Escalados: a.escalados, Tasa_Escalado_Pct: a.tasaEsc,
-                Calificacion_Avg: a.avgCalificacion, SLA_Avg_min: a.avgSLA,
+                CalificacionCliente_Avg: a.avgCalificacionCliente, SLA_Avg_min: a.avgSLA,
                 Tiempo_Espera_Avg_min: a.avgEspera,
                 Tiempo_Efectivo_Avg_min: (a as any).avgEfectivo,
                 Urgentes: a.urgentes, Casos_7d: a.casos7d
@@ -507,7 +507,7 @@ export default async function EstadisticasAtencionPage() {
                   <th className="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground whitespace-nowrap">T. Espera</th>
                   <th className="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground">SLA</th>
                   <th className="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground whitespace-nowrap">T. Efectivo</th>
-                  <th className="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground">Rating</th>
+                  <th className="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground">Calif. cliente</th>
                   <th className="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground whitespace-nowrap">7 días</th>
                 </tr>
               </thead>
@@ -573,13 +573,13 @@ export default async function EstadisticasAtencionPage() {
                         <p className="text-[9px] text-muted-foreground">activo</p>
                       </td>
                       <td className="px-3 py-3 text-center">
-                        {a.avgCalificacion !== "N/A" ? (
+                        {a.avgCalificacionCliente !== "N/A" ? (
                           <div className="flex items-center justify-center gap-0.5">
                             <Star className="h-3 w-3 text-amber-400 fill-amber-400" />
-                            <span className="font-black text-amber-400 text-sm">{a.avgCalificacion}</span>
+                            <span className="font-black text-amber-400 text-sm">{a.avgCalificacionCliente}</span>
                           </div>
                         ) : <span className="text-muted-foreground/40 text-sm">—</span>}
-                        <p className="text-[9px] text-muted-foreground">{a.calificaciones.length} votos</p>
+                        <p className="text-[9px] text-muted-foreground">{a.calificaciones.length} calif. del cliente</p>
                       </td>
                       <td className="px-3 py-3 text-center">
                         <span className="text-sm font-black tabular-nums text-violet-500">{a.casos7d}</span>

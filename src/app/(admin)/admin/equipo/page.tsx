@@ -118,8 +118,8 @@ export default async function AdminEquipoPage() {
       resueltos: s.resueltos,
       tasaResolucion: tasa,
       avgSLA,
-      avgCalificacion: avgCal,
-      calificacionesCount: s.calificaciones.length,
+      avgCalificacionCliente: avgCal,
+      calificacionesClienteCount: s.calificaciones.length,
       casosHoy: s.casosHoy,
       casosEstaSemana: s.casosEstaSemana,
       tendencia,
@@ -154,7 +154,7 @@ export default async function AdminEquipoPage() {
     totalResueltos: allResueltos.length,
     tasaResolucion: allCasos.length > 0 ? Math.round((allResueltos.length / allCasos.length) * 100) : 0,
     avgSLA: allTiemposGlobal.length > 0 ? Math.round(allTiemposGlobal.reduce((a, b) => a + b, 0) / allTiemposGlobal.length) : 0,
-    avgSatisfaccion: allCalsGlobal.length > 0
+    avgCalificacionClienteGlobal: allCalsGlobal.length > 0
       ? (allCalsGlobal.reduce((a, b) => a + b, 0) / allCalsGlobal.length).toFixed(1)
       : "N/A",
     casosHoy: allCasos.filter(c => c.created_at >= todayStart).length,

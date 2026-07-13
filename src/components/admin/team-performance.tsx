@@ -21,8 +21,8 @@ interface AgentPerformance {
   resueltos: number;
   tasaResolucion: number;
   avgSLA: number;
-  avgCalificacion: string;
-  calificacionesCount: number;
+  avgCalificacionCliente: string;
+  calificacionesClienteCount: number;
   casosHoy: number;
   casosEstaSemana: number;
   tendencia: "up" | "down" | "stable";
@@ -36,7 +36,7 @@ interface TeamPerformanceProps {
     totalResueltos: number;
     tasaResolucion: number;
     avgSLA: number;
-    avgSatisfaccion: string;
+    avgCalificacionClienteGlobal: string;
     casosHoy: number;
     casosEstaSemana: number;
     cargaPromedio: number;
@@ -73,8 +73,8 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
     switch (sortBy) {
       case "resueltos": return b.resueltos - a.resueltos;
       case "calificacion":
-        const calA = a.avgCalificacion === "N/A" ? 0 : parseFloat(a.avgCalificacion);
-        const calB = b.avgCalificacion === "N/A" ? 0 : parseFloat(b.avgCalificacion);
+        const calA = a.avgCalificacionCliente === "N/A" ? 0 : parseFloat(a.avgCalificacionCliente);
+        const calB = b.avgCalificacionCliente === "N/A" ? 0 : parseFloat(b.avgCalificacionCliente);
         return calB - calA;
       case "sla": return a.avgSLA - b.avgSLA;
       case "nombre": return (a.nombre || a.email).localeCompare(b.nombre || b.email);
@@ -176,8 +176,8 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
   const getPerformanceScore = (agent: AgentPerformance) => {
     let score = 0;
     score += agent.tasaResolucion * 0.4; // 40% tasa resolución
-    const calNum = agent.avgCalificacion === "N/A" ? 3 : parseFloat(agent.avgCalificacion);
-    score += (calNum / 5) * 100 * 0.35; // 35% satisfacción
+    const calNum = agent.avgCalificacionCliente === "N/A" ? 3 : parseFloat(agent.avgCalificacionCliente);
+    score += (calNum / 5) * 100 * 0.35; // 35% calificación del cliente
     const slaScore = agent.avgSLA === 0 ? 50 : Math.max(0, 100 - (agent.avgSLA / 60) * 10);
     score += slaScore * 0.25; // 25% SLA
     return Math.round(Math.min(100, score));
@@ -225,13 +225,13 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
               <div className="h-9 w-9 rounded-xl bg-amber-500/10 text-amber-500 grid place-items-center">
                 <Star className="h-4 w-4" />
               </div>
-              <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Satisfacción</span>
+              <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Calif. cliente</span>
             </div>
             <p className="text-5xl font-black tracking-tight text-amber-500 tabular-nums">
-              {globalStats.avgSatisfaccion !== "N/A" ? globalStats.avgSatisfaccion : "—"}
+              {globalStats.avgCalificacionClienteGlobal !== "N/A" ? globalStats.avgCalificacionClienteGlobal : "—"}
             </p>
             <p className="text-[11px] text-muted-foreground mt-1">
-              {globalStats.avgSatisfaccion !== "N/A" ? "de 5.0 · promedio global" : "sin calificaciones aún"}
+              {globalStats.avgCalificacionClienteGlobal !== "N/A" ? "de 5.0 · promedio global del cliente" : "sin calificaciones aún"}
             </p>
           </div>
         </div>
@@ -295,7 +295,7 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
             <div className="flex items-center bg-muted/40 rounded-lg p-0.5 border border-border">
               {([
                 { key: "resueltos", label: "Resueltos" },
-                { key: "calificacion", label: "Rating" },
+                { key: "calificacion", label: "Calif. cliente" },
                 { key: "sla", label: "SLA" },
                 { key: "nombre", label: "Nombre" },
               ] as const).map(s => (
@@ -410,15 +410,15 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
                       <p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">SLA</p>
                     </div>
 
-                    {/* Calificación */}
+                    {/* Calificación del cliente */}
                     <div className="text-center">
                       <div className="flex items-center justify-center gap-0.5">
-                        {agent.avgCalificacion !== "N/A" && <Star className="h-3 w-3 text-amber-400 fill-amber-400" />}
+                        {agent.avgCalificacionCliente !== "N/A" && <Star className="h-3 w-3 text-amber-400 fill-amber-400" />}
                         <p className="text-sm font-black text-amber-400 tabular-nums">
-                          {agent.avgCalificacion !== "N/A" ? agent.avgCalificacion : "—"}
+                          {agent.avgCalificacionCliente !== "N/A" ? agent.avgCalificacionCliente : "—"}
                         </p>
                       </div>
-                      <p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Rating</p>
+                      <p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Calif. cliente</p>
                     </div>
 
                     {/* Tendencia */}
@@ -498,13 +498,13 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
                       <div className="rounded-xl border border-border bg-background/50 p-4">
                         <div className="flex items-center gap-2 mb-2">
                           <Star className="h-3.5 w-3.5 text-amber-400" />
-                          <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Satisfacción</span>
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Calif. del cliente</span>
                         </div>
                         <div className="flex items-baseline gap-1">
-                          <p className="text-2xl font-black text-amber-400">{agent.avgCalificacion !== "N/A" ? agent.avgCalificacion : "—"}</p>
-                          {agent.avgCalificacion !== "N/A" && <span className="text-sm text-muted-foreground">/5</span>}
+                          <p className="text-2xl font-black text-amber-400">{agent.avgCalificacionCliente !== "N/A" ? agent.avgCalificacionCliente : "—"}</p>
+                          {agent.avgCalificacionCliente !== "N/A" && <span className="text-sm text-muted-foreground">/5</span>}
                         </div>
-                        <p className="text-[10px] text-muted-foreground mt-1">{agent.calificacionesCount} calificaciones recibidas</p>
+                        <p className="text-[10px] text-muted-foreground mt-1">{agent.calificacionesClienteCount} calificaciones del cliente</p>
                       </div>
 
                       <div className="rounded-xl border border-border bg-background/50 p-4">
