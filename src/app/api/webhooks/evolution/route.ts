@@ -1001,8 +1001,11 @@ export async function POST(req: NextRequest) {
         const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
         const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
         if (SUPABASE_URL && SERVICE_KEY) {
-          // Asegurar que el caso esté en ia_atendiendo para que ia-agent lo procese
-          let currentEstado = reopenClosedCase ? "ia_atendiendo" : existing.estado;
+          // Re-fetch del estado REAL del caso en este momento (evita race condition
+          // donde el caso fue aceptado por un humano mientras procesábamos el mensaje)
+          const { data: freshCase } = await supabase.from("sek_cases").select("estado").eq("id", existing.id).single();
+          let currentEstado = reopenClosedCase ? "ia_atendiendo" : (freshCase?.estado || existing.estado);
+
           if (currentEstado === "pendiente") {
             const { error: updErr } = await supabase.from("sek_cases").update({ estado: "ia_atendiendo" }).eq("id", existing.id);
             if (!updErr) {
