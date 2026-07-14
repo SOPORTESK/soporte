@@ -61,21 +61,8 @@ export default async function EstadisticasAtencionPage() {
   const slaGt4h = tiemposTodos.filter(t => t > 240).length;
   const avgSlaGlobal = tiemposTodos.length > 0 ? Math.round(tiemposTodos.reduce((a, b) => a + b, 0) / tiemposTodos.length) : 0;
 
-  // ── Tiempo en Cola (Wait Time): desde que pasa del Smart Agent hasta que el humano lo atiende (accepted_at)
-  const tiemposEspera = casosConAsig
-    .filter(c => c.accepted_at)
-    .map(c => {
-      const tAccepted = new Date(c.accepted_at!).getTime();
-      let lastMsgTime = new Date(c.created_at).getTime();
-      const allMsgs = [...(Array.isArray((c as any).histcliente) ? (c as any).histcliente : []), ...(Array.isArray((c as any).histtecnico) ? (c as any).histtecnico : [])];
-      allMsgs.forEach((m: any) => {
-        const t = m.time ? new Date(m.time).getTime() : 0;
-        if (!isNaN(t) && t < tAccepted && t > lastMsgTime) lastMsgTime = t;
-      });
-      return Math.round((tAccepted - lastMsgTime) / 60000);
-    })
-    .filter(t => t >= 0);
-  const avgEsperaGlobal = tiemposEspera.length > 0 ? Math.round(tiemposEspera.reduce((a, b) => a + b, 0) / tiemposEspera.length) : 0;
+  // ── AHT (Average Handle Time): tiempo efectivo que el agente dedicó a cada caso
+  // Se calcula después de tiempoEfectivo(), se deja el placeholder aquí y se resuelve abajo
 
   // ── Prioridades (solo humanos)
   const prioridades: Record<string, number> = { urgente: 0, alta: 0, media: 0, baja: 0 };
@@ -123,6 +110,12 @@ export default async function EstadisticasAtencionPage() {
     }
     return total;
   }
+
+  // ── AHT Global: promedio de tiempo efectivo por caso
+  const ahtTodos = casosConAsig
+    .map(c => tiempoEfectivo((c as any).histtecnico, (c as any).histcliente, c.accepted_at))
+    .filter(t => t > 0);
+  const avgAHTGlobal = ahtTodos.length > 0 ? Math.round(ahtTodos.reduce((a, b) => a + b, 0) / ahtTodos.length) : 0;
 
   // ── Helper para leer calificación desde objeto cliente
   function getCal(c: any): number | null {
@@ -267,7 +260,7 @@ export default async function EstadisticasAtencionPage() {
         {[
           { label: "Total Casos",      value: totalCasos.toString(),  icon: Users,        color: "text-brand-500",   bg: "bg-brand-500/10",   sub: `${totalActivos} activos ahora`              },
           { label: "Tasa Resolución",  value: `${tasaResolucion}%`,   icon: CheckCircle,  color: "text-emerald-500", bg: "bg-emerald-500/10", sub: `${totalResueltos} de ${totalCasos} resueltos` },
-          { label: "Tiempo en Cola",   value: formatSLA(avgEsperaGlobal), icon: Clock,    color: "text-violet-500",  bg: "bg-violet-500/10",  sub: `Espera por agente humano` },
+          { label: "AHT",              value: formatSLA(avgAHTGlobal),    icon: Clock,    color: "text-violet-500",  bg: "bg-violet-500/10",  sub: `Tiempo activo por caso` },
           { label: "SLA Promedio",     value: formatSLA(avgSlaGlobal),icon: Clock,        color: "text-sky-500",     bg: "bg-sky-500/10",     sub: `Espera IA → humano`   },
           { label: "Calif. cliente",     value: avgCalificacionClienteGlobal !== "N/A" ? `${avgCalificacionClienteGlobal}/5` : "—", icon: Star, color: "text-amber-400", bg: "bg-amber-400/10", sub: `${todasCals.length} calificaciones del cliente` },
         ].map((k, i) => (
