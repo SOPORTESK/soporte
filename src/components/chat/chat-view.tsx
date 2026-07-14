@@ -516,7 +516,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     prevEstadoRef.current = curr;
   }, [sekCase.estado]);
 
-  async function send(overrideContent?: string, mediaUrl?: string, mediaType?: string, fileName?: string) {
+  async function send(overrideContent?: string, mediaUrl?: string, mediaType?: string, fileName?: string, skipWhatsApp?: boolean) {
     const body = (overrideContent ?? draft).trim();
     if ((!body && !mediaUrl) || sending || !agentEmail) return;
     setSending(true);
@@ -566,7 +566,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
 
       // Envío por WhatsApp vía Evolution API (solo mensajes no-nota y canal whatsapp)
       const isWhatsApp = String(sekCase.canal || "").toLowerCase() === "whatsapp";
-      if (!isNota && isWhatsApp) {
+      if (!isNota && isWhatsApp && !skipWhatsApp) {
         // Disparar en segundo plano
         fetch("/api/evolution/send", {
           method: "POST",
@@ -683,10 +683,19 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       if (isWhatsApp) {
         const DIRECT_BASE64_LIMIT = 3 * 1024 * 1024; // 3 MB → base64 directo; mayor → URL pública
         const caseIdStr = String(targetId);
-        let payload: Record<string, string>;
 
+        // Subir siempre a Storage para tener una URL con la que mostrar el adjunto en el chat
+        const ext = file.name.split(".").pop() ?? "bin";
+        const path = `cases/${targetId}/${Date.now()}.${ext}`;
+        const { error: upErr } = await supabase.storage
+          .from("attachments")
+          .upload(path, file, { upsert: true, contentType: file.type || undefined });
+        if (upErr) throw upErr;
+        const { data: pub } = supabase.storage.from("attachments").getPublicUrl(path);
+
+        let payload: Record<string, string>;
         if (file.size <= DIRECT_BASE64_LIMIT) {
-          // Archivo pequeño: base64 directo
+          // Archivo pequeño: enviar a Evolution como base64 directo
           const reader = new FileReader();
           const base64 = await new Promise<string>((resolve, reject) => {
             reader.onload = () => resolve(reader.result as string);
@@ -695,14 +704,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
           });
           payload = { case_id: caseIdStr, base64, mimeType: file.type || "application/octet-stream", fileName: file.name };
         } else {
-          // Archivo grande: subir a Supabase Storage y enviar URL pública
-          const ext = file.name.split(".").pop() ?? "bin";
-          const path = `cases/${targetId}/${Date.now()}.${ext}`;
-          const { error: upErr } = await supabase.storage
-            .from("attachments")
-            .upload(path, file, { upsert: true, contentType: file.type || undefined });
-          if (upErr) throw upErr;
-          const { data: pub } = supabase.storage.from("attachments").getPublicUrl(path);
+          // Archivo grande: enviar a Evolution por URL pública
           payload = { case_id: caseIdStr, mediaUrl: pub.publicUrl, mimeType: file.type || "application/octet-stream", fileName: file.name };
         }
 
@@ -715,8 +717,9 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
           const d = await res.json().catch(() => ({}));
           throw new Error(d.error || `Error ${res.status}`);
         }
-        // Registrar en histtecnico con el nombre del archivo (sin URL de storage)
-        await send("", undefined, file.type, file.name);
+        // Registrar en histtecnico con la URL de storage para que se vea el adjunto en el chat
+        // skipWhatsApp=true: ya se envió por /api/evolution/send-base64, evitar duplicado
+        await send("", pub.publicUrl, file.type, file.name, true);
       } else {
         // Otros canales (Widget, etc.): subir a Supabase Storage como antes
         const ext = file.name.split(".").pop();
@@ -804,6 +807,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       return;
     }
 
+    // Reabrir caso: no tocar closed_at (queda como registro histórico)
     const { error } = await supabase.from("sek_cases").update({ estado: newEstado }).eq("id", targetId);
     if (error) { toast.error("Error al cambiar estado"); return; }
     setSekCase(prev => ({ ...prev, estado: newEstado }));

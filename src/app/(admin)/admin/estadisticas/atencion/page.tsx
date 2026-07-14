@@ -46,17 +46,12 @@ export default async function EstadisticasAtencionPage() {
   const casosAntes7d = casosConAsig.filter(c => new Date(c.created_at) >= hace14dias && new Date(c.created_at) < hace7dias).length;
   const tendencia7d = casosAntes7d > 0 ? Math.round(((casos7d - casosAntes7d) / casosAntes7d) * 100) : 0;
 
-  // ── Histograma SLA (solo humanos)
+  // ── SLA (solo humanos): tiempo desde que la IA escala el caso hasta que un humano lo acepta
   const tiemposTodos = casosConAsig
-    .filter(c => (c.estado === "resuelto" || c.estado === "cerrado") && ((c as any).closed_at || c.updated_at))
+    .filter(c => c.escalado_at && c.accepted_at)
     .map(c => {
-      let startTimestamp = c.accepted_at;
-      if (!startTimestamp && Array.isArray(c.histtecnico)) {
-        const firstMsg = c.histtecnico.find((h: any) => h.role === "tecnico");
-        if (firstMsg) startTimestamp = firstMsg.time;
-      }
-      const start = startTimestamp ? new Date(startTimestamp) : new Date(c.created_at);
-      const end = new Date((c as any).closed_at || c.updated_at);
+      const start = new Date(c.escalado_at!);
+      const end = new Date(c.accepted_at!);
       if (isNaN(start.getTime()) || isNaN(end.getTime())) return 0;
       return Math.round((end.getTime() - start.getTime()) / 60000);
     })
@@ -163,7 +158,7 @@ export default async function EstadisticasAtencionPage() {
     if (caso.estado === "escalado") s.escalados++;
     if (caso.estado === "resuelto" || caso.estado === "cerrado") {
       s.resueltos++;
-      const closedAt = (caso as any).closed_at || caso.updated_at;
+      const closedAt = (caso as any).closed_at;
       if (closedAt) {
         let startTimestamp = caso.accepted_at;
         if (!startTimestamp && Array.isArray(caso.histtecnico)) {
@@ -206,7 +201,7 @@ export default async function EstadisticasAtencionPage() {
 
   const rankingAgentes = Object.values(statsPorAgente).map(s => {
     const avgCal = s.calificaciones.length > 0 ? (s.calificaciones.reduce((a, b) => a + b, 0) / s.calificaciones.length) : 0;
-    const avgSLA = s.tiemposResolucion.length > 0 ? Math.round(s.tiemposResolucion.reduce((a, b) => a + b, 0) / s.tiemposResolucion.length) : 0;
+    const avgSLA = s.tiemposEspera.length > 0 ? Math.round(s.tiemposEspera.reduce((a, b) => a + b, 0) / s.tiemposEspera.length) : 0;
     const tasa = s.totalAtendidos > 0 ? (s.resueltos / s.totalAtendidos) * 100 : 0;
     // Score compuesto: 40% resolución + 35% satisfacción (normalizado /5) + 25% SLA (inverso, máx 480min)
     const scoreSLA = avgSLA > 0 ? Math.max(0, 100 - Math.round((avgSLA / 480) * 100)) : 0;
@@ -273,7 +268,7 @@ export default async function EstadisticasAtencionPage() {
           { label: "Total Casos",      value: totalCasos.toString(),  icon: Users,        color: "text-brand-500",   bg: "bg-brand-500/10",   sub: `${totalActivos} activos ahora`              },
           { label: "Tasa Resolución",  value: `${tasaResolucion}%`,   icon: CheckCircle,  color: "text-emerald-500", bg: "bg-emerald-500/10", sub: `${totalResueltos} de ${totalCasos} resueltos` },
           { label: "Tiempo en Cola",   value: formatSLA(avgEsperaGlobal), icon: Clock,    color: "text-violet-500",  bg: "bg-violet-500/10",  sub: `Espera por agente humano` },
-          { label: "SLA Promedio",     value: formatSLA(avgSlaGlobal),icon: Clock,        color: "text-sky-500",     bg: "bg-sky-500/10",     sub: `Tiempo resolviendo (agentes)`   },
+          { label: "SLA Promedio",     value: formatSLA(avgSlaGlobal),icon: Clock,        color: "text-sky-500",     bg: "bg-sky-500/10",     sub: `Espera IA → humano`   },
           { label: "Calif. cliente",     value: avgCalificacionClienteGlobal !== "N/A" ? `${avgCalificacionClienteGlobal}/5` : "—", icon: Star, color: "text-amber-400", bg: "bg-amber-400/10", sub: `${todasCals.length} calificaciones del cliente` },
         ].map((k, i) => (
 

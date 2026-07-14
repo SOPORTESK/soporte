@@ -75,11 +75,13 @@ export default async function AdminEquipoPage() {
         }
         
         const start = startTimestamp ? new Date(startTimestamp as string) : new Date(c.created_at);
-        const closedAt = (c as any).closed_at || c.updated_at;
-        const end = new Date(closedAt);
-        if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
-          const diff = Math.round((end.getTime() - start.getTime()) / (1000 * 60));
-          if (diff > 0 && diff < 10080) s.tiempos.push(diff);
+        const closedAt = (c as any).closed_at;
+        if (closedAt) {
+          const end = new Date(closedAt);
+          if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
+            const diff = Math.round((end.getTime() - start.getTime()) / (1000 * 60));
+            if (diff > 0 && diff < 10080) s.tiempos.push(diff);
+          }
         }
       }
     }
@@ -131,19 +133,19 @@ export default async function AdminEquipoPage() {
   const allCasos = todosCasos || [];
   const allResueltos = allCasos.filter(c => c.estado === "resuelto" || c.estado === "cerrado");
   const allTiemposGlobal = allResueltos
-    .filter(c => c.updated_at)
+    .filter(c => (c as any).closed_at)
     .map(c => {
       let st = c.accepted_at;
       if (!st && Array.isArray(c.histtecnico)) { const fm = c.histtecnico.find((h: any) => h.role === "tecnico"); if (fm) st = fm.time; }
       const start = st ? new Date(st as string) : new Date(c.created_at);
-      const end = new Date(c.updated_at);
+      const end = new Date((c as any).closed_at);
       if (isNaN(start.getTime()) || isNaN(end.getTime())) return 0;
       return Math.round((end.getTime() - start.getTime()) / 60000);
     })
     .filter(t => t > 0);
   const getCal = (c: any): number | null => {
     const cl = typeof c.cliente === "object" && c.cliente ? c.cliente as any : null;
-    const v = cl?.csat_rating;
+    const v = cl?.calificacion_cliente;
     const n = Number(v);
     return v != null && !isNaN(n) && n >= 1 && n <= 5 ? n : null;
   };
