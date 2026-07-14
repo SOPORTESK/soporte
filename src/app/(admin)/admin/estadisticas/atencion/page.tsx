@@ -36,7 +36,7 @@ export default async function EstadisticasAtencionPage() {
   // ── Métricas globales (solo agentes humanos)
   const totalCasos = casosConAsig.length;
   const totalResueltos = casosConAsig.filter(c => c.estado === "resuelto" || c.estado === "cerrado").length;
-  const totalActivos = casosConAsig.filter(c => ["abierto","asignado","pendiente","escalado"].includes(c.estado || "")).length;
+  const totalActivos = casosConAsig.filter(c => c.estado === "abierto").length;
   const totalEscalados = casosConAsig.filter(c => c.estado === "escalado").length;
   const tasaResolucion = totalCasos > 0 ? Math.round((totalResueltos / totalCasos) * 100) : 0;
   const tasaEscalado = totalCasos > 0 ? Math.round((totalEscalados / totalCasos) * 100) : 0;
