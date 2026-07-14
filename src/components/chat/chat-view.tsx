@@ -367,6 +367,12 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
               Array.isArray(prev.histtecnico) && prev.histtecnico.length > 0) {
             delete update.histtecnico;
           }
+          // Proteger estado escalado: el webhook puede cambiar el estado via realtime
+          // pero si el caso estaba escalado, solo permitir cambios a abierto/cerrado/resuelto
+          // (cambios hechos por acción explícita del agente), no retroceder a ia_atendiendo/pendiente
+          if (prev.estado === "escalado" && update.estado && ["ia_atendiendo", "pendiente"].includes(update.estado)) {
+            delete update.estado;
+          }
           return { ...prev, ...update };
         });
       })
