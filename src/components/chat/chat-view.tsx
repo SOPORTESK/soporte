@@ -6,7 +6,7 @@ import {
   Mail, Building2, User, Users, UserPlus, StickyNote, Zap, CheckCircle2,
   XCircle, Image as ImageIcon, FileText, Music, Video,
   Download, X, ChevronDown, History, HandMetal, Star, Tag, AlertTriangle,
-  Mic, Play, Pause, Square, Smile, Trash2
+  Mic, Play, Pause, Square, Smile, Trash2, UserCheck
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Avatar, Badge } from "@/components/ui/avatar";
@@ -1013,12 +1013,9 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
                     </button>
                   </span>
                 ) : (
-                  <span className="inline-flex items-center gap-1 text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded" title="WhatsApp oculta el número de este usuario. Vincule su número real para poder responderle.">
+                  <span className="inline-flex items-center gap-1">
                     <Phone className="h-3 w-3" />
                     {ci.telefono}
-                    <button onClick={() => { setRealPhoneInput(""); setEditingPhone(true); }} className="hover:underline text-[10px] ml-1 font-bold text-amber-600">
-                      (Vincular número real)
-                    </button>
                   </span>
                 )
               ) : (
@@ -1026,6 +1023,12 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
               )}
               {ci.correo && <span className="hidden sm:inline-flex items-center gap-1"><Mail className="h-3 w-3" />{ci.correo}</span>}
               {ci.cuenta && <span className="inline-flex items-center gap-1"><Building2 className="h-3 w-3" />{ci.cuenta}</span>}
+              {(sekCase.estado === "cerrado" || sekCase.estado === "resuelto") && (
+                <span className="inline-flex items-center gap-1 text-muted-foreground">
+                  <UserCheck className="h-3 w-3" />
+                  {sekCase.assigned_to ? `Atendido por: ${sekCase.assigned_to}` : "Atendido por: IA"}
+                </span>
+              )}
             </div>
           </div>
           {/* Historial */}

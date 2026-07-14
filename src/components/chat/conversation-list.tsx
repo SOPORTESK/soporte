@@ -256,10 +256,12 @@ export function ConversationList({
           const ci = clienteInfo(c.cliente);
           const display = ci.nombre || ci.telefono || asText(c.title) || "Cliente";
           const sub = ci.cuenta || asText(c.title) || "";
-          const lm = lastMessage(c);
-          const preview = lm?.content || asText(c.last_message_preview) || sub || "Sin mensajes";
-          const timeStr = formatTime(lm?.time || c.last_message_at || c.created_at);
           const estadoLower = String(c.estado || "").toLowerCase();
+          const lm = lastMessage(c);
+          const isClosed = estadoLower === "cerrado" || estadoLower === "resuelto";
+          const attendedBy = isClosed ? (c.assigned_to ? `Atendido por: ${c.assigned_to}` : "Atendido por: IA") : null;
+          const preview = attendedBy || lm?.content || asText(c.last_message_preview) || sub || "Sin mensajes";
+          const timeStr = formatTime(lm?.time || c.last_message_at || c.created_at);
           const isSaliente = Array.isArray(c.tags) && c.tags.some(t => String(t).toLowerCase() === "saliente");
           const isEscaladoPendiente = estadoLower === "escalado" && !c.accepted_at;
           const minutosEsperando = isEscaladoPendiente && c.escalado_at
