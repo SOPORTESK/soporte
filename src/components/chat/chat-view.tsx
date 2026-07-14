@@ -212,10 +212,12 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       id: baseCase.id,
       cliente: baseCase.cliente ?? target.cliente,
       estado: (baseCase._group
-        ? (sorted.some(c => {
-            const e = String(c.estado || "").toLowerCase();
-            return e !== "cerrado" && e !== "resuelto";
-          }) ? "abierto" : target.estado)
+        ? (sorted.some(c => String(c.estado || "").toLowerCase() === "escalado")
+            ? "escalado"
+            : (sorted.some(c => {
+                const e = String(c.estado || "").toLowerCase();
+                return e !== "cerrado" && e !== "resuelto";
+              }) ? "abierto" : target.estado))
         : baseCase.estado) as SekCase["estado"],
       histcliente: [],
       histtecnico: [],
