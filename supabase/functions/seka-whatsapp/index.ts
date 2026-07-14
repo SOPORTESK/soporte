@@ -606,6 +606,19 @@ function isNombrePropioValido(name: string): boolean {
   // Palabras de una sola sílaba que nunca son nombre: solo si el texto COMPLETO es esa palabra
   const soloUna = ["si", "sí", "no", "ok", "hola", "hey", "gracias"];
   if (soloUna.includes(lower)) return false;
+  // Palabras funcionales (artículos, preposiciones, conjunciones, verbos comunes) que
+  // NUNCA aparecen en un nombre propio real. Si alguna palabra de la frase coincide,
+  // es una oración/frase común, no un nombre — rechazar sin esperar al Supervisor.
+  const palabrasFuncionales = new Set([
+    "el", "la", "los", "las", "un", "una", "unos", "unas", "de", "del", "al",
+    "es", "esta", "esto", "eso", "ese", "esa", "que", "para", "por", "con",
+    "sin", "sobre", "entre", "hacia", "según", "segun", "desde", "hasta",
+    "versión", "version", "problema", "equipo", "switch", "cámara", "camara",
+    "grabación", "grabacion", "acceso", "servicio", "necesito", "quiero",
+    "tengo", "estoy", "puede", "podría", "podria", "ayuda", "ayudar",
+    "funciona", "funcionando", "instalado", "conectado", "activo", "y", "o",
+  ]);
+  if (words.some(w => palabrasFuncionales.has(w.toLowerCase()))) return false;
   // Todo lo demás → dejar pasar; el Supervisor lo validará con criterio de IA
   return true;
 }
