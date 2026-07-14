@@ -619,8 +619,31 @@ function isNombrePropioValido(name: string): boolean {
     "funciona", "funcionando", "instalado", "conectado", "activo", "y", "o",
   ]);
   if (words.some(w => palabrasFuncionales.has(w.toLowerCase()))) return false;
-  // Todo lo demás → dejar pasar; el Supervisor lo validará con criterio de IA
+  // Todo lo demás → dejar pasar; se valida con IA en validarNombreConIA()
   return true;
+}
+
+// Validación semántica con IA: se invoca SIEMPRE (no solo en casos grises) para
+// confirmar que el texto es realmente un nombre propio de persona antes de aceptarlo.
+// Actúa como segunda capa tras el filtro regex isNombrePropioValido().
+async function validarNombreConIA(texto: string): Promise<boolean> {
+  try {
+    const messages: NimMessage[] = [
+      {
+        role: "system",
+        content: `Eres un validador estricto de nombres propios de personas. Responde SOLO con "SI" o "NO", sin explicaciones.
+Responde "SI" únicamente si el texto es un nombre y apellido real de una persona (ej: "María Chaves", "Juan Carlos Ramírez").
+Responde "NO" si es una frase, oración, descripción de un problema, nombre de equipo/producto, saludo, o cualquier cosa que no sea un nombre propio de persona.`,
+      },
+      { role: "user", content: `Texto: "${texto}"` },
+    ];
+    const raw = await callAIWithFallbacks(messages);
+    return /^\s*s[ií]/i.test(raw.trim());
+  } catch (e: any) {
+    console.error("[seka-whatsapp] validarNombreConIA error:", e.message);
+    // Si la IA falla, confiar en el resultado del filtro regex (ya pasado antes de llamar aquí)
+    return true;
+  }
 }
 
 // ─── HANDLER PRINCIPAL ───────────────────────────────────────────────────────
@@ -783,15 +806,18 @@ Deno.serve(async (req: Request) => {
       const userRespFP = lastUserMsgContent.trim();
       const userLowerFP = userRespFP.toLowerCase();
 
-      // Escape hatch: ventas, escalado o petición de humano → dejar al LLM
-      const pareceVentas = /(vend|compr|precio|cotiz|cuánto cuesta|cuanto cuesta|stock|distribu|adquirir|comprar)/i.test(userLowerFP);
-      const pideHumano = /(agente|humano|persona|asesor|ejecutivo|hablar con alguien)/i.test(userLowerFP);
-      const usarFastPath = !pareceVentas && !pideHumano;
+      // FAST PATH DESACTIVADO: toda respuesta del cliente debe ser supervisada por la IA
+      // (Supervisor) sin excepción, para evitar que datos inválidos (ej. frases que no son
+      // nombres propios) se acepten por un simple regex sin criterio semántico.
+      const usarFastPath = false;
 
       if (usarFastPath) {
         // ── PASO NOMBRE ──
         if (!cliFP.nombre && lastBotFP.includes("nombre completo")) {
-          if (isNombrePropioValido(userRespFP)) {
+          // Doble validación EN TODAS LAS OCASIONES: primero el filtro regex (rápido, descarta
+          // casos obvios), luego SIEMPRE la IA (validarNombreConIA) confirma semánticamente
+          // que es un nombre propio real antes de aceptarlo — nunca se omite esta segunda capa.
+          if (isNombrePropioValido(userRespFP) && await validarNombreConIA(userRespFP)) {
             const cli = { ...cliFP, nombre: userRespFP };
             const preg = "Gracias. ¿Me podría indicar su correo electrónico?";
             const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: preg };
@@ -920,7 +946,7 @@ REGLAS DE ANÁLISIS:
 - CORREO Y CUENTA SON CAMPOS COMPLETAMENTE INDEPENDIENTES. NO tienen ninguna relación entre sí. Extrae cada uno SOLO de lo que el cliente escribió explícitamente en respuesta a la pregunta correspondiente:
   * Campo "correo": SOLO acepta direcciones con arroba (@). Si el cliente no escribió una dirección con @, deja este campo vacío.
   * Campo "cuenta": SOLO acepta el nombre explícito de la empresa o cliente afiliado. Si el cliente escribió el nombre de su empresa (ej: "INNOVIOCR", "Soporte CR", "Tech SA"), extráelo aquí. NUNCA lo dejes vacío solo porque se parece a algo.
-  * Campo "nombre": SOLO acepta nombres de persona. Si contiene @, es un correo — no un nombre.
+  * Campo "nombre": SOLO acepta un nombre y apellido real de una persona (ej: "María Chaves", "Juan Ramírez"). Si contiene @, es un correo — no un nombre. RECHAZA (deja vacío) cualquier frase, oración, descripción de un problema, nombre de equipo/producto/marca, saludo, o mensaje que no sea claramente un nombre propio de persona (ej: "esta es la versión del switch", "necesito ayuda con mi cámara" NO son nombres — mantén "nombre" vacío y usa accion "PEDIR_NOMBRE" si el paso actual lo requiere).
   JAMÁS uses el contenido de un campo para inferir otro. Son independientes.
 - PROHIBIDO ASUMIR EL TEMA: NUNCA inventes ni infieras el "tema". Si el cliente no eligió explícitamente uno de los 8 temas, deja "tema" en null y usa accion "PEDIR_TEMA". Jamás escribas frases como "su consulta sobre configuraciones" si el cliente no lo dijo.
 - ORDEN OBLIGATORIO (PASO A PASO): Los datos iniciales deben pedirse UNO POR UNO.
