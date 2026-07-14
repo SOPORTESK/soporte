@@ -399,6 +399,12 @@ export function InboxClient({
             if (!newCases) return;
             setAllCases(newCases); // Sin filtrar para banner de escalados
             filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail, agentName);
+            // Si el caso seleccionado ya no está en el filtro (ej: soporte-avanzado y el estado cambió),
+            // preservarlo en la lista para que el chat no desaparezca mientras el agente lo tiene abierto
+            const currentSelected = selectedId ? newCases.find(c => String(c.id) === selectedId) : null;
+            if (currentSelected && !filteredNewCases.some(c => String(c.id) === selectedId)) {
+              filteredNewCases = [currentSelected, ...filteredNewCases];
+            }
             setCases(filteredNewCases);
 
             /* Detectar mensajes nuevos comparando los GRUPOS de cliente (filtrados) */
