@@ -737,9 +737,10 @@ async function handleTechnicianMode(body: Record<string, unknown>): Promise<Resp
       const histTecnico = Array.isArray(caso.histtecnico) ? caso.histtecnico : [];
       const histCliente = Array.isArray(caso.histcliente) ? caso.histcliente : [];
 
-      // Analizar automáticamente archivos adjuntos del caso en la primera interacción (evita re-análisis costoso en cada mensaje)
+      // Analizar archivos adjuntos del caso en TODA la conversación (no solo el primer mensaje).
+      // El análisis se persiste en el propio mensaje (_visionAnalysis) para no repetir
+      // la llamada costosa a Gemini Vision en cada turno de la conversación.
       let attachmentAnalysis: string[] = [];
-      if (techMessages.length <= 1) {
       const allCaseMessages = [...histCliente, ...histTecnico];
       const attachments = allCaseMessages.filter((m: any) => m.mediaUrl && typeof m.mediaUrl === "string");
       if (attachments.length > 0) {
@@ -749,8 +750,18 @@ async function handleTechnicianMode(body: Record<string, unknown>): Promise<Resp
         }
         const attachmentResults: string[] = [];
         let idx = 1;
-        for (const [, m] of uniqueUrls) {
-          const analysis = await callGeminiVision(m.mediaUrl, m.mediaType || "", m.content || "");
+        let histChanged = false;
+        for (const [url, m] of uniqueUrls) {
+          let analysis: string = m._visionAnalysis || "";
+          if (!analysis) {
+            analysis = await callGeminiVision(m.mediaUrl, m.mediaType || "", m.content || "");
+            if (analysis) {
+              const patch = (e: any) => (e.mediaUrl === url ? { ...e, _visionAnalysis: analysis } : e);
+              for (let i = 0; i < histCliente.length; i++) histCliente[i] = patch(histCliente[i]);
+              for (let i = 0; i < histTecnico.length; i++) histTecnico[i] = patch(histTecnico[i]);
+              histChanged = true;
+            }
+          }
           if (analysis) {
             attachmentResults.push(`[ADJUNTO ${idx} — tipo: ${m.mediaType || "desconocido"}${m.fileName ? ` — ${m.fileName}` : ""}]\n${analysis}`);
             idx++;
@@ -759,7 +770,9 @@ async function handleTechnicianMode(body: Record<string, unknown>): Promise<Resp
         if (attachmentResults.length > 0) {
           attachmentAnalysis = attachmentResults;
         }
-      }
+        if (histChanged) {
+          await db.from("sek_cases").update({ histcliente: histCliente, histtecnico: histTecnico }).eq("id", caso.id);
+        }
       }
 
       const equipoRegistrado = cliente.equipo || (caso.marca ? `${caso.marca || ""} ${caso.modelo || ""}`.trim() : "");
