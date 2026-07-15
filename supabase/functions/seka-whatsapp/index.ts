@@ -1287,10 +1287,13 @@ Responde SOLO con JSON válido:
         }
       }
     }
-    let temaSupervisor = temaPersistido || temaMenu || supervisorResult.tema || tema;
+    let temaSupervisor = temaPersistido || temaMenu || tema;
+    // Si el supervisor infiere un tema pero los datos iniciales aún no están completos,
+    // o si el usuario aún no ha elegido tema del menú, NO persistimos el tema inferido.
+    // Solo persistimos tema inferido si ya hay datos completos y el tema viene del menu o BD.
     if (temaSupervisor && temaSupervisor !== "Consulta" && !temaPersistido) {
-      updatedCliente.tema = temaSupervisor;
-      clienteChanged = true;
+      // No persistir tema inferido por supervisor; dejar que el usuario elija del menú
+      console.log(`[seka-whatsapp] Tema inferido por supervisor (${supervisorResult.tema}) ignorado hasta que el usuario elija del menú.`);
     }
 
     // ── GESTIÓN DE NUEVA CONSULTA (Si el bot rechazó equipo y el usuario dice Sí) ──
