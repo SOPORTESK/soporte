@@ -898,10 +898,12 @@ Deno.serve(async (req: Request) => {
 
         // ── PASO CORREO ──
         if (cliFP.nombre && !cliFP.correo && lastBotFP.includes("correo electrónico")) {
+          console.log(`[seka-whatsapp] FP-CORREO: userResp=${JSON.stringify(userRespFP)}, negacion=${/(no lo tengo|no tengo|no recuerdo|sin correo|no cuento|ninguno|prefiero no|no quiero)/i.test(userLowerFP)}`);
           const negacionCorreo = /(no lo tengo|no tengo|no recuerdo|sin correo|no cuento|ninguno|prefiero no|no quiero)/i.test(userLowerFP);
           // Extraer el PRIMER email válido del mensaje (maneja mensajes multi-línea o con dos correos)
           const emailMatch = userRespFP.match(/[\w.+\-]+@[\w.\-]+\.[a-zA-Z]{2,}/);
           const correoExtraido = emailMatch ? emailMatch[0] : null;
+          console.log(`[seka-whatsapp] FP-CORREO: correoExtraido=${correoExtraido}, valido=${correoExtraido ? esCorreoValido(correoExtraido) : false}`);
           const pregCuenta = "¿Cuál es el nombre de la empresa o cuenta afiliada a Sekunet?";
           if (negacionCorreo) {
             const cli = { ...cliFP, correo: "Sin correo" };
@@ -923,7 +925,7 @@ Deno.serve(async (req: Request) => {
             await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg], estado: "cerrado" }).eq("id", case_id);
             return new Response(JSON.stringify({ ok: true, reply: MSG_CIERRE_REINTENTOS }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
           }
-          const pregR = `${MSG_INVALIDO}\n\nGracias. ¿Me podría indicar su correo electrónico?`;
+          const pregR = `${MSG_CORREO_INVALIDO}\n\nGracias. ¿Me podría indicar su correo electrónico?`;
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: pregR };
           await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
           return new Response(JSON.stringify({ ok: true, reply: pregR }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
