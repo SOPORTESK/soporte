@@ -1123,6 +1123,7 @@ Responde SOLO con JSON válido:
     const llmCorreo = supervisorResult.correo || "";
     const esSinCorreo = llmCorreo.toLowerCase().includes("sin correo");
     let finalCorreo = "";
+    console.log(`[seka-whatsapp] POST-CORREO: llmCorreo=${JSON.stringify(llmCorreo)}, regexEmail=${JSON.stringify(regexEmail)}, esSinCorreo=${esSinCorreo}`);
     if (esSinCorreo) {
       finalCorreo = "Sin correo";
     } else if (llmCorreo && isValidExtractedString(llmCorreo) && esCorreoValido(llmCorreo)) {
@@ -1130,6 +1131,7 @@ Responde SOLO con JSON válido:
     } else if (regexEmail && esCorreoValido(regexEmail)) {
       finalCorreo = regexEmail;
     }
+    console.log(`[seka-whatsapp] POST-CORREO: finalCorreo=${JSON.stringify(finalCorreo)}, validoLLM=${llmCorreo ? esCorreoValido(llmCorreo) : false}, validoRegex=${regexEmail ? esCorreoValido(regexEmail) : false}`);
 
     if (finalCorreo) {
       const oldCorreo = String((currentCliente as any).correo || "").trim();
@@ -1943,6 +1945,7 @@ No agregues nada más.`,
       if (accion === "PEDIR_CORREO") {
         const frasesSinCorreo = ["no lo tengo", "no tengo", "no recuerdo", "sin correo", "no cuento", "no tengo correo", "ninguno", "no lo tengo a mano", "prefiero no", "no quiero"];
         const clienteDeclaroSinCorreo = frasesSinCorreo.some(f => lastUserMsgContent.toLowerCase().includes(f));
+        console.log(`[seka-whatsapp] POST-SIN-CORREO: user=${JSON.stringify(lastUserMsgContent)}, declaroSinCorreo=${clienteDeclaroSinCorreo}`);
         if (clienteDeclaroSinCorreo && !updatedCliente.correo) {
           updatedCliente.correo = "Sin correo";
           clienteChanged = true;
