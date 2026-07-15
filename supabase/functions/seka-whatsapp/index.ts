@@ -910,7 +910,7 @@ Deno.serve(async (req: Request) => {
             await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg], cliente: cli }).eq("id", case_id);
             return new Response(JSON.stringify({ ok: true, reply: preg }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
           }
-          if (correoExtraido) {
+          if (correoExtraido && esCorreoValido(correoExtraido)) {
             const cli = { ...cliFP, correo: correoExtraido };
             const preg = `Gracias. ${pregCuenta}`;
             const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: preg };
@@ -1965,7 +1965,7 @@ No agregues nada más.`,
         const frasesSinCuenta = ["no tengo", "no lo tengo", "ninguna", "cliente final", "no cuento", "no tengo empresa", "no tengo cuenta"];
         const clienteDeclaroSinCuenta = frasesSinCuenta.some(f => lastUserMsgContent.toLowerCase().includes(f));
 
-        if (botPreguntabaCuentaAhora && !clienteDeclaroSinCuenta && lastUserMsgContent.trim().length >= 2) {
+        if (botPreguntabaCuentaAhora && !clienteDeclaroSinCuenta && esCuentaValida(lastUserMsgContent)) {
           // El cliente respondió algo concreto — tomarlo como nombre de cuenta directamente
           const cuentaDirecta = lastUserMsgContent.trim();
           updatedCliente.cuenta = cuentaDirecta;
