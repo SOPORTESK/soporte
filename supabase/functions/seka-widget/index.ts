@@ -462,6 +462,29 @@ function buildMessages(hist: HistMsg[], invContext: string | null): NimMessage[]
   return messages;
 }
 
+const MSG_MEDIA_NO_PERMITIDA = "No puedo procesar imágenes ni audios en este paso. Por favor responda con texto.";
+const MSG_DESCRIPCION_INVALIDO = "La descripción no es clara. Por favor, describa brevemente su inconveniente con más detalle.";
+
+function esMensajeDeMedia(m: HistMsg): boolean {
+  return !!(m.mediaUrl || m.mediaType || (m.fileName && /\.(jpg|jpeg|png|gif|webp|pdf|mp3|ogg|wav|m4a|mp4|mov|avi)$/i.test(m.fileName)));
+}
+
+function pasoPideTexto(lastIaContent: string): boolean {
+  const lower = (lastIaContent || "").toLowerCase();
+  const pideTexto = [
+    "marca del equipo", "marca específica", "modelo del equipo", "modelo específico",
+    "descripción del problema", "describa brevemente", "describa su consulta",
+    "empresa o cuenta afiliada", "tema sería",
+  ];
+  return pideTexto.some(p => lower.includes(p));
+}
+
+function esDescripcionValida(texto: string): boolean {
+  const t = texto.trim();
+  if (!t || t.length < 5) return false;
+  return true;
+}
+
 // ─── HANDLER PRINCIPAL ───────────────────────────────────────────────────────
 Deno.serve(async (req: Request) => {
   const corsHeaders = {
@@ -524,6 +547,13 @@ Deno.serve(async (req: Request) => {
     const lastUserMsg = userRealMsgs[userRealMsgs.length - 1];
     const lastIATime = lastIA?.time ? new Date(lastIA.time).getTime() : 0;
     const lastUserTime = lastUserMsg?.time ? new Date(lastUserMsg.time).getTime() : 0;
+
+    // Blindaje de media: si el bot pidió texto y el usuario envía imagen/audio, redirigir.
+    if (lastUserMsg && esMensajeDeMedia(lastUserMsg) && pasoPideTexto(lastIA?.content || "")) {
+      const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: MSG_MEDIA_NO_PERMITIDA };
+      await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg] }).eq("id", case_id);
+      return new Response(JSON.stringify({ ok: true, reply: MSG_MEDIA_NO_PERMITIDA }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
     // ═══════════════════════════════════════════════════════════════════════
     // SUPERVISOR DE IA — Analiza cada mensaje del usuario con inteligencia
     // ═══════════════════════════════════════════════════════════════════════
@@ -654,8 +684,13 @@ Responde SOLO con JSON válido:
     }
 
     if (accion === "PEDIR_DESCRIPCION" && lastIAContent.includes("describa brevemente")) {
-      console.log("[seka-widget] Ya se había pedido descripción. Forzando ESCALAR.");
-      accion = "ESCALAR";
+      if (esDescripcionValida(lastUserMsgContent)) {
+        console.log("[seka-widget] Ya se había pedido descripción. Forzando ESCALAR.");
+        accion = "ESCALAR";
+      } else {
+        console.log("[seka-widget] Descripción inválida. Se mantiene PEDIR_DESCRIPCION.");
+        supervisorResult.respuesta_sugerida = "";
+      }
     }
 
     if (/precio|rpecio|prec|cotiza|comprar|compra|ventas|venta|venden|vender|vendemos|costo|cuanto cuesta|cuánto cuesta|cuanto vale|cuánto vale|tienen en stock/i.test(lastUserMsgContent)) {

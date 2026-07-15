@@ -580,6 +580,10 @@ function contarReintentos(iaMsgs: { content?: string }[], fraseCaracteristica: s
 const MSG_CIERRE_REINTENTOS = "Lamentamos no poder continuar. Hemos intentado registrar sus datos en varias ocasiones sin éxito. Le invitamos a contactarnos nuevamente cuando tenga la información a mano. ¡Que tenga un excelente día!";
 const MSG_INVALIDO = "La información ingresada no es válida. Por favor, verifique el dato e inténtelo nuevamente.";
 const MSG_NOMBRE_INVALIDO = "No reconocí un nombre completo. Por favor indíqueme su nombre y apellido (por ejemplo: María Chaves).";
+const MSG_CORREO_INVALIDO = "El correo ingresado no tiene un formato válido. Por favor, escriba su correo electrónico real para poder contactarle.";
+const MSG_CUENTA_INVALIDO = "No reconocí el nombre de la empresa o cuenta afiliada. Por favor indíqueme el nombre exacto de la cuenta o empresa vinculada a Sekunet.";
+const MSG_DESCRIPCION_INVALIDO = "La descripción no es clara. Por favor, describa brevemente su inconveniente con más detalle.";
+const MSG_MEDIA_NO_PERMITIDA = "No puedo procesar imágenes ni audios en este paso. Por favor responda con texto.";
 
 // Filtros mínimos e infalibles — los casos grises los resuelve el Supervisor (LLM).
 function isNombrePropioValido(name: string): boolean {
@@ -644,6 +648,55 @@ Responde "NO" si es una frase, oración, descripción de un problema, nombre de 
     // Si la IA falla, confiar en el resultado del filtro regex (ya pasado antes de llamar aquí)
     return true;
   }
+}
+
+function esCorreoValido(texto: string): boolean {
+  const t = texto.trim().toLowerCase();
+  if (!t) return false;
+  // No aceptar "Sin correo" como correo válido (eso es un marcador de campo atendido)
+  if (t.includes("sin correo")) return false;
+  const emailRegex = /^[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}$/;
+  if (!emailRegex.test(t)) return false;
+  const dominio = t.split("@")[1];
+  const dominiosDescartables = new Set([
+    "example.com", "test.com", "fake.com", "temp.com", "mail.com", "email.com",
+    "a.com", "b.com", "c.com", "d.com", "e.com", "f.com", "g.com", "h.com", "i.com", "j.com", "k.com", "l.com", "m.com", "n.com", "o.com", "p.com", "q.com", "r.com", "s.com", "t.com", "u.com", "v.com", "w.com", "x.com", "y.com", "z.com",
+    "1.com", "2.com", "3.com", "4.com", "5.com", "6.com", "7.com", "8.com", "9.com", "0.com",
+  ]);
+  if (dominiosDescartables.has(dominio)) return false;
+  return true;
+}
+
+function esCuentaValida(texto: string): boolean {
+  const t = texto.trim();
+  if (!t || t.length < 2) return false;
+  const lower = t.toLowerCase();
+  // Rechazar frases relativas y vacías
+  const frasesRelativas = ["a mi nombre", "mi nombre", "yo mismo", "personal", "la mía", "la mia", "esta cuenta", "mi cuenta", "sin cuenta", "no tengo", "ninguna", "cliente final"];
+  if (frasesRelativas.some(f => lower.includes(f))) return false;
+  return true;
+}
+
+function esDescripcionValida(texto: string): boolean {
+  const t = texto.trim();
+  if (!t || t.length < 5) return false;
+  return true;
+}
+
+function esMensajeDeMedia(m: HistMsg): boolean {
+  return !!(m.mediaUrl || m.mediaType || (m.fileName && /\.(jpg|jpeg|png|gif|webp|pdf|mp3|ogg|wav|m4a|mp4|mov|avi)$/i.test(m.fileName)));
+}
+
+// Determina si el último mensaje del bot estaba pidiendo un dato de texto (no media)
+function pasoPideTexto(lastIaContent: string): boolean {
+  const lower = (lastIaContent || "").toLowerCase();
+  const pideTexto = [
+    "nombre completo", "correo electrónico", "empresa o cuenta afiliada", "nombre de la empresa",
+    "tema sería", "tema de la consulta", "número o el nombre del tema",
+    "marca del equipo", "marca específica", "modelo del equipo", "modelo específico",
+    "descripción del problema", "describa brevemente", "describa su consulta",
+  ];
+  return pideTexto.some(p => lower.includes(p));
 }
 
 // ─── HANDLER PRINCIPAL ───────────────────────────────────────────────────────
@@ -746,6 +799,13 @@ Deno.serve(async (req: Request) => {
     const lastUserMsgContent = lastUserMsg?.content || "";
     const lastIATime  = lastIA?.time ? new Date(lastIA.time).getTime() : 0;
     const lastUserTime = lastUserMsg?.time ? new Date(lastUserMsg.time).getTime() : 0;
+
+    // Blindaje de media: si el bot pidió texto y el usuario envía imagen/audio, redirigir.
+    if (lastUserMsg && esMensajeDeMedia(lastUserMsg) && pasoPideTexto(lastIA?.content || "")) {
+      const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: MSG_MEDIA_NO_PERMITIDA };
+      await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
+      return new Response(JSON.stringify({ ok: true, reply: MSG_MEDIA_NO_PERMITIDA }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
 
     // Detectar tema — acepta número (1-8), texto exacto o parcial
     const topiIdx = userRealMsgs.findIndex(m => resolveTopicFromText(m.content?.trim() ?? "") !== null);
@@ -991,12 +1051,13 @@ Responde SOLO con JSON válido:
 }`;
 
     let supervisorResult: any = null;
+    let supervisorRaw = "";
     try {
       const supervisorMessages: NimMessage[] = [
         { role: "system", content: supervisorPrompt },
         { role: "user", content: "Analiza la conversación y decide la siguiente acción." },
       ];
-      const supervisorRaw = await callAIWithFallbacks(supervisorMessages);
+      supervisorRaw = await callAIWithFallbacks(supervisorMessages);
       console.log("[seka-whatsapp] Supervisor raw:", supervisorRaw);
       const jsonMatch = supervisorRaw.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
@@ -1005,7 +1066,7 @@ Responde SOLO con JSON válido:
       }
     } catch (e: any) {
       console.error("[seka-whatsapp] Supervisor error:", e.message);
-      if (typeof supervisorRaw !== 'undefined') {
+      if (supervisorRaw) {
           await db.from("sek_cases").update({ notasInternas: "JSON_PARSE_ERROR: " + e.message + " | RAW: " + supervisorRaw.substring(0, 500) }).eq("id", case_id);
       }
     }
@@ -1082,69 +1143,92 @@ Responde SOLO con JSON válido:
       }
     }
     
-    // Guardar correo: acepta valor real (via LLM o regex) y también "Sin correo" como marcador de campo atendido
+    // Guardar correo: acepta valor real (via LLM o regex) validado, y también "Sin correo" como marcador de campo atendido
     const llmCorreo = supervisorResult.correo || "";
     const esSinCorreo = llmCorreo.toLowerCase().includes("sin correo");
-    const finalCorreo = llmCorreo && (isValidExtractedString(llmCorreo) || esSinCorreo) ? llmCorreo : regexEmail;
+    let finalCorreo = "";
+    if (esSinCorreo) {
+      finalCorreo = "Sin correo";
+    } else if (llmCorreo && isValidExtractedString(llmCorreo) && esCorreoValido(llmCorreo)) {
+      finalCorreo = llmCorreo;
+    } else if (regexEmail && esCorreoValido(regexEmail)) {
+      finalCorreo = regexEmail;
+    }
 
-    if (finalCorreo && (isValidExtractedString(finalCorreo) || esSinCorreo)) {
+    if (finalCorreo) {
       const oldCorreo = String((currentCliente as any).correo || "").trim();
       if (!oldCorreo || oldCorreo === "(vacío)") {
         updatedCliente.correo = finalCorreo;
         clienteChanged = true;
       }
+    } else if (supervisorResult.correo || regexEmail) {
+      // El supervisor o regex intentaron dar un correo pero no es válido
+      if (!["ESCALAR_INMEDIATO", "CERRAR", "VENTAS"].includes(supervisorResult.accion)) {
+        console.log("[seka-whatsapp] Correo inválido rechazado:", supervisorResult.correo || regexEmail, "→ se pide de nuevo.");
+        supervisorResult.correo = "";
+        supervisorResult.accion = "PEDIR_CORREO";
+      }
     }
+
     if (isValidExtractedString(supervisorResult.cuenta)) {
       const oldCuenta = String((currentCliente as any).cuenta || "").trim();
       const oldCuentaLower = oldCuenta.toLowerCase();
       const isBadOldCuenta = oldCuentaLower === "a mi nombre" || oldCuentaLower === "mi nombre" || oldCuentaLower === "yo mismo" || oldCuentaLower === "personal";
       if (!oldCuenta || oldCuenta === "(vacío)" || isBadOldCuenta) {
-           let cuentaFinal = supervisorResult.cuenta;
-      try {
-        const levenshtein = (a: string, b: string): number => {
-          if (a.length === 0) return b.length;
-          if (b.length === 0) return a.length;
-          const matrix = Array(b.length + 1).fill(null).map(() => Array(a.length + 1).fill(null));
-          for (let i = 0; i <= a.length; i += 1) matrix[0][i] = i;
-          for (let j = 0; j <= b.length; j += 1) matrix[j][0] = j;
-          for (let j = 1; j <= b.length; j += 1) {
-            for (let i = 1; i <= a.length; i += 1) {
-              const ind = a[i - 1] === b[j - 1] ? 0 : 1;
-              matrix[j][i] = Math.min(matrix[j][i - 1] + 1, matrix[j - 1][i] + 1, matrix[j - 1][i - 1] + ind);
+        const cuentaCandidata = supervisorResult.cuenta.trim();
+        if (esCuentaValida(cuentaCandidata)) {
+          let cuentaFinal = cuentaCandidata;
+          try {
+            const levenshtein = (a: string, b: string): number => {
+              if (a.length === 0) return b.length;
+              if (b.length === 0) return a.length;
+              const matrix = Array(b.length + 1).fill(null).map(() => Array(a.length + 1).fill(null));
+              for (let i = 0; i <= a.length; i += 1) matrix[0][i] = i;
+              for (let j = 0; j <= b.length; j += 1) matrix[j][0] = j;
+              for (let j = 1; j <= b.length; j += 1) {
+                for (let i = 1; i <= a.length; i += 1) {
+                  const ind = a[i - 1] === b[j - 1] ? 0 : 1;
+                  matrix[j][i] = Math.min(matrix[j][i - 1] + 1, matrix[j - 1][i] + 1, matrix[j - 1][i - 1] + ind);
+                }
+              }
+              return matrix[b.length][a.length];
+            };
+            const { data: recentCases } = await db.from("sek_cases").select("cliente").order("created_at", { ascending: false }).limit(100);
+            if (recentCases) {
+              const uniqueAccounts = new Set<string>();
+              for (const c of recentCases) {
+                if (c.cliente && typeof c.cliente === "object" && (c.cliente as any).cuenta) {
+                  const acc = String((c.cliente as any).cuenta).trim();
+                  if (acc.length > 2) uniqueAccounts.add(acc);
+                }
+              }
+              const target = cuentaFinal.toLowerCase();
+              let bestMatch = cuentaFinal;
+              let bestScore = 0;
+              for (const acc of uniqueAccounts) {
+                const candidate = acc.toLowerCase();
+                if (candidate === target) { bestMatch = acc; bestScore = 1; break; }
+                const dist = levenshtein(target, candidate);
+                const score = 1 - (dist / Math.max(target.length, candidate.length));
+                if (score > bestScore && score > 0.7) { bestScore = score; bestMatch = acc; }
+              }
+              if (bestScore > 0 && bestMatch !== cuentaFinal) {
+                console.log(`[seka-whatsapp] Fuzzy match cuenta: "${cuentaFinal}" -> "${bestMatch}" (${bestScore.toFixed(2)})`);
+                cuentaFinal = bestMatch;
+              }
             }
+          } catch (e: any) {
+            console.error("[seka-whatsapp] Fuzzy match error:", e.message);
           }
-          return matrix[b.length][a.length];
-        };
-        const { data: recentCases } = await db.from("sek_cases").select("cliente").order("created_at", { ascending: false }).limit(100);
-        if (recentCases) {
-          const uniqueAccounts = new Set<string>();
-          for (const c of recentCases) {
-            if (c.cliente && typeof c.cliente === "object" && (c.cliente as any).cuenta) {
-              const acc = String((c.cliente as any).cuenta).trim();
-              if (acc.length > 2) uniqueAccounts.add(acc);
-            }
-          }
-          const target = cuentaFinal.toLowerCase();
-          let bestMatch = cuentaFinal;
-          let bestScore = 0;
-          for (const acc of uniqueAccounts) {
-            const candidate = acc.toLowerCase();
-            if (candidate === target) { bestMatch = acc; bestScore = 1; break; }
-            const dist = levenshtein(target, candidate);
-            const score = 1 - (dist / Math.max(target.length, candidate.length));
-            if (score > bestScore && score > 0.7) { bestScore = score; bestMatch = acc; }
-          }
-          if (bestScore > 0 && bestMatch !== cuentaFinal) {
-            console.log(`[seka-whatsapp] Fuzzy match cuenta: "${cuentaFinal}" -> "${bestMatch}" (${bestScore.toFixed(2)})`);
-            cuentaFinal = bestMatch;
+          updatedCliente.cuenta = cuentaFinal;
+          clienteChanged = true;
+        } else {
+          console.log("[seka-whatsapp] Cuenta inválida rechazada:", cuentaCandidata, "→ se pide de nuevo.");
+          supervisorResult.cuenta = "";
+          if (!["ESCALAR_INMEDIATO", "CERRAR", "VENTAS"].includes(supervisorResult.accion)) {
+            supervisorResult.accion = "PEDIR_CUENTA";
           }
         }
-      } catch (e: any) {
-        console.error("[seka-whatsapp] Fuzzy match error:", e.message);
-      }
-      updatedCliente.cuenta = cuentaFinal;
-      clienteChanged = true;
-
       } // Closes if (!oldCuenta || ...)
     } // Closes if (isValidExtractedString...)
 
@@ -1282,9 +1366,18 @@ Responde SOLO con JSON válido:
     // EXCEPCIÓN: temas que requieren etiqueta (Reset/Desvinculación/Firmware) no usan descripción como último paso
     // IMPORTANTE: este bloque va ANTES del forzado de tema Otro para que el escalado tenga prioridad
     const botYaPidioDescripcion = lastIAContent.includes("describa brevemente") || lastIAContent.includes("describa el inconveniente") || lastIAContent.includes("describa brevemente el inconveniente");
-    if (botYaPidioDescripcion && lastUserMsgContent.trim().length >= 2 && !temasConEtiqueta.includes(temaSupervisor)) {
-      console.log("[seka-whatsapp] Usuario ya describió el problema. Escalando directamente.");
-      accion = "ESCALAR";
+    if (botYaPidioDescripcion && !temasConEtiqueta.includes(temaSupervisor)) {
+      const desc = lastUserMsgContent.trim();
+      if (esDescripcionValida(desc)) {
+        console.log("[seka-whatsapp] Usuario ya describió el problema. Escalando directamente.");
+        updatedCliente.descripcion = desc;
+        clienteChanged = true;
+        accion = "ESCALAR";
+      } else {
+        console.log("[seka-whatsapp] Descripción inválida. Forzando PEDIR_DESCRIPCION.");
+        accion = "PEDIR_DESCRIPCION";
+        supervisorResult.respuesta_sugerida = "";
+      }
     }
 
 
@@ -1903,8 +1996,12 @@ No agregues nada más.`,
 
       const lastIaContent = (lastIA?.content || "").toLowerCase();
       const botYaPidio = lastIaContent.includes(fraseCaract.toLowerCase());
+      let msgInvalido = MSG_INVALIDO;
+      if (accion === "PEDIR_NOMBRE") msgInvalido = MSG_NOMBRE_INVALIDO;
+      else if (accion === "PEDIR_CORREO") msgInvalido = MSG_CORREO_INVALIDO;
+      else if (accion === "PEDIR_CUENTA") msgInvalido = MSG_CUENTA_INVALIDO;
       const directReply = (botYaPidio && reintentos < 2)
-        ? `${MSG_INVALIDO}\n\n${pregunta}`
+        ? `${msgInvalido}\n\n${pregunta}`
         : pregunta;
 
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
