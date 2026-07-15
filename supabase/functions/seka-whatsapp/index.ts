@@ -1289,8 +1289,8 @@ Responde SOLO con JSON válido:
       }
     }
     let temaSupervisor = temaPersistido || temaMenu || supervisorResult.tema || tema;
-    if (temaMenu && !temaPersistido) {
-      updatedCliente.tema = temaMenu;
+    if (temaSupervisor && temaSupervisor !== "Consulta" && !temaPersistido) {
+      updatedCliente.tema = temaSupervisor;
       clienteChanged = true;
     }
 
@@ -1569,7 +1569,8 @@ Responde SOLO con JSON válido:
     const temaElegidoPorCliente = topiIdx >= 0;
     if (accion !== "CERRAR" && accion !== "VENTAS" && accion !== "ESCALAR_INMEDIATO" && accion !== "PEDIR_DATOS" && accion !== "PEDIR_NOMBRE" && accion !== "PEDIR_CORREO" && accion !== "PEDIR_CUENTA") {
       const correoOkGate2 = correoRespondido || (String(updatedCliente.correo || "").trim() !== "");
-      if (updatedCliente.nombre && correoOkGate2 && updatedCliente.cuenta && !temaElegidoPorCliente) {
+      const temaYaDefinido = temaSupervisor && temaSupervisor !== "Consulta";
+      if (updatedCliente.nombre && correoOkGate2 && updatedCliente.cuenta && !temaElegidoPorCliente && !temaYaDefinido) {
         console.log("[seka-whatsapp] Datos completos sin tema elegido → mostrando lista de temas.");
         accion = "PEDIR_TEMA";
       }
