@@ -797,6 +797,7 @@ Deno.serve(async (req: Request) => {
     const lastIA    = iaRealMsgs[iaRealMsgs.length - 1];
     const lastUserMsg = userRealMsgs[userRealMsgs.length - 1];
     const lastUserMsgContent = lastUserMsg?.content || "";
+    console.log(`[seka-whatsapp] USER-RAW: content=${JSON.stringify(lastUserMsgContent)}, mediaUrl=${lastUserMsg?.mediaUrl}, mediaType=${lastUserMsg?.mediaType}`);
     const lastIATime  = lastIA?.time ? new Date(lastIA.time).getTime() : 0;
     const lastUserTime = lastUserMsg?.time ? new Date(lastUserMsg.time).getTime() : 0;
 
