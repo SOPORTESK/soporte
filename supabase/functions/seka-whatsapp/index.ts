@@ -1567,13 +1567,13 @@ Responde SOLO con JSON válido:
       }
     }
 
-    // GATE 2 — Con datos completos pero sin tema elegido por el cliente, mostrar la lista de temas.
+    // GATE 2 — Con datos completos, mostrar la lista de temas SIEMPRE, excepto que el usuario
+    // ya haya elegido un tema del menú en esta conversación.
     const temaElegidoPorCliente = topiIdx >= 0;
     if (accion !== "CERRAR" && accion !== "VENTAS" && accion !== "ESCALAR_INMEDIATO" && accion !== "PEDIR_DATOS" && accion !== "PEDIR_NOMBRE" && accion !== "PEDIR_CORREO" && accion !== "PEDIR_CUENTA") {
       const correoOkGate2 = correoRespondido || (String(updatedCliente.correo || "").trim() !== "");
-      const temaYaDefinido = temaSupervisor && temaSupervisor !== "Consulta";
-      if (updatedCliente.nombre && correoOkGate2 && updatedCliente.cuenta && !temaElegidoPorCliente && !temaYaDefinido) {
-        console.log("[seka-whatsapp] Datos completos sin tema elegido → mostrando lista de temas.");
+      if (updatedCliente.nombre && correoOkGate2 && updatedCliente.cuenta && !temaElegidoPorCliente) {
+        console.log("[seka-whatsapp] Datos completos → mostrando lista de temas (tema persistido o inferido ignorado).");
         accion = "PEDIR_TEMA";
       }
     }
