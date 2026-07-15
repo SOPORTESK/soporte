@@ -988,8 +988,17 @@ REGLAS DE ANÁLISIS:
   6. Si el tema es "Otro", NO pidas marca ni modelo, la accion debe ser "PEDIR_DESCRIPCION".
   NUNCA pidas dos datos juntos. NO avances al siguiente paso si falta el anterior.
 - VALIDACIÓN DE DATOS FALSOS: Debes verificar de forma intuitiva que los datos proporcionados sean reales y lógicos.
-  - Nombres: ¡Si contiene arroba (@) ES UN CORREO, NO UN NOMBRE! Recházalo SOLO si: (a) contiene @, (b) son caracteres completamente aleatorios sin sentido (ej: "ryjuky", "asdf", "qwerty", "123"), o (c) son solo números. ACEPTA cualquier nombre real aunque sea solo un nombre sin apellido (ej: "César", "Juan", "María", "César Batista", "Ana González"). No exijas apellido. En caso de duda, ACEPTA el dato. Solo rechaza lo obviamente inválido.
-  - Correos: El correo es OPCIONAL. Si el cliente indica de cualquier forma que no tiene correo o no lo tiene disponible (ej: "no tengo", "ninguno", "no lo tengo", "no lo tengo a mano", "sin correo", "no tengo correo", "no cuento con correo", "prefiero no darlo"), extrae "Sin correo" y avanza al siguiente paso. Pero si proporciona un correo evidentemente falso o de prueba (ej: "1@1.com", "a@a.com", "wef@wrf.we"), recházalo: ES OBLIGATORIO dejar el campo "correo" vacío ("") y en "respuesta_sugerida" usar este texto exacto (sin comillas): El correo ingresado no tiene un formato válido. Por favor, escriba su correo electrónico real para poder contactarle.
+  - Nombres: ¡Si contiene arroba (@) ES UN CORREO, NO UN NOMBRE! Recházalo SOLO si: (a) contiene @, (b) son caracteres completamente aleatorios sin sentido (ej: "ryjuky", "asdf", "qwerty", "123"), o (c) son solo números. ACEPTA cualquier nombre real aunque sea solo un nombre sin apellido (ej: "César", "Juan", "María", "César Batista", "Ana González"). No exijas apellido. En caso de duda, ACEPTA el dato.
+  - Correos: El correo es OPCIONAL. Si el cliente indica de cualquier forma que no tiene correo, extrae "Sin correo" y avanza al siguiente paso. Pero si proporciona un correo evidentemente falso o de prueba (ej: "1@1.com", "a@a.com", "wef@wrf.we", "prueba@prueba.com"), recházalo: ES OBLIGATORIO dejar el campo "correo" vacío ("") y la accion "PEDIR_CORREO".
+  - Cuentas: El campo "cuenta" es SOLO el nombre explícito de la empresa o cuenta afiliada. Si el cliente responde frases relativas como "a mi nombre", "yo mismo", "personal", "la mía", "no tengo", "ninguna" o "cliente final", extrae "Sin cuenta" SI indica explícitamente que no tiene. Si solo evade la pregunta, deja el campo vacío y usa accion "PEDIR_CUENTA".
+  - Anti-salto estricto: Si el tema NO es "Otro" y aún falta la marca o el modelo, NUNCA uses accion "PEDIR_DESCRIPCION". La accion debe ser "PEDIR_MARCA", "PEDIR_MODELO" o "PEDIR_MARCA_Y_MODELO".
+
+EJEMPLOS DE DECISIONES CORRECTAS:
+- Cliente escribe "1@1.com" cuando se le pidió correo: correo="", accion="PEDIR_CORREO", respuesta_sugerida="El correo ingresado no tiene un formato válido. Por favor, escriba su correo electrónico real para poder contactarle."
+- Cliente escribe "Nano station loco m5 airmax 13dbi" cuando se le pidió modelo: modelo="NanoStation loco M5 airmax 13dBi", accion="BUSCAR_INVENTARIO" (ya se tiene marca y modelo).
+- Cliente elige tema "Configuraciones" pero aún no ha dado marca: tema="Configuraciones", marca="", accion="PEDIR_MARCA".
+- Cliente escribe "no tengo correo" cuando se le pidió correo: correo="Sin correo", accion="PEDIR_CUENTA".
+- Cliente escribe "INNOVIOCR" cuando se le pidió cuenta: cuenta="INNOVIOCR", accion="PEDIR_TEMA".
 - Si el cliente envió un código como "DS-3E0505P-E-M", "NVR-108MH", "IPC-T221H" eso es un MODELO, no una marca.
 - Si el cliente envió una sola palabra, nombre corto o abreviatura (ej: "Hikvision", "Dahua", "Epcom", "ZKTeco", "hik", "dha", "zkt", "epc"), ASUME OBLIGATORIAMENTE que es una MARCA y extráelo en el campo "marca". NO dejes la marca vacía si el usuario respondió con 3 o más letras.
 - Si el cliente envió marca y modelo juntos, extrae ambos. Si el cliente solo dio el modelo, NO pidas la marca. Si ya tienes modelo, la acción debe avanzar a BUSCAR_INVENTARIO o PEDIR_DESCRIPCION, nunca regreses a PEDIR_MARCA.
@@ -1143,7 +1152,11 @@ Responde SOLO con JSON válido:
       const isBadOldCuenta = oldCuentaLower === "a mi nombre" || oldCuentaLower === "mi nombre" || oldCuentaLower === "yo mismo" || oldCuentaLower === "personal";
       if (!oldCuenta || oldCuenta === "(vacío)" || isBadOldCuenta) {
         const cuentaCandidata = supervisorResult.cuenta.trim();
-        if (esCuentaValida(cuentaCandidata)) {
+        const esSinCuenta = cuentaCandidata.toLowerCase().includes("sin cuenta");
+        if (esSinCuenta) {
+          updatedCliente.cuenta = "Sin cuenta";
+          clienteChanged = true;
+        } else if (esCuentaValida(cuentaCandidata)) {
           let cuentaFinal = cuentaCandidata;
           try {
             const levenshtein = (a: string, b: string): number => {
@@ -1924,27 +1937,6 @@ No agregues nada más.`,
         if (clienteChanged) upd.cliente = updatedCliente;
         await db.from("sek_cases").update(upd).eq("id", case_id);
         return new Response(JSON.stringify({ ok: true, reply: MSG_CIERRE_REINTENTOS }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-
-      // Para PEDIR_CUENTA: si el bot acaba de preguntar la cuenta, extraer directamente del mensaje del usuario
-      if (accion === "PEDIR_CUENTA") {
-        const lastIaForCuenta = (lastIA?.content || "").toLowerCase();
-        const botPreguntabaCuentaAhora = lastIaForCuenta.includes("empresa o cuenta afiliada");
-        const frasesSinCuenta = ["no tengo", "no lo tengo", "ninguna", "cliente final", "no cuento", "no tengo empresa", "no tengo cuenta"];
-        const clienteDeclaroSinCuenta = frasesSinCuenta.some(f => lastUserMsgContent.toLowerCase().includes(f));
-
-        if (botPreguntabaCuentaAhora && !clienteDeclaroSinCuenta && esCuentaValida(lastUserMsgContent)) {
-          // El cliente respondió algo concreto — tomarlo como nombre de cuenta directamente
-          const cuentaDirecta = lastUserMsgContent.trim();
-          updatedCliente.cuenta = cuentaDirecta;
-          clienteChanged = true;
-          const menuTemas = "¿En relación a qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Licencias\n7. Otro\n\nResponda con el número o el nombre del tema.";
-          const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: menuTemas };
-          const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg], cliente: updatedCliente };
-          if (nuevoTitle) upd.title = nuevoTitle;
-          await db.from("sek_cases").update(upd).eq("id", case_id);
-          return new Response(JSON.stringify({ ok: true, reply: menuTemas }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        }
       }
 
       // Para PEDIR_CORREO: si el cliente declaró no tener correo, guardar "Sin correo" y avanzar
