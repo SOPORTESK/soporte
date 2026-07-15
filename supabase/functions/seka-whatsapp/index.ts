@@ -1414,16 +1414,16 @@ Responde SOLO con JSON válido:
     const correoEnBD = String((updatedCliente.correo || (currentCliente as any)?.correo) ?? "").trim();
     let correoRespondido = correoEnBD !== "" && correoEnBD !== "(vacío)" && correoEnBD !== "null";
 
-    // DEFENSA ANTI-RETROCESO: el correo es OPCIONAL. Si el bot ya lo preguntó antes en el
-    // historial (y el cliente ya avanzó a pasos posteriores), NUNCA se debe volver a pedir,
-    // aunque el valor se haya perdido por una race condition de mensajes en ráfaga.
+    // DEFENSA ANTI-RETROCESO: el correo es OPCIONAL. Si el bot ya preguntó correo en el
+    // historial y el usuario ya respondió (estamos procesando un mensaje suyo), NUNCA se debe
+    // volver a pedir. Si no hay correo válido guardado, marcar como 'Sin correo' para avanzar.
     if (!correoRespondido) {
       const botYaPreguntoCorreo = iaRealMsgs.some(m => (m.content || "").toLowerCase().includes("correo electrónico"));
       if (botYaPreguntoCorreo) {
         updatedCliente.correo = "Sin correo";
         clienteChanged = true;
         correoRespondido = true;
-        console.log("[seka-whatsapp] Correo ya fue preguntado antes; se marca 'Sin correo' para no retroceder el flujo.");
+        console.log("[seka-whatsapp] ANTI-RETROCESO: bot ya preguntó correo y no hay correo válido → se marca 'Sin correo' para no retroceder.");
       }
     }
 
