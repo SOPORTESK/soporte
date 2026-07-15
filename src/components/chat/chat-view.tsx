@@ -207,18 +207,22 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     const sorted = [...casesData].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
     const targetId2 = baseCase._group?.targetCaseId ?? baseCase.id;
     const target = sorted.find(c => String(c.id) === String(targetId2)) ?? sorted[sorted.length - 1] ?? casesData[0];
+    const mergedEstado = (() => {
+      if (!baseCase._group) return baseCase.estado;
+      if (sorted.some(c => String(c.estado || "").toLowerCase() === "escalado")) return "escalado";
+      if (sorted.some(c => String(c.estado || "").toLowerCase() === "ia_atendiendo")) return "ia_atendiendo";
+      if (sorted.some(c => {
+        const e = String(c.estado || "").toLowerCase();
+        return e !== "cerrado" && e !== "resuelto";
+      })) return "abierto";
+      return target.estado;
+    })();
+
     const merged = {
       ...target,
       id: baseCase.id,
       cliente: baseCase.cliente ?? target.cliente,
-      estado: (baseCase._group
-        ? (sorted.some(c => String(c.estado || "").toLowerCase() === "escalado")
-            ? "escalado"
-            : (sorted.some(c => {
-                const e = String(c.estado || "").toLowerCase();
-                return e !== "cerrado" && e !== "resuelto";
-              }) ? "abierto" : target.estado))
-        : baseCase.estado) as SekCase["estado"],
+      estado: mergedEstado as SekCase["estado"],
       histcliente: [],
       histtecnico: [],
       _group: baseCase._group,
