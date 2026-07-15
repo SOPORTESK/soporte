@@ -1123,33 +1123,44 @@ Responde SOLO con JSON válido:
     const llmCorreo = supervisorResult.correo || "";
     const esSinCorreo = llmCorreo.toLowerCase().includes("sin correo");
     const userPareceCorreo = /@/.test(lastUserMsgContent);
-    // Blindaje: si el usuario escribió algo con @, el supervisor NUNCA debe marcar "Sin correo".
-    // Eso significa que el LLM confundió "correo inválido" con "no tengo correo".
-    const esSinCorreoInvalido = esSinCorreo && userPareceCorreo;
+    console.log(`[seka-whatsapp] POST-CORREO: user=${JSON.stringify(lastUserMsgContent)}, llmCorreo=${JSON.stringify(llmCorreo)}, regexEmail=${JSON.stringify(regexEmail)}, esSinCorreo=${esSinCorreo}, userPareceCorreo=${userPareceCorreo}`);
+
     let finalCorreo = "";
-    console.log(`[seka-whatsapp] POST-CORREO: llmCorreo=${JSON.stringify(llmCorreo)}, regexEmail=${JSON.stringify(regexEmail)}, esSinCorreo=${esSinCorreo}, userPareceCorreo=${userPareceCorreo}, esSinCorreoInvalido=${esSinCorreoInvalido}`);
-    if (esSinCorreo && !esSinCorreoInvalido) {
+    if (userPareceCorreo) {
+      // El usuario escribió algo con @. El supervisor no decide aquí: usamos SOLO regex validado.
+      // Si el LLM devolvió un correo válido, lo preferimos; si no, usamos el regex; si nada es válido, rechazamos.
+      const correoPreferido = (llmCorreo && esCorreoValido(llmCorreo)) ? llmCorreo : (regexEmail && esCorreoValido(regexEmail) ? regexEmail : "");
+      if (correoPreferido) {
+        finalCorreo = correoPreferido;
+      } else {
+        // El usuario escribió @ pero no hay correo válido → forzar re-pregunta de correo
+        if (!["ESCALAR_INMEDIATO", "CERRAR", "VENTAS"].includes(supervisorResult.accion)) {
+          console.log("[seka-whatsapp] Correo con @ inválido rechazado:", llmCorreo || regexEmail, "→ se pide de nuevo.");
+          supervisorResult.correo = "";
+          supervisorResult.accion = "PEDIR_CORREO";
+        }
+      }
+    } else if (esSinCorreo) {
+      // El usuario NO escribió @ y el supervisor dice que no tiene correo
       finalCorreo = "Sin correo";
     } else if (llmCorreo && isValidExtractedString(llmCorreo) && esCorreoValido(llmCorreo)) {
       finalCorreo = llmCorreo;
     } else if (regexEmail && esCorreoValido(regexEmail)) {
       finalCorreo = regexEmail;
     }
-    console.log(`[seka-whatsapp] POST-CORREO: finalCorreo=${JSON.stringify(finalCorreo)}, validoLLM=${llmCorreo ? esCorreoValido(llmCorreo) : false}, validoRegex=${regexEmail ? esCorreoValido(regexEmail) : false}`);
+    console.log(`[seka-whatsapp] POST-CORREO: finalCorreo=${JSON.stringify(finalCorreo)}, accion=${supervisorResult.accion}`);
 
-    if (finalCorreo) {
+    if (finalCorreo && finalCorreo !== "Sin correo") {
       const oldCorreo = String((currentCliente as any).correo || "").trim();
       if (!oldCorreo || oldCorreo === "(vacío)") {
         updatedCliente.correo = finalCorreo;
         clienteChanged = true;
       }
-    }
-    if (esSinCorreoInvalido || ((!finalCorreo || finalCorreo === "Sin correo") && (supervisorResult.correo || regexEmail))) {
-      // El supervisor o regex intentaron dar un correo pero no es válido, o el LLM confundió un correo inválido con "Sin correo"
-      if (!["ESCALAR_INMEDIATO", "CERRAR", "VENTAS"].includes(supervisorResult.accion)) {
-        console.log("[seka-whatsapp] Correo inválido rechazado:", supervisorResult.correo || regexEmail, "→ se pide de nuevo.");
-        supervisorResult.correo = "";
-        supervisorResult.accion = "PEDIR_CORREO";
+    } else if (finalCorreo === "Sin correo") {
+      const oldCorreo = String((currentCliente as any).correo || "").trim();
+      if (!oldCorreo || oldCorreo === "(vacío)") {
+        updatedCliente.correo = "Sin correo";
+        clienteChanged = true;
       }
     }
 
