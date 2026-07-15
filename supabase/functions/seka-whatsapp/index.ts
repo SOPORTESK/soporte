@@ -989,7 +989,7 @@ REGLAS DE ANÁLISIS:
   NUNCA pidas dos datos juntos. NO avances al siguiente paso si falta el anterior.
 - VALIDACIÓN DE DATOS FALSOS: Debes verificar de forma intuitiva que los datos proporcionados sean reales y lógicos.
   - Nombres: ¡Si contiene arroba (@) ES UN CORREO, NO UN NOMBRE! Recházalo SOLO si: (a) contiene @, (b) son caracteres completamente aleatorios sin sentido (ej: "ryjuky", "asdf", "qwerty", "123"), o (c) son solo números. ACEPTA cualquier nombre real aunque sea solo un nombre sin apellido (ej: "César", "Juan", "María", "César Batista", "Ana González"). No exijas apellido. En caso de duda, ACEPTA el dato.
-  - Correos: El correo es OPCIONAL. Si el cliente indica de cualquier forma que no tiene correo, extrae "Sin correo" y avanza al siguiente paso. Pero si proporciona un correo evidentemente falso o de prueba (ej: "1@1.com", "a@a.com", "wef@wrf.we", "prueba@prueba.com"), recházalo: ES OBLIGATORIO dejar el campo "correo" vacío ("") y la accion "PEDIR_CORREO".
+  - Correos: El correo es OPCIONAL. Si el cliente indica de cualquier forma que no tiene correo (NO escribió nada con @), extrae "Sin correo" y avanza al siguiente paso. Si el cliente escribió CUALQUIER cosa con @ (ej: "1@1.com", "a@a.com", "s@s.com", "wef@wrf.we", "prueba@prueba.com"), NO extraigas "Sin correo". Recházalo: ES OBLIGATORIO dejar el campo "correo" vacío ("") y la accion "PEDIR_CORREO". Si el texto contiene @, nunca es "Sin correo".
   - Cuentas: El campo "cuenta" es SOLO el nombre explícito de la empresa o cuenta afiliada. Si el cliente responde frases relativas como "a mi nombre", "yo mismo", "personal", "la mía", "no tengo", "ninguna" o "cliente final", extrae "Sin cuenta" SI indica explícitamente que no tiene. Si solo evade la pregunta, deja el campo vacío y usa accion "PEDIR_CUENTA".
   - Anti-salto estricto: Si el tema NO es "Otro" y aún falta la marca o el modelo, NUNCA uses accion "PEDIR_DESCRIPCION". La accion debe ser "PEDIR_MARCA", "PEDIR_MODELO" o "PEDIR_MARCA_Y_MODELO".
 
@@ -1122,9 +1122,13 @@ Responde SOLO con JSON válido:
     // Guardar correo: acepta valor real (via LLM o regex) validado, y también "Sin correo" como marcador de campo atendido
     const llmCorreo = supervisorResult.correo || "";
     const esSinCorreo = llmCorreo.toLowerCase().includes("sin correo");
+    const userPareceCorreo = /@/.test(lastUserMsgContent);
+    // Blindaje: si el usuario escribió algo con @, el supervisor NUNCA debe marcar "Sin correo".
+    // Eso significa que el LLM confundió "correo inválido" con "no tengo correo".
+    const esSinCorreoInvalido = esSinCorreo && userPareceCorreo;
     let finalCorreo = "";
-    console.log(`[seka-whatsapp] POST-CORREO: llmCorreo=${JSON.stringify(llmCorreo)}, regexEmail=${JSON.stringify(regexEmail)}, esSinCorreo=${esSinCorreo}`);
-    if (esSinCorreo) {
+    console.log(`[seka-whatsapp] POST-CORREO: llmCorreo=${JSON.stringify(llmCorreo)}, regexEmail=${JSON.stringify(regexEmail)}, esSinCorreo=${esSinCorreo}, userPareceCorreo=${userPareceCorreo}, esSinCorreoInvalido=${esSinCorreoInvalido}`);
+    if (esSinCorreo && !esSinCorreoInvalido) {
       finalCorreo = "Sin correo";
     } else if (llmCorreo && isValidExtractedString(llmCorreo) && esCorreoValido(llmCorreo)) {
       finalCorreo = llmCorreo;
@@ -1139,8 +1143,9 @@ Responde SOLO con JSON válido:
         updatedCliente.correo = finalCorreo;
         clienteChanged = true;
       }
-    } else if (supervisorResult.correo || regexEmail) {
-      // El supervisor o regex intentaron dar un correo pero no es válido
+    }
+    if (esSinCorreoInvalido || ((!finalCorreo || finalCorreo === "Sin correo") && (supervisorResult.correo || regexEmail))) {
+      // El supervisor o regex intentaron dar un correo pero no es válido, o el LLM confundió un correo inválido con "Sin correo"
       if (!["ESCALAR_INMEDIATO", "CERRAR", "VENTAS"].includes(supervisorResult.accion)) {
         console.log("[seka-whatsapp] Correo inválido rechazado:", supervisorResult.correo || regexEmail, "→ se pide de nuevo.");
         supervisorResult.correo = "";
