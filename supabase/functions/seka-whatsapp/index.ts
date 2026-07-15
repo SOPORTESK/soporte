@@ -1159,6 +1159,16 @@ Responde SOLO con JSON válido:
       ? `WhatsApp — ${updatedCliente.nombre}`
       : undefined;
 
+    const temaToTag = (tema: string): string | null => {
+      if (!tema) return null;
+      const key = tema.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+      const map: Record<string, string> = {
+        configuraciones: "configuraciones", reset: "reset", desvinculacion: "desvinculacion",
+        firmware: "firmware", software: "software", licencias: "licencias", otro: "otro",
+      };
+      return map[key] || null;
+    };
+
     // ── Paso 4: Ejecutar la ACCIÓN que decidió el Supervisor ──
     let accion = (supervisorResult.accion || "CONTINUAR").toUpperCase();
     // Rescatar marca/modelo de BD si el LLM no los extrajo (evita loop cuando cliente solo envía modelo)
@@ -1803,15 +1813,18 @@ No agregues nada más.`,
       const M02_TEXT = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
       const replyText = withAcuse(M02_TEXT);
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: replyText };
+      const temaTag = temaToTag(temaSupervisor);
       const upd: Record<string, unknown> = {
         histtecnico: [...histtecnico, newMsg],
         estado: "escalado",
         escalado_at: new Date().toISOString(),
         n2_reason: buildN2Reason(sentimiento === "muy_molesto" ? "Cliente requiere atención prioritaria" : "Solicitud directa del cliente"),
       };
-      if (urgencyTags.length) upd.tags = urgencyTags;
+      const tags = [...new Set([...(urgencyTags || []), ...(temaTag ? [temaTag] : [])])];
+      if (tags.length) upd.tags = tags;
       if (clienteChanged) upd.cliente = updatedCliente;
       if (nuevoTitle) upd.title = nuevoTitle;
+      else if (temaSupervisor) upd.title = `${temaSupervisor}`.substring(0, 120);
       await safeUpdateCase(upd, case_id);
       return new Response(JSON.stringify({ ok: true, reply: replyText }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -2184,18 +2197,22 @@ No agregues nada más.`,
       const M02_TEXT = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
       const replyText = withAcuse(M02_TEXT);
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: replyText };
+      const temaTag = temaToTag(temaSupervisor);
       const upd: Record<string, unknown> = {
         histtecnico: [...histtecnico, newMsg],
         estado: "escalado",
         escalado_at: new Date().toISOString(),
         n2_reason: buildN2Reason(`${temaSupervisor} — recopilación completada`),
       };
-      if (urgencyTags.length) upd.tags = urgencyTags;
+      const tags = [...new Set([...(urgencyTags || []), ...(temaTag ? [temaTag] : [])])];
+      if (tags.length) upd.tags = tags;
       if (clienteChanged) upd.cliente = updatedCliente;
       if (marcaSupervisor || modeloSupervisor) {
         upd.title = `${temaSupervisor} — ${marcaSupervisor} ${modeloSupervisor}`.trim().substring(0, 120);
       } else if (nuevoTitle) {
         upd.title = nuevoTitle;
+      } else if (temaSupervisor) {
+        upd.title = `${temaSupervisor}`.substring(0, 120);
       }
       await safeUpdateCase(upd, case_id);
       return new Response(JSON.stringify({ ok: true, reply: replyText }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });

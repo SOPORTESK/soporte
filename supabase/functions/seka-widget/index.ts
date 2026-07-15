@@ -102,6 +102,16 @@ const AI_FALLBACK_CHAIN: ModelConfig[] = [
   { provider: "google", model: "gemini-1.5-flash" }
 ];
 
+const temaToTag = (tema: string): string | null => {
+  if (!tema) return null;
+  const key = tema.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  const map: Record<string, string> = {
+    configuraciones: "configuraciones", reset: "reset", desvinculacion: "desvinculacion",
+    firmware: "firmware", software: "software", licencias: "licencias", otro: "otro",
+  };
+  return map[key] || null;
+};
+
 async function callNvidia(model: string, messages: NimMessage[]): Promise<string> {
   const res = await fetch(`${NIM_BASE}/chat/completions`, {
     method: "POST",
@@ -1024,12 +1034,16 @@ No agregues nada más.`,
     if (accion === "ESCALAR_INMEDIATO") {
       const M02_TEXT = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M02_TEXT };
-      await db.from("sek_cases").update({
+      const temaTag = temaToTag(temaSupervisor);
+      const upd: Record<string, unknown> = {
         histcliente: [...histcliente, newMsg],
         estado: "escalado",
         escalado_at: new Date().toISOString(),
         n2_reason: "Solicitud directa del cliente",
-      }).eq("id", case_id);
+      };
+      if (temaTag) upd.tags = [temaTag];
+      if (temaSupervisor) upd.title = `${temaSupervisor}`.substring(0, 120);
+      await db.from("sek_cases").update(upd).eq("id", case_id);
       return new Response(JSON.stringify({ ok: true, reply: M02_TEXT }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -1136,13 +1150,17 @@ No agregues nada más.`,
     if (accion === "ESCALAR") {
       const M02_TEXT = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M02_TEXT };
+      const temaTag = temaToTag(temaSupervisor);
       const upd: Record<string, unknown> = {
         histcliente: [...histcliente, newMsg],
         estado: "escalado",
         escalado_at: new Date().toISOString(),
       };
+      if (temaTag) upd.tags = [temaTag];
       if (marcaSupervisor || modeloSupervisor) {
         upd.title = `${temaSupervisor} — ${marcaSupervisor} ${modeloSupervisor}`.trim().substring(0, 120);
+      } else if (temaSupervisor) {
+        upd.title = `${temaSupervisor}`.substring(0, 120);
       }
       await db.from("sek_cases").update(upd).eq("id", case_id);
       return new Response(JSON.stringify({ ok: true, reply: M02_TEXT }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
