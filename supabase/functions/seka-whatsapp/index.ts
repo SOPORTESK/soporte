@@ -1475,7 +1475,7 @@ Responde SOLO con JSON válido:
       supervisorResult.respuesta_sugerida = "";
     }
 
-    console.log(`[seka-whatsapp] Supervisor acción: ${accion}, marca: ${marcaSupervisor}, modelo: ${modeloSupervisor}, tema: ${temaSupervisor}`);
+    console.log(`[seka-whatsapp] Supervisor acción: ${accion}, marca: ${marcaSupervisor}, modelo: ${modeloSupervisor}, tema: ${temaSupervisor}, cuenta: ${updatedCliente.cuenta}, correo: ${updatedCliente.correo}, clienteChanged: ${clienteChanged}`);
 
     // ── REGLA DE NEGOCIO ESTRICTA: CORREO Y CUENTA COMPLETAMENTE SEPARADOS ──
     const cuentaCheck = String(updatedCliente.cuenta || "").toLowerCase().trim();
@@ -2291,6 +2291,12 @@ No agregues nada más.`,
     }
 
     // ── ACCIÓN: PEDIR DESCRIPCIÓN (temas que no son Reset/Desvinculación) ──
+    // Blindaje: nunca pedir descripción si el tema no es Otro y aún faltan marca/modelo
+    if (accion === "PEDIR_DESCRIPCION" && temaSupervisor && temaSupervisor !== "Otro" && (!marcaSupervisor || !modeloSupervisor)) {
+      console.log(`[seka-whatsapp] Blindaje anti-salto: tema ${temaSupervisor} sin marca/modelo, forzando PEDIR_MARCA_Y_MODELO en lugar de PEDIR_DESCRIPCION.`);
+      accion = "PEDIR_MARCA_Y_MODELO";
+    }
+
     if (accion === "PEDIR_DESCRIPCION") {
       const directReply = withAcuse("Por favor, describa brevemente el inconveniente que presenta.");
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
