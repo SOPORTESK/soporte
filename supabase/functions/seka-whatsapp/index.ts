@@ -1067,8 +1067,18 @@ Responde SOLO con JSON válido:
     if (isValidExtractedString(supervisorResult.nombre)) {
       const oldNombre = String((currentCliente as any).nombre || "").trim();
       if (!oldNombre || oldNombre === "." || /^[\d\+\-\s]+$/.test(oldNombre) || oldNombre === "(vacío)") {
-        updatedCliente.nombre = supervisorResult.nombre;
-        clienteChanged = true;
+        const nombreCandidato = supervisorResult.nombre.trim();
+        const nombreValido = isNombrePropioValido(nombreCandidato) && await validarNombreConIA(nombreCandidato);
+        if (nombreValido) {
+          updatedCliente.nombre = supervisorResult.nombre;
+          clienteChanged = true;
+        } else {
+          console.log("[seka-whatsapp] Supervisor extrajo nombre inválido:", nombreCandidato, "→ se rechaza y se pide de nuevo.");
+          supervisorResult.nombre = "";
+          if (!["ESCALAR_INMEDIATO", "CERRAR", "VENTAS"].includes(supervisorResult.accion)) {
+            supervisorResult.accion = "PEDIR_NOMBRE";
+          }
+        }
       }
     }
     
