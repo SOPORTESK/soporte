@@ -560,7 +560,15 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       setSekCase(prev => ({ ...prev, histtecnico: newHist }));
       const updates: Record<string, unknown> = { histtecnico: newHist };
       const targetCerrado = String(sekCase.estado || "").toLowerCase() === "cerrado" || String(sekCase.estado || "").toLowerCase() === "resuelto";
-      if (targetCerrado && !isNota) updates.estado = "abierto";
+      if (targetCerrado && !isNota) {
+        updates.estado = "abierto";
+        updates.assigned_to = sekCase.assigned_to || agentEmail;
+        updates.accepted_at = sekCase.accepted_at || new Date().toISOString();
+        const sendTags: string[] = Array.isArray(sekCase.tags) ? sekCase.tags : [];
+        if (!sendTags.some(t => String(t).toLowerCase() === "re-open")) {
+          updates.tags = [...sendTags, "re-open"];
+        }
+      }
       
       // Auto-aceptar caso si el agente responde y aún no tiene accepted_at
       if (!isNota && !sekCase.accepted_at) {
@@ -575,6 +583,12 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
         .eq("id", targetId);
       if (error) throw error;
       setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...m, status: "sent" } : m));
+
+      // Si se reabrió el caso desde cerrado, navegar a Mi Gestión
+      if (targetCerrado && !isNota) {
+        setSekCase(prev => ({ ...prev, estado: "abierto", assigned_to: updates.assigned_to as string, tags: updates.tags as any ?? prev.tags }));
+        router.push(`/mi-gestion?c=${targetId}`);
+      }
 
       // Envío por WhatsApp vía Evolution API (solo mensajes no-nota y canal whatsapp)
       const isWhatsApp = String(sekCase.canal || "").toLowerCase() === "whatsapp";
@@ -839,6 +853,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     setSekCase(prev => ({ ...prev, estado: newEstado, tags: reopenTags as any, assigned_to: reopenUpdates.assigned_to as string }));
     toast.success(`Caso reabierto`, { description: "El caso se movió a Mi Gestión. Auto-close pausado." });
     setShowActions(false);
+    router.push(`/mi-gestion?c=${targetId}`);
   }
 
   async function confirmCloseWithRating() {
