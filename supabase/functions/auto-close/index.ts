@@ -176,14 +176,11 @@ Deno.serve(async (req) => {
       continue;
     }
 
-    // PROTECCIÓN: no cerrar casos salientes (iniciados por un agente humano) ni reabiertos
+    // PROTECCIÓN: no cerrar casos salientes (iniciados por un agente humano)
+    // Los casos re-open YA pueden cerrarse por inactividad como cualquier otro.
     const casoTags: string[] = Array.isArray(caso.tags) ? caso.tags : [];
     if (casoTags.some((t: string) => String(t).toLowerCase() === "saliente")) {
       console.log(`[auto-close] Caso ${caso.id} es saliente (iniciado por agente), saltando`);
-      continue;
-    }
-    if (casoTags.some((t: string) => String(t).toLowerCase() === "re-open")) {
-      console.log(`[auto-close] Caso ${caso.id} fue reabierto manualmente, saltando`);
       continue;
     }
 
