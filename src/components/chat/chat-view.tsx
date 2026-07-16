@@ -820,6 +820,10 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     }
 
     // Reabrir caso: asignar al agente actual, agregar tag 're-open' para excluir del auto-close
+    if (!agentEmail) {
+      toast.error("No se pudo reabrir: no hay agente autenticado");
+      return;
+    }
     const currentTags: string[] = Array.isArray(sekCase.tags) ? sekCase.tags : [];
     const reopenTags = currentTags.some(t => String(t).toLowerCase() === "re-open")
       ? currentTags
