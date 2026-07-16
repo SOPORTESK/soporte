@@ -907,7 +907,7 @@ export async function POST(req: NextRequest) {
             ? closedTags
             : [...closedTags, "re-open"];
           await supabase.from("sek_cases")
-            .update({ estado: "ia_atendiendo", tags: reopenTags })
+            .update({ estado: "ia_atendiendo", tags: reopenTags, closed_at: null })
             .eq("id", closedCase.id);
           existing = closedCase;
           reopenClosedCase = true;

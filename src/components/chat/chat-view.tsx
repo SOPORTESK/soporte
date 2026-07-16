@@ -564,6 +564,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
         updates.estado = "abierto";
         updates.assigned_to = sekCase.assigned_to || agentEmail;
         updates.accepted_at = sekCase.accepted_at || new Date().toISOString();
+        updates.closed_at = null;
         const sendTags: string[] = Array.isArray(sekCase.tags) ? sekCase.tags : [];
         if (!sendTags.some(t => String(t).toLowerCase() === "re-open")) {
           updates.tags = [...sendTags, "re-open"];
@@ -847,6 +848,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       tags: reopenTags,
       assigned_to: sekCase.assigned_to || agentEmail,
       accepted_at: sekCase.accepted_at || new Date().toISOString(),
+      closed_at: null,
     };
     const { error } = await supabase.from("sek_cases").update(reopenUpdates).eq("id", targetId);
     if (error) { toast.error("Error al cambiar estado"); return; }
