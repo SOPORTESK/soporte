@@ -401,8 +401,16 @@ export function InboxClient({
             filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail, agentName);
             // Si el caso seleccionado ya no está en el filtro (ej: soporte-avanzado y el estado cambió),
             // preservarlo en la lista para que el chat no desaparezca mientras el agente lo tiene abierto
-            const currentSelected = selectedId ? newCases.find(c => String(c.id) === selectedId) : null;
-            if (currentSelected && !filteredNewCases.some(c => String(c.id) === selectedId)) {
+            const currentSelected = selectedId ? (
+              newCases.find(c => String(c.id) === selectedId) ||
+              newCases.find(c => c._group?.caseIds?.some(cid => String(cid) === selectedId)) ||
+              (selectedId.startsWith("tel:") ? newCases.find(c => {
+                const tel = selectedId.substring(4);
+                return c.customer_phone?.includes(tel) || (c.cliente as any)?.telefono?.includes(tel);
+              }) : null) ||
+              null
+            ) : null;
+            if (currentSelected && !filteredNewCases.some(c => String(c.id) === String(currentSelected.id))) {
               filteredNewCases = [currentSelected, ...filteredNewCases];
             }
             setCases(filteredNewCases);
