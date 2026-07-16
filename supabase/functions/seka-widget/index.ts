@@ -643,7 +643,9 @@ Responde SOLO con JSON válido:
     // El tema seleccionado del menú (botón) es la fuente de verdad y tiene prioridad sobre
     // la reclasificación del LLM, que puede perder el contexto a mitad del flujo.
     const temaMenu = (topiIdx >= 0 && tema && tema !== "Consulta") ? tema : "";
-    const temaSupervisor = temaMenu || supervisorResult.tema || tema;
+    // temaSupervisor SOLO usa temaMenu (selección explícita vía botón).
+    // NUNCA usa supervisorResult.tema ni tema inferido para evitar saltarse el menú.
+    const temaSupervisor = temaMenu || "";
 
     // ── FORZAR REGLAS CRÍTICAS (evitar alucinaciones del LLM) ──
     if (tema === "Otro" && (accion === "PEDIR_MARCA" || accion === "PEDIR_MODELO" || accion === "PEDIR_MARCA_Y_MODELO")) {

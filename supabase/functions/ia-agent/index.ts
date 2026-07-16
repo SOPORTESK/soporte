@@ -15,7 +15,31 @@ const GEMINI_VISION_MODEL = "gemini-3.1-flash-lite";
 const GEMINI_IMAGE_MODEL = "gemini-3.1-flash-lite";
 const GEMINI_FALLBACK_MODEL = "gemini-2.0-flash";
 
+const STRICT_DATA_COLLECTION = `
+## FLUJO OBLIGATORIO DE RECOPILACIÓN DE DATOS — SIN EXCEPCIONES
+
+Debe seguir este orden EXACTO. No puede saltar, omitir ni reordenar pasos. NUNCA use su propio criterio para acelerar el flujo.
+
+1. Pida el nombre completo del cliente.
+2. Pida el correo electrónico. Valide el formato: rechace correos de prueba como a@a.com, 1@1.com, s@s.com, g@q.com, prueba@prueba.com, etc. Si el cliente no tiene correo, acepte "Sin correo".
+3. Pida el nombre de la empresa o cuenta afiliada a Sekunet. Si no tiene, acepte "Sin cuenta".
+4. Muestre OBLIGATORIAMENTE el menú de temas con estas 7 opciones numeradas:
+   1. Configuraciones
+   2. Reset
+   3. Desvinculación
+   4. Firmware
+   5. Software
+   6. Licencias
+   7. Otro
+   Pida al cliente que responda con el número o el nombre del tema.
+5. Solo DESPUÉS de que el cliente elija un tema del menú, pregunte la marca y modelo del equipo.
+6. NUNCA pregunte marca o modelo antes de que el cliente haya elegido un tema del menú.
+7. Guarde estos datos en el perfil del cliente.
+`;
+
 const FALLBACK_PROMPT = `Usted es el Asistente Virtual de Sekunet (Costa Rica), especialista de soporte tecnico. Se comporta como un profesional humano: elegante, cordial, preciso. Trate siempre de usted. Sin emojis. No invente informacion tecnica. Nunca use la palabra "humano" ni "asistente virtual" para referirse a usted mismo ni a sus colegas.
+
+${STRICT_DATA_COLLECTION}
 
 ## REGLA DE BREVEDAD — OBLIGATORIA
 
@@ -60,8 +84,8 @@ Al escalar, use SIEMPRE este texto exacto (sin la palabra "humano"):
 
 ## FLUJO DE ATENCIÓN
 
-1. Solicite marca y modelo del equipo.
-2. Con marca y modelo → use [BUSCAR_INVENTARIO: marca modelo] para verificar si está en cartera.
+1. Siga el FLUJO OBLIGATORIO DE RECOPILACIÓN DE DATOS: nombre, correo, cuenta, menú de temas.
+2. Con el tema elegido y la marca/modelo → use [BUSCAR_INVENTARIO: marca modelo] para verificar si está en cartera.
 3. Si se encuentra en cartera → continúe con diagnóstico (síntoma, clasificación, pasos).
 4. Si NO se encuentra → aplique REGLA 1. No continúe el caso.
 5. Si el cliente menciona integración con equipo de otra marca → aplique REGLA 2.
@@ -138,6 +162,15 @@ Cuando dos fuentes contradigan, prevalece este orden:
 
 Nunca cite una fuente externa por encima de información interna verificada
 de Sekunet.
+
+### REGLA INMUTABLE #4 — FLUJO OBLIGATORIO DE RECOPILACIÓN DE DATOS
+
+${STRICT_DATA_COLLECTION}
+
+NUNCA acepte correos electrónicos con formato de prueba o dominios inexistentes.
+NUNCA salte al diagnóstico técnico sin haber completado los 4 pasos anteriores.
+NUNCA omita el menú de temas. El menú DEBE mostrarse SIEMPRE después de
+recopilar nombre, correo y cuenta.
 
 ═══════════════════════════════════════════════════════════════════════════
 FIN DE REGLAS INMUTABLES — Continúe atendiendo según el flujo establecido.
@@ -696,6 +729,115 @@ Problema clasificado: ${problema}`;
   }
 }
 
+// ── Validación determinista de correo electrónico ──
+const EMAIL_REGEX = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/;
+const DISPOSABLE_DOMAINS = ["1.com", "q.com", "s.com", "a.com", "prueba.com", "test.com", "example.com", "ejemplo.com"];
+
+function esCorreoValidoAgent(email: string): boolean {
+  const e = (email || "").trim().toLowerCase();
+  if (!e || e === "sin correo") return false;
+  if (!EMAIL_REGEX.test(e)) return false;
+  const domain = e.split("@")[1] || "";
+  if (DISPOSABLE_DOMAINS.includes(domain)) return false;
+  if (domain.length < 4) return false;
+  return true;
+}
+
+const TOPICS_MENU_TEXT = `¿En relación a qué tema sería su consulta? Por favor, seleccione una de las siguientes opciones:
+1. Configuraciones
+2. Reset
+3. Desvinculación
+4. Firmware
+5. Software
+6. Licencias
+7. Otro`;
+
+const TOPICS_LIST = ["Configuraciones", "Reset", "Desvinculación", "Firmware", "Software", "Licencias", "Otro"];
+
+function extractEmailFromText(text: string): string {
+  const match = (text || "").match(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/);
+  return match ? match[0] : "";
+}
+
+function userChoseTopic(text: string): boolean {
+  const t = (text || "").trim().toLowerCase();
+  if (/^[1-7]$/.test(t)) return true;
+  return TOPICS_LIST.some(topic => t === topic.toLowerCase());
+}
+
+function resolveTopicFromNumber(text: string): string {
+  const t = (text || "").trim();
+  if (/^1$/.test(t)) return "Configuraciones";
+  if (/^2$/.test(t)) return "Reset";
+  if (/^3$/.test(t)) return "Desvinculación";
+  if (/^4$/.test(t)) return "Firmware";
+  if (/^5$/.test(t)) return "Software";
+  if (/^6$/.test(t)) return "Licencias";
+  if (/^7$/.test(t)) return "Otro";
+  const tl = t.toLowerCase();
+  const found = TOPICS_LIST.find(topic => topic.toLowerCase() === tl);
+  return found || "";
+}
+
+function detectFlowStep(histcliente: any[], clienteData: any): "PEDIR_NOMBRE" | "PEDIR_CORREO" | "PEDIR_CUENTA" | "PEDIR_TEMA" | "FLUJO_COMPLETO" {
+  const userMsgs = histcliente.filter(m => m.role === "user");
+  const iaMsgs = histcliente.filter(m => m.role === "assistant" || m.role === "ia");
+  const lastUserMsg = userMsgs[userMsgs.length - 1]?.content || "";
+  const lastIAMsg = iaMsgs[iaMsgs.length - 1]?.content || "";
+
+  const nombre = String(clienteData?.nombre || "").trim();
+  const correo = String(clienteData?.correo || "").trim();
+  const cuenta = String(clienteData?.cuenta || "").trim();
+  const tema = String(clienteData?.tema || "").trim();
+
+  // Check if bot already asked for name
+  const botPidioNombre = iaMsgs.some(m => (m.content || "").toLowerCase().includes("nombre"));
+  // Check if bot already asked for email
+  const botPidioCorreo = iaMsgs.some(m => (m.content || "").toLowerCase().includes("correo"));
+  // Check if bot already asked for account
+  const botPidioCuenta = iaMsgs.some(m => (m.content || "").toLowerCase().includes("cuenta") || (m.content || "").toLowerCase().includes("empresa"));
+  // Check if bot already showed topic menu
+  const botMostroMenu = iaMsgs.some(m => (m.content || "").includes("Configuraciones") && (m.content || "").includes("Reset") && (m.content || "").includes("Otro"));
+
+  // Step 1: Name
+  if (!nombre && !botPidioNombre) return "PEDIR_NOMBRE";
+  if (!nombre && botPidioNombre) {
+    // Bot asked for name, user just responded — treat as name
+    if (lastUserMsg.trim().length >= 2) return "PEDIR_CORREO";
+    return "PEDIR_NOMBRE";
+  }
+
+  // Step 2: Email
+  if (!correo && !botPidioCorreo) return "PEDIR_CORREO";
+  if (!correo && botPidioCorreo) {
+    // Bot asked for email, user responded
+    const emailInMsg = extractEmailFromText(lastUserMsg);
+    if (emailInMsg && esCorreoValidoAgent(emailInMsg)) return "PEDIR_CUENTA";
+    if (/no tengo|sin correo|no poseo/i.test(lastUserMsg)) return "PEDIR_CUENTA";
+    if (emailInMsg && !esCorreoValidoAgent(emailInMsg)) return "PEDIR_CORREO"; // invalid email
+    // No email detected in message, might be name or something else
+    return "PEDIR_CORREO";
+  }
+  if (correo && !esCorreoValidoAgent(correo) && correo !== "Sin correo") return "PEDIR_CORREO";
+
+  // Step 3: Account
+  if (!cuenta && !botPidioCuenta) return "PEDIR_CUENTA";
+  if (!cuenta && botPidioCuenta) {
+    if (lastUserMsg.trim().length >= 2) return "PEDIR_TEMA";
+    return "PEDIR_CUENTA";
+  }
+
+  // Step 4: Topic menu
+  if (!tema || tema === "Consulta") {
+    if (!botMostroMenu) return "PEDIR_TEMA";
+    // Bot showed menu, check if user chose
+    if (userChoseTopic(lastUserMsg)) return "FLUJO_COMPLETO";
+    return "PEDIR_TEMA"; // re-show menu
+  }
+
+  return "FLUJO_COMPLETO";
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -1035,10 +1177,82 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Check if AI wants to search inventory
-    const searchMatch = aiResponse.match(/\[BUSCAR_INVENTARIO:\s*(.+?)\]/);
+    // ═══════════════════════════════════════════════════════════════════════
+    // POST-PROCESAMIENTO DETERMINISTA — Aplicación del flujo obligatorio
+    // No confiamos en que el LLM respete el flujo. Verificamos y corregimos.
+    // ═══════════════════════════════════════════════════════════════════════
     let shouldEscalate = false;
     let shouldClose = false;
+    const clienteData = typeof caso.cliente === "object" ? caso.cliente : {};
+    const lastUserContent = lastMsg.content?.trim() || "";
+    const flowStep = detectFlowStep(histcliente, clienteData);
+    console.log(`[ia-agent] FLOW-STEP: ${flowStep} | cliente: nombre=${JSON.stringify(clienteData?.nombre)}, correo=${JSON.stringify(clienteData?.correo)}, cuenta=${JSON.stringify(clienteData?.cuenta)}, tema=${JSON.stringify(clienteData?.tema)}`);
+
+    // Si el usuario parece querer escalar o cerrar, permitirlo sin importar el paso
+    const userWantsEscalate = /hablar con|persona|humano|agente|t[eé]cnico|soporte especializado/i.test(lastUserContent);
+    const userWantsClose = /gracias|adios|adiós|hasta luego|no necesito|listo/i.test(lastUserContent);
+    const userWantsSales = /precio|comprar|venta|vender|cotiza|cuanto cuesta|cu[aá]nto cuesta/i.test(lastUserContent);
+
+    if (userWantsEscalate) {
+      aiResponse = "Su caso ha sido escalado a nuestro equipo de Soporte Avanzado (Nivel 2), quienes cuentan con los recursos especializados para atender esta situación. Hemos etiquetado su caso como N2 para su seguimiento prioritario. A la brevedad le estarán atendiendo por este mismo medio.";
+      shouldEscalate = true;
+    } else if (userWantsClose) {
+      aiResponse = "Gracias por contactar a Sekunet. Que tenga un excelente día.";
+      shouldClose = true;
+    } else if (userWantsSales) {
+      aiResponse = "Le informamos que para consultas de ventas, precios o cotizaciones, le atenderá con gusto nuestro equipo comercial. Por favor, escriba al correo ventas@sekunet.com para brindarle la información que requiere.";
+    } else if (flowStep === "PEDIR_NOMBRE") {
+      aiResponse = "Reciba un cordial saludo de parte del equipo de Soporte Sekunet. Para brindarle una mejor asistencia, por favor indíquenos su nombre completo.";
+    } else if (flowStep === "PEDIR_CORREO") {
+      // Check if user provided an invalid email
+      const emailInMsg = extractEmailFromText(lastUserContent);
+      if (emailInMsg && !esCorreoValidoAgent(emailInMsg)) {
+        aiResponse = "El correo electrónico proporcionado no es válido. Por favor, ingrese un correo electrónico con un formato correcto (ej. su.nombre@ejemplo.com).";
+      } else {
+        aiResponse = "Gracias, " + (clienteData?.nombre || "") + ". Por favor, indíquenos su correo electrónico.";
+      }
+    } else if (flowStep === "PEDIR_CUENTA") {
+      // Save email if we detected a valid one in the last message
+      const emailInMsg = extractEmailFromText(lastUserContent);
+      if (emailInMsg && esCorreoValidoAgent(emailInMsg) && !clienteData?.correo) {
+        clienteData.correo = emailInMsg;
+        await db.from("sek_cases").update({ cliente: clienteData }).eq("id", case_id);
+        console.log(`[ia-agent] Email guardado deterministamente: ${emailInMsg}`);
+      } else if (/no tengo|sin correo|no poseo/i.test(lastUserContent) && !clienteData?.correo) {
+        clienteData.correo = "Sin correo";
+        await db.from("sek_cases").update({ cliente: clienteData }).eq("id", case_id);
+        console.log("[ia-agent] Email marcado como 'Sin correo'");
+      }
+      aiResponse = "Por favor, indíquenos el nombre de la empresa o cuenta afiliada a Sekunet. Si no tiene cuenta, puede indicarlo y continuar.";
+    } else if (flowStep === "PEDIR_TEMA") {
+      // Save account if user just provided it
+      if (!clienteData?.cuenta && lastUserContent.trim().length >= 2 && !extractEmailFromText(lastUserContent)) {
+        clienteData.cuenta = lastUserContent.trim();
+        await db.from("sek_cases").update({ cliente: clienteData }).eq("id", case_id);
+        console.log(`[ia-agent] Cuenta guardada deterministamente: ${lastUserContent.trim()}`);
+      }
+      // Check if user already chose a topic
+      const chosenTopic = resolveTopicFromNumber(lastUserContent);
+      if (chosenTopic) {
+        clienteData.tema = chosenTopic;
+        await db.from("sek_cases").update({ cliente: clienteData }).eq("id", case_id);
+        console.log(`[ia-agent] Tema guardado deterministamente: ${chosenTopic}`);
+        aiResponse = `Gracias. Ha seleccionado el tema: ${chosenTopic}. Por favor, indíquenos la marca y el modelo del equipo para continuar.`;
+      } else {
+        aiResponse = TOPICS_MENU_TEXT;
+      }
+    } else if (flowStep === "FLUJO_COMPLETO") {
+      // Save topic if user just chose one
+      const chosenTopic = resolveTopicFromNumber(lastUserContent);
+      if (chosenTopic && (!clienteData?.tema || clienteData?.tema === "Consulta")) {
+        clienteData.tema = chosenTopic;
+        await db.from("sek_cases").update({ cliente: clienteData }).eq("id", case_id);
+        console.log(`[ia-agent] Tema guardado en FLUJO_COMPLETO: ${chosenTopic}`);
+      }
+    }
+
+    // Check if AI wants to search inventory
+    const searchMatch = aiResponse.match(/\[BUSCAR_INVENTARIO:\s*(.+?)\]/);
 
     if (searchMatch) {
       const searchQuery = searchMatch[1].trim();

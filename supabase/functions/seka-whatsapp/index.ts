@@ -493,6 +493,18 @@ function resolveTopicFromText(input: string): string | null {
   return null;
 }
 
+// Versión ESTRICTA: solo acepta número exacto (1-7) o nombre exacto del tema.
+// NO hace coincidencia parcial. Usada para detectar si el cliente eligió del menú.
+function resolveTopicStrict(input: string): string | null {
+  const trimmed = input.trim();
+  if (TOPIC_NUMBER_MAP[trimmed]) return TOPIC_NUMBER_MAP[trimmed];
+  const lower = trimmed.toLowerCase();
+  for (const t of TOPICS) {
+    if (t.toLowerCase() === lower) return t;
+  }
+  return null;
+}
+
 // ─── CONSTRUIR MENSAJES PARA LLAMA ───────────────────────────────────────────
 function buildMessages(hist: HistMsg[], invContext: string | null): NimMessage[] {
   // Filtrar mensajes de bienvenida — Llama no debe verlos
@@ -808,20 +820,11 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify({ ok: true, reply: MSG_MEDIA_NO_PERMITIDA }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // Detectar tema — acepta número (1-8), texto exacto o parcial
-    const topiIdx = userRealMsgs.findIndex(m => resolveTopicFromText(m.content?.trim() ?? "") !== null);
-    let temaInferido = topiIdx >= 0 ? (resolveTopicFromText(userRealMsgs[topiIdx].content?.trim() ?? "") ?? "Consulta") : "Consulta";
-    if (topiIdx < 0) {
-      for (const m of userRealMsgs) {
-        const lower = (m.content ?? "").toLowerCase();
-        if (lower.includes("configur") || lower.includes("setup")) { temaInferido = "Configuraciones"; break; }
-        if (lower.includes("reset") || lower.includes("restablecer") || lower.includes("reinici")) { temaInferido = "Reset"; break; }
-        if (lower.includes("desvincul") || lower.includes("quitar") || lower.includes("eliminar")) { temaInferido = "Desvinculación"; break; }
-        if (lower.includes("firmwar") || lower.includes("actualiz")) { temaInferido = "Firmware"; break; }
-        if (lower.includes("softwar") || lower.includes("programa")) { temaInferido = "Software"; break; }
-        if (lower.includes("licen") || lower.includes("activa")) { temaInferido = "Licencias"; break; }
-      }
-    }
+    // Detectar tema — usar coincidencia ESTRICTA para topiIdx (selección explícita del menú)
+    const topiIdx = userRealMsgs.findIndex(m => resolveTopicStrict(m.content?.trim() ?? "") !== null);
+    // temaInferido solo se usa como hint para el LLM, NO determina el flujo.
+    // El flujo se controla con temaPersistido (BD) y temaMenu (selección posterior al menú).
+    let temaInferido = topiIdx >= 0 ? (resolveTopicStrict(userRealMsgs[topiIdx].content?.trim() ?? "") ?? "Consulta") : "Consulta";
     const tema = temaInferido;
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -1282,18 +1285,22 @@ Responde SOLO con JSON válido:
     if (menuIdx >= 0) {
       for (let i = menuIdx + 1; i < allMsgs.length; i++) {
         if (allMsgs[i].role === "user") {
-          const t = resolveTopicFromText(allMsgs[i].content?.trim() ?? "");
+          const t = resolveTopicStrict(allMsgs[i].content?.trim() ?? "");
           if (t) { temaMenu = t; break; }
         }
       }
     }
-    let temaSupervisor = temaPersistido || temaMenu || tema;
-    // Si el supervisor infiere un tema pero los datos iniciales aún no están completos,
-    // o si el usuario aún no ha elegido tema del menú, NO persistimos el tema inferido.
-    // Solo persistimos tema inferido si ya hay datos completos y el tema viene del menu o BD.
-    if (temaSupervisor && temaSupervisor !== "Consulta" && !temaPersistido) {
-      // No persistir tema inferido por supervisor; dejar que el usuario elija del menú
-      console.log(`[seka-whatsapp] Tema inferido por supervisor (${supervisorResult.tema}) ignorado hasta que el usuario elija del menú.`);
+    // temaSupervisor SOLO usa temaPersistido (BD) o temaMenu (selección explícita post-menú).
+    // NUNCA usa temaInferido ni supervisorResult.tema para evitar saltarse el menú.
+    let temaSupervisor = temaPersistido || temaMenu || "";
+    // El supervisor puede inferir un tema, pero lo ignoramos hasta que el usuario lo elija del menú.
+    if (supervisorResult.tema && supervisorResult.tema !== "Consulta" && !temaPersistido && !temaMenu) {
+      console.log(`[seka-whatsapp] Tema inferido por supervisor (${supervisorResult.tema}) ignorado — esperando selección explícita del menú.`);
+    }
+    // Si el supervisor devuelve un tema y ya hay temaMenu o temaPersistido, usar ese.
+    if (!temaSupervisor && supervisorResult.tema && supervisorResult.tema !== "Consulta") {
+      // Solo usar tema del supervisor si ya pasamos el menú (temaPersistido o temaMenu ya verificados arriba)
+      // No hacer nada — temaSupervisor queda vacío para forzar PEDIR_TEMA
     }
 
     // ── GESTIÓN DE NUEVA CONSULTA (Si el bot rechazó equipo y el usuario dice Sí) ──
