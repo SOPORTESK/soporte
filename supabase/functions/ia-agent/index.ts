@@ -1019,10 +1019,10 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Procesar si: está siendo atendido por IA, O está escalado pero sin agente humano asignado aún
-    const isEscaladoSinAgente = caso.estado === "escalado" && !caso.assigned_to;
-    if (caso.estado !== "ia_atendiendo" && !isEscaladoSinAgente) {
-      return new Response(JSON.stringify({ skip: true, reason: "not ia_atendiendo" }), {
+    // La IA SOLO procesa casos en estado "ia_atendiendo".
+    // NUNCA procesar casos escalados: el cliente está esperando un agente humano.
+    if (caso.estado !== "ia_atendiendo") {
+      return new Response(JSON.stringify({ skip: true, reason: `estado ${caso.estado} no es ia_atendiendo` }), {
         status: 200, headers: corsHeaders,
       });
     }

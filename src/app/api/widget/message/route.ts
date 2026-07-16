@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
 
     const { data: existing, error: fetchErr } = await supabase
       .from("sek_cases")
-      .select("id, histcliente")
+      .select("id, histcliente, estado")
       .eq("id", session_id)
       .eq("canal", "widget")
       .maybeSingle();
@@ -55,7 +55,8 @@ export async function POST(req: NextRequest) {
     // Disparar ia-agent para que responda al mensaje
     const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
     const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-    if (SUPABASE_URL && SERVICE_KEY && role === "user") {
+    const casoEstado = String(existing.estado || "").toLowerCase();
+    if (SUPABASE_URL && SERVICE_KEY && role === "user" && casoEstado === "ia_atendiendo") {
       try {
         // Hacemos el fetch en "fire and forget" o con await, pero como es Vercel,
         // no bloquearemos la respuesta al widget para que la UI sea rápida.

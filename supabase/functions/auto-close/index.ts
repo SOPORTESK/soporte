@@ -149,7 +149,7 @@ Deno.serve(async (req) => {
 
   const { data: casos, error } = await db
     .from("sek_cases")
-    .select("id, canal, estado, histcliente, histtecnico, created_at, assigned_to, customer_phone, cliente, auto_close_paused")
+    .select("id, canal, estado, histcliente, histtecnico, created_at, assigned_to, customer_phone, cliente, auto_close_paused, tags")
     // Solo cerrar casos atendidos por IA (smart) o por un técnico humano (abierto).
     // NUNCA cerrar casos escalados: el cliente está esperando que un humano lo atienda.
     .in("estado", ["ia_atendiendo", "abierto"])
@@ -173,6 +173,13 @@ Deno.serve(async (req) => {
     // PROTECCIÓN: no cerrar si está pausado manualmente
     if (caso.auto_close_paused) {
       console.log(`[auto-close] Caso ${caso.id} tiene auto_close_paused=true, saltando`);
+      continue;
+    }
+
+    // PROTECCIÓN: no cerrar casos salientes (iniciados por un agente humano)
+    const casoTags: string[] = Array.isArray(caso.tags) ? caso.tags : [];
+    if (casoTags.some((t: string) => String(t).toLowerCase() === "saliente")) {
+      console.log(`[auto-close] Caso ${caso.id} es saliente (iniciado por agente), saltando`);
       continue;
     }
 
