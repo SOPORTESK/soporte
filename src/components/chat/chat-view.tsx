@@ -819,15 +819,21 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       return;
     }
 
-    // Reabrir caso: agregar tag 're-open' para excluir del auto-close
+    // Reabrir caso: asignar al agente actual, agregar tag 're-open' para excluir del auto-close
     const currentTags: string[] = Array.isArray(sekCase.tags) ? sekCase.tags : [];
     const reopenTags = currentTags.some(t => String(t).toLowerCase() === "re-open")
       ? currentTags
       : [...currentTags, "re-open"];
-    const { error } = await supabase.from("sek_cases").update({ estado: newEstado, tags: reopenTags }).eq("id", targetId);
+    const reopenUpdates: Record<string, unknown> = {
+      estado: newEstado,
+      tags: reopenTags,
+      assigned_to: sekCase.assigned_to || agentEmail,
+      accepted_at: sekCase.accepted_at || new Date().toISOString(),
+    };
+    const { error } = await supabase.from("sek_cases").update(reopenUpdates).eq("id", targetId);
     if (error) { toast.error("Error al cambiar estado"); return; }
-    setSekCase(prev => ({ ...prev, estado: newEstado, tags: reopenTags }));
-    toast.success(`Caso ${newEstado}`);
+    setSekCase(prev => ({ ...prev, estado: newEstado, tags: reopenTags as any, assigned_to: reopenUpdates.assigned_to as string }));
+    toast.success(`Caso reabierto`, { description: "El caso se movió a Mi Gestión. Auto-close pausado." });
     setShowActions(false);
   }
 
