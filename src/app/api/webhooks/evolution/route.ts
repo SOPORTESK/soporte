@@ -895,57 +895,10 @@ export async function POST(req: NextRequest) {
       const ACTIVE_STATES = ["ia_atendiendo", "pendiente", "escalado", "abierto"];
       existing = openCases.find((c: any) => ACTIVE_STATES.includes(c.estado) && matchesPhone(c)) || null;
 
-      // 2. Si no hay caso activo, buscar el caso cerrado más reciente del mismo teléfono
-      //    y reabrirlo con tag 're-open' en vez de crear un caso nuevo
-      if (!existing) {
-        const closedCase = openCases.find((c: any) =>
-          (c.estado === "cerrado" || c.estado === "resuelto") && matchesPhone(c)
-        ) || null;
-        if (closedCase) {
-          const closedTags: string[] = Array.isArray(closedCase.tags) ? closedCase.tags : [];
-          const reopenTags = closedTags.some(t => String(t).toLowerCase() === "re-open")
-            ? closedTags
-            : [...closedTags, "re-open"];
-          // Si el caso ya tenía un agente asignado, reabrir como "abierto" (no ia_atendiendo)
-          // para que vuelva a la bandeja del agente, no a la IA
-          const hadAgent = !!closedCase.assigned_to;
-          const reopenEstado = hadAgent ? "abierto" : "ia_atendiendo";
-          
-          // Si se reabre para la IA (sin agente), limpiar datos corruptos del cliente
-          // para que el flujo reinicie correctamente
-          const reopenUpdates: Record<string, unknown> = {
-            estado: reopenEstado,
-            tags: reopenTags,
-            closed_at: null,
-          };
-          if (!hadAgent && closedCase.cliente) {
-            const cli = typeof closedCase.cliente === "object" ? closedCase.cliente as any : {};
-            const nombreInvalido = ["no entiendo", "no se", "que", "hola", "buenas", "gracias", "ok", "si", "no"];
-            const nombreLower = String(cli.nombre || "").toLowerCase().trim();
-            const needsReset = nombreInvalido.includes(nombreLower) || nombreLower.length < 2;
-            if (needsReset) {
-              reopenUpdates.cliente = {
-                ...cli,
-                nombre: null,
-                correo: null,
-                cuenta: null,
-                tema: null,
-                marca: null,
-                modelo: null,
-                descripcion: null,
-              };
-              console.log(`[evo-webhook] Resetando datos corruptos del cliente al reabrir caso ${closedCase.id} (nombre era "${cli.nombre}")`);
-            }
-          }
-          
-          await supabase.from("sek_cases")
-            .update(reopenUpdates)
-            .eq("id", closedCase.id);
-          existing = closedCase;
-          reopenClosedCase = !hadAgent; // solo invocar IA si no hay agente asignado
-          console.log(`[evo-webhook] Reabriendo caso cerrado ${closedCase.id} con tag re-open, estado=${reopenEstado}`);
-        }
-      }
+      // 2. Si no hay caso activo, NO reabrir el cerrado — se crea un caso nuevo.
+      //    Solo un humano puede reabrir un caso cerrado (desde la UI).
+      //    La re-apertura automatica causaba: historial viejo confundiendo a la IA,
+      //    datos corruptos persistiendo, y la IA sin saludar al continuar el flujo.
 
     }
     console.log("[evo-webhook] Paso 7: caso existente:", existing ? existing.id : "ninguno");
