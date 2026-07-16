@@ -35,7 +35,7 @@ export default async function EstadisticasAtencionPage() {
 
   // ── Métricas globales (solo agentes humanos)
   const totalCasos = casosConAsig.length;
-  const totalResueltos = casosConAsig.filter(c => c.estado === "resuelto" || c.estado === "cerrado").length;
+  const totalResueltos = casosConAsig.filter(c => c.estado === "resuelto" || c.estado === "cerrado" || (c as any).closed_at).length;
   const totalActivos = casosConAsig.filter(c => c.estado === "abierto").length;
   const tasaResolucion = totalCasos > 0 ? Math.round((totalResueltos / totalCasos) * 100) : 0;
 
@@ -61,7 +61,7 @@ export default async function EstadisticasAtencionPage() {
 
   // ── Distribución de tiempo de resolución humana (aceptación → cierre, solo humanos)
   const tiemposResolucionTodos = casosConAsig
-    .filter(c => c.estado === "resuelto" || c.estado === "cerrado")
+    .filter(c => c.estado === "resuelto" || c.estado === "cerrado" || (c as any).closed_at)
     .filter(c => c.accepted_at && (c as any).closed_at)
     .map(c => {
       const start = new Date(c.accepted_at!);
@@ -160,7 +160,7 @@ export default async function EstadisticasAtencionPage() {
     s.totalAtendidos++;
     if (["abierto","asignado","pendiente"].includes(caso.estado || "")) s.activos++;
     if (caso.estado === "escalado") s.escalados++;
-    if (caso.estado === "resuelto" || caso.estado === "cerrado") {
+    if (caso.estado === "resuelto" || caso.estado === "cerrado" || (caso as any).closed_at) {
       s.resueltos++;
       const closedAt = (caso as any).closed_at;
       if (closedAt) {

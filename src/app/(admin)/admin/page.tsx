@@ -7,6 +7,7 @@ import {
   ShieldAlert, Clock, Star, CheckCircle, AlertCircle,
   Zap, BarChart3, ArrowUpRight, Circle, Brain, Shield
 } from "lucide-react";
+import { CloseStaleCases } from "@/components/admin/close-stale-cases";
 
 export const dynamic = "force-dynamic";
 
@@ -71,7 +72,7 @@ export default async function AdminDashboardPage() {
   ]);
 
   // ── Calcular KPIs ──────────────────────────────────────────────────────────
-  const totalResueltos = allCasos?.filter(c => c.estado === "resuelto" || c.estado === "cerrado").length ?? 0;
+  const totalResueltos = allCasos?.filter(c => c.estado === "resuelto" || c.estado === "cerrado" || (c as any).closed_at).length ?? 0;
   const totalCasosN = totalCasos ?? 0;
   const tasaResolucion = totalCasosN > 0 ? Math.round((totalResueltos / totalCasosN) * 100) : 0;
 
@@ -271,6 +272,13 @@ export default async function AdminDashboardPage() {
         </div>
       </div>
 
+      {/* ── FILA 2.5: Cerrar casos abiertos prolongados ──────────────── */}
+      <div className="grid gap-6 lg:grid-cols-3">
+        <div className="lg:col-span-1">
+          <CloseStaleCases daysThreshold={3} />
+        </div>
+      </div>
+
       {/* ── FILA 3: Estado IA + Métricas rápidas de agentes ──────────────── */}
       <div className="grid gap-6 lg:grid-cols-3">
 
@@ -340,7 +348,7 @@ export default async function AdminDashboardPage() {
                   allCasos?.forEach(c => {
                     if (!c.assigned_to || !perAgent[c.assigned_to]) return;
                     perAgent[c.assigned_to].total++;
-                    if (c.estado === "resuelto" || c.estado === "cerrado") perAgent[c.assigned_to].resueltos++;
+                    if (c.estado === "resuelto" || c.estado === "cerrado" || (c as any).closed_at) perAgent[c.assigned_to].resueltos++;
                     const cl = typeof c.cliente === "object" && c.cliente ? c.cliente as any : null;
                     if (cl?.calificacion_cliente) perAgent[c.assigned_to].cals.push(Number(cl.calificacion_cliente));
                   });

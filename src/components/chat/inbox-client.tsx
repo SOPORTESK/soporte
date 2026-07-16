@@ -399,6 +399,10 @@ export function InboxClient({
             if (!newCases) return;
             setAllCases(newCases); // Sin filtrar para banner de escalados
             filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail, agentName);
+            // Si es Mi Gestion y aún no tenemos agentEmail, no sobrescribir los casos del servidor
+            if (containerType === "mi-gestion" && !agentEmail) {
+              return;
+            }
             // Si el caso seleccionado ya no está en el filtro (ej: soporte-avanzado y el estado cambió),
             // preservarlo en la lista para que el chat no desaparezca mientras el agente lo tiene abierto
             const currentSelected = selectedId ? (

@@ -93,7 +93,7 @@ export default async function AdminEquipoPage() {
     if (c.created_at >= weekStart) {
       s.casosEstaSemana++;
       s.totalRecientes++;
-      if (c.estado === "resuelto" || c.estado === "cerrado") s.resueltosRecientes++;
+      if (c.estado === "resuelto" || c.estado === "cerrado" || (c as any).closed_at) s.resueltosRecientes++;
     }
   });
 

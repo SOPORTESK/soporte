@@ -13,13 +13,13 @@ export default async function EstadisticasClientePage() {
   // Intentar con columnas nuevas; si fallan (aún no migradas), usar columnas base
   let { data: casos, error: casosErr } = await supabase
     .from("sek_cases")
-    .select("id, estado, cliente, created_at, updated_at, canal, title, tags, prioridad, assigned_to, marca, modelo, resolucion, problema")
+    .select("id, estado, cliente, created_at, updated_at, closed_at, canal, title, tags, prioridad, assigned_to, marca, modelo, resolucion, problema")
     .order("created_at", { ascending: false });
   if (casosErr) {
     console.error("[estadisticas] Error consulta completa:", casosErr.message);
     const { data: casosFallback, error: fallbackErr } = await supabase
       .from("sek_cases")
-      .select("id, estado, cliente, created_at, updated_at, canal, title, tags, prioridad, assigned_to")
+      .select("id, estado, cliente, created_at, updated_at, closed_at, canal, title, tags, prioridad, assigned_to")
       .order("created_at", { ascending: false });
     if (fallbackErr) console.error("[estadisticas] Error fallback:", fallbackErr.message);
     casos = casosFallback as any;
@@ -84,7 +84,7 @@ export default async function EstadisticasClientePage() {
     }
     const m = mapa[key];
     m.total++;
-    if (c.estado === "resuelto" || c.estado === "cerrado") m.resueltos++; else m.abiertos++;
+    if (c.estado === "resuelto" || c.estado === "cerrado" || (c as any).closed_at) m.resueltos++; else m.abiertos++;
     const cal = getCal(c.cliente); if (cal !== null) m.calificaciones.push(cal);
     const canal = c.canal || "web";
     m.canales[canal] = (m.canales[canal] || 0) + 1;
@@ -163,7 +163,7 @@ export default async function EstadisticasClientePage() {
     }
     const e = equipoMap[key];
     e.total++;
-    if (c.estado === "resuelto" || c.estado === "cerrado") e.resueltos++;
+    if (c.estado === "resuelto" || c.estado === "cerrado" || (c as any).closed_at) e.resueltos++;
     const { cedula, correo, telefono, nombre } = parseCliente(c.cliente);
     const clienteKey = cedula || correo || (telefono !== "—" ? telefono : nombre);
     e.clientes.add(clienteKey);
@@ -263,7 +263,7 @@ export default async function EstadisticasClientePage() {
       problemaMap[p.key] = { label: p.label, total: 0, resueltos: 0, ultimoCasoId: c.id };
     }
     problemaMap[p.key].total++;
-    if (c.estado === "resuelto" || c.estado === "cerrado") problemaMap[p.key].resueltos++;
+    if (c.estado === "resuelto" || c.estado === "cerrado" || (c as any).closed_at) problemaMap[p.key].resueltos++;
   });
   const topProblemas = Object.values(problemaMap).sort((a, b) => b.total - a.total);
   const maxProblema = topProblemas[0]?.total || 1;

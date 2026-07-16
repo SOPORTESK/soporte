@@ -42,11 +42,11 @@ export default async function AgentProfilePage({
   // Stats del agente
   const { data: casos } = await supabase
     .from("sek_cases")
-    .select("id, estado, calificacion, created_at, updated_at, title, canal, cat, last_message_at")
+    .select("id, estado, calificacion, created_at, updated_at, closed_at, title, canal, cat, last_message_at")
     .ilike("assigned_to", targetEmail)
     .order("created_at", { ascending: false });
 
-  const resueltos = (casos || []).filter(c => c.estado === "resuelto" || c.estado === "cerrado");
+  const resueltos = (casos || []).filter(c => c.estado === "resuelto" || c.estado === "cerrado" || (c as any).closed_at);
   const abiertos  = (casos || []).filter(c => c.estado === "abierto" || c.estado === "asignado" || c.estado === "pendiente");
   const cals      = (casos || []).filter(c => c.calificacion).map(c => c.calificacion as number);
   const tiempos   = resueltos
