@@ -910,8 +910,36 @@ export async function POST(req: NextRequest) {
           // para que vuelva a la bandeja del agente, no a la IA
           const hadAgent = !!closedCase.assigned_to;
           const reopenEstado = hadAgent ? "abierto" : "ia_atendiendo";
+          
+          // Si se reabre para la IA (sin agente), limpiar datos corruptos del cliente
+          // para que el flujo reinicie correctamente
+          const reopenUpdates: Record<string, unknown> = {
+            estado: reopenEstado,
+            tags: reopenTags,
+            closed_at: null,
+          };
+          if (!hadAgent && closedCase.cliente) {
+            const cli = typeof closedCase.cliente === "object" ? closedCase.cliente as any : {};
+            const nombreInvalido = ["no entiendo", "no se", "que", "hola", "buenas", "gracias", "ok", "si", "no"];
+            const nombreLower = String(cli.nombre || "").toLowerCase().trim();
+            const needsReset = nombreInvalido.includes(nombreLower) || nombreLower.length < 2;
+            if (needsReset) {
+              reopenUpdates.cliente = {
+                ...cli,
+                nombre: null,
+                correo: null,
+                cuenta: null,
+                tema: null,
+                marca: null,
+                modelo: null,
+                descripcion: null,
+              };
+              console.log(`[evo-webhook] Resetando datos corruptos del cliente al reabrir caso ${closedCase.id} (nombre era "${cli.nombre}")`);
+            }
+          }
+          
           await supabase.from("sek_cases")
-            .update({ estado: reopenEstado, tags: reopenTags, closed_at: null })
+            .update(reopenUpdates)
             .eq("id", closedCase.id);
           existing = closedCase;
           reopenClosedCase = !hadAgent; // solo invocar IA si no hay agente asignado

@@ -583,10 +583,21 @@ async function safeUpdateCase(update: Record<string, unknown>, caseId: string): 
  * de invalidez + la frase característica del paso (ej: "nombre completo").
  */
 function contarReintentos(iaMsgs: { content?: string }[], fraseCaracteristica: string): number {
-  return iaMsgs.filter(m =>
-    (m.content || "").includes("La información ingresada no es válida") &&
-    (m.content || "").toLowerCase().includes(fraseCaracteristica.toLowerCase())
-  ).length;
+  const frase = fraseCaracteristica.toLowerCase();
+  return iaMsgs.filter(m => {
+    const c = (m.content || "");
+    const cl = c.toLowerCase();
+    // Contar mensajes que contienen la frase característica Y un mensaje de invalidéz
+    // (ya sea el genérico "La información ingresada no es válida" o los específicos como
+    // "No reconocí", "no tiene un formato válido", etc.)
+    return cl.includes(frase) && (
+      c.includes("La información ingresada no es válida") ||
+      c.includes("No reconocí") ||
+      c.includes("no tiene un formato válido") ||
+      c.includes("no es válida") ||
+      c.includes("Por favor, verifique")
+    );
+  }).length;
 }
 
 const MSG_CIERRE_REINTENTOS = "Lamentamos no poder continuar. Hemos intentado registrar sus datos en varias ocasiones sin éxito. Le invitamos a contactarnos nuevamente cuando tenga la información a mano. ¡Que tenga un excelente día!";
@@ -837,12 +848,18 @@ Deno.serve(async (req: Request) => {
     }
 
     // PASO 0: Primer mensaje del usuario dentro de horario → flujo completo de bienvenida
-    if (userCount === 1 && iaCount === 0) {
+    // También aplica si el caso fue reabierto con datos reseteados (cliente.nombre null)
+    const cliData = (caso.cliente && typeof caso.cliente === "object") ? caso.cliente as any : {};
+    const isReopenReset = !cliData.nombre && iaCount > 0 && userCount > 0;
+    if (isReopenReset) {
+      console.log(`[seka-whatsapp] CASO REABIERTO con datos reseteados — reiniciando flujo de bienvenida (userCount=${userCount}, iaCount=${iaCount})`);
+    }
+    if ((userCount === 1 && iaCount === 0) || isReopenReset) {
       // Re-leer histtecnico fresco para evitar doble bienvenida por doble disparo del webhook
       const { data: freshCheck } = await db.from("sek_cases").select("histtecnico").eq("id", case_id).maybeSingle();
       const freshHist0: HistMsg[] = Array.isArray(freshCheck?.histtecnico) ? (freshCheck as any).histtecnico : histtecnico;
       const freshIaCount = freshHist0.filter((m: HistMsg) => m.role === "ia" || m.role === "assistant" || m.role === "tecnico").length;
-      if (freshIaCount > 0) {
+      if (freshIaCount > 0 && !isReopenReset) {
         console.log("[seka-whatsapp] PASO 0: bienvenida ya enviada (freshIaCount=" + freshIaCount + "), omitiendo duplicado.");
         return new Response(JSON.stringify({ ok: true, skipped: true, dedup: true }), { status: 200, headers: corsHeaders });
       }
