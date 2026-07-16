@@ -872,7 +872,7 @@ export async function POST(req: NextRequest) {
   try {
     const { data: openCases } = await supabase
       .from("sek_cases")
-      .select("id, histcliente, histtecnico, estado, customer_phone, cliente, title, created_at, accepted_at, escalado_at")
+      .select("id, histcliente, histtecnico, estado, customer_phone, cliente, title, created_at, accepted_at, escalado_at, tags")
       .eq("canal", "whatsapp")
       .order("created_at", { ascending: false })
       .limit(50);
@@ -894,6 +894,26 @@ export async function POST(req: NextRequest) {
       // 1. Buscar primero un caso ACTIVO (no cerrado/resuelto)
       const ACTIVE_STATES = ["ia_atendiendo", "pendiente", "escalado", "abierto"];
       existing = openCases.find((c: any) => ACTIVE_STATES.includes(c.estado) && matchesPhone(c)) || null;
+
+      // 2. Si no hay caso activo, buscar el caso cerrado más reciente del mismo teléfono
+      //    y reabrirlo con tag 're-open' en vez de crear un caso nuevo
+      if (!existing) {
+        const closedCase = openCases.find((c: any) =>
+          (c.estado === "cerrado" || c.estado === "resuelto") && matchesPhone(c)
+        ) || null;
+        if (closedCase) {
+          const closedTags: string[] = Array.isArray(closedCase.tags) ? closedCase.tags : [];
+          const reopenTags = closedTags.some(t => String(t).toLowerCase() === "re-open")
+            ? closedTags
+            : [...closedTags, "re-open"];
+          await supabase.from("sek_cases")
+            .update({ estado: "ia_atendiendo", tags: reopenTags })
+            .eq("id", closedCase.id);
+          existing = closedCase;
+          reopenClosedCase = true;
+          console.log(`[evo-webhook] Reabriendo caso cerrado ${closedCase.id} con tag re-open`);
+        }
+      }
 
     }
     console.log("[evo-webhook] Paso 7: caso existente:", existing ? existing.id : "ninguno");

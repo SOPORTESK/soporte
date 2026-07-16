@@ -819,10 +819,14 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       return;
     }
 
-    // Reabrir caso: no tocar closed_at (queda como registro histórico)
-    const { error } = await supabase.from("sek_cases").update({ estado: newEstado }).eq("id", targetId);
+    // Reabrir caso: agregar tag 're-open' para excluir del auto-close
+    const currentTags: string[] = Array.isArray(sekCase.tags) ? sekCase.tags : [];
+    const reopenTags = currentTags.some(t => String(t).toLowerCase() === "re-open")
+      ? currentTags
+      : [...currentTags, "re-open"];
+    const { error } = await supabase.from("sek_cases").update({ estado: newEstado, tags: reopenTags }).eq("id", targetId);
     if (error) { toast.error("Error al cambiar estado"); return; }
-    setSekCase(prev => ({ ...prev, estado: newEstado }));
+    setSekCase(prev => ({ ...prev, estado: newEstado, tags: reopenTags }));
     toast.success(`Caso ${newEstado}`);
     setShowActions(false);
   }
