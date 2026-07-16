@@ -872,7 +872,7 @@ export async function POST(req: NextRequest) {
   try {
     const { data: openCases } = await supabase
       .from("sek_cases")
-      .select("id, histcliente, histtecnico, estado, customer_phone, cliente, title, created_at, accepted_at, escalado_at, tags")
+      .select("id, histcliente, histtecnico, estado, customer_phone, cliente, title, created_at, accepted_at, escalado_at, tags, assigned_to")
       .eq("canal", "whatsapp")
       .order("created_at", { ascending: false })
       .limit(50);
@@ -906,12 +906,16 @@ export async function POST(req: NextRequest) {
           const reopenTags = closedTags.some(t => String(t).toLowerCase() === "re-open")
             ? closedTags
             : [...closedTags, "re-open"];
+          // Si el caso ya tenía un agente asignado, reabrir como "abierto" (no ia_atendiendo)
+          // para que vuelva a la bandeja del agente, no a la IA
+          const hadAgent = !!closedCase.assigned_to;
+          const reopenEstado = hadAgent ? "abierto" : "ia_atendiendo";
           await supabase.from("sek_cases")
-            .update({ estado: "ia_atendiendo", tags: reopenTags, closed_at: null })
+            .update({ estado: reopenEstado, tags: reopenTags, closed_at: null })
             .eq("id", closedCase.id);
           existing = closedCase;
-          reopenClosedCase = true;
-          console.log(`[evo-webhook] Reabriendo caso cerrado ${closedCase.id} con tag re-open`);
+          reopenClosedCase = !hadAgent; // solo invocar IA si no hay agente asignado
+          console.log(`[evo-webhook] Reabriendo caso cerrado ${closedCase.id} con tag re-open, estado=${reopenEstado}`);
         }
       }
 

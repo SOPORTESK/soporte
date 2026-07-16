@@ -81,6 +81,7 @@ Si el cliente tiene un equipo Sekunet y solicita ayuda para integrarlo o hacerlo
 
 Al escalar, use SIEMPRE este texto exacto (sin la palabra "humano"):
 "Su caso ha sido escalado a nuestro equipo de Soporte Avanzado (Nivel 2), quienes cuentan con los recursos especializados para atender esta situación. Hemos etiquetado su caso como N2 para su seguimiento prioritario. A la brevedad le estarán atendiendo por este mismo medio."
+NUNCA use frases alternativas como "será atendido por uno de nuestros agentes" o "en un momento será atendido". Use EXACTAMENTE el texto de arriba.
 
 ## FLUJO DE ATENCIÓN
 
@@ -1396,7 +1397,11 @@ Deno.serve(async (req) => {
     if (
       aiResponse.includes("Soporte Avanzado (Nivel 2)") ||
       aiResponse.includes("escalado a nuestro equipo") ||
-      aiResponse.includes("etiquetado su caso como N2")
+      aiResponse.includes("etiquetado su caso como N2") ||
+      aiResponse.includes("será atendido por uno de nuestros agentes") ||
+      aiResponse.includes("será atendido por un agente") ||
+      aiResponse.includes("en un momento será atendido") ||
+      aiResponse.includes("momento le estarán atendiendo")
     ) {
       shouldEscalate = true;
     }
