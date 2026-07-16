@@ -15,7 +15,7 @@ type StaleCase = {
   canal: string;
 };
 
-export function CloseStaleCases({ daysThreshold = 3 }: { daysThreshold?: number }) {
+export function CloseStaleCases({ hoursThreshold = 2 }: { hoursThreshold?: number }) {
   const supabase = React.useMemo(() => createClient(), []);
   const [staleCases, setStaleCases] = React.useState<StaleCase[]>([]);
   const [loading, setLoading] = React.useState(false);
@@ -25,7 +25,7 @@ export function CloseStaleCases({ daysThreshold = 3 }: { daysThreshold?: number 
   async function fetchStaleCases() {
     setLoading(true);
     try {
-      const threshold = new Date(Date.now() - daysThreshold * 24 * 60 * 60 * 1000).toISOString();
+      const threshold = new Date(Date.now() - hoursThreshold * 60 * 60 * 1000).toISOString();
       const { data, error } = await supabase
         .from("sek_cases")
         .select("id, title, estado, assigned_to, created_at, last_message_at, canal")
@@ -84,8 +84,10 @@ export function CloseStaleCases({ daysThreshold = 3 }: { daysThreshold?: number 
   }
 
   function formatDaysAgo(dateStr: string) {
-    const diff = Math.floor((Date.now() - new Date(dateStr).getTime()) / (1000 * 60 * 60 * 24));
-    return `${diff}d`;
+    const diffMs = Date.now() - new Date(dateStr).getTime();
+    const diffH = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffM = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    return diffH > 0 ? `${diffH}h ${diffM}m` : `${diffM}m`;
   }
 
   return (
@@ -97,7 +99,7 @@ export function CloseStaleCases({ daysThreshold = 3 }: { daysThreshold?: number 
           </div>
           <div>
             <h3 className="text-sm font-black">Casos Abiertos Prolongados</h3>
-            <p className="text-[10px] text-muted-foreground">Abiertos hace m&aacute;s de {daysThreshold} d&iacute;as</p>
+            <p className="text-[10px] text-muted-foreground">Abiertos hace m&aacute;s de {hoursThreshold}h</p>
           </div>
         </div>
         <button
@@ -149,7 +151,7 @@ export function CloseStaleCases({ daysThreshold = 3 }: { daysThreshold?: number 
       )}
 
       {showPanel && staleCases.length === 0 && (
-        <p className="text-xs text-muted-foreground text-center py-6">No hay casos abiertos hace m&aacute;s de {daysThreshold} d&iacute;as.</p>
+        <p className="text-xs text-muted-foreground text-center py-6">No hay casos abiertos hace m&aacute;s de {hoursThreshold}h.</p>
       )}
     </div>
   );
