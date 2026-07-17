@@ -284,7 +284,7 @@ async function validarModelo(marca: string, modelo: string): Promise<{ valido: b
 
   try {
     const searchRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${GEMINI_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${GEMINI_KEY}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -310,6 +310,23 @@ async function validarModelo(marca: string, modelo: string): Promise<{ valido: b
     }
   } catch (e: any) {
     console.error("[seka-whatsapp] Error en búsqueda web de modelo:", e.message);
+  }
+
+  // Fallback de patrón: si el modelo coincide con patrones conocidos de marcas de seguridad,
+  // aceptarlo aunque Gemini falle. Evita rechazar modelos válidos por fallos de API.
+  const patronesConocidos = [
+    /^DS-2[A-Z0-9]+/i,   // Hikvision: DS-2CD..., DS-2DE..., DS-2CE...
+    /^DS-1[A-Z0-9]+/i,   // Hikvision: DS-1...
+    /^DHI-/i,            // Dahua: DHI-...
+    /^DH-/i,             // Dahua: DH-...
+    /^IPC-/i,            // Dahua: IPC-...
+    /^NVR-/i,            // Genérico: NVR-...
+    /^DVR-/i,            // Genérico: DVR-...
+    /^[A-Z]{2,4}-[0-9]/i // Patrón genérico: XX-123...
+  ];
+  if (patronesConocidos.some(p => p.test(modelo.trim()))) {
+    console.log(`[seka-whatsapp] Fallback patrón: modelo "${modelo}" aceptado por coincidir con patrón conocido de marca "${marca}".`);
+    return { valido: true, fuente: "externo", detalle: `Modelo con patrón válido para ${marca}` };
   }
 
   return { valido: false, fuente: "no_encontrado", detalle: "Modelo no encontrado en inventario ni en búsqueda web" };
