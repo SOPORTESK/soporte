@@ -979,15 +979,35 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     if (reassigning || !newAgentEmail || newAgentEmail === sekCase.assigned_to) return;
     setReassigning(true);
     try {
-      const { error } = await supabase.from("sek_cases").update({
+      const oldAgent = sekCase.assigned_to || "Sin asignar";
+      const newAgent = agents.find((a: any) => a.email === newAgentEmail);
+      const newName = newAgent ? [newAgent.nombre, newAgent.apellido].filter(Boolean).join(" ") : newAgentEmail;
+      const oldAgentInfo = agents.find((a: any) => a.email === oldAgent);
+      const oldName = oldAgentInfo ? [oldAgentInfo.nombre, oldAgentInfo.apellido].filter(Boolean).join(" ") : oldAgent;
+
+      // Nota de auditoría en histtecnico
+      const baseHist = Array.isArray(sekCase.histtecnico) ? sekCase.histtecnico : [];
+      const noteEntry = {
+        role: "nota",
+        author: agentName || agentEmail || "Sistema",
+        time: new Date().toISOString(),
+        content: `Caso reasignado de ${oldName} a ${newName}`,
+      };
+      const newHist = [...baseHist, noteEntry];
+
+      const updates: Record<string, unknown> = {
         assigned_to: newAgentEmail,
-        accepted_at: new Date().toISOString(),
-      }).eq("id", targetId);
+        histtecnico: newHist,
+      };
+      // Preservar accepted_at original — no resetear SLA
+      if (!sekCase.accepted_at) {
+        updates.accepted_at = new Date().toISOString();
+      }
+
+      const { error } = await supabase.from("sek_cases").update(updates).eq("id", targetId);
       if (error) throw error;
-      setSekCase(prev => ({ ...prev, assigned_to: newAgentEmail }));
-      const agent = agents.find((a: any) => a.email === newAgentEmail);
-      const name = agent ? [agent.nombre, agent.apellido].filter(Boolean).join(" ") : newAgentEmail;
-      toast.success(`Caso reasignado a ${name}`);
+      setSekCase(prev => ({ ...prev, assigned_to: newAgentEmail, histtecnico: newHist }));
+      toast.success(`Caso reasignado a ${newName}`);
       setShowReassign(false);
     } catch (e: any) {
       toast.error("Error al reasignar", { description: e?.message });
