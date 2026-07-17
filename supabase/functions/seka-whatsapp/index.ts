@@ -848,18 +848,12 @@ Deno.serve(async (req: Request) => {
     }
 
     // PASO 0: Primer mensaje del usuario dentro de horario → flujo completo de bienvenida
-    // También aplica si el caso fue reabierto con datos reseteados (cliente.nombre null)
-    const cliData = (caso.cliente && typeof caso.cliente === "object") ? caso.cliente as any : {};
-    const isReopenReset = !cliData.nombre && iaCount > 0 && userCount > 0;
-    if (isReopenReset) {
-      console.log(`[seka-whatsapp] CASO REABIERTO con datos reseteados — reiniciando flujo de bienvenida (userCount=${userCount}, iaCount=${iaCount})`);
-    }
-    if ((userCount === 1 && iaCount === 0) || isReopenReset) {
+    if (userCount === 1 && iaCount === 0) {
       // Re-leer histtecnico fresco para evitar doble bienvenida por doble disparo del webhook
       const { data: freshCheck } = await db.from("sek_cases").select("histtecnico").eq("id", case_id).maybeSingle();
       const freshHist0: HistMsg[] = Array.isArray(freshCheck?.histtecnico) ? (freshCheck as any).histtecnico : histtecnico;
       const freshIaCount = freshHist0.filter((m: HistMsg) => m.role === "ia" || m.role === "assistant" || m.role === "tecnico").length;
-      if (freshIaCount > 0 && !isReopenReset) {
+      if (freshIaCount > 0) {
         console.log("[seka-whatsapp] PASO 0: bienvenida ya enviada (freshIaCount=" + freshIaCount + "), omitiendo duplicado.");
         return new Response(JSON.stringify({ ok: true, skipped: true, dedup: true }), { status: 200, headers: corsHeaders });
       }
@@ -1250,6 +1244,26 @@ Responde SOLO con JSON válido:
         }
       } // Closes if (!oldCuenta || ...)
     } // Closes if (isValidExtractedString...)
+
+    // FALLBACK DETERMINÍSTICO PARA CUENTA: si el supervisor no extrajo cuenta,
+    // pero el bot pedía cuenta y el cliente respondió algo válido, aceptarlo.
+    if (!isValidExtractedString(supervisorResult.cuenta)) {
+      const oldCuentaFB = String((currentCliente as any).cuenta || "").trim();
+      const botPidioCuenta = (lastIA?.content || "").includes("empresa o cuenta afiliada") || (lastIA?.content || "").includes("cuenta o empresa");
+      const needsCuenta = !oldCuentaFB || oldCuentaFB === "(vacío)";
+      if (botPidioCuenta && needsCuenta) {
+        const cuentaFallback = lastUserMsgContent.trim();
+        if (esCuentaValida(cuentaFallback)) {
+          console.log(`[seka-whatsapp] FALLBACK cuenta: supervisor no extrajo, aceptando del mensaje del cliente: "${cuentaFallback}"`);
+          updatedCliente.cuenta = cuentaFallback;
+          clienteChanged = true;
+          supervisorResult.cuenta = cuentaFallback;
+          if (!["ESCALAR_INMEDIATO", "CERRAR", "VENTAS"].includes(supervisorResult.accion)) {
+            supervisorResult.accion = "CONTINUAR";
+          }
+        }
+      }
+    }
 
     // Persistir marca y modelo extraídos por el Supervisor para no perderlos entre turnos
     if (isValidExtractedString(supervisorResult.marca)) {
