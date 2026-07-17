@@ -1585,6 +1585,23 @@ Responde SOLO con JSON válido:
       console.log("[seka-whatsapp] Cuenta a nombre personal → se usa el nombre del cliente como cuenta.");
     }
 
+    // FALLBACK DE NOMBRE: si el Supervisor no extrajo nombre pero el bot pedía nombre
+    // y el mensaje del cliente pasa el filtro regex, aceptarlo. Evita que el LLM
+    // rechace nombres validos por apellidos extranjeros o poco comunes.
+    if (!updatedCliente.nombre && accion !== "CERRAR" && accion !== "VENTAS" && accion !== "ESCALAR_INMEDIATO") {
+      const botPidioNombre = (lastIA?.content || "").includes("nombre completo");
+      const nombreCandidatoFB = lastUserMsgContent.trim();
+      if (botPidioNombre && isNombrePropioValido(nombreCandidatoFB)) {
+        console.log(`[seka-whatsapp] FALLBACK nombre: Supervisor no extrajo, aceptando del mensaje: "${nombreCandidatoFB}"`);
+        updatedCliente.nombre = nombreCandidatoFB;
+        clienteChanged = true;
+        supervisorResult.nombre = nombreCandidatoFB;
+        if (supervisorResult.accion === "PEDIR_NOMBRE" || accion === "PEDIR_NOMBRE" || accion === "CONTINUAR") {
+          accion = "PEDIR_CORREO";
+        }
+      }
+    }
+
     // GATE 0 — FORZAR RECOPILACIÓN DE DATOS (Red de Seguridad contra Alucinaciones)
     if (accion !== "CERRAR" && accion !== "VENTAS" && accion !== "ESCALAR_INMEDIATO") {
       if (!updatedCliente.nombre) {
