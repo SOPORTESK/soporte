@@ -1135,7 +1135,7 @@ Responde SOLO con JSON válido:
       const oldNombre = String((currentCliente as any).nombre || "").trim();
       if (!oldNombre || oldNombre === "." || /^[\d\+\-\s]+$/.test(oldNombre) || oldNombre === "(vacío)") {
         const nombreCandidato = supervisorResult.nombre.trim();
-        const nombreValido = isNombrePropioValido(nombreCandidato) && await validarNombreConIA(nombreCandidato);
+        const nombreValido = isNombrePropioValido(nombreCandidato);
         if (nombreValido) {
           updatedCliente.nombre = supervisorResult.nombre;
           clienteChanged = true;
