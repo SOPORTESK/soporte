@@ -1847,9 +1847,20 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate }: {
   const isIA = m.source === "assistant";
   const isTecnico = m.source === "tecnico";
   const isNota = m.source === "nota";
-  
+  const isSeparator = m.content?.startsWith("── Nueva conversación");
+
   const [showEmojiPicker, setShowEmojiPicker] = React.useState(false);
   const [showDeleteMenu, setShowDeleteMenu] = React.useState(false);
+
+  if (isSeparator) {
+    return (
+      <div className="flex items-center gap-3 py-3 my-2 text-xs text-muted-foreground">
+        <div className="flex-1 h-px bg-border" />
+        <span>{m.content}</span>
+        <div className="flex-1 h-px bg-border" />
+      </div>
+    );
+  }
   
   // Verificar si el mensaje está eliminado para el usuario actual
   const isDeletedForMe = m.deleted_for_me?.includes(agentEmail || "");
