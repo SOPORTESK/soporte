@@ -2185,7 +2185,7 @@ No agregues nada más.`,
     // ── ACCIÓN: PEDIR MARCA ──
     if (accion === "PEDIR_MARCA") {
       // Si el bot ya pidió la marca y el usuario respondió, verificar la marca contra la BD
-      const botYaPidioMarca = lastIAContent.includes("indíquenos la marca") || lastIAContent.includes("marca del equipo") || lastIAContent.includes("verifique el dato");
+      const botYaPidioMarca = lastIAContent.includes("indíquenos la marca") || lastIAContent.includes("marca del equipo") || lastIAContent.includes("verifique el dato") || lastIAContent.includes("no corresponde a un equipo distribuido");
 
 
       if (botYaPidioMarca && marcaSupervisor) {
@@ -2218,10 +2218,12 @@ No agregues nada más.`,
 
         // Marca no existe
         if (temaSupervisor !== "Otro") {
-          const directReply = "Gracias por contactarnos.\n\nLe informamos que el dispositivo indicado no corresponde a un equipo distribuido por Sekunet, por lo que no podemos brindarle soporte técnico sobre este producto.\n\n¿Tiene alguna otra consulta relacionada con nuestras marcas o servicios? Con gusto le ayudaremos.";
+          const directReply = "Gracias por contactarnos.\n\nLe informamos que el dispositivo indicado no corresponde a un equipo distribuido por Sekunet, por lo que no podemos brindarle soporte técnico sobre este producto.\n\nSi tiene un equipo de otra marca, por favor, indíquenos la marca del equipo.";
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
           const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
-          if (clienteChanged) upd.cliente = updatedCliente;
+          updatedCliente.marca = "";
+          upd.cliente = updatedCliente;
+          if (nuevoTitle) upd.title = nuevoTitle;
           upd.title = `${temaSupervisor} — Marca Rechazada`;
           await db.from("sek_cases").update(upd).eq("id", case_id);
           return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
