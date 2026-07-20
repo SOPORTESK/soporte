@@ -837,16 +837,19 @@ export async function POST(req: NextRequest) {
         const b64Res = await fetch(`${EVO_URL.replace(/\/$/, "")}/chat/getBase64FromMediaMessage/${encodeURIComponent(EVO_INSTANCE)}`, {
           method: "POST",
           headers: { "Content-Type": "application/json", apikey: EVO_KEY },
-          body: JSON.stringify({ message: messageToExtract })
+          body: JSON.stringify({ message: messageToExtract }),
+          signal: AbortSignal.timeout(30000)
         });
         if (!b64Res.ok) {
           const body = await b64Res.text().catch(() => "<no-body>");
           console.error("[evo-webhook] getBase64FromMediaMessage NO OK", b64Res.status, body.slice(0, 500));
-          if (messageToExtract) {
-            try {
-              console.error("[evo-webhook] mensaje enviado a getBase64", JSON.stringify(messageToExtract).slice(0, 2000));
-            } catch {}
-          }
+          try {
+            await supabase.from("sek_app_settings").upsert({
+              key: "debug_base64_error",
+              value: JSON.stringify({ mediaType, status: b64Res.status, body: body.slice(0, 1000), msgKeys: messageToExtract?.message ? Object.keys(messageToExtract.message) : [], time: new Date().toISOString() }),
+              updated_at: new Date().toISOString(),
+            });
+          } catch {}
         } else {
           const b64Data = await b64Res.json().catch(() => null);
           console.log("[evo-webhook] respuesta getBase64", b64Data);
@@ -918,6 +921,13 @@ export async function POST(req: NextRequest) {
       }
     } catch (e: any) {
       console.error("[evo-webhook] Error fetching/uploading base64 media:", e.message);
+      try {
+        await supabase.from("sek_app_settings").upsert({
+          key: "debug_base64_error",
+          value: JSON.stringify({ mediaType, error: e.message, time: new Date().toISOString() }),
+          updated_at: new Date().toISOString(),
+        });
+      } catch {}
     }
   } else if (mediaType) {
     console.error("[evo-webhook] media detectada pero faltan envs EVO_URL/EVO_KEY/EVO_INSTANCE");
