@@ -1396,9 +1396,20 @@ Responde SOLO con JSON válido:
     
     // Si pedimos marca y el usuario responde sin números ni guiones, es solo la marca.
     if (botYaPidioMarca && !/[0-9\-]/.test(lastUserMsgContent)) {
-      marcaSupervisor = lastUserMsgContent.trim();
-      modeloSupervisor = ""; // Evitar que el LLM lo ponga como modelo
-      console.log(`[seka-whatsapp] Heurística fuerte: Asumiendo '${marcaSupervisor}' solo como MARCA.`);
+      const marcaCandidata = lastUserMsgContent.trim();
+      // Guard: no aceptar respuestas de evasión/relleno como si fueran marca.
+      const esRespuestaBasura = /^(no\s*s[eé]|no\s*se|no\s*lo\s*s[eé]|no\s*tengo|ninguna?|nada|si|s[ií]|no|ok|gracias|hola)$/i.test(marcaCandidata) || marcaCandidata.length < 2;
+      if (!esRespuestaBasura) {
+        marcaSupervisor = marcaCandidata;
+        modeloSupervisor = ""; // Evitar que el LLM lo ponga como modelo
+        console.log(`[seka-whatsapp] Heurística fuerte: Asumiendo '${marcaSupervisor}' solo como MARCA.`);
+        // PERSISTIR: guardar la marca en la BD para que no se pierda entre turnos.
+        const oldMarcaHeur = String((currentCliente as any).marca || "").trim();
+        if (!oldMarcaHeur || oldMarcaHeur === "(vacío)") {
+          updatedCliente.marca = marcaSupervisor;
+          clienteChanged = true;
+        }
+      }
     }
 
     // Temas que requieren etiqueta (Reset/Desvinculación/Firmware)
@@ -1420,6 +1431,23 @@ Responde SOLO con JSON válido:
       if (marcaSupervisor && !["CERRAR", "VENTAS", "ESCALAR_INMEDIATO", "BUSCAR_INVENTARIO", "PEDIR_ETIQUETA", "PEDIR_ETIQUETA_Y_XML"].includes(accion)) {
         accion = "BUSCAR_INVENTARIO";
         console.log(`[seka-whatsapp] Heurística fuerte: tema ${temaSupervisor} con marca+modelo → forzando BUSCAR_INVENTARIO para validar modelo.`);
+      }
+    }
+
+    // PERSISTENCIA GENERAL DEL MODELO: para CUALQUIER tema (no solo los de etiqueta),
+    // si el bot pidió el modelo y el cliente respondió algo válido, guardarlo en la BD.
+    // Evita perder el modelo entre turnos cuando el LLM no lo extrae.
+    if (botYaPidioModelo && temaSupervisor && temaSupervisor !== "Otro") {
+      const modeloCandidato = lastUserMsgContent.trim();
+      const esModeloBasura = /^(no\s*s[eé]|no\s*se|no\s*lo\s*s[eé]|no\s*tengo|ninguno?|nada|si|s[ií]|no|ok|gracias|hola)$/i.test(modeloCandidato) || modeloCandidato.length < 2 || (lastUserMsg && esMensajeDeMedia(lastUserMsg));
+      if (!esModeloBasura && !modeloSupervisor) {
+        const oldModeloHeur = String((currentCliente as any).modelo || "").trim();
+        if (!oldModeloHeur || oldModeloHeur === "(vacío)") {
+          modeloSupervisor = modeloCandidato;
+          updatedCliente.modelo = modeloCandidato;
+          clienteChanged = true;
+          console.log(`[seka-whatsapp] Persistencia general: modelo '${modeloCandidato}' guardado en BD.`);
+        }
       }
     }
 
