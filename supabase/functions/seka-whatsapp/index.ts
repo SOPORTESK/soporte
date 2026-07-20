@@ -1660,6 +1660,34 @@ Responde SOLO con JSON válido:
       }
     }
 
+    // GATE 0.5 — ANTI-RETROCESO GENERAL: nunca volver a pedir un dato ya completo.
+    // Si el Supervisor reclasifica mal a mitad del flujo (p. ej. devuelve PEDIR_CUENTA
+    // cuando la cuenta ya fue dada, típico al responder "Sí" a una confirmación de marca),
+    // avanzar al siguiente paso realmente faltante en vez de repetir la pregunta.
+    if (accion === "PEDIR_NOMBRE" || accion === "PEDIR_CORREO" || accion === "PEDIR_CUENTA") {
+      const nombreOk = !!updatedCliente.nombre;
+      const correoOk = correoRespondido || String(updatedCliente.correo || "").trim() !== "";
+      const cuentaOk = cuentaRespondida;
+      const pideDatoYaPresente =
+        (accion === "PEDIR_NOMBRE" && nombreOk) ||
+        (accion === "PEDIR_CORREO" && correoOk) ||
+        (accion === "PEDIR_CUENTA" && cuentaOk);
+      if (pideDatoYaPresente) {
+        let siguiente: string;
+        if (!nombreOk) siguiente = "PEDIR_NOMBRE";
+        else if (!correoOk) siguiente = "PEDIR_CORREO";
+        else if (!cuentaOk) siguiente = "PEDIR_CUENTA";
+        else if (!temaSupervisor) siguiente = "PEDIR_TEMA";
+        else if (temaSupervisor === "Otro") siguiente = "PEDIR_DESCRIPCION";
+        else if (!marcaSupervisor) siguiente = "PEDIR_MARCA";
+        else if (!modeloSupervisor) siguiente = "PEDIR_MODELO";
+        else siguiente = "BUSCAR_INVENTARIO";
+        console.log(`[seka-whatsapp] ANTI-RETROCESO: accion ${accion} pedía un dato ya presente → ${siguiente}`);
+        accion = siguiente;
+        supervisorResult.respuesta_sugerida = "";
+      }
+    }
+
     // GATE 1 — Lógica de cierre por insistencia en pedir la cuenta.
     if (accion === "PEDIR_CUENTA" && !isSinCuenta) {
       // Contar cuántas veces ya re-pedimos la cuenta (frase de reintento).
@@ -1834,9 +1862,11 @@ No agregues nada más.`,
         try {
           const xmlResponse = await fetch(xmlUrl!);
           const xmlText = await xmlResponse.text();
-          console.log("[seka-whatsapp] XML content (first 300):", xmlText.substring(0, 300));
-          // Verificar que el contenido sea XML: debe tener etiquetas XML o declaración <?xml
-          xmlValido = /^\s*<(\?xml|[a-zA-Z])/.test(xmlText.trim());
+          // Limpiar BOM (UTF-8/UTF-16), bytes nulos y caracteres de reemplazo
+          // que aparecen cuando el XML de Hikvision (SADP/SAPD) viene en UTF-16
+          const cleaned = xmlText.replace(/[\uFEFF\uFFFD\u0000]/g, "").trim();
+          console.log("[seka-whatsapp] XML content (first 300):", cleaned.substring(0, 300));
+          xmlValido = /^<(\?xml|[a-zA-Z])/.test(cleaned) || /<\?xml/i.test(cleaned) || /<[a-zA-Z][\w:-]*(\s|>|\/)/.test(cleaned);
           if (!xmlValido) motivoXml = "el archivo no parece ser un XML válido";
         } catch (e: any) {
           console.error("[seka-whatsapp] XML error:", e.message);
@@ -1970,6 +2000,10 @@ No agregues nada más.`,
           updatedCliente.marca = marcaSupervisor;
           clienteChanged = true;
           console.log(`[seka-whatsapp] Usuario confirmó marca: ${marcaSupervisor}`);
+          // Tras confirmar la marca, avanzar SIEMPRE al siguiente paso (modelo o búsqueda),
+          // ignorando cualquier acción hacia atrás que el Supervisor haya devuelto para "Sí".
+          accion = modeloSupervisor ? "BUSCAR_INVENTARIO" : "PEDIR_MODELO";
+          supervisorResult.respuesta_sugerida = "";
         }
       } else if (userNegó) {
         const directReply = "Comprendo. Le informamos que el dispositivo indicado no parece corresponder a un equipo distribuido por Sekunet, por lo que no podemos brindarle soporte técnico sobre este producto.\n\n¿Tiene alguna otra consulta relacionada con nuestras marcas o servicios? Con gusto le ayudaremos.";

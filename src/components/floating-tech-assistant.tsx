@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { MessageCircle, X, Send, Loader2, Minimize2, Maximize2, GripVertical, Paperclip, FileText, Image as ImageIcon, XCircle } from "lucide-react";
+import { MessageCircle, X, Send, Loader2, Minimize2, Maximize2, GripVertical, Paperclip, FileText, Image as ImageIcon, XCircle, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import ReactDraggable, { DraggableEvent, DraggableData } from "react-draggable";
 const Draggable = ReactDraggable as any;
@@ -198,6 +198,14 @@ export function FloatingTechAssistant() {
     setPanelPosition({ x: data.x, y: data.y });
   };
 
+  const startNewChat = () => {
+    setMessages([]);
+    setSessionId(null);
+    setPendingAttachment(null);
+    localStorage.removeItem("sek_tech_assistant_session");
+    inputRef.current?.focus();
+  };
+
   const startNewCaseChat = async () => {
     const params = new URLSearchParams(window.location.search);
     const c = params.get("c");
@@ -276,6 +284,18 @@ export function FloatingTechAssistant() {
               title="Iniciar nueva conversación con el caso abierto"
             >
               Caso
+            </button>
+          )}
+          {messages.length > 0 && (
+            <button
+              type="button"
+              onClick={startNewChat}
+              onMouseDown={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+              className="ml-1 p-1 rounded hover:bg-white/20 cursor-pointer"
+              title="Borrar conversación y empezar de cero"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
             </button>
           )}
         </div>
