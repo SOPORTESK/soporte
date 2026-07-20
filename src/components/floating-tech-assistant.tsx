@@ -152,26 +152,48 @@ export function FloatingTechAssistant() {
     }
   };
 
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    e.target.value = "";
+  const uploadFile = async (file: File) => {
     const MAX_FILE_SIZE = 10 * 1024 * 1024;
     if (file.size > MAX_FILE_SIZE) {
       toast.error("Archivo demasiado grande", { description: "El límite es 10 MB." });
       return;
     }
-    setPendingAttachment({ url: "", type: file.type, name: file.name, uploading: true });
+    const isImage = file.type.startsWith("image/");
+    const displayName = isImage && !file.name ? `imagen_${Date.now()}.png` : file.name || `archivo_${Date.now()}`;
+    setPendingAttachment({ url: "", type: file.type || "application/octet-stream", name: displayName, uploading: true });
     try {
       const supabase = (await import("@/lib/supabase/client")).createClient();
-      const path = `tech-assistant/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
-      const { data, error } = await supabase.storage.from("attachments").upload(path, file, { contentType: file.type });
+      const safeName = displayName.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const path = `tech-assistant/${Date.now()}_${safeName}`;
+      const { data, error } = await supabase.storage.from("attachments").upload(path, file, { contentType: file.type || "application/octet-stream" });
       if (error) throw error;
       const { data: urlData } = supabase.storage.from("attachments").getPublicUrl(data.path);
-      setPendingAttachment({ url: urlData.publicUrl, type: file.type, name: file.name, uploading: false });
+      setPendingAttachment({ url: urlData.publicUrl, type: file.type || "application/octet-stream", name: displayName, uploading: false });
     } catch (e: any) {
       toast.error("Error al subir archivo", { description: e?.message });
       setPendingAttachment(null);
+    }
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    await uploadFile(file);
+  };
+
+  const handlePaste = async (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.kind === "file") {
+        const file = item.getAsFile();
+        if (file) {
+          e.preventDefault();
+          await uploadFile(file);
+          return;
+        }
+      }
     }
   };
 
@@ -405,7 +427,8 @@ export function FloatingTechAssistant() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={pendingAttachment ? "Escriba una pregunta sobre el archivo..." : "Escriba su consulta..."}
+                onPaste={handlePaste}
+                placeholder={pendingAttachment ? "Escriba una pregunta sobre el archivo..." : "Escriba su consulta o pegue una imagen..."}
                 rows={1}
                 className="flex-1 resize-none rounded-xl border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/30 min-h-[40px] max-h-[120px]"
               />
