@@ -534,6 +534,28 @@ export async function POST(req: NextRequest) {
   let text = extractText(payload);
   console.log("[evo-webhook] Paso 2 OK - text:", text?.slice(0, 50));
 
+  // DEBUG: si no hay texto, guardar payload crudo para diagnosticar videos/media que no se detectan
+  if (!text) {
+    try {
+      const msgObjDbg = get(payload, "data.messages.0.message") || get(payload, "data.message") || get(payload, "message");
+      const msgKeys = msgObjDbg ? Object.keys(msgObjDbg) : [];
+      const debugEntry = {
+        event: payload?.event,
+        time: new Date().toISOString(),
+        msgKeys,
+        dataKeys: payload?.data ? Object.keys(payload.data) : [],
+        hasKey: !!payload?.data?.key,
+        hasMessage: !!payload?.data?.message,
+        messageType: payload?.data?.messageType || payload?.data?.messages?.[0]?.messageType,
+      };
+      await supabase.from("sek_app_settings").upsert({
+        key: "debug_last_notext",
+        value: JSON.stringify(debugEntry),
+        updated_at: new Date().toISOString(),
+      });
+    } catch {}
+  }
+
   // FILTRAR TYPOS: Ignorar mensajes que sean un solo carácter no alfanumérico (ej: "}", "{", "]", etc.)
   if (text && text.trim().length === 1 && !/^[a-zA-Z0-9áéíóúÁÉÍÓÚñÑ¿?¡!]$/.test(text.trim())) {
     console.log(`[evo-webhook] Ignorando mensaje por posible typo: "${text.trim()}"`);
