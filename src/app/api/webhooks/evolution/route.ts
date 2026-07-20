@@ -831,6 +831,13 @@ export async function POST(req: NextRequest) {
       const messageToExtract = rawData?.messages?.[0] || rawData;
       if (!messageToExtract || !messageToExtract.key || !messageToExtract.message) {
         console.error("[evo-webhook] payload.data no tiene key+message, no se puede extraer base64", { hasData: !!rawData, hasKey: !!messageToExtract?.key, hasMessage: !!messageToExtract?.message, dataKeys: rawData ? Object.keys(rawData) : [] });
+        try {
+          await supabase.from("sek_app_settings").upsert({
+            key: "debug_base64_error",
+            value: JSON.stringify({ mediaType, reason: "no key/message", hasData: !!rawData, hasKey: !!messageToExtract?.key, hasMessage: !!messageToExtract?.message, dataKeys: rawData ? Object.keys(rawData) : [], msgKeys: messageToExtract ? Object.keys(messageToExtract) : [], time: new Date().toISOString() }),
+            updated_at: new Date().toISOString(),
+          });
+        } catch {}
         // No salir — continuar para guardar el mensaje aunque sin mediaUrl
       } else {
         console.log("[evo-webhook] solicitando base64 a Evolution", { mediaType, hasKey: !!messageToExtract.key, hasMessage: !!messageToExtract.message });
