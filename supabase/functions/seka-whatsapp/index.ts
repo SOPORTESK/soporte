@@ -1350,6 +1350,17 @@ Responde SOLO con JSON válido:
       // Solo usar tema del supervisor si ya pasamos el menú (temaPersistido o temaMenu ya verificados arriba)
       // No hacer nada — temaSupervisor queda vacío para forzar PEDIR_TEMA
     }
+    // CAPA 1 — PERSISTIR TEMA: si el cliente eligió un tema del menú (temaMenu),
+    // guardarlo en la BD para que no dependa del recálculo en cada turno. Esto evita
+    // que el flujo vuelva al menú de temas cuando el LLM o la detección fallan.
+    if (temaMenu && temaMenu !== "Consulta") {
+      const temaBD = String((currentCliente as any).tema || "").trim();
+      if (!temaBD || temaBD === "(vacío)") {
+        updatedCliente.tema = temaMenu;
+        clienteChanged = true;
+        console.log(`[seka-whatsapp] Tema persistido en BD: ${temaMenu}`);
+      }
+    }
 
     // ── GESTIÓN DE NUEVA CONSULTA (Si el bot rechazó equipo y el usuario dice Sí) ──
     const lastIAContentTop = iaRealMsgs[iaRealMsgs.length - 1]?.content || "";
@@ -1648,6 +1659,22 @@ Responde SOLO con JSON válido:
         console.log("[seka-whatsapp] Datos completos → mostrando lista de temas (tema persistido o inferido ignorado).");
         accion = "PEDIR_TEMA";
       }
+    }
+
+    // GATE 2.5 — RED DE SEGURIDAD: si el LLM pide el tema pero el cliente YA lo eligió,
+    // NO repetir el menú. Avanzar al siguiente dato faltante (marca/modelo/descripción).
+    // Esto evita que el flujo retroceda cuando el LLM se equivoca de acción.
+    if (accion === "PEDIR_TEMA" && temaSupervisor) {
+      if (temaSupervisor === "Otro") {
+        accion = "PEDIR_DESCRIPCION";
+      } else if (!marcaSupervisor) {
+        accion = "PEDIR_MARCA";
+      } else if (!modeloSupervisor) {
+        accion = "PEDIR_MODELO";
+      } else {
+        accion = "BUSCAR_INVENTARIO";
+      }
+      console.log(`[seka-whatsapp] GATE 2.5: LLM pidió tema pero ya está elegido (${temaSupervisor}) → corrigiendo a ${accion}`);
     }
 
     // ── PASO RESET-4: verificar archivos según marca (se mantiene la lógica de seguridad) ──
