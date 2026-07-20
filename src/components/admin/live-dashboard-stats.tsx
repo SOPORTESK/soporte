@@ -65,7 +65,8 @@ export function LiveDashboardStats({ initial }: { initial: InitialData }) {
     totalCasos: initial.totalCasos,
     casosRecientes: initial.casosRecientes,
   });
-  const [lastUpdate, setLastUpdate] = React.useState<Date>(new Date());
+  const [lastUpdate, setLastUpdate] = React.useState<Date | null>(null);
+  const [mounted, setMounted] = React.useState(false);
   const mountedRef = React.useRef(true);
 
   async function fetchStats() {
@@ -101,6 +102,8 @@ export function LiveDashboardStats({ initial }: { initial: InitialData }) {
 
   React.useEffect(() => {
     mountedRef.current = true;
+    setMounted(true);
+    setLastUpdate(new Date());
 
     // Polling cada 15 segundos
     const interval = setInterval(fetchStats, 15000);
@@ -156,7 +159,7 @@ export function LiveDashboardStats({ initial }: { initial: InitialData }) {
       <div className="flex items-center justify-end gap-2 -mb-2">
         <span className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-600">
           <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-          EN TIEMPO REAL · actualizado {lastUpdate.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+          EN TIEMPO REAL{mounted && lastUpdate ? ` · actualizado ${lastUpdate.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : ""}
         </span>
       </div>
 
