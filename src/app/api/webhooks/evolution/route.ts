@@ -493,6 +493,18 @@ function extractText(payload: any): string | null {
     "data.messages.0.message.ephemeralMessage.message.extendedTextMessage.text",
     "data.messages.0.message.ephemeralMessage.message.imageMessage.caption",
     "data.messages.0.message.ephemeralMessage.message.videoMessage.caption",
+    // ptvMessage (video note / "videito circular")
+    "data.messages.0.message.ptvMessage.caption",
+    "message.ptvMessage.caption",
+    "data.message.ptvMessage.caption",
+    // viewOnceMessage with video
+    "data.messages.0.message.viewOnceMessage.message.videoMessage.caption",
+    "message.viewOnceMessage.message.videoMessage.caption",
+    "data.message.viewOnceMessage.message.videoMessage.caption",
+    // documentWithCaptionMessage (video sent as document with caption)
+    "data.messages.0.message.documentWithCaptionMessage.message.caption",
+    "message.documentWithCaptionMessage.message.caption",
+    "data.message.documentWithCaptionMessage.message.caption",
   ];
   for (const f of fields) {
     const v = get(payload, f);
@@ -543,7 +555,9 @@ export async function POST(req: NextRequest) {
   console.log("[evo-webhook] Paso 4 OK - phone:", phone);
 
   const msgObj = get(payload, "data.messages.0.message") || get(payload, "data.message") || get(payload, "message");
-  const dupMediaUrl = msgObj?.imageMessage?.url || msgObj?.videoMessage?.url || msgObj?.documentMessage?.url;
+  // Unwrap ephemeral/viewOnce wrappers to get the real media object
+  const unwrappedMsgObj = msgObj?.ephemeralMessage?.message || msgObj?.viewOnceMessage?.message || msgObj?.documentWithCaptionMessage?.message || msgObj;
+  const dupMediaUrl = msgObj?.imageMessage?.url || msgObj?.videoMessage?.url || msgObj?.ptvMessage?.url || unwrappedMsgObj?.videoMessage?.url || msgObj?.documentMessage?.url;
   
   console.log("[evo-webhook] Paso 5: verificar duplicado...");
   if (isDuplicateMessage(jid, text, dupMediaUrl)) {
@@ -669,8 +683,27 @@ export async function POST(req: NextRequest) {
     if (msgObj.audioMessage) mediaType = "audio";
     else if (msgObj.imageMessage) mediaType = "image";
     else if (msgObj.videoMessage) mediaType = "video";
+    else if (msgObj.ptvMessage) mediaType = "video"; // video note ("videito circular")
+    else if (msgObj.viewOnceMessage?.message?.videoMessage) mediaType = "video";
+    else if (msgObj.viewOnceMessage?.message?.imageMessage) mediaType = "image";
+    else if (msgObj.ephemeralMessage?.message?.videoMessage) mediaType = "video";
+    else if (msgObj.ephemeralMessage?.message?.imageMessage) mediaType = "image";
+    else if (msgObj.ephemeralMessage?.message?.audioMessage) mediaType = "audio";
+    else if (msgObj.documentWithCaptionMessage?.message) {
+      // Document with caption — could be video, image, or other
+      const docMsg = msgObj.documentWithCaptionMessage.message;
+      if (docMsg.mimetype?.startsWith("video/")) mediaType = "video";
+      else if (docMsg.mimetype?.startsWith("image/")) mediaType = "image";
+      else if (docMsg.mimetype?.startsWith("audio/")) mediaType = "audio";
+      else mediaType = "document";
+      originalFileName = docMsg.fileName || docMsg.title || "";
+    }
     else if (msgObj.documentMessage) {
-      mediaType = "document";
+      const docMime = msgObj.documentMessage.mimetype || "";
+      if (docMime.startsWith("video/")) mediaType = "video";
+      else if (docMime.startsWith("image/")) mediaType = "image";
+      else if (docMime.startsWith("audio/")) mediaType = "audio";
+      else mediaType = "document";
       originalFileName = msgObj.documentMessage.fileName || msgObj.documentMessage.title || "";
     }
     else if (msgObj.stickerMessage) mediaType = "sticker";
