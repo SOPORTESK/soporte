@@ -457,7 +457,7 @@ async function processTags(text: string, caseId: string): Promise<string> {
 const WELCOME_TEXTS = [
   "Reciba un cordial saludo de parte del equipo de Soporte Sekunet. Gracias por contactarnos.",
   "Soy el Asistente Virtual de Sekunet. Para brindarle una mejor asistencia, necesitamos algunos datos para registrar su consulta.",
-  "Estimado cliente:\n\nLe informamos que esta conversación podrá ser finalizada o cerrada tras 5 minutos de inactividad.\n\nAgradecemos su atención.",
+  "Estimado cliente:\n\nLe informamos que esta conversación podrá ser finalizada o cerrada tras 10 minutos de inactividad.\n\nAgradecemos su atención.",
   "Para comenzar, ¿me podría indicar su nombre completo?",
   "¿En relación con qué tema sería su consulta?",
   `¿En relación con qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Licencias\n7. Otro\n\nResponda con el número o el nombre del tema.`
@@ -806,7 +806,7 @@ Deno.serve(async (req: Request) => {
     const WELCOME_TEXTS_CHECK = [
       "Reciba un cordial saludo de parte del equipo de Soporte Sekunet. Gracias por contactarnos.",
       "Soy el Asistente Virtual de Sekunet. Para brindarle una mejor asistencia, necesitamos algunos datos para registrar su consulta.",
-      "Estimado cliente:\n\nLe informamos que esta conversación podrá ser finalizada o cerrada tras 5 minutos de inactividad.\n\nAgradecemos su atención.",
+      "Estimado cliente:\n\nLe informamos que esta conversación podrá ser finalizada o cerrada tras 10 minutos de inactividad.\n\nAgradecemos su atención.",
       "Para comenzar, ¿me podría indicar su nombre completo?",
       "¿En relación con qué tema sería su consulta?",
       `¿En relación con qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Licencias\n7. Otro\n\nResponda con el número o el nombre del tema.`
@@ -876,7 +876,7 @@ Deno.serve(async (req: Request) => {
       }
       const directReply = "Reciba un cordial saludo de parte del equipo de Soporte Sekunet. Gracias por contactarnos.";
       const msg1 = "Soy el Asistente Virtual de Sekunet. Para brindarle una mejor asistencia, necesitamos algunos datos para registrar su consulta.";
-      const msgAutoclose = "Estimado cliente:\n\nLe informamos que esta conversación podrá ser finalizada o cerrada tras 5 minutos de inactividad.\n\nAgradecemos su atención.";
+      const msgAutoclose = "Estimado cliente:\n\nLe informamos que esta conversación podrá ser finalizada o cerrada tras 10 minutos de inactividad.\n\nAgradecemos su atención.";
       const msg2 = "Para comenzar, ¿me podría indicar su nombre completo?";
       const newMsgs: HistMsg[] = [
         { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply },

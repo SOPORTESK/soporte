@@ -3,8 +3,8 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
-const INACTIVITY_MINUTES_DEFAULT = 5;   // canales humanos (whatsapp, etc.)
-const INACTIVITY_MINUTES_IA = 5;        // widget atendido por IA — mismo umbral que manual
+const INACTIVITY_MINUTES_DEFAULT = 10;   // canales humanos (whatsapp, etc.)
+const INACTIVITY_MINUTES_IA = 10;        // widget atendido por IA — mismo umbral que manual
 const CLOSE_MSG = "Al no haber recibido respuesta, procederemos a cerrar esta conversación. Si necesita asistencia adicional, puede contactarnos nuevamente y con gusto le atenderemos. ¡Que tenga un excelente día!";
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
@@ -228,11 +228,11 @@ Deno.serve(async (req) => {
     // Si el cliente escribió DESPUÉS del agente (o al mismo tiempo), el cliente espera → NO cerrar
     if (lastClientTime > lastAgentTime) continue;
 
-    // Umbral unificado a 5 min para todos los casos.
+    // Umbral unificado a 10 min para todos los casos.
     const isIA = caso.estado === "ia_atendiendo";
     const threshold = (isIA ? INACTIVITY_MINUTES_IA : INACTIVITY_MINUTES_DEFAULT) * 60 * 1000;
 
-    // Cerrar si pasaron más de 5 min desde la última respuesta del agente sin que el cliente conteste
+    // Cerrar si pasaron más de 10 min desde la última respuesta del agente sin que el cliente conteste
     const elapsed = now - lastAgentTime;
     if (elapsed < threshold) continue;
 
