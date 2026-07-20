@@ -99,7 +99,7 @@ export function CloseStaleCases({ hoursThreshold = 2 }: { hoursThreshold?: numbe
           </div>
           <div>
             <h3 className="text-sm font-black">Casos Abiertos Prolongados</h3>
-            <p className="text-[10px] text-muted-foreground">Abiertos hace m&aacute;s de {hoursThreshold}h</p>
+            <p className="text-[10px] text-muted-foreground">Abiertos hace m&aacute;s de {hoursThreshold < 1 ? `${Math.round(hoursThreshold * 60)} min` : `${hoursThreshold}h`}</p>
           </div>
         </div>
         <button
@@ -151,7 +151,7 @@ export function CloseStaleCases({ hoursThreshold = 2 }: { hoursThreshold?: numbe
       )}
 
       {showPanel && staleCases.length === 0 && (
-        <p className="text-xs text-muted-foreground text-center py-6">No hay casos abiertos hace m&aacute;s de {hoursThreshold}h.</p>
+        <p className="text-xs text-muted-foreground text-center py-6">No hay casos abiertos hace m&aacute;s de {hoursThreshold < 1 ? `${Math.round(hoursThreshold * 60)} min` : `${hoursThreshold}h`}.</p>
       )}
     </div>
   );

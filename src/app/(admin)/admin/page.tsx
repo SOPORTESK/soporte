@@ -3,11 +3,11 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
   Users, Package, BookOpen, MessageCircle,
-  TrendingUp, Activity, Bot, Settings, ChevronRight,
-  ShieldAlert, Clock, Star, CheckCircle, AlertCircle,
-  Zap, BarChart3, ArrowUpRight, Circle, Brain, Shield
+  TrendingUp, Bot, Settings, ChevronRight,
+  ShieldAlert, BarChart3, Shield
 } from "lucide-react";
 import { CloseStaleCases } from "@/components/admin/close-stale-cases";
+import { LiveDashboardStats } from "@/components/admin/live-dashboard-stats";
 
 export const dynamic = "force-dynamic";
 
@@ -107,21 +107,6 @@ export default async function AdminDashboardPage() {
 
   const now = new Date().toLocaleString("es-CR", { timeZone: "America/Costa_Rica", dateStyle: "long", timeStyle: "short" });
 
-  // ── Estado por color ───────────────────────────────────────────────────────
-  function estadoColor(e: string) {
-    if (e === "resuelto" || e === "cerrado") return "bg-emerald-500";
-    if (e === "escalado") return "bg-amber-500";
-    if (e === "ia_atendiendo") return "bg-violet-500";
-    return "bg-sky-500";
-  }
-  function estadoLabel(e: string) {
-    const map: Record<string, string> = {
-      resuelto: "Resuelto", cerrado: "Cerrado", escalado: "Escalado",
-      ia_atendiendo: "IA", abierto: "Abierto", pendiente: "Pendiente"
-    };
-    return map[e] ?? e;
-  }
-
   return (
     <div className="p-6 lg:p-8 max-w-[1400px] mx-auto space-y-8">
 
@@ -143,263 +128,31 @@ export default async function AdminDashboardPage() {
         </div>
       </header>
 
-      {/* ── KPIs PRINCIPALES — fila 1 ──────────────────────────────────────── */}
-      <section className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-        {[
-          {
-            label: "Casos abiertos", value: (casosAbiertos ?? 0).toString(),
-            sub: `${casosEscalados ?? 0} escalados`, icon: AlertCircle,
-            color: "text-amber-500", ring: "ring-amber-500/20", bg: "bg-amber-500/10",
-            href: "/inbox"
-          },
-          {
-            label: "Tasa resolución", value: `${tasaResolucion}%`,
-            sub: `${totalResueltos} de ${totalCasosN} casos`, icon: CheckCircle,
-            color: "text-emerald-500", ring: "ring-emerald-500/20", bg: "bg-emerald-500/10",
-            href: "/admin/estadisticas/atencion"
-          },
-          {
-            label: "SLA promedio", value: avgSla > 0 ? `${avgSla} min` : "—",
-            sub: "tiempo de resolución", icon: Clock,
-            color: "text-sky-500", ring: "ring-sky-500/20", bg: "bg-sky-500/10",
-            href: "/admin/estadisticas/atencion"
-          },
-          {
-            label: "Satisfacción", value: avgSat ? `${avgSat} / 5` : "—",
-            sub: cals.length > 0 ? `${cals.length} calificaciones de clientes` : "Sin calificaciones aún", icon: Star,
-            color: "text-amber-400", ring: "ring-amber-400/20", bg: "bg-amber-400/10",
-            href: "/admin/estadisticas/atencion"
-          },
-        ].map((k) => (
-          <Link key={k.label} href={k.href}
-            className={`group relative rounded-2xl border border-border bg-card p-5 hover:shadow-2xl hover:-translate-y-1 transition-all ring-1 ${k.ring} overflow-hidden`}>
-            <div className={`absolute -top-6 -right-6 h-24 w-24 rounded-full ${k.bg} blur-2xl`} />
-            <div className="relative">
-              <div className={`inline-flex items-center justify-center h-9 w-9 rounded-xl ${k.bg} ${k.color} mb-3`}>
-                <k.icon className="h-4 w-4" />
-              </div>
-              <p className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">{k.label}</p>
-              <p className={`text-3xl font-black mt-1 tracking-tight ${k.color}`}>{k.value}</p>
-              <p className="text-xs text-muted-foreground mt-1">{k.sub}</p>
-              <ArrowUpRight className="absolute top-0 right-0 h-3.5 w-3.5 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors" />
-            </div>
-          </Link>
-        ))}
-      </section>
-
-      {/* ── FILA 2: Volumen + Actividad reciente ───────────────────────────── */}
-      <div className="grid gap-6 lg:grid-cols-3">
-
-        {/* Volumen del sistema */}
-        <div className="rounded-2xl border border-border bg-card p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="font-bold text-sm uppercase tracking-wider text-muted-foreground">Volumen del sistema</h2>
-            <Activity className="h-4 w-4 text-muted-foreground" />
-          </div>
-          {[
-            { label: "Total casos", value: totalCasosN, max: Math.max(totalCasosN, 1), color: "bg-brand-500" },
-            { label: "Casos últimos 7 días", value: casosUltSemana, max: Math.max(casosUltSemana, 1), color: "bg-violet-500" },
-            { label: "Equipos en inventario", value: totalInventario ?? 0, max: Math.max(totalInventario ?? 0, 1), color: "bg-teal-500" },
-            { label: "Manuales cargados", value: totalDocs ?? 0, max: Math.max(totalDocs ?? 0, 1), color: "bg-sky-500" },
-          ].map(item => (
-            <div key={item.label} className="space-y-1.5">
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">{item.label}</span>
-                <span className="font-bold tabular-nums">{item.value.toLocaleString()}</span>
-              </div>
-              <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
-                <div className={`h-full ${item.color} rounded-full transition-all`}
-                  style={{ width: `${Math.min((item.value / item.max) * 100, 100)}%` }} />
-              </div>
-            </div>
-          ))}
-
-          <div className="pt-2 border-t border-border grid grid-cols-2 gap-3">
-            {[
-              { label: "Agentes", value: totalAgentes ?? 0, icon: Users, href: "/admin/equipo" },
-              { label: "Canales", value: totalCanales ?? 0, icon: MessageCircle, href: "/admin/canales" },
-            ].map(s => (
-              <Link key={s.label} href={s.href}
-                className="flex items-center gap-2 p-3 rounded-xl bg-muted/50 hover:bg-muted transition-colors group">
-                <s.icon className="h-4 w-4 text-muted-foreground group-hover:text-brand-500 transition-colors" />
-                <div>
-                  <p className="text-xs text-muted-foreground">{s.label}</p>
-                  <p className="text-lg font-bold">{s.value}</p>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </div>
-
-        {/* Actividad reciente */}
-        <div className="lg:col-span-2 rounded-2xl border border-border bg-card overflow-hidden">
-          <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-            <div>
-              <h2 className="font-bold text-sm uppercase tracking-wider text-muted-foreground">Actividad reciente</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">{casosUltSemana} casos en los últimos 7 días</p>
-            </div>
-            <Link href="/inbox" className="text-xs text-brand-600 hover:text-brand-700 font-semibold flex items-center gap-1">
-              Ver todos <ChevronRight className="h-3 w-3" />
-            </Link>
-          </div>
-          <div className="divide-y divide-border">
-            {casosRecientes && casosRecientes.length > 0 ? casosRecientes.map((c) => (
-              <div key={c.id} className="flex items-center gap-3 px-6 py-3 hover:bg-muted/30 transition-colors">
-                <Circle className={`h-2 w-2 shrink-0 ${estadoColor(c.estado)} rounded-full`} />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{c.title || "Caso sin título"}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {c.canal && <span className="uppercase">{c.canal} · </span>}
-                    {c.assigned_to ? agenteMap[c.assigned_to] || c.assigned_to : "Sin asignar"}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                    c.estado === "resuelto" || c.estado === "cerrado" ? "bg-emerald-500/10 text-emerald-600" :
-                    c.estado === "escalado" ? "bg-amber-500/10 text-amber-600" :
-                    c.estado === "ia_atendiendo" ? "bg-violet-500/10 text-violet-600" :
-                    "bg-sky-500/10 text-sky-600"
-                  }`}>{estadoLabel(c.estado)}</span>
-                  <span className="text-[10px] text-muted-foreground tabular-nums">
-                    {new Date(c.created_at).toLocaleDateString("es-CR", { day: "2-digit", month: "short" })}
-                  </span>
-                </div>
-              </div>
-            )) : (
-              <div className="p-12 text-center text-sm text-muted-foreground">Sin actividad registrada</div>
-            )}
-          </div>
-        </div>
-      </div>
+      <LiveDashboardStats initial={{
+        casosAbiertos: casosAbiertos ?? 0,
+        casosEscalados: casosEscalados ?? 0,
+        casosIa: casosIa ?? 0,
+        totalCasos: totalCasosN,
+        casosRecientes: (casosRecientes as any[]) ?? [],
+        totalResueltos,
+        tasaResolucion,
+        avgSla,
+        avgSat: avgSat as string | null,
+        calsCount: cals.length,
+        casosUltSemana,
+        totalAgentes: totalAgentes ?? 0,
+        totalInventario: totalInventario ?? 0,
+        totalDocs: totalDocs ?? 0,
+        totalCanales: totalCanales ?? 0,
+        promptLen,
+        agentes: agentes ?? [],
+        allCasos: allCasos ?? [],
+      }} />
 
       {/* ── FILA 2.5: Cerrar casos abiertos prolongados ──────────────── */}
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-1">
-          <CloseStaleCases hoursThreshold={2} />
-        </div>
-      </div>
-
-      {/* ── FILA 3: Estado IA + Métricas rápidas de agentes ──────────────── */}
-      <div className="grid gap-6 lg:grid-cols-3">
-
-        {/* Estado del Asistente Virtual */}
-        <div className="rounded-2xl border border-border bg-card p-6 relative overflow-hidden">
-          <div className="absolute -bottom-8 -right-8 h-32 w-32 rounded-full bg-violet-500/5 blur-3xl" />
-          <div className="relative">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-bold text-sm uppercase tracking-wider text-muted-foreground">Estado Asistente Virtual</h2>
-              <span className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-600 bg-emerald-500/10 px-2 py-1 rounded-full">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" /> EN LÍNEA
-              </span>
-            </div>
-            <div className="flex items-center gap-3 mb-6">
-              <div className="h-12 w-12 rounded-2xl bg-violet-500/10 text-violet-500 grid place-items-center">
-                <Brain className="h-6 w-6" />
-              </div>
-              <div>
-                <p className="font-bold">Gemini 3.1 Flash-Lite</p>
-                <p className="text-xs text-muted-foreground">Google AI · 1,500 RPD</p>
-              </div>
-            </div>
-            <div className="space-y-3">
-              {[
-                { label: "Casos activos IA", value: (casosIa ?? 0).toString(), color: "text-violet-500" },
-                { label: "Escalados a N2", value: (casosEscalados ?? 0).toString(), color: "text-amber-500" },
-                { label: "Prompt (chars)", value: promptLen.toLocaleString(), color: "text-brand-500" },
-              ].map(item => (
-                <div key={item.label} className="flex items-center justify-between py-2 border-b border-border last:border-0">
-                  <span className="text-xs text-muted-foreground">{item.label}</span>
-                  <span className={`text-sm font-bold tabular-nums ${item.color}`}>{item.value}</span>
-                </div>
-              ))}
-            </div>
-            <Link href="/admin/agente-ia"
-              className="mt-4 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-violet-500/10 text-violet-600 text-sm font-semibold hover:bg-violet-500/20 transition-colors">
-              <Zap className="h-4 w-4" /> Gestionar Asistente Virtual
-            </Link>
-          </div>
-        </div>
-
-        {/* Ranking de agentes */}
-        <div className="lg:col-span-2 rounded-2xl border border-border bg-card overflow-hidden">
-          <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-            <h2 className="font-bold text-sm uppercase tracking-wider text-muted-foreground">Desempeño de agentes</h2>
-            <Link href="/admin/estadisticas/atencion" className="text-xs text-brand-600 hover:text-brand-700 font-semibold flex items-center gap-1">
-              Detalle <ChevronRight className="h-3 w-3" />
-            </Link>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border bg-muted/30">
-                  <th className="px-6 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Agente</th>
-                  <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Rol</th>
-                  <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Casos</th>
-                  <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Resueltos</th>
-                  <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Cal. cliente</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {(() => {
-                  const perAgent: Record<string, { nombre: string; rol: string; total: number; resueltos: number; cals: number[] }> = {};
-                  agentes?.forEach(a => {
-                    perAgent[a.email] = { nombre: agenteMap[a.email] || a.email, rol: a.rol, total: 0, resueltos: 0, cals: [] };
-                  });
-                  allCasos?.forEach(c => {
-                    if (!c.assigned_to || !perAgent[c.assigned_to]) return;
-                    perAgent[c.assigned_to].total++;
-                    if (c.estado === "resuelto" || c.estado === "cerrado" || (c as any).closed_at) perAgent[c.assigned_to].resueltos++;
-                    const cl = typeof c.cliente === "object" && c.cliente ? c.cliente as any : null;
-                    if (cl?.calificacion_cliente) perAgent[c.assigned_to].cals.push(Number(cl.calificacion_cliente));
-                  });
-                  const rows = Object.values(perAgent).sort((a, b) => b.resueltos - a.resueltos);
-                  if (rows.length === 0) return (
-                    <tr><td colSpan={5} className="py-10 text-center text-sm text-muted-foreground">Sin datos de agentes</td></tr>
-                  );
-                  return rows.map((a, i) => {
-                    const avgC = a.cals.length > 0 ? (a.cals.reduce((x, y) => x + y, 0) / a.cals.length).toFixed(1) : "—";
-                    const tasa = a.total > 0 ? Math.round((a.resueltos / a.total) * 100) : 0;
-                    return (
-                      <tr key={i} className="hover:bg-muted/30 transition-colors">
-                        <td className="px-6 py-3">
-                          <div className="flex items-center gap-2.5">
-                            <div className="h-8 w-8 rounded-full bg-gradient-to-br from-brand-500 to-brand-700 text-white text-xs font-bold grid place-items-center shrink-0">
-                              {a.nombre.charAt(0).toUpperCase()}
-                            </div>
-                            <div>
-                              <p className="font-semibold text-sm leading-tight">{a.nombre}</p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                            a.rol === "superadmin" ? "bg-brand-500/10 text-brand-600" :
-                            a.rol === "admin" ? "bg-violet-500/10 text-violet-600" :
-                            "bg-muted text-muted-foreground"
-                          }`}>{a.rol}</span>
-                        </td>
-                        <td className="px-4 py-3 text-center font-bold tabular-nums">{a.total}</td>
-                        <td className="px-4 py-3 text-center">
-                          <div className="flex flex-col items-center gap-1">
-                            <span className="font-bold text-emerald-600 tabular-nums">{a.resueltos}</span>
-                            <div className="h-1 w-12 bg-muted rounded-full overflow-hidden">
-                              <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${tasa}%` }} />
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          <div className="flex items-center justify-center gap-1">
-                            {avgC !== "—" && <Star className="h-3 w-3 text-amber-400 fill-amber-400" />}
-                            <span className="font-bold text-sm">{avgC}</span>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  });
-                })()}
-              </tbody>
-            </table>
-          </div>
+          <CloseStaleCases hoursThreshold={0.5} />
         </div>
       </div>
 
