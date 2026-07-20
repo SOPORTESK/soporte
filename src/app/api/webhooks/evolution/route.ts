@@ -824,92 +824,95 @@ export async function POST(req: NextRequest) {
 
   if (mediaType && EVO_URL && EVO_KEY && EVO_INSTANCE) {
     try {
-      // Evolution manda el mensaje completo en payload.data (con key + message)
-      // payload.data YA tiene la estructura { key, pushName, message, messageType, ... }
-      const messageToExtract = payload?.data;
+      // Evolution manda el mensaje en payload.data, pero puede venir en dos formatos:
+      // 1. Directo: { key, message, ... }
+      // 2. messages.upsert: { messages: [{ key, message, ... }] }
+      const rawData = payload?.data;
+      const messageToExtract = rawData?.messages?.[0] || rawData;
       if (!messageToExtract || !messageToExtract.key || !messageToExtract.message) {
-        console.error("[evo-webhook] payload.data no tiene key+message, no se puede extraer base64", { hasData: !!payload?.data, hasKey: !!messageToExtract?.key, hasMessage: !!messageToExtract?.message });
-        return NextResponse.json({ ok: true }); // salir sin llamar a Evolution para evitar 400
-      }
-      console.log("[evo-webhook] solicitando base64 a Evolution", { mediaType, hasKey: !!messageToExtract.key, hasMessage: !!messageToExtract.message });
-      const b64Res = await fetch(`${EVO_URL.replace(/\/$/, "")}/chat/getBase64FromMediaMessage/${encodeURIComponent(EVO_INSTANCE)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", apikey: EVO_KEY },
-        body: JSON.stringify({ message: messageToExtract })
-      });
-      if (!b64Res.ok) {
-        const body = await b64Res.text().catch(() => "<no-body>");
-        console.error("[evo-webhook] getBase64FromMediaMessage NO OK", b64Res.status, body.slice(0, 500));
-        if (messageToExtract) {
-          try {
-            console.error("[evo-webhook] mensaje enviado a getBase64", JSON.stringify(messageToExtract).slice(0, 2000));
-          } catch {}
-        }
+        console.error("[evo-webhook] payload.data no tiene key+message, no se puede extraer base64", { hasData: !!rawData, hasKey: !!messageToExtract?.key, hasMessage: !!messageToExtract?.message, dataKeys: rawData ? Object.keys(rawData) : [] });
+        // No salir — continuar para guardar el mensaje aunque sin mediaUrl
       } else {
-        const b64Data = await b64Res.json().catch(() => null);
-        console.log("[evo-webhook] respuesta getBase64", b64Data);
-        const base64 = b64Data?.base64;
-        if (!base64) {
-          console.error("[evo-webhook] getBase64FromMediaMessage sin base64 en respuesta", b64Data);
+        console.log("[evo-webhook] solicitando base64 a Evolution", { mediaType, hasKey: !!messageToExtract.key, hasMessage: !!messageToExtract.message });
+        const b64Res = await fetch(`${EVO_URL.replace(/\/$/, "")}/chat/getBase64FromMediaMessage/${encodeURIComponent(EVO_INSTANCE)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", apikey: EVO_KEY },
+          body: JSON.stringify({ message: messageToExtract })
+        });
+        if (!b64Res.ok) {
+          const body = await b64Res.text().catch(() => "<no-body>");
+          console.error("[evo-webhook] getBase64FromMediaMessage NO OK", b64Res.status, body.slice(0, 500));
           if (messageToExtract) {
             try {
               console.error("[evo-webhook] mensaje enviado a getBase64", JSON.stringify(messageToExtract).slice(0, 2000));
             } catch {}
           }
-        }
-        if (base64) {
-          let dataStr = "";
-          let mime = b64Data?.mimetype || "application/octet-stream";
-          let ext = mime.split("/")[1]?.split(";")[0] || "bin";
-
-          if (base64.includes(",")) {
-            const [prefix, rest] = base64.split(",");
-            dataStr = rest || "";
-            if (!b64Data?.mimetype) {
-              mime = prefix.split(":")[1]?.split(";")[0] || "application/octet-stream";
-              ext = mime.split("/")[1]?.split(";")[0] || "bin";
-            }
-          } else {
-            // Base64 sin cabecera
-            dataStr = base64;
-            if (!b64Data?.mimetype) {
-              if (mediaType === "sticker") { mime = "image/webp"; ext = "webp"; }
-              else if (mediaType === "image") { mime = "image/jpeg"; ext = "jpg"; }
-              else if (mediaType === "video") { mime = "video/mp4"; ext = "mp4"; }
-              else if (mediaType === "audio") { mime = "audio/ogg"; ext = "ogg"; }
-              else if (mediaType === "document") { mime = "application/pdf"; ext = "pdf"; }
-              else { mime = "application/octet-stream"; ext = "bin"; }
+        } else {
+          const b64Data = await b64Res.json().catch(() => null);
+          console.log("[evo-webhook] respuesta getBase64", b64Data);
+          const base64 = b64Data?.base64;
+          if (!base64) {
+            console.error("[evo-webhook] getBase64FromMediaMessage sin base64 en respuesta", b64Data);
+            if (messageToExtract) {
+              try {
+                console.error("[evo-webhook] mensaje enviado a getBase64", JSON.stringify(messageToExtract).slice(0, 2000));
+              } catch {}
             }
           }
+          if (base64) {
+            let dataStr = "";
+            let mime = b64Data?.mimetype || "application/octet-stream";
+            let ext = mime.split("/")[1]?.split(";")[0] || "bin";
 
-          // Limpiado el bloque de xml quemado, ahora usamos inferMimeFromExt
-          console.log("[evo-webhook] base64 recibido", { mime, base64Length: base64.length });
+            if (base64.includes(",")) {
+              const [prefix, rest] = base64.split(",");
+              dataStr = rest || "";
+              if (!b64Data?.mimetype) {
+                mime = prefix.split(":")[1]?.split(";")[0] || "application/octet-stream";
+                ext = mime.split("/")[1]?.split(";")[0] || "bin";
+              }
+            } else {
+              // Base64 sin cabecera
+              dataStr = base64;
+              if (!b64Data?.mimetype) {
+                if (mediaType === "sticker") { mime = "image/webp"; ext = "webp"; }
+                else if (mediaType === "image") { mime = "image/jpeg"; ext = "jpg"; }
+                else if (mediaType === "video") { mime = "video/mp4"; ext = "mp4"; }
+                else if (mediaType === "audio") { mime = "audio/ogg"; ext = "ogg"; }
+                else if (mediaType === "document") { mime = "application/pdf"; ext = "pdf"; }
+                else { mime = "application/octet-stream"; ext = "bin"; }
+              }
+            }
 
-          let finalExt = ext;
-          if (originalFileName && originalFileName.includes(".")) {
-             finalExt = originalFileName.split(".").pop() || ext;
-             // Si el webhook no traía mime específico o era genérico, adivinamos por la extensión original
-             if (!b64Data?.mimetype || b64Data.mimetype === "application/octet-stream") {
-               mime = inferMimeFromExt(finalExt);
-             }
-          }
+            // Limpiado el bloque de xml quemado, ahora usamos inferMimeFromExt
+            console.log("[evo-webhook] base64 recibido", { mime, base64Length: base64.length });
 
-          const buffer = Buffer.from(dataStr, "base64");
-          fileName = `${Date.now()}_${phone || "media"}.${finalExt}`;
-          
-          const { data: uploadData, error: uploadErr } = await supabase.storage
-            .from("attachments")
-            .upload(`cases/evolution/${fileName}`, buffer, { contentType: mime });
+            let finalExt = ext;
+            if (originalFileName && originalFileName.includes(".")) {
+               finalExt = originalFileName.split(".").pop() || ext;
+               // Si el webhook no traía mime específico o era genérico, adivinamos por la extensión original
+               if (!b64Data?.mimetype || b64Data.mimetype === "application/octet-stream") {
+                 mime = inferMimeFromExt(finalExt);
+               }
+            }
+
+            const buffer = Buffer.from(dataStr, "base64");
+            fileName = `${Date.now()}_${phone || "media"}.${finalExt}`;
             
-          if (uploadErr) {
-            console.error("[evo-webhook] Error subiendo media a Supabase", uploadErr.message || uploadErr);
-          }
-          if (!uploadErr && uploadData) {
-            const { data: urlData } = supabase.storage.from("attachments").getPublicUrl(`cases/evolution/${fileName}`);
-            mediaUrl = urlData.publicUrl;
-            finalMediaType = mime;
-            if (text === `[Archivo adjunto: ${mediaType}]`) text = ""; // Limpiar el placeholder si se subió con éxito
-            console.log("[evo-webhook] media subida OK", { mediaUrl, mime, fileName });
+            const { data: uploadData, error: uploadErr } = await supabase.storage
+              .from("attachments")
+              .upload(`cases/evolution/${fileName}`, buffer, { contentType: mime });
+              
+            if (uploadErr) {
+              console.error("[evo-webhook] Error subiendo media a Supabase", uploadErr.message || uploadErr);
+            }
+            if (!uploadErr && uploadData) {
+              const { data: urlData } = supabase.storage.from("attachments").getPublicUrl(`cases/evolution/${fileName}`);
+              mediaUrl = urlData.publicUrl;
+              finalMediaType = mime;
+              if (text === `[Archivo adjunto: ${mediaType}]`) text = ""; // Limpiar el placeholder si se subió con éxito
+              console.log("[evo-webhook] media subida OK", { mediaUrl, mime, fileName });
+            }
           }
         }
       }
