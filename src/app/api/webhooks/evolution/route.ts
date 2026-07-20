@@ -707,6 +707,9 @@ export async function POST(req: NextRequest) {
       originalFileName = msgObj.documentMessage.fileName || msgObj.documentMessage.title || "";
     }
     else if (msgObj.stickerMessage) mediaType = "sticker";
+    else {
+      console.log("[evo-webhook] msgObj keys sin mediaType detectado:", msgObj ? Object.keys(msgObj) : "null");
+    }
   }
 
   // Si es un archivo pero no tiene texto, poner un placeholder para que no lo ignore
