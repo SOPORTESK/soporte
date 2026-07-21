@@ -956,6 +956,12 @@ export async function POST(req: NextRequest) {
         || (mediaInfo?.directPath ? `https://mmg.whatsapp.net${mediaInfo.directPath}` : null);
       mediaDebug.hasMediaKey = !!mediaInfo?.mediaKey;
       mediaDebug.hasEncUrl = !!encUrl;
+      mediaDebug.encUrlPreview = encUrl ? encUrl.slice(0, 80) : null;
+      mediaDebug.mediaKeyType = mediaInfo?.mediaKey ? typeof mediaInfo.mediaKey : null;
+      mediaDebug.mediaKeyPreview = mediaInfo?.mediaKey
+        ? (typeof mediaInfo.mediaKey === "string" ? mediaInfo.mediaKey.slice(0, 40) : "object:" + Object.keys(mediaInfo.mediaKey).length + "keys")
+        : null;
+      mediaDebug.docMsgKeys = msgObj?.documentMessage ? Object.keys(msgObj.documentMessage) : [];
 
       if (inlineB64) {
         base64 = String(inlineB64);
