@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getEvolutionConfig } from "@/lib/evolution-config";
 
@@ -319,6 +320,103 @@ function inferMimeFromExt(ext: string): string {
     "ipa": "application/octet-stream"
   };
   return map[ext.toLowerCase()] || "application/octet-stream";
+}
+
+// HKDF-SHA256 (RFC 5869) para derivar claves de media de WhatsApp
+function hkdfExpand(key: Buffer, length: number, info: string): Buffer {
+  const salt = Buffer.alloc(32, 0);
+  const prk = crypto.createHmac("sha256", salt).update(key).digest();
+  const infoBuf = Buffer.from(info, "utf-8");
+  let previous = Buffer.alloc(0);
+  const blocks = Math.ceil(length / 32);
+  const buffers: Buffer[] = [];
+  for (let i = 0; i < blocks; i++) {
+    const hmac = crypto.createHmac("sha256", prk);
+    hmac.update(Buffer.concat([previous, infoBuf, Buffer.from([i + 1])]));
+    previous = hmac.digest();
+    buffers.push(previous);
+  }
+  return Buffer.concat(buffers).slice(0, length);
+}
+
+const MEDIA_HKDF_INFO: Record<string, string> = {
+  image: "WhatsApp Image Keys",
+  video: "WhatsApp Video Keys",
+  audio: "WhatsApp Audio Keys",
+  document: "WhatsApp Document Keys",
+  sticker: "WhatsApp Image Keys",
+};
+
+// Convierte mediaKey (string base64 o objeto {0:..,1:..}) a Buffer
+function mediaKeyToBuffer(mediaKey: any): Buffer | null {
+  if (!mediaKey) return null;
+  if (typeof mediaKey === "string") return Buffer.from(mediaKey, "base64");
+  if (typeof mediaKey === "object") {
+    const values = Object.values(mediaKey).filter((v) => typeof v === "number") as number[];
+    if (values.length > 0) return Buffer.from(values);
+  }
+  return null;
+}
+
+// Descarga y desencripta media de WhatsApp directamente (AES-256-CBC + HKDF),
+// sin depender de getBase64FromMediaMessage de Evolution (que falla en Render).
+async function decryptWhatsAppMedia(
+  encUrl: string,
+  mediaKey: any,
+  type: string
+): Promise<{ buffer: Buffer } | null> {
+  const keyBuf = mediaKeyToBuffer(mediaKey);
+  if (!keyBuf) return null;
+
+  const info = MEDIA_HKDF_INFO[type] || MEDIA_HKDF_INFO.document;
+  const expanded = hkdfExpand(keyBuf, 112, info);
+  const iv = expanded.slice(0, 16);
+  const cipherKey = expanded.slice(16, 48);
+
+  const res = await fetch(encUrl, { signal: AbortSignal.timeout(45000) });
+  if (!res.ok) {
+    console.error("[evo-webhook] descarga media WhatsApp NO OK", res.status);
+    return null;
+  }
+  const enc = Buffer.from(await res.arrayBuffer());
+  if (enc.length <= 10) return null;
+  // Los últimos 10 bytes son el MAC; el resto es el ciphertext
+  const cipherText = enc.slice(0, enc.length - 10);
+
+  const decipher = crypto.createDecipheriv("aes-256-cbc", cipherKey, iv);
+  const decrypted = Buffer.concat([decipher.update(cipherText), decipher.final()]);
+  return { buffer: decrypted };
+}
+
+// Extrae { url, directPath, mediaKey, mimetype, fileName } del objeto de mensaje
+function extractMediaInfo(msgObj: any): {
+  url?: string;
+  directPath?: string;
+  mediaKey?: any;
+  mimetype?: string;
+  fileName?: string;
+} | null {
+  if (!msgObj) return null;
+  const unwrapped =
+    msgObj.ephemeralMessage?.message ||
+    msgObj.viewOnceMessage?.message ||
+    msgObj.documentWithCaptionMessage?.message ||
+    msgObj;
+  const media =
+    unwrapped.documentMessage ||
+    unwrapped.imageMessage ||
+    unwrapped.videoMessage ||
+    unwrapped.audioMessage ||
+    unwrapped.ptvMessage ||
+    unwrapped.stickerMessage;
+  if (!media) return null;
+  return {
+    url: media.url,
+    directPath: media.directPath,
+    mediaKey: media.mediaKey,
+    mimetype: media.mimetype,
+    fileName: media.fileName || media.title,
+  };
 }
 
 const jidToPhone = (jid?: string | null) => {
@@ -851,13 +949,42 @@ export async function POST(req: NextRequest) {
         dataKeys: rawData ? Object.keys(rawData) : [],
       };
 
+      // MÉTODO PRIMARIO: descargar y desencriptar el media directamente desde WhatsApp,
+      // sin depender de getBase64FromMediaMessage de Evolution (que devuelve 502 en Render).
+      const mediaInfo = extractMediaInfo(msgObj);
+      const encUrl = mediaInfo?.url
+        || (mediaInfo?.directPath ? `https://mmg.whatsapp.net${mediaInfo.directPath}` : null);
+      mediaDebug.hasMediaKey = !!mediaInfo?.mediaKey;
+      mediaDebug.hasEncUrl = !!encUrl;
+
       if (inlineB64) {
         base64 = String(inlineB64);
         console.log("[evo-webhook] base64 inline detectado en payload, longitud:", base64.length);
-      } else if (!messageToExtract || !messageToExtract.key || !messageToExtract.message) {
-        console.error("[evo-webhook] sin base64 inline y sin key+message para getBase64", mediaDebug);
-      } else {
-        console.log("[evo-webhook] sin base64 inline, solicitando a Evolution getBase64", { mediaType });
+      } else if (encUrl && mediaInfo?.mediaKey) {
+        try {
+          console.log("[evo-webhook] desencriptando media directo de WhatsApp", { mediaType });
+          const dec = await decryptWhatsAppMedia(encUrl, mediaInfo.mediaKey, mediaType);
+          if (dec?.buffer) {
+            base64 = dec.buffer.toString("base64");
+            b64Data = { mimetype: mediaInfo.mimetype };
+            mediaDebug.directDecrypt = true;
+            mediaDebug.directBytes = dec.buffer.length;
+            console.log("[evo-webhook] media desencriptada OK, bytes:", dec.buffer.length);
+          } else {
+            mediaDebug.directDecrypt = false;
+            console.error("[evo-webhook] desencriptado directo devolvió null");
+          }
+        } catch (decErr: any) {
+          mediaDebug.directDecrypt = false;
+          mediaDebug.directError = decErr?.message;
+          console.error("[evo-webhook] Error desencriptando media directo:", decErr?.message);
+        }
+      }
+
+      if (!base64 && !inlineB64 && (!messageToExtract || !messageToExtract.key || !messageToExtract.message)) {
+        console.error("[evo-webhook] sin base64 inline/directo y sin key+message para getBase64", mediaDebug);
+      } else if (!base64) {
+        console.log("[evo-webhook] fallback: solicitando a Evolution getBase64", { mediaType });
         // Evolution espera solo { key, message } — campos extra causan errores
         const cleanMsg = {
           key: messageToExtract.key,
