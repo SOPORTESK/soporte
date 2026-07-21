@@ -621,6 +621,16 @@ export async function POST(req: NextRequest) {
   try { payload = await req.json(); } catch { payload = null; }
   console.log("[evo-webhook] Payload recibido, event:", payload?.event);
 
+  // LOG: si el mensaje tiene documentMessage, guardar el payload completo para debug
+  const _dbgMsg = payload?.data?.message || payload?.data?.messages?.[0]?.message || payload?.message;
+  if (_dbgMsg?.documentMessage) {
+    console.log("[evo-webhook] DOCUMENT MESSAGE DETECTADO - documentMessage keys:", Object.keys(_dbgMsg.documentMessage));
+    console.log("[evo-webhook] documentMessage.url:", _dbgMsg.documentMessage.url?.slice(0, 80));
+    console.log("[evo-webhook] documentMessage.mediaKey type:", typeof _dbgMsg.documentMessage.mediaKey);
+    console.log("[evo-webhook] documentMessage.fileName:", _dbgMsg.documentMessage.fileName);
+    console.log("[evo-webhook] documentMessage.mimetype:", _dbgMsg.documentMessage.mimetype);
+  }
+
   console.log("[evo-webhook] Paso 1: getEvolutionConfig...");
   const evoCfg = await getEvolutionConfig();
   const EVO_URL = evoCfg.url;
