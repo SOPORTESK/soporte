@@ -858,11 +858,16 @@ export async function POST(req: NextRequest) {
         console.error("[evo-webhook] sin base64 inline y sin key+message para getBase64", mediaDebug);
       } else {
         console.log("[evo-webhook] sin base64 inline, solicitando a Evolution getBase64", { mediaType });
+        // Evolution espera solo { key, message } — campos extra causan errores
+        const cleanMsg = {
+          key: messageToExtract.key,
+          message: messageToExtract.message,
+        };
         const b64Res = await fetch(`${EVO_URL.replace(/\/$/, "")}/chat/getBase64FromMediaMessage/${encodeURIComponent(EVO_INSTANCE)}`, {
           method: "POST",
           headers: { "Content-Type": "application/json", apikey: EVO_KEY },
-          body: JSON.stringify({ message: messageToExtract }),
-          signal: AbortSignal.timeout(30000)
+          body: JSON.stringify({ message: cleanMsg, convertToMp4: false }),
+          signal: AbortSignal.timeout(55000)
         });
         if (!b64Res.ok) {
           const body = await b64Res.text().catch(() => "<no-body>");
