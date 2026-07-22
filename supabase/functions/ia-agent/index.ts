@@ -4,10 +4,17 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const NVIDIA_KEY = Deno.env.get("NVIDIA_API_KEY") ?? "";
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
+const GEMINI_API_KEY_2 = Deno.env.get("GEMINI_API_KEY_2") ?? "";
 const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY") ?? "";
+const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY") ?? "";
 const NIM_BASE = "https://integrate.api.nvidia.com/v1";
 const GROQ_MODEL = "llama-3.3-70b-versatile";
 const NIM_MODEL = "meta/llama-3.1-8b-instruct";
+const OPENROUTER_VISION_MODEL = "nvidia/nemotron-nano-12b-v2-vl:free";
+
+// Rotación de keys de Gemini (3,000 req/día total con 3 keys)
+const GEMINI_KEYS = [GEMINI_API_KEY, GEMINI_API_KEY_2].filter(k => k.length > 0);
+let geminiKeyIdx = 0;
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
 
@@ -285,8 +292,9 @@ class GeminiRateLimitError extends Error {
   constructor() { super("gemini_rate_limit_exceeded"); this.name = "GeminiRateLimitError"; }
 }
 
-async function callGeminiChat(messages: ChatMessage[]): Promise<string> {
-  if (!GEMINI_API_KEY) throw new Error("no_gemini_key");
+async function callGeminiChat(messages: ChatMessage[], keyOverride?: string): Promise<string> {
+  const key = keyOverride || GEMINI_KEYS[geminiKeyIdx % GEMINI_KEYS.length];
+  if (!key) throw new Error("no_gemini_key");
 
   // Separar system del historial
   const systemMsg = messages.find(m => m.role === "system");
@@ -301,15 +309,19 @@ async function callGeminiChat(messages: ChatMessage[]): Promise<string> {
   if (systemMsg) body.system_instruction = { parts: [{ text: systemMsg.content }] };
 
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_CHAT_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_CHAT_MODEL}:generateContent?key=${key}`,
     { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
   );
 
   if (!res.ok) {
     const errText = await res.text();
-    console.error("[ia-agent] Gemini error:", res.status, errText);
-    // Detectar rate limit específicamente
+    console.error(`[ia-agent] Gemini error (key ${geminiKeyIdx + 1}/${GEMINI_KEYS.length}):`, res.status, errText.substring(0, 200));
     if (res.status === 429 || errText.includes("rate limit") || errText.includes("RESOURCE_EXHAUSTED")) {
+      // Rotar a la siguiente key
+      if (GEMINI_KEYS.length > 1) {
+        geminiKeyIdx = (geminiKeyIdx + 1) % GEMINI_KEYS.length;
+        console.log(`[ia-agent] Rotando a key ${geminiKeyIdx + 1}/${GEMINI_KEYS.length}`);
+      }
       throw new GeminiRateLimitError();
     }
     throw new Error(`gemini_error:${res.status}`);
@@ -321,23 +333,29 @@ async function callGeminiChat(messages: ChatMessage[]): Promise<string> {
 
 // ── Gemini 1.5 Flash: fallback si 3.1 Flash Lite no está disponible
 async function callGeminiFallback(messages: ChatMessage[]): Promise<string> {
-  if (!GEMINI_API_KEY) throw new Error("no_gemini_key");
-  const systemMsg = messages.find(m => m.role === "system");
-  const chatMsgs = messages.filter(m => m.role !== "system");
-  const contents = chatMsgs.map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
-  const body: Record<string, unknown> = { contents, generationConfig: { temperature: 0.3, maxOutputTokens: 600 } };
-  if (systemMsg) body.system_instruction = { parts: [{ text: systemMsg.content }] };
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_FALLBACK_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
-    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
-  );
-  if (!res.ok) {
-    const errText = await res.text();
-    console.error("[ia-agent] Gemini fallback error:", res.status, errText);
-    throw new Error(`gemini_fallback_error:${res.status}`);
+  // Intentar con todas las keys disponibles
+  for (let i = 0; i < GEMINI_KEYS.length; i++) {
+    const key = GEMINI_KEYS[i];
+    try {
+      const systemMsg = messages.find(m => m.role === "system");
+      const chatMsgs = messages.filter(m => m.role !== "system");
+      const contents = chatMsgs.map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
+      const body: Record<string, unknown> = { contents, generationConfig: { temperature: 0.3, maxOutputTokens: 600 } };
+      if (systemMsg) body.system_instruction = { parts: [{ text: systemMsg.content }] };
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_FALLBACK_MODEL}:generateContent?key=${key}`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? "";
+      }
+      console.warn(`[ia-agent] Gemini fallback key ${i + 1} falló:`, res.status);
+    } catch (e: any) {
+      console.warn(`[ia-agent] Gemini fallback key ${i + 1} error:`, e.message);
+    }
   }
-  const data = await res.json();
-  return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? "";
+  throw new Error("all_gemini_keys_exhausted");
 }
 
 // ── Groq fallback (Llama 3.3 70B, free tier 30 req/min)
@@ -384,15 +402,47 @@ async function callNIM(messages: ChatMessage[]): Promise<string> {
   return data.choices?.[0]?.message?.content?.trim() ?? "";
 }
 
-// ── Cadena de fallback: Gemini -> Groq -> NVIDIA NIM
+// ── OpenRouter fallback (texto + vision, free tier)
+async function callOpenRouter(messages: ChatMessage[], model?: string): Promise<string> {
+  if (!OPENROUTER_API_KEY) throw new Error("no_openrouter_key");
+  const useModel = model || "google/gemini-3.1-flash-lite";
+  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+    body: JSON.stringify({
+      model: useModel,
+      messages: messages.map(m => ({ role: m.role, content: m.content })),
+      temperature: 0.3,
+      max_tokens: 600,
+    }),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    console.error("[ia-agent] OpenRouter error:", res.status, errText.substring(0, 200));
+    throw new Error(`openrouter_error:${res.status}`);
+  }
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content?.trim() ?? "";
+}
+
+// ── Cadena de fallback: Gemini (rotación) -> OpenRouter -> Groq -> NVIDIA -> Gemini all keys
 async function callAI(messages: ChatMessage[]): Promise<string> {
-  // 1. Gemini (primario)
+  // 1. Gemini con rotación de keys (primario)
   try {
     return await callGeminiChat(messages);
   } catch (e: any) {
     console.warn("[ia-agent] Gemini primario falló:", e.message);
   }
-  // 2. Groq (backup 1 — más rápido y generoso en free tier)
+  // 2. OpenRouter (backup multimodal — texto y vision)
+  try {
+    if (OPENROUTER_API_KEY) {
+      console.log("[ia-agent] Intentando OpenRouter...");
+      return await callOpenRouter(messages);
+    }
+  } catch (e: any) {
+    console.warn("[ia-agent] OpenRouter falló:", e.message);
+  }
+  // 3. Groq (backup texto — rápido y estable)
   try {
     if (GROQ_API_KEY) {
       console.log("[ia-agent] Intentando Groq...");
@@ -401,7 +451,7 @@ async function callAI(messages: ChatMessage[]): Promise<string> {
   } catch (e: any) {
     console.warn("[ia-agent] Groq falló:", e.message);
   }
-  // 3. NVIDIA NIM (backup 2)
+  // 4. NVIDIA NIM (backup texto)
   try {
     if (NVIDIA_KEY) {
       console.log("[ia-agent] Intentando NVIDIA NIM...");
@@ -410,7 +460,7 @@ async function callAI(messages: ChatMessage[]): Promise<string> {
   } catch (e: any) {
     console.warn("[ia-agent] NIM falló:", e.message);
   }
-  // 4. Gemini fallback (mismo modelo, último intento)
+  // 5. Gemini fallback con todas las keys (último intento)
   try {
     return await callGeminiFallback(messages);
   } catch (e: any) {
@@ -466,7 +516,7 @@ function getGeminiMimeType(mediaType: string, url: string): string {
 }
 
 async function callGeminiVision(mediaUrl: string, mediaType: string, userText: string): Promise<string> {
-  if (!GEMINI_API_KEY) return "";
+  if (GEMINI_KEYS.length === 0) return "";
   try {
     const mimeType = getGeminiMimeType(mediaType, mediaUrl);
     const isAudio = mimeType.startsWith("audio/");
@@ -616,30 +666,69 @@ Analiza el documento COMPLETAMENTE:
 
     const base64Data = btoa(String.fromCharCode(...new Uint8Array(fileBuffer)));
 
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{
-            parts: [
-              { text: prompt },
-              { inline_data: { mime_type: mimeType, data: base64Data } },
-            ],
-          }],
-          generationConfig: { maxOutputTokens: 2048, temperature: 0.1 },
-        }),
+    // Intentar con cada key de Gemini disponible
+    let visionResult = "";
+    let geminiVisionOk = false;
+    for (let ki = 0; ki < GEMINI_KEYS.length && !geminiVisionOk; ki++) {
+      const gKey = GEMINI_KEYS[ki];
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${gKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{
+              parts: [
+                { text: prompt },
+                { inline_data: { mime_type: mimeType, data: base64Data } },
+              ],
+            }],
+            generationConfig: { maxOutputTokens: 2048, temperature: 0.1 },
+          }),
+        }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        visionResult = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? "";
+        geminiVisionOk = true;
+      } else {
+        const errText = await res.text();
+        console.warn(`[ia-agent] Gemini Vision key ${ki + 1} error:`, res.status, errText.substring(0, 150));
       }
-    );
-
-    if (!res.ok) {
-      const errText = await res.text();
-      console.error("[ia-agent] Gemini Vision error:", res.status, errText);
-      return "";
     }
-    const data = await res.json();
-    return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? "";
+    if (geminiVisionOk && visionResult) return visionResult;
+
+    // Fallback: OpenRouter vision model para imágenes
+    if (isImage && OPENROUTER_API_KEY) {
+      console.log("[ia-agent] Gemini Vision falló, intentando OpenRouter vision...");
+      try {
+        const orRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+          body: JSON.stringify({
+            model: OPENROUTER_VISION_MODEL,
+            messages: [
+              { role: "user", content: [
+                { type: "text", text: prompt },
+                { type: "image_url", image_url: { url: mediaUrl } },
+              ]},
+            ],
+            max_tokens: 1500,
+            temperature: 0.1,
+          }),
+        });
+        if (orRes.ok) {
+          const orData = await orRes.json();
+          const orText = orData.choices?.[0]?.message?.content?.trim() ?? "";
+          if (orText) return orText;
+        }
+        console.warn("[ia-agent] OpenRouter vision falló:", orRes.status);
+      } catch (e: any) {
+        console.warn("[ia-agent] OpenRouter vision error:", e.message);
+      }
+    }
+
+    return "";
   } catch (e: any) {
     console.error("[ia-agent] Gemini Vision exception:", e.message);
     return "";
