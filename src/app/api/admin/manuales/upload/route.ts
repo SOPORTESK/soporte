@@ -101,7 +101,6 @@ export async function POST(req: NextRequest) {
         doc_id: docRecord.id,
         doc_name: file.name,
         content: chunk,
-        source_label: "Documentación Oficial Sekunet",
       }));
 
       let chunkCount = 0;

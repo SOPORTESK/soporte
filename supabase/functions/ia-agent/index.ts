@@ -744,7 +744,7 @@ async function searchRAG(query: string, limit = 5): Promise<{ content: string; s
 
   try {
     // Búsqueda por ILIKE en contenido: cada término debe aparecer en el chunk.
-    let dbQuery = db.from("sek_doc_chunks").select("content,source_label,doc_name").limit(limit * 2);
+    let dbQuery = db.from("sek_doc_chunks").select("content,doc_name").limit(limit * 2);
     for (const term of terms) {
       dbQuery = dbQuery.ilike("content", `%${term}%`);
     }
@@ -881,7 +881,6 @@ Problema clasificado: ${problema}`;
       doc_id: null,
       doc_name: `Aprendizaje: ${equipo} — ${problema}`.substring(0, 200),
       content: summary.substring(0, 3000),
-      source_label: "Aprendizaje de conversación",
     });
 
     console.log(`[ia-agent] Aprendizaje guardado para caso ${caso.id}: ${equipo} / ${problema}`);
@@ -1503,7 +1502,6 @@ Deno.serve(async (req) => {
                 doc_id: null,
                 doc_name: `Búsqueda Web: ${webQuery.substring(0, 100)}`,
                 content: webResult.substring(0, 2000),
-                source_label: "Búsqueda Web",
               });
             } catch (_saveErr) { /* no bloquea si falla el guardado */ }
           }
@@ -1523,7 +1521,7 @@ Deno.serve(async (req) => {
         const words = manualQuery.split(" ").filter((w: string) => w.length > 3).slice(0, 6).join(" | ");
         const { data: chunks } = await db
           .from("sek_doc_chunks")
-          .select("content, doc_name, source_label")
+          .select("content, doc_name")
           .textSearch("content", words, { type: "websearch" })
           .limit(4);
 
