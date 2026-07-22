@@ -43,6 +43,7 @@ export function FloatingTechAssistant() {
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLTextAreaElement>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const dragMovedRef = React.useRef(false);
 
   // Set initial bubble position on client only
   React.useEffect(() => {
@@ -57,9 +58,9 @@ export function FloatingTechAssistant() {
     });
   }, []);
 
-  // Restaurar posición guardada de la burbuja
+  // Restaurar posición guardada de la burbuja (localStorage — persiste entre sesiones)
   React.useEffect(() => {
-    const saved = sessionStorage.getItem("sek_tech_assistant_bubble_pos_v2");
+    const saved = localStorage.getItem("sek_tech_assistant_bubble_pos_v3");
     if (saved) {
       try {
         const parsed = JSON.parse(saved) as Position;
@@ -78,7 +79,7 @@ export function FloatingTechAssistant() {
     };
   };
 
-  // Detectar caso actual desde la URL (?c=...)
+  // Detectar caso actual desde la URL (?c=...) — detecta navegación client-side de Next.js
   React.useEffect(() => {
     const readCaseId = () => {
       const params = new URLSearchParams(window.location.search);
@@ -86,9 +87,29 @@ export function FloatingTechAssistant() {
       setCaseId(c);
     };
     readCaseId();
-    const onPopState = () => readCaseId();
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
+
+    // popstate: back/forward
+    window.addEventListener("popstate", readCaseId);
+
+    // Patch pushState/replaceState para detectar navegación client-side
+    const origPush = history.pushState;
+    const origReplace = history.replaceState;
+    history.pushState = function (...args) {
+      const ret = origPush.apply(this, args as any);
+      readCaseId();
+      return ret;
+    };
+    history.replaceState = function (...args) {
+      const ret = origReplace.apply(this, args as any);
+      readCaseId();
+      return ret;
+    };
+
+    return () => {
+      window.removeEventListener("popstate", readCaseId);
+      history.pushState = origPush;
+      history.replaceState = origReplace;
+    };
   }, []);
 
   // Cargar sesión previa desde localStorage (máx 10 mensajes)
@@ -209,13 +230,23 @@ export function FloatingTechAssistant() {
   };
 
   const handleBubbleDrag = (_e: DraggableEvent, data: DraggableData) => {
+    dragMovedRef.current = true;
     setBubblePosition({ x: data.x, y: data.y });
   };
 
   const handleBubbleDragStop = (_e: DraggableEvent, data: DraggableData) => {
     const next = clampPosition({ x: data.x, y: data.y }, 56, 8);
     setBubblePosition(next);
-    sessionStorage.setItem("sek_tech_assistant_bubble_pos_v2", JSON.stringify(next));
+    localStorage.setItem("sek_tech_assistant_bubble_pos_v3", JSON.stringify(next));
+  };
+
+  const handleBubbleClick = () => {
+    // Si se arrastró, no abrir el panel
+    if (dragMovedRef.current) {
+      dragMovedRef.current = false;
+      return;
+    }
+    openFromBubble();
   };
 
   const handlePanelDrag = (_e: DraggableEvent, data: DraggableData) => {
@@ -275,7 +306,7 @@ export function FloatingTechAssistant() {
         <button
           ref={bubbleRef}
           suppressHydrationWarning
-          onClick={openFromBubble}
+          onClick={handleBubbleClick}
           className="sek-tech-drag-handle fixed top-0 left-0 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-violet-600 text-white shadow-lg shadow-violet-600/30 hover:bg-violet-700 transition-all hover:scale-105"
           aria-label="Asistente técnico"
         >
