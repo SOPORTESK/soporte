@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
       // 1. Procesamiento según tipo de archivo
       if (file.name.toLowerCase().endsWith(".pdf")) {
         // PDF (pdf-parse v1 — dynamic import to avoid webpack issues)
-        const pdf = (await import("pdf-parse")).default;
+        const pdf = (await import("pdf-parse/lib/pdf-parse.js")).default;
         const data = await pdf(buffer);
         textContent = data.text || "";
       } else if (file.type.startsWith("image/")) {
