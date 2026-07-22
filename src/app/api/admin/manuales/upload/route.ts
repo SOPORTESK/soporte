@@ -41,6 +41,7 @@ export async function POST(req: NextRequest) {
     }
 
     const processedDocs = [];
+    const errors = [];
 
     for (const file of files) {
       const buffer = Buffer.from(await file.arrayBuffer());
@@ -88,12 +89,12 @@ export async function POST(req: NextRequest) {
 
       if (docError) {
         console.error("[manuales/upload] Error saving doc:", docError.message, docError.code);
+        errors.push({ file: file.name, error: `doc: ${docError.message}` });
         continue;
       }
 
       // 3. Crear Chunks para RAG
       const chunks = chunkText(textContent, 1000);
-      console.log(`[manuales/upload] "${file.name}" → ${chunks.length} chunks`);
       
       const chunkRecords = chunks.map(chunk => ({
         id: crypto.randomUUID(),
@@ -103,6 +104,7 @@ export async function POST(req: NextRequest) {
         source_label: "Documentación Oficial Sekunet",
       }));
 
+      let chunkCount = 0;
       if (chunkRecords.length > 0) {
         const { error: chunkError } = await supabase
           .from("sek_doc_chunks")
@@ -110,19 +112,21 @@ export async function POST(req: NextRequest) {
           
         if (chunkError) {
           console.error("[manuales/upload] Error saving chunks:", chunkError.message, chunkError.code);
+          errors.push({ file: file.name, error: `chunks: ${chunkError.message}` });
         } else {
-          console.log(`[manuales/upload] ✓ ${chunkRecords.length} chunks guardados para "${file.name}"`);
+          chunkCount = chunkRecords.length;
         }
       }
 
-      processedDocs.push(file.name);
+      processedDocs.push({ name: file.name, chunks: chunkCount });
     }
 
     return NextResponse.json({ 
       success: true, 
       processed: processedDocs.length,
       files: processedDocs,
-      skipped: files.length - processedDocs.length
+      skipped: files.length - processedDocs.length,
+      errors,
     });
 
   } catch (error: any) {

@@ -81,7 +81,11 @@ export function ManualesClient({ onUploadComplete, docs = [] }: { onUploadComple
       if (data.skipped > 0) {
         toast.warning(`${data.processed} archivo(s) procesado(s), ${data.skipped} omitido(s)`);
       } else {
-        toast.success("¡Archivos procesados e indexados correctamente!");
+        const chunkTotal = (data.files || []).reduce((s: number, f: any) => s + (f.chunks || 0), 0);
+        toast.success(`¡${data.processed} archivo(s) indexado(s)! ${chunkTotal} chunks creados.`);
+      }
+      if (data.errors?.length > 0) {
+        data.errors.forEach((e: any) => toast.error(`${e.file}: ${e.error}`));
       }
       setFiles([]);
       router.refresh();
