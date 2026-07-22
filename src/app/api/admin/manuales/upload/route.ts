@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-const { PDFParse } = require("pdf-parse");
+const pdf = require("pdf-parse");
 import { createWorker } from "tesseract.js";
 
 // Helper para dividir texto en chunks
@@ -42,11 +42,9 @@ export async function POST(req: NextRequest) {
 
       // 1. Procesamiento según tipo de archivo
       if (file.name.toLowerCase().endsWith(".pdf")) {
-        // PDF (pdf-parse v2 API — disableWorker para Node.js)
-        const parser = new PDFParse({ data: buffer, disableWorker: true });
-        const data = await parser.getText();
-        textContent = typeof data === "string" ? data : (data?.text || "");
-        await parser.destroy();
+        // PDF (pdf-parse v1 API)
+        const data = await pdf(buffer);
+        textContent = data.text || "";
       } else if (file.type.startsWith("image/")) {
         // Imágenes (OCR local con Tesseract)
         const worker = await createWorker('spa');
