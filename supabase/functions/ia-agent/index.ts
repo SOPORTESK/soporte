@@ -4,8 +4,10 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const NVIDIA_KEY = Deno.env.get("NVIDIA_API_KEY") ?? "";
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
+const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY") ?? "";
 const NIM_BASE = "https://integrate.api.nvidia.com/v1";
-const LLAMA_MODEL = "meta/llama-3.2-11b-vision-instruct";
+const GROQ_MODEL = "llama-3.3-70b-versatile";
+const NIM_MODEL = "meta/llama-3.1-8b-instruct";
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
 
@@ -338,13 +340,83 @@ async function callGeminiFallback(messages: ChatMessage[]): Promise<string> {
   return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? "";
 }
 
+// ── Groq fallback (Llama 3.3 70B, free tier 30 req/min)
+async function callGroq(messages: ChatMessage[]): Promise<string> {
+  if (!GROQ_API_KEY) throw new Error("no_groq_key");
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${GROQ_API_KEY}` },
+    body: JSON.stringify({
+      model: GROQ_MODEL,
+      messages: messages.map(m => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content })),
+      temperature: 0.3,
+      max_tokens: 600,
+    }),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    console.error("[ia-agent] Groq error:", res.status, errText.substring(0, 200));
+    throw new Error(`groq_error:${res.status}`);
+  }
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content?.trim() ?? "";
+}
+
+// ── NVIDIA NIM fallback (Llama 3.1 8B, free tier)
+async function callNIM(messages: ChatMessage[]): Promise<string> {
+  if (!NVIDIA_KEY) throw new Error("no_nvidia_key");
+  const res = await fetch(`${NIM_BASE}/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${NVIDIA_KEY}` },
+    body: JSON.stringify({
+      model: NIM_MODEL,
+      messages: messages.map(m => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content })),
+      temperature: 0.3,
+      max_tokens: 600,
+    }),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    console.error("[ia-agent] NIM error:", res.status, errText.substring(0, 200));
+    throw new Error(`nim_error:${res.status}`);
+  }
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content?.trim() ?? "";
+}
+
+// ── Cadena de fallback: Gemini -> Groq -> NVIDIA NIM
 async function callAI(messages: ChatMessage[]): Promise<string> {
+  // 1. Gemini (primario)
   try {
     return await callGeminiChat(messages);
   } catch (e: any) {
-    console.warn("[ia-agent] Gemini 3.1 falló, usando fallback 1.5 Flash:", e.message);
-    return await callGeminiFallback(messages);
+    console.warn("[ia-agent] Gemini primario falló:", e.message);
   }
+  // 2. Groq (backup 1 — más rápido y generoso en free tier)
+  try {
+    if (GROQ_API_KEY) {
+      console.log("[ia-agent] Intentando Groq...");
+      return await callGroq(messages);
+    }
+  } catch (e: any) {
+    console.warn("[ia-agent] Groq falló:", e.message);
+  }
+  // 3. NVIDIA NIM (backup 2)
+  try {
+    if (NVIDIA_KEY) {
+      console.log("[ia-agent] Intentando NVIDIA NIM...");
+      return await callNIM(messages);
+    }
+  } catch (e: any) {
+    console.warn("[ia-agent] NIM falló:", e.message);
+  }
+  // 4. Gemini fallback (mismo modelo, último intento)
+  try {
+    return await callGeminiFallback(messages);
+  } catch (e: any) {
+    console.error("[ia-agent] Todos los proveedores fallaron:", e.message);
+  }
+  throw new Error("Todos los proveedores de IA están disponibles");
 }
 
 async function sendViaEvolution(phone: string, text: string) {
