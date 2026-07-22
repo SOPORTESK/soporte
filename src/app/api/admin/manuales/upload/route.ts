@@ -42,10 +42,10 @@ export async function POST(req: NextRequest) {
 
       // 1. Procesamiento según tipo de archivo
       if (file.name.toLowerCase().endsWith(".pdf")) {
-        // PDF (pdf-parse v2 API)
-        const parser = new PDFParse({ data: buffer });
+        // PDF (pdf-parse v2 API — disableWorker para Node.js)
+        const parser = new PDFParse({ data: buffer, disableWorker: true });
         const data = await parser.getText();
-        textContent = data.text || (typeof data === "string" ? data : "");
+        textContent = typeof data === "string" ? data : (data?.text || "");
         await parser.destroy();
       } else if (file.type.startsWith("image/")) {
         // Imágenes (OCR local con Tesseract)
