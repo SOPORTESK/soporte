@@ -96,12 +96,12 @@ export function FloatingTechAssistant() {
     const origReplace = history.replaceState;
     history.pushState = function (...args) {
       const ret = origPush.apply(this, args as any);
-      readCaseId();
+      queueMicrotask(readCaseId);
       return ret;
     };
     history.replaceState = function (...args) {
       const ret = origReplace.apply(this, args as any);
-      readCaseId();
+      queueMicrotask(readCaseId);
       return ret;
     };
 

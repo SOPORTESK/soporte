@@ -11,7 +11,7 @@ export default async function AdminManualesPage() {
   // Obtener documentos
   const { data: docs, error: docsError } = await supabase
     .from("sek_docs")
-    .select("id,name,size,date,created_at")
+    .select("id,name,size,date")
     .order("date", { ascending: false });
 
   if (docsError) {
