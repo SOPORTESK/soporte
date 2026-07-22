@@ -28,6 +28,7 @@ interface Position {
 }
 
 export function FloatingTechAssistant() {
+  const [mounted, setMounted] = React.useState(false);
   const [isOpen, setIsOpen] = React.useState(false);
   const [isMinimized, setIsMinimized] = React.useState(false);
   const [input, setInput] = React.useState("");
@@ -36,21 +37,24 @@ export function FloatingTechAssistant() {
   const [sessionId, setSessionId] = React.useState<string | null>(null);
   const [caseId, setCaseId] = React.useState<string | null>(null);
   const [pendingAttachment, setPendingAttachment] = React.useState<PendingAttachment | null>(null);
-  const [bubblePosition, setBubblePosition] = React.useState<Position>(() => {
-    const bubbleSize = 56;
-    const padding = 24;
-    if (typeof window === "undefined") return { x: 0, y: 0 };
-    return {
-      x: Math.max(padding, window.innerWidth - bubbleSize - padding),
-      y: Math.max(padding, window.innerHeight - bubbleSize - padding),
-    };
-  });
+  const [bubblePosition, setBubblePosition] = React.useState<Position>({ x: 0, y: 0 });
   const [panelPosition, setPanelPosition] = React.useState<Position>({ x: 0, y: 0 });
   const bubbleRef = React.useRef<HTMLButtonElement>(null);
   const panelRef = React.useRef<HTMLDivElement>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLTextAreaElement>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  // Set mounted + initial bubble position on client only
+  React.useEffect(() => {
+    setMounted(true);
+    const bubbleSize = 56;
+    const padding = 24;
+    setBubblePosition({
+      x: Math.max(padding, window.innerWidth - bubbleSize - padding),
+      y: Math.max(padding, window.innerHeight - bubbleSize - padding),
+    });
+  }, []);
 
   // Restaurar posición guardada de la burbuja
   React.useEffect(() => {
@@ -256,6 +260,8 @@ export function FloatingTechAssistant() {
     setPanelPosition({ x: left, y: top });
     setIsOpen(true);
   };
+
+  if (!mounted) return null;
 
   if (!isOpen) {
     return (
