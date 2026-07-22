@@ -77,8 +77,9 @@ export async function POST(req: NextRequest) {
       const { data: docRecord, error: docError } = await supabase
         .from("sek_docs")
         .insert({
+          id: crypto.randomUUID(),
           name: file.name,
-          content: textContent.substring(0, 5000), // Guardar un preview del contenido original
+          content: textContent.substring(0, 5000),
           size: file.size,
           date: new Date().toISOString()
         })
