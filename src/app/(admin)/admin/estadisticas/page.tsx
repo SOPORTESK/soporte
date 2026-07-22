@@ -3,6 +3,7 @@ import { Users, TrendingUp, CheckCircle, Star, ArrowUpRight, Repeat2, BarChart3,
 import Link from "next/link";
 import { StatsExportButton } from "@/components/admin/stats-export-button";
 import { ClientProfilePanel } from "@/components/admin/client-profile-panel";
+import { EquiposTable } from "@/components/admin/equipos-table";
 import type { PerfilClienteDTO } from "@/components/admin/client-profile-panel";
 
 export const dynamic = "force-dynamic";
@@ -170,8 +171,7 @@ export default async function EstadisticasClientePage() {
   });
   const topEquipos = Object.values(equipoMap)
     .map(e => ({ ...e, clientesCount: e.clientes.size }))
-    .sort((a, b) => b.total - a.total)
-    .slice(0, 8);
+    .sort((a, b) => b.total - a.total);
 
   // ── Solicitudes / problemas más frecuentes
   const labels: Record<string, string> = {
@@ -813,52 +813,7 @@ export default async function EstadisticasClientePage() {
       ══════════════════════════════════════════════════════════════════ */}
       <section className="grid gap-4 lg:grid-cols-2">
 
-        {/* Equipos más reportados */}
-        <div className="rounded-2xl border border-border/60 bg-card overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-border/50">
-            <h3 className="font-black text-sm">Equipos Más Reportados</h3>
-            <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-500">{topEquipos.length}</span>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-border/30">
-                  <th className="px-4 py-2.5 text-left text-[9px] font-black uppercase tracking-widest text-muted-foreground/60">Equipo</th>
-                  <th className="px-3 py-2.5 text-center text-[9px] font-black uppercase tracking-widest text-muted-foreground/60">Casos</th>
-                  <th className="px-3 py-2.5 text-center text-[9px] font-black uppercase tracking-widest text-muted-foreground/60">Tasa</th>
-                  <th className="px-3 py-2.5 text-center text-[9px] font-black uppercase tracking-widest text-muted-foreground/60"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/30">
-                {topEquipos.length === 0 && (
-                  <tr><td colSpan={4} className="py-10 text-center text-muted-foreground">Sin datos de equipos aún.</td></tr>
-                )}
-                {topEquipos.map((e, i) => {
-                  const tasa = e.total > 0 ? Math.round((e.resueltos / e.total) * 100) : 0;
-                  return (
-                    <tr key={i} className="hover:bg-muted/20 transition-colors">
-                      <td className="px-4 py-2.5">
-                        <p className="font-bold text-xs truncate">{e.marca}</p>
-                        <p className="text-[9px] text-muted-foreground truncate">{e.modelo || "Sin modelo"}</p>
-                      </td>
-                      <td className="px-3 py-2.5 text-center">
-                        <span className="font-black text-sm tabular-nums text-sky-500">{e.total}</span>
-                      </td>
-                      <td className="px-3 py-2.5 text-center">
-                        <span className="text-[9px] font-bold text-emerald-500">{tasa}%</span>
-                      </td>
-                      <td className="px-3 py-2.5 text-center">
-                        <Link href={`/inbox?case=${e.ultimoCasoId}`} className="text-brand-500 hover:text-brand-600">
-                          <ExternalLink className="h-3 w-3" />
-                        </Link>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <EquiposTable equipos={topEquipos} />
 
         {/* Solicitudes más frecuentes */}
         <div className="rounded-2xl border border-border/60 bg-card overflow-hidden">
