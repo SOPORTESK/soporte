@@ -35,7 +35,7 @@ export default async function AdminManualesPage() {
         </p>
       </header>
 
-      <ManualesClient />
+      <ManualesClient docs={docs as any[]} />
 
       {/* Stats RAG */}
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -132,38 +132,6 @@ if (chunks?.length > 0) {
   });
 }`}</pre>
         </div>
-      </section>
-
-      {/* Documentos */}
-      <section className="rounded-2xl border border-border bg-card overflow-hidden">
-        <div className="p-4 border-b border-border bg-muted/30">
-          <h3 className="font-semibold flex items-center gap-2">
-            <FileText className="h-4 w-4" /> Documentos Indexados
-          </h3>
-        </div>
-        
-        {(!docs || docs.length === 0) ? (
-          <div className="p-12 text-center text-muted-foreground">
-            No hay documentos cargados todavía.
-          </div>
-        ) : (
-          <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 p-4">
-            {docs.map((d: any) => (
-              <li key={d.id} className="rounded-2xl border border-border bg-card p-4 flex gap-3 hover:border-brand-300 dark:hover:border-brand-700 hover:shadow-lg transition-all">
-                <div className="h-12 w-12 grid place-items-center rounded-xl bg-gradient-to-br from-sky-500 to-sky-600 text-white shrink-0 shadow-md">
-                  <FileText className="h-5 w-5" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="font-semibold truncate">{d.name}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    {d.size ? `${(d.size/1024).toFixed(1)} KB` : ""}
-                    {d.created_at && ` · ${new Date(d.created_at).toLocaleDateString()}`}
-                  </p>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
       </section>
 
       {/* Chunks de ejemplo */}

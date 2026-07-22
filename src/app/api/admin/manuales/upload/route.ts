@@ -33,6 +33,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No files uploaded" }, { status: 400 });
     }
 
+    const MAX_FILE_SIZE = 10 * 1024 * 1024;
+    for (const file of files) {
+      if (file.size > MAX_FILE_SIZE) {
+        return NextResponse.json({ error: `Archivo "${file.name}" excede el límite de 10MB` }, { status: 400 });
+      }
+    }
+
     const processedDocs = [];
 
     for (const file of files) {

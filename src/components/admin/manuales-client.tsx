@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { UploadCloud, File, Image as ImageIcon, Video, X, CheckCircle2, Loader2, AlertCircle } from "lucide-react";
+import { UploadCloud, File, Image as ImageIcon, Video, X, CheckCircle2, Loader2, AlertCircle, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 
-export function ManualesClient({ onUploadComplete }: { onUploadComplete?: () => void }) {
+export function ManualesClient({ onUploadComplete, docs = [] }: { onUploadComplete?: () => void; docs?: { id: string; name: string; size?: number; created_at?: string }[] }) {
   const [isDragging, setIsDragging] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -26,13 +26,31 @@ export function ManualesClient({ onUploadComplete }: { onUploadComplete?: () => 
     e.preventDefault();
     setIsDragging(false);
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      setFiles((prev) => [...prev, ...Array.from(e.dataTransfer.files)]);
+      const validFiles: File[] = [];
+      for (const f of Array.from(e.dataTransfer.files)) {
+        if (f.size > 10 * 1024 * 1024) {
+          toast.error(`"${f.name}" excede 10MB`);
+          continue;
+        }
+        validFiles.push(f);
+      }
+      if (validFiles.length > 0) setFiles((prev) => [...prev, ...validFiles]);
     }
   }, []);
 
+  const MAX_FILE_SIZE = 10 * 1024 * 1024;
+
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      setFiles((prev) => [...prev, ...Array.from(e.target.files!)]);
+      const validFiles: File[] = [];
+      for (const f of Array.from(e.target.files!)) {
+        if (f.size > MAX_FILE_SIZE) {
+          toast.error(`"${f.name}" excede 10MB`);
+          continue;
+        }
+        validFiles.push(f);
+      }
+      if (validFiles.length > 0) setFiles((prev) => [...prev, ...validFiles]);
     }
   };
 
@@ -70,6 +88,18 @@ export function ManualesClient({ onUploadComplete }: { onUploadComplete?: () => 
     } finally {
       setUploading(false);
       setProgress(0);
+    }
+  };
+
+  const deleteDoc = async (docId: string, docName: string) => {
+    if (!confirm(`¿Eliminar "${docName}"? Se borrarán todos los chunks asociados.`)) return;
+    try {
+      const res = await fetch(`/api/admin/manuales/delete?id=${docId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Error al eliminar");
+      toast.success(`"${docName}" eliminado`);
+      router.refresh();
+    } catch (e: any) {
+      toast.error(e.message || "Error al eliminar documento");
     }
   };
 
@@ -154,6 +184,38 @@ export function ManualesClient({ onUploadComplete }: { onUploadComplete?: () => 
               )}
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Lista de documentos existentes */}
+      {docs.length > 0 && (
+        <div className="mt-8">
+          <h3 className="text-sm font-medium mb-3 flex items-center gap-2">
+            <File className="h-4 w-4" /> Documentos indexados ({docs.length})
+          </h3>
+          <ul className="grid gap-2 sm:grid-cols-2">
+            {docs.map((d) => (
+              <li key={d.id} className="flex items-center justify-between p-3 rounded-lg border border-border bg-muted/30">
+                <div className="flex items-center gap-2 min-w-0">
+                  <File className="h-4 w-4 text-red-500 shrink-0" />
+                  <div className="truncate">
+                    <p className="text-sm font-medium truncate">{d.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {d.size ? `${(d.size / 1024).toFixed(1)} KB` : ""}
+                      {d.created_at && ` · ${new Date(d.created_at).toLocaleDateString()}`}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => deleteDoc(d.id, d.name)}
+                  className="p-1.5 hover:bg-red-100 hover:text-red-600 rounded text-muted-foreground transition-colors shrink-0"
+                  title="Eliminar documento"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
     </div>
