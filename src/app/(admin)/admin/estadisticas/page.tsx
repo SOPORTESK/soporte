@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { Users, TrendingUp, CheckCircle, Star, ArrowUpRight, Repeat2, BarChart3, TrendingDown, Minus, ExternalLink, Cpu, Wrench, Clock, Activity, Globe, UserPlus, ShieldAlert, ShieldBan, ShieldCheck } from "lucide-react";
+import { Users, TrendingUp, CheckCircle, Star, ArrowUpRight, Repeat2, BarChart3, TrendingDown, Minus, ExternalLink, Clock, Activity, Globe, UserPlus, ShieldAlert, ShieldBan, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { StatsExportButton } from "@/components/admin/stats-export-button";
 import { ClientProfilePanel } from "@/components/admin/client-profile-panel";
@@ -96,23 +96,26 @@ export default async function EstadisticasClientePage() {
 
   const topClientes = Object.values(mapa).sort((a, b) => b.total - a.total);
 
-  // ── Derivar equipo (marca+modelo+descripción) solo si hay valores válidos
-  const deriveEquipo = (c: any): { marca: string; modelo: string } | null => {
+  // ── Derivar equipo (marca + modelo opcional) solo si hay valores válidos
+  const deriveEquipo = (c: any): { marca: string; modelo: string | null } | null => {
     const esMarcaValida = (s: string) => {
       const w = s.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
       return w.length > 1 && marcasInventario.has(w);
     };
     const esModeloValido = (s: string) => {
       const w = s.replace(/[^a-zA-Z0-9]/g, "");
-      return w.length >= 2; // al menos 2 caracteres alfanuméricos reales
+      return w.length >= 3;
     };
 
-    // 1. Columnas directas (las escribe ia-agent)
-    if (c.marca && c.modelo) {
+    // 1. Columnas directas (las escribe ia-agent o backfill)
+    if (c.marca) {
       const marca = String(c.marca).trim();
-      const modelo = String(c.modelo).trim();
-      if (esMarcaValida(marca) && esModeloValido(modelo)) {
-        return { marca, modelo };
+      if (esMarcaValida(marca)) {
+        const modelo = c.modelo ? String(c.modelo).trim() : "";
+        if (modelo && esModeloValido(modelo)) {
+          return { marca, modelo };
+        }
+        return { marca, modelo: null };
       }
     }
 
@@ -122,27 +125,23 @@ export default async function EstadisticasClientePage() {
     if (raw && raw.length > 3) {
       const sinCodigo = raw.split("(")[0].trim();
       const partes = sinCodigo.split(/\s+/).filter(Boolean);
-      if (partes.length >= 2 && esMarcaValida(partes[0]) && esModeloValido(partes.slice(1).join(" "))) {
-        return { marca: partes[0], modelo: partes.slice(1).join(" ") };
+      if (partes.length >= 1 && esMarcaValida(partes[0])) {
+        const modelo = partes.slice(1).join(" ");
+        return { marca: partes[0], modelo: modelo && esModeloValido(modelo) ? modelo : null };
       }
     }
 
-    // 3. title con formato "Tema — Marca Modelo [— Descripción]" validado contra marcas de inventario
+    // 3. title con formato "Tema — Marca Modelo" validado contra marcas de inventario
     const title = String(c.title || "").trim();
-    const dashParts = title.split("\u2014"); // em-dash "—"
+    const dashParts = title.split("\u2014");
     if (dashParts.length < 2) return null;
     const equipoPart = dashParts.slice(1).join("\u2014").trim();
-    // Normalizar: quitar prefijos como "en cartera:"
     const limpio = equipoPart.replace(/^en\s+cartera[:：]?\s*/i, "").trim();
     const eqWords = limpio.split(/\s+/).filter(Boolean);
-    // Buscar la primera palabra que sea una marca conocida del inventario
     for (let i = 0; i < eqWords.length; i++) {
       if (esMarcaValida(eqWords[i])) {
-        // Todo lo que sigue a la marca es modelo + descripción
         const resto = limpio.substring(limpio.indexOf(eqWords[i]) + eqWords[i].length).trim();
-        if (esModeloValido(resto)) {
-          return { marca: eqWords[i], modelo: resto.replace(/\s*[:：]\s*$/, "").trim() };
-        }
+        return { marca: eqWords[i], modelo: resto && esModeloValido(resto) ? resto.replace(/\s*[:：]\s*$/, "").trim() : null };
       }
     }
     return null;
@@ -150,14 +149,14 @@ export default async function EstadisticasClientePage() {
 
   // ── Equipos más reportados (deriva de columnas o de cliente.equipo)
   const equipoMap: Record<string, {
-    marca: string; modelo: string; cat: string;
+    marca: string; modelo: string | null; cat: string;
     total: number; resueltos: number;
     clientes: Set<string>; ultimoCasoId: string | number; ultimoCasoAt: string;
   }> = {};
   (casos || []).forEach(c => {
     const eq = deriveEquipo(c);
     if (!eq) return;
-    const key = `${eq.marca}||${eq.modelo}`;
+    const key = `${eq.marca}||${eq.modelo || ""}`;
     if (!equipoMap[key]) {
       equipoMap[key] = { marca: eq.marca, modelo: eq.modelo, cat: (c as any).cat || "", total: 0, resueltos: 0, clientes: new Set(), ultimoCasoId: c.id, ultimoCasoAt: c.created_at };
     }
@@ -172,7 +171,7 @@ export default async function EstadisticasClientePage() {
   const topEquipos = Object.values(equipoMap)
     .map(e => ({ ...e, clientesCount: e.clientes.size }))
     .sort((a, b) => b.total - a.total)
-    .slice(0, 15);
+    .slice(0, 8);
 
   // ── Solicitudes / problemas más frecuentes
   const labels: Record<string, string> = {
@@ -816,11 +815,8 @@ export default async function EstadisticasClientePage() {
 
         {/* Equipos más reportados */}
         <div className="rounded-2xl border border-border/60 bg-card overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-border/50 bg-gradient-to-r from-sky-500/5 to-transparent">
-            <div className="flex items-center gap-2.5">
-              <div className="h-7 w-7 rounded-lg bg-sky-500/10 text-sky-500 grid place-items-center"><Cpu className="h-3.5 w-3.5" /></div>
-              <h3 className="font-black text-sm">Equipos Más Reportados</h3>
-            </div>
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border/50">
+            <h3 className="font-black text-sm">Equipos Más Reportados</h3>
             <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-500">{topEquipos.length}</span>
           </div>
           <div className="overflow-x-auto">
@@ -834,31 +830,22 @@ export default async function EstadisticasClientePage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/30">
-                {topEquipos.slice(0, 8).map((e, i) => {
+                {topEquipos.length === 0 && (
+                  <tr><td colSpan={4} className="py-10 text-center text-muted-foreground">Sin datos de equipos aún.</td></tr>
+                )}
+                {topEquipos.map((e, i) => {
                   const tasa = e.total > 0 ? Math.round((e.resueltos / e.total) * 100) : 0;
                   return (
                     <tr key={i} className="hover:bg-muted/20 transition-colors">
                       <td className="px-4 py-2.5">
-                        <div className="flex items-center gap-2">
-                          <div className="h-6 w-6 rounded-md bg-sky-500/10 text-sky-500 grid place-items-center shrink-0">
-                            <Cpu className="h-3 w-3" />
-                          </div>
-                          <div className="min-w-0">
-                            <p className="font-bold text-xs truncate">{e.marca}</p>
-                            <p className="text-[9px] text-muted-foreground truncate">{e.modelo}</p>
-                          </div>
-                        </div>
+                        <p className="font-bold text-xs truncate">{e.marca}</p>
+                        <p className="text-[9px] text-muted-foreground truncate">{e.modelo || "Sin modelo"}</p>
                       </td>
                       <td className="px-3 py-2.5 text-center">
                         <span className="font-black text-sm tabular-nums text-sky-500">{e.total}</span>
                       </td>
                       <td className="px-3 py-2.5 text-center">
-                        <div className="inline-flex items-center gap-1">
-                          <div className="h-1 w-8 bg-muted rounded-full overflow-hidden">
-                            <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${tasa}%` }} />
-                          </div>
-                          <span className="text-[9px] font-bold text-emerald-500">{tasa}%</span>
-                        </div>
+                        <span className="text-[9px] font-bold text-emerald-500">{tasa}%</span>
                       </td>
                       <td className="px-3 py-2.5 text-center">
                         <Link href={`/inbox?case=${e.ultimoCasoId}`} className="text-brand-500 hover:text-brand-600">
@@ -875,20 +862,13 @@ export default async function EstadisticasClientePage() {
 
         {/* Solicitudes más frecuentes */}
         <div className="rounded-2xl border border-border/60 bg-card overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-border/50 bg-gradient-to-r from-violet-500/5 to-transparent">
-            <div className="flex items-center gap-2.5">
-              <div className="h-7 w-7 rounded-lg bg-violet-500/10 text-violet-500 grid place-items-center"><Wrench className="h-3.5 w-3.5" /></div>
-              <h3 className="font-black text-sm">Problemas Frecuentes</h3>
-            </div>
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border/50">
+            <h3 className="font-black text-sm">Problemas Frecuentes</h3>
             <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-violet-500/10 text-violet-500">{topProblemas.length}</span>
           </div>
           <div className="p-5 space-y-3">
             {topProblemas.length === 0 && (
-              <div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
-                <div className="h-10 w-10 rounded-xl bg-violet-500/10 text-violet-500/40 grid place-items-center"><Wrench className="h-5 w-5" /></div>
-                <p className="text-xs font-bold text-muted-foreground/50">Sin clasificaciones aún</p>
-                <p className="text-[10px] text-muted-foreground/30">Se clasifican automáticamente</p>
-              </div>
+              <p className="py-8 text-center text-xs text-muted-foreground">Sin clasificaciones aún. Se clasifican automáticamente.</p>
             )}
             {topProblemas.slice(0, 8).map((p, i) => {
               const pct = Math.round((p.total / maxProblema) * 100);
@@ -909,7 +889,7 @@ export default async function EstadisticasClientePage() {
                     </div>
                   </div>
                   <div className="h-1.5 w-full bg-muted/40 rounded-full overflow-hidden">
-                    <div className="h-full bg-gradient-to-r from-violet-600 to-violet-400 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                    <div className="h-full bg-violet-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
                   </div>
                 </div>
               );
