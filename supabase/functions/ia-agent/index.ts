@@ -10,10 +10,10 @@ const LLAMA_MODEL = "meta/llama-3.2-11b-vision-instruct";
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
 
 // Modelos de Gemini para fallback y visión
-const GEMINI_CHAT_MODEL = "gemini-2.0-flash-lite";
-const GEMINI_VISION_MODEL = "gemini-2.0-flash";
-const GEMINI_IMAGE_MODEL = "gemini-2.0-flash";
-const GEMINI_FALLBACK_MODEL = "gemini-2.0-flash";
+const GEMINI_CHAT_MODEL = "gemini-3.1-flash-lite";
+const GEMINI_VISION_MODEL = "gemini-3.1-flash-lite";
+const GEMINI_IMAGE_MODEL = "gemini-3.1-flash-lite";
+const GEMINI_FALLBACK_MODEL = "gemini-3.1-flash-lite";
 
 const STRICT_DATA_COLLECTION = `
 ## FLUJO OBLIGATORIO DE RECOPILACIÓN DE DATOS — SIN EXCEPCIONES
