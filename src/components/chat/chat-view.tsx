@@ -713,24 +713,71 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
         description: `"${file.name}" pesa ${(file.size / 1024 / 1024).toFixed(1)} MB. Esto puede tardar unos minutos.`,
       });
       try {
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("caseId", String(targetId));
-        formData.append("agentEmail", agentEmail);
-
-        const driveRes = await fetch("/api/upload-drive", {
-          method: "POST",
-          body: formData,
-        });
-        if (!driveRes.ok) {
-          const d = await driveRes.json().catch(() => ({}));
-          throw new Error(d.error || `Error ${driveRes.status}`);
+        // 1. Obtener access token desde el backend
+        const tokenRes = await fetch("/api/drive-token");
+        if (!tokenRes.ok) {
+          const d = await tokenRes.json().catch(() => ({}));
+          throw new Error(d.error || `Error ${tokenRes.status}`);
         }
-        const driveData = await driveRes.json();
+        const { accessToken, folderId } = await tokenRes.json();
 
-        const driveMsg = `Estimado cliente:\n\nA continuación, le compartimos el enlace para la descarga directa del archivo solicitido:\n\n${driveData.shareableLink}\n\nPor favor, tenga en cuenta que el enlace permanecerá activo durante las próximas 2 horas.\n\nSi requiere cualquier otra asistencia, con gusto estaremos para ayudarle.`;
+        // 2. Subir directamente a Google Drive desde el navegador
+        const boundary = "-------sekunet" + Date.now().toString(36);
+        const metadata = JSON.stringify({ name: file.name, parents: [folderId] });
+        const fileBuffer = await file.arrayBuffer();
+        const body = new Blob([
+          new Blob([`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n`]),
+          new Blob([metadata]),
+          new Blob([`\r\n--${boundary}\r\nContent-Type: ${file.type || "application/octet-stream"}\r\n\r\n`]),
+          new Blob([fileBuffer]),
+          new Blob([`\r\n--${boundary}--\r\n`]),
+        ], { type: `multipart/related; boundary=${boundary}` });
 
-        // Enviar el mensaje con el enlace por WhatsApp
+        const uploadRes = await fetch(
+          "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id",
+          {
+            method: "POST",
+            headers: { Authorization: `Bearer ${accessToken}` },
+            body,
+          }
+        );
+        if (!uploadRes.ok) {
+          const d = await uploadRes.text();
+          throw new Error(`Drive upload failed: ${d}`);
+        }
+        const uploadData = await uploadRes.json();
+        const fileId = uploadData.id;
+
+        // 3. Hacer el archivo público
+        await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ role: "reader", type: "anyone" }),
+        });
+
+        const shareableLink = `https://drive.google.com/file/d/${fileId}/view?usp=sharing`;
+
+        // 4. Registrar en BD
+        await fetch("/api/drive-register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fileId,
+            fileName: file.name,
+            mimeType: file.type || "application/octet-stream",
+            fileSize: file.size,
+            shareableLink,
+            caseId: String(targetId),
+            agentEmail,
+          }),
+        });
+
+        const driveMsg = `Estimado cliente:\n\nA continuación, le compartimos el enlace para la descarga directa del archivo solicitito:\n\n${shareableLink}\n\nPor favor, tenga en cuenta que el enlace permanecerá activo durante las próximas 2 horas.\n\nSi requiere cualquier otra asistencia, con gusto estaremos para ayudarle.`;
+
+        // 5. Enviar el mensaje con el enlace por WhatsApp
         const sendRes = await fetch("/api/evolution/send", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -744,7 +791,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
           throw new Error(d.error || `Error enviando a WhatsApp ${sendRes.status}`);
         }
 
-        // Registrar en histtecnico
+        // 6. Registrar en histtecnico
         await send(driveMsg, undefined, undefined, undefined, true);
 
         toast.success("Archivo subido a Google Drive y enlace enviado por WhatsApp");
