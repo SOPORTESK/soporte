@@ -1,12 +1,12 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import {
   Users, TrendingUp, TrendingDown, Minus, ExternalLink, Star,
   ShieldCheck, ShieldAlert, Search, X, ChevronDown, ChevronUp,
   Activity, Clock, Phone, Mail, IdCard, BarChart3, Repeat2, Globe,
-  Filter,
 } from "lucide-react";
 
 export type PerfilClienteDTO = {
@@ -56,10 +56,19 @@ export function ClientProfilePanel({ perfiles }: { perfiles: PerfilClienteDTO[] 
   const [search, setSearch] = useState("");
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
   const [mounted, setMounted] = useState(false);
+  const PAGE_SIZE = 15;
+  const [currentPage, setCurrentPage] = useState(0);
+  const [displayCount, setDisplayCount] = useState(PAGE_SIZE);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Reset pagination when filters change
+  useEffect(() => {
+    setCurrentPage(0);
+    setDisplayCount(PAGE_SIZE);
+  }, [tipoFilter, search]);
 
   // Read hash on mount and on change to allow donut links like #clientes-saludable
   useEffect(() => {
@@ -93,6 +102,20 @@ export function ClientProfilePanel({ perfiles }: { perfiles: PerfilClienteDTO[] 
     return list;
   }, [perfiles, saludFilter, tipoFilter, search]);
 
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+  const pageStart = currentPage * PAGE_SIZE;
+  const pageEnd = Math.min(pageStart + displayCount, filtered.length);
+  const visible = filtered.slice(pageStart, pageEnd);
+  const hasMore = pageEnd < filtered.length;
+
+  const tipoCounts = useMemo(() => ({
+    todos: perfiles.length,
+    frecuente: perfiles.filter(p => p.tipo === "frecuente").length,
+    recurrente: perfiles.filter(p => p.tipo === "recurrente").length,
+    ocasional: perfiles.filter(p => p.tipo === "ocasional").length,
+    nuevo: perfiles.filter(p => p.tipo === "nuevo").length,
+  }), [perfiles]);
+
   const counts = useMemo(() => ({
     todos: perfiles.length,
     saludable: perfiles.filter(p => p.salud === "saludable").length,
@@ -118,7 +141,6 @@ export function ClientProfilePanel({ perfiles }: { perfiles: PerfilClienteDTO[] 
             <h3 className="font-black text-sm">Perfil de Clientes</h3>
             <p className="text-[10px] text-muted-foreground">
               {filtered.length} de {perfiles.length} clientes
-              {saludFilter !== "todos" && ` · ${saludConfig[saludFilter].label}`}
               {tipoFilter !== "todos" && ` · ${tipoConfig[tipoFilter].label}`}
             </p>
           </div>
@@ -127,41 +149,23 @@ export function ClientProfilePanel({ perfiles }: { perfiles: PerfilClienteDTO[] 
 
       {/* Filters bar */}
       <div className="px-5 py-3 border-b border-border/30 bg-muted/5 space-y-3">
-        {/* Salud filter tabs */}
+        {/* Tipo tabs + search */}
         <div className="flex flex-wrap items-center gap-2">
-          <Filter className="h-3 w-3 text-muted-foreground/60" />
           {([
-            { key: "todos" as SaludFilter, label: "Todos", color: "bg-muted text-foreground", activeColor: "bg-foreground text-background" },
-            { key: "saludable" as SaludFilter, label: "Saludable", color: "bg-sky-500/10 text-sky-500", activeColor: "bg-sky-500 text-white" },
-            { key: "atencion" as SaludFilter, label: "Atención", color: "bg-amber-400/10 text-amber-400", activeColor: "bg-amber-400 text-white" },
-            { key: "riesgo" as SaludFilter, label: "Riesgo", color: "bg-rose-500/10 text-rose-500", activeColor: "bg-rose-500 text-white" },
+            { key: "todos" as TipoFilter, label: "Todos", color: "bg-muted text-foreground", activeColor: "bg-foreground text-background" },
+            { key: "frecuente" as TipoFilter, label: "Frecuentes", color: "bg-violet-500/10 text-violet-500", activeColor: "bg-violet-500 text-white" },
+            { key: "recurrente" as TipoFilter, label: "Recurrentes", color: "bg-brand-500/10 text-brand-500", activeColor: "bg-brand-500 text-white" },
+            { key: "ocasional" as TipoFilter, label: "Ocasionales", color: "bg-sky-500/10 text-sky-500", activeColor: "bg-sky-500 text-white" },
+            { key: "nuevo" as TipoFilter, label: "Nuevos", color: "bg-emerald-500/10 text-emerald-500", activeColor: "bg-emerald-500 text-white" },
           ]).map(tab => (
             <button
               key={tab.key}
-              onClick={() => setSaludFilter(tab.key)}
-              className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wide transition-all ${
-                saludFilter === tab.key ? tab.activeColor : tab.color + " hover:opacity-80"
+              onClick={() => setTipoFilter(tab.key)}
+              className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wide transition-all ${
+                tipoFilter === tab.key ? tab.activeColor : tab.color + " hover:opacity-80"
               }`}
             >
-              {tab.label} ({counts[tab.key]})
-            </button>
-          ))}
-        </div>
-
-        {/* Tipo filter + search */}
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[9px] text-muted-foreground/60 font-bold uppercase tracking-wider">Tipo:</span>
-          {(["todos", "frecuente", "recurrente", "ocasional", "nuevo"] as TipoFilter[]).map(t => (
-            <button
-              key={t}
-              onClick={() => setTipoFilter(t)}
-              className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide border transition-all ${
-                tipoFilter === t
-                  ? "bg-foreground text-background border-foreground"
-                  : "bg-muted/30 text-muted-foreground border-border/30 hover:bg-muted/60"
-              }`}
-            >
-              {t === "todos" ? "Todos" : tipoConfig[t].label}
+              {tab.label} ({tipoCounts[tab.key]})
             </button>
           ))}
           <div className="flex-1" />
@@ -203,11 +207,11 @@ export function ClientProfilePanel({ perfiles }: { perfiles: PerfilClienteDTO[] 
             </tr>
           </thead>
           <tbody className="divide-y divide-border/30">
-            {filtered.length === 0 ? (
+            {visible.length === 0 ? (
               <tr><td colSpan={12} className="py-16 text-center text-sm text-muted-foreground">
                 {perfiles.length === 0 ? "Sin datos de clientes." : "No hay clientes con estos filtros."}
               </td></tr>
-            ) : filtered.map((p, i) => {
+            ) : visible.map((p, i) => {
               const sc = saludConfig[p.salud];
               const tc = tipoConfig[p.tipo];
               const initials = p.nombre.split(" ").filter(Boolean).map(n => n[0]).join("").substring(0, 2).toUpperCase();
@@ -431,6 +435,46 @@ export function ClientProfilePanel({ perfiles }: { perfiles: PerfilClienteDTO[] 
           </tbody>
         </table>
       </div>
+
+      {/* Pagination + Ver más */}
+      {filtered.length > 0 && (
+        <div className="px-5 py-3 border-t border-border/30 bg-muted/5 flex flex-wrap items-center justify-between gap-3">
+          <span className="text-[10px] text-muted-foreground font-bold">
+            Mostrando {pageStart + 1}-{pageEnd} de {filtered.length}
+          </span>
+          <div className="flex items-center gap-2">
+            {hasMore && (
+              <button
+                onClick={() => setDisplayCount(c => c + PAGE_SIZE)}
+                className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-brand-500/10 text-brand-500 hover:bg-brand-500/20 transition-colors"
+              >
+                Ver más (+{Math.min(PAGE_SIZE, filtered.length - pageEnd)})
+              </button>
+            )}
+            {totalPages > 1 && (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => { setCurrentPage(p => Math.max(0, p - 1)); setDisplayCount(PAGE_SIZE); }}
+                  disabled={currentPage === 0}
+                  className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </button>
+                <span className="text-[10px] font-black tabular-nums px-2">
+                  {currentPage + 1} / {totalPages}
+                </span>
+                <button
+                  onClick={() => { setCurrentPage(p => Math.min(totalPages - 1, p + 1)); setDisplayCount(PAGE_SIZE); }}
+                  disabled={currentPage >= totalPages - 1}
+                  className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Legend */}
       <div className="px-5 py-3 border-t border-border/30 bg-muted/5">
