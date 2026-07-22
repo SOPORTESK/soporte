@@ -95,11 +95,11 @@ export async function POST(req: NextRequest) {
       const chunks = chunkText(textContent, 1000);
       
       const chunkRecords = chunks.map(chunk => ({
+        id: crypto.randomUUID(),
         doc_id: docRecord.id,
         doc_name: file.name,
         content: chunk,
         source_label: "Documentación Oficial Sekunet",
-        // embedding: [] // Aquí se conectaría la API de OpenAI (text-embedding-3-small) si se usara pgvector real
       }));
 
       if (chunkRecords.length > 0) {
@@ -108,7 +108,7 @@ export async function POST(req: NextRequest) {
           .insert(chunkRecords);
           
         if (chunkError) {
-          console.error("Error saving chunks:", chunkError);
+          console.error("[manuales/upload] Error saving chunks:", chunkError.message, chunkError.code);
         }
       }
 
