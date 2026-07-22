@@ -93,6 +93,7 @@ export async function POST(req: NextRequest) {
 
       // 3. Crear Chunks para RAG
       const chunks = chunkText(textContent, 1000);
+      console.log(`[manuales/upload] "${file.name}" → ${chunks.length} chunks`);
       
       const chunkRecords = chunks.map(chunk => ({
         id: crypto.randomUUID(),
@@ -109,6 +110,8 @@ export async function POST(req: NextRequest) {
           
         if (chunkError) {
           console.error("[manuales/upload] Error saving chunks:", chunkError.message, chunkError.code);
+        } else {
+          console.log(`[manuales/upload] ✓ ${chunkRecords.length} chunks guardados para "${file.name}"`);
         }
       }
 

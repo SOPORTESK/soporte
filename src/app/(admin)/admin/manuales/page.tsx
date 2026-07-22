@@ -19,10 +19,15 @@ export default async function AdminManualesPage() {
   }
 
   // Obtener chunks (fragmentos con embeddings)
-  const { data: chunks, count: chunksCount } = await supabase
+  const { data: chunks, count: chunksCount, error: chunksError } = await supabase
     .from("sek_doc_chunks")
     .select("*", { count: "exact" })
+    .order("created_at", { ascending: false })
     .limit(5);
+
+  if (chunksError) {
+    console.error("[manuales] Error fetching chunks:", chunksError.message);
+  }
 
   const totalDocs = docs?.length || 0;
   const totalChunks = chunksCount || 0;
