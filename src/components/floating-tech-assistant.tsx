@@ -28,7 +28,6 @@ interface Position {
 }
 
 export function FloatingTechAssistant() {
-  const [mounted, setMounted] = React.useState(false);
   const [isOpen, setIsOpen] = React.useState(false);
   const [isMinimized, setIsMinimized] = React.useState(false);
   const [input, setInput] = React.useState("");
@@ -45,14 +44,16 @@ export function FloatingTechAssistant() {
   const inputRef = React.useRef<HTMLTextAreaElement>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
-  // Set mounted + initial bubble position on client only
+  // Set initial bubble position on client only
   React.useEffect(() => {
-    setMounted(true);
     const bubbleSize = 56;
     const padding = 24;
-    setBubblePosition({
-      x: Math.max(padding, window.innerWidth - bubbleSize - padding),
-      y: Math.max(padding, window.innerHeight - bubbleSize - padding),
+    setBubblePosition(prev => {
+      if (prev.x !== 0 || prev.y !== 0) return prev;
+      return {
+        x: Math.max(padding, window.innerWidth - bubbleSize - padding),
+        y: Math.max(padding, window.innerHeight - bubbleSize - padding),
+      };
     });
   }, []);
 
@@ -261,8 +262,6 @@ export function FloatingTechAssistant() {
     setIsOpen(true);
   };
 
-  if (!mounted) return null;
-
   if (!isOpen) {
     return (
       <Draggable
@@ -275,6 +274,7 @@ export function FloatingTechAssistant() {
       >
         <button
           ref={bubbleRef}
+          suppressHydrationWarning
           onClick={openFromBubble}
           className="sek-tech-drag-handle fixed top-0 left-0 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-violet-600 text-white shadow-lg shadow-violet-600/30 hover:bg-violet-700 transition-all hover:scale-105"
           aria-label="Asistente técnico"
@@ -296,6 +296,7 @@ export function FloatingTechAssistant() {
     >
       <div
         ref={panelRef}
+        suppressHydrationWarning
         className={`fixed top-0 left-0 z-50 flex flex-col rounded-2xl border border-border bg-card shadow-2xl overflow-hidden ${isMinimized ? "h-14 w-72" : "h-[500px] w-80 sm:w-96"}`}
       >
         {/* Header arrastrable */}
