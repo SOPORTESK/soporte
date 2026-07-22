@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
         .single();
 
       if (docError) {
-        console.error("Error saving doc:", docError);
+        console.error("[manuales/upload] Error saving doc:", docError.message, docError.code);
         continue;
       }
 
@@ -117,7 +117,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ 
       success: true, 
       processed: processedDocs.length,
-      files: processedDocs
+      files: processedDocs,
+      skipped: files.length - processedDocs.length
     });
 
   } catch (error: any) {

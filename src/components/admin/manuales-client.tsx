@@ -5,7 +5,7 @@ import { UploadCloud, File, Image as ImageIcon, Video, X, CheckCircle2, Loader2,
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 
-export function ManualesClient({ onUploadComplete, docs = [] }: { onUploadComplete?: () => void; docs?: { id: string; name: string; size?: number; created_at?: string }[] }) {
+export function ManualesClient({ onUploadComplete, docs = [] }: { onUploadComplete?: () => void; docs?: { id: string; name: string; size?: number; date?: string; created_at?: string }[] }) {
   const [isDragging, setIsDragging] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -78,7 +78,11 @@ export function ManualesClient({ onUploadComplete, docs = [] }: { onUploadComple
         throw new Error(data.error || "Error al subir archivos");
       }
 
-      toast.success("¡Archivos procesados e indexados correctamente!");
+      if (data.skipped > 0) {
+        toast.warning(`${data.processed} archivo(s) procesado(s), ${data.skipped} omitido(s)`);
+      } else {
+        toast.success("¡Archivos procesados e indexados correctamente!");
+      }
       setFiles([]);
       router.refresh();
       if (onUploadComplete) onUploadComplete();
@@ -202,7 +206,7 @@ export function ManualesClient({ onUploadComplete, docs = [] }: { onUploadComple
                     <p className="text-sm font-medium truncate">{d.name}</p>
                     <p className="text-xs text-muted-foreground">
                       {d.size ? `${(d.size / 1024).toFixed(1)} KB` : ""}
-                      {d.created_at && ` · ${new Date(d.created_at).toLocaleDateString()}`}
+                      {(d.date || d.created_at) && ` · ${new Date(d.date || d.created_at!).toLocaleDateString()}`}
                     </p>
                   </div>
                 </div>

@@ -9,10 +9,14 @@ export default async function AdminManualesPage() {
   const supabase = createClient();
   
   // Obtener documentos
-  const { data: docs } = await supabase
+  const { data: docs, error: docsError } = await supabase
     .from("sek_docs")
     .select("id,name,size,date,created_at")
-    .order("created_at", { ascending: false });
+    .order("date", { ascending: false });
+
+  if (docsError) {
+    console.error("[manuales] Error fetching docs:", docsError.message);
+  }
 
   // Obtener chunks (fragmentos con embeddings)
   const { data: chunks, count: chunksCount } = await supabase
