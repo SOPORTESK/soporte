@@ -145,6 +145,8 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   const [clientRating, setClientRating] = React.useState(5);
   const [clientComment, setClientComment] = React.useState("");
   const [submittingRating, setSubmittingRating] = React.useState(false);
+  const [closeProblema, setCloseProblema] = React.useState("");
+  const [closeResolucion, setCloseResolucion] = React.useState("");
   const [accepting, setAccepting] = React.useState(false);
   const [showClassify, setShowClassify] = React.useState(false);
   const [autoClosePaused, setAutoClosePaused] = React.useState(!!(initialCase as any).auto_close_paused);
@@ -521,6 +523,8 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       modalShownRef.current = true;
       const prevRating = (sekCase.cliente as any)?.calificacion_agente;
       if (prevRating) setClientRating(Number(prevRating) || 5);
+      setCloseProblema((sekCase as any).problema || "");
+      setCloseResolucion((sekCase as any).resolucion || "");
       setShowRatingModal(true);
     }
     // Si el caso se reabrió, resetear para que pueda volver a dispararse
@@ -935,6 +939,8 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     if (newEstado === "cerrado") {
       const prevRating = (sekCase.cliente as any)?.calificacion_agente;
       if (prevRating) setClientRating(Number(prevRating) || 5);
+      setCloseProblema((sekCase as any).problema || "");
+      setCloseResolucion((sekCase as any).resolucion || "");
       modalShownRef.current = true;
       setShowRatingModal(true);
       setShowActions(false);
@@ -984,6 +990,8 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
           estado: "cerrado",
           cliente: updatedCliente,
           closed_at: new Date().toISOString(),
+          ...(closeProblema ? { problema: closeProblema } : {}),
+          ...(closeResolucion ? { resolucion: closeResolucion } : {}),
         })
         .eq("id", targetId);
 
@@ -1712,6 +1720,42 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
                   value={clientComment}
                   onChange={(e) => setClientComment(e.target.value)}
                   className="min-h-[100px] rounded-xl resize-none"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground ml-1">Problema reportado</label>
+                <select
+                  value={closeProblema}
+                  onChange={(e) => setCloseProblema(e.target.value)}
+                  className="w-full p-2.5 rounded-xl border border-border bg-background text-sm"
+                >
+                  <option value="">Sin clasificar</option>
+                  <option value="sin_imagen">Sin imagen</option>
+                  <option value="sin_grabacion">Sin grabación</option>
+                  <option value="sin_acceso_remoto">Sin acceso remoto</option>
+                  <option value="sin_energia">Sin energía</option>
+                  <option value="error_configuracion">Error de configuración</option>
+                  <option value="conectividad_red">Conectividad / red</option>
+                  <option value="reset_contrasena">Reset contraseña</option>
+                  <option value="desvinculacion_cuenta">Desvinculación cuenta</option>
+                  <option value="dano_fisico">Daño físico</option>
+                  <option value="actualizacion_firmware">Actualización firmware</option>
+                  <option value="instalacion_nueva">Instalación nueva</option>
+                  <option value="deteccion_incendio">Detección incendio</option>
+                  <option value="control_acceso">Control de acceso</option>
+                  <option value="intrusion_alarma">Intrusión / alarma</option>
+                  <option value="otro">Otro</option>
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground ml-1">Resolución aplicada (opcional)</label>
+                <Textarea 
+                  placeholder="Ej: Se reseteó contraseña con SAPD Tools, se verificó imagen..."
+                  value={closeResolucion}
+                  onChange={(e) => setCloseResolucion(e.target.value)}
+                  className="min-h-[80px] rounded-xl resize-none"
                 />
               </div>
 

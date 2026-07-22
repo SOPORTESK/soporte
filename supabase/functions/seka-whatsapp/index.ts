@@ -1308,6 +1308,21 @@ Responde SOLO con JSON válido:
       ? `WhatsApp — ${updatedCliente.nombre}`
       : undefined;
 
+    const temaToProblemaKey = (tema: string): string => {
+      if (!tema) return "otro";
+      const key = tema.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+      const map: Record<string, string> = {
+        configuraciones: "error_configuracion",
+        reset: "reset_contrasena",
+        desvinculacion: "desvinculacion_cuenta",
+        firmware: "actualizacion_firmware",
+        software: "error_configuracion",
+        licencias: "error_configuracion",
+        otro: "otro",
+      };
+      return map[key] || "otro";
+    };
+
     const temaToTag = (tema: string): string | null => {
       if (!tema) return null;
       const key = tema.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
@@ -2095,6 +2110,9 @@ No agregues nada más.`,
       const tags = [...new Set([...(urgencyTags || []), ...(temaTag ? [temaTag] : [])])];
       if (tags.length) upd.tags = tags;
       if (clienteChanged) upd.cliente = updatedCliente;
+      if (marcaSupervisor) upd.marca = marcaSupervisor;
+      if (modeloSupervisor) upd.modelo = modeloSupervisor;
+      if (temaSupervisor) upd.problema = temaToProblemaKey(temaSupervisor);
       if (nuevoTitle) upd.title = nuevoTitle;
       else if (temaSupervisor) upd.title = `${temaSupervisor}`.substring(0, 120);
       await safeUpdateCase(upd, case_id);
@@ -2216,6 +2234,8 @@ No agregues nada más.`,
           const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
           const cliObj = { ...updatedCliente, marca: marcaValida.marcaCorregida || marcaSupervisor };
           upd.cliente = cliObj;
+          upd.marca = marcaValida.marcaCorregida || marcaSupervisor;
+          if (temaSupervisor) upd.problema = temaToProblemaKey(temaSupervisor);
           if (nuevoTitle) upd.title = nuevoTitle;
           await db.from("sek_cases").update(upd).eq("id", case_id);
           return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -2320,6 +2340,8 @@ No agregues nada más.`,
       const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
       const cliObj = { ...updatedCliente, marca: marcaValida.marcaCorregida || marcaSupervisor };
       upd.cliente = cliObj;
+      upd.marca = marcaValida.marcaCorregida || marcaSupervisor;
+      if (temaSupervisor) upd.problema = temaToProblemaKey(temaSupervisor);
       await db.from("sek_cases").update(upd).eq("id", case_id);
       return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -2402,6 +2424,11 @@ No agregues nada más.`,
       updatedCliente.modelo = modeloSupervisor || "";
       clienteChanged = true;
 
+      // Guardar marca, modelo y problema en columnas de sek_cases para analíticas
+      const analiticasUpd: Record<string, unknown> = { marca: searchMarca, modelo: modeloSupervisor || "" };
+      if (temaSupervisor) analiticasUpd.problema = temaToProblemaKey(temaSupervisor);
+      await db.from("sek_cases").update(analiticasUpd).eq("id", case_id);
+
       const esHik = /hik/i.test(searchMarca);
       if (temaSupervisor === "Reset") {
         accion = esHik ? "PEDIR_ETIQUETA_Y_XML" : "PEDIR_ETIQUETA";
@@ -2471,6 +2498,9 @@ No agregues nada más.`,
       const tags = [...new Set([...(urgencyTags || []), ...(temaTag ? [temaTag] : [])])];
       if (tags.length) upd.tags = tags;
       if (clienteChanged) upd.cliente = updatedCliente;
+      if (marcaSupervisor) upd.marca = marcaSupervisor;
+      if (modeloSupervisor) upd.modelo = modeloSupervisor;
+      if (temaSupervisor) upd.problema = temaToProblemaKey(temaSupervisor);
       if (marcaSupervisor || modeloSupervisor) {
         upd.title = `${temaSupervisor} — ${marcaSupervisor} ${modeloSupervisor}`.trim().substring(0, 120);
       } else if (nuevoTitle) {
