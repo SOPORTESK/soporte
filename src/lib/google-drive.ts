@@ -1,42 +1,62 @@
 import crypto from "crypto";
 
-interface ServiceAccount {
-  client_email: string;
-  private_key: string;
-  token_uri: string;
-}
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_OAUTH_CLIENT_ID!;
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_OAUTH_CLIENT_SECRET!;
+const REDIRECT_URI = process.env.GOOGLE_OAUTH_REDIRECT_URI || "https://sekachat.vercel.app/api/drive-oauth-callback";
 
-function getServiceAccount(): ServiceAccount {
-  const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
-  if (!raw) throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON no configurado");
-  return JSON.parse(raw);
-}
-
-async function getAccessToken(): Promise<string> {
-  const sa = getServiceAccount();
-  const now = Math.floor(Date.now() / 1000);
-  const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url");
-  const payload = Buffer.from(JSON.stringify({
-    iss: sa.client_email,
+export function getAuthUrl(): string {
+  const params = new URLSearchParams({
+    client_id: GOOGLE_CLIENT_ID,
+    redirect_uri: REDIRECT_URI,
+    response_type: "code",
     scope: "https://www.googleapis.com/auth/drive.file",
-    aud: sa.token_uri,
-    exp: now + 3600,
-    iat: now,
-  })).toString("base64url");
+    access_type: "offline",
+    prompt: "consent",
+  });
+  return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+}
 
-  const sign = crypto.createSign("RSA-SHA256");
-  sign.update(`${header}.${payload}`);
-  const signature = sign.sign(sa.private_key, "base64url");
-  const jwt = `${header}.${payload}.${signature}`;
-
-  const res = await fetch(sa.token_uri, {
+export async function exchangeCodeForTokens(code: string): Promise<{ access_token: string; refresh_token: string; expires_in: number }> {
+  const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${jwt}`,
+    body: new URLSearchParams({
+      code,
+      client_id: GOOGLE_CLIENT_ID,
+      client_secret: GOOGLE_CLIENT_SECRET,
+      redirect_uri: REDIRECT_URI,
+      grant_type: "authorization_code",
+    }),
   });
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`Google OAuth failed: ${err}`);
+    throw new Error(`Token exchange failed: ${err}`);
+  }
+  return res.json();
+}
+
+async function refreshAccessToken(): Promise<string> {
+  let refreshToken = process.env.GOOGLE_DRIVE_REFRESH_TOKEN;
+  if (!refreshToken) {
+    const { createServiceClient } = await import("@/lib/supabase/service");
+    const sb = createServiceClient();
+    const { data } = await sb.from("sek_drive_config").select("refresh_token").eq("id", 1).single();
+    refreshToken = data?.refresh_token;
+  }
+  if (!refreshToken) throw new Error("Google Drive no autorizado. Visite /api/drive-oauth-start para autorizar.");
+  const res = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      refresh_token: refreshToken,
+      client_id: GOOGLE_CLIENT_ID,
+      client_secret: GOOGLE_CLIENT_SECRET,
+      grant_type: "refresh_token",
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Token refresh failed: ${err}`);
   }
   const data = await res.json();
   return data.access_token;
@@ -47,7 +67,7 @@ export async function uploadToDrive(
   fileName: string,
   mimeType: string
 ): Promise<{ fileId: string; shareableLink: string }> {
-  const accessToken = await getAccessToken();
+  const accessToken = await refreshAccessToken();
   const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
   if (!folderId) throw new Error("GOOGLE_DRIVE_FOLDER_ID no configurado");
 
@@ -106,7 +126,7 @@ export async function uploadToDrive(
 
 export async function deleteFromDrive(fileId: string): Promise<boolean> {
   try {
-    const accessToken = await getAccessToken();
+    const accessToken = await refreshAccessToken();
     const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${accessToken}` },
