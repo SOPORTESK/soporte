@@ -55,6 +55,11 @@ export function ClientProfilePanel({ perfiles }: { perfiles: PerfilClienteDTO[] 
   const [tipoFilter, setTipoFilter] = useState<TipoFilter>("todos");
   const [search, setSearch] = useState("");
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Read hash on mount and on change to allow donut links like #clientes-saludable
   useEffect(() => {
@@ -98,7 +103,11 @@ export function ClientProfilePanel({ perfiles }: { perfiles: PerfilClienteDTO[] 
   const antigStr = (d: number) => d > 365 ? `${(d / 365).toFixed(1)} años` : d > 30 ? `${Math.round(d / 30)} meses` : `${d} días`;
 
   return (
-    <div id="clientes-panel" className="rounded-2xl border border-border/60 bg-card overflow-hidden scroll-mt-6">
+    <div id="clientes-panel" className="rounded-2xl border border-border/60 bg-card overflow-hidden scroll-mt-6" suppressHydrationWarning>
+      {!mounted ? (
+        <div className="px-5 py-10 text-center text-sm text-muted-foreground">Cargando perfiles...</div>
+      ) : (
+      <>
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-5 py-4 border-b border-border/50 bg-gradient-to-r from-brand-500/5 to-transparent">
         <div className="flex items-center gap-2.5">
@@ -438,6 +447,8 @@ export function ClientProfilePanel({ perfiles }: { perfiles: PerfilClienteDTO[] 
           <span className="italic">Click en una fila para ver perfil completo</span>
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 }

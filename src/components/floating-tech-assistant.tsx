@@ -47,6 +47,7 @@ export function FloatingTechAssistant() {
   });
   const [panelPosition, setPanelPosition] = React.useState<Position>({ x: 0, y: 0 });
   const bubbleRef = React.useRef<HTMLButtonElement>(null);
+  const panelRef = React.useRef<HTMLDivElement>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLTextAreaElement>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -259,6 +260,7 @@ export function FloatingTechAssistant() {
   if (!isOpen) {
     return (
       <Draggable
+        nodeRef={bubbleRef as any}
         position={bubblePosition}
         onDrag={handleBubbleDrag}
         onStop={handleBubbleDragStop}
@@ -279,6 +281,7 @@ export function FloatingTechAssistant() {
 
   return (
     <Draggable
+      nodeRef={panelRef as any}
       position={panelPosition}
       onDrag={handlePanelDrag}
       onStop={handlePanelDragStop}
@@ -286,6 +289,7 @@ export function FloatingTechAssistant() {
       handle=".sek-tech-drag-handle"
     >
       <div
+        ref={panelRef}
         className={`fixed top-0 left-0 z-50 flex flex-col rounded-2xl border border-border bg-card shadow-2xl overflow-hidden ${isMinimized ? "h-14 w-72" : "h-[500px] w-80 sm:w-96"}`}
       >
         {/* Header arrastrable */}
