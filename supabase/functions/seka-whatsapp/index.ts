@@ -316,8 +316,8 @@ async function validarModelo(marca: string, modelo: string): Promise<{ valido: b
   // aceptarlo aunque Gemini falle. Evita rechazar modelos válidos por fallos de API.
   // Patrones estrictos con suficiente estructura para evitar falsos positivos.
   const patronesConocidos = [
-    /^DS-[0-9][A-Z]{1,3}[0-9A-Z]+/i,  // Hikvision: DS-2CD..., DS-2DE..., DS-7104..., DS-3E..., DS-1HD...
-    /^DS[0-9][A-Z]{1,3}[0-9A-Z]+/i,   // Hikvision sin guion: DS7104HQHI..., DS2CD...
+    /^DS-[0-9]+[A-Z]{1,}[0-9A-Z-]*/i,  // Hikvision: DS-2CD..., DS-7208HUHI-K1, DS-7104HGHI-F1, DS-3E..., DS-1HD...
+    /^DS[0-9]+[A-Z]{1,}[0-9A-Z-]*/i,   // Hikvision sin guion: DS7104HQHI..., DS2CD...
     /^DHI-[A-Z]{2,}[0-9A-Z-]+/i,      // Dahua: DHI-IPC-HDW..., DHI-NVR...
     /^IPC-[A-Z]{2,}[0-9A-Z-]+/i,      // Dahua: IPC-HDW..., IPC-HFW...
     /^DH-[A-Z]{2,}[0-9A-Z-]+/i,       // Dahua: DH-IPC...
@@ -358,18 +358,23 @@ async function buscarInventario(query: string): Promise<{ encontrado: boolean; d
       };
     }
 
-    // Caso 2: Marca y Modelo. El modelo puede tener guiones o espacios.
-    // Ej: query = "Hikvision DS-7104HGHI-F1"
+    // Caso 2: Marca y Modelo. Normalizar prefijos del modelo ANTES de buscar.
+    // El cliente puede escribir "DS-7208HUHI-K1" pero el inventario lo tiene como
+    // "HIK-IDS7208HUHIM1-S-4". Quitamos prefijos comunes para buscar por el core.
     const rawModel = modelTokens.join(""); // "DS-7104HGHI-F1"
+    const coreModel = rawModel.replace(/^(DS|HIK-IDS|HIK|DH|DHI)[-]?/i, "").replace(/[-_]/g, "");
+    // Búsqueda con modelo completo (incluye prefijo) por si coincide exacto
     const cleanedModelTokens = rawModel.split(/[-_]+/).filter(x => x.length >= 2);
     const fuzzyModel = `%${cleanedModelTokens.join("%")}%`; // "%DS%7104HGHI%F1%"
+    // Búsqueda por core sin prefijo (búsqueda inteligente)
+    const coreFuzzy = coreModel.length >= 4 ? `%${coreModel.slice(0, Math.min(coreModel.length, 8))}%` : fuzzyModel;
 
-    // Intentar buscar combinando la marca y el modelo difuso
+    // Intentar buscar combinando marca + modelo (tanto con prefijo como con core)
     const { data: brandModelRows } = await db
       .from("sek_inventario")
       .select("id,codigo,nombre,marca,modelo,categoria")
       .ilike("marca", `%${brandToken}%`)
-      .or(`modelo.ilike.${fuzzyModel},nombre.ilike.${fuzzyModel}`)
+      .or(`modelo.ilike.${fuzzyModel},nombre.ilike.${fuzzyModel},modelo.ilike.${coreFuzzy},nombre.ilike.${coreFuzzy}`)
       .limit(10);
 
     if (brandModelRows && brandModelRows.length > 0) {
@@ -381,11 +386,11 @@ async function buscarInventario(query: string): Promise<{ encontrado: boolean; d
     }
 
     // Caso 3: Fallback. Quizás el usuario dio el modelo primero, o la marca no coincide exactamente.
-    // Busquemos puramente por el modelo difuso.
+    // Busquemos puramente por el modelo (con y sin core).
     const { data: modelOnlyRows } = await db
       .from("sek_inventario")
       .select("id,codigo,nombre,marca,modelo,categoria")
-      .or(`modelo.ilike.${fuzzyModel},nombre.ilike.${fuzzyModel}`)
+      .or(`modelo.ilike.${fuzzyModel},nombre.ilike.${fuzzyModel},modelo.ilike.${coreFuzzy},nombre.ilike.${coreFuzzy}`)
       .limit(10);
 
     if (modelOnlyRows && modelOnlyRows.length > 0) {

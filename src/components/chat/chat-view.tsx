@@ -696,6 +696,66 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
 
     const isWhatsApp = String(sekCase.canal || "").toLowerCase() === "whatsapp";
     const MAX_MB = isWhatsApp ? 100 : 50;
+    const DRIVE_THRESHOLD = 99 * 1024 * 1024; // 99 MB → subir a Google Drive
+
+    // Archivos ≥99MB: subir a Google Drive y enviar enlace por WhatsApp
+    if (file.size >= DRIVE_THRESHOLD) {
+      if (!isWhatsApp) {
+        toast.error(`El archivo excede el límite de ${MAX_MB} MB`, {
+          description: `"${file.name}" pesa ${(file.size / 1024 / 1024).toFixed(1)} MB. Comprímaló o compártalo por otro medio.`,
+        });
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        return;
+      }
+
+      setUploadingFile(true);
+      toast.info("Subiendo archivo a Google Drive...", {
+        description: `"${file.name}" pesa ${(file.size / 1024 / 1024).toFixed(1)} MB. Esto puede tardar unos minutos.`,
+      });
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("caseId", String(targetId));
+        formData.append("agentEmail", agentEmail);
+
+        const driveRes = await fetch("/api/upload-drive", {
+          method: "POST",
+          body: formData,
+        });
+        if (!driveRes.ok) {
+          const d = await driveRes.json().catch(() => ({}));
+          throw new Error(d.error || `Error ${driveRes.status}`);
+        }
+        const driveData = await driveRes.json();
+
+        const driveMsg = `Estimado cliente:\n\nA continuación, le compartimos el enlace para la descarga directa del archivo solicitido:\n\n${driveData.shareableLink}\n\nPor favor, tenga en cuenta que el enlace permanecerá activo durante las próximas 2 horas.\n\nSi requiere cualquier otra asistencia, con gusto estaremos para ayudarle.`;
+
+        // Enviar el mensaje con el enlace por WhatsApp
+        const sendRes = await fetch("/api/evolution/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            case_id: String(targetId),
+            text: driveMsg,
+          }),
+        });
+        if (!sendRes.ok) {
+          const d = await sendRes.json().catch(() => ({}));
+          throw new Error(d.error || `Error enviando a WhatsApp ${sendRes.status}`);
+        }
+
+        // Registrar en histtecnico
+        await send(driveMsg, undefined, undefined, undefined, true);
+
+        toast.success("Archivo subido a Google Drive y enlace enviado por WhatsApp");
+      } catch (err: any) {
+        toast.error("Error al subir archivo grande", { description: err?.message });
+      } finally {
+        setUploadingFile(false);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      }
+      return;
+    }
 
     if (file.size > MAX_MB * 1024 * 1024) {
       toast.error(`El archivo excede el límite de ${MAX_MB} MB`, {
