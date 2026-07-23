@@ -48,7 +48,8 @@ export async function POST(req: NextRequest) {
       let textContent = "";
 
       // 1. Procesamiento según tipo de archivo
-      if (file.name.toLowerCase().endsWith(".pdf")) {
+      const name = file.name.toLowerCase();
+      if (name.endsWith(".pdf")) {
         // PDF (pdf-parse v1 — dynamic import to avoid webpack issues)
         const pdf = (await import("pdf-parse/lib/pdf-parse.js")).default;
         const data = await pdf(buffer);
@@ -59,15 +60,31 @@ export async function POST(req: NextRequest) {
         const { data: { text } } = await worker.recognize(buffer);
         textContent = text;
         await worker.terminate();
-      } else if (file.type.includes("text") || file.name.endsWith(".csv")) {
+      } else if (name.endsWith(".docx") || name.endsWith(".doc")) {
+        // Word (.docx) con mammoth
+        const mammoth = (await import("mammoth")).default;
+        const result = await mammoth.extractRawText({ buffer });
+        textContent = result.value || "";
+      } else if (
+        file.type.includes("text") ||
+        name.endsWith(".csv") ||
+        name.endsWith(".md") ||
+        name.endsWith(".txt") ||
+        name.endsWith(".json") ||
+        name.endsWith(".xml") ||
+        name.endsWith(".html") ||
+        name.endsWith(".htm") ||
+        name.endsWith(".rtf")
+      ) {
         // Texto plano
         textContent = buffer.toString("utf-8");
       } else if (file.type.startsWith("video/") || file.type.startsWith("audio/")) {
-        // Audio/Video transcripción no soportada (Groq eliminado)
-        throw new Error("Transcripción de audio/video no está disponible porque la integración con Groq ha sido eliminada.");
+        errors.push({ file: file.name, error: "Transcripción de audio/video no soportada" });
+        continue;
       } else {
-        console.log(`Formato no soportado para extracción profunda: ${file.name}`);
-        textContent = `[Archivo multimedia/binario no soportado: ${file.name}]`;
+        console.log(`Formato no soportado: ${file.name}`);
+        errors.push({ file: file.name, error: "Formato no soportado" });
+        continue;
       }
 
       if (!textContent.trim()) {

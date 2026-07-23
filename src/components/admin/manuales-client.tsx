@@ -133,7 +133,7 @@ export function ManualesClient({ onUploadComplete, docs = [] }: { onUploadComple
         <input
           type="file"
           multiple
-          accept=".pdf,.png,.jpg,.jpeg,.txt,.csv"
+          accept=".pdf,.docx,.doc,.png,.jpg,.jpeg,.txt,.csv,.md,.json,.xml,.html,.htm,.rtf"
           onChange={handleFileSelect}
           className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
         />
@@ -141,7 +141,7 @@ export function ManualesClient({ onUploadComplete, docs = [] }: { onUploadComple
           <UploadCloud className="h-6 w-6" />
         </div>
         <p className="font-medium">Arrastra tus archivos aquí o haz clic para explorar</p>
-        <p className="text-xs text-muted-foreground mt-1">Soporta PDF, JPG, PNG, TXT y CSV (Max 10MB por archivo)</p>
+        <p className="text-xs text-muted-foreground mt-1">PDF, DOCX, imágenes (OCR), TXT, CSV, MD, JSON, HTML (Max 10MB)</p>
       </div>
 
       {/* Lista de archivos a subir */}
@@ -152,8 +152,10 @@ export function ManualesClient({ onUploadComplete, docs = [] }: { onUploadComple
             {files.map((f, i) => (
               <li key={i} className="flex items-center justify-between p-3 rounded-lg border border-border bg-muted/30">
                 <div className="flex items-center gap-3 min-w-0">
-                  {f.type.includes("pdf") ? (
+                  {f.type.includes("pdf") || f.name.toLowerCase().endsWith(".pdf") ? (
                     <File className="h-5 w-5 text-red-500 shrink-0" />
+                  ) : f.name.toLowerCase().endsWith(".docx") || f.name.toLowerCase().endsWith(".doc") ? (
+                    <File className="h-5 w-5 text-blue-500 shrink-0" />
                   ) : f.type.includes("image") ? (
                     <ImageIcon className="h-5 w-5 text-sky-500 shrink-0" />
                   ) : f.type.includes("video") ? (
