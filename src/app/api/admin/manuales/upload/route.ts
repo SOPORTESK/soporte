@@ -2,6 +2,57 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createWorker } from "tesseract.js";
 
+// ── Transcripción de audio con Groq Whisper ──
+async function transcribeWithGroq(audioBuffer: Buffer, filename: string): Promise<string> {
+  const GROQ_KEY = process.env.GROQ_API_KEY;
+  if (!GROQ_KEY) throw new Error("GROQ_API_KEY no configurada en .env.local");
+
+  const formData = new FormData();
+  const blob = new Blob([audioBuffer], { type: "audio/mpeg" });
+  formData.append("file", blob, filename);
+  formData.append("model", "whisper-large-v3");
+  formData.append("language", "es");
+  formData.append("response_format", "text");
+
+  const res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${GROQ_KEY}` },
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Groq Whisper error ${res.status}: ${errText.substring(0, 200)}`);
+  }
+
+  return await res.text();
+}
+
+// ── Extraer audio de video con ffmpeg-static ──
+async function extractAudioFromVideo(videoBuffer: Buffer): Promise<Buffer> {
+  const ffmpegPath = (await import("ffmpeg-static")).default as string;
+  const ffmpeg = (await import("fluent-ffmpeg")).default;
+
+  return new Promise((resolve, reject) => {
+    ffmpeg.setFfmpegPath(ffmpegPath);
+
+    const chunks: Buffer[] = [];
+    const stream = new (require("stream").Readable)();
+    stream.push(videoBuffer);
+    stream.push(null);
+
+    ffmpeg(stream)
+      .noVideo()
+      .audioCodec("libmp3lame")
+      .audioBitrate("128k")
+      .format("mp3")
+      .on("error", (err: Error) => reject(new Error(`ffmpeg: ${err.message}`)))
+      .on("end", () => resolve(Buffer.concat(chunks)))
+      .pipe()
+      .on("data", (chunk: Buffer) => chunks.push(chunk));
+  });
+}
+
 // Helper para dividir texto en chunks
 function chunkText(text: string, maxLen = 1000): string[] {
   const words = text.split(/\s+/);
@@ -78,9 +129,13 @@ export async function POST(req: NextRequest) {
       ) {
         // Texto plano
         textContent = buffer.toString("utf-8");
-      } else if (file.type.startsWith("video/") || file.type.startsWith("audio/")) {
-        errors.push({ file: file.name, error: "Transcripción de audio/video no soportada" });
-        continue;
+      } else if (file.type.startsWith("audio/") || name.endsWith(".mp3") || name.endsWith(".wav") || name.endsWith(".m4a") || name.endsWith(".ogg")) {
+        // Audio → transcripción con Groq Whisper
+        textContent = await transcribeWithGroq(buffer, file.name);
+      } else if (file.type.startsWith("video/") || name.endsWith(".mp4") || name.endsWith(".avi") || name.endsWith(".mov") || name.endsWith(".mkv") || name.endsWith(".webm")) {
+        // Video → extraer audio con ffmpeg, luego transcribir con Groq Whisper
+        const audioBuffer = await extractAudioFromVideo(buffer);
+        textContent = await transcribeWithGroq(audioBuffer, file.name);
       } else {
         console.log(`Formato no soportado: ${file.name}`);
         errors.push({ file: file.name, error: "Formato no soportado" });

@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  serverExternalPackages: ["pdf-parse", "tesseract.js"],
+  serverExternalPackages: ["pdf-parse", "tesseract.js", "ffmpeg-static", "fluent-ffmpeg"],
   experimental: {
     instrumentationHook: true,
   },

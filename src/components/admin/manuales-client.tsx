@@ -133,7 +133,7 @@ export function ManualesClient({ onUploadComplete, docs = [] }: { onUploadComple
         <input
           type="file"
           multiple
-          accept=".pdf,.docx,.doc,.png,.jpg,.jpeg,.txt,.csv,.md,.json,.xml,.html,.htm,.rtf"
+          accept=".pdf,.docx,.doc,.png,.jpg,.jpeg,.txt,.csv,.md,.json,.xml,.html,.htm,.rtf,.mp3,.wav,.m4a,.ogg,.mp4,.avi,.mov,.mkv,.webm"
           onChange={handleFileSelect}
           className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
         />
@@ -141,7 +141,7 @@ export function ManualesClient({ onUploadComplete, docs = [] }: { onUploadComple
           <UploadCloud className="h-6 w-6" />
         </div>
         <p className="font-medium">Arrastra tus archivos aquí o haz clic para explorar</p>
-        <p className="text-xs text-muted-foreground mt-1">PDF, DOCX, imágenes (OCR), TXT, CSV, MD, JSON, HTML (Max 10MB)</p>
+        <p className="text-xs text-muted-foreground mt-1">PDF, DOCX, imágenes (OCR), audio/video (transcripción), TXT, CSV, MD, JSON, HTML (Max 10MB)</p>
       </div>
 
       {/* Lista de archivos a subir */}
