@@ -146,13 +146,13 @@ export async function POST(req: NextRequest) {
         textContent = "[Sin contenido de texto extraíble]";
       }
 
-      // 2. Guardar el documento principal
+      // 2. Guardar el documento principal (sin contenido — ya vive en chunks)
       const { data: docRecord, error: docError } = await supabase
         .from("sek_docs")
         .insert({
           id: crypto.randomUUID(),
           name: file.name,
-          content: textContent.substring(0, 5000),
+          content: textContent.substring(0, 500),
           size: file.size,
           date: new Date().toISOString()
         })
@@ -165,8 +165,10 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // 3. Crear Chunks para RAG
-      const chunks = chunkText(textContent, 1000);
+      // 3. Crear Chunks para RAG (1500 chars, max 200 chunks, filtrar vacíos)
+      const allChunks = chunkText(textContent, 1500)
+        .filter(c => c.trim().length > 20);
+      const chunks = allChunks.slice(0, 200);
       
       const chunkRecords = chunks.map((chunk, idx) => ({
         doc_id: docRecord.id,
