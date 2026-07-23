@@ -216,8 +216,14 @@ INTERACCIÓN CON EL TÉCNICO:
 
 HERRAMIENTAS DISPONIBLES:
 - Buscar equipos en el inventario con [BUSCAR_INVENTARIO: marca modelo].
-- Buscar información actualizada en la web con [BUSCAR_WEB: consulta].
+- Buscar información actualizada en la web con [BUSCAR_WEB: consulta]. USE ESTA HERRAMIENTA SIEMPRE que el técnico pregunte por especificaciones técnicas (baterías, voltaje, dimensiones, compatibilidad, firmware, etc.). No responda especificaciones de memoria.
 - Resumir casos y conversaciones cuando se le solicite.
+
+VERIFICACIÓN DE ESPECIFICACIONES TÉCNICAS (OBLIGATORIO):
+- Cuando el técnico pregunte por una especificación técnica específica (tipo de batería, voltaje, corriente, dimensiones, compatibilidad, versión de firmware, etc.), está OBLIGADO a emitir [BUSCAR_WEB: marca modelo especificación] ANTES de responder.
+- NO invente especificaciones basándose en su conocimiento general. Los equipos varían entre modelos y versiones.
+- Si la búsqueda web no devuelve información clara, indique al técnico que no pudo verificar la especificación y sugiera consultar la ficha técnica oficial del fabricante.
+- Cite la fuente de la información obtenida.
 
 REGLAS:
 - No invente información técnica. Si no está seguro, indique que no dispone de la información y sugiera escalar a Soporte Avanzado.
@@ -1188,6 +1194,36 @@ async function handleTechnicianMode(body: Record<string, unknown>): Promise<Resp
     } else {
       chatMessages.push({ role: "system", content: `[RESULTADO_INVENTARIO] "${searchQuery}" no se encontró en la cartera de Sekunet. Infórmelo al técnico.` });
       aiResponse = await callAI(chatMessages);
+    }
+  }
+
+  // Procesar búsqueda web para técnicos
+  const techWebMatch = aiResponse.match(/\[BUSCAR_WEB:\s*(.+?)\]/);
+  if (techWebMatch) {
+    const webQuery = techWebMatch[1].trim();
+    try {
+      const searchRes = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: `Busca información técnica actualizada sobre: ${webQuery}. Consulta fichas técnicas oficiales del fabricante, sitios oficiales y foros técnicos. Responde en español, de forma concisa y precisa. Incluye la fuente de donde obtuviste la información.` }] }],
+            generationConfig: { maxOutputTokens: 600, temperature: 0.1 },
+            tools: [{ googleSearch: {} }],
+          }),
+        }
+      );
+      if (searchRes.ok) {
+        const searchData = await searchRes.json();
+        const webResult = searchData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+        if (webResult) {
+          chatMessages.push({ role: "system", content: `[Fuente: Búsqueda Web] Resultado de búsqueda web para "${webQuery}":\n${webResult}\n\nUse esta información verificada para responder al técnico. Cite la fuente.` });
+          aiResponse = await callAI(chatMessages);
+        }
+      }
+    } catch (e) {
+      console.error("[tech-assistant] BUSCAR_WEB error:", e);
     }
   }
 
