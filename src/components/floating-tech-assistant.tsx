@@ -293,7 +293,7 @@ export function FloatingTechAssistant() {
     setMessages([]);
     localStorage.removeItem("sek_tech_assistant_session");
     if (c) {
-      await handleSend("Resume brevemente el caso actual: qué equipo es, qué problema reporta el cliente y qué información está disponible en los adjuntos. Si es una consulta informativa simple, responde directamente. Si es un problema con síntomas, sugiere diagnóstico. No pidas archivos al cliente.", []);
+      await handleSend("Lea la última pregunta del cliente en el historial y respóndala directamente. Si es una consulta informativa simple (ej: qué batería usa, qué voltaje soporta), responda solo con esa información. NO haga diagnóstico ni análisis de problemas si el cliente no reportó ninguno. Use los adjuntos solo si son relevantes a la pregunta.", []);
     }
   };
 
