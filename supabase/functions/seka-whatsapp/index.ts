@@ -289,7 +289,7 @@ async function validarModelo(marca: string, modelo: string): Promise<{ valido: b
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: `Verifica si "${modelo}" es un número de modelo válido (NO un número de serie) para la marca "${marca}". Un modelo incluye letras, guiones y números como "DS-2CD2143G2-IU" o "DHI-IPC-HDW1230T-S5". Un número de serie suele ser una letra seguida de puros dígitos. Responde SOLO con una línea JSON: {"existe": true/false, "razon": "motivo breve"}. No agregues nada más.` }] }],
+          contents: [{ parts: [{ text: `Un cliente escribió "${modelo}" como modelo de un equipo de la marca "${marca}". Esto puede tener errores de tipeo, mayúsculas incorrectas, guiones cambiados o letras intercambiadas. Busca en internet si existe un modelo similar de ${marca} que corresponda a lo que el cliente quiso decir. Ejemplos de modelos válidos: "DS-2CD2143G2-IU" (Hikvision), "DHI-IPC-HDW1230T-S5" (Dahua), "DS-PWA48-M-WB" (Hikvision). Un número de serie es diferente (una letra + 7+ dígitos). Responde SOLO con una línea JSON: {"existe": true/false, "modelo_corregido": "modelo correcto si lo encontraste, sino vacío", "razon": "motivo breve"}. Tolerancia alta a errores ortográficos.` }] }],
           generationConfig: { maxOutputTokens: 200, temperature: 0.2 },
           tools: [{ googleSearch: {} }],
         }),
@@ -302,7 +302,10 @@ async function validarModelo(marca: string, modelo: string): Promise<{ valido: b
       if (jsonMatch) {
         const result = JSON.parse(jsonMatch[0]);
         if (result.existe) {
-          return { valido: true, fuente: "externo", detalle: result.razon || "Modelo confirmado mediante búsqueda web" };
+          const detalle = result.modelo_corregido 
+            ? `Modelo confirmado: ${result.modelo_corregido} (${result.razon || "búsqueda web"})`
+            : result.razon || "Modelo confirmado mediante búsqueda web";
+          return { valido: true, fuente: "externo" as const, detalle };
         }
         return { valido: false, fuente: "externo", detalle: result.razon || "Modelo no encontrado en búsqueda web" };
       }
