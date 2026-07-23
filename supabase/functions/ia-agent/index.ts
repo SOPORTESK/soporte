@@ -743,12 +743,13 @@ async function searchRAG(query: string, limit = 5): Promise<{ content: string; s
   if (terms.length === 0) return [];
 
   try {
-    // Búsqueda por ILIKE en contenido: cada término debe aparecer en el chunk.
-    let dbQuery = db.from("sek_doc_chunks").select("content,doc_name").limit(limit * 2);
-    for (const term of terms) {
-      dbQuery = dbQuery.ilike("content", `%${term}%`);
-    }
-    const { data, error } = await dbQuery;
+    // Búsqueda por ILIKE con OR — basta con que un término aparezca en el chunk.
+    const orFilter = terms.map(t => `content.ilike.%${t}%`).join(",");
+    const { data, error } = await db
+      .from("sek_doc_chunks")
+      .select("content,doc_name")
+      .or(orFilter)
+      .limit(limit * 2);
     if (error) {
       console.error("[ia-agent] Error RAG:", error.message);
       return [];
@@ -784,21 +785,7 @@ async function searchInventory(query: string): Promise<any[]> {
 
   if (terms.length === 0) return [];
 
-  // Paso 1: verificar que la MARCA (primer término) exista en el inventario
-  // Si la marca no existe, no tiene sentido seguir buscando — evita falsos positivos
-  const brandTerm = terms[0];
-  const { data: brandCheck } = await db
-    .from("sek_inventario")
-    .select("id")
-    .ilike("marca", `%${brandTerm}%`)
-    .limit(1);
-
-  if (!brandCheck || brandCheck.length === 0) {
-    // La marca indicada no existe en cartera — retornar vacío
-    return [];
-  }
-
-  // Paso 2: buscar cada término y contar coincidencias por registro
+  // Buscar todos los términos en todas las columnas con OR, luego puntuar por coincidencias
   const matchCount = new Map<string, { record: any; count: number }>();
 
   for (const term of terms) {
@@ -825,13 +812,13 @@ async function searchInventory(query: string): Promise<any[]> {
 
   if (matchCount.size === 0) return [];
 
-  // Paso 3: ordenar por cantidad de términos coincidentes
+  // Ordenar por cantidad de términos coincidentes
   const sorted = Array.from(matchCount.values())
     .sort((a, b) => b.count - a.count);
 
   const maxCount = sorted[0].count;
 
-  // Paso 4: devolver solo los que alcancen el máximo score, hasta 5
+  // Devolver solo los que alcancen el máximo score, hasta 5
   const best = sorted.filter((x) => x.count === maxCount).slice(0, 5);
 
   return best.map((x) => x.record);
@@ -881,6 +868,7 @@ Problema clasificado: ${problema}`;
       doc_id: null,
       doc_name: `Aprendizaje: ${equipo} — ${problema}`.substring(0, 200),
       content: summary.substring(0, 3000),
+      chunk_index: 0,
     });
 
     console.log(`[ia-agent] Aprendizaje guardado para caso ${caso.id}: ${equipo} / ${problema}`);
@@ -1255,6 +1243,7 @@ Deno.serve(async (req) => {
     const capabilitiesContext = `\n\nCAPACIDADES DEL SISTEMA:\n- Puedes analizar archivos multimedia que el cliente envíe: imágenes, audio, video, PDF y documentos de texto.\n- Tienes acceso a la Documentación Oficial Sekunet (manuales técnicos indexados). Cuando uses información de estos manuales, indícalo como [Fuente: Documentación Oficial Sekunet].\n- Puedes buscar información en la web. Cuando uses información obtenida de internet, indícalo como [Fuente: Búsqueda Web].\n- Puedes ver el estado de conexión de los agentes humanos en tiempo real.\n- Siempre distingue claramente entre información oficial de Sekunet y la obtenida de fuentes externas.`;
 
     // Si el caso ya está escalado, agregar contexto para que el agente no re-escale
+    const isEscaladoSinAgente = caso.estado === "escalado";
     const escaladoContext = isEscaladoSinAgente
       ? `\n\nCONTEXTO ACTUAL: Este caso ya fue escalado a Soporte Avanzado. Un especialista humano está en camino pero aún no ha tomado el caso. Mientras tanto, SIGA ATENDIENDO al cliente con normalidad — responda sus dudas, mantenga la conversación activa y tranquilícelo si es necesario. NO vuelva a escalar. NO mencione que ya fue escalado a menos que el cliente lo pregunte.`
       : "";
@@ -1502,6 +1491,7 @@ Deno.serve(async (req) => {
                 doc_id: null,
                 doc_name: `Búsqueda Web: ${webQuery.substring(0, 100)}`,
                 content: webResult.substring(0, 2000),
+                chunk_index: 0,
               });
             } catch (_saveErr) { /* no bloquea si falla el guardado */ }
           }
@@ -1516,19 +1506,38 @@ Deno.serve(async (req) => {
     const lastUserMsg = histcliente.filter((m: any) => m.role === "user").slice(-1)[0]?.content || "";
     const manualQuery = manualTagMatch ? manualTagMatch[1].trim() : lastUserMsg.trim();
 
-    if (!shouldEscalate && !shouldClose && manualQuery.length > 5) {
+    const RAG_SKIP = /^(hola|buenos dias|buenas tardes|buenas noches|gracias|adios|adios|hasta luego|si|no|ok|listo|no necesito|que tenga buen dia)$/i;
+    if (!shouldEscalate && !shouldClose && manualQuery.length > 10 && !RAG_SKIP.test(manualQuery.trim())) {
       try {
         const words = manualQuery.split(" ").filter((w: string) => w.length > 3).slice(0, 6).join(" | ");
-        const { data: chunks } = await db
+        const { data: chunks, error: ragErr } = await db
           .from("sek_doc_chunks")
           .select("content, doc_name")
           .textSearch("content", words, { type: "websearch" })
           .limit(4);
 
-        if (chunks && chunks.length > 0) {
+        // Fallback: si textSearch falla (sin índice tsvector), usar ILIKE con OR
+        if (ragErr || (!chunks || chunks.length === 0)) {
+          const terms = manualQuery.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(t => t.length >= 4).slice(0, 5);
+          if (terms.length > 0) {
+            const orFilter = terms.map(t => `content.ilike.%${t}%`).join(",");
+            const { data: fallbackChunks } = await db
+              .from("sek_doc_chunks")
+              .select("content, doc_name")
+              .or(orFilter)
+              .limit(4);
+            if (fallbackChunks && fallbackChunks.length > 0) {
+              const context = fallbackChunks.map((c: any) => `[Documentación Oficial Sekunet — ${c.doc_name}]: ${c.content}`).join("\n\n");
+              chatMessages.push({
+                role: "system",
+                content: `[Fuente: Documentación Oficial Sekunet] Información encontrada en los manuales técnicos de Sekunet para "${manualQuery}":\n\n${context}\n\nEsta es documentación oficial verificada de Sekunet. Puedes usarla con confianza e indica que proviene de la documentación oficial.`,
+              });
+              aiResponse = await callAI(chatMessages);
+            }
+          }
+        } else if (chunks && chunks.length > 0) {
           const context = chunks.map((c: any) => {
-            const source = (c as any).source_label || "Documentación Oficial Sekunet";
-            return `[${source} — ${c.doc_name}]: ${c.content}`;
+            return `[Documentación Oficial Sekunet — ${c.doc_name}]: ${c.content}`;
           }).join("\n\n");
           chatMessages.push({
             role: "system",
