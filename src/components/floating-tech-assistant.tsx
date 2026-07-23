@@ -238,7 +238,7 @@ export function FloatingTechAssistant() {
     if (dragStartPosRef.current) {
       const dx = data.x - dragStartPosRef.current.x;
       const dy = data.y - dragStartPosRef.current.y;
-      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+      if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
         dragMovedRef.current = true;
       }
     }
@@ -249,6 +249,10 @@ export function FloatingTechAssistant() {
     const next = clampPosition({ x: data.x, y: data.y }, 56, 8);
     setBubblePosition(next);
     localStorage.setItem("sek_tech_assistant_bubble_pos_v3", JSON.stringify(next));
+    // Pequeño delay para que el click handler vea dragMovedRef actualizado
+    if (dragMovedRef.current) {
+      setTimeout(() => { dragMovedRef.current = false; }, 100);
+    }
   };
 
   const handleBubbleMouseDown = () => {
@@ -289,7 +293,7 @@ export function FloatingTechAssistant() {
     setMessages([]);
     localStorage.removeItem("sek_tech_assistant_session");
     if (c) {
-      await handleSend("Analiza el caso técnico actual. No describas el estado administrativo del caso. Concéntrate en: 1) posibles causas técnicas del problema, 2) pasos de diagnóstico recomendados, 3) información que ya se observa en imágenes, audios, videos o documentos adjuntos, 4) si necesita más datos, indícale al técnico qué debe verificar; nunca pidas archivos al cliente final.", []);
+      await handleSend("Resume brevemente el caso actual: qué equipo es, qué problema reporta el cliente y qué información está disponible en los adjuntos. Si es una consulta informativa simple, responde directamente. Si es un problema con síntomas, sugiere diagnóstico. No pidas archivos al cliente.", []);
     }
   };
 
