@@ -97,7 +97,6 @@ export async function POST(req: NextRequest) {
       const chunks = chunkText(textContent, 1000);
       
       const chunkRecords = chunks.map(chunk => ({
-        id: crypto.randomUUID(),
         doc_id: docRecord.id,
         doc_name: file.name,
         content: chunk,
