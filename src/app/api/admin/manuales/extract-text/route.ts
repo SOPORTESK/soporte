@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
     let text = "";
 
     if (name.endsWith(".pdf")) {
-      const pdf = (await import("pdf-parse/lib/pdf-parse.js")).default;
+      const pdf = (await import("pdf-parse/lib/pdf-parse.js" as any)).default;
       const data = await pdf(buffer);
       text = data.text;
     } else if (name.endsWith(".docx") || name.endsWith(".doc")) {

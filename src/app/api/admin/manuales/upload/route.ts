@@ -8,7 +8,7 @@ async function transcribeWithGroq(audioBuffer: Buffer, filename: string): Promis
   if (!GROQ_KEY) throw new Error("GROQ_API_KEY no configurada en .env.local");
 
   const formData = new FormData();
-  const blob = new Blob([audioBuffer], { type: "audio/mpeg" });
+  const blob = new Blob([new Uint8Array(audioBuffer)], { type: "audio/mpeg" });
   formData.append("file", blob, filename);
   formData.append("model", "whisper-large-v3");
   formData.append("language", "es");
@@ -31,7 +31,7 @@ async function transcribeWithGroq(audioBuffer: Buffer, filename: string): Promis
 // ── Extraer audio de video con ffmpeg-static ──
 async function extractAudioFromVideo(videoBuffer: Buffer): Promise<Buffer> {
   const ffmpegPath = (await import("ffmpeg-static")).default as string;
-  const ffmpeg = (await import("fluent-ffmpeg")).default;
+  const ffmpeg = (await import("fluent-ffmpeg" as any)).default;
 
   return new Promise((resolve, reject) => {
     ffmpeg.setFfmpegPath(ffmpegPath);
@@ -102,7 +102,7 @@ export async function POST(req: NextRequest) {
       const name = file.name.toLowerCase();
       if (name.endsWith(".pdf")) {
         // PDF (pdf-parse v1 — dynamic import to avoid webpack issues)
-        const pdf = (await import("pdf-parse/lib/pdf-parse.js")).default;
+        const pdf = (await import("pdf-parse/lib/pdf-parse.js" as any)).default;
         const data = await pdf(buffer);
         textContent = data.text || "";
       } else if (file.type.startsWith("image/")) {

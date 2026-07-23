@@ -43,6 +43,7 @@ export function FloatingTechAssistant() {
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLTextAreaElement>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const dragStartPosRef = React.useRef<{ x: number; y: number } | null>(null);
   const dragMovedRef = React.useRef(false);
 
   // Set initial bubble position on client only
@@ -79,12 +80,12 @@ export function FloatingTechAssistant() {
     };
   };
 
-  // Detectar caso actual desde la URL (?c=...) — detecta navegación client-side de Next.js
+  // Detectar caso actual desde la URL (?c=...) — polling + eventos de navegación
   React.useEffect(() => {
     const readCaseId = () => {
       const params = new URLSearchParams(window.location.search);
       const c = params.get("c");
-      setCaseId(c);
+      setCaseId(prev => prev !== c ? c : prev);
     };
     readCaseId();
 
@@ -105,10 +106,14 @@ export function FloatingTechAssistant() {
       return ret;
     };
 
+    // Polling cada 800ms como respaldo para detectar cambios de URL
+    const pollInterval = setInterval(readCaseId, 800);
+
     return () => {
       window.removeEventListener("popstate", readCaseId);
       history.pushState = origPush;
       history.replaceState = origReplace;
+      clearInterval(pollInterval);
     };
   }, []);
 
@@ -230,7 +235,13 @@ export function FloatingTechAssistant() {
   };
 
   const handleBubbleDrag = (_e: DraggableEvent, data: DraggableData) => {
-    dragMovedRef.current = true;
+    if (dragStartPosRef.current) {
+      const dx = data.x - dragStartPosRef.current.x;
+      const dy = data.y - dragStartPosRef.current.y;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+        dragMovedRef.current = true;
+      }
+    }
     setBubblePosition({ x: data.x, y: data.y });
   };
 
@@ -240,8 +251,13 @@ export function FloatingTechAssistant() {
     localStorage.setItem("sek_tech_assistant_bubble_pos_v3", JSON.stringify(next));
   };
 
+  const handleBubbleMouseDown = () => {
+    dragStartPosRef.current = { x: bubblePosition.x, y: bubblePosition.y };
+    dragMovedRef.current = false;
+  };
+
   const handleBubbleClick = () => {
-    // Si se arrastró, no abrir el panel
+    // Si se arrastró más de 3px, no abrir el panel
     if (dragMovedRef.current) {
       dragMovedRef.current = false;
       return;
@@ -306,6 +322,7 @@ export function FloatingTechAssistant() {
         <button
           ref={bubbleRef}
           suppressHydrationWarning
+          onMouseDown={handleBubbleMouseDown}
           onClick={handleBubbleClick}
           className="sek-tech-drag-handle fixed top-0 left-0 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-violet-600 text-white shadow-lg shadow-violet-600/30 hover:bg-violet-700 transition-all hover:scale-105"
           aria-label="Asistente técnico"
