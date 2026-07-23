@@ -1020,15 +1020,71 @@ async function handleTechnicianMode(body: Record<string, unknown>): Promise<Resp
     // Resolver claves de agrupación del chat: tel:<numero> o case:<id>
     if (caseId.startsWith("tel:")) {
       const phone = caseId.substring(4).trim();
-      query = query.ilike("customer_phone", `%${phone}%`);
+      // Priorizar casos abiertos/escalados del mismo teléfono
+      const { data: openCase } = await db
+        .from("sek_cases")
+        .select("id, estado, canal, cliente, histcliente, histtecnico, tags, assigned_to, customer_phone")
+        .ilike("customer_phone", `%${phone}%`)
+        .in("estado", ["abierto", "escalado", "ia_atendiendo"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (openCase) {
+        // Usar este caso directamente
+        const caso = openCase;
+        const cliente = (typeof caso.cliente === "object" && caso.cliente !== null) ? caso.cliente as any : {};
+        const histTecnico = Array.isArray(caso.histtecnico) ? caso.histtecnico : [];
+        const histCliente = Array.isArray(caso.histcliente) ? caso.histcliente : [];
+        // Procesar adjuntos
+        let attachmentAnalysis: string[] = [];
+        const allCaseMessages = [...histCliente, ...histTecnico];
+        const attachments = allCaseMessages.filter((m: any) => m.mediaUrl && typeof m.mediaUrl === "string");
+        if (attachments.length > 0) {
+          const uniqueUrls = new Map<string, any>();
+          for (const m of attachments) { if (!uniqueUrls.has(m.mediaUrl)) uniqueUrls.set(m.mediaUrl, m); }
+          const attachmentResults: string[] = [];
+          let idx = 1;
+          let histChanged = false;
+          for (const [url, m] of uniqueUrls) {
+            let analysis: string = m._visionAnalysis || "";
+            if (!analysis) {
+              analysis = await callGeminiVision(m.mediaUrl, m.mediaType || "", m.content || "");
+              if (analysis) {
+                const patch = (e: any) => (e.mediaUrl === url ? { ...e, _visionAnalysis: analysis } : e);
+                for (let i = 0; i < histCliente.length; i++) histCliente[i] = patch(histCliente[i]);
+                for (let i = 0; i < histTecnico.length; i++) histTecnico[i] = patch(histTecnico[i]);
+                histChanged = true;
+              }
+            }
+            if (analysis) {
+              attachmentResults.push(`[ADJUNTO ${idx} — tipo: ${m.mediaType || "desconocido"}${m.fileName ? ` — ${m.fileName}` : ""}]\n${analysis}`);
+              idx++;
+            }
+          }
+          if (attachmentResults.length > 0) attachmentAnalysis = attachmentResults;
+          if (histChanged) {
+            await db.from("sek_cases").update({ histcliente: histCliente, histtecnico: histTecnico }).eq("id", caso.id);
+          }
+        }
+        const equipoRegistrado = cliente.equipo || (caso.marca ? `${caso.marca || ""} ${caso.modelo || ""}`.trim() : "");
+        const equipoLinea = equipoRegistrado || "No indicado formalmente";
+        const equipoNota = equipoRegistrado ? "" : "\n- NOTA IMPORTABLE: El equipo no está registrado formalmente. REVISE CUIDADOSAMENTE los mensajes anteriores; la marca y el modelo pueden estar mencionados en la conversación del cliente o del técnico. Si los identifica, utilícelos.";
+        caseContext = `\n\nCONTEXTO DEL CASO ACTUAL (uso interno del técnico):\n- Cliente: ${cliente.nombre || "No registrado"}\n- Correo: ${cliente.correo || "No registrado"}\n- Cuenta/Empresa: ${cliente.cuenta || "No registrada"}\n- Equipo: ${equipoLinea}${equipoNota}\n- Estado: ${caso.estado}\n- Canal: ${caso.canal || "No indicado"}\n- Teléfono: ${caso.customer_phone || "No indicado"}\n- Asignado a: ${caso.assigned_to || "Sin asignar"}\n- Historial técnico completo del caso: ${histTecnico.map((m: any) => `[${m.role || "tecnico"}] ${m.content || ""}${m.mediaUrl ? ` [ADJUNTO: ${m.mediaType || "archivo"}]` : ""}`).join(" | ")}\n- Historial del cliente completo del caso: ${histCliente.map((m: any) => `[${m.role || "user"}] ${m.content || ""}${m.mediaUrl ? ` [ADJUNTO: ${m.mediaType || "archivo"}]` : ""}`).join(" | ")}${attachmentAnalysis.length > 0 ? `\n\nANÁLISIS AUTOMÁTICO DE ADJUNTOS DEL CLIENTE:\n${attachmentAnalysis.join("\n\n---\n\n")}` : ""}`;
+        // Saltar el query genérico de abajo
+        query = null as any;
+      } else {
+        // Fallback: caso más reciente del teléfono (cualquier estado)
+        query = query.ilike("customer_phone", `%${phone}%`).order("created_at", { ascending: false });
+      }
     } else if (caseId.startsWith("case:")) {
       query = query.eq("id", caseId.substring(5));
     } else {
       query = query.eq("id", caseId);
     }
 
-    const { data: caso } = await query.maybeSingle();
-    if (caso) {
+    if (query) {
+      const { data: caso } = await query.maybeSingle();
+      if (caso) {
       const cliente = (typeof caso.cliente === "object" && caso.cliente !== null) ? caso.cliente as any : {};
       const histTecnico = Array.isArray(caso.histtecnico) ? caso.histtecnico : [];
       const histCliente = Array.isArray(caso.histcliente) ? caso.histcliente : [];
@@ -1077,6 +1133,7 @@ async function handleTechnicianMode(body: Record<string, unknown>): Promise<Resp
         ? ""
         : "\n- NOTA IMPORTANTE: El equipo no está registrado formalmente. REVISE CUIDADOSAMENTE los mensajes anteriores; la marca y el modelo pueden estar mencionados en la conversación del cliente o del técnico. Si los identifica, utilícelos.";
       caseContext = `\n\nCONTEXTO DEL CASO ACTUAL (uso interno del técnico):\n- Cliente: ${cliente.nombre || "No registrado"}\n- Correo: ${cliente.correo || "No registrado"}\n- Cuenta/Empresa: ${cliente.cuenta || "No registrada"}\n- Equipo: ${equipoLinea}${equipoNota}\n- Estado: ${caso.estado}\n- Canal: ${caso.canal || "No indicado"}\n- Teléfono: ${caso.customer_phone || "No indicado"}\n- Asignado a: ${caso.assigned_to || "Sin asignar"}\n- Historial técnico completo del caso: ${histTecnico.map((m: any) => `[${m.role || "tecnico"}] ${m.content || ""}${m.mediaUrl ? ` [ADJUNTO: ${m.mediaType || "archivo"}]` : ""}`).join(" | ")}\n- Historial del cliente completo del caso: ${histCliente.map((m: any) => `[${m.role || "user"}] ${m.content || ""}${m.mediaUrl ? ` [ADJUNTO: ${m.mediaType || "archivo"}]` : ""}`).join(" | ")}${attachmentAnalysis.length > 0 ? `\n\nANÁLISIS AUTOMÁTICO DE ADJUNTOS DEL CLIENTE:\n${attachmentAnalysis.join("\n\n---\n\n")}` : ""}`;
+      }
     }
   }
 

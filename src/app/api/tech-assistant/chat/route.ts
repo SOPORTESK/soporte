@@ -47,17 +47,45 @@ export async function POST(req: NextRequest) {
     // Validar case_id: resolver claves de agrupación tel: y case:
     let validCaseId: string | null = null;
     if (case_id) {
-      let caseQuery = serviceClient.from("sek_cases").select("id").limit(1);
       if (case_id.startsWith("tel:")) {
         const phone = case_id.substring(4).trim();
-        caseQuery = caseQuery.ilike("customer_phone", `%${phone}%`);
+        // Priorizar casos abiertos/escalados del mismo teléfono
+        const { data: openCase } = await serviceClient
+          .from("sek_cases")
+          .select("id")
+          .ilike("customer_phone", `%${phone}%`)
+          .in("estado", ["abierto", "escalado", "ia_atendiendo"])
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (openCase) {
+          validCaseId = openCase.id;
+        } else {
+          // Fallback: caso más reciente de ese teléfono
+          const { data: recentCase } = await serviceClient
+            .from("sek_cases")
+            .select("id")
+            .ilike("customer_phone", `%${phone}%`)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (recentCase) validCaseId = recentCase.id;
+        }
       } else if (case_id.startsWith("case:")) {
-        caseQuery = caseQuery.eq("id", case_id.substring(5));
+        const { data: caseData } = await serviceClient
+          .from("sek_cases")
+          .select("id")
+          .eq("id", case_id.substring(5))
+          .maybeSingle();
+        if (caseData) validCaseId = caseData.id;
       } else {
-        caseQuery = caseQuery.eq("id", case_id);
+        const { data: caseData } = await serviceClient
+          .from("sek_cases")
+          .select("id")
+          .eq("id", case_id)
+          .maybeSingle();
+        if (caseData) validCaseId = caseData.id;
       }
-      const { data: caseData } = await caseQuery.maybeSingle();
-      if (caseData) validCaseId = caseData.id;
     }
 
     const now = new Date().toISOString();
