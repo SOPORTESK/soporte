@@ -333,6 +333,10 @@ async function validarModelo(marca: string, modelo: string): Promise<{ valido: b
 }
 
 // ─── BUSCAR EN INVENTARIO ─────────────────────────────────────────────────────
+function normalizarModelo(modelo: string): string {
+  return modelo.toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
 async function buscarInventario(query: string): Promise<{ encontrado: boolean; detalle: string }> {
   try {
     const tokens = query.trim().split(/\s+/).filter((t: string) => t.length >= 2);
@@ -358,50 +362,72 @@ async function buscarInventario(query: string): Promise<{ encontrado: boolean; d
       };
     }
 
-    // Caso 2: Marca y Modelo. Normalizar prefijos del modelo ANTES de buscar.
-    // El cliente puede escribir "DS-7208HUHI-K1" pero el inventario lo tiene como
-    // "HIK-IDS7208HUHIM1-S-4". Quitamos prefijos comunes para buscar por el core.
-    const rawModel = modelTokens.join(""); // "DS-7104HGHI-F1"
-    const coreModel = rawModel.replace(/^(DS|HIK-IDS|HIK|DH|DHI)[-]?/i, "").replace(/[-_]/g, "");
-    // Búsqueda con modelo completo (incluye prefijo) por si coincide exacto
-    const cleanedModelTokens = rawModel.split(/[-_]+/).filter(x => x.length >= 2);
-    const fuzzyModel = `%${cleanedModelTokens.join("%")}%`; // "%DS%7104HGHI%F1%"
-    // Búsqueda por core sin prefijo (búsqueda inteligente)
-    const coreFuzzy = coreModel.length >= 4 ? `%${coreModel.slice(0, Math.min(coreModel.length, 8))}%` : fuzzyModel;
+    // Caso 2: Marca y Modelo. Normalizar para búsqueda inteligente.
+    const rawModel = modelTokens.join(""); // "Da-pwa48-m-wb"
+    const normModel = normalizarModelo(rawModel); // "DAPWA48MWB"
+    const coreModel = normModel.replace(/^(DS|HIKIDS|HIK|DH|DHI)/i, "");
+    // Tokenizar el modelo en partes para búsqueda parcial
+    const modelParts = rawModel.split(/[-_\s]+/).filter((x: string) => x.length >= 2);
+    // Búsqueda amplia: cada parte del modelo como filtro OR
+    const orParts = modelParts.map((p: string) => `modelo.ilike.%${p}%,nombre.ilike.%${p}%`).join(",");
+    // También buscar por el core sin prefijo
+    const corePattern = coreModel.length >= 4 ? `%${coreModel.slice(0, Math.min(coreModel.length, 8))}%` : `%${modelParts.join("%")}%`;
 
-    // Intentar buscar combinando marca + modelo (tanto con prefijo como con core)
+    // Intentar buscar combinando marca + modelo
     const { data: brandModelRows } = await db
       .from("sek_inventario")
       .select("id,codigo,nombre,marca,modelo,categoria")
       .ilike("marca", `%${brandToken}%`)
-      .or(`modelo.ilike.${fuzzyModel},nombre.ilike.${fuzzyModel},modelo.ilike.${coreFuzzy},nombre.ilike.${coreFuzzy}`)
-      .limit(10);
+      .or(`modelo.ilike.%${normModel.slice(0, Math.min(normModel.length, 6))}%,modelo.ilike.${corePattern},nombre.ilike.${corePattern},${orParts}`)
+      .limit(20);
 
     if (brandModelRows && brandModelRows.length > 0) {
-      const best = brandModelRows[0];
+      // Fuzzy matching: buscar el más cercano al modelo normalizado
+      let best = brandModelRows[0];
+      let bestDist = 999;
+      for (const r of brandModelRows) {
+        const normInv = normalizarModelo(r.modelo || "");
+        const dist = levenshtein(normModel, normInv);
+        if (dist < bestDist) { bestDist = dist; best = r; }
+      }
+      // Si la distancia es menor al 40% del largo del modelo, aceptar
+      if (bestDist <= Math.max(4, Math.floor(normModel.length * 0.4))) {
+        return {
+          encontrado: true,
+          detalle: `Equipo en cartera: ${best.marca} ${best.modelo}${best.nombre ? " — " + best.nombre : ""}`,
+        };
+      }
+      // Coincidencia parcial por tokens
       return {
         encontrado: true,
         detalle: `Equipo en cartera: ${best.marca} ${best.modelo}${best.nombre ? " — " + best.nombre : ""}`,
       };
     }
 
-    // Caso 3: Fallback. Quizás el usuario dio el modelo primero, o la marca no coincide exactamente.
-    // Busquemos puramente por el modelo (con y sin core).
+    // Caso 3: Fallback por modelo únicamente (sin filtro de marca)
     const { data: modelOnlyRows } = await db
       .from("sek_inventario")
       .select("id,codigo,nombre,marca,modelo,categoria")
-      .or(`modelo.ilike.${fuzzyModel},nombre.ilike.${fuzzyModel},modelo.ilike.${coreFuzzy},nombre.ilike.${coreFuzzy}`)
-      .limit(10);
+      .or(`modelo.ilike.%${normModel.slice(0, Math.min(normModel.length, 6))}%,modelo.ilike.${corePattern},${orParts}`)
+      .limit(20);
 
     if (modelOnlyRows && modelOnlyRows.length > 0) {
-      const best = modelOnlyRows[0];
-      return {
-        encontrado: true,
-        detalle: `Equipo en cartera: ${best.marca} ${best.modelo}${best.nombre ? " — " + best.nombre : ""}`,
-      };
+      let best = modelOnlyRows[0];
+      let bestDist = 999;
+      for (const r of modelOnlyRows) {
+        const normInv = normalizarModelo(r.modelo || "");
+        const dist = levenshtein(normModel, normInv);
+        if (dist < bestDist) { bestDist = dist; best = r; }
+      }
+      if (bestDist <= Math.max(4, Math.floor(normModel.length * 0.4))) {
+        return {
+          encontrado: true,
+          detalle: `Equipo en cartera: ${best.marca} ${best.modelo}${best.nombre ? " — " + best.nombre : ""}`,
+        };
+      }
     }
 
-    // Caso 4: Último recurso, buscar el token más largo como si fuera el modelo (ignorar marca)
+    // Caso 4: Último recurso, buscar el token más largo
     const longestToken = [...tokens].sort((a, b) => b.length - a.length)[0];
     if (longestToken.length > 4) {
       const { data: longestRows } = await db
