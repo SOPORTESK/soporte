@@ -168,10 +168,11 @@ export async function POST(req: NextRequest) {
       // 3. Crear Chunks para RAG
       const chunks = chunkText(textContent, 1000);
       
-      const chunkRecords = chunks.map(chunk => ({
+      const chunkRecords = chunks.map((chunk, idx) => ({
         doc_id: docRecord.id,
         doc_name: file.name,
         content: chunk,
+        chunk_index: idx,
       }));
 
       let chunkCount = 0;
