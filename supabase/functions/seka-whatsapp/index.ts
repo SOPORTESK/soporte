@@ -2385,8 +2385,8 @@ No agregues nada más.`,
 
       // Validar marca primero
       if (!marcaEsValida) {
-        console.log(`[seka-whatsapp] Marca "${searchMarca}" no válida en inventario.`);
-        const directReply = `No logramos identificar la marca "${searchMarca}" en nuestro sistema. Por favor, verifique la marca exacta en la etiqueta de su equipo.`;
+        console.log(`[seka-whatsapp] Marca "${searchMarca}" no válida en inventario. Rechazando.`);
+        const directReply = "El dispositivo indicado no forma parte de los equipos distribuidos por Sekunet, por lo que lamentablemente no podemos brindarle el soporte requerido. ¿Tiene alguna otra consulta relacionada con nuestros productos?";
         const newMsgInv: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
         await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsgInv] }).eq("id", case_id);
         return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
