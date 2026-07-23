@@ -1097,7 +1097,7 @@ async function handleTechnicianMode(body: Record<string, unknown>): Promise<Resp
     const ragResults = await searchRAG(lastUserMsg.content, 5);
     if (ragResults.length > 0) {
       ragContext = "\n\nBASE DE CONOCIMIENTO SEKUNET (RAG):\n" + ragResults
-        .map((r, i) => `[${i + 1}] ${r.source_label || "Documento"}: ${r.doc_name || "Sekunet"}\n${r.content}`)
+        .map((r, i) => `[${i + 1}] Documento: ${r.doc_name || "Sekunet"}\n${r.content}`)
         .join("\n\n");
     }
   }
