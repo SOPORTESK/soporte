@@ -160,11 +160,17 @@ const BASE_TITLE = "Sekunet Chat";
 // sin histcliente, esa comparación siempre veía longitud 0 y nunca notificaba.
 const CASE_LIST_FIELDS = "id,estado,canal,cliente,assigned_to,last_message_at,last_message_preview,unread_count,created_at,updated_at,title,prioridad,tags,customer_phone,histcliente";
 
-async function fetchCasesMeta(supabase: any, limit = 200) {
-  const { data, error } = await supabase
+async function fetchCasesMeta(supabase: any, limit = 200, agentEmail?: string) {
+  let query = supabase
     .from("sek_cases")
     .select(CASE_LIST_FIELDS)
-    .neq("canal", "simulator")
+    .neq("canal", "simulator");
+  // Si se pasa agentEmail, filtrar por casos asignados a ese agente
+  // (para Mi Gestión) en lugar de fetchar todos y filtrar en cliente.
+  if (agentEmail) {
+    query = query.eq("assigned_to", agentEmail);
+  }
+  const { data, error } = await query
     .order("last_message_at", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false })
     .limit(limit);
@@ -395,9 +401,17 @@ export function InboxClient({
           let filteredNewCases: SekCase[] = [];
           let newMerged: SekCase[] = [];
           try {
-            const newCases = await fetchCasesMeta(supabase, 200);
+            // Para Mi Gestión, fetchar solo casos del agente (no todos los 200)
+            const fetchEmail = containerType === "mi-gestion" ? (agentEmail || undefined) : undefined;
+            const newCases = await fetchCasesMeta(supabase, 200, fetchEmail);
             if (!newCases) return;
-            setAllCases(newCases); // Sin filtrar para banner de escalados
+            // allCases siempre sin filtrar para el banner de escalados
+            if (!fetchEmail) setAllCases(newCases);
+            else {
+              // Si fetcheamos por agente, actualizar allCases por separado
+              const allNew = await fetchCasesMeta(supabase, 200);
+              setAllCases(allNew);
+            }
             filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail, agentName);
             // Si es Mi Gestion y aún no tenemos agentEmail, no sobrescribir los casos del servidor
             if (containerType === "mi-gestion" && !agentEmail) {
@@ -538,8 +552,16 @@ export function InboxClient({
     /* Polling de respaldo cada 30s con metadatos ligeros */
     const poll = setInterval(async () => {
       try {
-        const newCases = await fetchCasesMeta(supabase, 200);
-        setAllCases(newCases); // Sin filtrar para banner de escalados
+        // Guard: no sobrescribir casos si agentEmail no está listo (Mi Gestión)
+        if (containerType === "mi-gestion" && !agentEmail) return;
+        // Para Mi Gestión, fetchar solo casos del agente
+        const fetchEmail = containerType === "mi-gestion" ? (agentEmail || undefined) : undefined;
+        const newCases = await fetchCasesMeta(supabase, 200, fetchEmail);
+        if (!fetchEmail) setAllCases(newCases);
+        else {
+          const allNew = await fetchCasesMeta(supabase, 200);
+          setAllCases(allNew);
+        }
         const filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail, agentName);
         const prevTotal = prevCasesRef.current.length;
         const prevMsgs = prevCasesRef.current.reduce((s, c) => s + (c.histcliente?.length || 0), 0);
