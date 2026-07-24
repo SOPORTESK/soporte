@@ -1274,6 +1274,14 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Los casos de WhatsApp son atendidos exclusivamente por seka-whatsapp.
+    // Este cron job NO debe interferir con ese flujo para evitar respuestas duplicadas.
+    if (caso.canal === "whatsapp") {
+      return new Response(JSON.stringify({ skip: true, reason: "whatsapp cases handled by seka-whatsapp" }), {
+        status: 200, headers: corsHeaders,
+      });
+    }
+
     const histcliente: any[] = Array.isArray(caso.histcliente)
       ? caso.histcliente
       : [];

@@ -24,7 +24,6 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
-  const { data: { user } } = await supabase.auth.getUser();
   const { pathname } = request.nextUrl;
 
   const isAuthPage = pathname.startsWith("/login");
@@ -38,7 +37,24 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith("/api/widget") ||
     pathname.startsWith("/auth/confirm") ||
     pathname.startsWith("/auth/callback") ||
-    pathname.startsWith("/api/admin/impersonate/go");
+    pathname.startsWith("/api/admin/impersonate/go") ||
+    pathname.startsWith("/api/");
+
+  // Timeout protection: si getUser() tarda más de 8s, dejar pasar
+  // (las páginas/API hacen su propia verificación de auth)
+  let user: any = null;
+  try {
+    const result = await Promise.race([
+      supabase.auth.getUser(),
+      new Promise<{ data: { user: null } }>((_, reject) =>
+        setTimeout(() => reject(new Error("auth_timeout")), 8000)
+      ),
+    ]);
+    user = result.data.user;
+  } catch (e) {
+    console.warn("[middleware] getUser timeout/error, letting request through:", (e as Error).message);
+    return response;
+  }
 
   if (!user && !isAuthPage && !isPublic) {
     const url = request.nextUrl.clone();
