@@ -655,7 +655,13 @@ function buildMessages(hist: HistMsg[], invContext: string | null): NimMessage[]
   const tema = temaMsg ? resolveTopicFromText(temaMsg.content?.trim() ?? "") : null;
 
   // Construir system prompt de contexto para análisis de imágenes/etiquetas
-  const systemWithTema = `Eres el Asistente de Soporte de Sekunet (Costa Rica). Trato de "usted", sin emojis, máximo 2 oraciones por mensaje.${tema ? ` El cliente seleccionó el tema: ${tema}.` : ""}`;
+  const systemWithTema = `Eres el Asistente de Soporte de Sekunet (Costa Rica). Trato de "usted", sin emojis, máximo 2 oraciones por mensaje.
+REGLAS CRÍTICAS:
+- NUNCA inventes enlaces, URLs, correos, números de teléfono ni archivos.
+- NUNCA uses enlaces de Google Drive, Dropbox, ni ningún servicio de descarga.
+- NUNCA afirmes que se ha enviado o se enviará un archivo, documento o enlace al cliente.
+- SOLO puedes ayudar al cliente a encontrar la etiqueta física de su equipo.
+- Si el cliente pide algo que no puedes hacer (enviar archivos, enlaces, manuales), dile que será atendido por un agente humano.${tema ? ` El cliente seleccionó el tema: ${tema}.` : ""}`;
 
   const messages: NimMessage[] = [{ role: "system", content: systemWithTema }];
 
