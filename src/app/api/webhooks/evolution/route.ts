@@ -155,6 +155,10 @@ async function sendWhatsAppMessages(phone: string, reply: any | any[], evoCfg: a
 
     if (typeof msg === "object" && msg.type === "list") {
       sent = await sendWhatsAppList(phone || "", msg.listData, evoCfg, delayMs);
+      if (!sent && text) {
+        console.log("[evo-webhook] Lista fallo, enviando texto plano como fallback");
+        sent = await sendWhatsAppText(phone || "", text, evoCfg, delayMs);
+      }
     } else {
       sent = await sendWhatsAppText(phone || "", text, evoCfg, delayMs);
     }
