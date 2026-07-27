@@ -160,7 +160,7 @@ export function FlowEditor() {
   useEffect(() => {
     async function loadFlow() {
       try {
-        const res = await fetch("/api/admin/flow-configs");
+        const res = await fetch("/api/admin/flow-configs", { cache: "no-store" });
         const data = await res.json();
         if (data.flow) {
           setFlowId(data.flow.id);
