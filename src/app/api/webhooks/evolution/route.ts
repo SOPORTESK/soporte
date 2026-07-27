@@ -603,6 +603,20 @@ function extractText(payload: any): string | null {
     "data.messages.0.message.documentWithCaptionMessage.message.caption",
     "message.documentWithCaptionMessage.message.caption",
     "data.message.documentWithCaptionMessage.message.caption",
+    // Lista interactiva (listResponseMessage) — el cliente toca una opción
+    "message.listResponseMessage.title",
+    "data.message.listResponseMessage.title",
+    "data.messages.0.message.listResponseMessage.title",
+    "message.listResponseMessage.singleSelectReply.selectedRowId",
+    "data.message.listResponseMessage.singleSelectReply.selectedRowId",
+    "data.messages.0.message.listResponseMessage.singleSelectReply.selectedRowId",
+    // Botones interactivos (buttonsResponseMessage)
+    "message.buttonsResponseMessage.selectedButtonId",
+    "data.message.buttonsResponseMessage.selectedButtonId",
+    "data.messages.0.message.buttonsResponseMessage.selectedButtonId",
+    "message.buttonsResponseMessage.selectedDisplayText",
+    "data.message.buttonsResponseMessage.selectedDisplayText",
+    "data.messages.0.message.buttonsResponseMessage.selectedDisplayText",
   ];
   for (const f of fields) {
     const v = get(payload, f);

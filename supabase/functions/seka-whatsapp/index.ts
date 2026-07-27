@@ -578,10 +578,9 @@ async function processTags(text: string, caseId: string): Promise<string> {
 
 // Textos de bienvenida que NO deben enviarse a Llama
 const WELCOME_TEXTS = [
-  "Reciba un cordial saludo de parte del equipo de Soporte Sekunet. Gracias por contactarnos.",
-  "Soy el Asistente Virtual de Sekunet. Para brindarle una mejor asistencia, necesitamos algunos datos para registrar su consulta.",
-  "Estimado cliente:\n\nLe informamos que esta conversación podrá ser finalizada o cerrada tras 10 minutos de inactividad.\n\nAgradecemos su atención.",
+  "Hola\nBienvenido al soporte técnico de Sekunet. Soy el Asistente Virtual y con gusto le brindaré asistencia. Antes de comenzar, necesito registrar algunos datos para atender su solicitud.",
   "Para comenzar, ¿me podría indicar su nombre completo?",
+  "Le informamos que, si no recibimos respuesta en los próximos 10 minutos, la conversación se cerrará automáticamente. Si requiere asistencia posteriormente, con gusto podrá escribirnos nuevamente.",
   "¿En relación con qué tema sería su consulta?",
   `¿En relación con qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Licencias\n7. Otro\n\nResponda con el número o el nombre del tema.`
 ];
@@ -822,6 +821,25 @@ Responde "NO" si es una frase, oración, descripción de un problema, nombre de 
   }
 }
 
+async function validarCorreoConIA(texto: string): Promise<boolean> {
+  try {
+    const messages: NimMessage[] = [
+      {
+        role: "system",
+        content: `Eres un validador de correos electrónicos. Responde SOLO con "SI" o "NO", sin explicaciones.
+Responde "SI" si el correo parece un correo electrónico real que una persona usaría (ej: "maria@gmail.com", "jperez@hotmail.com", "soporte@empresa.co.cr").
+Responde "NO" si es claramente falso, de prueba, o relleno (ej: "1@1.com", "a@a.com", "we@we.we", "prueba@prueba.com", "x@y.com").`,
+      },
+      { role: "user", content: `Correo: "${texto}"` },
+    ];
+    const raw = await callAIWithFallbacks(messages);
+    return /^\s*s[ií]/i.test(raw.trim());
+  } catch (e: any) {
+    console.error("[seka-whatsapp] validarCorreoConIA error:", e.message);
+    return true;
+  }
+}
+
 function esCorreoValido(texto: string): boolean {
   const t = texto.trim().toLowerCase();
   if (!t) return false;
@@ -940,10 +958,9 @@ Deno.serve(async (req: Request) => {
 
     // Filtrar mensajes reales (sin bienvenidas ni cierres automáticos)
     const WELCOME_TEXTS_CHECK = [
-      "Reciba un cordial saludo de parte del equipo de Soporte Sekunet. Gracias por contactarnos.",
-      "Soy el Asistente Virtual de Sekunet. Para brindarle una mejor asistencia, necesitamos algunos datos para registrar su consulta.",
-      "Estimado cliente:\n\nLe informamos que esta conversación podrá ser finalizada o cerrada tras 10 minutos de inactividad.\n\nAgradecemos su atención.",
+      "Hola\nBienvenido al soporte técnico de Sekunet. Soy el Asistente Virtual y con gusto le brindaré asistencia. Antes de comenzar, necesito registrar algunos datos para atender su solicitud.",
       "Para comenzar, ¿me podría indicar su nombre completo?",
+      "Le informamos que, si no recibimos respuesta en los próximos 10 minutos, la conversación se cerrará automáticamente. Si requiere asistencia posteriormente, con gusto podrá escribirnos nuevamente.",
       "¿En relación con qué tema sería su consulta?",
       `¿En relación con qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Licencias\n7. Otro\n\nResponda con el número o el nombre del tema.`
     ];
@@ -1023,18 +1040,14 @@ Deno.serve(async (req: Request) => {
         console.log("[seka-whatsapp] PASO 0: bienvenida ya enviada (freshIaCount=" + freshIaCount + "), omitiendo duplicado.");
         return new Response(JSON.stringify({ ok: true, skipped: true, dedup: true }), { status: 200, headers: corsHeaders });
       }
-      const directReply = "Reciba un cordial saludo de parte del equipo de Soporte Sekunet. Gracias por contactarnos.";
-      const msg1 = "Soy el Asistente Virtual de Sekunet. Para brindarle una mejor asistencia, necesitamos algunos datos para registrar su consulta.";
-      const msgAutoclose = "Estimado cliente:\n\nLe informamos que esta conversación podrá ser finalizada o cerrada tras 10 minutos de inactividad.\n\nAgradecemos su atención.";
-      const msg2 = "Para comenzar, ¿me podría indicar su nombre completo?";
+      const msgBienvenida = "Hola\nBienvenido al soporte técnico de Sekunet. Soy el Asistente Virtual y con gusto le brindaré asistencia. Antes de comenzar, necesito registrar algunos datos para atender su solicitud.";
+      const msgNombre = "Para comenzar, ¿me podría indicar su nombre completo?";
       const newMsgs: HistMsg[] = [
-        { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply },
-        { role: "ia", author: "Asistente Sekunet", time: new Date(Date.now() + 10).toISOString(), content: msg1 },
-        { role: "ia", author: "Asistente Sekunet", time: new Date(Date.now() + 20).toISOString(), content: msgAutoclose },
-        { role: "ia", author: "Asistente Sekunet", time: new Date(Date.now() + 30).toISOString(), content: msg2 },
+        { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: msgBienvenida },
+        { role: "ia", author: "Asistente Sekunet", time: new Date(Date.now() + 10).toISOString(), content: msgNombre },
       ];
       await db.from("sek_cases").update({ histtecnico: [...freshHist0, ...newMsgs] }).eq("id", case_id);
-      return new Response(JSON.stringify({ ok: true, reply: [directReply, msg1, msgAutoclose, msg2] }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ ok: true, reply: [msgBienvenida, msgNombre] }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -1313,10 +1326,20 @@ Responde SOLO con JSON válido:
       const oldNombre = String((currentCliente as any).nombre || "").trim();
       if (!oldNombre || oldNombre === "." || /^[\d\+\-\s]+$/.test(oldNombre) || oldNombre === "(vacío)") {
         const nombreCandidato = supervisorResult.nombre.trim();
-        const nombreValido = isNombrePropioValido(nombreCandidato);
-        if (nombreValido) {
-          updatedCliente.nombre = supervisorResult.nombre;
-          clienteChanged = true;
+        const nombreValidoRegex = isNombrePropioValido(nombreCandidato);
+        if (nombreValidoRegex) {
+          const nombreValidoIA = await validarNombreConIA(nombreCandidato);
+          console.log(`[seka-whatsapp] Validacion IA nombre: "${nombreCandidato}" → ${nombreValidoIA}`);
+          if (nombreValidoIA) {
+            updatedCliente.nombre = supervisorResult.nombre;
+            clienteChanged = true;
+          } else {
+            console.log("[seka-whatsapp] IA rechazo nombre, se pide de nuevo.");
+            supervisorResult.nombre = "";
+            if (!["ESCALAR_INMEDIATO", "CERRAR", "VENTAS"].includes(supervisorResult.accion)) {
+              supervisorResult.accion = "PEDIR_NOMBRE";
+            }
+          }
         } else {
           console.log("[seka-whatsapp] Supervisor extrajo nombre inválido:", nombreCandidato, "→ se rechaza y se pide de nuevo.");
           supervisorResult.nombre = "";
@@ -1824,12 +1847,20 @@ Responde SOLO con JSON válido:
       const botPidioNombre = (lastIA?.content || "").includes("nombre completo");
       const nombreCandidatoFB = lastUserMsgContent.trim();
       if (botPidioNombre && isNombrePropioValido(nombreCandidatoFB)) {
-        console.log(`[seka-whatsapp] FALLBACK nombre: Supervisor no extrajo, aceptando del mensaje: "${nombreCandidatoFB}"`);
-        updatedCliente.nombre = nombreCandidatoFB;
-        clienteChanged = true;
-        supervisorResult.nombre = nombreCandidatoFB;
-        if (supervisorResult.accion === "PEDIR_NOMBRE" || accion === "PEDIR_NOMBRE" || accion === "CONTINUAR") {
-          accion = "PEDIR_CORREO";
+        const nombreValidoIA = await validarNombreConIA(nombreCandidatoFB);
+        console.log(`[seka-whatsapp] FALLBACK nombre: IA valida "${nombreCandidatoFB}" → ${nombreValidoIA}`);
+        if (nombreValidoIA) {
+          updatedCliente.nombre = nombreCandidatoFB;
+          clienteChanged = true;
+          supervisorResult.nombre = nombreCandidatoFB;
+          if (supervisorResult.accion === "PEDIR_NOMBRE" || accion === "PEDIR_NOMBRE" || accion === "CONTINUAR") {
+            accion = "PEDIR_CORREO";
+          }
+        } else {
+          console.log("[seka-whatsapp] FALLBACK nombre: IA rechazo, se pide de nuevo.");
+          if (!["ESCALAR_INMEDIATO", "CERRAR", "VENTAS"].includes(accion)) {
+            accion = "PEDIR_NOMBRE";
+          }
         }
       }
     }
@@ -2352,10 +2383,7 @@ No agregues nada más.`,
     // ── ACCIÓN: PEDIR TEMA ──
     if (accion === "PEDIR_TEMA") {
       const flowMenuOptions = getFlowMenuOptions(flowConfig);
-      const flowMenuMsg = getFlowMessage(flowConfig, "menu");
-      const MENU_TEMAS = flowMenuMsg
-        ? flowMenuMsg
-        : flowMenuOptions && flowMenuOptions.length > 0
+      const MENU_TEMAS = flowMenuOptions && flowMenuOptions.length > 0
         ? `¿En relación a qué tema sería su consulta?\n\n${flowMenuOptions.map((o, i) => `${i + 1}. ${o}`).join("\n")}\n\nResponda con el número o el nombre del tema.`
         : "¿En relación a qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Licencias\n7. Otro\n\nResponda con el número o el nombre del tema.";
       const reintentsoTema = contarReintentos(iaRealMsgs, "tema sería su consulta");
@@ -2370,16 +2398,47 @@ No agregues nada más.`,
 
       const lastIaContentTema = (lastIA?.content || "").toLowerCase();
       const botYaPidioTema = lastIaContentTema.includes("tema sería su consulta");
+      const MSG_AVISO_AUTOCIERRE = "Le informamos que, si no recibimos respuesta en los próximos 10 minutos, la conversación se cerrará automáticamente. Si requiere asistencia posteriormente, con gusto podrá escribirnos nuevamente.";
+      const yaSeMostroAviso = histtecnico.some(m => m.content?.trim() === MSG_AVISO_AUTOCIERRE);
       const directReply = (botYaPidioTema && reintentsoTema < 2)
         ? `${MSG_INVALIDO}\n\n${MENU_TEMAS}`
         : MENU_TEMAS;
 
-      const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
-      const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
-      if (clienteChanged) upd.cliente = updatedCliente;
-      if (nuevoTitle) upd.title = nuevoTitle;
-      await db.from("sek_cases").update(upd).eq("id", case_id);
-      return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      // Construir lista interactiva de WhatsApp con las opciones de tema
+      const temasLista = (flowMenuOptions && flowMenuOptions.length > 0)
+        ? flowMenuOptions
+        : ["Configuraciones", "Reset", "Desvinculación", "Firmware", "Software", "Licencias", "Otro"];
+      const listData = {
+        title: "Seleccione un tema",
+        description: "¿En relación a qué tema sería su consulta?",
+        buttonText: "Ver temas",
+        sections: [{
+          title: "Temas de soporte",
+          rows: temasLista.map((tema, i) => ({
+            title: tema,
+            rowId: `${i + 1}`,
+            description: ""
+          }))
+        }]
+      };
+      const interactiveReply = { type: "list", listData, content: directReply };
+
+      if (yaSeMostroAviso || botYaPidioTema) {
+        const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
+        const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
+        if (clienteChanged) upd.cliente = updatedCliente;
+        if (nuevoTitle) upd.title = nuevoTitle;
+        await db.from("sek_cases").update(upd).eq("id", case_id);
+        return new Response(JSON.stringify({ ok: true, reply: interactiveReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      } else {
+        const msgAviso: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: MSG_AVISO_AUTOCIERRE };
+        const msgMenu: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date(Date.now() + 10).toISOString(), content: directReply };
+        const upd: Record<string, unknown> = { histtecnico: [...histtecnico, msgAviso, msgMenu] };
+        if (clienteChanged) upd.cliente = updatedCliente;
+        if (nuevoTitle) upd.title = nuevoTitle;
+        await db.from("sek_cases").update(upd).eq("id", case_id);
+        return new Response(JSON.stringify({ ok: true, reply: [MSG_AVISO_AUTOCIERRE, interactiveReply] }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
     }
 
     // ── ACCIÓN: PEDIR MARCA ──
