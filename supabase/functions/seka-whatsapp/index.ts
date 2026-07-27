@@ -2398,7 +2398,7 @@ No agregues nada más.`,
 
       const lastIaContentTema = (lastIA?.content || "").toLowerCase();
       const botYaPidioTema = lastIaContentTema.includes("tema sería su consulta");
-      const MSG_AVISO_AUTOCIERRE = "Le informamos que, si no recibimos respuesta en los próximos 10 minutos, la conversación se cerrará automáticamente. Si requiere asistencia posteriormente, con gusto podrá escribirnos nuevamente.";
+      const MSG_AVISO_AUTOCIERRE = "Si en los próximos 10 minutos no recibimos su respuesta, daremos por finalizada esta conversación. Cuando lo desee, puede volver a escribirnos y con gusto le atenderemos.";
       const yaSeMostroAviso = histtecnico.some(m => m.content?.trim() === MSG_AVISO_AUTOCIERRE);
       const directReply = (botYaPidioTema && reintentsoTema < 2)
         ? `${MSG_INVALIDO}\n\n${MENU_TEMAS}`
@@ -2412,6 +2412,7 @@ No agregues nada más.`,
         title: "Seleccione un tema",
         description: "¿En relación a qué tema sería su consulta?",
         buttonText: "Ver temas",
+        footerText: "Sekunet Soporte Técnico",
         sections: [{
           title: "Temas de soporte",
           rows: temasLista.map((tema, i) => ({
