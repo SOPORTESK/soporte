@@ -149,6 +149,11 @@ export function FlowEditor() {
   const [flowName, setFlowName] = useState("Flujo WhatsApp por defecto");
   const [flowId, setFlowId] = useState<string | null>(null);
   const [showPalette, setShowPalette] = useState(true);
+  const [showSettings, setShowSettings] = useState(false);
+  const [settings, setSettings] = useState({
+    typingDelayMs: 800,
+    betweenMessagesDelayMs: 600,
+  });
   const nodeIdCounter = useRef(0);
 
   // Cargar flujo desde BD
@@ -163,6 +168,9 @@ export function FlowEditor() {
           if (data.flow.flow_data?.nodes?.length > 0) {
             setNodes(data.flow.flow_data.nodes);
             setEdges(data.flow.flow_data.edges);
+            if (data.flow.flow_data?.settings) {
+              setSettings(prev => ({ ...prev, ...data.flow.flow_data.settings }));
+            }
           } else {
             // Crear flujo por defecto que refleja el comportamiento actual del bot
             const defaultNodes: Node[] = [
@@ -376,7 +384,7 @@ export function FlowEditor() {
         body: JSON.stringify({
           id: flowId,
           nombre: flowName,
-          flow_data: { nodes, edges },
+          flow_data: { nodes, edges, settings },
         }),
       });
       if (res.ok) {
@@ -419,6 +427,12 @@ export function FlowEditor() {
             </span>
           )}
           <button
+            onClick={() => setShowSettings(!showSettings)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          >
+            <Settings2 className="h-4 w-4" /> Config
+          </button>
+          <button
             onClick={() => setShowPalette(!showPalette)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
           >
@@ -434,6 +448,44 @@ export function FlowEditor() {
           </button>
         </div>
       </div>
+
+      {/* Settings panel */}
+      {showSettings && (
+        <div className="border-b border-border bg-card/80 backdrop-blur-sm px-5 py-4 space-y-3">
+          <p className="text-xs font-bold uppercase tracking-[0.15em] text-muted-foreground/80">
+            Configuración de tiempos
+          </p>
+          <div className="flex items-center gap-6">
+            <label className="flex items-center gap-2 text-sm text-foreground">
+              <span>Delay "escribiendo..." (ms):</span>
+              <input
+                type="number"
+                min={0}
+                max={5000}
+                step={100}
+                value={settings.typingDelayMs}
+                onChange={(e) => setSettings(prev => ({ ...prev, typingDelayMs: Number(e.target.value) }))}
+                className="w-24 px-2 py-1 rounded-lg border border-border bg-background text-sm"
+              />
+            </label>
+            <label className="flex items-center gap-2 text-sm text-foreground">
+              <span>Delay entre mensajes (ms):</span>
+              <input
+                type="number"
+                min={0}
+                max={5000}
+                step={100}
+                value={settings.betweenMessagesDelayMs}
+                onChange={(e) => setSettings(prev => ({ ...prev, betweenMessagesDelayMs: Number(e.target.value) }))}
+                className="w-24 px-2 py-1 rounded-lg border border-border bg-background text-sm"
+              />
+            </label>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Estos valores controlan los tiempos de espera del bot. Guardar el flujo para aplicar los cambios.
+          </p>
+        </div>
+      )}
 
       {/* Main area: palette + canvas + inspector */}
       <div className="flex-1 flex overflow-hidden">

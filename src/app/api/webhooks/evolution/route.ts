@@ -134,14 +134,16 @@ async function sendWhatsAppPresence(phone: string, evoCfg: any, presence: "compo
 }
 
 // Enviar uno o varios mensajes con pausa entre ellos (simula conversación natural)
-async function sendWhatsAppMessages(phone: string, reply: any | any[], evoCfg: any): Promise<void> {
+async function sendWhatsAppMessages(phone: string, reply: any | any[], evoCfg: any, flowSettings?: { typingDelayMs?: number; betweenMessagesDelayMs?: number }): Promise<void> {
   const messages = Array.isArray(reply) ? reply : [reply];
+  const typingDelay = flowSettings?.typingDelayMs ?? 800;
+  const betweenDelay = flowSettings?.betweenMessagesDelayMs ?? 600;
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
     if (!msg) continue;
     
     // Evolution API mostrará "escribiendo..." durante este tiempo
-    const delayMs = 800;
+    const delayMs = typingDelay;
 
     let sent = false;
 
@@ -169,7 +171,7 @@ async function sendWhatsAppMessages(phone: string, reply: any | any[], evoCfg: a
 
     // Breve pausa entre mensajes para mantener orden sin hacerlo lento
     if (i < messages.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 600));
+      await new Promise(resolve => setTimeout(resolve, betweenDelay));
     }
   }
 }
@@ -655,6 +657,23 @@ export async function POST(req: NextRequest) {
   const EVO_KEY = evoCfg.apiKey;
   const EVO_INSTANCE = evoCfg.instance;
   console.log("[evo-webhook] Paso 1 OK - Evo config:", { url: EVO_URL, instance: EVO_INSTANCE, keyPresente: !!EVO_KEY });
+
+  // Cargar settings del flow (delays configurables)
+  let flowSettings: { typingDelayMs?: number; betweenMessagesDelayMs?: number } | undefined;
+  try {
+    const supabaseForFlow = createServiceClient();
+    const { data: flowRow } = await supabaseForFlow
+      .from("sek_flow_configs")
+      .select("flow_data")
+      .limit(1)
+      .single();
+    if (flowRow?.flow_data?.settings) {
+      flowSettings = flowRow.flow_data.settings;
+      console.log("[evo-webhook] Flow settings cargados:", flowSettings);
+    }
+  } catch (e: any) {
+    console.warn("[evo-webhook] No se pudieron cargar flow settings:", e.message);
+  }
 
   console.log("[evo-webhook] Paso 2: extractText...");
   let text = extractText(payload);
@@ -1310,7 +1329,7 @@ export async function POST(req: NextRequest) {
               });
               console.log(`[evo-webhook] seka-whatsapp reply:`, iaData.reply ? (Array.isArray(iaData.reply) ? `${iaData.reply.length} mensajes` : "1 mensaje") : "ausente", "error:", iaData.error || "ninguno");
               if (iaData.reply) {
-                await sendWhatsAppMessages(phone || jid || "", iaData.reply, evoCfg);
+                await sendWhatsAppMessages(phone || jid || "", iaData.reply, evoCfg, flowSettings);
               } else {
                 console.warn(`[evo-webhook] seka-whatsapp no devolvió reply para caso ${existing.id}:`, iaData);
               }
@@ -1382,7 +1401,7 @@ export async function POST(req: NextRequest) {
           });
           console.log(`[evo-webhook] seka-whatsapp reply (nuevo caso):`, iaData.reply ? (Array.isArray(iaData.reply) ? `${iaData.reply.length} mensajes` : "1 mensaje") : "ausente", "error:", iaData.error || "ninguno");
           if (iaData.reply) {
-            await sendWhatsAppMessages(phone || jid || "", iaData.reply, evoCfg);
+            await sendWhatsAppMessages(phone || jid || "", iaData.reply, evoCfg, flowSettings);
           } else {
             console.warn(`[evo-webhook] seka-whatsapp no devolvió reply para nuevo caso ${newCase.id}:`, iaData);
           }
