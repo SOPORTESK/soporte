@@ -9,6 +9,8 @@ import {
   addEdge,
   useNodesState,
   useEdgesState,
+  Handle,
+  Position,
   type Node,
   type Edge,
   type Connection,
@@ -112,15 +114,9 @@ function FlowNode({ id, data, selected }: { id: string; data: FlowNodeData; sele
         </p>
       )}
       {/* Handle source */}
-      <div
-        className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-gray-400 border-2 border-white dark:border-gray-800"
-        style={{ position: "absolute", bottom: "-6px" }}
-      />
+      <Handle type="source" position={Position.Bottom} id="source" style={{ bottom: -6 }} />
       {/* Handle target */}
-      <div
-        className="absolute -top-1 left-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-gray-400 border-2 border-white dark:border-gray-800"
-        style={{ position: "absolute", top: "-6px" }}
-      />
+      <Handle type="target" position={Position.Top} id="target" style={{ top: -6 }} />
     </div>
   );
 }
@@ -174,7 +170,7 @@ export function FlowEditor() {
                 id: "start",
                 type: "flowNode",
                 position: { x: 400, y: 0 },
-                data: { label: "Inicio", nodeType: "start", message: "¡Hola! Bienvenido a Sekunet. Para brindarle una mejor atención, necesitamos algunos datos." } as FlowNodeData,
+                data: { label: "Inicio", nodeType: "start", message: "Bienvenido al soporte técnico de Sekunet.\n\nSoy el Asistente Virtual y con gusto le brindaré asistencia.\n\nAntes de comenzar, necesito registrar algunos datos para atender su solicitud." } as FlowNodeData,
               },
               {
                 id: "pedir_nombre",
@@ -207,9 +203,15 @@ export function FlowEditor() {
                 data: { label: "Pedir cuenta", nodeType: "ask_data", dataType: "cuenta", message: "¿A qué empresa o cuenta afiliada a Sekunet pertenece?", maxRetries: 2, onMaxRetries: "close" } as FlowNodeData,
               },
               {
-                id: "menu_temas",
+                id: "aviso_cierre",
                 type: "flowNode",
                 position: { x: 400, y: 720 },
+                data: { label: "Aviso de autocierre", nodeType: "message", message: "Le informamos que, si no recibimos respuesta en los próximos 10 minutos, la conversación se cerrará automáticamente. Si requiere asistencia posteriormente, con gusto podrá escribirnos nuevamente." } as FlowNodeData,
+              },
+              {
+                id: "menu_temas",
+                type: "flowNode",
+                position: { x: 400, y: 840 },
                 data: { label: "Menú de temas", nodeType: "menu", message: "¿En relación a qué tema sería su consulta?", menuOptions: ["Configuraciones", "Consultas Técnicas", "Garantías", "Soporte de Equipos", "Ventas", "Otro"] } as FlowNodeData,
               },
               {
@@ -280,7 +282,8 @@ export function FlowEditor() {
               { id: "e_validar_correo", source: "validar_nombre", target: "pedir_correo", animated: true, style: { stroke: "#6366f1", strokeWidth: 2 } },
               { id: "e_correo_validar", source: "pedir_correo", target: "validar_correo", animated: true, style: { stroke: "#6366f1", strokeWidth: 2 } },
               { id: "e_validar_cuenta", source: "validar_correo", target: "pedir_cuenta", animated: true, style: { stroke: "#6366f1", strokeWidth: 2 } },
-              { id: "e_cuenta_temas", source: "pedir_cuenta", target: "menu_temas", animated: true, style: { stroke: "#6366f1", strokeWidth: 2 } },
+              { id: "e_cuenta_aviso", source: "pedir_cuenta", target: "aviso_cierre", animated: true, style: { stroke: "#6366f1", strokeWidth: 2 } },
+              { id: "e_aviso_temas", source: "aviso_cierre", target: "menu_temas", animated: true, style: { stroke: "#6366f1", strokeWidth: 2 } },
               { id: "e_temas_cond", source: "menu_temas", target: "cond_tema", animated: true, style: { stroke: "#6366f1", strokeWidth: 2 } },
               { id: "e_cond_otro", source: "cond_tema", target: "pedir_descripcion", animated: true, label: "Otro", style: { stroke: "#f59e0b", strokeWidth: 2 } },
               { id: "e_cond_marca", source: "cond_tema", target: "pedir_marca", animated: true, label: "No Otro", style: { stroke: "#10b981", strokeWidth: 2 } },

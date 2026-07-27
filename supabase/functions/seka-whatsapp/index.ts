@@ -1631,7 +1631,7 @@ Responde SOLO con JSON válido:
 
     // Heurística fuerte: si el bot acaba de pedir el modelo y el tema requiere etiqueta,
     // asumir la respuesta del usuario como modelo y avanzar directamente a pedir etiqueta/XML.
-    const botYaPidioModelo = lastIAContent.includes("modelo del equipo") || lastIAContent.includes("modelo específico") || lastIAContent.includes("verifique el dato");
+    const botYaPidioModelo = lastIAContent.includes("modelo del equipo") || lastIAContent.includes("modelo específico") || lastIAContent.includes("verifique el dato") || lastIAContent.includes("indicar el modelo") || lastIAContent.includes("podria indicar el modelo") || lastIAContent.includes("podría indicar el modelo");
     const userResponseModelo = lastUserMsgContent.trim();
     if (botYaPidioModelo && userResponseModelo.length >= 2 && temasConEtiqueta.includes(temaSupervisor) &&
         !/^(s[ií]|si|yes|no|nel|nop|no\s*s[eé]|no\s*se|no\s*lo\s*tengo|no\s*tengo|as[ií]\s*es|correcto)$/i.test(userResponseModelo)) {
@@ -1661,6 +1661,10 @@ Responde SOLO con JSON válido:
           updatedCliente.modelo = modeloCandidato;
           clienteChanged = true;
           console.log(`[seka-whatsapp] Persistencia general: modelo '${modeloCandidato}' guardado en BD.`);
+          if (marcaSupervisor && !["CERRAR", "VENTAS", "ESCALAR_INMEDIATO", "BUSCAR_INVENTARIO", "PEDIR_ETIQUETA", "PEDIR_ETIQUETA_Y_XML"].includes(accion)) {
+            accion = "BUSCAR_INVENTARIO";
+            console.log(`[seka-whatsapp] Persistencia general: forzando BUSCAR_INVENTARIO para validar modelo.`);
+          }
         }
       }
     }
@@ -1675,7 +1679,7 @@ Responde SOLO con JSON válido:
     // Si el bot ya pidió descripción del problema y el usuario respondió → escalar siempre
     // EXCEPCIÓN: temas que requieren etiqueta (Reset/Desvinculación/Firmware) no usan descripción como último paso
     // IMPORTANTE: este bloque va ANTES del forzado de tema Otro para que el escalado tenga prioridad
-    const botYaPidioDescripcion = lastIAContent.includes("describa brevemente") || lastIAContent.includes("describa el inconveniente") || lastIAContent.includes("describa brevemente el inconveniente");
+    const botYaPidioDescripcion = lastIAContent.toLowerCase().includes("describa brevemente") || lastIAContent.toLowerCase().includes("describa el inconveniente") || lastIAContent.toLowerCase().includes("describa su consulta") || lastIAContent.toLowerCase().includes("describa el problema");
     if (botYaPidioDescripcion && !temasConEtiqueta.includes(temaSupervisor)) {
       const desc = lastUserMsgContent.trim();
       if (esDescripcionValida(desc)) {
@@ -2418,7 +2422,7 @@ No agregues nada más.`,
           rows: temasLista.map((tema, i) => ({
             title: tema,
             rowId: `${i + 1}`,
-            description: ""
+            description: `Opción ${i + 1}`
           }))
         }]
       };
@@ -2564,7 +2568,7 @@ No agregues nada más.`,
         }
       }
 
-      const botYaPidioModelo = lastIAContent.includes("modelo del equipo") || lastIAContent.includes("modelo específico") || lastIAContent.includes("verifique el dato");
+      const botYaPidioModelo = lastIAContent.includes("modelo del equipo") || lastIAContent.includes("modelo específico") || lastIAContent.includes("verifique el dato") || lastIAContent.includes("indicar el modelo") || lastIAContent.includes("podria indicar el modelo") || lastIAContent.includes("podría indicar el modelo");
       if (botYaPidioModelo && !modeloSupervisor) {
         const reintModel = contarReintentos(iaRealMsgs, "modelo del equipo");
         if (reintModel >= 2) {
