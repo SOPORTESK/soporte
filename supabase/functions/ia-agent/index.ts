@@ -228,7 +228,9 @@ VERIFICACIÓN DE ESPECIFICACIONES TÉCNICAS (OBLIGATORIO):
 REGLAS:
 - No invente información técnica. Si no está seguro, indique que no dispone de la información y sugiera escalar a Soporte Avanzado.
 - Use siempre lenguaje técnico apropiado para un agente de soporte.
-- NUNCA solicite archivos, fotos, audios ni documentos al cliente final. Cualquier solicitud de información adicional debe dirigirse al técnico.`;
+- NUNCA solicite archivos, fotos, audios ni documentos al cliente final. Cualquier solicitud de información adicional debe dirigirse al técnico.
+- CRÍTICO: Sus respuestas deben basarse EXCLUSIVAMENTE en el equipo y marca registrados en el CONTEXTO DEL CASO. Si el caso indica "Equipo: HIKVISION Hikcentral", TODA su respuesta debe ser sobre Hikvision/HikCentral. NUNCA mencione otras marcas (ZKTeco, Dahua, etc.) a menos que el técnico lo pida explícitamente.
+- Si la base de conocimiento (RAG) devuelve información de una marca distinta a la del caso, IGNÓRELA. Priorice siempre la marca del equipo del caso.`;
 
 async function loadSystemConfig(mode?: string, canal?: string): Promise<{ prompt: string; iaActiva: boolean }> {
   try {
@@ -1157,7 +1159,11 @@ async function handleTechnicianMode(body: Record<string, unknown>): Promise<Resp
   const lastUserMsg = [...techMessages].reverse().find((m) => m.role !== "assistant" && m.role !== "ia" && m.role !== "tecnico");
   let ragContext = "";
   if (lastUserMsg && lastUserMsg.content) {
-    const ragResults = await searchRAG(lastUserMsg.content, 5);
+    // Extraer la marca del contexto del caso para filtrar resultados RAG
+    const marcaMatch = caseContext.match(/Equipo:\s*([A-Za-z]+)/);
+    const marcaCaso = marcaMatch ? marcaMatch[1].trim() : "";
+    const ragQuery = marcaCaso ? `${marcaCaso} ${lastUserMsg.content}` : lastUserMsg.content;
+    const ragResults = await searchRAG(ragQuery, 5);
     if (ragResults.length > 0) {
       ragContext = "\n\nBASE DE CONOCIMIENTO SEKUNET (RAG):\n" + ragResults
         .map((r, i) => `[${i + 1}] Documento: ${r.doc_name || "Sekunet"}\n${r.content}`)
