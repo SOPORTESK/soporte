@@ -897,6 +897,131 @@ function esDescripcionValida(texto: string): boolean {
   return true;
 }
 
+// ─── NORMALIZADOR DE CLIENTE CON IA (antes de escalar) ──────────────────────────
+// Llama al LLM para corregir campos del cliente que puedan contener comentarios
+// o datos incorrectos. Solo sobrescribe con confianza "alta".
+// Timeout estricto: si falla, devuelve el cliente sin cambios.
+async function normalizarClienteConIA(
+  cliente: Record<string, unknown>,
+  mensajes: HistMsg[]
+): Promise<{ cliente: Record<string, unknown>; changed: boolean }> {
+  try {
+    if (cliente._normalizado) {
+      return { cliente, changed: false };
+    }
+
+    const camposActuales = {
+      nombre: String(cliente.nombre || ""),
+      cuenta: String(cliente.cuenta || ""),
+      correo: String(cliente.correo || ""),
+      telefono: String(cliente.telefono || ""),
+      descripcion: String(cliente.descripcion || ""),
+    };
+
+    const ultimosMensajes = mensajes.slice(-8).map(m => ({
+      role: m.role === "user" ? "cliente" : "bot",
+      content: String(m.content || "").substring(0, 200),
+    }));
+
+    const messages: NimMessage[] = [
+      {
+        role: "system",
+        content: `Eres un normalizador de datos de clientes para Sekunet (soporte técnico en Costa Rica). Recibes los campos actuales del cliente y los últimos mensajes de la conversación. Tu trabajo es CORREGIR campos que contengan datos incorrectos.
+
+REGLAS ESTRICTAS:
+- "nombre" debe ser SOLO el nombre completo de una persona (nombre + apellido). Si contiene frases, descripciones de problemas, comentarios, saludos, o cualquier cosa que no sea un nombre propio, déjalo vacío ("").
+- "cuenta" debe ser el nombre de una empresa o cuenta afiliada a Sekunet. Si contiene un nombre de persona, o frases como "mi nombre", "personal", "la mía", "cliente final", o comentarios, déjalo vacío ("").
+- "correo" NO lo modifiques. Devuélvelo tal cual.
+- "telefono" NO lo modifiques. Devuélvelo tal cual.
+- "descripcion" debe capturar el problema o comentario real del cliente si lo mencionó en la conversación. Si no hay descripción clara, déjalo vacío ("").
+
+IMPORTANTE: Si un campo ya parece correcto, NO lo cambies. Solo corrige campos que claramente contengan datos erróneos.
+
+Responde SOLO con un JSON válido, sin texto adicional:
+{"nombre":"valor o vacío","cuenta":"valor o vacío","correo":"valor sin cambios","telefono":"valor sin cambios","descripcion":"valor o vacío","confidence":"alta"|"media"|"baja"}`,
+      },
+      {
+        role: "user",
+        content: `Campos actuales: ${JSON.stringify(camposActuales)}\n\nÚltimos mensajes:\n${JSON.stringify(ultimosMensajes)}`,
+      },
+    ];
+
+    const raw = await Promise.race([
+      callAIWithFallbacks(messages),
+      new Promise<string>((_, reject) => setTimeout(() => reject(new Error("timeout")), 10000)),
+    ]);
+
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.warn("[normalizarCliente] No se pudo parsear respuesta IA");
+      return { cliente, changed: false };
+    }
+
+    const result = JSON.parse(jsonMatch[0]);
+    if (result.confidence !== "alta") {
+      console.log("[normalizarCliente] Confianza no alta, no se modifican campos:", result.confidence);
+      return { cliente, changed: false };
+    }
+
+    const normalized: Record<string, unknown> = { ...cliente };
+    const rawBackup: Record<string, string> = {};
+    let changed = false;
+
+    // Nombre: solo sobrescribir si la IA da uno válido
+    if (result.nombre && typeof result.nombre === "string" && result.nombre.trim() && isNombrePropioValido(result.nombre.trim())) {
+      const oldNombre = String(cliente.nombre || "").trim();
+      if (oldNombre !== result.nombre.trim()) {
+        if (oldNombre) rawBackup.nombre = oldNombre;
+        normalized.nombre = result.nombre.trim();
+        changed = true;
+      }
+    } else if (!result.nombre && String(cliente.nombre || "").trim() && !isNombrePropioValido(String(cliente.nombre || "").trim())) {
+      // Nombre actual inválido y la IA no pudo corregirlo → limpiar
+      rawBackup.nombre = String(cliente.nombre || "");
+      normalized.nombre = "";
+      changed = true;
+    }
+
+    // Cuenta: solo sobrescribir si la IA da una válida
+    if (result.cuenta && typeof result.cuenta === "string" && result.cuenta.trim() && esCuentaValida(result.cuenta.trim())) {
+      const oldCuenta = String(cliente.cuenta || "").trim();
+      if (oldCuenta !== result.cuenta.trim()) {
+        if (oldCuenta) rawBackup.cuenta = oldCuenta;
+        normalized.cuenta = result.cuenta.trim();
+        changed = true;
+      }
+    } else if (!result.cuenta && String(cliente.cuenta || "").trim() && !esCuentaValida(String(cliente.cuenta || "").trim())) {
+      // Cuenta actual inválida y la IA no pudo corregirla → limpiar
+      rawBackup.cuenta = String(cliente.cuenta || "");
+      normalized.cuenta = "";
+      changed = true;
+    }
+
+    // Descripción
+    if (result.descripcion && typeof result.descripcion === "string" && result.descripcion.trim()) {
+      if (String(cliente.descripcion || "").trim() !== result.descripcion.trim()) {
+        normalized.descripcion = result.descripcion.trim();
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      if (Object.keys(rawBackup).length > 0) normalized._raw = rawBackup;
+      normalized._normalizado = true;
+      console.log("[normalizarCliente] Campos normalizados:", {
+        nombre: normalized.nombre,
+        cuenta: normalized.cuenta,
+        descripcion: normalized.descripcion,
+      });
+    }
+
+    return { cliente: normalized, changed };
+  } catch (e: any) {
+    console.error("[normalizarCliente] Error:", e.message);
+    return { cliente, changed: false };
+  }
+}
+
 function esMensajeDeMedia(m: HistMsg): boolean {
   return !!(m.mediaUrl || m.mediaType || (m.fileName && /\.(jpg|jpeg|png|gif|webp|pdf|mp3|ogg|wav|m4a|mp4|mov|avi)$/i.test(m.fileName)));
 }
@@ -971,7 +1096,26 @@ Deno.serve(async (req: Request) => {
         return new Response(JSON.stringify({ ok: true, skipped: true, dedup: true }), { status: 200, headers: corsHeaders });
       }
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: reply };
-      await db.from("sek_cases").update({ histtecnico: [...freshHist, newMsg], ...extra }).eq("id", case_id);
+      const upd: Record<string, unknown> = { histtecnico: [...freshHist, newMsg], ...extra };
+      // Normalizar cliente con IA antes de escalar
+      if (extra.estado === "escalado") {
+        try {
+          const convMsgs = [...histcliente, ...histtecnico].sort((a, b) =>
+            new Date(a.time || 0).getTime() - new Date(b.time || 0).getTime()
+          );
+          const { cliente: normalized, changed } = await normalizarClienteConIA(updatedCliente, convMsgs);
+          if (changed) {
+            upd.cliente = normalized;
+            console.log("[seka-whatsapp] Cliente normalizado antes de escalar (postTecnico).");
+          } else if (clienteChanged) {
+            upd.cliente = updatedCliente;
+          }
+        } catch (e: any) {
+          console.warn("[seka-whatsapp] Normalización pre-escalación falló:", e.message);
+          if (clienteChanged) upd.cliente = updatedCliente;
+        }
+      }
+      await db.from("sek_cases").update(upd).eq("id", case_id);
       return new Response(JSON.stringify({ ok: true, reply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     };
 
@@ -2344,6 +2488,15 @@ No agregues nada más.`,
       if (temaSupervisor) upd.problema = temaToProblemaKey(temaSupervisor);
       if (nuevoTitle) upd.title = nuevoTitle;
       else if (temaSupervisor) upd.title = `${temaSupervisor}`.substring(0, 120);
+      // Normalizar cliente con IA antes de escalar
+      try {
+        const { cliente: normalized, changed } = await normalizarClienteConIA(updatedCliente, allMsgs);
+        if (changed) upd.cliente = normalized;
+        else if (clienteChanged) upd.cliente = updatedCliente;
+      } catch (e: any) {
+        console.warn("[seka-whatsapp] Normalización ESCALAR_INMEDIATO falló:", e.message);
+        if (clienteChanged) upd.cliente = updatedCliente;
+      }
       await safeUpdateCase(upd, case_id);
       return new Response(JSON.stringify({ ok: true, reply: replyText }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -2790,6 +2943,15 @@ No agregues nada más.`,
         upd.title = nuevoTitle;
       } else if (temaSupervisor) {
         upd.title = `${temaSupervisor}`.substring(0, 120);
+      }
+      // Normalizar cliente con IA antes de escalar
+      try {
+        const { cliente: normalized, changed } = await normalizarClienteConIA(updatedCliente, allMsgs);
+        if (changed) upd.cliente = normalized;
+        else if (clienteChanged) upd.cliente = updatedCliente;
+      } catch (e: any) {
+        console.warn("[seka-whatsapp] Normalización ESCALAR falló:", e.message);
+        if (clienteChanged) upd.cliente = updatedCliente;
       }
       await safeUpdateCase(upd, case_id);
       return new Response(JSON.stringify({ ok: true, reply: replyText }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });

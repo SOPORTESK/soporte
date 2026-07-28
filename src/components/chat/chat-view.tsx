@@ -153,6 +153,9 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   const [agents, setAgents] = React.useState<any[]>([]);
   const [showReassign, setShowReassign] = React.useState(false);
   const [reassigning, setReassigning] = React.useState(false);
+  const [editingCliente, setEditingCliente] = React.useState(false);
+  const [savingCliente, setSavingCliente] = React.useState(false);
+  const [clienteDraft, setClienteDraft] = React.useState({ nombre: "", cuenta: "", correo: "", telefono: "", descripcion: "" });
 
   const CATEGORIAS = [
     { value: "sin_imagen", label: "Sin imagen" },
@@ -1157,6 +1160,42 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     }
   }
 
+  function startEditingCliente() {
+    const ci = clienteInfo(sekCase.cliente);
+    const c = (sekCase.cliente && typeof sekCase.cliente === "object") ? sekCase.cliente as Record<string, unknown> : {};
+    setClienteDraft({
+      nombre: ci.nombre || "",
+      cuenta: ci.cuenta || "",
+      correo: ci.correo || "",
+      telefono: ci.telefono || "",
+      descripcion: String(c.descripcion || ""),
+    });
+    setEditingCliente(true);
+  }
+
+  async function saveClienteFields() {
+    try {
+      setSavingCliente(true);
+      const res = await fetch(`/api/cases/${targetId}/cliente`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fields: clienteDraft }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Error al guardar");
+      }
+      const data = await res.json();
+      setSekCase(prev => ({ ...prev, cliente: data.cliente }));
+      toast.success("Datos del cliente actualizados");
+      setEditingCliente(false);
+    } catch (e: any) {
+      toast.error("Error al guardar datos del cliente", { description: e?.message });
+    } finally {
+      setSavingCliente(false);
+    }
+  }
+
   // Render main view
   return (
     <div className="flex flex-col h-full min-h-0 min-w-0">
@@ -1221,6 +1260,16 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
             title="Historial de conversaciones"
           >
             <History className="h-4 w-4" />
+          </button>
+
+          {/* Editar cliente */}
+          <button
+            onClick={startEditingCliente}
+            className="p-2 rounded-xl hover:bg-muted active:bg-muted/80 touch-target"
+            aria-label="Editar datos del cliente"
+            title="Editar datos del cliente"
+          >
+            <User className="h-4 w-4" />
           </button>
 
           {/* Acciones rápidas */}
@@ -1421,6 +1470,83 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
                       </Button>
                       <Button variant="default" onClick={saveRealPhone}>
                         Vincular Número
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Modal de edición de datos del cliente */}
+            {editingCliente && (
+              <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm">
+                <div className="bg-card border border-border rounded-t-3xl sm:rounded-3xl w-full max-w-md shadow-2xl overflow-hidden pb-safe max-h-[90vh] flex flex-col">
+                  <div className="flex justify-between items-center px-4 py-3 border-b border-border bg-muted/20 shrink-0">
+                    <div className="flex items-center gap-1.5">
+                      <User className="h-4 w-4 text-brand-500" />
+                      <p className="font-bold text-sm">Editar datos del cliente</p>
+                    </div>
+                    <button onClick={() => setEditingCliente(false)} className="p-1.5 rounded-lg hover:bg-muted">
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <div className="p-4 flex flex-col gap-3 overflow-y-auto">
+                    <div>
+                      <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Nombre completo</label>
+                      <input
+                        type="text"
+                        value={clienteDraft.nombre}
+                        onChange={e => setClienteDraft(d => ({ ...d, nombre: e.target.value }))}
+                        placeholder="Nombre y apellido"
+                        className="mt-1 flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Cuenta / Empresa</label>
+                      <input
+                        type="text"
+                        value={clienteDraft.cuenta}
+                        onChange={e => setClienteDraft(d => ({ ...d, cuenta: e.target.value }))}
+                        placeholder="Nombre de la empresa o cuenta"
+                        className="mt-1 flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Correo electrónico</label>
+                      <input
+                        type="text"
+                        value={clienteDraft.correo}
+                        onChange={e => setClienteDraft(d => ({ ...d, correo: e.target.value }))}
+                        placeholder="correo@ejemplo.com"
+                        className="mt-1 flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Teléfono</label>
+                      <input
+                        type="text"
+                        value={clienteDraft.telefono}
+                        onChange={e => setClienteDraft(d => ({ ...d, telefono: e.target.value }))}
+                        placeholder="50688888888"
+                        className="mt-1 flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Descripción</label>
+                      <textarea
+                        value={clienteDraft.descripcion}
+                        onChange={e => setClienteDraft(d => ({ ...d, descripcion: e.target.value }))}
+                        placeholder="Descripción del problema o comentario"
+                        rows={2}
+                        className="mt-1 flex w-full rounded-xl border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 resize-none"
+                      />
+                    </div>
+                    <div className="flex gap-2 justify-end mt-2">
+                      <Button variant="ghost" onClick={() => setEditingCliente(false)} disabled={savingCliente}>
+                        Cancelar
+                      </Button>
+                      <Button variant="default" onClick={saveClienteFields} disabled={savingCliente}>
+                        {savingCliente ? "Guardando..." : "Guardar"}
                       </Button>
                     </div>
                   </div>
