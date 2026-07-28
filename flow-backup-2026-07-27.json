@@ -1,0 +1,2213 @@
+﻿{
+    "edges":  [
+                  {
+                      "id":  "e0",
+                      "type":  "default",
+                      "label":  "Fuera horario",
+                      "style":  {
+                                    "stroke":  "#6b7280",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "start",
+                      "target":  "fuera_horario",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e1",
+                      "type":  "default",
+                      "style":  {
+                                    "stroke":  "#6366f1",
+                                    "strokeWidth":  3
+                                },
+                      "source":  "start",
+                      "target":  "pedir_nombre",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e2",
+                      "type":  "default",
+                      "label":  "Comercial",
+                      "style":  {
+                                    "stroke":  "#f97316",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "start",
+                      "target":  "ventas",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e3",
+                      "type":  "default",
+                      "label":  "Frustracion",
+                      "style":  {
+                                    "stroke":  "#f97316",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "start",
+                      "target":  "esc_inm",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e4",
+                      "type":  "default",
+                      "label":  "Despedida",
+                      "style":  {
+                                    "stroke":  "#ef4444",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "start",
+                      "target":  "cerrar",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e5",
+                      "type":  "default",
+                      "style":  {
+                                    "stroke":  "#6366f1",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "pedir_nombre",
+                      "target":  "validar_nombre",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e6",
+                      "type":  "default",
+                      "label":  "Valido",
+                      "style":  {
+                                    "stroke":  "#10b981",
+                                    "strokeWidth":  3
+                                },
+                      "source":  "validar_nombre",
+                      "target":  "pedir_correo",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e7",
+                      "type":  "default",
+                      "label":  "Invalido",
+                      "style":  {
+                                    "stroke":  "#ef4444",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "validar_nombre",
+                      "target":  "nombre_invalido",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e8",
+                      "type":  "default",
+                      "label":  "Reintentar",
+                      "style":  {
+                                    "stroke":  "#f59e0b",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "nombre_invalido",
+                      "target":  "validar_nombre",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e9",
+                      "type":  "default",
+                      "label":  "2 reintentos",
+                      "style":  {
+                                    "stroke":  "#ef4444",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "validar_nombre",
+                      "target":  "nombre_cierre",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e10",
+                      "type":  "default",
+                      "style":  {
+                                    "stroke":  "#6366f1",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "pedir_correo",
+                      "target":  "validar_correo",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e11",
+                      "type":  "default",
+                      "label":  "Valido",
+                      "style":  {
+                                    "stroke":  "#10b981",
+                                    "strokeWidth":  3
+                                },
+                      "source":  "validar_correo",
+                      "target":  "pedir_cuenta",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e12",
+                      "type":  "default",
+                      "label":  "No tiene",
+                      "style":  {
+                                    "stroke":  "#f59e0b",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "validar_correo",
+                      "target":  "correo_sin",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e13",
+                      "type":  "default",
+                      "style":  {
+                                    "stroke":  "#6366f1",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "correo_sin",
+                      "target":  "pedir_cuenta",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e14",
+                      "type":  "default",
+                      "style":  {
+                                    "stroke":  "#6366f1",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "pedir_cuenta",
+                      "target":  "validar_cuenta",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e15",
+                      "type":  "default",
+                      "label":  "Valida",
+                      "style":  {
+                                    "stroke":  "#10b981",
+                                    "strokeWidth":  3
+                                },
+                      "source":  "validar_cuenta",
+                      "target":  "aviso_autocierre",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e16",
+                      "type":  "default",
+                      "label":  "Sin cuenta",
+                      "style":  {
+                                    "stroke":  "#ef4444",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "validar_cuenta",
+                      "target":  "sin_cuenta",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e17",
+                      "type":  "default",
+                      "style":  {
+                                    "stroke":  "#6366f1",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "aviso_autocierre",
+                      "target":  "menu_temas",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e18",
+                      "type":  "default",
+                      "label":  "Configuraciones",
+                      "style":  {
+                                    "stroke":  "#3b82f6",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "menu_temas",
+                      "target":  "t1_marca",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e19",
+                      "type":  "default",
+                      "label":  "Reset",
+                      "style":  {
+                                    "stroke":  "#3b82f6",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "menu_temas",
+                      "target":  "t2_marca",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e20",
+                      "type":  "default",
+                      "label":  "Desvinculacion",
+                      "style":  {
+                                    "stroke":  "#3b82f6",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "menu_temas",
+                      "target":  "t3_marca",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e21",
+                      "type":  "default",
+                      "label":  "Firmware",
+                      "style":  {
+                                    "stroke":  "#3b82f6",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "menu_temas",
+                      "target":  "t4_marca",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e22",
+                      "type":  "default",
+                      "label":  "Software",
+                      "style":  {
+                                    "stroke":  "#3b82f6",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "menu_temas",
+                      "target":  "t5_marca",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e23",
+                      "type":  "default",
+                      "label":  "Licencias",
+                      "style":  {
+                                    "stroke":  "#3b82f6",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "menu_temas",
+                      "target":  "t6_marca",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e24",
+                      "type":  "default",
+                      "label":  "Otro",
+                      "style":  {
+                                    "stroke":  "#f59e0b",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "menu_temas",
+                      "target":  "t7_desc",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e25",
+                      "type":  "default",
+                      "style":  {
+                                    "stroke":  "#6366f1",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "t1_marca",
+                      "target":  "t1_validar_marca",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e26",
+                      "type":  "default",
+                      "label":  "OK",
+                      "style":  {
+                                    "stroke":  "#10b981",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "t1_validar_marca",
+                      "target":  "t1_modelo",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e27",
+                      "type":  "default",
+                      "style":  {
+                                    "stroke":  "#6366f1",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "t1_modelo",
+                      "target":  "t1_inventario",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e28",
+                      "type":  "default",
+                      "label":  "Valido",
+                      "style":  {
+                                    "stroke":  "#10b981",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "t1_inventario",
+                      "target":  "t1_desc",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e29",
+                      "type":  "default",
+                      "style":  {
+                                    "stroke":  "#10b981",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "t1_desc",
+                      "target":  "t1_escalar",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e30",
+                      "type":  "default",
+                      "style":  {
+                                    "stroke":  "#6366f1",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "t2_marca",
+                      "target":  "t2_validar_marca",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e31",
+                      "type":  "default",
+                      "label":  "OK",
+                      "style":  {
+                                    "stroke":  "#10b981",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "t2_validar_marca",
+                      "target":  "t2_modelo",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e32",
+                      "type":  "default",
+                      "style":  {
+                                    "stroke":  "#6366f1",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "t2_modelo",
+                      "target":  "t2_inventario",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e33",
+                      "type":  "default",
+                      "label":  "Valido",
+                      "style":  {
+                                    "stroke":  "#10b981",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "t2_inventario",
+                      "target":  "t2_cond_hik",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e34",
+                      "type":  "default",
+                      "label":  "Hikvision",
+                      "style":  {
+                                    "stroke":  "#f59e0b",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "t2_cond_hik",
+                      "target":  "t2_etiqueta_xml",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e35",
+                      "type":  "default",
+                      "label":  "Otra marca",
+                      "style":  {
+                                    "stroke":  "#10b981",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "t2_cond_hik",
+                      "target":  "t2_etiqueta",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e36",
+                      "type":  "default",
+                      "style":  {
+                                    "stroke":  "#6366f1",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "t2_etiqueta_xml",
+                      "target":  "t2_verificar",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e37",
+                      "type":  "default",
+                      "style":  {
+                                    "stroke":  "#6366f1",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "t2_etiqueta",
+                      "target":  "t2_verificar",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e38",
+                      "type":  "default",
+                      "label":  "OK",
+                      "style":  {
+                                    "stroke":  "#10b981",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "t2_verificar",
+                      "target":  "t2_escalar",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e39",
+                      "type":  "default",
+                      "style":  {
+                                    "stroke":  "#6366f1",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "t3_marca",
+                      "target":  "t3_validar_marca",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e40",
+                      "type":  "default",
+                      "label":  "OK",
+                      "style":  {
+                                    "stroke":  "#10b981",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "t3_validar_marca",
+                      "target":  "t3_modelo",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e41",
+                      "type":  "default",
+                      "style":  {
+                                    "stroke":  "#6366f1",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "t3_modelo",
+                      "target":  "t3_inventario",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e42",
+                      "type":  "default",
+                      "label":  "Valido",
+                      "style":  {
+                                    "stroke":  "#10b981",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "t3_inventario",
+                      "target":  "t3_etiqueta",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e43",
+                      "type":  "default",
+                      "style":  {
+                                    "stroke":  "#6366f1",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "t3_etiqueta",
+                      "target":  "t3_verificar",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e44",
+                      "type":  "default",
+                      "label":  "OK",
+                      "style":  {
+                                    "stroke":  "#10b981",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "t3_verificar",
+                      "target":  "t3_escalar",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e45",
+                      "type":  "default",
+                      "style":  {
+                                    "stroke":  "#6366f1",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "t4_marca",
+                      "target":  "t4_validar_marca",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e46",
+                      "type":  "default",
+                      "label":  "OK",
+                      "style":  {
+                                    "stroke":  "#10b981",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "t4_validar_marca",
+                      "target":  "t4_modelo",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e47",
+                      "type":  "default",
+                      "style":  {
+                                    "stroke":  "#6366f1",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "t4_modelo",
+                      "target":  "t4_inventario",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e48",
+                      "type":  "default",
+                      "label":  "Valido",
+                      "style":  {
+                                    "stroke":  "#10b981",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "t4_inventario",
+                      "target":  "t4_etiqueta",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e49",
+                      "type":  "default",
+                      "style":  {
+                                    "stroke":  "#6366f1",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "t4_etiqueta",
+                      "target":  "t4_verificar",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e50",
+                      "type":  "default",
+                      "label":  "OK",
+                      "style":  {
+                                    "stroke":  "#10b981",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "t4_verificar",
+                      "target":  "t4_escalar",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e51",
+                      "type":  "default",
+                      "style":  {
+                                    "stroke":  "#6366f1",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "t5_marca",
+                      "target":  "t5_validar_marca",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e52",
+                      "type":  "default",
+                      "label":  "OK",
+                      "style":  {
+                                    "stroke":  "#10b981",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "t5_validar_marca",
+                      "target":  "t5_modelo",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e53",
+                      "type":  "default",
+                      "style":  {
+                                    "stroke":  "#6366f1",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "t5_modelo",
+                      "target":  "t5_inventario",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e54",
+                      "type":  "default",
+                      "label":  "Valido",
+                      "style":  {
+                                    "stroke":  "#10b981",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "t5_inventario",
+                      "target":  "t5_desc",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e55",
+                      "type":  "default",
+                      "style":  {
+                                    "stroke":  "#10b981",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "t5_desc",
+                      "target":  "t5_escalar",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e56",
+                      "type":  "default",
+                      "style":  {
+                                    "stroke":  "#6366f1",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "t6_marca",
+                      "target":  "t6_validar_marca",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e57",
+                      "type":  "default",
+                      "label":  "OK",
+                      "style":  {
+                                    "stroke":  "#10b981",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "t6_validar_marca",
+                      "target":  "t6_modelo",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e58",
+                      "type":  "default",
+                      "style":  {
+                                    "stroke":  "#6366f1",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "t6_modelo",
+                      "target":  "t6_inventario",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e59",
+                      "type":  "default",
+                      "label":  "Valido",
+                      "style":  {
+                                    "stroke":  "#10b981",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "t6_inventario",
+                      "target":  "t6_desc",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e60",
+                      "type":  "default",
+                      "style":  {
+                                    "stroke":  "#10b981",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "t6_desc",
+                      "target":  "t6_escalar",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  },
+                  {
+                      "id":  "e61",
+                      "type":  "default",
+                      "style":  {
+                                    "stroke":  "#10b981",
+                                    "strokeWidth":  2
+                                },
+                      "source":  "t7_desc",
+                      "target":  "t7_escalar",
+                      "animated":  true,
+                      "markerEnd":  {
+                                        "type":  "arrowclosed",
+                                        "width":  20,
+                                        "height":  20
+                                    }
+                  }
+              ],
+    "nodes":  [
+                  {
+                      "id":  "start",
+                      "data":  {
+                                   "label":  "INICIO - Bienvenida",
+                                   "message":  "Hola\n\nBienvenido al soporte técnico de Sekunet.\n\nSoy el Asistente Virtual y con gusto le brindaré asistencia.\n\nAntes de comenzar, necesito registrar algunos datos para atender su solicitud.",
+                                   "nodeType":  "start"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  260,
+                                       "height":  100
+                                   },
+                      "position":  {
+                                       "x":  900,
+                                       "y":  0
+                                   },
+                      "selected":  true
+                  },
+                  {
+                      "id":  "fuera_horario",
+                      "data":  {
+                                   "label":  "Fuera de horario",
+                                   "message":  "Horario de atencion\nLunes a Viernes 7:30 a.m. - 5:00 p.m.",
+                                   "nodeType":  "message"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  260,
+                                       "height":  100
+                                   },
+                      "position":  {
+                                       "x":  450,
+                                       "y":  0
+                                   }
+                  },
+                  {
+                      "id":  "ventas",
+                      "data":  {
+                                   "label":  "VENTAS",
+                                   "message":  "Su consulta es de Ventas: +506 2290 5585",
+                                   "nodeType":  "close"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  255,
+                                       "height":  84
+                                   },
+                      "position":  {
+                                       "x":  1350,
+                                       "y":  0
+                                   },
+                      "selected":  false
+                  },
+                  {
+                      "id":  "esc_inm",
+                      "data":  {
+                                   "label":  "ESCALAR INMEDIATO",
+                                   "message":  "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.",
+                                   "nodeType":  "escalate"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  260,
+                                       "height":  100
+                                   },
+                      "position":  {
+                                       "x":  1650,
+                                       "y":  0
+                                   },
+                      "selected":  false
+                  },
+                  {
+                      "id":  "cerrar",
+                      "data":  {
+                                   "label":  "CERRAR",
+                                   "message":  "Ha sido un gusto atenderle.",
+                                   "nodeType":  "close"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  200,
+                                       "height":  84
+                                   },
+                      "position":  {
+                                       "x":  1950,
+                                       "y":  0
+                                   }
+                  },
+                  {
+                      "id":  "pedir_nombre",
+                      "data":  {
+                                   "label":  "PASO 1: Pedir nombre",
+                                   "message":  "Para comenzar, me podria indicar su nombre completo?",
+                                   "dataType":  "nombre",
+                                   "nodeType":  "ask_data",
+                                   "maxRetries":  2,
+                                   "onMaxRetries":  "close"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  260,
+                                       "height":  120
+                                   },
+                      "position":  {
+                                       "x":  900,
+                                       "y":  180
+                                   },
+                      "selected":  false
+                  },
+                  {
+                      "id":  "validar_nombre",
+                      "data":  {
+                                   "label":  "Validar nombre (regex + IA)",
+                                   "nodeType":  "validate",
+                                   "maxRetries":  2,
+                                   "errorMessage":  "No reconocí un nombre completo.",
+                                   "onMaxRetries":  "close",
+                                   "validationType":  "nombre_propio_ia",
+                                   "validationSteps":  [
+                                                           "isNombrePropioValido",
+                                                           "validarNombreConIA"
+                                                       ]
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  205,
+                                       "height":  64
+                                   },
+                      "position":  {
+                                       "x":  900,
+                                       "y":  360
+                                   }
+                  },
+                  {
+                      "id":  "nombre_invalido",
+                      "data":  {
+                                   "label":  "Nombre invalido",
+                                   "message":  "No reconocí un nombre completo. Indíqueme su nombre y apellido.",
+                                   "nodeType":  "message"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  260,
+                                       "height":  100
+                                   },
+                      "position":  {
+                                       "x":  450,
+                                       "y":  360
+                                   }
+                  },
+                  {
+                      "id":  "nombre_cierre",
+                      "data":  {
+                                   "label":  "2 reintentos - Cerrar",
+                                   "message":  "Lamentamos no poder continuar.",
+                                   "nodeType":  "close"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  205,
+                                       "height":  84
+                                   },
+                      "position":  {
+                                       "x":  0,
+                                       "y":  360
+                                   }
+                  },
+                  {
+                      "id":  "pedir_correo",
+                      "data":  {
+                                   "label":  "PASO 2: Pedir correo",
+                                   "message":  "Gracias. ¿Me podría indicar su correo electrónico?",
+                                   "dataType":  "correo",
+                                   "nodeType":  "ask_data",
+                                   "maxRetries":  2,
+                                   "onMaxRetries":  "close"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  260,
+                                       "height":  120
+                                   },
+                      "position":  {
+                                       "x":  900,
+                                       "y":  540
+                                   },
+                      "selected":  false
+                  },
+                  {
+                      "id":  "validar_correo",
+                      "data":  {
+                                   "label":  "Validar correo (regex + IA)",
+                                   "nodeType":  "validate",
+                                   "maxRetries":  2,
+                                   "errorMessage":  "Correo no valido.",
+                                   "onMaxRetries":  "close",
+                                   "validationType":  "email_ia",
+                                   "validationSteps":  [
+                                                           "esCorreoValido",
+                                                           "validarCorreoConIA"
+                                                       ]
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  200,
+                                       "height":  64
+                                   },
+                      "position":  {
+                                       "x":  900,
+                                       "y":  720
+                                   }
+                  },
+                  {
+                      "id":  "correo_sin",
+                      "data":  {
+                                   "label":  "No tiene correo",
+                                   "message":  "Entiendo. Avancemos.",
+                                   "nodeType":  "message"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  200,
+                                       "height":  84
+                                   },
+                      "position":  {
+                                       "x":  1350,
+                                       "y":  720
+                                   }
+                  },
+                  {
+                      "id":  "pedir_cuenta",
+                      "data":  {
+                                   "label":  "PASO 3: Pedir empresa/cuenta",
+                                   "message":  "¿Cuál es el nombre de la empresa o cuenta afiliada a Sekunet?",
+                                   "dataType":  "cuenta",
+                                   "nodeType":  "ask_data",
+                                   "maxRetries":  2,
+                                   "onMaxRetries":  "close"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  260,
+                                       "height":  120
+                                   },
+                      "position":  {
+                                       "x":  900,
+                                       "y":  900
+                                   },
+                      "selected":  false
+                  },
+                  {
+                      "id":  "validar_cuenta",
+                      "data":  {
+                                   "label":  "Validar cuenta",
+                                   "nodeType":  "validate",
+                                   "maxRetries":  2,
+                                   "errorMessage":  "No reconocí la empresa.",
+                                   "onMaxRetries":  "close",
+                                   "validationType":  "texto"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  200,
+                                       "height":  64
+                                   },
+                      "position":  {
+                                       "x":  900,
+                                       "y":  1080
+                                   }
+                  },
+                  {
+                      "id":  "sin_cuenta",
+                      "data":  {
+                                   "label":  "Sin cuenta - Cerrar",
+                                   "message":  "Soporte exclusivo para clientes autorizados.",
+                                   "nodeType":  "close"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  259,
+                                       "height":  84
+                                   },
+                      "position":  {
+                                       "x":  450,
+                                       "y":  1080
+                                   }
+                  },
+                  {
+                      "id":  "aviso_autocierre",
+                      "data":  {
+                                   "label":  "Aviso autocierre (10 min)",
+                                   "message":  "Si el chat permanece inactivo durante 10 minutos, la conversación se cerrará. Puede contactarnos nuevamente en cualquier momento.",
+                                   "nodeType":  "message"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  260,
+                                       "height":  100
+                                   },
+                      "position":  {
+                                       "x":  900,
+                                       "y":  1260
+                                   },
+                      "selected":  false
+                  },
+                  {
+                      "id":  "menu_temas",
+                      "data":  {
+                                   "label":  "PASO 4: Menu de temas (Lista interactiva)",
+                                   "message":  "¿En relación a qué tema sería su consulta?",
+                                   "nodeType":  "menu",
+                                   "listTitle":  "Seleccione un tema",
+                                   "buttonText":  "Ver temas",
+                                   "menuOptions":  [
+                                                       "Configuraciones",
+                                                       "Reset",
+                                                       "Desvinculación",
+                                                       "Firmware",
+                                                       "Software",
+                                                       "Licencias",
+                                                       "Otro"
+                                                   ],
+                                   "interactiveType":  "list"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  260,
+                                       "height":  124
+                                   },
+                      "position":  {
+                                       "x":  900,
+                                       "y":  1440
+                                   },
+                      "selected":  false
+                  },
+                  {
+                      "id":  "t1_marca",
+                      "data":  {
+                                   "label":  "Configuraciones: Pedir marca",
+                                   "message":  "Por favor, indiquenos la marca del equipo.",
+                                   "dataType":  "marca",
+                                   "nodeType":  "ask_data",
+                                   "maxRetries":  2,
+                                   "onMaxRetries":  "close"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  252,
+                                       "height":  104
+                                   },
+                      "position":  {
+                                       "x":  0,
+                                       "y":  1660
+                                   }
+                  },
+                  {
+                      "id":  "t1_validar_marca",
+                      "data":  {
+                                   "label":  "Validar marca",
+                                   "nodeType":  "validate",
+                                   "maxRetries":  2,
+                                   "errorMessage":  "Marca no encontrada.",
+                                   "onMaxRetries":  "close",
+                                   "validationType":  "inventario_marca"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  200,
+                                       "height":  64
+                                   },
+                      "position":  {
+                                       "x":  0,
+                                       "y":  1840
+                                   }
+                  },
+                  {
+                      "id":  "t1_modelo",
+                      "data":  {
+                                   "label":  "Pedir modelo",
+                                   "message":  "¿Nos podria indicar el modelo?",
+                                   "dataType":  "modelo",
+                                   "nodeType":  "ask_data",
+                                   "maxRetries":  2,
+                                   "onMaxRetries":  "escalate"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  200,
+                                       "height":  104
+                                   },
+                      "position":  {
+                                       "x":  0,
+                                       "y":  2020
+                                   }
+                  },
+                  {
+                      "id":  "t1_inventario",
+                      "data":  {
+                                   "label":  "Buscar inventario",
+                                   "nodeType":  "validate",
+                                   "maxRetries":  2,
+                                   "errorMessage":  "Modelo no encontrado.",
+                                   "onMaxRetries":  "escalate",
+                                   "validationType":  "inventario_modelo"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  200,
+                                       "height":  64
+                                   },
+                      "position":  {
+                                       "x":  0,
+                                       "y":  2200
+                                   }
+                  },
+                  {
+                      "id":  "t1_desc",
+                      "data":  {
+                                   "label":  "Pedir descripcion",
+                                   "message":  "Describa brevemente el inconveniente.",
+                                   "dataType":  "descripcion",
+                                   "nodeType":  "ask_data",
+                                   "maxRetries":  2,
+                                   "onMaxRetries":  "escalate"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  233,
+                                       "height":  104
+                                   },
+                      "position":  {
+                                       "x":  0,
+                                       "y":  2380
+                                   }
+                  },
+                  {
+                      "id":  "t1_escalar",
+                      "data":  {
+                                   "label":  "Escalar a agente",
+                                   "message":  "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.",
+                                   "nodeType":  "escalate"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  260,
+                                       "height":  100
+                                   },
+                      "position":  {
+                                       "x":  0,
+                                       "y":  2560
+                                   }
+                  },
+                  {
+                      "id":  "t2_marca",
+                      "data":  {
+                                   "label":  "Reset: Pedir marca",
+                                   "message":  "Por favor, indiquenos la marca del equipo.",
+                                   "dataType":  "marca",
+                                   "nodeType":  "ask_data",
+                                   "maxRetries":  2,
+                                   "onMaxRetries":  "close"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  252,
+                                       "height":  104
+                                   },
+                      "position":  {
+                                       "x":  450,
+                                       "y":  1660
+                                   }
+                  },
+                  {
+                      "id":  "t2_validar_marca",
+                      "data":  {
+                                   "label":  "Validar marca",
+                                   "nodeType":  "validate",
+                                   "maxRetries":  2,
+                                   "errorMessage":  "Marca no encontrada.",
+                                   "onMaxRetries":  "close",
+                                   "validationType":  "inventario_marca"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  200,
+                                       "height":  64
+                                   },
+                      "position":  {
+                                       "x":  450,
+                                       "y":  1840
+                                   }
+                  },
+                  {
+                      "id":  "t2_modelo",
+                      "data":  {
+                                   "label":  "Pedir modelo",
+                                   "message":  "¿Nos podria indicar el modelo?",
+                                   "dataType":  "modelo",
+                                   "nodeType":  "ask_data",
+                                   "maxRetries":  2,
+                                   "onMaxRetries":  "escalate"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  200,
+                                       "height":  104
+                                   },
+                      "position":  {
+                                       "x":  450,
+                                       "y":  2020
+                                   }
+                  },
+                  {
+                      "id":  "t2_inventario",
+                      "data":  {
+                                   "label":  "Buscar inventario",
+                                   "nodeType":  "validate",
+                                   "maxRetries":  2,
+                                   "errorMessage":  "Modelo no encontrado.",
+                                   "onMaxRetries":  "escalate",
+                                   "validationType":  "inventario_modelo"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  200,
+                                       "height":  64
+                                   },
+                      "position":  {
+                                       "x":  450,
+                                       "y":  2200
+                                   }
+                  },
+                  {
+                      "id":  "t2_cond_hik",
+                      "data":  {
+                                   "label":  "Hikvision?",
+                                   "nodeType":  "condition",
+                                   "conditionField":  "marca",
+                                   "conditionValue":  "Hik",
+                                   "conditionOperator":  "contains"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  200,
+                                       "height":  64
+                                   },
+                      "position":  {
+                                       "x":  450,
+                                       "y":  2380
+                                   }
+                  },
+                  {
+                      "id":  "t2_etiqueta_xml",
+                      "data":  {
+                                   "label":  "Pedir etiqueta+XML",
+                                   "message":  "Requerimos imagen de etiqueta y XML (SAPD Tools).",
+                                   "dataType":  "etiqueta",
+                                   "nodeType":  "ask_data",
+                                   "maxRetries":  2,
+                                   "onMaxRetries":  "escalate"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  260,
+                                       "height":  120
+                                   },
+                      "position":  {
+                                       "x":  620,
+                                       "y":  2560
+                                   }
+                  },
+                  {
+                      "id":  "t2_etiqueta",
+                      "data":  {
+                                   "label":  "Pedir etiqueta",
+                                   "message":  "Adjunte imagen clara de la etiqueta.",
+                                   "dataType":  "etiqueta",
+                                   "nodeType":  "ask_data",
+                                   "maxRetries":  2,
+                                   "onMaxRetries":  "escalate"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  221,
+                                       "height":  104
+                                   },
+                      "position":  {
+                                       "x":  280,
+                                       "y":  2560
+                                   }
+                  },
+                  {
+                      "id":  "t2_verificar",
+                      "data":  {
+                                   "label":  "Verificar archivos",
+                                   "nodeType":  "validate",
+                                   "maxRetries":  2,
+                                   "errorMessage":  "Archivo no valido.",
+                                   "onMaxRetries":  "escalate",
+                                   "validationType":  "libre"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  200,
+                                       "height":  64
+                                   },
+                      "position":  {
+                                       "x":  450,
+                                       "y":  2740
+                                   }
+                  },
+                  {
+                      "id":  "t2_escalar",
+                      "data":  {
+                                   "label":  "Escalar a agente",
+                                   "message":  "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.",
+                                   "nodeType":  "escalate"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  260,
+                                       "height":  100
+                                   },
+                      "position":  {
+                                       "x":  450,
+                                       "y":  2920
+                                   }
+                  },
+                  {
+                      "id":  "t3_marca",
+                      "data":  {
+                                   "label":  "Desvinculacion: Pedir marca",
+                                   "message":  "Por favor, indiquenos la marca del equipo.",
+                                   "dataType":  "marca",
+                                   "nodeType":  "ask_data",
+                                   "maxRetries":  2,
+                                   "onMaxRetries":  "close"
+                               },
+                      "type":  "flowNode",
+                      "dragging":  false,
+                      "measured":  {
+                                       "width":  252,
+                                       "height":  104
+                                   },
+                      "position":  {
+                                       "x":  900,
+                                       "y":  1660
+                                   },
+                      "selected":  false
+                  },
+                  {
+                      "id":  "t3_validar_marca",
+                      "data":  {
+                                   "label":  "Validar marca",
+                                   "nodeType":  "validate",
+                                   "maxRetries":  2,
+                                   "errorMessage":  "Marca no encontrada.",
+                                   "onMaxRetries":  "close",
+                                   "validationType":  "inventario_marca"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  200,
+                                       "height":  64
+                                   },
+                      "position":  {
+                                       "x":  900,
+                                       "y":  1840
+                                   }
+                  },
+                  {
+                      "id":  "t3_modelo",
+                      "data":  {
+                                   "label":  "Pedir modelo",
+                                   "message":  "¿Nos podria indicar el modelo?",
+                                   "dataType":  "modelo",
+                                   "nodeType":  "ask_data",
+                                   "maxRetries":  2,
+                                   "onMaxRetries":  "escalate"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  200,
+                                       "height":  104
+                                   },
+                      "position":  {
+                                       "x":  900,
+                                       "y":  2020
+                                   }
+                  },
+                  {
+                      "id":  "t3_inventario",
+                      "data":  {
+                                   "label":  "Buscar inventario",
+                                   "nodeType":  "validate",
+                                   "maxRetries":  2,
+                                   "errorMessage":  "Modelo no encontrado.",
+                                   "onMaxRetries":  "escalate",
+                                   "validationType":  "inventario_modelo"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  200,
+                                       "height":  64
+                                   },
+                      "position":  {
+                                       "x":  900,
+                                       "y":  2200
+                                   }
+                  },
+                  {
+                      "id":  "t3_etiqueta",
+                      "data":  {
+                                   "label":  "Pedir etiqueta",
+                                   "message":  "Adjunte imagen clara de la etiqueta.",
+                                   "dataType":  "etiqueta",
+                                   "nodeType":  "ask_data",
+                                   "maxRetries":  2,
+                                   "onMaxRetries":  "escalate"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  221,
+                                       "height":  104
+                                   },
+                      "position":  {
+                                       "x":  900,
+                                       "y":  2380
+                                   }
+                  },
+                  {
+                      "id":  "t3_verificar",
+                      "data":  {
+                                   "label":  "Verificar archivos",
+                                   "nodeType":  "validate",
+                                   "maxRetries":  2,
+                                   "errorMessage":  "Archivo no valido.",
+                                   "onMaxRetries":  "escalate",
+                                   "validationType":  "libre"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  200,
+                                       "height":  64
+                                   },
+                      "position":  {
+                                       "x":  900,
+                                       "y":  2560
+                                   }
+                  },
+                  {
+                      "id":  "t3_escalar",
+                      "data":  {
+                                   "label":  "Escalar a agente",
+                                   "message":  "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.",
+                                   "nodeType":  "escalate"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  260,
+                                       "height":  100
+                                   },
+                      "position":  {
+                                       "x":  900,
+                                       "y":  2740
+                                   }
+                  },
+                  {
+                      "id":  "t4_marca",
+                      "data":  {
+                                   "label":  "Firmware: Pedir marca",
+                                   "message":  "Por favor, indiquenos la marca del equipo.",
+                                   "dataType":  "marca",
+                                   "nodeType":  "ask_data",
+                                   "maxRetries":  2,
+                                   "onMaxRetries":  "close"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  252,
+                                       "height":  104
+                                   },
+                      "position":  {
+                                       "x":  1350,
+                                       "y":  1660
+                                   }
+                  },
+                  {
+                      "id":  "t4_validar_marca",
+                      "data":  {
+                                   "label":  "Validar marca",
+                                   "nodeType":  "validate",
+                                   "maxRetries":  2,
+                                   "errorMessage":  "Marca no encontrada.",
+                                   "onMaxRetries":  "close",
+                                   "validationType":  "inventario_marca"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  200,
+                                       "height":  64
+                                   },
+                      "position":  {
+                                       "x":  1350,
+                                       "y":  1840
+                                   }
+                  },
+                  {
+                      "id":  "t4_modelo",
+                      "data":  {
+                                   "label":  "Pedir modelo",
+                                   "message":  "¿Nos podria indicar el modelo?",
+                                   "dataType":  "modelo",
+                                   "nodeType":  "ask_data",
+                                   "maxRetries":  2,
+                                   "onMaxRetries":  "escalate"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  200,
+                                       "height":  104
+                                   },
+                      "position":  {
+                                       "x":  1350,
+                                       "y":  2020
+                                   }
+                  },
+                  {
+                      "id":  "t4_inventario",
+                      "data":  {
+                                   "label":  "Buscar inventario",
+                                   "nodeType":  "validate",
+                                   "maxRetries":  2,
+                                   "errorMessage":  "Modelo no encontrado.",
+                                   "onMaxRetries":  "escalate",
+                                   "validationType":  "inventario_modelo"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  200,
+                                       "height":  64
+                                   },
+                      "position":  {
+                                       "x":  1350,
+                                       "y":  2200
+                                   }
+                  },
+                  {
+                      "id":  "t4_etiqueta",
+                      "data":  {
+                                   "label":  "Pedir etiqueta",
+                                   "message":  "Adjunte imagen clara de la etiqueta.",
+                                   "dataType":  "etiqueta",
+                                   "nodeType":  "ask_data",
+                                   "maxRetries":  2,
+                                   "onMaxRetries":  "escalate"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  221,
+                                       "height":  104
+                                   },
+                      "position":  {
+                                       "x":  1350,
+                                       "y":  2380
+                                   }
+                  },
+                  {
+                      "id":  "t4_verificar",
+                      "data":  {
+                                   "label":  "Verificar archivos",
+                                   "nodeType":  "validate",
+                                   "maxRetries":  2,
+                                   "errorMessage":  "Archivo no valido.",
+                                   "onMaxRetries":  "escalate",
+                                   "validationType":  "libre"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  200,
+                                       "height":  64
+                                   },
+                      "position":  {
+                                       "x":  1350,
+                                       "y":  2560
+                                   }
+                  },
+                  {
+                      "id":  "t4_escalar",
+                      "data":  {
+                                   "label":  "Escalar a agente",
+                                   "message":  "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.",
+                                   "nodeType":  "escalate"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  260,
+                                       "height":  100
+                                   },
+                      "position":  {
+                                       "x":  1350,
+                                       "y":  2740
+                                   }
+                  },
+                  {
+                      "id":  "t5_marca",
+                      "data":  {
+                                   "label":  "Software: Pedir marca",
+                                   "message":  "Por favor, indiquenos la marca del equipo.",
+                                   "dataType":  "marca",
+                                   "nodeType":  "ask_data",
+                                   "maxRetries":  2,
+                                   "onMaxRetries":  "close"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  252,
+                                       "height":  104
+                                   },
+                      "position":  {
+                                       "x":  1800,
+                                       "y":  1660
+                                   }
+                  },
+                  {
+                      "id":  "t5_validar_marca",
+                      "data":  {
+                                   "label":  "Validar marca",
+                                   "nodeType":  "validate",
+                                   "maxRetries":  2,
+                                   "errorMessage":  "Marca no encontrada.",
+                                   "onMaxRetries":  "close",
+                                   "validationType":  "inventario_marca"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  200,
+                                       "height":  64
+                                   },
+                      "position":  {
+                                       "x":  1800,
+                                       "y":  1840
+                                   }
+                  },
+                  {
+                      "id":  "t5_modelo",
+                      "data":  {
+                                   "label":  "Pedir modelo",
+                                   "message":  "¿Nos podria indicar el modelo?",
+                                   "dataType":  "modelo",
+                                   "nodeType":  "ask_data",
+                                   "maxRetries":  2,
+                                   "onMaxRetries":  "escalate"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  200,
+                                       "height":  104
+                                   },
+                      "position":  {
+                                       "x":  1800,
+                                       "y":  2020
+                                   }
+                  },
+                  {
+                      "id":  "t5_inventario",
+                      "data":  {
+                                   "label":  "Buscar inventario",
+                                   "nodeType":  "validate",
+                                   "maxRetries":  2,
+                                   "errorMessage":  "Modelo no encontrado.",
+                                   "onMaxRetries":  "escalate",
+                                   "validationType":  "inventario_modelo"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  200,
+                                       "height":  64
+                                   },
+                      "position":  {
+                                       "x":  1800,
+                                       "y":  2200
+                                   }
+                  },
+                  {
+                      "id":  "t5_desc",
+                      "data":  {
+                                   "label":  "Pedir descripcion",
+                                   "message":  "Describa brevemente el inconveniente.",
+                                   "dataType":  "descripcion",
+                                   "nodeType":  "ask_data",
+                                   "maxRetries":  2,
+                                   "onMaxRetries":  "escalate"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  233,
+                                       "height":  104
+                                   },
+                      "position":  {
+                                       "x":  1800,
+                                       "y":  2380
+                                   }
+                  },
+                  {
+                      "id":  "t5_escalar",
+                      "data":  {
+                                   "label":  "Escalar a agente",
+                                   "message":  "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.",
+                                   "nodeType":  "escalate"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  260,
+                                       "height":  100
+                                   },
+                      "position":  {
+                                       "x":  1800,
+                                       "y":  2560
+                                   }
+                  },
+                  {
+                      "id":  "t6_marca",
+                      "data":  {
+                                   "label":  "Licencias: Pedir marca",
+                                   "message":  "Por favor, indiquenos la marca del equipo.",
+                                   "dataType":  "marca",
+                                   "nodeType":  "ask_data",
+                                   "maxRetries":  2,
+                                   "onMaxRetries":  "close"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  252,
+                                       "height":  104
+                                   },
+                      "position":  {
+                                       "x":  2250,
+                                       "y":  1660
+                                   }
+                  },
+                  {
+                      "id":  "t6_validar_marca",
+                      "data":  {
+                                   "label":  "Validar marca",
+                                   "nodeType":  "validate",
+                                   "maxRetries":  2,
+                                   "errorMessage":  "Marca no encontrada.",
+                                   "onMaxRetries":  "close",
+                                   "validationType":  "inventario_marca"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  200,
+                                       "height":  64
+                                   },
+                      "position":  {
+                                       "x":  2250,
+                                       "y":  1840
+                                   }
+                  },
+                  {
+                      "id":  "t6_modelo",
+                      "data":  {
+                                   "label":  "Pedir modelo",
+                                   "message":  "¿Nos podria indicar el modelo?",
+                                   "dataType":  "modelo",
+                                   "nodeType":  "ask_data",
+                                   "maxRetries":  2,
+                                   "onMaxRetries":  "escalate"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  200,
+                                       "height":  104
+                                   },
+                      "position":  {
+                                       "x":  2250,
+                                       "y":  2020
+                                   }
+                  },
+                  {
+                      "id":  "t6_inventario",
+                      "data":  {
+                                   "label":  "Buscar inventario",
+                                   "nodeType":  "validate",
+                                   "maxRetries":  2,
+                                   "errorMessage":  "Modelo no encontrado.",
+                                   "onMaxRetries":  "escalate",
+                                   "validationType":  "inventario_modelo"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  200,
+                                       "height":  64
+                                   },
+                      "position":  {
+                                       "x":  2250,
+                                       "y":  2200
+                                   }
+                  },
+                  {
+                      "id":  "t6_desc",
+                      "data":  {
+                                   "label":  "Pedir descripcion",
+                                   "message":  "Describa brevemente el inconveniente.",
+                                   "dataType":  "descripcion",
+                                   "nodeType":  "ask_data",
+                                   "maxRetries":  2,
+                                   "onMaxRetries":  "escalate"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  233,
+                                       "height":  104
+                                   },
+                      "position":  {
+                                       "x":  2250,
+                                       "y":  2380
+                                   }
+                  },
+                  {
+                      "id":  "t6_escalar",
+                      "data":  {
+                                   "label":  "Escalar a agente",
+                                   "message":  "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.",
+                                   "nodeType":  "escalate"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  260,
+                                       "height":  100
+                                   },
+                      "position":  {
+                                       "x":  2250,
+                                       "y":  2560
+                                   }
+                  },
+                  {
+                      "id":  "t7_desc",
+                      "data":  {
+                                   "label":  "Otro: Pedir descripcion",
+                                   "message":  "Por favor, describa brevemente el inconveniente.",
+                                   "dataType":  "descripcion",
+                                   "nodeType":  "ask_data",
+                                   "maxRetries":  2,
+                                   "onMaxRetries":  "escalate"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  260,
+                                       "height":  120
+                                   },
+                      "position":  {
+                                       "x":  2700,
+                                       "y":  1660
+                                   }
+                  },
+                  {
+                      "id":  "t7_escalar",
+                      "data":  {
+                                   "label":  "Escalar a agente",
+                                   "message":  "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.",
+                                   "nodeType":  "escalate"
+                               },
+                      "type":  "flowNode",
+                      "measured":  {
+                                       "width":  260,
+                                       "height":  100
+                                   },
+                      "position":  {
+                                       "x":  2700,
+                                       "y":  1840
+                                   }
+                  }
+              ],
+    "settings":  {
+                     "typingDelayMs":  800,
+                     "betweenMessagesDelayMs":  600
+                 }
+}

@@ -73,6 +73,30 @@ function getFlowMenuOptions(flow: FlowConfig | null): string[] | null {
   return node?.data?.menuOptions || null;
 }
 
+function getFlowMessageById(flow: FlowConfig | null, nodeId: string): string | null {
+  if (!flow?.nodes) return null;
+  const node = flow.nodes.find(n => n.id === nodeId);
+  return node?.data?.message || null;
+}
+
+const TEMA_PREFIX: Record<string, string> = {
+  "Configuraciones": "t1",
+  "Reset": "t2",
+  "Desvinculación": "t3",
+  "Firmware": "t4",
+  "Software": "t5",
+  "Licencias": "t6",
+  "Otro": "t7",
+};
+
+function getFlowMessageByTema(flow: FlowConfig | null, tema: string, dataType: string): string | null {
+  if (!flow?.nodes) return null;
+  const prefix = TEMA_PREFIX[tema];
+  if (!prefix) return null;
+  const nodeId = `${prefix}_${dataType}`;
+  return getFlowMessageById(flow, nodeId);
+}
+
 
 // ─── INTERFACES ───────────────────────────────────────────────────────────────
 interface HistMsg {
@@ -745,7 +769,7 @@ function contarReintentos(iaMsgs: { content?: string }[], fraseCaracteristica: s
   }).length;
 }
 
-const MSG_CIERRE_REINTENTOS = "Lamentamos no poder continuar. Hemos intentado registrar sus datos en varias ocasiones sin éxito. Le invitamos a contactarnos nuevamente cuando tenga la información a mano. ¡Que tenga un excelente día!";
+const MSG_CIERRE_REINTENTOS_FALLBACK = "Lamentamos no poder continuar. Hemos intentado registrar sus datos en varias ocasiones sin éxito. Le invitamos a contactarnos nuevamente cuando tenga la información a mano. ¡Que tenga un excelente día!";
 const MSG_INVALIDO = "La información ingresada no es válida. Por favor, verifique el dato e inténtelo nuevamente.";
 const MSG_NOMBRE_INVALIDO = "No reconocí un nombre completo. Por favor indíqueme su nombre y apellido (por ejemplo: María Chaves).";
 const MSG_CORREO_INVALIDO = "El correo ingresado no tiene un formato válido. Por favor, escriba su correo electrónico real para poder contactarle.";
@@ -1025,13 +1049,12 @@ Deno.serve(async (req: Request) => {
     // FLUJO DE BIENVENIDA PASO A PASO (WhatsApp)
     // ═══════════════════════════════════════════════════════════════════════
 
-    // Fuera de horario: el agente de bienvenida está "apagado" → solo informar horario
-    if (!isOpenNowCR()) {
-      return new Response(JSON.stringify({ ok: true, reply: [MSG_HORARIO] }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-
-    // PASO 0: Primer mensaje del usuario dentro de horario → flujo completo de bienvenida
+    // PASO 0: Primer mensaje del usuario → flujo completo de bienvenida
     if (userCount === 1 && iaCount === 0) {
+      // Fuera de horario: el agente de bienvenida está "apagado" → solo informar horario
+      if (!isOpenNowCR()) {
+        return new Response(JSON.stringify({ ok: true, reply: [getFlowMessageById(flowConfig, "fuera_horario") || MSG_HORARIO] }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
       // Re-leer histtecnico fresco para evitar doble bienvenida por doble disparo del webhook
       const { data: freshCheck } = await db.from("sek_cases").select("histtecnico").eq("id", case_id).maybeSingle();
       const freshHist0: HistMsg[] = Array.isArray(freshCheck?.histtecnico) ? (freshCheck as any).histtecnico : histtecnico;
@@ -1040,8 +1063,8 @@ Deno.serve(async (req: Request) => {
         console.log("[seka-whatsapp] PASO 0: bienvenida ya enviada (freshIaCount=" + freshIaCount + "), omitiendo duplicado.");
         return new Response(JSON.stringify({ ok: true, skipped: true, dedup: true }), { status: 200, headers: corsHeaders });
       }
-      const msgBienvenida = "Hola\nBienvenido al soporte técnico de Sekunet. Soy el Asistente Virtual y con gusto le brindaré asistencia. Antes de comenzar, necesito registrar algunos datos para atender su solicitud.";
-      const msgNombre = "Para comenzar, ¿me podría indicar su nombre completo?";
+      const msgBienvenida = getFlowMessageById(flowConfig, "start") || "Hola\nBienvenido al soporte técnico de Sekunet. Soy el Asistente Virtual y con gusto le brindaré asistencia. Antes de comenzar, necesito registrar algunos datos para atender su solicitud.";
+      const msgNombre = getFlowMessageById(flowConfig, "pedir_nombre") || "Para comenzar, ¿me podría indicar su nombre completo?";
       const newMsgs: HistMsg[] = [
         { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: msgBienvenida },
         { role: "ia", author: "Asistente Sekunet", time: new Date(Date.now() + 10).toISOString(), content: msgNombre },
@@ -1080,9 +1103,9 @@ Deno.serve(async (req: Request) => {
           }
           const reint = contarReintentos(iaRealMsgs, "nombre completo");
           if (reint >= 2) {
-            const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: MSG_CIERRE_REINTENTOS };
+            const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: (getFlowMessageById(flowConfig, "nombre_cierre") || MSG_CIERRE_REINTENTOS_FALLBACK) };
             await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg], estado: "cerrado" }).eq("id", case_id);
-            return new Response(JSON.stringify({ ok: true, reply: MSG_CIERRE_REINTENTOS }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+            return new Response(JSON.stringify({ ok: true, reply: (getFlowMessageById(flowConfig, "nombre_cierre") || MSG_CIERRE_REINTENTOS_FALLBACK) }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
           }
           const preg = `${MSG_NOMBRE_INVALIDO}\n\nPara comenzar, ¿me podría indicar su nombre completo?`;
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: preg };
@@ -1113,7 +1136,7 @@ Deno.serve(async (req: Request) => {
           const negacionCuenta = /(no tengo|no lo tengo|ninguna|cliente final|no cuento|no tengo empresa|no tengo cuenta)/i.test(userLowerFP);
           if (negacionCuenta) {
             const cli = { ...cliFP, cuenta: "sin cuenta" };
-            const M_NO_CUENTA = "Gracias por comunicarse con Sekunet.\n\nLe informamos que nuestro servicio de soporte técnico es un beneficio exclusivo para clientes y distribuidores autorizados de nuestra red.\n\nPor este motivo, le recomendamos contactar directamente a su proveedor o instalador, quien podrá brindarle la asistencia correspondiente con su requerimiento.\n\nAgradecemos su comprensión y le deseamos un excelente día.";
+            const M_NO_CUENTA = getFlowMessageById(flowConfig, "sin_cuenta") || "Gracias por comunicarse con Sekunet.\n\nLe informamos que nuestro servicio de soporte técnico es un beneficio exclusivo para clientes y distribuidores autorizados de nuestra red.\n\nPor este motivo, le recomendamos contactar directamente a su proveedor o instalador, quien podrá brindarle la asistencia correspondiente con su requerimiento.\n\nAgradecemos su comprensión y le deseamos un excelente día.";
             const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M_NO_CUENTA };
             await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg], cliente: cli, estado: "cerrado" }).eq("id", case_id);
             return new Response(JSON.stringify({ ok: true, reply: M_NO_CUENTA }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -2105,7 +2128,7 @@ No agregues nada más.`,
         console.log("[seka-whatsapp] Verificación - imagenEsEtiqueta:", imagenEsEtiqueta, "xmlValido:", xmlValido);
 
         if (imagenOk && xmlOk) {
-          const M02_TEXT = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
+          const M02_TEXT = getFlowMessageById(flowConfig, "esc_inm") || "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
           return await postTecnico(M02_TEXT, {
             estado: "escalado",
             escalado_at: new Date().toISOString(),
@@ -2146,7 +2169,7 @@ No agregues nada más.`,
         console.log("[seka-whatsapp] Verificación imagen (no Hikvision):", imagenOk);
 
         if (imagenOk) {
-          const M02_TEXT = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
+          const M02_TEXT = getFlowMessageById(flowConfig, "esc_inm") || "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
           return await postTecnico(M02_TEXT, {
             estado: "escalado",
             escalado_at: new Date().toISOString(),
@@ -2163,51 +2186,51 @@ No agregues nada más.`,
       if (esHikvision && temaSupervisor === "Reset") {
         if (!imagenOk && !xmlOk) {
           if (yaReintentoImagen && yaReintentoXML) {
-            const M02_TEXT = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
+            const M02_TEXT = getFlowMessageById(flowConfig, "esc_inm") || "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
             return await postTecnico(M02_TEXT, {
               estado: "escalado", escalado_at: new Date().toISOString(),
               title: `${temaSupervisor} — ${marca} ${modelo} — verificación pendiente`.substring(0, 120),
               tags: ["reset", "verificacion_pendiente"],
             });
           }
-          const retry = `Le informamos que ${motivoImagen} y ${motivoXml}. Por favor, adjunte nuevamente ambos archivos.`;
+          const retry = (getFlowMessageById(flowConfig, "verificar_retry_img_xml") || "Le informamos que {motivoImagen} y {motivoXml}. Por favor, adjunte nuevamente ambos archivos.").replace("{motivoImagen}", motivoImagen).replace("{motivoXml}", motivoXml);
           return await postTecnico(retry);
         }
         if (!imagenOk) {
           if (yaReintentoImagen) {
-            const M02_TEXT = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
+            const M02_TEXT = getFlowMessageById(flowConfig, "esc_inm") || "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
             return await postTecnico(M02_TEXT, {
               estado: "escalado", escalado_at: new Date().toISOString(),
               title: `${temaSupervisor} — ${marca} ${modelo} — imagen pendiente`.substring(0, 120),
               tags: ["reset", "imagen_pendiente"],
             });
           }
-          const retry = `Le informamos que ${motivoImagen}. Por favor, adjunte nuevamente una imagen clara de la etiqueta del equipo.`;
+          const retry = (getFlowMessageById(flowConfig, "verificar_retry_img") || "Le informamos que {motivoImagen}. Por favor, adjunte nuevamente una imagen clara de la etiqueta del equipo.").replace("{motivoImagen}", motivoImagen);
           return await postTecnico(retry);
         }
         if (!xmlOk) {
           if (yaReintentoXML) {
-            const M02_TEXT = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
+            const M02_TEXT = getFlowMessageById(flowConfig, "esc_inm") || "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
             return await postTecnico(M02_TEXT, {
               estado: "escalado", escalado_at: new Date().toISOString(),
               title: `${temaSupervisor} — ${marca} ${modelo} — XML pendiente`.substring(0, 120),
               tags: ["reset", "xml_pendiente"],
             });
           }
-          const retry = `Le informamos que ${motivoXml}. Por favor, adjunte nuevamente el archivo XML.`;
+          const retry = (getFlowMessageById(flowConfig, "verificar_retry_xml") || "Le informamos que {motivoXml}. Por favor, adjunte nuevamente el archivo XML.").replace("{motivoXml}", motivoXml);
           return await postTecnico(retry);
         }
       } else {
         if (!imagenOk) {
           if (yaReintentoImagen) {
-            const M02_TEXT = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
+            const M02_TEXT = getFlowMessageById(flowConfig, "esc_inm") || "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
             return await postTecnico(M02_TEXT, {
               estado: "escalado", escalado_at: new Date().toISOString(),
               title: `${temaSupervisor} — ${marca} ${modelo} — imagen pendiente`.substring(0, 120),
               tags: [temaSupervisor === "Desvinculación" ? "desvinculacion" : "reset", "imagen_pendiente"],
             });
           }
-          const retry = `Le informamos que ${motivoImagen}. Por favor, adjunte nuevamente una imagen clara de la etiqueta del equipo.`;
+          const retry = (getFlowMessageById(flowConfig, "verificar_retry_img") || "Le informamos que {motivoImagen}. Por favor, adjunte nuevamente una imagen clara de la etiqueta del equipo.").replace("{motivoImagen}", motivoImagen);
           return await postTecnico(retry);
         }
       }
@@ -2273,7 +2296,7 @@ No agregues nada más.`,
     // ── REGLA DE NEGOCIO: SIN CUENTA ──
     const cuentaDetectada = String(updatedCliente.cuenta || "").toLowerCase().trim();
     if (cuentaDetectada === "sin cuenta" || cuentaDetectada === "no tengo" || cuentaDetectada === "cliente final") {
-      const M_NO_CUENTA = "Gracias por comunicarse con Sekunet.\n\nLe informamos que nuestro servicio de soporte técnico es un beneficio exclusivo para clientes y distribuidores autorizados de nuestra red.\n\nPor este motivo, le recomendamos contactar directamente a su proveedor o instalador, quien podrá brindarle la asistencia correspondiente con su requerimiento.\n\nAgradecemos su comprensión y le deseamos un excelente día.";
+      const M_NO_CUENTA = getFlowMessageById(flowConfig, "sin_cuenta") || "Gracias por comunicarse con Sekunet.\n\nLe informamos que nuestro servicio de soporte técnico es un beneficio exclusivo para clientes y distribuidores autorizados de nuestra red.\n\nPor este motivo, le recomendamos contactar directamente a su proveedor o instalador, quien podrá brindarle la asistencia correspondiente con su requerimiento.\n\nAgradecemos su comprensión y le deseamos un excelente día.";
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M_NO_CUENTA };
       const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg], estado: "cerrado" };
       if (clienteChanged) upd.cliente = updatedCliente;
@@ -2283,7 +2306,7 @@ No agregues nada más.`,
 
     // ── ACCIÓN: CERRAR ──
     if (accion === "CERRAR") {
-      const M03_TEXT = getFlowMessage(flowConfig, "close") || "Ha sido un gusto atenderle. Si tiene alguna otra consulta, no dude en contactarnos nuevamente. ¡Que tenga un excelente día!";
+      const M03_TEXT = getFlowMessageById(flowConfig, "cerrar") || "Ha sido un gusto atenderle. Si tiene alguna otra consulta, no dude en contactarnos nuevamente. ¡Que tenga un excelente día!";
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M03_TEXT };
       const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg], estado: "cerrado" };
       if (clienteChanged) upd.cliente = updatedCliente;
@@ -2293,7 +2316,7 @@ No agregues nada más.`,
 
     // ── ACCIÓN: VENTAS ──
     if (accion === "VENTAS") {
-      const M04_TEXT = getFlowMessage(flowConfig, "message") || "Agradecemos mucho su interés.\n\nLe informamos que su consulta corresponde al Departamento de Ventas. Con gusto podrán asistirle a través de los siguientes medios:\n\n• Teléfono: +506 2290 5585\n• WhatsApp: +506 8757 5820\n• Correo electrónico: info@sekunet.com\n\nSerá un gusto atenderle por cualquiera de estos canales.\n\n¡Le deseamos un excelente día!";
+      const M04_TEXT = getFlowMessageById(flowConfig, "ventas") || "Agradecemos mucho su interés.\n\nLe informamos que su consulta corresponde al Departamento de Ventas. Con gusto podrán asistirle a través de los siguientes medios:\n\n• Teléfono: +506 2290 5585\n• WhatsApp: +506 8757 5820\n• Correo electrónico: info@sekunet.com\n\nSerá un gusto atenderle por cualquiera de estos canales.\n\n¡Le deseamos un excelente día!";
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M04_TEXT };
       const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg], estado: "cerrado" };
       if (clienteChanged) upd.cliente = updatedCliente;
@@ -2303,7 +2326,7 @@ No agregues nada más.`,
 
     // ── ACCIÓN: ESCALAR INMEDIATO (cliente pidió hablar con un humano o requiere prioridad) ──
     if (accion === "ESCALAR_INMEDIATO") {
-      const M02_TEXT = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
+      const M02_TEXT = getFlowMessageById(flowConfig, "esc_inm") || "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
       const replyText = withAcuse(M02_TEXT);
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: replyText };
       const temaTag = temaToTag(temaSupervisor);
@@ -2331,24 +2354,24 @@ No agregues nada más.`,
       let fraseCaract = "";
 
       if (accion === "PEDIR_NOMBRE") {
-        pregunta = getFlowMessage(flowConfig, "ask_data", "nombre") || "Para comenzar, ¿me podría indicar su nombre completo?";
+        pregunta = getFlowMessageById(flowConfig, "pedir_nombre") || "Para comenzar, ¿me podría indicar su nombre completo?";
         fraseCaract = "nombre completo";
       } else if (accion === "PEDIR_CORREO") {
-        pregunta = getFlowMessage(flowConfig, "ask_data", "correo") || "Gracias. ¿Me podría indicar su correo electrónico?";
+        pregunta = getFlowMessageById(flowConfig, "pedir_correo") || "Gracias. ¿Me podría indicar su correo electrónico?";
         fraseCaract = "correo electrónico";
       } else {
-        pregunta = getFlowMessage(flowConfig, "ask_data", "cuenta") || "Entiendo. ¿Cuál es el nombre de la empresa o cuenta afiliada a Sekunet?";
+        pregunta = getFlowMessageById(flowConfig, "pedir_cuenta") || "Entiendo. ¿Cuál es el nombre de la empresa o cuenta afiliada a Sekunet?";
         fraseCaract = "empresa o cuenta afiliada";
       }
 
       const reintentos = contarReintentos(iaRealMsgs, fraseCaract);
 
       if (reintentos >= 2) {
-        const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: MSG_CIERRE_REINTENTOS };
+        const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: (getFlowMessageById(flowConfig, "nombre_cierre") || MSG_CIERRE_REINTENTOS_FALLBACK) };
         const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg], estado: "cerrado" };
         if (clienteChanged) upd.cliente = updatedCliente;
         await db.from("sek_cases").update(upd).eq("id", case_id);
-        return new Response(JSON.stringify({ ok: true, reply: MSG_CIERRE_REINTENTOS }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify({ ok: true, reply: (getFlowMessageById(flowConfig, "nombre_cierre") || MSG_CIERRE_REINTENTOS_FALLBACK) }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
       // Para PEDIR_CORREO: si el cliente declaró no tener correo, guardar "Sin correo" y avanzar
@@ -2359,7 +2382,7 @@ No agregues nada más.`,
         if (clienteDeclaroSinCorreo && !updatedCliente.correo) {
           updatedCliente.correo = "Sin correo";
           clienteChanged = true;
-          const preguntaCuenta = "Entiendo. ¿Cuál es el nombre de la empresa o cuenta afiliada a Sekunet?";
+          const preguntaCuenta = getFlowMessageById(flowConfig, "pedir_cuenta") || "Entiendo. ¿Cuál es el nombre de la empresa o cuenta afiliada a Sekunet?";
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: preguntaCuenta };
           const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg], cliente: updatedCliente };
           await db.from("sek_cases").update(upd).eq("id", case_id);
@@ -2369,8 +2392,8 @@ No agregues nada más.`,
 
       const lastIaContent = (lastIA?.content || "").toLowerCase();
       const botYaPidio = lastIaContent.includes(fraseCaract.toLowerCase());
-      let msgInvalido = MSG_INVALIDO;
-      if (accion === "PEDIR_NOMBRE") msgInvalido = MSG_NOMBRE_INVALIDO;
+      let msgInvalido = getFlowMessageById(flowConfig, "nombre_invalido") || MSG_INVALIDO;
+      if (accion === "PEDIR_NOMBRE") msgInvalido = getFlowMessageById(flowConfig, "nombre_invalido") || MSG_NOMBRE_INVALIDO;
       else if (accion === "PEDIR_CORREO") msgInvalido = MSG_CORREO_INVALIDO;
       else if (accion === "PEDIR_CUENTA") msgInvalido = MSG_CUENTA_INVALIDO;
       const directReply = (botYaPidio && reintentos < 2)
@@ -2393,16 +2416,16 @@ No agregues nada más.`,
       const reintentsoTema = contarReintentos(iaRealMsgs, "tema sería su consulta");
 
       if (reintentsoTema >= 2) {
-        const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: MSG_CIERRE_REINTENTOS };
+        const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: (getFlowMessageById(flowConfig, "nombre_cierre") || MSG_CIERRE_REINTENTOS_FALLBACK) };
         const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg], estado: "cerrado" };
         if (clienteChanged) upd.cliente = updatedCliente;
         await db.from("sek_cases").update(upd).eq("id", case_id);
-        return new Response(JSON.stringify({ ok: true, reply: MSG_CIERRE_REINTENTOS }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify({ ok: true, reply: (getFlowMessageById(flowConfig, "nombre_cierre") || MSG_CIERRE_REINTENTOS_FALLBACK) }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
       const lastIaContentTema = (lastIA?.content || "").toLowerCase();
       const botYaPidioTema = lastIaContentTema.includes("tema sería su consulta");
-      const MSG_AVISO_AUTOCIERRE = "Si en los próximos 10 minutos no recibimos su respuesta, daremos por finalizada esta conversación. Cuando lo desee, puede volver a escribirnos y con gusto le atenderemos.";
+      const MSG_AVISO_AUTOCIERRE = getFlowMessageById(flowConfig, "aviso_autocierre") || "Si en los próximos 10 minutos no recibimos su respuesta, daremos por finalizada esta conversación. Cuando lo desee, puede volver a escribirnos y con gusto le atenderemos.";
       const yaSeMostroAviso = histtecnico.some(m => m.content?.trim() === MSG_AVISO_AUTOCIERRE);
       const directReply = (botYaPidioTema && reintentsoTema < 2)
         ? `${MSG_INVALIDO}\n\n${MENU_TEMAS}`
@@ -2461,7 +2484,7 @@ No agregues nada más.`,
           
           if (marcaFueCorregida) {
             // Aproximación de escritura → confirmar
-            const directReply = `¿Se refiere a "${marcaValida.marcaCorregida}"? Responda Sí o No.`;
+            const directReply = (getFlowMessageById(flowConfig, "marca_confirmar") || "¿Se refiere a \"{marcaCorregida}\"? Responda Sí o No.").replace("{marcaCorregida}", marcaValida.marcaCorregida || marcaSupervisor);
             const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
             const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
             if (clienteChanged) upd.cliente = updatedCliente;
@@ -2484,7 +2507,7 @@ No agregues nada más.`,
 
         // Marca no existe
         if (temaSupervisor !== "Otro") {
-          const directReply = "Gracias por contactarnos.\n\nLe informamos que el dispositivo indicado no corresponde a un equipo distribuido por Sekunet, por lo que no podemos brindarle soporte técnico sobre este producto.\n\nSi tiene un equipo de otra marca, por favor, indíquenos la marca del equipo.";
+          const directReply = getFlowMessageById(flowConfig, "marca_no_encontrada") || "Gracias por contactarnos.\n\nLe informamos que el dispositivo indicado no corresponde a un equipo distribuido por Sekunet, por lo que no podemos brindarle soporte técnico sobre este producto.\n\nSi tiene un equipo de otra marca, por favor, indíquenos la marca del equipo.";
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
           const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
           updatedCliente.marca = "";
@@ -2503,7 +2526,7 @@ No agregues nada más.`,
         const respuestasNegativas = ["no", "no tengo", "nada", "no tengo otra", "no tengo mas", "no tengo más", "ninguna", "no por ahora", "nop", "nel", "nope"];
         const ultimoBotRechazoMarca = lastIAContent.includes("no corresponde a un equipo distribuido") || lastIAContent.includes("marca del equipo");
         if (ultimoBotRechazoMarca && respuestasNegativas.includes(userTextNorm)) {
-          const closeMsg = "Comprendo. Si en el futuro requiere soporte para algún equipo de las marcas que distribuimos, no dude en contactarnos. ¡Que tenga un excelente día!";
+          const closeMsg = getFlowMessageById(flowConfig, "marca_no_cerrar") || "Comprendo. Si en el futuro requiere soporte para algún equipo de las marcas que distribuimos, no dude en contactarnos. ¡Que tenga un excelente día!";
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: closeMsg };
           const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg], estado: "cerrado" };
           if (clienteChanged) upd.cliente = updatedCliente;
@@ -2513,11 +2536,11 @@ No agregues nada más.`,
         // El bot pidió la marca pero el LLM no extrajo nada → reintento o cierre
         const reintMarc = contarReintentos(iaRealMsgs, "marca del equipo");
         if (reintMarc >= 2) {
-          const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: MSG_CIERRE_REINTENTOS };
+          const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: (getFlowMessageById(flowConfig, "nombre_cierre") || MSG_CIERRE_REINTENTOS_FALLBACK) };
           const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg], estado: "cerrado" };
           if (clienteChanged) upd.cliente = updatedCliente;
           await db.from("sek_cases").update(upd).eq("id", case_id);
-          return new Response(JSON.stringify({ ok: true, reply: MSG_CIERRE_REINTENTOS }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          return new Response(JSON.stringify({ ok: true, reply: (getFlowMessageById(flowConfig, "nombre_cierre") || MSG_CIERRE_REINTENTOS_FALLBACK) }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
         const directReply = `${MSG_INVALIDO}\n\nPor favor, indíquenos la marca del equipo.`;
         const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
@@ -2528,7 +2551,7 @@ No agregues nada más.`,
       }
 
       // Primera vez que se pide la marca
-      const directReply = getFlowMessage(flowConfig, "ask_data", "marca") || "Por favor, indíquenos la marca del equipo.";
+      const directReply = getFlowMessageByTema(flowConfig, temaSupervisor, "marca") || getFlowMessageById(flowConfig, "t1_marca") || "Por favor, indíquenos la marca del equipo.";
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
       const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
       if (clienteChanged) upd.cliente = updatedCliente;
@@ -2545,7 +2568,7 @@ No agregues nada más.`,
         console.log(`[seka-whatsapp] PEDIR_MODELO: marca "${marcaSupervisor}" no válida → redirigiendo a PEDIR_MARCA`);
         updatedCliente.marca = "";
         marcaSupervisor = "";
-        const directReply = "Gracias por contactarnos.\n\nLe informamos que la marca indicada no corresponde a un equipo distribuido por Sekunet.\n\nSi tiene un equipo de otra marca, por favor, indíquenos la marca del equipo.";
+        const directReply = getFlowMessageById(flowConfig, "marca_no_encontrada") || "Gracias por contactarnos.\n\nLe informamos que la marca indicada no corresponde a un equipo distribuido por Sekunet.\n\nSi tiene un equipo de otra marca, por favor, indíquenos la marca del equipo.";
         const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
         const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
         if (clienteChanged) upd.cliente = updatedCliente;
@@ -2559,7 +2582,7 @@ No agregues nada más.`,
         const yaEstaGuardada = updatedCliente.marca && updatedCliente.marca.toLowerCase() === marcaValida.marcaCorregida.toLowerCase();
         
         if (marcaFueCorregida && !yaEstaGuardada) {
-          const directReply = `¿Se refiere a "${marcaValida.marcaCorregida}"? Responda Sí o No.`;
+          const directReply = (getFlowMessageById(flowConfig, "marca_confirmar") || "¿Se refiere a \"{marcaCorregida}\"? Responda Sí o No.").replace("{marcaCorregida}", marcaValida.marcaCorregida || marcaSupervisor);
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
           const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
           if (clienteChanged) upd.cliente = updatedCliente;
@@ -2573,7 +2596,7 @@ No agregues nada más.`,
         const reintModel = contarReintentos(iaRealMsgs, "modelo del equipo");
         if (reintModel >= 2) {
           // Tras 2 reintentos sin modelo, escalar a humano para que el técnico lo complete.
-          const M02_TEXT = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
+          const M02_TEXT = getFlowMessageById(flowConfig, "esc_inm") || "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M02_TEXT };
           const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg], estado: "escalado", escalado_at: new Date().toISOString() };
           if (clienteChanged) upd.cliente = updatedCliente;
@@ -2590,7 +2613,7 @@ No agregues nada más.`,
         return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      const directReply = withAcuse(getFlowMessage(flowConfig, "ask_data", "modelo") || "¿Nos podría indicar el modelo del equipo, por favor?");
+      const directReply = withAcuse(getFlowMessageByTema(flowConfig, temaSupervisor, "modelo") || getFlowMessageById(flowConfig, "t1_modelo") || "¿Nos podría indicar el modelo del equipo, por favor?");
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
       const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
       const cliObj = { ...updatedCliente, marca: marcaValida.marcaCorregida || marcaSupervisor };
@@ -2603,7 +2626,7 @@ No agregues nada más.`,
 
     // ── ACCIÓN: PEDIR MARCA Y MODELO → redirigir a PEDIR_MARCA (siempre pedir uno por uno) ──
     if (accion === "PEDIR_MARCA_Y_MODELO") {
-      const directReply = "Por favor, indíquenos la marca del equipo.";
+      const directReply = getFlowMessageByTema(flowConfig, temaSupervisor, "marca") || getFlowMessageById(flowConfig, "t1_marca") || "Por favor, indíquenos la marca del equipo.";
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
       const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
       if (clienteChanged) upd.cliente = updatedCliente;
@@ -2630,7 +2653,7 @@ No agregues nada más.`,
       const yaEstaGuardada = updatedCliente.marca && updatedCliente.marca.toLowerCase() === searchMarca.toLowerCase();
       
       if (marcaFueCorregida && !yaEstaGuardada) {
-        const directReply = `¿Se refiere a "${searchMarca}"? Responda Sí o No.`;
+        const directReply = (getFlowMessageById(flowConfig, "marca_confirmar") || "¿Se refiere a \"{marcaCorregida}\"? Responda Sí o No.").replace("{marcaCorregida}", searchMarca);
         const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
         const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
         if (clienteChanged) upd.cliente = updatedCliente;
@@ -2643,7 +2666,7 @@ No agregues nada más.`,
         console.log(`[seka-whatsapp] Marca "${searchMarca}" no válida en inventario. Redirigiendo a PEDIR_MARCA.`);
         updatedCliente.marca = "";
         marcaSupervisor = "";
-        const directReply = "Gracias por contactarnos.\n\nLe informamos que la marca indicada no corresponde a un equipo distribuido por Sekunet.\n\nSi tiene un equipo de otra marca, por favor, indíquenos la marca del equipo.";
+        const directReply = getFlowMessageById(flowConfig, "marca_no_encontrada") || "Gracias por contactarnos.\n\nLe informamos que la marca indicada no corresponde a un equipo distribuido por Sekunet.\n\nSi tiene un equipo de otra marca, por favor, indíquenos la marca del equipo.";
         const newMsgInv: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
         const updInv: Record<string, unknown> = { histtecnico: [...histtecnico, newMsgInv] };
         if (clienteChanged) updInv.cliente = updatedCliente;
@@ -2708,7 +2731,7 @@ No agregues nada más.`,
 
     // ── ACCIÓN: PEDIR ETIQUETA (Reset/Desvinculación — no Hikvision) ──
     if (accion === "PEDIR_ETIQUETA") {
-      const directReply = withAcuse(getFlowMessage(flowConfig, "ask_data", "etiqueta") || "Por favor, adjunte una imagen clara y legible de la etiqueta del equipo.");
+      const directReply = withAcuse(getFlowMessageByTema(flowConfig, temaSupervisor, "etiqueta") || getFlowMessageById(flowConfig, "t2_etiqueta") || "Por favor, adjunte una imagen clara y legible de la etiqueta del equipo.");
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
       const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
       if (clienteChanged) upd.cliente = updatedCliente;
@@ -2718,7 +2741,7 @@ No agregues nada más.`,
 
     // ── ACCIÓN: PEDIR ETIQUETA Y XML (Reset Hikvision) ──
     if (accion === "PEDIR_ETIQUETA_Y_XML") {
-      const directReply = withAcuse("Como parte de los requisitos del fabricante, requerimos una imagen clara y legible de la etiqueta del equipo y el archivo XML, el cual puede obtener mediante la herramienta SAPD Tools en la opción \"Olvidé mi contraseña\", ubicada en la parte inferior derecha del software. Por favor, adjunte ambos archivos.");
+      const directReply = withAcuse(getFlowMessageById(flowConfig, "t2_etiqueta_xml") || "Como parte de los requisitos del fabricante, requerimos una imagen clara y legible de la etiqueta del equipo y el archivo XML, el cual puede obtener mediante la herramienta SAPD Tools en la opción \"Olvidé mi contraseña\", ubicada en la parte inferior derecha del software. Por favor, adjunte ambos archivos.");
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
       const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
       if (clienteChanged) upd.cliente = updatedCliente;
@@ -2734,7 +2757,7 @@ No agregues nada más.`,
     }
 
     if (accion === "PEDIR_DESCRIPCION") {
-      const directReply = withAcuse(getFlowMessage(flowConfig, "ask_data", "descripcion") || "Por favor, describa brevemente el inconveniente que presenta.");
+      const directReply = withAcuse(getFlowMessageByTema(flowConfig, temaSupervisor, "desc") || getFlowMessageById(flowConfig, "t1_desc") || "Por favor, describa brevemente el inconveniente que presenta.");
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
       const upd: Record<string, unknown> = { histtecnico: [...histtecnico, newMsg] };
       if (clienteChanged) upd.cliente = updatedCliente;
@@ -2744,7 +2767,8 @@ No agregues nada más.`,
 
     // ── ACCIÓN: ESCALAR (todo listo, pasar a humano) ──
     if (accion === "ESCALAR") {
-      const M02_TEXT = getFlowMessage(flowConfig, "escalate") || "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
+      const escalarNodeId = temaSupervisor && TEMA_PREFIX[temaSupervisor] ? `${TEMA_PREFIX[temaSupervisor]}_escalar` : "esc_inm";
+      const M02_TEXT = getFlowMessageById(flowConfig, escalarNodeId) || "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
       const replyText = withAcuse(M02_TEXT);
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: replyText };
       const temaTag = temaToTag(temaSupervisor);

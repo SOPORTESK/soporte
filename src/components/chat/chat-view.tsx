@@ -300,7 +300,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       const { data, error } = await supabase
         .from("sek_agent_config")
         .select("email,nombre,apellido,rol")
-        .in("rol", ["tecnico", "admin", "supervisor"])
+        .in("rol", ["tecnico", "admin", "supervisor", "superadmin"])
         .order("nombre", { ascending: true });
       if (error) {
         console.error("[chat-view] Error cargando agentes:", error.message);
@@ -1364,7 +1364,8 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
                         <p className="text-sm text-muted-foreground text-center py-4">Cargando agentes...</p>
                       )}
                       {agents.map((a: any) => {
-                        const name = [a.nombre, a.apellido].filter(Boolean).join(" ") || a.email;
+                        const rawName = [a.nombre, a.apellido].filter(Boolean).join(" ") || a.email;
+                        const name = rawName.length > 60 ? a.email : rawName;
                         const isCurrent = a.email === sekCase.assigned_to;
                         return (
                           <button

@@ -1,7 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
-import { Users, Clock, Star, TrendingUp, CheckCircle, FileText, Activity, ArrowUpRight, Award, Target, BarChart3, Zap, AlertTriangle, UserCheck, TrendingDown, Minus } from "lucide-react";
+import { Users, Clock, Star, TrendingUp, CheckCircle, FileText, Activity, ArrowUpRight, Target, BarChart3, Zap, AlertTriangle, UserCheck, TrendingDown, Minus } from "lucide-react";
 import Link from "next/link";
 import { StatsExportButton } from "@/components/admin/stats-export-button";
+import { AgentRankingTable } from "@/components/admin/agent-ranking-table";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +13,16 @@ export default async function EstadisticasAtencionPage() {
     .from("sek_cases")
     .select("id, assigned_to, created_at, updated_at, closed_at, estado, cliente, title, canal, cat, prioridad, histtecnico, histcliente, accepted_at, escalado_at, tags, problema");
 
-  const casos = todosLosCasos || [];
+  // Excluir casos del simulador — no representan atención real
+  const casos = (todosLosCasos || []).filter(c => c.canal !== "simulator");
+
+  // Helper: nombre legible del cliente para la lista desplegable
+  const getClienteNombre = (c: any): string => {
+    let cl: any = c.cliente;
+    if (typeof cl === "string") { try { cl = JSON.parse(cl); } catch { return "Anónimo"; } }
+    if (!cl || typeof cl !== "object") return "Anónimo";
+    return cl.cuenta || cl.empresa || cl.nombre || cl.name || cl.telefono || cl.phone || "Anónimo";
+  };
 
   const { data: agentes } = await supabase
     .from("sek_agent_config")
@@ -149,15 +159,17 @@ export default async function EstadisticasAtencionPage() {
     email: string; nombre: string; totalAtendidos: number; resueltos: number; activos: number;
     escalados: number; calificaciones: number[]; tiemposResolucion: number[]; ultimoCaso: string;
     urgentes: number; casos7d: number; casos30d: number; tiemposEfectivos: number[]; tiemposEspera: number[];
+    casos: Array<{ id: string | number; title: string; estado: string; created_at: string; cliente: string; canal: string }>;
   }> = {};
 
   casosConAsig.forEach(caso => {
     const email = caso.assigned_to!.toLowerCase();
     if (!statsPorAgente[email]) {
-      statsPorAgente[email] = { email, nombre: agenteMap[email] || caso.assigned_to!, totalAtendidos: 0, resueltos: 0, activos: 0, escalados: 0, calificaciones: [], tiemposResolucion: [], ultimoCaso: caso.title || "Caso sin título", urgentes: 0, casos7d: 0, casos30d: 0, tiemposEfectivos: [], tiemposEspera: [] };
+      statsPorAgente[email] = { email, nombre: agenteMap[email] || caso.assigned_to!, totalAtendidos: 0, resueltos: 0, activos: 0, escalados: 0, calificaciones: [], tiemposResolucion: [], ultimoCaso: caso.title || "Caso sin título", urgentes: 0, casos7d: 0, casos30d: 0, tiemposEfectivos: [], tiemposEspera: [], casos: [] };
     }
     const s = statsPorAgente[email];
     s.totalAtendidos++;
+    s.casos.push({ id: caso.id, title: caso.title || "Caso sin título", estado: caso.estado || "—", created_at: caso.created_at, cliente: getClienteNombre(caso), canal: caso.canal || "—" });
     if (["abierto","asignado","pendiente"].includes(caso.estado || "")) s.activos++;
     if (caso.estado === "escalado") s.escalados++;
     if (caso.estado === "resuelto" || caso.estado === "cerrado" || (caso as any).closed_at) {
@@ -470,116 +482,26 @@ export default async function EstadisticasAtencionPage() {
             />
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[1200px]">
-              <thead>
-                <tr className="border-b border-border bg-muted/10">
-                  <th className="px-2 py-3 text-left text-[10px] font-black uppercase tracking-wider text-muted-foreground w-10">#</th>
-                  <th className="px-2 py-3 text-left text-[10px] font-black uppercase tracking-wider text-muted-foreground">Agente</th>
-                  <th className="px-2 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground">Score</th>
-                  <th className="px-2 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground">Total</th>
-                  <th className="px-2 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground whitespace-nowrap">Tasa Res.</th>
-                  <th className="px-2 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground">AHT</th>
-                  <th className="px-2 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground whitespace-nowrap">T. Resol.</th>
-                  <th className="px-2 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground">SLA</th>
-                  <th className="px-2 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground">Calif.</th>
-                  <th className="px-2 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground whitespace-nowrap">Vol 7d</th>
-                  <th className="px-2 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground whitespace-nowrap">Vol Prom.</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/50">
-                {rankingAgentes.length === 0 ? (
-                  <tr><td colSpan={11} className="py-16 text-center text-sm text-muted-foreground">Sin datos de atención registrados.</td></tr>
-                ) : rankingAgentes.map((a, i) => {
-                  const isTop = i === 0 && rankingAgentes.length > 1;
-                  const initials = a.nombre.split(" ").filter(Boolean).map((n: string) => n[0]).join("").substring(0, 2).toUpperCase();
-                  const scoreColor = a.score >= 75 ? "text-emerald-500" : a.score >= 50 ? "text-amber-400" : "text-rose-500";
-                  const scoreBg = a.score >= 75 ? "bg-emerald-500/10" : a.score >= 50 ? "bg-amber-400/10" : "bg-rose-500/10";
-                  return (
-                    <tr key={i} className="hover:bg-muted/20 transition-colors">
-                      <td className="px-3 py-3.5">
-                        {isTop
-                          ? <div className="h-7 w-7 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 grid place-items-center shadow-lg shadow-amber-500/30"><Award className="h-3.5 w-3.5 text-white" /></div>
-                          : <span className="text-sm font-black text-muted-foreground/40">#{i + 1}</span>}
-                      </td>
-                      <td className="px-3 py-3.5">
-                        <div className="flex items-center gap-2">
-                          <div className="h-8 w-8 rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white text-[10px] font-black grid place-items-center shrink-0">
-                            {initials}
-                          </div>
-                          <div>
-                            <p className="font-black text-sm leading-tight">{a.nombre}</p>
-                            <p className="text-[10px] text-muted-foreground">{a.activos} casos activos</p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-3 py-3 text-center">
-                        {a.scoreValido ? (
-                          <div className={`inline-flex flex-col items-center justify-center h-11 w-11 rounded-xl ${scoreBg} mx-auto`}>
-                            <span className={`text-base font-black tabular-nums ${scoreColor}`}>{a.score}</span>
-                            <span className="text-[8px] font-bold text-muted-foreground uppercase">pts</span>
-                          </div>
-                        ) : (
-                          <div className="inline-flex flex-col items-center justify-center h-11 w-11 rounded-xl bg-muted mx-auto">
-                            <span className="text-[10px] font-black tabular-nums text-muted-foreground">N/A</span>
-                            <span className="text-[8px] font-bold text-muted-foreground uppercase">{a.totalAtendidos} casos</span>
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-2 py-3 text-center">
-                        <p className="font-black text-sky-500 tabular-nums text-base">{a.totalAtendidos}</p>
-                        <p className="text-[10px] text-muted-foreground">{a.activos} activos</p>
-                      </td>
-                      <td className="px-2 py-3 text-center">
-                        <p className="font-black text-emerald-500 tabular-nums text-base">{a.tasa}%</p>
-                        <p className="text-[10px] text-muted-foreground">{a.resueltos} resueltos</p>
-                      </td>
-                      <td className="px-2 py-3 text-center">
-                        {(a as any).avgEfectivo > 0 ? (
-                          <div className="flex items-center justify-center gap-1">
-                            <Clock className="h-3 w-3 text-violet-500" />
-                            <span className="font-black tabular-nums text-violet-500 text-sm">{formatSLA((a as any).avgEfectivo)}</span>
-                          </div>
-                        ) : <span className="text-muted-foreground/40 text-sm">—</span>}
-                        <p className="text-[9px] text-muted-foreground">activo/caso</p>
-                      </td>
-                      <td className="px-2 py-3 text-center">
-                        <div className="flex items-center justify-center gap-1">
-                          <Clock className="h-3 w-3 text-emerald-500" />
-                          <span className="font-black tabular-nums text-emerald-500 text-sm">{(a as any).avgResolucion > 0 ? formatSLA((a as any).avgResolucion) : "—"}</span>
-                        </div>
-                        <p className="text-[9px] text-muted-foreground">acept. → cierre</p>
-                      </td>
-                      <td className="px-2 py-3 text-center">
-                        <div className="flex items-center justify-center gap-1">
-                          <Clock className="h-3 w-3 text-sky-500" />
-                          <span className="font-black tabular-nums text-sky-500 text-sm">{formatSLA(a.avgSLA)}</span>
-                        </div>
-                        <p className="text-[9px] text-muted-foreground">espera IA → humano</p>
-                      </td>
-                      <td className="px-2 py-3 text-center">
-                        {a.avgCalificacionCliente !== "N/A" ? (
-                          <div className="flex items-center justify-center gap-0.5">
-                            <Star className="h-3 w-3 text-amber-400 fill-amber-400" />
-                            <span className="font-black text-amber-400 text-sm">{a.avgCalificacionCliente}</span>
-                          </div>
-                        ) : <span className="text-muted-foreground/40 text-sm">—</span>}
-                        <p className="text-[9px] text-muted-foreground">{a.calificaciones.length} calif.</p>
-                      </td>
-                      <td className="px-2 py-3 text-center">
-                        <span className="text-sm font-black tabular-nums text-violet-500">{a.casos7d}</span>
-                        <p className="text-[10px] text-muted-foreground">esta semana</p>
-                      </td>
-                      <td className="px-2 py-3 text-center">
-                        <span className="text-sm font-black tabular-nums text-cyan-500">{(a as any).volumenDiario > 0 ? (a as any).volumenDiario.toFixed(1) : "—"}</span>
-                        <p className="text-[10px] text-muted-foreground">promedio/día</p>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <AgentRankingTable
+            agentes={rankingAgentes.map(a => ({
+              email: a.email,
+              nombre: a.nombre,
+              score: a.score,
+              scoreValido: a.scoreValido,
+              totalAtendidos: a.totalAtendidos,
+              activos: a.activos,
+              resueltos: a.resueltos,
+              tasa: a.tasa,
+              avgEfectivo: (a as any).avgEfectivo,
+              avgResolucion: (a as any).avgResolucion,
+              avgSLA: a.avgSLA,
+              avgCalificacionCliente: a.avgCalificacionCliente,
+              calificacionesCount: a.calificaciones.length,
+              casos7d: a.casos7d,
+              volumenDiario: (a as any).volumenDiario,
+              casos: a.casos,
+            }))}
+          />
         </div>
 
         {/* Histograma de tiempo de resolución humana */}

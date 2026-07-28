@@ -370,7 +370,8 @@ export function InboxClient({
       url.searchParams.delete("source");
       router.replace(url.pathname + (url.search || ""), { scroll: false });
     } else if (c) {
-      setSelectedId(c);
+      // selectCase carga el caso desde la BD si no está en la lista filtrada actual
+      selectCase(c);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -585,6 +586,9 @@ export function InboxClient({
     || mergedCases.find(c => c._group?.caseIds.some(cid => String(cid) === selectedId))
     || escaladosPendientes.find(c => String(c.id) === selectedId)
     || escaladosPendientes.find(c => c._group?.caseIds.some(cid => String(cid) === selectedId))
+    // Fallback: buscar en la lista cruda `cases` (incluye casos traídos de la BD por selectCase,
+    // aunque el filtro del contenedor los excluya — p.ej. un caso con closed_at pero estado no cerrado)
+    || (selectedId ? (cases.find(c => String(c.id) === selectedId) as any || null) : null)
     // Fallback: buscar en allCases (sin filtrar) para casos salientes recién creados
     || (selectedId ? (allCases.find(c => String(c.id) === selectedId) as any || null) : null);
 
