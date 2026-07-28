@@ -457,7 +457,7 @@ export function FlowEditor() {
           </p>
           <div className="flex items-center gap-6">
             <label className="flex items-center gap-2 text-sm text-foreground">
-              <span>Delay "escribiendo..." (ms):</span>
+              <span>Delay &quot;escribiendo...&quot; (ms):</span>
               <input
                 type="number"
                 min={0}
