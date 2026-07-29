@@ -37,7 +37,12 @@ import {
   ListOrdered,
   Loader2,
   ArrowLeft,
+  FlaskConical,
+  Power,
+  Bot,
 } from "lucide-react";
+import { toast } from "sonner";
+import { TestBotChat } from "./test-bot-chat";
 
 // ─── Tipos de nodos del flujo ────────────────────────────────────────────────
 type FlowNodeData = {
@@ -150,6 +155,9 @@ export function FlowEditor() {
   const [flowId, setFlowId] = useState<string | null>(null);
   const [showPalette, setShowPalette] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
+  const [showTestBot, setShowTestBot] = useState(false);
+  const [iaActiva, setIaActiva] = useState(true);
+  const [iaLoading, setIaLoading] = useState(false);
   const [settings, setSettings] = useState({
     typingDelayMs: 800,
     betweenMessagesDelayMs: 600,
@@ -160,6 +168,8 @@ export function FlowEditor() {
   useEffect(() => {
     async function loadFlow() {
       try {
+        // Cargar estado de IA en paralelo
+        fetch("/api/admin/ia-mode").then(r => r.json()).then(d => setIaActiva(d.ia_activa ?? true)).catch(() => {});
         const res = await fetch("/api/admin/flow-configs", { cache: "no-store" });
         const data = await res.json();
         if (data.flow) {
@@ -281,6 +291,30 @@ export function FlowEditor() {
                 type: "flowNode",
                 position: { x: 600, y: 1680 },
                 data: { label: "Cerrar conversación", nodeType: "close", message: "Gracias por contactar a Sekunet. Si tiene alguna otra consulta, no dude en escribirnos. ¡Que tenga un excelente día!" } as FlowNodeData,
+              },
+              {
+                id: "ack_img_nombre",
+                type: "flowNode",
+                position: { x: 50, y: 120 },
+                data: { label: "ACK imagen (nombre)", nodeType: "message", message: "Hemos recibido su imagen. Para continuar, por favor indíquenos su nombre completo." } as FlowNodeData,
+              },
+              {
+                id: "ack_img_correo",
+                type: "flowNode",
+                position: { x: 50, y: 360 },
+                data: { label: "ACK imagen (correo)", nodeType: "message", message: "Hemos recibido su imagen. Por favor, indíquenos su correo electrónico." } as FlowNodeData,
+              },
+              {
+                id: "ack_img_cuenta",
+                type: "flowNode",
+                position: { x: 50, y: 600 },
+                data: { label: "ACK imagen (cuenta)", nodeType: "message", message: "Hemos recibido su imagen. Por favor, indíquenos el nombre de la empresa o cuenta afiliada a Sekunet." } as FlowNodeData,
+              },
+              {
+                id: "ack_img_generico",
+                type: "flowNode",
+                position: { x: 50, y: 840 },
+                data: { label: "ACK imagen (genérico)", nodeType: "message", message: "Hemos recibido su imagen. Por favor, responda con texto para continuar." } as FlowNodeData,
               },
             ];
 
@@ -439,6 +473,56 @@ export function FlowEditor() {
             <Plus className="h-4 w-4" /> Nodos
           </button>
           <button
+            onClick={async () => {
+              if (iaLoading) return;
+              const newVal = !iaActiva;
+              setIaLoading(true);
+              setIaActiva(newVal);
+              try {
+                const res = await fetch("/api/admin/ia-mode", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ ia_activa: newVal }),
+                });
+                if (!res.ok) { setIaActiva(!newVal); throw new Error("Error"); }
+                toast.success(newVal ? "Bot activado" : "Bot desactivado", {
+                  description: newVal
+                    ? "Los mensajes serán atendidos por el bot."
+                    : "Los mensajes irán directo a Soporte Avanzado.",
+                });
+              } catch {
+                setIaActiva(!newVal);
+                toast.error("No se pudo cambiar el estado del bot.");
+              } finally {
+                setIaLoading(false);
+              }
+            }}
+            disabled={iaLoading}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 border ${
+              iaActiva
+                ? "bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:border-emerald-800 dark:text-emerald-400"
+                : "bg-red-50 border-red-200 text-red-600 hover:bg-red-100 dark:bg-red-950/40 dark:border-red-800 dark:text-red-400"
+            } ${iaLoading ? "opacity-60 cursor-wait" : "cursor-pointer"}`}
+          >
+            {iaLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : iaActiva ? (
+              <Bot className="h-4 w-4" />
+            ) : (
+              <Power className="h-4 w-4" />
+            )}
+            <span className="font-semibold">{iaActiva ? "Bot ON" : "Bot OFF"}</span>
+            <span className={`relative inline-flex h-4 w-7 rounded-full transition-colors duration-200 ${iaActiva ? "bg-emerald-500" : "bg-red-400"}`}>
+              <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform duration-200 ${iaActiva ? "translate-x-3.5" : "translate-x-0.5"}`} />
+            </span>
+          </button>
+          <button
+            onClick={() => setShowTestBot(!showTestBot)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${showTestBot ? "bg-emerald-600 text-white" : "text-muted-foreground hover:text-foreground hover:bg-muted"}`}
+          >
+            <FlaskConical className="h-4 w-4" /> Probar bot
+          </button>
+          <button
             onClick={saveFlow}
             disabled={saving}
             className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50 transition-colors"
@@ -564,6 +648,7 @@ export function FlowEditor() {
           />
         )}
       </div>
+      {showTestBot && <TestBotChat onClose={() => setShowTestBot(false)} />}
     </div>
   );
 }

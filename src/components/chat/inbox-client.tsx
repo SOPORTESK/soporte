@@ -11,6 +11,9 @@ import { clienteInfo, asText, customerKey } from "@/lib/utils";
 
 /* ── Filtrar casos según el tipo de contenedor ── */
 function filterCasesByContainer(cases: SekCase[], containerType: string | undefined, currentAgentEmail: string | null, currentAgentName: string | null): SekCase[] {
+  // Filtrar casos de prueba — NUNCA deben aparecer en bandejas reales
+  cases = cases.filter(c => !(c as any).es_test);
+
   // Smart Inbox: SOLO casos nuevos que la IA está atendiendo (visibles por todos, no editables)
   if (containerType === "smart-inbox") {
     return cases.filter(c => String(c.estado || "").toLowerCase() === "ia_atendiendo");
@@ -158,13 +161,14 @@ const BASE_TITLE = "Sekunet Chat";
 // Campos para la lista del inbox. Incluye histcliente (solo lectura ligera) para poder
 // detectar mensajes nuevos del cliente y disparar el toast/sonido de notificación —
 // sin histcliente, esa comparación siempre veía longitud 0 y nunca notificaba.
-const CASE_LIST_FIELDS = "id,estado,canal,cliente,assigned_to,last_message_at,last_message_preview,unread_count,created_at,updated_at,title,prioridad,tags,customer_phone,histcliente";
+const CASE_LIST_FIELDS = "id,estado,canal,cliente,assigned_to,last_message_at,last_message_preview,unread_count,created_at,updated_at,title,prioridad,tags,customer_phone,histcliente,es_test";
 
 async function fetchCasesMeta(supabase: any, limit = 200, agentEmail?: string) {
   let query = supabase
     .from("sek_cases")
     .select(CASE_LIST_FIELDS)
-    .neq("canal", "simulator");
+    .neq("canal", "simulator")
+    .neq("es_test", true);
   // Si se pasa agentEmail, filtrar por casos asignados a ese agente
   // (para Mi Gestión) en lugar de fetchar todos y filtrar en cliente.
   if (agentEmail) {

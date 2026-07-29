@@ -154,6 +154,7 @@ Deno.serve(async (req) => {
     // NUNCA cerrar casos escalados: el cliente está esperando que un humano lo atienda.
     .in("estado", ["ia_atendiendo", "abierto"])
     .neq("canal", "simulator")
+    .neq("es_test", true)
     .order("created_at", { ascending: true })
     .limit(50);
 

@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
     await supabase
       .from("sek_agent_config")
       .update({ ia_activa })
-      .eq("email", "system_prompt@sekunet.com");
+      .in("email", ["system_prompt@sekunet.com", "whatsapp_agent@sekunet.com"]);
 
     return NextResponse.json({ success: true, ia_activa });
   } catch (e: any) {

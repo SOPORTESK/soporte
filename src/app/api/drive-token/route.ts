@@ -28,7 +28,12 @@ export async function GET(req: NextRequest) {
     });
 
     if (!res.ok) {
-      return NextResponse.json({ error: "Token refresh failed" }, { status: 500 });
+      const errBody = await res.text();
+      console.error("[drive-token] Refresh failed:", errBody.substring(0, 300));
+      return NextResponse.json({
+        error: "Token de Google Drive expirado. Visite /api/drive-oauth-start para re-autorizar.",
+        needsReauth: true,
+      }, { status: 401 });
     }
 
     const tokens = await res.json();

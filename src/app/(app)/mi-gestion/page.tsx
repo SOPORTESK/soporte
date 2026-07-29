@@ -35,6 +35,7 @@ export default async function MiGestionPage({ searchParams }: { searchParams: { 
     .from("sek_cases")
     .select("*")
     .neq("canal", "simulator")
+    .neq("es_test", true)
     .eq("assigned_to", agentEmail)
     .order("last_message_at", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false })

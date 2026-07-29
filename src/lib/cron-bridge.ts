@@ -1,5 +1,46 @@
 import { createServiceClient } from "@/lib/supabase/service";
 
+async function refreshDriveTokenDaily() {
+  try {
+    const supabase = createServiceClient();
+    const { data } = await supabase
+      .from("sek_drive_config")
+      .select("refresh_token, updated_at")
+      .eq("id", 1)
+      .single();
+
+    if (!data?.refresh_token) return;
+
+    const lastUpdated = data.updated_at ? new Date(data.updated_at).getTime() : 0;
+    const hoursSinceUpdate = (Date.now() - lastUpdated) / (1000 * 60 * 60);
+    if (hoursSinceUpdate < 20) return;
+
+    const res = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        refresh_token: data.refresh_token,
+        client_id: process.env.GOOGLE_OAUTH_CLIENT_ID!,
+        client_secret: process.env.GOOGLE_OAUTH_CLIENT_SECRET!,
+        grant_type: "refresh_token",
+      }),
+    });
+
+    if (res.ok) {
+      await supabase
+        .from("sek_drive_config")
+        .update({ updated_at: new Date().toISOString() })
+        .eq("id", 1);
+      console.log("[drive-keepalive] Token de Google Drive refrescado correctamente.");
+    } else {
+      const errText = await res.text();
+      console.warn("[drive-keepalive] No se pudo refrescar el token de Google Drive:", errText.substring(0, 200));
+    }
+  } catch (e: any) {
+    console.warn("[drive-keepalive] Error:", e.message);
+  }
+}
+
 function pickPhone(c: any): string | null {
   if (typeof c?.cliente === "object") {
     const telReal = String(c.cliente?.telefono_real || "").trim();
@@ -26,7 +67,12 @@ let running = false;
 export function startLocalCronJobs() {
   const isDev = process.env.NODE_ENV === "development";
   console.log(`[local-cron-bridge] Iniciando bridge local para retransmitir mensajes de auto-close e IA (isDev: ${isDev})...`);
-  
+
+  // Refresh del token de Google Drive cada hora (solo actúa si pasaron 20+ horas)
+  setInterval(() => { refreshDriveTokenDaily(); }, 60 * 60 * 1000);
+  // Ejecutar también al arrancar
+  refreshDriveTokenDaily();
+
   // Ejecutar cada 15 segundos
   setInterval(async () => {
     if (running) return;
@@ -50,6 +96,7 @@ export function startLocalCronJobs() {
         .select("id, canal, customer_phone, cliente, histcliente, histtecnico, estado")
         .eq("canal", "whatsapp")
         .not("estado", "in", '("cerrado","resuelto","escalado")')
+        .neq("es_test", true)
         .order("updated_at", { ascending: false })
         .limit(50);
 

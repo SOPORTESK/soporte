@@ -18,6 +18,7 @@ export function InboxBadge({ initialCount }: { initialCount: number }) {
         .select("id, histcliente, histtecnico, estado")
         .in("estado", ["escalado", "abierto", "ia_atendiendo"])
         .neq("canal", "simulator")
+        .neq("es_test", true)
         .order("created_at", { ascending: false })
         .limit(100);
       if (error || !data) { console.warn("[InboxBadge] error:", error); return; }

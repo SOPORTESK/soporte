@@ -27,7 +27,8 @@ export function N2Badge({ initialCount }: { initialCount: number }) {
         .from("sek_cases")
         .select("*", { count: "exact", head: true })
         .eq("estado", "escalado")
-        .is("assigned_to", null);
+        .is("assigned_to", null)
+        .neq("es_test", true);
       setCount(c ?? 0);
     };
 

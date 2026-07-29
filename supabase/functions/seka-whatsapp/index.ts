@@ -830,9 +830,9 @@ async function validarNombreConIA(texto: string): Promise<boolean> {
     const messages: NimMessage[] = [
       {
         role: "system",
-        content: `Eres un validador estricto de nombres propios de personas. Responde SOLO con "SI" o "NO", sin explicaciones.
-Responde "SI" únicamente si el texto es un nombre y apellido real de una persona (ej: "María Chaves", "Juan Carlos Ramírez").
-Responde "NO" si es una frase, oración, descripción de un problema, nombre de equipo/producto, saludo, o cualquier cosa que no sea un nombre propio de persona.`,
+        content: `Eres un validador de nombres propios de personas. Responde SOLO con "SI" o "NO", sin explicaciones.
+Responde "SI" si el texto parece un nombre y apellido de persona, incluso si tiene errores ortográficos o typos (ej: "María Chaves", "Juan Carlos Ramírez", "Kevin Gutierrez Hidago", "Jose Peres").
+Responde "NO" si es claramente una frase, oración, descripción de un problema, nombre de equipo/producto, saludo, o cualquier cosa que no sea un nombre propio de persona.`,
       },
       { role: "user", content: `Texto: "${texto}"` },
     ];
@@ -1054,7 +1054,7 @@ Deno.serve(async (req: Request) => {
   let globalHistTecnico: HistMsg[] = [];
 
   try {
-    const { case_id } = await req.json();
+    const { case_id, test_mode } = await req.json();
     globalCaseId = case_id;
     if (!case_id) return new Response(JSON.stringify({ error: "case_id requerido" }), { status: 400, headers: corsHeaders });
 
@@ -1083,6 +1083,33 @@ Deno.serve(async (req: Request) => {
     // Cargar configuración del flujo desde la BD (editor visual)
     const flowConfig = await loadFlowConfig();
     console.log("[seka-whatsapp] Flow config loaded:", flowConfig ? `${flowConfig.nodes.length} nodos` : "no configurado");
+
+    // Verificar si la IA está activa (switch Bot ON/OFF en flujos-bot)
+    // EXCEPCIÓN: test_mode (chat de práctica) siempre funciona sin importar el switch
+    if (!test_mode) {
+      const { data: iaConfigRow } = await db
+        .from("sek_agent_config")
+        .select("ia_activa")
+        .eq("email", "whatsapp_agent@sekunet.com")
+        .maybeSingle();
+      const iaActiva = iaConfigRow?.ia_activa ?? true;
+
+      if (!iaActiva) {
+        console.log("[seka-whatsapp] IA desactivada (Bot OFF) — enviando bienvenida y escalando a humano.");
+        const nowIso = new Date().toISOString();
+        const BOT_OFF_MSG_1 = "Hola\n\nBienvenido al soporte técnico de Sekunet.";
+        const BOT_OFF_MSG_2 = "Le informamos que tras 10 minutos de inactividad, daremos por finalizada esta conversación. Cuando lo desee, puede volver a escribirnos y con gusto le atenderemos.\n\nAgradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
+        const msg1: HistMsg = { role: "ia", author: "Asistente Sekunet", time: nowIso, content: BOT_OFF_MSG_1 };
+        const msg2: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date(Date.now() + 100).toISOString(), content: BOT_OFF_MSG_2 };
+        const upd: Record<string, unknown> = {
+          histtecnico: [...histtecnico, msg1, msg2],
+          estado: "escalado",
+          escalado_at: nowIso,
+        };
+        await db.from("sek_cases").update(upd).eq("id", case_id);
+        return new Response(JSON.stringify({ ok: true, reply: [BOT_OFF_MSG_1, BOT_OFF_MSG_2] }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+    }
 
     // Publica un mensaje de la IA de forma resiliente a ráfagas de WhatsApp: re-lee el historial
     // JUSTO antes de escribir y (a) evita duplicar un mensaje idéntico al último ya enviado por
@@ -1169,13 +1196,13 @@ Deno.serve(async (req: Request) => {
       const lastIaText = (lastIA?.content || "").toLowerCase();
       let ackMsg = "";
       if (lastIaText.includes("nombre completo")) {
-        ackMsg = "Hemos recibido su imagen. Para continuar, por favor indíquenos su nombre completo.";
+        ackMsg = getFlowMessageById(flowConfig, "ack_img_nombre") || "Hemos recibido su imagen. Para continuar, por favor indíquenos su nombre completo.";
       } else if (lastIaText.includes("correo electrónico")) {
-        ackMsg = "Hemos recibido su imagen. Por favor, indíquenos su correo electrónico.";
+        ackMsg = getFlowMessageById(flowConfig, "ack_img_correo") || "Hemos recibido su imagen. Por favor, indíquenos su correo electrónico.";
       } else if (lastIaText.includes("empresa o cuenta")) {
-        ackMsg = "Hemos recibido su imagen. Por favor, indíquenos el nombre de la empresa o cuenta afiliada a Sekunet.";
+        ackMsg = getFlowMessageById(flowConfig, "ack_img_cuenta") || "Hemos recibido su imagen. Por favor, indíquenos el nombre de la empresa o cuenta afiliada a Sekunet.";
       } else {
-        ackMsg = "Hemos recibido su imagen. Por favor, responda con texto para continuar.";
+        ackMsg = getFlowMessageById(flowConfig, "ack_img_generico") || "Hemos recibido su imagen. Por favor, responda con texto para continuar.";
       }
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: ackMsg };
       await db.from("sek_cases").update({ histtecnico: [...histtecnico, newMsg] }).eq("id", case_id);
@@ -1235,10 +1262,7 @@ Deno.serve(async (req: Request) => {
       if (usarFastPath) {
         // ── PASO NOMBRE ──
         if (!cliFP.nombre && lastBotFP.includes("nombre completo")) {
-          // Doble validación EN TODAS LAS OCASIONES: primero el filtro regex (rápido, descarta
-          // casos obvios), luego SIEMPRE la IA (validarNombreConIA) confirma semánticamente
-          // que es un nombre propio real antes de aceptarlo — nunca se omite esta segunda capa.
-          if (isNombrePropioValido(userRespFP) && await validarNombreConIA(userRespFP)) {
+          if (isNombrePropioValido(userRespFP)) {
             const cli = { ...cliFP, nombre: userRespFP };
             const preg = "Gracias. ¿Me podría indicar su correo electrónico?";
             const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: preg };
@@ -1493,20 +1517,9 @@ Responde SOLO con JSON válido:
       const oldNombre = String((currentCliente as any).nombre || "").trim();
       if (!oldNombre || oldNombre === "." || /^[\d\+\-\s]+$/.test(oldNombre) || oldNombre === "(vacío)") {
         const nombreCandidato = supervisorResult.nombre.trim();
-        const nombreValidoRegex = isNombrePropioValido(nombreCandidato);
-        if (nombreValidoRegex) {
-          const nombreValidoIA = await validarNombreConIA(nombreCandidato);
-          console.log(`[seka-whatsapp] Validacion IA nombre: "${nombreCandidato}" → ${nombreValidoIA}`);
-          if (nombreValidoIA) {
-            updatedCliente.nombre = supervisorResult.nombre;
-            clienteChanged = true;
-          } else {
-            console.log("[seka-whatsapp] IA rechazo nombre, se pide de nuevo.");
-            supervisorResult.nombre = "";
-            if (!["ESCALAR_INMEDIATO", "CERRAR", "VENTAS"].includes(supervisorResult.accion)) {
-              supervisorResult.accion = "PEDIR_NOMBRE";
-            }
-          }
+        if (isNombrePropioValido(nombreCandidato)) {
+          updatedCliente.nombre = supervisorResult.nombre;
+          clienteChanged = true;
         } else {
           console.log("[seka-whatsapp] Supervisor extrajo nombre inválido:", nombreCandidato, "→ se rechaza y se pide de nuevo.");
           supervisorResult.nombre = "";
@@ -2018,20 +2031,11 @@ Responde SOLO con JSON válido:
       const botPidioNombre = (lastIA?.content || "").includes("nombre completo");
       const nombreCandidatoFB = lastUserMsgContent.trim();
       if (botPidioNombre && isNombrePropioValido(nombreCandidatoFB)) {
-        const nombreValidoIA = await validarNombreConIA(nombreCandidatoFB);
-        console.log(`[seka-whatsapp] FALLBACK nombre: IA valida "${nombreCandidatoFB}" → ${nombreValidoIA}`);
-        if (nombreValidoIA) {
-          updatedCliente.nombre = nombreCandidatoFB;
-          clienteChanged = true;
-          supervisorResult.nombre = nombreCandidatoFB;
-          if (supervisorResult.accion === "PEDIR_NOMBRE" || accion === "PEDIR_NOMBRE" || accion === "CONTINUAR") {
-            accion = "PEDIR_CORREO";
-          }
-        } else {
-          console.log("[seka-whatsapp] FALLBACK nombre: IA rechazo, se pide de nuevo.");
-          if (!["ESCALAR_INMEDIATO", "CERRAR", "VENTAS"].includes(accion)) {
-            accion = "PEDIR_NOMBRE";
-          }
+        updatedCliente.nombre = nombreCandidatoFB;
+        clienteChanged = true;
+        supervisorResult.nombre = nombreCandidatoFB;
+        if (supervisorResult.accion === "PEDIR_NOMBRE" || accion === "PEDIR_NOMBRE" || accion === "CONTINUAR") {
+          accion = "PEDIR_CORREO";
         }
       }
     }

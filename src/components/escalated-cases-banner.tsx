@@ -22,6 +22,7 @@ export function EscalatedCasesBanner() {
         .select("*")
         .eq("estado", "escalado")
         .is("assigned_to", null)
+        .neq("es_test", true)
         .order("escalado_at", { ascending: false });
 
       if (error) {

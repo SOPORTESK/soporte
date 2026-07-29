@@ -24,7 +24,8 @@ export function SmartInboxBadge({ initialCount }: { initialCount: number }) {
         .from("sek_cases")
         .select("*", { count: "exact", head: true })
         .eq("estado", "ia_atendiendo")
-        .neq("canal", "simulator");
+        .neq("canal", "simulator")
+        .neq("es_test", true);
       setCount(c ?? 0);
     };
 

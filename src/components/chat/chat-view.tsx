@@ -720,6 +720,9 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
         const tokenRes = await fetch("/api/drive-token");
         if (!tokenRes.ok) {
           const d = await tokenRes.json().catch(() => ({}));
+          if (d.needsReauth) {
+            throw new Error("Google Drive requiere re-autorización. Un administrador debe visitar /api/drive-oauth-start para reconectar.");
+          }
           throw new Error(d.error || `Error ${tokenRes.status}`);
         }
         const { accessToken, folderId } = await tokenRes.json();
