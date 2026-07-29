@@ -1350,10 +1350,11 @@ export async function POST(req: NextRequest) {
     let knownClient: Record<string, unknown> = {};
     if (!isOutgoing && contactPhone) {
       const cleanPhone = contactPhone.replace(/[^0-9]/g, "");
+      const phoneWithSuffix = `${cleanPhone}@s.whatsapp.net`;
       const { data: prevCases } = await supabase
         .from("sek_cases")
         .select("cliente, created_at")
-        .or(`customer_phone.eq.${cleanPhone},customer_phone.eq.${contactPhone}`)
+        .or(`customer_phone.eq.${cleanPhone},customer_phone.eq.${cleanPhone}@s.whatsapp.net,customer_phone.eq.+${cleanPhone},customer_phone.eq.+${cleanPhone}@s.whatsapp.net`)
         .order("created_at", { ascending: false })
         .limit(20);
 
@@ -1367,6 +1368,8 @@ export async function POST(req: NextRequest) {
             break;
           }
         }
+      } else {
+        console.log(`[evo-webhook] Auto-relleno: sin casos previos para ${cleanPhone}`);
       }
     }
 
