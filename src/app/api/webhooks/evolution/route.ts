@@ -1346,6 +1346,30 @@ export async function POST(req: NextRequest) {
     console.log("[evo-webhook] Paso 11: creando nuevo caso...");
     const contactPhone = phone || senderPn || jid;
 
+    // ── AUTO-RELLENO: buscar casos previos del mismo teléfono para reutilizar datos ──
+    let knownClient: Record<string, unknown> = {};
+    if (!isOutgoing && contactPhone) {
+      const cleanPhone = contactPhone.replace(/[^0-9]/g, "");
+      const { data: prevCases } = await supabase
+        .from("sek_cases")
+        .select("cliente, created_at")
+        .or(`customer_phone.eq.${cleanPhone},customer_phone.eq.${contactPhone}`)
+        .order("created_at", { ascending: false })
+        .limit(20);
+
+      if (prevCases && prevCases.length > 0) {
+        // Buscar el caso más reciente que tenga datos útiles (nombre, correo o cuenta)
+        for (const pc of prevCases) {
+          const pcCliente = (pc.cliente && typeof pc.cliente === "object") ? pc.cliente as Record<string, unknown> : {};
+          if (pcCliente.nombre || pcCliente.correo || pcCliente.cuenta) {
+            knownClient = pcCliente;
+            console.log(`[evo-webhook] Auto-relleno: datos previos encontrados para ${cleanPhone} — nombre: ${pcCliente.nombre || "N/A"}, correo: ${pcCliente.correo || "N/A"}, cuenta: ${pcCliente.cuenta || "N/A"}`);
+            break;
+          }
+        }
+      }
+    }
+
     if (isOutgoing) {
       await supabase.from("sek_cases").insert({
         canal: "whatsapp",
@@ -1360,24 +1384,36 @@ export async function POST(req: NextRequest) {
         last_message_preview: (text || "").slice(0, 200),
       });
     } else {
+      const clienteData: Record<string, unknown> = {
+        telefono: contactPhone,
+        nombre: knownClient.nombre || null,
+        correo: knownClient.correo || null,
+        cuenta: knownClient.cuenta || null,
+        whatsapp_name: pushName || null,
+        telefono_real: senderPn || null,
+        ...(knownClient.cedula ? { cedula: knownClient.cedula } : {}),
+        ...(knownClient.equipo ? { equipo: knownClient.equipo } : {}),
+        ...(mediaType && !mediaUrl && mediaDebug ? { debug_media: mediaDebug } : {}),
+      };
+
+      const hasKnownData = !!(knownClient.nombre || knownClient.correo || knownClient.cuenta);
+
       const { data: newCase } = await supabase.from("sek_cases").insert({
         canal: "whatsapp",
         estado: "ia_atendiendo",
         prioridad: "media",
         customer_phone: contactPhone,
-        cliente: { 
-          telefono: contactPhone,
-          nombre: null,
-          whatsapp_name: pushName || null,
-          telefono_real: senderPn || null,
-          ...(mediaType && !mediaUrl && mediaDebug ? { debug_media: mediaDebug } : {})
-        },
+        cliente: clienteData,
         histcliente: [entry],
         histtecnico: [],
-        title: pushName ? `WhatsApp — ${pushName}` : `WhatsApp — ${contactPhone}`,
+        title: pushName ? `WhatsApp — ${pushName}` : (knownClient.nombre ? `WhatsApp — ${knownClient.nombre}` : `WhatsApp — ${contactPhone}`),
         last_message_at: now,
         last_message_preview: (text || "").slice(0, 200),
       }).select("id").single();
+
+      if (hasKnownData) {
+        console.log(`[evo-webhook] Caso ${newCase?.id} creado con datos auto-rellenados: nombre=${knownClient.nombre || "N/A"}, correo=${knownClient.correo || "N/A"}, cuenta=${knownClient.cuenta || "N/A"}`);
+      }
 
       // Disparar ia-agent para nuevo caso entrante
       const SUPABASE_URL2 = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
