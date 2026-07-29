@@ -1007,6 +1007,9 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
 
       if (error) throw error;
 
+      // Auto-extraer tema/marca/modelo con IA si el bot está OFF
+      fetch(`/api/cases/${targetId}/auto-extract`, { method: "POST" }).catch(() => {});
+
       modalShownRef.current = true;
       prevEstadoRef.current = "cerrado";
       setSekCase(prev => ({ ...prev, estado: "cerrado", cliente: updatedCliente }));

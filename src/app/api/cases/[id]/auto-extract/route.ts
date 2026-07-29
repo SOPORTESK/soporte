@@ -1,0 +1,204 @@
+import { NextRequest, NextResponse } from "next/server";
+import { createServiceClient } from "@/lib/supabase/service";
+
+export async function POST(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const supabase = createServiceClient();
+    const id = params.id;
+
+    // Verificar si el bot está ON — si lo está, no hacer nada (el bot ya recopiló los datos)
+    const { data: iaConfig } = await supabase
+      .from("sek_agent_config")
+      .select("ia_activa")
+      .eq("email", "whatsapp_agent@sekunet.com")
+      .maybeSingle();
+
+    const iaActiva = iaConfig?.ia_activa ?? true;
+    if (iaActiva) {
+      return NextResponse.json({ ok: true, skipped: true, reason: "bot_on" });
+    }
+
+    // Obtener el caso con historial
+    const { data: caseData, error: fetchError } = await supabase
+      .from("sek_cases")
+      .select("id, title, problema, marca, modelo, tags, histcliente, histtecnico, cliente")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (fetchError || !caseData) {
+      return NextResponse.json({ error: "Caso no encontrado" }, { status: 404 });
+    }
+
+    // Si ya tiene tema/marca/modelo, no hacer nada
+    const hasData = caseData.problema || caseData.marca || caseData.modelo ||
+      (caseData.title && caseData.title !== `WhatsApp — ${(caseData.cliente as any)?.whatsapp_name || (caseData.cliente as any)?.telefono || ""}`);
+    if (hasData && caseData.problema && caseData.marca) {
+      return NextResponse.json({ ok: true, skipped: true, reason: "already_has_data" });
+    }
+
+    // Construir texto del historial para analizar
+    const histCliente = Array.isArray(caseData.histcliente) ? caseData.histcliente : [];
+    const histTecnico = Array.isArray(caseData.histtecnico) ? caseData.histtecnico : [];
+
+    const allMsgs = [
+      ...histCliente.map((m: any) => ({
+        role: m.role || "user",
+        content: typeof m.content === "string" ? m.content : (m.content?.text || JSON.stringify(m.content || "")),
+      })),
+      ...histTecnico.map((m: any) => ({
+        role: m.role || "assistant",
+        content: typeof m.content === "string" ? m.content : (m.content?.text || JSON.stringify(m.content || "")),
+      })),
+    ].filter(m => m.content && m.content.trim());
+
+    if (allMsgs.length === 0) {
+      return NextResponse.json({ ok: true, skipped: true, reason: "no_history" });
+    }
+
+    const conversationText = allMsgs
+      .map(m => `${m.role === "user" ? "Cliente" : "Agente/IA"}: ${m.content.slice(0, 500)}`)
+      .join("\n")
+      .slice(0, 4000);
+
+    // Llamar a OpenAI para extraer tema, marca, modelo
+    const OPENAI_KEY = process.env.OPENAI_API_KEY || "";
+    if (!OPENAI_KEY) {
+      console.error("[auto-extract] OPENAI_API_KEY no configurada");
+      return NextResponse.json({ error: "OpenAI key missing" }, { status: 500 });
+    }
+
+    const TEMAS_VALIDOS = [
+      "Reset", "Desvinculación", "Configuración", "Visualización",
+      "Cobros", "Garantía", "Asistencia Remota", "Otro"
+    ];
+
+    const prompt = `Eres un analista de soporte técnico de Sekunet (Costa Rica). Analiza la siguiente conversación de WhatsApp entre un cliente y un agente de soporte, y extrae:
+
+1. "tema": El tema principal de la consulta. Debe ser uno de: ${TEMAS_VALIDOS.join(", ")}. Si no puedes determinarlo, deja vacío.
+2. "marca": La marca del equipo mencionado (ej: HIKVISION, Dahua, Epcom, ZKTeco). Si no se menciona, deja vacío.
+3. "modelo": El modelo del equipo (ej: DS-2CD2043G2-I, NVR-108MH, IPC-T221H). Si no se menciona, deja vacío.
+4. "descripcion_problema": Un resumen breve del problema o consulta (máximo 200 caracteres).
+
+Reglas:
+- Si el cliente envió un código como "DS-3E0505P-E-M", "NVR-108MH", "IPC-T221H", eso es un MODELO, no una marca.
+- Si el cliente envió una sola palabra como "Hikvision", "Dahua", "Epcom", "ZKTeco", eso es una MARCA.
+- Si no hay suficiente información para determinar un campo, déjalo vacío ("").
+- NO inventes datos. Solo extrae lo que esté explícito en la conversación.
+
+CONVERSACIÓN:
+${conversationText}
+
+Responde SOLO en formato JSON:
+{"tema": "...", "marca": "...", "modelo": "...", "descripcion_problema": "..."}`;
+
+    const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${OPENAI_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.1,
+        max_tokens: 300,
+      }),
+    });
+
+    if (!aiRes.ok) {
+      const errText = await aiRes.text();
+      console.error("[auto-extract] OpenAI error:", errText);
+      return NextResponse.json({ error: "AI extraction failed" }, { status: 500 });
+    }
+
+    const aiData = await aiRes.json();
+    const rawContent = aiData.choices?.[0]?.message?.content || "";
+
+    // Parsear la respuesta JSON
+    let extracted: { tema?: string; marca?: string; modelo?: string; descripcion_problema?: string } = {};
+    try {
+      const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
+      extracted = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+    } catch {
+      console.error("[auto-extract] Failed to parse AI response:", rawContent);
+      return NextResponse.json({ error: "Parse failed" }, { status: 500 });
+    }
+
+    // Mapear tema a problema key
+    const temaToProblema: Record<string, string> = {
+      "Reset": "reset",
+      "Desvinculación": "desvinculacion",
+      "Configuración": "configuracion",
+      "Visualización": "visualizacion",
+      "Cobros": "cobros",
+      "Garantía": "garantia",
+      "Asistencia Remota": "asistencia_remota",
+      "Otro": "otro",
+    };
+
+    // Construir updates
+    const updates: Record<string, unknown> = {};
+    const tema = extracted.tema?.trim() || "";
+    const marca = extracted.marca?.trim() || "";
+    const modelo = extracted.modelo?.trim() || "";
+    const descProblema = extracted.descripcion_problema?.trim() || "";
+
+    if (tema && TEMAS_VALIDOS.includes(tema)) {
+      updates.problema = temaToProblema[tema] || tema.toLowerCase();
+    }
+    if (marca) {
+      updates.marca = marca;
+    }
+    if (modelo) {
+      updates.modelo = modelo;
+    }
+
+    // Actualizar título si tenemos tema y/o marca+modelo
+    const titleParts: string[] = [];
+    if (tema) titleParts.push(tema);
+    if (marca && modelo) titleParts.push(`${marca} ${modelo}`);
+    else if (marca) titleParts.push(marca);
+    if (titleParts.length > 0) {
+      updates.title = titleParts.join(" — ").substring(0, 120);
+    }
+
+    // Tags basados en tema
+    if (tema) {
+      const existingTags = Array.isArray(caseData.tags) ? caseData.tags : [];
+      const temaTag = temaToProblema[tema] || tema.toLowerCase();
+      if (!existingTags.includes(temaTag)) {
+        updates.tags = [...existingTags, temaTag];
+      }
+    }
+
+    // Descripción del problema como resolucion si no hay
+    if (descProblema && !caseData.problema) {
+      updates.resolucion = descProblema;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      console.log("[auto-extract] No se extrajeron datos útiles");
+      return NextResponse.json({ ok: true, skipped: true, reason: "no_data_extracted" });
+    }
+
+    const { error: updateError } = await supabase
+      .from("sek_cases")
+      .update(updates)
+      .eq("id", id);
+
+    if (updateError) {
+      console.error("[auto-extract] Update error:", updateError.message);
+      return NextResponse.json({ error: updateError.message }, { status: 500 });
+    }
+
+    console.log(`[auto-extract] Caso ${id} actualizado: tema=${tema || "N/A"}, marca=${marca || "N/A"}, modelo=${modelo || "N/A"}`);
+    return NextResponse.json({ ok: true, extracted: { tema, marca, modelo, descripcion_problema: descProblema } });
+
+  } catch (e: any) {
+    console.error("[auto-extract] Exception:", e.message);
+    return NextResponse.json({ error: e.message }, { status: 500 });
+  }
+}
