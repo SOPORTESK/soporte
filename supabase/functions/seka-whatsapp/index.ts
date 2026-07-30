@@ -609,7 +609,7 @@ const WELCOME_TEXTS = [
   `¿En relación con qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Licencias\n7. Otro\n\nResponda con el número o el nombre del tema.`
 ];
 
-const MSG_HORARIO = "Horario de atención\nLunes a Viernes · 7:30 a. m. – 5:00 p. m.\nSerá un gusto atenderle";
+const MSG_HORARIO = "Gracias por contactarnos.\n\nEn este momento nos encontramos fuera de nuestro horario de atención.\n\nLe invitamos a comunicarse con nosotros en nuestro horario de servicio, de lunes a viernes, de 7:30 a. m. a 5:00 p. m.";
 
 // Horario de atención: lunes a viernes 7:30 a.m. - 5:00 p.m. (Costa Rica, UTC-6)
 function isOpenNowCR(): boolean {
