@@ -1098,7 +1098,12 @@ Deno.serve(async (req: Request) => {
         console.log("[seka-whatsapp] IA desactivada (Bot OFF) — enviando bienvenida y escalando a humano.");
         const nowIso = new Date().toISOString();
         const BOT_OFF_MSG_1 = "Hola\n\nBienvenido al soporte técnico de Sekunet.";
-        const BOT_OFF_MSG_2 = "Le informamos que tras 10 minutos de inactividad, daremos por finalizada esta conversación. Cuando lo desee, puede volver a escribirnos y con gusto le atenderemos.\n\nAgradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
+        let BOT_OFF_MSG_2 = "Le informamos que tras 10 minutos de inactividad, daremos por finalizada esta conversación. Cuando lo desee, puede volver a escribirnos y con gusto le atenderemos.\n\nAgradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
+        // Si está fuera de horario, agregar mensaje de horario
+        if (!isOpenNowCR()) {
+          const msgHorario = getFlowMessageById(flowConfig, "fuera_horario") || MSG_HORARIO;
+          BOT_OFF_MSG_2 = msgHorario + "\n\n" + BOT_OFF_MSG_2;
+        }
         const msg1: HistMsg = { role: "ia", author: "Asistente Sekunet", time: nowIso, content: BOT_OFF_MSG_1 };
         const msg2: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date(Date.now() + 100).toISOString(), content: BOT_OFF_MSG_2 };
         const upd: Record<string, unknown> = {
