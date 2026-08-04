@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { X, Plus, Save, Trash2, Globe, User, Edit2 } from "lucide-react";
+import { X, Plus, Save, Trash2, Globe, User, Edit2, GripVertical } from "lucide-react";
 import { toast } from "sonner";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
@@ -39,6 +39,8 @@ export function TemplateManager({
   const [editingTemplate, setEditingTemplate] = React.useState<Template | null>(null);
   const [saving, setSaving] = React.useState(false);
   const isAdmin = agentRole === "admin" || agentRole === "superadmin";
+  const [draggedId, setDraggedId] = React.useState<string | null>(null);
+  const [dragOverId, setDragOverId] = React.useState<string | null>(null);
 
   const templates = tab === "personal" ? personalTemplates : globalTemplates;
 
@@ -106,6 +108,27 @@ export function TemplateManager({
       toast.error("Error al guardar", { description: e.message });
     } finally {
       setSaving(false);
+    }
+  }
+
+  function handleReorder(fromId: string, toId: string) {
+    if (fromId === toId) return;
+    const list = tab === "personal" ? personalTemplates : globalTemplates;
+    const fromIdx = list.findIndex(t => t.id === fromId);
+    const toIdx = list.findIndex(t => t.id === toId);
+    if (fromIdx === -1 || toIdx === -1) return;
+    const reordered = [...list];
+    const [moved] = reordered.splice(fromIdx, 1);
+    reordered.splice(toIdx, 0, moved);
+
+    if (tab === "personal") {
+      localStorage.setItem(`sek_plantillas_${agentEmail}`, JSON.stringify(reordered));
+      onPersonalTemplatesChange(reordered);
+    } else {
+      onGlobalTemplatesChange(reordered);
+      reordered.forEach((t, i) => {
+        supabase.from("sek_plantillas").update({ orden: i }).eq("id", t.id).then(() => {});
+      });
     }
   }
 
@@ -227,7 +250,20 @@ export function TemplateManager({
             ) : (
               <div className="space-y-2">
                 {templates.map(t => (
-                  <div key={t.id} className="p-3 border border-border rounded-xl bg-card hover:bg-muted/30 transition-colors group flex items-start gap-3">
+                  <div
+                    key={t.id}
+                    draggable
+                    onDragStart={() => setDraggedId(t.id)}
+                    onDragEnd={() => { setDraggedId(null); setDragOverId(null); }}
+                    onDragOver={(e) => { e.preventDefault(); setDragOverId(t.id); }}
+                    onDrop={() => { if (draggedId) handleReorder(draggedId, t.id); setDraggedId(null); setDragOverId(null); }}
+                    className={`p-3 border rounded-xl bg-card hover:bg-muted/30 transition-all group flex items-start gap-2 ${
+                      draggedId === t.id ? "opacity-40 border-brand-500" : "border-border"
+                    } ${dragOverId === t.id && draggedId !== t.id ? "border-brand-500 border-2 -translate-y-0.5" : ""}`}
+                  >
+                    <div className="flex items-center self-stretch cursor-grab active:cursor-grabbing text-muted-foreground/40 hover:text-muted-foreground transition-colors">
+                      <GripVertical className="h-4 w-4" />
+                    </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-bold text-sm truncate">{t.nombre}</p>
                       <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{t.texto}</p>

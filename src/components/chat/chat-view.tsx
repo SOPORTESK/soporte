@@ -282,7 +282,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
 
   /* Cargar plantillas */
   React.useEffect(() => {
-    supabase.from("sek_plantillas").select("id,nombre,texto,cat").limit(30)
+    supabase.from("sek_plantillas").select("id,nombre,texto,cat").order("orden", { ascending: true }).limit(30)
       .then(({ data }) => { if (data) setPlantillas(data.map(d => ({ ...d, isGlobal: true }))); });
   }, [supabase]);
 
