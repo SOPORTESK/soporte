@@ -11,25 +11,24 @@ const get = (obj: any, path: string) => path.split(".").reduce((o, k) => (o && o
 const processedMessages = new Map<string, number>();
 const DUPLICATE_WINDOW_MS = 30000; // 30 segundos
 
-// Cola en memoria para operaciones de base de datos atómicas por usuario (evita sobreescribir histcliente)
-const dbMutexMap = new Map<string, Promise<void>>();
-async function atomicDbUpdate(jid: string, updateFn: () => Promise<void>) {
-  const current = dbMutexMap.get(jid) || Promise.resolve();
-  const next = current.then(updateFn).catch((e) => console.error("[evo-webhook] Error en atomicDbUpdate:", e));
-  dbMutexMap.set(jid, next);
-  await next;
-}
+// El mutex en memoria que había aquí no servía: el webhook corre en serverless,
+// donde cada invocación puede caer en otra instancia, así que no se compartía
+// nada entre mensajes concurrentes. El append ahora es atómico en Postgres
+// mediante la función sek_append_hist (ver supabase/migrations).
 
-function getMessageKey(jid: string | null | undefined, content: string | null | undefined, mediaUrl?: string): string {
+function getMessageKey(jid: string | null | undefined, content: string | null | undefined, mediaUrl?: string, messageId?: string | null): string {
+  // El messageId de WhatsApp identifica cada mensaje de forma única: es la clave
+  // correcta. Solo se cae al texto/media cuando el payload no lo trae.
+  if (messageId) return `id:${messageId}`;
   const key = mediaUrl ? `${jid}:${mediaUrl}` : `${jid}:${content?.slice(0, 50)}`;
   return key;
 }
 
-function isDuplicateMessage(jid: string | null | undefined, content: string | null | undefined, mediaUrl?: string): boolean {
+function isDuplicateMessage(jid: string | null | undefined, content: string | null | undefined, mediaUrl?: string, messageId?: string | null): boolean {
   // No procesar como duplicado si no hay JID válido
   if (!jid) return false;
   
-  const key = getMessageKey(jid, content, mediaUrl);
+  const key = getMessageKey(jid, content, mediaUrl, messageId);
   const now = Date.now();
   const lastProcessed = processedMessages.get(key);
   
@@ -634,6 +633,34 @@ function extractText(payload: any): string | null {
   return null;
 }
 
+// Hora real en que WhatsApp envió el mensaje (messageTimestamp), no la hora en
+// que este servidor recibió el webhook. Baileys lo manda en segundos Unix y a
+// veces como objeto Long ({ low, high }). Si no viene o es absurdo, se cae a
+// la hora actual.
+function extractMessageTime(payload: any): string {
+  const raw =
+    get(payload, "data.messages.0.messageTimestamp") ??
+    get(payload, "data.messageTimestamp") ??
+    get(payload, "messageTimestamp");
+
+  let secs: number | null = null;
+  if (typeof raw === "number") secs = raw;
+  else if (typeof raw === "string" && /^\d+$/.test(raw)) secs = Number(raw);
+  else if (raw && typeof raw === "object" && typeof (raw as any).low === "number") secs = (raw as any).low;
+
+  if (secs && secs > 0) {
+    // Valores menores a 1e12 vienen en segundos; mayores ya están en ms.
+    const ms = secs < 1e12 ? secs * 1000 : secs;
+    const d = new Date(ms);
+    // Descartar fechas corruptas o fuera de un rango razonable (± 1 año).
+    if (!isNaN(d.getTime()) && Math.abs(Date.now() - ms) < 365 * 24 * 60 * 60 * 1000) {
+      return d.toISOString();
+    }
+    console.warn("[evo-webhook] messageTimestamp fuera de rango, usando hora actual:", raw);
+  }
+  return new Date().toISOString();
+}
+
 export async function POST(req: NextRequest) {
   console.log("[evo-webhook] === INICIO WEBHOOK ===");
   const supabase = createServiceClient();
@@ -725,9 +752,20 @@ export async function POST(req: NextRequest) {
   // Unwrap ephemeral/viewOnce wrappers to get the real media object
   const unwrappedMsgObj = msgObj?.ephemeralMessage?.message || msgObj?.viewOnceMessage?.message || msgObj?.documentWithCaptionMessage?.message || msgObj;
   const dupMediaUrl = msgObj?.imageMessage?.url || msgObj?.videoMessage?.url || msgObj?.ptvMessage?.url || unwrappedMsgObj?.videoMessage?.url || msgObj?.documentMessage?.url;
-  
-  console.log("[evo-webhook] Paso 5: verificar duplicado...");
-  if (isDuplicateMessage(jid, text, dupMediaUrl)) {
+
+  // messageId que WhatsApp asigna a cada mensaje. Se usa para deduplicar en vez
+  // de comparar el texto, que descartaba respuestas repetidas legítimas del
+  // cliente ("1", "si", "ok") dentro de la ventana de 30s.
+  const keyId: string | null =
+    get(payload, "data.key.id") || get(payload, "key.id") || get(payload, "data.messages.0.key.id") || null;
+
+  // Hora real de envío según WhatsApp. La UI ordena los mensajes por este campo,
+  // así que usar la hora de recepción hacía que el orden no coincidiera con el
+  // de la app de WhatsApp.
+  const msgTime = extractMessageTime(payload);
+
+  console.log("[evo-webhook] Paso 5: verificar duplicado...", { keyId, msgTime });
+  if (isDuplicateMessage(jid, text, dupMediaUrl, keyId)) {
     console.log("[evo-webhook] Paso 5: DUPLICADO, saliendo");
     return NextResponse.json({ ok: true, duplicate: true });
   }
@@ -1129,11 +1167,12 @@ export async function POST(req: NextRequest) {
     console.error("[evo-webhook] media detectada pero faltan envs EVO_URL/EVO_KEY/EVO_INSTANCE");
   }
 
-  const keyId = get(payload, "data.key.id") || get(payload, "key.id") || get(payload, "data.messages.0.key.id") || get(payload, "data.messages.0.key.id");
   const now = new Date().toISOString();
+  // time = hora de WhatsApp (msgTime), no la de recepción, para que el orden
+  // en el chat coincida con el de la app.
   const entry = isOutgoing
-    ? { role: "tecnico", time: now, content: text || "", author: "Soporte Sekunet", mediaUrl, mediaType: finalMediaType, fileName, messageId: keyId, fromMe: true } as any
-    : { role: "user", time: now, content: text || "", mediaUrl, mediaType: finalMediaType, fileName, messageId: keyId, fromMe: false } as any;
+    ? { role: "tecnico", time: msgTime, content: text || "", author: "Soporte Sekunet", mediaUrl, mediaType: finalMediaType, fileName, messageId: keyId, fromMe: true } as any
+    : { role: "user", time: msgTime, content: text || "", mediaUrl, mediaType: finalMediaType, fileName, messageId: keyId, fromMe: false } as any;
 
   console.log("[evo-webhook] Paso 6: buscando casos recientes...");
   try {
@@ -1225,46 +1264,53 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ ok: true, duplicate: true, updatedId: true });
         }
 
-        const updated = [...hist, entry];
-        await supabase
-          .from("sek_cases")
-          .update({ 
-            histtecnico: updated, 
-            last_message_at: now, 
-            last_message_preview: (text || "").slice(0, 200),
-            customer_phone: jid
-          })
-          .eq("id", existing.id);
+        // Append atómico en Postgres (un solo UPDATE con jsonb || bajo bloqueo de
+        // fila), en lugar de leer y reescribir el array completo desde aquí.
+        const { error: appendOutErr } = await supabase.rpc("sek_append_hist", {
+          p_case_id: String(existing.id),
+          p_entry: entry,
+          p_col: "histtecnico",
+          p_preview: (text || "").slice(0, 200),
+          p_customer_phone: jid,
+        });
+        if (appendOutErr) {
+          console.error("[evo-webhook] Error en sek_append_hist (histtecnico):", appendOutErr);
+        }
       } else {
         // Mensaje entrante: guardar en histcliente
         console.log("[evo-webhook] Paso 9: guardando mensaje entrante en histcliente de forma atómica...");
         
-        await atomicDbUpdate(existing.id, async () => {
-          // Refetch del historial más reciente para evitar la condición de carrera
-          const { data: latestCase } = await supabase.from("sek_cases").select("histcliente, title, cliente").eq("id", existing.id).single();
-          const hist = Array.isArray(latestCase?.histcliente) ? latestCase.histcliente : [];
-          const updated = [...hist, entry];
-
-          const currentCliente = (latestCase?.cliente && typeof latestCase.cliente === "object") ? latestCase.cliente : {};
-          const updatedCliente = { 
-            ...currentCliente, 
-            whatsapp_name: pushName || currentCliente.whatsapp_name,
-            telefono_real: senderPn || currentCliente.telefono_real
-          };
-
-          await supabase
-            .from("sek_cases")
-            .update({ 
-              histcliente: updated, 
-              last_message_at: now, 
-              last_message_preview: (text || "").slice(0, 200),
-              customer_phone: jid,
-              cliente: updatedCliente,
-              title: pushName ? `WhatsApp — ${pushName}` : (latestCase?.title || `WhatsApp — ${jid}`),
-              ...(reopenClosedCase ? { estado: "ia_atendiendo" } : {})
-            })
-            .eq("id", existing.id);
+        // Append atómico en Postgres. Antes se leía histcliente, se concatenaba en
+        // JS y se reescribía el array completo; dos mensajes concurrentes leían la
+        // misma base y el segundo pisaba al primero, perdiendo el mensaje.
+        const { data: appended, error: appendErr } = await supabase.rpc("sek_append_hist", {
+          p_case_id: String(existing.id),
+          p_entry: entry,
+          p_col: "histcliente",
+          p_preview: (text || "").slice(0, 200),
+          p_customer_phone: jid,
         });
+        if (appendErr) {
+          console.error("[evo-webhook] Error en sek_append_hist (histcliente):", appendErr);
+        } else if (appended === false) {
+          console.log("[evo-webhook] Mensaje ya estaba en el historial, no se duplica:", keyId);
+        }
+
+        // Metadatos del caso: van en un update aparte porque no tocan el historial.
+        // Se relee cliente/title para no pisar datos que la IA haya extraído mientras
+        // procesábamos este mensaje.
+        const { data: latestCase } = await supabase.from("sek_cases").select("title, cliente").eq("id", existing.id).maybeSingle();
+        const currentCliente = (latestCase?.cliente && typeof latestCase.cliente === "object") ? latestCase.cliente as Record<string, unknown> : {};
+        const metaUpdate: Record<string, unknown> = {
+          cliente: {
+            ...currentCliente,
+            whatsapp_name: pushName || currentCliente.whatsapp_name,
+            telefono_real: senderPn || currentCliente.telefono_real,
+          },
+          title: pushName ? `WhatsApp — ${pushName}` : (latestCase?.title || `WhatsApp — ${jid}`),
+          ...(reopenClosedCase ? { estado: "ia_atendiendo" } : {}),
+        };
+        await supabase.from("sek_cases").update(metaUpdate).eq("id", existing.id);
         
         console.log("[evo-webhook] Paso 9 OK - mensaje guardado en histcliente");
       }
@@ -1383,7 +1429,7 @@ export async function POST(req: NextRequest) {
         histcliente: [],
         histtecnico: [entry],
         title: `WhatsApp — ${contactPhone}`,
-        last_message_at: now,
+        last_message_at: msgTime,
         last_message_preview: (text || "").slice(0, 200),
       });
     } else {
@@ -1410,7 +1456,7 @@ export async function POST(req: NextRequest) {
         histcliente: [entry],
         histtecnico: [],
         title: pushName ? `WhatsApp — ${pushName}` : (knownClient.nombre ? `WhatsApp — ${knownClient.nombre}` : `WhatsApp — ${contactPhone}`),
-        last_message_at: now,
+        last_message_at: msgTime,
         last_message_preview: (text || "").slice(0, 200),
       }).select("id").single();
 
