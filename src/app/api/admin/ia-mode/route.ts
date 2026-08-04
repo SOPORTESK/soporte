@@ -45,6 +45,16 @@ export async function POST(req: NextRequest) {
       .update({ ia_activa })
       .in("email", ["system_prompt@sekunet.com", "whatsapp_agent@sekunet.com"]);
 
+    // Si se está apagando el bot, escalar casos pendientes de la IA a Soporte Avanzado
+    if (!ia_activa) {
+      const { data: escalated, error: escErr } = await supabase
+        .from("sek_cases")
+        .update({ estado: "escalado", escalado_at: new Date().toISOString() })
+        .eq("estado", "ia_atendiendo")
+        .select("id");
+      console.log(`[ia-mode] Bot apagado — ${escalated?.length || 0} casos escalados de ia_atendiendo a escalado`, escErr?.message || "");
+    }
+
     return NextResponse.json({ success: true, ia_activa });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
