@@ -106,6 +106,11 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   const [agentEmail, setAgentEmail] = React.useState<string | null>(null);
   const [agentName, setAgentName] = React.useState<string | null>(null);
   const [agentRole, setAgentRole] = React.useState<string>("tecnico");
+  const [modoNoAtendido, setModoNoAtendido] = React.useState(false);
+
+  React.useEffect(() => {
+    fetch("/api/admin/unattended-mode").then(r => r.json()).then(d => setModoNoAtendido(d.modo_no_atendido ?? false)).catch(() => {});
+  }, []);
 
   const handleMessageUpdate = (
     historyType: "histcliente" | "histtecnico",
@@ -521,7 +526,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
 
     // prev === "" → carga inicial, no disparar
     // Solo disparar si cambió de un estado no-final a final durante esta sesión
-    if (prev !== "" && !isFinal(prev) && isFinal(curr) && !modalShownRef.current) {
+    if (prev !== "" && !isFinal(prev) && isFinal(curr) && !modalShownRef.current && !modoNoAtendido) {
       modalShownRef.current = true;
       const prevRating = (sekCase.cliente as any)?.calificacion_agente;
       if (prevRating) setClientRating(Number(prevRating) || 5);
@@ -939,7 +944,8 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     
     // Siempre mostrar modal de calificación al cerrar
     // Si ya tiene calificación previa, pre-rellenar
-    if (newEstado === "cerrado") {
+    // EXCEPTO en modo no atendido: cerrar directamente sin modal
+    if (newEstado === "cerrado" && !modoNoAtendido) {
       const prevRating = (sekCase.cliente as any)?.calificacion_agente;
       if (prevRating) setClientRating(Number(prevRating) || 5);
       modalShownRef.current = true;
@@ -953,6 +959,20 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       toast.error("No se pudo reabrir: no hay agente autenticado");
       return;
     }
+
+    // Modo No Atendido: cerrar directamente sin modal ni encuesta
+    if (newEstado === "cerrado" && modoNoAtendido) {
+      const { error } = await supabase.from("sek_cases").update({
+        estado: "cerrado",
+        closed_at: new Date().toISOString(),
+      }).eq("id", targetId);
+      if (error) { toast.error("Error al cerrar caso"); return; }
+      setSekCase(prev => ({ ...prev, estado: "cerrado" }));
+      toast.success("Caso cerrado");
+      setShowActions(false);
+      return;
+    }
+
     const currentTags: string[] = Array.isArray(sekCase.tags) ? sekCase.tags : [];
     const reopenTags = currentTags.some(t => String(t).toLowerCase() === "re-open")
       ? currentTags
