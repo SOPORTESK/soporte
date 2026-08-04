@@ -1014,7 +1014,13 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
         fetch(`/api/cases/${targetId}/auto-extract`, { method: "POST" }).catch(() => {});
 
         // Iniciar encuesta: envía mensaje al cliente y cambia estado a calificacion_pendiente
-        await fetch(`/api/cases/${targetId}/start-survey`, { method: "POST" });
+        console.log("[confirmClose] Iniciando encuesta para caso", targetId, "canal:", sekCase.canal);
+        const surveyRes = await fetch(`/api/cases/${targetId}/start-survey`, { method: "POST" });
+        const surveyData = await surveyRes.json().catch(() => ({}));
+        console.log("[confirmClose] start-survey response:", surveyRes.status, surveyData);
+        if (!surveyRes.ok) {
+          toast.error("Error al enviar encuesta", { description: surveyData?.error || `HTTP ${surveyRes.status}` });
+        }
 
         modalShownRef.current = true;
         prevEstadoRef.current = "calificacion_pendiente";
