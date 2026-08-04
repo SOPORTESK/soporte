@@ -1711,6 +1711,7 @@ Deno.serve(async (req) => {
       // WhatsApp: iniciar encuesta en lugar de cerrar directamente
       if (caso.canal === "whatsapp") {
         updates.estado = "calificacion_pendiente";
+        updates.closed_at = new Date().toISOString();
         updates.resolucion = aiResponse.replace(/\s+/g, " ").trim().substring(0, 500);
       } else {
         updates.estado = "cerrado";

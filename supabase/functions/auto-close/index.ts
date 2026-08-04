@@ -6,7 +6,7 @@ const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
 const INACTIVITY_MINUTES_DEFAULT = 10;   // canales humanos (whatsapp, etc.)
 const INACTIVITY_MINUTES_IA = 10;        // widget atendido por IA — mismo umbral que manual
 const CLOSE_MSG = "Al no haber recibido respuesta, procederemos a cerrar esta conversación. Si necesita asistencia adicional, puede contactarnos nuevamente y con gusto le atenderemos. ¡Que tenga un excelente día!";
-const SURVEY_TIMEOUT_MINUTES = 30; // Cerrar encuesta sin respuesta después de 30 min
+const SURVEY_TIMEOUT_MINUTES = 10; // Cerrar encuesta sin respuesta después de 10 min
 
 // Leer mensaje de un nodo del flow config activo
 async function getFlowMessage(nodeId: string, fallback: string): Promise<string> {
@@ -211,7 +211,7 @@ Deno.serve(async (req) => {
       }
       console.log(`[auto-close] Caso ${caso.id} en calificacion_pendiente por ${Math.round(surveyElapsed/60000)} min → cerrando sin calificación`);
       const { data: timeoutUpdated } = await db.from("sek_cases")
-        .update({ estado: "cerrado", closed_at: new Date().toISOString() })
+        .update({ estado: "cerrado" })
         .eq("id", caso.id)
         .eq("estado", "calificacion_pendiente")
         .select("id");
@@ -307,7 +307,7 @@ Deno.serve(async (req) => {
 
       const { data: surveyUpdated, error: surveyErr } = await db
         .from("sek_cases")
-        .update({ estado: "calificacion_pendiente", histtecnico: newHistSurvey, last_message_at: new Date().toISOString(), last_message_preview: surveyMsg.slice(0, 200) })
+        .update({ estado: "calificacion_pendiente", closed_at: new Date().toISOString(), histtecnico: newHistSurvey, last_message_at: new Date().toISOString(), last_message_preview: surveyMsg.slice(0, 200) })
         .eq("id", caso.id)
         .not("estado", "in", '("cerrado","resuelto","calificacion_pendiente")')
         .select("id");

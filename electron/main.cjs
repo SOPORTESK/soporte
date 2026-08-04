@@ -169,7 +169,7 @@ app.whenReady().then(() => {
         { role: 'zoomIn',    label: 'Acercar',     accelerator: 'CmdOrCtrl+=' },
         { role: 'zoomOut',   label: 'Alejar',      accelerator: 'CmdOrCtrl+-' },
         { role: 'resetZoom', label: 'Zoom normal', accelerator: 'CmdOrCtrl+0' },
-        ...(isDev ? [{ type: 'separator' }, { role: 'toggleDevTools', label: 'DevTools' }] : []),
+        ...(isDev ? [{ type: 'separator' }, { role: 'toggleDevTools', label: 'DevTools' }] : [{ type: 'separator' }, { role: 'toggleDevTools', label: 'Consola (DevTools)', accelerator: 'F12' }]),
       ],
     },
     {

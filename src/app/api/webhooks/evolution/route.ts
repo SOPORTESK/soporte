@@ -1345,7 +1345,10 @@ export async function POST(req: NextRequest) {
               return node?.data?.message || fallback;
             };
 
-            const rating = parseInt((text || "").trim());
+            const rawText = (text || "").trim();
+            const ratingMatch = rawText.match(/\b([1-5])\b/);
+            const rating = ratingMatch ? parseInt(ratingMatch[1]) : NaN;
+            console.log(`[evo-webhook] Encuesta — text="${rawText}", rating=${rating}`);
             let reply: string;
             let newEstado: string;
 
@@ -1382,8 +1385,9 @@ export async function POST(req: NextRequest) {
             };
 
             if (newEstado === "cerrado") {
-              stateUpdates.closed_at = new Date().toISOString();
-              const currentCliente = (existing.cliente && typeof existing.cliente === "object") ? existing.cliente as Record<string, unknown> : {};
+              // Re-fetch cliente to avoid overwriting metadata updated earlier in this webhook
+              const { data: freshCliente } = await supabase.from("sek_cases").select("cliente").eq("id", existing.id).maybeSingle();
+              const currentCliente = (freshCliente?.cliente && typeof freshCliente.cliente === "object") ? freshCliente.cliente as Record<string, unknown> : {};
               stateUpdates.cliente = {
                 ...currentCliente,
                 calificacion_cliente: rating,

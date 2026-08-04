@@ -111,6 +111,7 @@ export async function POST(
 
   await supabase.from("sek_cases").update({
     estado: "calificacion_pendiente",
+    closed_at: now,
     last_message_at: now,
     last_message_preview: surveyMsg.slice(0, 200),
   }).eq("id", caseId);
