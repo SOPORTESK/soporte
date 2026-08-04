@@ -1186,7 +1186,32 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       setSekCase(prev => ({ ...prev, estado: "abierto", assigned_to: agentEmail }));
       toast.success("Caso aceptado");
       fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "busy" }) });
-      
+
+      // Enviar mensaje de bienvenida automático para casos WhatsApp
+      const isWhatsApp = String(sekCase.canal || "").toLowerCase() === "whatsapp";
+      if (isWhatsApp && agentName) {
+        const welcomeMsg = `Buen día. Gracias por contactarnos.\n\nMi nombre es ${agentName} y con gusto le asistiré con su caso.\n\n${agentName}\nPara el registro, por favor facilítenos su:\n\nNombre completo\nCorreo electrónico\nNombre de la cuenta afiliada a Sekunet.\n\nQuedamos atentos. Gracias.`;
+
+        // Guardar mensaje en histtecnico
+        const baseHist = Array.isArray(sekCase.histtecnico) ? sekCase.histtecnico : [];
+        const welcomeEntry = {
+          role: "tecnico",
+          author: agentName,
+          time: new Date().toISOString(),
+          content: welcomeMsg,
+        };
+        const newHist = [...baseHist, welcomeEntry];
+        await supabase.from("sek_cases").update({ histtecnico: newHist }).eq("id", targetId);
+        setSekCase(prev => ({ ...prev, histtecnico: newHist }));
+
+        // Enviar por WhatsApp vía Evolution API
+        fetch("/api/evolution/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ case_id: targetId, text: welcomeMsg }),
+        }).catch(err => console.error("Error enviando bienvenida:", err));
+      }
+
       // Prevent the ChatView from disappearing by navigating to Mi Gestión where the case is currently assigned.
       router.push(`/mi-gestion?c=${targetId}`);
     } catch (e: any) {
