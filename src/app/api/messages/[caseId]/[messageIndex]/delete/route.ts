@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { getEvolutionConfig } from "@/lib/evolution-config";
 
 export async function POST(
   req: NextRequest,
@@ -82,11 +83,9 @@ export async function POST(
     const to = caseData.customer_phone;
 
     if (isWhatsApp && messageId && to) {
-      const EVO_URL = process.env.EVOLUTION_API_URL || "";
-      const EVO_KEY = process.env.EVOLUTION_API_KEY || "";
-      const EVO_INSTANCE = process.env.EVOLUTION_INSTANCE || "";
+      const evoCfg = await getEvolutionConfig();
 
-      if (EVO_URL && EVO_KEY && EVO_INSTANCE) {
+      if (evoCfg?.url && evoCfg?.apiKey && evoCfg?.instance) {
         const targetJid = to.includes("@") ? to : `${to.replace(/[^0-9]/g, "")}@s.whatsapp.net`;
         try {
           console.log("[DELETE MSG API] Revocando mensaje en WhatsApp via Evolution API", {
@@ -95,11 +94,11 @@ export async function POST(
             fromMe: (messageObj as any).fromMe ?? (historyType === "histtecnico")
           });
 
-          const res = await fetch(`${EVO_URL.replace(/\/$/, "")}/chat/deleteMessageForEveryone/${encodeURIComponent(EVO_INSTANCE)}`, {
+          const res = await fetch(`${evoCfg.url.replace(/\/$/, "")}/chat/deleteMessageForEveryone/${encodeURIComponent(evoCfg.instance)}`, {
             method: "DELETE",
             headers: {
               "Content-Type": "application/json",
-              apikey: EVO_KEY
+              apikey: evoCfg.apiKey
             },
             body: JSON.stringify({
               remoteJid: targetJid,
@@ -118,6 +117,8 @@ export async function POST(
         } catch (evoErr) {
           console.error("[DELETE MSG API] Error conectando con Evolution API para revocar:", evoErr);
         }
+      } else {
+        console.log("[DELETE MSG API] Evolution config no disponible, omitiendo revocación en WhatsApp");
       }
     } else {
       console.log("[DELETE MSG API] Omitiendo revocación en WhatsApp:", { isWhatsApp, hasMessageId: !!messageId, to });

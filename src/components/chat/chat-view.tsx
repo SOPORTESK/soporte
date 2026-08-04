@@ -37,6 +37,7 @@ type UnifiedMessage = {
   sourceCaseId?: string | number;
   messageId?: string;
   fromMe?: boolean;
+  replyTo?: { content: string; author: string } | null;
 };
 
 function unifyMessages(c: SekCase): UnifiedMessage[] {
@@ -66,6 +67,7 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
       sourceCaseId: (e as any)._sourceCaseId ?? c.id,
       messageId: (e as any).messageId,
       fromMe: (e as any).fromMe ?? isAgente,
+      replyTo: (e as any).replyTo ?? null,
     });
   });
 
@@ -89,7 +91,8 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
       historyType: "histtecnico",
       sourceCaseId: (e as any)._sourceCaseId ?? c.id,
       messageId: (e as any).messageId,
-      fromMe: (e as any).fromMe ?? true,
+      fromMe: (e as any).fromMe ?? isNota,
+      replyTo: (e as any).replyTo ?? null,
     });
   });
 
@@ -107,6 +110,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   const [agentName, setAgentName] = React.useState<string | null>(null);
   const [agentRole, setAgentRole] = React.useState<string>("tecnico");
   const [modoNoAtendido, setModoNoAtendido] = React.useState(false);
+  const [replyTo, setReplyTo] = React.useState<UnifiedMessage | null>(null);
 
   React.useEffect(() => {
     fetch("/api/admin/unattended-mode").then(r => r.json()).then(d => setModoNoAtendido(d.modo_no_atendido ?? false)).catch(() => {});
@@ -120,9 +124,15 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     setSekCase(prev => {
       const history = prev[historyType] || [];
       const updatedHistory = [...history];
-      if (originalIndex >= 0 && originalIndex < updatedHistory.length) {
-        updatedHistory[originalIndex] = {
-          ...updatedHistory[originalIndex],
+      // En casos agrupados, originalIndex es _sourceIndex (índice en el caso original),
+      // no el índice en el array merged. Buscar por coincidencia de _sourceIndex y _sourceCaseId.
+      const matchIdx = updatedHistory.findIndex((e: any) =>
+        (e._sourceIndex ?? updatedHistory.indexOf(e)) === originalIndex
+      );
+      const targetIdx = matchIdx >= 0 ? matchIdx : originalIndex;
+      if (targetIdx >= 0 && targetIdx < updatedHistory.length) {
+        updatedHistory[targetIdx] = {
+          ...updatedHistory[targetIdx],
           ...fieldsToUpdate,
         };
       }
@@ -548,7 +558,8 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       time: new Date().toISOString(),
       content: body || (fileName ?? "Archivo adjunto"),
       author: agentName || agentEmail,
-      ...(mediaUrl ? { mediaUrl, mediaType, fileName } : {})
+      ...(mediaUrl ? { mediaUrl, mediaType, fileName } : {}),
+      ...(replyTo && !isNota ? { replyTo: { content: replyTo.content?.slice(0, 200) || "", author: replyTo.authorName || "Cliente" } } : {}),
     };
     console.log("[DEBUG send] entry.author:", entry.author);
     const optimisticMsg: UnifiedMessage = {
@@ -628,7 +639,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     } catch (e: any) {
       toast.error("No se pudo enviar", { description: (e as any)?.message });
       setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...m, status: "error" } : m));
-    } finally { setSending(false); }
+    } finally { setSending(false); setReplyTo(null); }
   }
 
   async function startRecording() {
@@ -1699,7 +1710,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
                   <div className="flex-1 h-px bg-border" />
                 </div>
               )}
-              <Bubble m={m} clienteName={ci.nombre} onImageClick={setPreviewImage} agentEmail={agentEmail} onMessageUpdate={handleMessageUpdate} />
+              <Bubble m={m} clienteName={ci.nombre} onImageClick={setPreviewImage} agentEmail={agentEmail} onMessageUpdate={handleMessageUpdate} onReply={(msg) => { setReplyTo(msg); setMode("reply"); setTimeout(() => { const ta = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Mensaje"]'); if (ta) ta.focus(); }, 50); }} />
             </React.Fragment>
           );
         })}
@@ -1856,6 +1867,27 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
             <Zap className="h-3 w-3" /> Plantillas
           </button>
         </div>
+
+        {/* Barra de cita (reply-to) */}
+        {replyTo && (
+          <div className="flex items-center gap-2 px-3 py-2 border-t border-border bg-brand-500/5">
+            <div className="w-1 h-8 bg-brand-500 rounded-full shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] font-bold text-brand-500">
+                Respondiendo a {replyTo.authorName || "Cliente"}
+              </p>
+              <p className="text-xs text-muted-foreground truncate">
+                {replyTo.content?.slice(0, 80) || "Archivo adjunto"}
+              </p>
+            </div>
+            <button
+              onClick={() => setReplyTo(null)}
+              className="p-1 rounded-lg hover:bg-muted text-muted-foreground"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
 
         <div className="flex items-end gap-2 p-2">
           {/* Adjuntar archivo */}
@@ -2206,12 +2238,13 @@ function MediaPreview({ url, type, name, onImageClick }: { url: string; type?: s
   );
 }
 
-function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate }: { 
+function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onReply }: { 
   m: UnifiedMessage; 
   clienteName: string; 
   onImageClick?: (url: string) => void;
   agentEmail: string | null;
   onMessageUpdate?: (historyType: "histcliente" | "histtecnico", originalIndex: number, fieldsToUpdate: any) => void;
+  onReply?: (m: UnifiedMessage) => void;
 }) {
   const isCliente = m.source === "user";
   const isIA = m.source === "assistant";
@@ -2305,10 +2338,17 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate }: {
         body: JSON.stringify({ deleteType, author: agentEmail, historyType: m.historyType })
       });
       if (!res.ok) {
-        // En caso de error, podríamos revertir o notificar
+        const errData = await res.json().catch(() => ({}));
+        console.error("[Bubble] Delete API error:", res.status, errData);
+        toast.error("Error al eliminar", { description: errData.error || `HTTP ${res.status}` });
+      } else {
+        if (deleteType === "for_everyone") {
+          toast.success("Mensaje eliminado para todos");
+        }
       }
     } catch (e) {
       console.error("Error al eliminar mensaje:", e);
+      toast.error("Error de red al eliminar");
     }
   };
 
@@ -2358,6 +2398,21 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate }: {
         </div>
 
         {m.mediaUrl && <MediaPreview url={m.mediaUrl} type={m.mediaType} name={m.fileName} onImageClick={onImageClick} />}
+        
+        {/* Cita (reply-to) */}
+        {m.replyTo && (
+          <div className={cn(
+            "mb-1.5 px-2 py-1 rounded-lg border-l-2 text-xs",
+            isCliente ? "bg-muted/50 border-muted-foreground/40" : "bg-white/10 border-white/40"
+          )}>
+            <p className={cn("font-semibold text-[10px]", isCliente ? "text-muted-foreground" : "text-white/70")}>
+              {m.replyTo.author}
+            </p>
+            <p className={cn("truncate", isCliente ? "text-muted-foreground" : "text-white/60")}>
+              {m.replyTo.content}
+            </p>
+          </div>
+        )}
         
         {/* Contenido con detección de [SUGERENCIAS] */}
         <div className="text-sm leading-relaxed whitespace-pre-wrap break-words mt-1" suppressHydrationWarning>
@@ -2472,6 +2527,15 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate }: {
           "absolute top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10",
           isCliente ? "left-full ml-2" : "right-full mr-2"
         )}>
+          {onReply && (
+            <button
+              onClick={() => onReply(m)}
+              className="p-1.5 rounded-full bg-card border border-border shadow-sm hover:bg-muted"
+              title="Responder"
+            >
+              <Send className="h-3.5 w-3.5" />
+            </button>
+          )}
           <button
             onClick={() => setShowEmojiPicker(!showEmojiPicker)}
             className="p-1.5 rounded-full bg-card border border-border shadow-sm hover:bg-muted"

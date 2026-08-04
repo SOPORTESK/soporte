@@ -1188,9 +1188,23 @@ export async function POST(req: NextRequest) {
   const now = new Date().toISOString();
   // time = hora de WhatsApp (msgTime), no la de recepción, para que el orden
   // en el chat coincida con el de la app.
+  // Extraer cita (reply) del mensaje de WhatsApp si existe
+  let replyTo: { content: string; author: string } | null = null;
+  try {
+    const msgObj = get(payload, "data.messages.0.message") || get(payload, "data.message") || get(payload, "message") || {};
+    const ctx = msgObj?.extendedTextMessage?.contextInfo || msgObj?.contextInfo;
+    if (ctx?.quotedMessage) {
+      const qm = ctx.quotedMessage;
+      const quotedText = qm.conversation || qm.extendedTextMessage?.text || qm.imageMessage?.caption || qm.videoMessage?.caption || "";
+      if (quotedText) {
+        replyTo = { content: quotedText.slice(0, 200), author: ctx.participant || "Cliente" };
+      }
+    }
+  } catch {}
+
   const entry = isOutgoing
-    ? { role: "tecnico", time: msgTime, content: text || "", author: "Soporte Sekunet", mediaUrl, mediaType: finalMediaType, fileName, messageId: keyId, fromMe: true } as any
-    : { role: "user", time: msgTime, content: text || "", mediaUrl, mediaType: finalMediaType, fileName, messageId: keyId, fromMe: false } as any;
+    ? { role: "tecnico", time: msgTime, content: text || "", author: "Soporte Sekunet", mediaUrl, mediaType: finalMediaType, fileName, messageId: keyId, fromMe: true, ...(replyTo ? { replyTo } : {}) } as any
+    : { role: "user", time: msgTime, content: text || "", mediaUrl, mediaType: finalMediaType, fileName, messageId: keyId, fromMe: false, ...(replyTo ? { replyTo } : {}) } as any;
 
   console.log("[evo-webhook] Paso 6: buscando casos recientes...");
   try {
