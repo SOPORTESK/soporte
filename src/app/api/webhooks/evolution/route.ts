@@ -685,8 +685,9 @@ export async function POST(req: NextRequest) {
   const EVO_INSTANCE = evoCfg.instance;
   console.log("[evo-webhook] Paso 1 OK - Evo config:", { url: EVO_URL, instance: EVO_INSTANCE, keyPresente: !!EVO_KEY });
 
-  // Cargar settings del flow (delays configurables)
+  // Cargar settings del flow (delays configurables) y nodos para encuesta
   let flowSettings: { typingDelayMs?: number; betweenMessagesDelayMs?: number } | undefined;
+  let flowNodes: any[] = [];
   try {
     const supabaseForFlow = createServiceClient();
     const { data: flowRow } = await supabaseForFlow
@@ -697,6 +698,9 @@ export async function POST(req: NextRequest) {
     if (flowRow?.flow_data?.settings) {
       flowSettings = flowRow.flow_data.settings;
       console.log("[evo-webhook] Flow settings cargados:", flowSettings);
+    }
+    if (flowRow?.flow_data?.nodes) {
+      flowNodes = flowRow.flow_data.nodes;
     }
   } catch (e: any) {
     console.warn("[evo-webhook] No se pudieron cargar flow settings:", e.message);
@@ -1198,7 +1202,7 @@ export async function POST(req: NextRequest) {
       };
 
       // 1. Buscar primero un caso ACTIVO (no cerrado/resuelto)
-      const ACTIVE_STATES = ["ia_atendiendo", "pendiente", "escalado", "abierto"];
+      const ACTIVE_STATES = ["ia_atendiendo", "pendiente", "escalado", "abierto", "calificacion_pendiente"];
       existing = openCases.find((c: any) => ACTIVE_STATES.includes(c.estado) && matchesPhone(c)) || null;
 
       // 2. Si no hay caso activo, NO reabrir el cerrado — se crea un caso nuevo.
@@ -1333,8 +1337,86 @@ export async function POST(req: NextRequest) {
               console.error(`[evo-webhook] Error actualizando estado del caso ${existing.id}:`, updErr);
             }
           }
+          // ── ENCUESTA: interceptar respuestas de calificación antes de IA ──
+          if (currentEstado === "calificacion_pendiente") {
+            console.log(`[evo-webhook] Caso ${existing.id} en calificacion_pendiente — interceptando respuesta de encuesta`);
+            const findFlowMsg = (nodeId: string, fallback: string) => {
+              const node = flowNodes.find((n: any) => n.id === nodeId);
+              return node?.data?.message || fallback;
+            };
+
+            const rating = parseInt((text || "").trim());
+            let reply: string;
+            let newEstado: string;
+
+            if (rating >= 1 && rating <= 5) {
+              reply = findFlowMsg("agradecer_calificacion", "Gracias por su calificación. Que tenga un excelente día.");
+              newEstado = "cerrado";
+            } else {
+              reply = findFlowMsg("calificacion_invalida", "No reconocí una calificación válida. Por favor, responda con un número del 1 al 5.");
+              newEstado = "calificacion_pendiente";
+            }
+
+            // Enviar respuesta por WhatsApp
+            await sendWhatsAppText(phone || jid || "", reply, evoCfg, 800);
+
+            // Guardar respuesta en histtecnico (atómico)
+            const replyEntry = {
+              role: "ia",
+              author: "Asistente Sekunet",
+              time: new Date().toISOString(),
+              content: reply,
+            };
+            await supabase.rpc("sek_append_hist", {
+              p_case_id: String(existing.id),
+              p_entry: replyEntry,
+              p_col: "histtecnico",
+              p_preview: (reply || "").slice(0, 200),
+              p_customer_phone: jid,
+            });
+
+            // Actualizar estado + calificación
+            const stateUpdates: Record<string, unknown> = {
+              estado: newEstado,
+              last_message_at: now,
+            };
+
+            if (newEstado === "cerrado") {
+              stateUpdates.closed_at = new Date().toISOString();
+              const currentCliente = (existing.cliente && typeof existing.cliente === "object") ? existing.cliente as Record<string, unknown> : {};
+              stateUpdates.cliente = {
+                ...currentCliente,
+                calificacion_cliente: rating,
+                fecha_calificacion_cliente: new Date().toISOString(),
+              };
+            }
+
+            await supabase.from("sek_cases").update(stateUpdates).eq("id", existing.id);
+
+            console.log(`[evo-webhook] Encuesta procesada: caso ${existing.id}, rating=${rating}, estado=${newEstado}`);
+
+            if (newEstado === "cerrado") {
+              try {
+                await fetch(`${SUPABASE_URL}/functions/v1/learn-case`, {
+                  method: "POST",
+                  headers: { "Authorization": `Bearer ${SERVICE_KEY}`, "Content-Type": "application/json" },
+                  body: JSON.stringify({ case_id: existing.id }),
+                });
+              } catch {}
+              try {
+                await fetch(`${SUPABASE_URL}/functions/v1/send-transcript`, {
+                  method: "POST",
+                  headers: { "Authorization": `Bearer ${SERVICE_KEY}`, "Content-Type": "application/json" },
+                  body: JSON.stringify({ case_id: existing.id }),
+                });
+              } catch {}
+            }
+
+            return NextResponse.json({ ok: true, survey: true, rating: rating >= 1 && rating <= 5 ? rating : null });
+          }
+
           // Estados donde la IA NUNCA debe actuar: escalado, ya tomado por humano, o cerrado
-          const skipIAStates = ["escalado", "abierto", "cerrado", "resuelto"];
+          const skipIAStates = ["escalado", "abierto", "cerrado", "resuelto", "calificacion_pendiente"];
           if (skipIAStates.includes(currentEstado)) {
             console.log(`[evo-webhook] Caso ${existing.id} en estado "${currentEstado}" — no se invoca IA, esperando agente humano.`);
           }

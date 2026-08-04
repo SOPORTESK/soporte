@@ -18,8 +18,11 @@ export default async function SmartInboxPage({ searchParams }: { searchParams: {
 
   if (error) console.error("[smart-inbox] sek_cases error:", error.message);
 
-  // Smart Inbox: SOLO casos nuevos que la IA está atendiendo
-  const smartCases = (allCases || []).filter(c => String(c.estado || "").toLowerCase() === "ia_atendiendo");
+  // Smart Inbox: casos nuevos que la IA está atendiendo + casos en encuesta de calificación
+  const smartCases = (allCases || []).filter(c => {
+    const e = String(c.estado || "").toLowerCase();
+    return e === "ia_atendiendo" || e === "calificacion_pendiente";
+  });
 
   const selectedId = searchParams.c ?? null;
 

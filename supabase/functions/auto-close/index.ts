@@ -6,6 +6,17 @@ const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
 const INACTIVITY_MINUTES_DEFAULT = 10;   // canales humanos (whatsapp, etc.)
 const INACTIVITY_MINUTES_IA = 10;        // widget atendido por IA — mismo umbral que manual
 const CLOSE_MSG = "Al no haber recibido respuesta, procederemos a cerrar esta conversación. Si necesita asistencia adicional, puede contactarnos nuevamente y con gusto le atenderemos. ¡Que tenga un excelente día!";
+const SURVEY_TIMEOUT_MINUTES = 30; // Cerrar encuesta sin respuesta después de 30 min
+
+// Leer mensaje de un nodo del flow config activo
+async function getFlowMessage(nodeId: string, fallback: string): Promise<string> {
+  try {
+    const { data: flowRow } = await db.from("sek_flow_configs").select("flow_data").limit(1).maybeSingle();
+    const nodes = flowRow?.flow_data?.nodes || [];
+    const node = nodes.find((n: any) => n.id === nodeId);
+    return node?.data?.message || fallback;
+  } catch { return fallback; }
+}
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
 
@@ -152,7 +163,7 @@ Deno.serve(async (req) => {
     .select("id, canal, estado, histcliente, histtecnico, created_at, assigned_to, customer_phone, cliente, auto_close_paused, tags")
     // Solo cerrar casos atendidos por IA (smart) o por un técnico humano (abierto).
     // NUNCA cerrar casos escalados: el cliente está esperando que un humano lo atienda.
-    .in("estado", ["ia_atendiendo", "abierto"])
+    .in("estado", ["ia_atendiendo", "abierto", "calificacion_pendiente"])
     .neq("canal", "simulator")
     .neq("es_test", true)
     .order("created_at", { ascending: true })
@@ -171,8 +182,8 @@ Deno.serve(async (req) => {
   let closed = 0;
 
   for (const caso of casos) {
-    // PROTECCIÓN: no cerrar si está pausado manualmente
-    if (caso.auto_close_paused) {
+    // PROTECCIÓN: no cerrar si está pausado manualmente (excepto calificacion_pendiente en timeout)
+    if (caso.auto_close_paused && caso.estado !== "calificacion_pendiente") {
       console.log(`[auto-close] Caso ${caso.id} tiene auto_close_paused=true, saltando`);
       continue;
     }
@@ -182,6 +193,44 @@ Deno.serve(async (req) => {
     const casoTags: string[] = Array.isArray(caso.tags) ? caso.tags : [];
     if (casoTags.some((t: string) => ["saliente", "re-open"].includes(String(t).toLowerCase()))) {
       console.log(`[auto-close] Caso ${caso.id} tiene tag protegido (${casoTags.join(",")}), saltando`);
+      continue;
+    }
+
+    // ── CALIFICACION_PENDIENTE: timeout de encuesta ──
+    // Si el caso lleva demasiado tiempo en calificacion_pendiente sin respuesta del cliente,
+    // cerrarlo directamente. El cliente tuvo su oportunidad de calificar.
+    if (caso.estado === "calificacion_pendiente") {
+      const lastAgentMsg = (caso.histtecnico ?? []).filter((m: any) => m?.time && m?.role !== "nota");
+      const lastAgentTime = lastAgentMsg.length > 0
+        ? Math.max(...lastAgentMsg.map((m: any) => new Date(m.time).getTime()))
+        : new Date(caso.created_at).getTime();
+      const surveyElapsed = now - lastAgentTime;
+      if (surveyElapsed < SURVEY_TIMEOUT_MINUTES * 60 * 1000) {
+        console.log(`[auto-close] Caso ${caso.id} en calificacion_pendiente (${Math.round(surveyElapsed/60000)} min), esperando respuesta del cliente`);
+        continue;
+      }
+      console.log(`[auto-close] Caso ${caso.id} en calificacion_pendiente por ${Math.round(surveyElapsed/60000)} min → cerrando sin calificación`);
+      const { data: timeoutUpdated } = await db.from("sek_cases")
+        .update({ estado: "cerrado", closed_at: new Date().toISOString() })
+        .eq("id", caso.id)
+        .eq("estado", "calificacion_pendiente")
+        .select("id");
+      if (timeoutUpdated && timeoutUpdated.length > 0) {
+        closed++;
+        learnFromCase(caso).catch(() => {});
+        fetch(`${SUPABASE_URL}/functions/v1/learn-case`, {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${SERVICE_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ case_id: caso.id }),
+        }).catch(() => {});
+        try {
+          await fetch(`${SUPABASE_URL}/functions/v1/send-transcript`, {
+            method: "POST",
+            headers: { "Authorization": `Bearer ${SERVICE_KEY}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ case_id: caso.id }),
+          });
+        } catch (e) { console.error("[auto-close] transcript email error:", e); }
+      }
       continue;
     }
 
@@ -237,19 +286,65 @@ Deno.serve(async (req) => {
     const elapsed = now - lastAgentTime;
     if (elapsed < threshold) continue;
 
-    // Verificar que el caso siga abierto justo antes de cerrar (evita doble cierre en race condition)
-    const { data: check } = await db.from("sek_cases").select("estado").eq("id", caso.id).maybeSingle();
-    if (!check || check.estado === "cerrado" || check.estado === "resuelto" || check.estado === "escalado") continue;
-
-    // SI EL CANAL ES WHATSAPP, resolver teléfono primero
+    // ACTUALIZAR LA BD PRIMERO (atómico con condición de estado) para evitar race condition.
+    // Si otro proceso ya lo cerró, el update afectará 0 filas y no enviamos nada.
     const canalLower = String(caso.canal || "").toLowerCase().trim();
     const clienteObj = typeof caso.cliente === "object" ? caso.cliente : {};
     const realPhone = clienteObj?.telefono_real || clienteObj?.telefono || caso.customer_phone || "";
 
     console.log(`[auto-close] Caso ${caso.id} - Canal: '${canalLower}', customer_phone: ${caso.customer_phone || "SIN"}, telefono_real: ${clienteObj?.telefono_real || "SIN"}, resolved: ${realPhone || "SIN"}`);
 
-    // ACTUALIZAR LA BD PRIMERO (atómico con condición de estado) para evitar race condition.
-    // Si otro proceso ya lo cerró, el update afectará 0 filas y no enviamos nada.
+    // Para WhatsApp: enviar encuesta en lugar de cerrar directamente
+    if (canalLower === "whatsapp") {
+      const surveyMsg = await getFlowMessage("pedir_calificacion", "¿Cómo calificaría la atención recibida? Responda con un número del 1 al 5, donde 1 es muy mala y 5 es excelente.");
+      const surveyEntry = {
+        role: "ia",
+        content: surveyMsg,
+        time: new Date().toISOString(),
+        author: "Asistente Sekunet",
+      };
+      const newHistSurvey = [...(caso.histtecnico ?? []), surveyEntry];
+
+      const { data: surveyUpdated, error: surveyErr } = await db
+        .from("sek_cases")
+        .update({ estado: "calificacion_pendiente", histtecnico: newHistSurvey, last_message_at: new Date().toISOString(), last_message_preview: surveyMsg.slice(0, 200) })
+        .eq("id", caso.id)
+        .not("estado", "in", '("cerrado","resuelto","calificacion_pendiente")')
+        .select("id");
+
+      if (surveyErr) {
+        console.error("[auto-close] Error iniciando encuesta", caso.id, surveyErr.message);
+        continue;
+      }
+      if (!surveyUpdated || surveyUpdated.length === 0) {
+        console.log(`[auto-close] Caso ${caso.id} ya fue procesado por otro proceso, saltando`);
+        continue;
+      }
+
+      if (realPhone) {
+        console.log(`[auto-close] Enviando encuesta por WhatsApp a ${realPhone}`);
+        const msgId = await sendViaEvolution(realPhone, surveyMsg);
+        if (msgId) {
+          const { data: latest } = await db.from("sek_cases").select("histtecnico").eq("id", caso.id).maybeSingle();
+          if (latest && latest.histtecnico) {
+            const h = latest.histtecnico;
+            if (h.length > 0) {
+              h[h.length - 1].messageId = msgId;
+              h[h.length - 1].fromMe = true;
+              await db.from("sek_cases").update({ histtecnico: h }).eq("id", caso.id);
+            }
+          }
+        }
+      } else {
+        console.error(`[auto-close] Caso ${caso.id} es WhatsApp pero NO tiene teléfono real!`);
+      }
+
+      console.log(`[auto-close] Caso ${caso.id} → calificacion_pendiente (encuesta enviada)`);
+      closed++;
+      continue;
+    }
+
+    // Para canales no-WhatsApp: cierre directo con CLOSE_MSG
     const closeEntry = {
       role: "tecnico",
       content: CLOSE_MSG,
@@ -277,28 +372,8 @@ Deno.serve(async (req) => {
     }
 
     // Solo llegar aquí si somos el proceso que realmente cerró el caso
-    let msgId: string | null = null;
-    if (canalLower === "whatsapp" && realPhone) {
-      console.log(`[auto-close] Enviando mensaje de cierre por WhatsApp a ${realPhone}`);
-      msgId = await sendViaEvolution(realPhone, CLOSE_MSG);
-    } else if (canalLower !== "whatsapp") {
-      console.log(`[auto-close] Caso ${caso.id} no es WhatsApp (canal='${canalLower}'), no se envía mensaje real`);
-    } else if (!realPhone) {
-      console.error(`[auto-close] Caso ${caso.id} es WhatsApp pero NO tiene teléfono real!`);
-    }
-
-    // Si Evolution devolvió un messageId, actualizar histtecnico con él
-    if (msgId) {
-      const { data: latest } = await db.from("sek_cases").select("histtecnico").eq("id", caso.id).maybeSingle();
-      if (latest && latest.histtecnico) {
-        const h = latest.histtecnico;
-        if (h.length > 0) {
-          h[h.length - 1].messageId = msgId;
-          h[h.length - 1].fromMe = true;
-          await db.from("sek_cases").update({ histtecnico: h }).eq("id", caso.id);
-        }
-      }
-    }
+    // (WhatsApp cases are handled above in the survey block)
+    console.log(`[auto-close] Caso ${caso.id} no es WhatsApp (canal='${canalLower}'), cerrado sin mensaje.`);
 
     // Aprendizaje: generar resumen antes de pasar al siguiente caso
     learnFromCase(caso).catch(() => {});

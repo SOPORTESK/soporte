@@ -14,9 +14,12 @@ function filterCasesByContainer(cases: SekCase[], containerType: string | undefi
   // Filtrar casos de prueba — NUNCA deben aparecer en bandejas reales
   cases = cases.filter(c => !(c as any).es_test);
 
-  // Smart Inbox: SOLO casos nuevos que la IA está atendiendo (visibles por todos, no editables)
+  // Smart Inbox: casos nuevos que la IA está atendiendo + casos en encuesta de calificación
   if (containerType === "smart-inbox") {
-    return cases.filter(c => String(c.estado || "").toLowerCase() === "ia_atendiendo");
+    return cases.filter(c => {
+      const e = String(c.estado || "").toLowerCase();
+      return e === "ia_atendiendo" || e === "calificacion_pendiente";
+    });
   }
 
   // Soporte Avanzado: casos escalados por la IA que aún NO ha tomado ningún agente

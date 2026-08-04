@@ -1708,8 +1708,14 @@ Deno.serve(async (req) => {
         updates.tags = [...currentTags, "n2"];
       }
     } else if (shouldClose) {
-      updates.estado = "cerrado";
-      updates.resolucion = aiResponse.replace(/\s+/g, " ").trim().substring(0, 500);
+      // WhatsApp: iniciar encuesta en lugar de cerrar directamente
+      if (caso.canal === "whatsapp") {
+        updates.estado = "calificacion_pendiente";
+        updates.resolucion = aiResponse.replace(/\s+/g, " ").trim().substring(0, 500);
+      } else {
+        updates.estado = "cerrado";
+        updates.resolucion = aiResponse.replace(/\s+/g, " ").trim().substring(0, 500);
+      }
     }
 
     await db.from("sek_cases").update(updates).eq("id", case_id);
@@ -1723,8 +1729,32 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Si es WhatsApp y shouldClose: enviar encuesta de calificación al cliente
+    if (shouldClose && caso.canal === "whatsapp") {
+      try {
+        const { data: flowRow } = await db.from("sek_flow_configs").select("flow_data").limit(1).maybeSingle();
+        const nodes = flowRow?.flow_data?.nodes || [];
+        const surveyNode = nodes.find((n: any) => n.id === "pedir_calificacion");
+        const surveyMsg = surveyNode?.data?.message || "¿Cómo calificaría la atención recibida? Responda con un número del 1 al 5, donde 1 es muy mala y 5 es excelente.";
+
+        const phone = caso.customer_phone || (typeof caso.cliente === "object" ? caso.cliente?.telefono : null);
+        if (phone) {
+          await sendViaEvolution(phone, surveyMsg);
+          // Guardar mensaje de encuesta en histtecnico
+          const { data: latestCase } = await db.from("sek_cases").select("histtecnico").eq("id", case_id).maybeSingle();
+          const ht = Array.isArray(latestCase?.histtecnico) ? latestCase.histtecnico : [];
+          const surveyEntry = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: surveyMsg };
+          await db.from("sek_cases").update({ histtecnico: [...ht, surveyEntry] }).eq("id", case_id);
+          console.log(`[ia-agent] Encuesta enviada para caso ${case_id}`);
+        }
+      } catch (e: any) {
+        console.error("[ia-agent] Error enviando encuesta:", e.message);
+      }
+    }
+
     // Aprendizaje automático: al cerrar o escalar, el Asistente Virtual genera un resumen y lo guarda en RAG
-    if (shouldClose || shouldEscalate) {
+    // Para WhatsApp close, el aprendizaje se hace cuando el caso se cierre definitivamente (después de la encuesta)
+    if ((shouldClose && caso.canal !== "whatsapp") || shouldEscalate) {
       // No bloqueante — se ejecuta en background sin afectar la respuesta al cliente
       learnFromConversation(caso, updatedHist).catch(() => {});
 

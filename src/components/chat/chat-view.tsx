@@ -214,6 +214,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       if (!baseCase._group) return baseCase.estado;
       if (sorted.some(c => String(c.estado || "").toLowerCase() === "escalado")) return "escalado";
       if (sorted.some(c => String(c.estado || "").toLowerCase() === "ia_atendiendo")) return "ia_atendiendo";
+      if (sorted.some(c => String(c.estado || "").toLowerCase() === "calificacion_pendiente")) return "calificacion_pendiente";
       if (sorted.some(c => {
         const e = String(c.estado || "").toLowerCase();
         return e !== "cerrado" && e !== "resuelto";
@@ -516,7 +517,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   React.useEffect(() => {
     const curr = (sekCase.estado || "").toLowerCase();
     const prev = prevEstadoRef.current.toLowerCase();
-    const isFinal = (s: string) => s === "cerrado" || s === "resuelto";
+    const isFinal = (s: string) => s === "cerrado" || s === "resuelto" || s === "calificacion_pendiente";
 
     // prev === "" → carga inicial, no disparar
     // Solo disparar si cambió de un estado no-final a final durante esta sesión
@@ -994,46 +995,100 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       const autoResolucion = agentMsgs.join(" | ").slice(0, 500) || null;
       const autoProblema = (sekCase as any).problema || null;
 
-      const { error } = await supabase
-        .from("sek_cases")
-        .update({ 
-          estado: "cerrado",
-          cliente: updatedCliente,
-          closed_at: new Date().toISOString(),
-          ...(autoProblema ? { problema: autoProblema } : {}),
-          ...(autoResolucion ? { resolucion: autoResolucion } : {}),
-        })
-        .eq("id", targetId);
+      const isWhatsApp = String(sekCase.canal || "").toLowerCase() === "whatsapp";
+      const alreadySurveying = String(sekCase.estado || "").toLowerCase() === "calificacion_pendiente";
 
-      if (error) throw error;
+      if (isWhatsApp && !alreadySurveying) {
+        // WhatsApp manual close: guardar calificación del agente, luego iniciar encuesta
+        const { error } = await supabase
+          .from("sek_cases")
+          .update({
+            cliente: updatedCliente,
+            ...(autoProblema ? { problema: autoProblema } : {}),
+            ...(autoResolucion ? { resolucion: autoResolucion } : {}),
+          })
+          .eq("id", targetId);
 
-      // Auto-extraer tema/marca/modelo con IA si el bot está OFF
-      fetch(`/api/cases/${targetId}/auto-extract`, { method: "POST" }).catch(() => {});
+        if (error) throw error;
 
-      modalShownRef.current = true;
-      prevEstadoRef.current = "cerrado";
-      setSekCase(prev => ({ ...prev, estado: "cerrado", cliente: updatedCliente }));
-      toast.success("Caso cerrado y cliente calificado");
-      setShowRatingModal(false);
-      fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online" }) });
+        fetch(`/api/cases/${targetId}/auto-extract`, { method: "POST" }).catch(() => {});
 
-      // Bloqueo progresivo: calificación < 2 → incrementar contador, bloquear al 5to
-      if (clientRating < 2) {
-        const cedula = (sekCase.cliente as any)?.cedula;
-        if (cedula) {
-          fetch("/api/widget/bloqueo-check", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ cedula, incrementar: true }),
-          }).catch(() => {});
+        // Iniciar encuesta: envía mensaje al cliente y cambia estado a calificacion_pendiente
+        await fetch(`/api/cases/${targetId}/start-survey`, { method: "POST" });
+
+        modalShownRef.current = true;
+        prevEstadoRef.current = "calificacion_pendiente";
+        setSekCase(prev => ({ ...prev, estado: "calificacion_pendiente", cliente: updatedCliente }));
+        toast.success("Encuesta enviada al cliente por WhatsApp");
+        setShowRatingModal(false);
+        fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online" }) });
+
+        if (clientRating < 2) {
+          const cedula = (sekCase.cliente as any)?.cedula;
+          if (cedula) {
+            fetch("/api/widget/bloqueo-check", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ cedula, incrementar: true }),
+            }).catch(() => {});
+          }
         }
+      } else if (isWhatsApp && alreadySurveying) {
+        // Caso ya en calificacion_pendiente (auto-close/ia-agent): solo guardar calificación del agente
+        const { error } = await supabase
+          .from("sek_cases")
+          .update({
+            cliente: updatedCliente,
+            ...(autoProblema ? { problema: autoProblema } : {}),
+            ...(autoResolucion ? { resolucion: autoResolucion } : {}),
+          })
+          .eq("id", targetId);
+
+        if (error) throw error;
+
+        modalShownRef.current = true;
+        setSekCase(prev => ({ ...prev, cliente: updatedCliente }));
+        toast.success("Calificación del agente guardada");
+        setShowRatingModal(false);
+        fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online" }) });
+      } else {
+        // No-WhatsApp: cierre directo como antes
+        const { error } = await supabase
+          .from("sek_cases")
+          .update({
+            estado: "cerrado",
+            cliente: updatedCliente,
+            closed_at: new Date().toISOString(),
+            ...(autoProblema ? { problema: autoProblema } : {}),
+            ...(autoResolucion ? { resolucion: autoResolucion } : {}),
+          })
+          .eq("id", targetId);
+
+        if (error) throw error;
+
+        fetch(`/api/cases/${targetId}/auto-extract`, { method: "POST" }).catch(() => {});
+
+        modalShownRef.current = true;
+        prevEstadoRef.current = "cerrado";
+        setSekCase(prev => ({ ...prev, estado: "cerrado", cliente: updatedCliente }));
+        toast.success("Caso cerrado y cliente calificado");
+        setShowRatingModal(false);
+        fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online" }) });
+
+        if (clientRating < 2) {
+          const cedula = (sekCase.cliente as any)?.cedula;
+          if (cedula) {
+            fetch("/api/widget/bloqueo-check", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ cedula, incrementar: true }),
+            }).catch(() => {});
+          }
+        }
+
+        supabase.functions.invoke("send-transcript", { body: { case_id: targetId } }).catch(() => {});
+        supabase.functions.invoke("learn-case", { body: { case_id: targetId } }).catch(() => {});
       }
-
-      // Enviar transcripción si aplica
-      supabase.functions.invoke("send-transcript", { body: { case_id: targetId } }).catch(() => {});
-
-      // REGLA INMUTABLE #2 — aprendizaje obligatorio al cerrar el caso
-      supabase.functions.invoke("learn-case", { body: { case_id: targetId } }).catch(() => {});
     } catch (e: any) {
       toast.error("Error al cerrar caso", { description: e.message });
     } finally {
@@ -1057,7 +1112,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   const ci = clienteInfo(sekCase.cliente);
   const display = ci.nombre || ci.telefono || asText(sekCase.title) || "Cliente";
   const estadoLower = String(sekCase.estado || "").toLowerCase();
-  const cerrado = estadoLower === "cerrado" || estadoLower === "resuelto";
+  const cerrado = estadoLower === "cerrado" || estadoLower === "resuelto" || estadoLower === "calificacion_pendiente";
   const iaAtendiendo = estadoLower === "ia_atendiendo";
   const isEscalado = estadoLower === "escalado";
 

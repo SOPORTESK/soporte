@@ -437,7 +437,7 @@ export async function POST(req: NextRequest) {
         if (rating >= 1 && rating <= 5) {
           const { data: casoData } = await supabase.from("sek_cases").select("cliente").eq("id", case_id).maybeSingle();
           const cli = casoData?.cliente || {};
-          updates.cliente = { ...cli, calificacion: rating };
+          updates.cliente = { ...cli, calificacion_cliente: rating, fecha_calificacion_cliente: new Date().toISOString() };
         }
 
         await supabase.from("sek_cases").update(updates).eq("id", case_id);
