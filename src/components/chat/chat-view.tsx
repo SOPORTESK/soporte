@@ -1190,7 +1190,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       // Enviar mensaje de bienvenida automático para casos WhatsApp
       const isWhatsApp = String(sekCase.canal || "").toLowerCase() === "whatsapp";
       if (isWhatsApp && agentName) {
-        const welcomeMsg = `Buen día. Gracias por contactarnos.\n\nMi nombre es ${agentName} y con gusto le asistiré con su caso.\n\n${agentName}\nPara el registro, por favor facilítenos su:\n\nNombre completo\nCorreo electrónico\nNombre de la cuenta afiliada a Sekunet.\n\nQuedamos atentos. Gracias.`;
+        const welcomeMsg = `Buen día. Gracias por contactarnos.\n\nMi nombre es ${agentName} y con gusto le asistiré con su caso.\n\nPara el registro, por favor facilítenos su:\n\nNombre completo\nCorreo electrónico\nNombre de la cuenta afiliada a Sekunet.\n\nQuedamos atentos. Gracias.`;
 
         // Guardar mensaje en histtecnico
         const baseHist = Array.isArray(sekCase.histtecnico) ? sekCase.histtecnico : [];
