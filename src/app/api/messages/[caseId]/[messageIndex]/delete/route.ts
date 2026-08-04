@@ -84,6 +84,7 @@ export async function POST(
 
     if (isWhatsApp && messageId && to) {
       const evoCfg = await getEvolutionConfig();
+      const fromMe = (messageObj as any).fromMe ?? (historyType === "histtecnico");
 
       if (evoCfg?.url && evoCfg?.apiKey && evoCfg?.instance) {
         const targetJid = to.includes("@") ? to : `${to.replace(/[^0-9]/g, "")}@s.whatsapp.net`;
@@ -91,7 +92,7 @@ export async function POST(
           console.log("[DELETE MSG API] Revocando mensaje en WhatsApp via Evolution API", {
             to: targetJid,
             messageId,
-            fromMe: (messageObj as any).fromMe ?? (historyType === "histtecnico")
+            fromMe
           });
 
           const res = await fetch(`${evoCfg.url.replace(/\/$/, "")}/chat/deleteMessageForEveryone/${encodeURIComponent(evoCfg.instance)}`, {
@@ -101,21 +102,23 @@ export async function POST(
               apikey: evoCfg.apiKey
             },
             body: JSON.stringify({
+              id: messageId,
               remoteJid: targetJid,
-              fromMe: (messageObj as any).fromMe ?? (historyType === "histtecnico"),
-              messageId: messageId,
-              id: messageId
+              fromMe: fromMe,
+              participant: targetJid
             })
           });
 
           const resData = await res.json().catch(() => ({}));
           if (!res.ok) {
             console.error("[DELETE MSG API] Error en respuesta de Evolution:", res.status, resData);
+            return NextResponse.json({ ok: false, error: `Evolution API: ${resData?.message || resData?.error || res.status}` }, { status: 500 });
           } else {
             console.log("[DELETE MSG API] Revocación exitosa en WhatsApp.");
           }
         } catch (evoErr) {
           console.error("[DELETE MSG API] Error conectando con Evolution API para revocar:", evoErr);
+          return NextResponse.json({ ok: false, error: "Error conectando con Evolution API" }, { status: 500 });
         }
       } else {
         console.log("[DELETE MSG API] Evolution config no disponible, omitiendo revocación en WhatsApp");
@@ -139,16 +142,47 @@ export async function POST(
   const updatedHistory = [...history];
   updatedHistory[msgIndex] = updatedMessage as any;
 
-  const { error: updateError } = await supabase
+  // Si es "for_everyone", también buscar y eliminar el mismo mensaje en el otro array
+  // (el mensaje puede existir en histcliente por sincronización del webhook y en histtecnico por el chat)
+  const otherHistoryType = historyType === "histcliente" ? "histtecnico" : "histcliente";
+  const otherHistory = caseData[otherHistoryType] || [];
+  const targetMessageId = (messageObj as any).messageId;
+  let otherUpdated = false;
+  let updatedOtherHistory = otherHistory;
+
+  if (deleteType === "for_everyone" && targetMessageId && Array.isArray(otherHistory)) {
+    const otherIdx = otherHistory.findIndex((e: any) =>
+      typeof e === "object" && e !== null && e.messageId === targetMessageId
+    );
+    if (otherIdx >= 0) {
+      updatedOtherHistory = [...otherHistory];
+      updatedOtherHistory[otherIdx] = { ...otherHistory[otherIdx], deleted: true, content: "" };
+      otherUpdated = true;
+      console.log("[DELETE MSG API] También eliminando copia en", otherHistoryType, "índice", otherIdx);
+    }
+  }
+
+  const updatePayload: Record<string, any> = { [historyType]: updatedHistory };
+  if (otherUpdated) {
+    updatePayload[otherHistoryType] = updatedOtherHistory;
+  }
+
+  const { data: updateData, error: updateError } = await supabase
     .from("sek_cases")
-    .update({ [historyType]: updatedHistory })
-    .eq("id", targetCaseId);
+    .update(updatePayload)
+    .eq("id", targetCaseId)
+    .select("id");
 
   if (updateError) {
     console.error("[DELETE MSG API] Error al actualizar:", updateError);
     return NextResponse.json({ ok: false, error: updateError.message }, { status: 500 });
   }
 
-  console.log("[DELETE MSG API] Mensaje eliminado exitosamente");
+  if (!updateData || updateData.length === 0) {
+    console.error("[DELETE MSG API] No se actualizó ninguna fila - caso no encontrado:", targetCaseId);
+    return NextResponse.json({ ok: false, error: "No se pudo eliminar - caso no encontrado" }, { status: 404 });
+  }
+
+  console.log("[DELETE MSG API] Mensaje eliminado exitosamente en caso:", targetCaseId);
   return NextResponse.json({ ok: true });
 }
