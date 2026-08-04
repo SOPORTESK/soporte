@@ -5,6 +5,7 @@ import { Settings, Server, Clock, Shield, Webhook, Database, Globe, Users, Zap, 
 import { Badge } from "@/components/ui/avatar";
 import type { SekAgent } from "@/lib/types";
 import { IaModeToggle } from "@/components/admin/ia-mode-toggle";
+import { UnattendedModeToggle } from "@/components/admin/unattended-mode-toggle";
 import { EvolutionConfigPanel } from "@/components/admin/evolution-config-panel";
 import { WhatsAppQRConnect } from "@/components/admin/whatsapp-qr-connect";
 
@@ -31,6 +32,13 @@ export default async function AdminSettingsPage() {
     .eq("email", "system_prompt@sekunet.com")
     .maybeSingle();
   const iaActiva = iaConfig?.ia_activa ?? true;
+
+  const { data: unattendedConfig } = await supabase
+    .from("sek_agent_config")
+    .select("modo_no_atendido")
+    .eq("email", "system_prompt@sekunet.com")
+    .maybeSingle();
+  const modoNoAtendido = unattendedConfig?.modo_no_atendido ?? false;
 
   const { count: msgCount } = isSuperadmin
     ? await supabase.from("sek_messages").select("id", { count: "exact", head: true })
@@ -185,6 +193,13 @@ export default async function AdminSettingsPage() {
               ))}
             </div>
           </section>
+
+          {/* Modo No Atendido — solo superadmin */}
+          {isSuperadmin && (
+            <section>
+              <UnattendedModeToggle initialValue={modoNoAtendido} />
+            </section>
+          )}
 
           {/* Evolution WhatsApp */}
           {isAdmin && (

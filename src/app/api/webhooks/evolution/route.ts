@@ -706,6 +706,20 @@ export async function POST(req: NextRequest) {
     console.warn("[evo-webhook] No se pudieron cargar flow settings:", e.message);
   }
 
+  // ── Verificar Modo No Atendido (jerarquía máxima) ──
+  let modoNoAtendido = false;
+  try {
+    const { data: unattendedRow } = await supabase
+      .from("sek_agent_config")
+      .select("modo_no_atendido")
+      .eq("email", "system_prompt@sekunet.com")
+      .maybeSingle();
+    modoNoAtendido = unattendedRow?.modo_no_atendido ?? false;
+    console.log(`[evo-webhook] Modo No Atendido: ${modoNoAtendido ? "ON" : "OFF"}`);
+  } catch (e: any) {
+    console.warn("[evo-webhook] No se pudo verificar modo_no_atendido:", e.message);
+  }
+
   console.log("[evo-webhook] Paso 2: extractText...");
   let text = extractText(payload);
   console.log("[evo-webhook] Paso 2 OK - text:", text?.slice(0, 50));
@@ -1318,6 +1332,13 @@ export async function POST(req: NextRequest) {
         
         console.log("[evo-webhook] Paso 9 OK - mensaje guardado en histcliente");
       }
+
+      // ── Modo No Atendido: mensaje guardado, no procesar nada más ──
+      if (modoNoAtendido) {
+        console.log(`[evo-webhook] Modo No Atendido — mensaje guardado en caso ${existing.id}, sin procesamiento adicional`);
+        return NextResponse.json({ ok: true, unattended: true });
+      }
+
       if (!isOutgoing) {
         console.log("[evo-webhook] Paso 10: preparando envío de respuesta...");
         const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -1356,8 +1377,8 @@ export async function POST(req: NextRequest) {
               reply = findFlowMsg("agradecer_calificacion", "Gracias por su calificación. Que tenga un excelente día.");
               newEstado = "cerrado";
             } else {
-              reply = findFlowMsg("calificacion_invalida", "No reconocí una calificación válida. Por favor, responda con un número del 1 al 5.");
-              newEstado = "calificacion_pendiente";
+              reply = "Esta conversación ha sido finalizada. Si requiere asistencia más adelante, puede comunicarse con nosotros nuevamente. Con gusto le atenderemos.";
+              newEstado = "cerrado";
             }
 
             // Enviar respuesta por WhatsApp
@@ -1532,6 +1553,34 @@ export async function POST(req: NextRequest) {
       };
 
       const hasKnownData = !!(knownClient.nombre || knownClient.correo || knownClient.cuenta);
+
+      // ── Modo No Atendido: crear como escalado, mandar bienvenida, sin IA ──
+      if (modoNoAtendido) {
+        const WELCOME_MSG = "Hola\n\nBienvenido al soporte técnico de Sekunet.\n\nAgradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
+        const welcomeEntry = {
+          role: "ia",
+          author: "Asistente Sekunet",
+          time: new Date().toISOString(),
+          content: WELCOME_MSG,
+        };
+        const { data: newCase } = await supabase.from("sek_cases").insert({
+          canal: "whatsapp",
+          estado: "escalado",
+          prioridad: "media",
+          customer_phone: contactPhone,
+          cliente: clienteData,
+          histcliente: [entry],
+          histtecnico: [welcomeEntry],
+          escalado_at: new Date().toISOString(),
+          title: pushName ? `WhatsApp — ${pushName}` : (knownClient.nombre ? `WhatsApp — ${knownClient.nombre}` : `WhatsApp — ${contactPhone}`),
+          last_message_at: msgTime,
+          last_message_preview: (text || "").slice(0, 200),
+        }).select("id").single();
+
+        console.log(`[evo-webhook] Modo No Atendido — caso ${newCase?.id} creado como escalado, enviando bienvenida`);
+        await sendWhatsAppText(phone || jid || "", WELCOME_MSG, evoCfg, 500);
+        return NextResponse.json({ ok: true, unattended: true });
+      }
 
       const { data: newCase } = await supabase.from("sek_cases").insert({
         canal: "whatsapp",

@@ -1018,6 +1018,18 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
         const surveyRes = await fetch(`/api/cases/${targetId}/start-survey`, { method: "POST" });
         const surveyData = await surveyRes.json().catch(() => ({}));
         console.log("[confirmClose] start-survey response:", surveyRes.status, surveyData);
+
+        // Modo No Atendido: el endpoint cerró el caso sin encuesta
+        if (surveyData?.skipped === "unattended_mode") {
+          modalShownRef.current = true;
+          prevEstadoRef.current = "cerrado";
+          setSekCase(prev => ({ ...prev, estado: "cerrado", cliente: updatedCliente }));
+          toast.success("Caso cerrado");
+          setShowRatingModal(false);
+          fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online" }) });
+          return;
+        }
+
         if (!surveyRes.ok) {
           toast.error("Error al enviar encuesta", { description: surveyData?.error || `HTTP ${surveyRes.status}` });
         }

@@ -27,6 +27,22 @@ export async function POST(
     return NextResponse.json({ skipped: "not_whatsapp", canal }, { status: 200 });
   }
 
+  // ── Modo No Atendido: no enviar encuesta, cerrar caso directamente ──
+  const { data: unattendedRow } = await supabase
+    .from("sek_agent_config")
+    .select("modo_no_atendido")
+    .eq("email", "system_prompt@sekunet.com")
+    .maybeSingle();
+  const modoNoAtendido = unattendedRow?.modo_no_atendido ?? false;
+  if (modoNoAtendido) {
+    console.log("[start-survey] Modo No Atendido ON — cerrando caso sin encuesta");
+    await supabase.from("sek_cases").update({
+      estado: "cerrado",
+      closed_at: new Date().toISOString(),
+    }).eq("id", caseId);
+    return NextResponse.json({ skipped: "unattended_mode", closed: true }, { status: 200 });
+  }
+
   // Resolver teléfono — limpiar sufijos @lid o @s.whatsapp.net
   const clienteObj = typeof caso.cliente === "object" ? caso.cliente as any : {};
   let phone = clienteObj?.telefono_real || clienteObj?.telefono || caso.customer_phone || "";
