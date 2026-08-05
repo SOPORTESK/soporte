@@ -2,6 +2,41 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getEvolutionConfig } from "@/lib/evolution-config";
 
+// Misma prioridad que /api/evolution/send: telefono_real es el número verdadero.
+// customer_phone puede ser un @lid, y WhatsApp no revoca mensajes contra un @lid.
+function pickPhone(c: any): string | null {
+  const cliente = typeof c?.cliente === "object" && c.cliente !== null ? c.cliente : {};
+  const telReal = String(cliente.telefono_real || "").trim();
+  if (telReal) return telReal;
+  const cust = String(c?.customer_phone || "").trim();
+  if (cust) return cust;
+  const tel = String(cliente.telefono || "").trim();
+  return tel || null;
+}
+
+// El messageId lo rellena el webhook al recibir el eco del envío. Si el entry
+// consultado aún no lo tiene, se busca la copia del mismo mensaje en el otro
+// historial (mismo contenido y timestamp cercano).
+function resolveMessageId(messageObj: any, caseData: any, historyType: string): string | null {
+  if (messageObj?.messageId) return messageObj.messageId;
+
+  const otherType = historyType === "histcliente" ? "histtecnico" : "histcliente";
+  const other = Array.isArray(caseData?.[otherType]) ? caseData[otherType] : [];
+  const content = String(messageObj?.content || "").trim();
+  const time = new Date(messageObj?.time || 0).getTime();
+
+  const twin = other.find((e: any) => {
+    if (typeof e !== "object" || e === null || !e.messageId) return false;
+    const sameContent = content && String(e.content || "").trim() === content;
+    const sameMedia = messageObj?.mediaUrl && e.mediaUrl === messageObj.mediaUrl;
+    if (!sameContent && !sameMedia) return false;
+    const diff = Math.abs(new Date(e.time || 0).getTime() - time);
+    return diff < 120000;
+  });
+
+  return twin?.messageId || null;
+}
+
 export async function POST(
   req: NextRequest,
   { params }: { params: { caseId: string; messageIndex: string } }
@@ -79,8 +114,16 @@ export async function POST(
 
     // Sincronizar con WhatsApp si es un canal de WhatsApp y tiene messageId
     const isWhatsApp = String(caseData.canal || "").toLowerCase() === "whatsapp";
-    const messageId = (messageObj as any).messageId;
-    const to = caseData.customer_phone;
+    const messageId = resolveMessageId(messageObj, caseData, historyType);
+    const to = pickPhone(caseData);
+
+    if (isWhatsApp && !messageId) {
+      console.error("[DELETE MSG API] Sin messageId: no se puede revocar en WhatsApp");
+      return NextResponse.json({
+        ok: false,
+        error: "Este mensaje no se puede eliminar en WhatsApp (no tiene identificador de WhatsApp)"
+      }, { status: 409 });
+    }
 
     if (isWhatsApp && messageId && to) {
       const evoCfg = await getEvolutionConfig();
@@ -146,7 +189,7 @@ export async function POST(
   // (el mensaje puede existir en histcliente por sincronización del webhook y en histtecnico por el chat)
   const otherHistoryType = historyType === "histcliente" ? "histtecnico" : "histcliente";
   const otherHistory = caseData[otherHistoryType] || [];
-  const targetMessageId = (messageObj as any).messageId;
+  const targetMessageId = resolveMessageId(messageObj, caseData, historyType);
   let otherUpdated = false;
   let updatedOtherHistory = otherHistory;
 

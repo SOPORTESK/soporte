@@ -626,24 +626,13 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
             fileName: fileName || undefined,
           })
         }).then(async res => {
+          const data = await res.json().catch(() => ({}));
           if (!res.ok) {
-            const data = await res.json().catch(() => ({}));
             toast.error("Error al enviar a WhatsApp", { description: data.error || "Evolution API falló" });
-          } else {
-            const data = await res.json().catch(() => ({}));
-            const msgId = data?.messageId;
-            if (msgId) {
-              // Guardar messageId en el entry de histtecnico para poder revocar después
-              const hist = sekCase.histtecnico || [];
-              const entryIdx = hist.length - 1;
-              if (entryIdx >= 0) {
-                const updatedHist = [...hist];
-                updatedHist[entryIdx] = { ...updatedHist[entryIdx], messageId: msgId };
-                await supabase.from("sek_cases").update({ histtecnico: updatedHist }).eq("id", targetId);
-                setSekCase(prev => ({ ...prev, histtecnico: updatedHist }));
-                setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...m, messageId: msgId } : m));
-              }
-            }
+          } else if (data?.messageId) {
+            // El messageId permite revocar el mensaje después ("eliminar para todos").
+            // Se marca solo en memoria; el webhook lo persiste al recibir el eco del envío.
+            setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...m, messageId: data.messageId } : m));
           }
         }).catch(err => {
           console.error("Fetch evolution/send failed:", err);
@@ -2355,6 +2344,10 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
         const errData = await res.json().catch(() => ({}));
         console.error("[Bubble] Delete API error:", res.status, errData);
         toast.error("Error al eliminar", { description: errData.error || `HTTP ${res.status}` });
+        // Revertir el borrado visual: el mensaje sigue en el teléfono del cliente
+        if (deleteType === "for_everyone" && onMessageUpdate) {
+          onMessageUpdate(m.historyType, m.originalIndex, { deleted: false, content: m.content });
+        }
       } else {
         if (deleteType === "for_everyone") {
           toast.success("Mensaje eliminado para todos");

@@ -7,6 +7,34 @@ export const maxDuration = 60; // Evita el timeout de 10s en Vercel Hobby
 
 const get = (obj: any, path: string) => path.split(".").reduce((o, k) => (o && o[k] !== undefined ? o[k] : undefined), obj);
 
+const MSG_HORARIO = "Gracias por contactarnos.\n\nEn este momento nos encontramos fuera de nuestro horario de atención.\n\nLe invitamos a comunicarse con nosotros en nuestro horario de servicio, de lunes a viernes, de 7:30 a. m. a 5:00 p. m.";
+
+// Horario de atención: lunes a viernes 7:30 a.m. - 5:00 p.m. (Costa Rica, UTC-6).
+// Misma lógica que seka-whatsapp/index.ts para que ambos caminos coincidan.
+function isOpenNowCR(): boolean {
+  const now = new Date();
+  const utcH = now.getUTCHours();
+  const utcM = now.getUTCMinutes();
+  let crH = utcH - 6;
+  if (crH < 0) crH += 24;
+  const crMin = crH * 60 + utcM;
+  let dow = now.getUTCDay();
+  if (crH > utcH) dow = (dow + 6) % 7;
+  if (dow === 0 || dow === 6) return false;
+  return crMin >= 450 && crMin < 1020; // 7:30 = 450, 17:00 = 1020
+}
+
+// El mensaje de fuera de horario es editable desde el editor visual de flujos.
+async function getFueraHorarioMsg(supabase: any): Promise<string> {
+  try {
+    const { data } = await supabase.from("sek_flow_configs").select("flow_data").eq("activo", true).maybeSingle();
+    const node = data?.flow_data?.nodes?.find((n: any) => n.id === "fuera_horario");
+    return node?.data?.message || MSG_HORARIO;
+  } catch {
+    return MSG_HORARIO;
+  }
+}
+
 // Map global para trackear mensajes procesados recientemente (evita duplicados)
 const processedMessages = new Map<string, number>();
 const DUPLICATE_WINDOW_MS = 30000; // 30 segundos
@@ -1567,6 +1595,37 @@ export async function POST(req: NextRequest) {
       };
 
       const hasKnownData = !!(knownClient.nombre || knownClient.correo || knownClient.cuenta);
+
+      // ── Fuera de horario: tiene prioridad sobre el Modo No Atendido ──
+      // Sin esta verificación, un cliente que escribe de madrugada recibía la
+      // bienvenida prometiendo un agente que no está disponible.
+      if (modoNoAtendido && !isOpenNowCR()) {
+        const msgHorario = await getFueraHorarioMsg(supabase);
+        const horarioEntry = {
+          role: "ia",
+          author: "Asistente Sekunet",
+          time: new Date().toISOString(),
+          content: msgHorario,
+        };
+        const nowIso = new Date().toISOString();
+        const { data: newCase } = await supabase.from("sek_cases").insert({
+          canal: "whatsapp",
+          estado: "cerrado",
+          prioridad: "media",
+          customer_phone: contactPhone,
+          cliente: clienteData,
+          histcliente: [entry],
+          histtecnico: [horarioEntry],
+          closed_at: nowIso,
+          title: pushName ? `WhatsApp — ${pushName}` : (knownClient.nombre ? `WhatsApp — ${knownClient.nombre}` : `WhatsApp — ${contactPhone}`),
+          last_message_at: msgTime,
+          last_message_preview: (text || "").slice(0, 200),
+        }).select("id").single();
+
+        console.log(`[evo-webhook] Modo No Atendido + fuera de horario — caso ${newCase?.id} creado cerrado, enviando horario`);
+        await sendWhatsAppText(phone || jid || "", msgHorario, evoCfg, 500);
+        return NextResponse.json({ ok: true, unattended: true, fueraHorario: true });
+      }
 
       // ── Modo No Atendido: crear como escalado, mandar bienvenida, sin IA ──
       if (modoNoAtendido) {
