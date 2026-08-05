@@ -7,7 +7,7 @@ import {
   XCircle, Image as ImageIcon, FileText, Music, Video,
   Download, X, ChevronDown, History, HandMetal, Star, Tag, AlertTriangle,
   Mic, Play, Pause, Square, Smile, Trash2, UserCheck,
-  Info, Copy, Forward, Pin
+  Info, Copy, Forward, Pin, Edit
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Avatar, Badge } from "@/components/ui/avatar";
@@ -40,6 +40,7 @@ type UnifiedMessage = {
   fromMe?: boolean;
   replyTo?: { content: string; author: string } | null;
   transcription?: string;
+  edited?: boolean;
 };
 
 function unifyMessages(c: SekCase): UnifiedMessage[] {
@@ -71,6 +72,7 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
       fromMe: (e as any).fromMe ?? isAgente,
       replyTo: (e as any).replyTo ?? null,
       transcription: (e as any).transcription,
+      edited: (e as any).edited,
     });
   });
 
@@ -97,6 +99,7 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
       fromMe: (e as any).fromMe ?? isNota,
       replyTo: (e as any).replyTo ?? null,
       transcription: (e as any).transcription,
+      edited: (e as any).edited,
     });
   });
 
@@ -2320,6 +2323,9 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
   const [showActionMenu, setShowActionMenu] = React.useState(false);
   const [showInfoModal, setShowInfoModal] = React.useState(false);
   const [showForwardModal, setShowForwardModal] = React.useState(false);
+  const [editing, setEditing] = React.useState(false);
+  const [editText, setEditText] = React.useState("");
+  const [savingEdit, setSavingEdit] = React.useState(false);
   const [transcription, setTranscription] = React.useState<string | undefined>(m.transcription);
   const [transcribing, setTranscribing] = React.useState(false);
 
@@ -2397,6 +2403,38 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
     a.click();
     document.body.removeChild(a);
     setShowActionMenu(false);
+  }
+
+  function startEdit() {
+    setEditText(m.content || "");
+    setEditing(true);
+    setShowActionMenu(false);
+  }
+
+  async function saveEdit() {
+    if (!editText.trim()) { toast.error("El mensaje no puede estar vacío"); return; }
+    if (!m.sourceCaseId || !m.historyType) return;
+    setSavingEdit(true);
+    try {
+      const res = await fetch(`/api/messages/${m.sourceCaseId}/${m.originalIndex}/edit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ historyType: m.historyType, content: editText.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error("No se pudo editar", { description: data?.error || `HTTP ${res.status}` });
+        return;
+      }
+      onMessageUpdate?.(m.historyType, m.originalIndex!, { content: editText.trim(), edited: true });
+      toast.success("Mensaje editado");
+      setEditing(false);
+    } catch (e) {
+      console.error("[Bubble] Error editando:", e);
+      toast.error("Error de red al editar");
+    } finally {
+      setSavingEdit(false);
+    }
   }
 
   if (isSeparator) {
@@ -2574,7 +2612,24 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
           </div>
         )}
         
-        {/* Contenido con detección de [SUGERENCIAS] */}
+        {/* Contenido con detección de [SUGERENCIAS] o edición inline */}
+        {editing ? (
+          <div className="mt-1 space-y-2">
+            <textarea
+              value={editText}
+              onChange={e => setEditText(e.target.value)}
+              className="w-full px-2 py-1.5 text-sm rounded-lg border border-border bg-background text-foreground resize-none"
+              rows={3}
+              autoFocus
+            />
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setEditing(false)} className="px-3 py-1 text-xs rounded-lg border border-border hover:bg-muted">Cancelar</button>
+              <button onClick={saveEdit} disabled={savingEdit} className="px-3 py-1 text-xs rounded-lg bg-brand-700 text-white hover:bg-brand-800 disabled:opacity-60">
+                {savingEdit ? "Guardando…" : "Guardar"}
+              </button>
+            </div>
+          </div>
+        ) : (
         <div className="text-sm leading-relaxed whitespace-pre-wrap break-words mt-1" suppressHydrationWarning>
           {m.content?.includes("[SUGERENCIAS:") ? (
             <>
@@ -2603,12 +2658,14 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
             m.content
           )}
         </div>
+        )}
 
         <div className={cn(
           "flex items-center gap-2 text-[10px] mt-1",
           isCliente ? "text-muted-foreground" : "text-white/75 justify-end"
         )}>
           <span suppressHydrationWarning>{formatTime(m.time)}</span>
+          {m.edited && <span className="italic opacity-60">· editado</span>}
             {isTecnico && m.status === "pending" && (
             <svg className="h-3.5 w-3.5 opacity-50" viewBox="0 0 16 16" fill="currentColor"><path d="M13.5 4L6.5 11 3 7.5" stroke="currentColor" strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>
           )}
@@ -2672,6 +2729,11 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
                   <Send className="h-3.5 w-3.5" /> Responder
                 </button>
               )}
+              {isTecnico && !m.mediaUrl && !m.deleted && (
+                <button onClick={startEdit} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2">
+                  <Edit className="h-3.5 w-3.5" /> Editar
+                </button>
+              )}
               <button onClick={handleCopy} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2">
                 <Copy className="h-3.5 w-3.5" /> Copiar texto
               </button>
@@ -2718,7 +2780,10 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
         </div>
 
         {/* Modal de info del mensaje */}
-        {showInfoModal && (
+      </div>
+
+      {/* Modales fuera de la burbuja para que fixed positioning funcione */}
+      {showInfoModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowInfoModal(false)}>
             <div className="bg-card border border-border rounded-2xl shadow-2xl p-5 max-w-sm w-full mx-4 space-y-3" onClick={e => e.stopPropagation()}>
               <div className="flex items-center justify-between">
@@ -2737,7 +2802,7 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
           </div>
         )}
 
-        {/* Modal de reenviar (stub — se implementa en Fase 3) */}
+        {/* Modal de reenviar */}
         {showForwardModal && (
           <ForwardModal
             message={m}
@@ -2745,7 +2810,6 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
             onClose={() => setShowForwardModal(false)}
           />
         )}
-      </div>
 
       {/* Reacciones agrupadas por emoji — fuera de la burbuja, estilo WhatsApp */}
       {(() => {
