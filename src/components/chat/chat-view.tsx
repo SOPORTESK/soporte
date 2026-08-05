@@ -2115,9 +2115,13 @@ function VideoNote({ url, type }: { url: string; type: string }) {
 
 function AudioPlayer({ url }: { url: string }) {
   const audioRef = React.useRef<HTMLAudioElement>(null);
+  const barRef = React.useRef<HTMLDivElement>(null);
   const [playing, setPlaying] = React.useState(false);
   const [progress, setProgress] = React.useState(0);
   const [duration, setDuration] = React.useState(0);
+  const draggingRef = React.useRef(false);
+
+  const durFinite = isFinite(duration) && duration > 0;
 
   function toggle() {
     const a = audioRef.current;
@@ -2132,6 +2136,34 @@ function AudioPlayer({ url }: { url: string }) {
     return `${m}:${sec.toString().padStart(2, "0")}`;
   }
 
+  function seekFromPointer(e: React.PointerEvent) {
+    const a = audioRef.current;
+    const bar = barRef.current;
+    if (!a || !bar || !durFinite) return;
+    const rect = bar.getBoundingClientRect();
+    const frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    setProgress(frac * 100);
+    a.currentTime = frac * duration;
+  }
+
+  function onPointerDown(e: React.PointerEvent) {
+    if (!durFinite) return;
+    draggingRef.current = true;
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    seekFromPointer(e);
+  }
+
+  function onPointerMove(e: React.PointerEvent) {
+    if (!draggingRef.current) return;
+    seekFromPointer(e);
+  }
+
+  function onPointerUp(e: React.PointerEvent) {
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
+    (e.target as HTMLElement).releasePointerCapture?.(e.pointerId);
+  }
+
   return (
     <div className="flex items-center gap-3 mt-2 px-3 py-2.5 rounded-2xl bg-white/15 backdrop-blur-sm border border-white/10 w-[260px]">
       <audio
@@ -2139,10 +2171,27 @@ function AudioPlayer({ url }: { url: string }) {
         src={url}
         preload="metadata"
         onTimeUpdate={() => {
+          if (draggingRef.current) return;
           const a = audioRef.current;
           if (a && a.duration) setProgress(a.currentTime / a.duration * 100);
         }}
-        onLoadedMetadata={() => setDuration(audioRef.current?.duration || 0)}
+        onLoadedMetadata={() => {
+          const d = audioRef.current?.duration || 0;
+          setDuration(d);
+          // Chrome a veces reporta Infinity para ogg/opus sin seek-head.
+          // Forzar la lectura real: saltar al final y volver.
+          if (!isFinite(d) && audioRef.current) {
+            audioRef.current.currentTime = 1e101;
+            const onDur = () => {
+              if (audioRef.current && isFinite(audioRef.current.duration)) {
+                setDuration(audioRef.current.duration);
+                audioRef.current.currentTime = 0;
+                audioRef.current.removeEventListener("durationchange", onDur);
+              }
+            };
+            audioRef.current.addEventListener("durationchange", onDur, { once: true });
+          }
+        }}
         onEnded={() => { setPlaying(false); setProgress(0); }}
       />
       <button
@@ -2154,7 +2203,14 @@ function AudioPlayer({ url }: { url: string }) {
           : <Play className="h-4 w-4 ml-0.5" />}
       </button>
       <div className="flex-1 min-w-0 space-y-1.5">
-        <div className="flex items-center gap-1.5">
+        <div
+          ref={barRef}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          className={`flex items-center gap-1.5 py-1.5 ${durFinite ? "cursor-pointer" : "cursor-default"}`}
+          style={{ touchAction: "none" }}
+        >
           {[...Array(20)].map((_, i) => {
             const h = 4 + Math.sin(i * 1.7) * 3 + Math.sin(i * 0.9) * 2;
             const filled = (i / 20) * 100 <= progress;
@@ -2171,7 +2227,7 @@ function AudioPlayer({ url }: { url: string }) {
           <span className="text-[10px] font-medium opacity-70 flex items-center gap-1">
             <Mic className="h-2.5 w-2.5" /> Nota de voz
           </span>
-          <span className="text-[10px] opacity-60">{fmt(duration)}</span>
+          <span className="text-[10px] opacity-60">{fmt(durFinite ? (progress / 100) * duration : 0)}</span>
         </div>
       </div>
     </div>
