@@ -631,7 +631,11 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       mediaUrl, mediaType, fileName
     };
     setMessages(prev => [...prev, optimisticMsg]);
-    if (!overrideContent) setDraft("");
+    if (!overrideContent) {
+      setDraft("");
+      const ta = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Mensaje"]');
+      if (ta) ta.style.height = "auto";
+    }
 
     try {
       const baseHist = Array.isArray(sekCase.histtecnico) ? sekCase.histtecnico : [];
@@ -1817,6 +1821,8 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
                 setTimeout(() => {
                   const ta = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Mensaje"]');
                   if (ta) {
+                    ta.style.height = "auto";
+                    ta.style.height = Math.min(ta.scrollHeight, 160) + "px";
                     ta.focus();
                     const match = /\[[^\]]+\]/.exec(ta.value);
                     if (match) {
@@ -2008,14 +2014,20 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
 
           <Textarea
             value={draft}
-            onChange={e => { setDraft(e.target.value); onTyping(); }}
+            onChange={e => {
+              setDraft(e.target.value);
+              onTyping();
+              const el = e.target;
+              el.style.height = "auto";
+              el.style.height = Math.min(el.scrollHeight, 160) + "px";
+            }}
             onKeyDown={onKeyDown}
             onPaste={handlePaste}
             placeholder={mode === "nota" ? "Escribe una nota interna (solo visible para el equipo)…" : "Escribe un mensaje al cliente… (Enter envía, Ctrl+V para pegar imágenes)"}
             rows={1}
             aria-label="Mensaje"
             className={cn(
-              "flex-1 min-w-0 max-h-40 transition-colors",
+              "flex-1 min-w-0 max-h-40 overflow-y-auto transition-[height] duration-100",
               mode === "nota" && "border-amber-400 focus-visible:ring-amber-400/30"
             )}
           />
