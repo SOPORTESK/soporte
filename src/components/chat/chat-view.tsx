@@ -629,7 +629,21 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
           if (!res.ok) {
             const data = await res.json().catch(() => ({}));
             toast.error("Error al enviar a WhatsApp", { description: data.error || "Evolution API falló" });
-            // Revertir estado si falló en Evolution? (Opcional, pero al menos mostramos el error)
+          } else {
+            const data = await res.json().catch(() => ({}));
+            const msgId = data?.messageId;
+            if (msgId) {
+              // Guardar messageId en el entry de histtecnico para poder revocar después
+              const hist = sekCase.histtecnico || [];
+              const entryIdx = hist.length - 1;
+              if (entryIdx >= 0) {
+                const updatedHist = [...hist];
+                updatedHist[entryIdx] = { ...updatedHist[entryIdx], messageId: msgId };
+                await supabase.from("sek_cases").update({ histtecnico: updatedHist }).eq("id", targetId);
+                setSekCase(prev => ({ ...prev, histtecnico: updatedHist }));
+                setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...m, messageId: msgId } : m));
+              }
+            }
           }
         }).catch(err => {
           console.error("Fetch evolution/send failed:", err);

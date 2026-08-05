@@ -109,7 +109,11 @@ export async function POST(req: NextRequest) {
           fileName: fileName || undefined,
         })
       });
-      if (!res.ok) throw new Error(`evolution ${res.status}`);
+      const mediaRes = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(`evolution ${res.status}: ${JSON.stringify(mediaRes)}`);
+      const msgId = mediaRes?.key?.id || mediaRes?.messageId || null;
+      console.log("[evo-send] Éxito enviando media. messageId:", msgId);
+      return NextResponse.json({ ok: true, messageId: msgId });
     } else {
       console.log("[evo-send] Intentando enviar texto a:", to);
       const res = await fetch(`${EVO_URL.replace(/\/$/, "")}/message/sendText/${encodeURIComponent(EVO_INSTANCE)}` ,{
@@ -122,9 +126,10 @@ export async function POST(req: NextRequest) {
         console.error("[evo-send] Error en respuesta de Evolution:", res.status, resData);
         throw new Error(`evolution ${res.status}: ${JSON.stringify(resData)}`);
       }
-      console.log("[evo-send] Éxito enviando mensaje.");
+      const msgId = resData?.key?.id || resData?.messageId || null;
+      console.log("[evo-send] Éxito enviando mensaje. messageId:", msgId);
+      return NextResponse.json({ ok: true, messageId: msgId });
     }
-    return NextResponse.json({ ok: true });
   } catch (e: any) {
     console.error("[evo-send] ERROR FATAL ENVIANDO MENSAJE:", e);
     return NextResponse.json({ ok: false, error: e?.message || "send_failed" }, { status: 500 });
