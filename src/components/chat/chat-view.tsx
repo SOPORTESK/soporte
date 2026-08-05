@@ -316,10 +316,9 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
         .select("id,nombre,texto,cat,orden")
         .eq("agent_email", agentEmail)
         .order("orden", { ascending: true })
-        .then(({ data, error }) => {
+        .then(async ({ data, error }) => {
           if (error) {
             console.error("Error loading personal templates from Supabase:", error);
-            // Fallback a localStorage por si la tabla no existe aún
             try {
               const stored = localStorage.getItem(`sek_plantillas_${agentEmail}`);
               if (stored) setPersonalPlantillas(JSON.parse(stored));
@@ -328,7 +327,41 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
             }
             return;
           }
-          if (data) setPersonalPlantillas(data.map(d => ({ ...d, isGlobal: false })));
+          if (data && data.length > 0) {
+            setPersonalPlantillas(data.map(d => ({ ...d, isGlobal: false })));
+          } else {
+            // Supabase vacío: migrar desde localStorage si hay datos
+            try {
+              const stored = localStorage.getItem(`sek_plantillas_${agentEmail}`);
+              if (stored) {
+                const localTemplates: any[] = JSON.parse(stored);
+                if (localTemplates.length > 0) {
+                  // Insertar en Supabase
+                  const inserts = localTemplates.map((t, i) => ({
+                    agent_email: agentEmail,
+                    nombre: t.nombre,
+                    texto: t.texto,
+                    cat: t.cat || "general",
+                    orden: i,
+                  }));
+                  const { data: inserted, error: insErr } = await supabase
+                    .from("sek_plantillas_personal")
+                    .insert(inserts)
+                    .select("id,nombre,texto,cat,orden");
+                  if (insErr) {
+                    console.error("Error migrating personal templates:", insErr);
+                    setPersonalPlantillas(localTemplates.map(t => ({ ...t, isGlobal: false })));
+                  } else if (inserted) {
+                    setPersonalPlantillas(inserted.map(d => ({ ...d, isGlobal: false })));
+                    localStorage.removeItem(`sek_plantillas_${agentEmail}`);
+                    console.log("[chat-view] Plantillas personales migradas de localStorage a Supabase");
+                  }
+                }
+              }
+            } catch (e) {
+              console.error("Error migrating personal templates from localStorage", e);
+            }
+          }
         });
     }
   }, [agentEmail, supabase]);
