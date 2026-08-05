@@ -2751,9 +2751,12 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
           {m.status === "error" && <span className="text-red-400">❌</span>}
         </div>
 
-        {/* Botones de acción + menús: esquina superior derecha, contenedor único */}
-        <div ref={menuRef} className="absolute top-1 right-1 z-20 opacity-0 group-hover:opacity-100 transition-opacity">
-          <div className="flex items-center gap-0.5">
+        {/* Botones de acción: esquina superior derecha (opacity on hover) */}
+        <div ref={menuRef} className="absolute top-1 right-1 z-20">
+          <div className={cn(
+            "flex items-center gap-0.5 transition-opacity",
+            (showActionMenu || showEmojiPicker || showDeleteMenu) ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+          )}>
             <button
               onClick={() => { setShowEmojiPicker(!showEmojiPicker); setShowActionMenu(false); setShowDeleteMenu(false); }}
               className="p-1 rounded-full hover:bg-black/10 dark:hover:bg-white/10"
@@ -2770,7 +2773,7 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
             </button>
           </div>
 
-          {/* Emoji picker rápido */}
+          {/* Menús: siempre visibles cuando están abiertos (sin opacity) */}
           {showEmojiPicker && (
             <div className="absolute top-full right-0 mt-1 bg-card border border-border rounded-xl shadow-xl p-2 flex flex-wrap gap-1 z-30 w-[200px]">
               {commonEmojis.map(emoji => (
