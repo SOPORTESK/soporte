@@ -2348,8 +2348,8 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
         setShowDeleteMenu(false);
       }
     }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener("click", handleClickOutside);
+    return () => document.removeEventListener("click", handleClickOutside);
   }, [showActionMenu, showEmojiPicker, showDeleteMenu]);
 
   // El mediaType puede venir genérico desde WhatsApp, así que también se mira la extensión.
