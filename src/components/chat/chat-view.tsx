@@ -6,7 +6,8 @@ import {
   Mail, Building2, User, Users, UserPlus, StickyNote, Zap, CheckCircle2,
   XCircle, Image as ImageIcon, FileText, Music, Video,
   Download, X, ChevronDown, History, HandMetal, Star, Tag, AlertTriangle,
-  Mic, Play, Pause, Square, Smile, Trash2, UserCheck
+  Mic, Play, Pause, Square, Smile, Trash2, UserCheck,
+  Info, Copy, Forward, Pin
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Avatar, Badge } from "@/components/ui/avatar";
@@ -2316,10 +2317,28 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
 
   const [showEmojiPicker, setShowEmojiPicker] = React.useState(false);
   const [showDeleteMenu, setShowDeleteMenu] = React.useState(false);
+  const [showActionMenu, setShowActionMenu] = React.useState(false);
+  const [showInfoModal, setShowInfoModal] = React.useState(false);
+  const [showForwardModal, setShowForwardModal] = React.useState(false);
   const [transcription, setTranscription] = React.useState<string | undefined>(m.transcription);
   const [transcribing, setTranscribing] = React.useState(false);
 
   React.useEffect(() => { setTranscription(m.transcription); }, [m.transcription]);
+
+  // Cerrar todos los menús al hacer clic fuera
+  const menuRef = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    if (!showActionMenu && !showEmojiPicker && !showDeleteMenu) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowActionMenu(false);
+        setShowEmojiPicker(false);
+        setShowDeleteMenu(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showActionMenu, showEmojiPicker, showDeleteMenu]);
 
   // El mediaType puede venir genérico desde WhatsApp, así que también se mira la extensión.
   const audioExtensions = ["ogg", "opus", "mp3", "wav", "m4a", "aac", "webm"];
@@ -2356,6 +2375,28 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
     } finally {
       setTranscribing(false);
     }
+  }
+
+  function handleCopy() {
+    const text = m.content || "";
+    if (!text) { toast.error("No hay texto para copiar"); return; }
+    navigator.clipboard.writeText(text).then(
+      () => toast.success("Texto copiado"),
+      () => toast.error("No se pudo copiar")
+    );
+    setShowActionMenu(false);
+  }
+
+  function handleDownload() {
+    if (!m.mediaUrl) return;
+    const a = document.createElement("a");
+    a.href = m.mediaUrl;
+    a.download = m.fileName || "archivo";
+    a.target = "_blank";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setShowActionMenu(false);
   }
 
   if (isSeparator) {
@@ -2506,29 +2547,16 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
 
         {m.mediaUrl && <MediaPreview url={m.mediaUrl} type={m.mediaType} name={m.fileName} onImageClick={onImageClick} />}
 
-        {isAudio && (
-          transcription ? (
-            <div className={cn(
-              "mt-1.5 px-2.5 py-1.5 rounded-lg text-xs leading-relaxed whitespace-pre-wrap break-words max-w-[260px]",
-              isCliente ? "bg-muted/60 text-muted-foreground" : "bg-white/10 text-white/80"
-            )}>
-              <p className={cn("font-semibold text-[10px] mb-0.5 flex items-center gap-1", isCliente ? "text-muted-foreground" : "text-white/60")}>
-                <FileText className="h-2.5 w-2.5" /> Transcripción
-              </p>
-              {transcription}
-            </div>
-          ) : (
-            <button
-              onClick={handleTranscribe}
-              disabled={transcribing}
-              className={cn(
-                "mt-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors disabled:opacity-60",
-                isCliente ? "bg-muted hover:bg-muted/70 text-muted-foreground" : "bg-white/15 hover:bg-white/25 text-white/80"
-              )}
-            >
-              {transcribing ? "Transcribiendo…" : "Transcribir audio"}
-            </button>
-          )
+        {isAudio && transcription && (
+          <div className={cn(
+            "mt-1.5 px-2.5 py-1.5 rounded-lg text-xs leading-relaxed whitespace-pre-wrap break-words max-w-[260px]",
+            isCliente ? "bg-muted/60 text-muted-foreground" : "bg-white/10 text-white/80"
+          )}>
+            <p className={cn("font-semibold text-[10px] mb-0.5 flex items-center gap-1", isCliente ? "text-muted-foreground" : "text-white/60")}>
+              <FileText className="h-2.5 w-2.5" /> Transcripción
+            </p>
+            {transcription}
+          </div>
         )}
         
         {/* Cita (reply-to) */}
@@ -2576,61 +2604,6 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
           )}
         </div>
 
-        {/* Reacciones agrupadas por emoji */}
-        {(() => {
-          if (!m.reactions || m.reactions.length === 0) return null;
-          
-          // Agrupar reacciones por emoji
-          const grouped: Record<string, { authors: string[]; emoji: string }> = {};
-          for (const r of m.reactions) {
-            if (!r || !r.emoji) continue;
-            if (!grouped[r.emoji]) {
-              grouped[r.emoji] = { authors: [], emoji: r.emoji };
-            }
-            if (r.author && !grouped[r.emoji].authors.includes(r.author)) {
-              grouped[r.emoji].authors.push(r.author);
-            }
-          }
-
-          const uniqueReactions = Object.values(grouped);
-          if (uniqueReactions.length === 0) return null;
-
-          // Si el bot reaccionó en nombre del agente (o viceversa), consolidarlo para que no se muestre duplicado
-          const cleanedReactions = uniqueReactions.map(ur => {
-            // Si tiene el agente e-mail y el número de bot, simplificar los autores
-            const cleanedAuthors = ur.authors.filter(a => {
-              // Si incluye el bot (ej. número de teléfono) y también tenemos el correo del agente real,
-              // podemos quedarnos solo con el correo para una UI más limpia
-              if (ur.authors.some(email => email.includes("@")) && !a.includes("@")) {
-                return false;
-              }
-              return true;
-            });
-            return {
-              ...ur,
-              authors: cleanedAuthors.length > 0 ? cleanedAuthors : ur.authors
-            };
-          });
-
-          return (
-            <div className="flex flex-wrap gap-1 mt-2">
-              {cleanedReactions.map((ur, idx) => (
-                <span 
-                  key={idx} 
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-white/20 hover:bg-white/30 cursor-pointer"
-                  title={ur.authors.join(", ")}
-                  onClick={() => handleReaction(ur.emoji)}
-                >
-                  {ur.emoji}
-                  {ur.authors.length > 1 && (
-                    <span className="opacity-70 font-semibold">{ur.authors.length}</span>
-                  )}
-                </span>
-              ))}
-            </div>
-          );
-        })()}
-
         <div className={cn(
           "flex items-center gap-2 text-[10px] mt-1",
           isCliente ? "text-muted-foreground" : "text-white/75 justify-end"
@@ -2654,46 +2627,37 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
           {m.status === "error" && <span className="text-red-400">❌</span>}
         </div>
 
-        {/* Botones de acción (hover) */}
-        <div className={cn(
-          "absolute top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10",
-          isCliente ? "left-full ml-2" : "right-full mr-2"
+        {/* Botones de acción estilo WhatsApp: emoji + chevron en la esquina */}
+        <div ref={menuRef} className={cn(
+          "absolute top-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-20",
+          isCliente ? "right-1" : "left-1"
         )}>
-          {onReply && (
-            <button
-              onClick={() => onReply(m)}
-              className="p-1.5 rounded-full bg-card border border-border shadow-sm hover:bg-muted"
-              title="Responder"
-            >
-              <Send className="h-3.5 w-3.5" />
-            </button>
-          )}
           <button
-            onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-            className="p-1.5 rounded-full bg-card border border-border shadow-sm hover:bg-muted"
+            onClick={() => { setShowEmojiPicker(!showEmojiPicker); setShowActionMenu(false); setShowDeleteMenu(false); }}
+            className="p-1 rounded-full hover:bg-black/10 dark:hover:bg-white/10"
             title="Reaccionar"
           >
             <Smile className="h-3.5 w-3.5" />
           </button>
           <button
-            onClick={() => setShowDeleteMenu(!showDeleteMenu)}
-            className="p-1.5 rounded-full bg-card border border-border shadow-sm hover:bg-muted text-red-500"
-            title="Eliminar"
+            onClick={() => { setShowActionMenu(!showActionMenu); setShowEmojiPicker(false); setShowDeleteMenu(false); }}
+            className="p-1 rounded-full hover:bg-black/10 dark:hover:bg-white/10"
+            title="Más opciones"
           >
-            <Trash2 className="h-3.5 w-3.5" />
+            <ChevronDown className="h-3.5 w-3.5" />
           </button>
         </div>
 
-        {/* Emoji picker */}
+        {/* Emoji picker rápido */}
         {showEmojiPicker && (
           <div className={cn(
-            "absolute -top-16 bg-card border border-border rounded-xl shadow-xl p-2 flex flex-wrap gap-1 z-10",
-            isCliente ? "left-0" : "right-0"
+            "absolute top-7 bg-card border border-border rounded-xl shadow-xl p-2 flex flex-wrap gap-1 z-30 max-w-[200px]",
+            isCliente ? "right-0" : "left-0"
           )}>
             {commonEmojis.map(emoji => (
               <button
                 key={emoji}
-                onClick={() => handleReaction(emoji)}
+                onClick={() => { handleReaction(emoji); setShowEmojiPicker(false); }}
                 className="w-8 h-8 rounded-lg hover:bg-muted flex items-center justify-center text-lg"
               >
                 {emoji}
@@ -2702,28 +2666,377 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
           </div>
         )}
 
-        {/* Menú de eliminación */}
+        {/* Dropdown de acciones principal */}
+        {showActionMenu && !showDeleteMenu && (
+          <div className={cn(
+            "absolute top-7 bg-card border border-border rounded-xl shadow-xl py-1 z-30 min-w-[180px] overflow-hidden",
+            isCliente ? "right-0" : "left-0"
+          )}>
+            <button onClick={() => { setShowInfoModal(true); setShowActionMenu(false); }} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2">
+              <Info className="h-3.5 w-3.5" /> Info del mensaje
+            </button>
+            {onReply && (
+              <button onClick={() => { onReply(m); setShowActionMenu(false); }} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2">
+                <Send className="h-3.5 w-3.5" /> Responder
+              </button>
+            )}
+            <button onClick={handleCopy} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2">
+              <Copy className="h-3.5 w-3.5" /> Copiar texto
+            </button>
+            <button onClick={() => { setShowForwardModal(true); setShowActionMenu(false); }} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2">
+              <Forward className="h-3.5 w-3.5" /> Reenviar
+            </button>
+            <button onClick={() => { toast.info("Fijar mensaje — próximamente"); setShowActionMenu(false); }} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2">
+              <Pin className="h-3.5 w-3.5" /> Fijar
+            </button>
+            {isAudio && (
+              <button onClick={() => { handleTranscribe(); setShowActionMenu(false); }} disabled={transcribing} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2 disabled:opacity-60">
+                <Mic className="h-3.5 w-3.5" /> {transcribing ? "Transcribiendo…" : "Transcribir"}
+              </button>
+            )}
+            {m.mediaUrl && (
+              <button onClick={handleDownload} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2">
+                <Download className="h-3.5 w-3.5" /> Guardar como
+              </button>
+            )}
+            <div className="border-t border-border my-1" />
+            <button onClick={() => setShowDeleteMenu(true)} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2 text-red-500">
+              <Trash2 className="h-3.5 w-3.5" /> Eliminar
+            </button>
+          </div>
+        )}
+
+        {/* Submenú de eliminación */}
         {showDeleteMenu && (
           <div className={cn(
-            "absolute -top-20 bg-card border border-border rounded-xl shadow-xl p-2 flex flex-col gap-1 z-10 min-w-[140px]",
-            isCliente ? "left-0" : "right-0"
+            "absolute top-7 bg-card border border-border rounded-xl shadow-xl py-1 z-30 min-w-[180px]",
+            isCliente ? "right-0" : "left-0"
           )}>
-            <button
-              onClick={() => handleDelete("for_me")}
-              className="px-3 py-2 text-xs text-left hover:bg-muted rounded-lg"
-            >
+            <button onClick={() => { setShowDeleteMenu(false); setShowActionMenu(true); }} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2 text-muted-foreground">
+              <ChevronDown className="h-3.5 w-3.5 rotate-90" /> Atrás
+            </button>
+            <div className="border-t border-border my-1" />
+            <button onClick={() => handleDelete("for_me")} className="w-full px-3 py-2 text-xs text-left hover:bg-muted">
               Eliminar para mí
             </button>
             {isTecnico && (
-              <button
-                onClick={() => handleDelete("for_everyone")}
-                className="px-3 py-2 text-xs text-left hover:bg-muted rounded-lg text-red-500"
-              >
+              <button onClick={() => handleDelete("for_everyone")} className="w-full px-3 py-2 text-xs text-left hover:bg-muted text-red-500">
                 Eliminar para todos
               </button>
             )}
           </div>
         )}
+
+        {/* Modal de info del mensaje */}
+        {showInfoModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowInfoModal(false)}>
+            <div className="bg-card border border-border rounded-2xl shadow-2xl p-5 max-w-sm w-full mx-4 space-y-3" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold flex items-center gap-2"><Info className="h-4 w-4" /> Info del mensaje</h3>
+                <button onClick={() => setShowInfoModal(false)} className="p-1 rounded-full hover:bg-muted"><X className="h-4 w-4" /></button>
+              </div>
+              <div className="space-y-2 text-xs">
+                <div className="flex justify-between"><span className="text-muted-foreground">Autor</span><span className="font-medium">{m.authorName || m.source}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Fecha y hora</span><span className="font-medium">{new Date(m.time).toLocaleString("es-CR")}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Origen</span><span className="font-medium">{m.historyType === "histcliente" ? "Cliente" : m.historyType === "histtecnico" ? "Técnico/Bot" : "—"}</span></div>
+                {m.messageId && <div className="flex justify-between"><span className="text-muted-foreground">Message ID</span><span className="font-mono text-[10px] break-all">{m.messageId}</span></div>}
+                {m.mediaType && <div className="flex justify-between"><span className="text-muted-foreground">Tipo</span><span className="font-medium">{m.mediaType}</span></div>}
+                {isTecnico && <div className="flex justify-between"><span className="text-muted-foreground">Estado</span><span className="font-medium">{m.read_at ? "Leído" : m.status === "sent" ? "Entregado" : m.status === "pending" ? "Pendiente" : m.status || "—"}</span></div>}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal de reenviar (stub — se implementa en Fase 3) */}
+        {showForwardModal && (
+          <ForwardModal
+            message={m}
+            agentEmail={agentEmail || undefined}
+            onClose={() => setShowForwardModal(false)}
+          />
+        )}
+      </div>
+
+      {/* Reacciones agrupadas por emoji — fuera de la burbuja, estilo WhatsApp */}
+      {(() => {
+        if (!m.reactions || m.reactions.length === 0) return null;
+
+        const grouped: Record<string, { authors: string[]; emoji: string }> = {};
+        for (const r of m.reactions) {
+          if (!r || !r.emoji) continue;
+          if (!grouped[r.emoji]) {
+            grouped[r.emoji] = { authors: [], emoji: r.emoji };
+          }
+          if (r.author && !grouped[r.emoji].authors.includes(r.author)) {
+            grouped[r.emoji].authors.push(r.author);
+          }
+        }
+
+        const uniqueReactions = Object.values(grouped);
+        if (uniqueReactions.length === 0) return null;
+
+        const cleanedReactions = uniqueReactions.map(ur => {
+          const cleanedAuthors = ur.authors.filter(a => {
+            if (ur.authors.some(email => email.includes("@")) && !a.includes("@")) {
+              return false;
+            }
+            return true;
+          });
+          return {
+            ...ur,
+            authors: cleanedAuthors.length > 0 ? cleanedAuthors : ur.authors
+          };
+        });
+
+        return (
+          <div className={cn(
+            "absolute -bottom-3 flex flex-wrap gap-1 z-10",
+            isCliente ? "left-3" : "right-3"
+          )}>
+            {cleanedReactions.map((ur, idx) => (
+              <span
+                key={idx}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-card border border-border shadow-sm hover:scale-110 transition-transform cursor-pointer"
+                title={ur.authors.join(", ")}
+                onClick={() => handleReaction(ur.emoji)}
+              >
+                {ur.emoji}
+                {ur.authors.length > 1 && (
+                  <span className="opacity-70 font-semibold">{ur.authors.length}</span>
+                )}
+              </span>
+            ))}
+          </div>
+        );
+      })()}
+
+    </div>
+  );
+}
+
+function ForwardModal({ message, agentEmail, onClose }: {
+  message: UnifiedMessage;
+  agentEmail?: string;
+  onClose: () => void;
+}) {
+  const [tab, setTab] = React.useState<"case" | "number" | "agent">("case");
+  const [search, setSearch] = React.useState("");
+  const [cases, setCases] = React.useState<any[]>([]);
+  const [loading, setLoading] = React.useState(false);
+  const [sending, setSending] = React.useState(false);
+  const [newNumber, setNewNumber] = React.useState("");
+  const [agents, setAgents] = React.useState<any[]>([]);
+
+  const supabase = React.useMemo(() => createClient(), []);
+
+  React.useEffect(() => {
+    if (tab === "case") searchCases();
+    if (tab === "agent") searchAgents();
+  }, [tab]);
+
+  async function searchCases() {
+    setLoading(true);
+    const { data } = await supabase
+      .from("sek_cases")
+      .select("id, cliente, telefono, telefono_real, estado, channel")
+      .in("estado", ["abierto", "escalado"])
+      .order("created_at", { ascending: false })
+      .limit(30);
+    setCases(data || []);
+    setLoading(false);
+  }
+
+  async function searchAgents() {
+    setLoading(true);
+    const { data } = await supabase
+      .from("sek_agents")
+      .select("email, nombre, rol")
+      .eq("activo", true)
+      .limit(20);
+    setAgents(data || []);
+    setLoading(false);
+  }
+
+  const filteredCases = cases.filter(c => {
+    const q = search.toLowerCase();
+    return !q || String(c.cliente || "").toLowerCase().includes(q) || String(c.telefono || "").includes(q) || String(c.telefono_real || "").includes(q);
+  });
+
+  async function forwardToCase(caseRow: any) {
+    setSending(true);
+    try {
+      const payload: any = {
+        case_id: caseRow.id,
+        text: message.content || undefined,
+      };
+      if (message.mediaUrl) {
+        payload.mediaUrl = message.mediaUrl;
+        payload.mediaType = message.mediaType;
+        payload.fileName = message.fileName;
+      }
+      const res = await fetch("/api/evolution/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error("No se pudo reenviar", { description: data?.error || `HTTP ${res.status}` });
+        return;
+      }
+      toast.success(`Reenviado a ${caseRow.cliente || caseRow.telefono}`);
+      onClose();
+    } catch (e) {
+      console.error("[Forward] Error:", e);
+      toast.error("Error de red al reenviar");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function forwardToNewNumber() {
+    const clean = newNumber.replace(/[^\d]/g, "");
+    if (clean.length < 8) { toast.error("Número inválido"); return; }
+    setSending(true);
+    try {
+      const payload: any = {
+        phone: clean,
+        text: message.content || undefined,
+      };
+      if (message.mediaUrl) {
+        payload.mediaUrl = message.mediaUrl;
+        payload.mediaType = message.mediaType;
+        payload.fileName = message.fileName;
+      }
+      const res = await fetch("/api/evolution/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error("No se pudo reenviar", { description: data?.error || `HTTP ${res.status}` });
+        return;
+      }
+      toast.success(`Reenviado a ${clean}`);
+      onClose();
+    } catch (e) {
+      console.error("[Forward] Error:", e);
+      toast.error("Error de red al reenviar");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div className="bg-card border border-border rounded-2xl shadow-2xl max-w-md w-full mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+          <h3 className="text-sm font-semibold flex items-center gap-2"><Forward className="h-4 w-4" /> Reenviar mensaje</h3>
+          <button onClick={onClose} className="p-1 rounded-full hover:bg-muted"><X className="h-4 w-4" /></button>
+        </div>
+
+        {/* Preview del mensaje */}
+        <div className="px-4 py-2 border-b border-border bg-muted/30">
+          <p className="text-xs text-muted-foreground truncate">
+            {message.mediaUrl ? `📎 ${message.fileName || "Archivo"}` : null}
+            {" "}
+            {message.content?.slice(0, 80)}
+          </p>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex border-b border-border">
+          {(["case", "number", "agent"] as const).map(t => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={cn(
+                "flex-1 px-3 py-2 text-xs font-medium transition-colors",
+                tab === t ? "border-b-2 border-brand-700 text-brand-700" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {t === "case" ? "Caso existente" : t === "number" ? "Número nuevo" : "Agente"}
+            </button>
+          ))}
+        </div>
+
+        <div className="p-4 max-h-[300px] overflow-y-auto">
+          {tab === "case" && (
+            <>
+              <input
+                type="text"
+                placeholder="Buscar por cliente o teléfono…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="w-full mb-3 px-3 py-2 text-xs rounded-lg border border-border bg-background"
+              />
+              {loading ? (
+                <p className="text-xs text-muted-foreground text-center py-4">Cargando…</p>
+              ) : filteredCases.length === 0 ? (
+                <p className="text-xs text-muted-foreground text-center py-4">No hay casos abiertos</p>
+              ) : (
+                <div className="space-y-1">
+                  {filteredCases.map(c => (
+                    <button
+                      key={c.id}
+                      onClick={() => forwardToCase(c)}
+                      disabled={sending}
+                      className="w-full px-3 py-2 text-left rounded-lg hover:bg-muted flex items-center justify-between disabled:opacity-60"
+                    >
+                      <div>
+                        <p className="text-xs font-medium">{c.cliente || "Sin nombre"}</p>
+                        <p className="text-[10px] text-muted-foreground">{c.telefono || c.telefono_real}</p>
+                      </div>
+                      <span className={cn("text-[10px] px-2 py-0.5 rounded-full", c.estado === "abierto" ? "bg-green-100 text-green-700" : "bg-orange-100 text-orange-700")}>
+                        {c.estado}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {tab === "number" && (
+            <div className="space-y-3">
+              <p className="text-xs text-muted-foreground">Digite el número de WhatsApp con código de país (ej: 50688887777)</p>
+              <input
+                type="tel"
+                placeholder="50688887777"
+                value={newNumber}
+                onChange={e => setNewNumber(e.target.value)}
+                className="w-full px-3 py-2 text-sm rounded-lg border border-border bg-background"
+              />
+              <Button onClick={forwardToNewNumber} disabled={sending || !newNumber} className="w-full">
+                {sending ? "Enviando…" : "Reenviar"}
+              </Button>
+            </div>
+          )}
+
+          {tab === "agent" && (
+            <div className="space-y-3">
+              <p className="text-xs text-muted-foreground text-center py-4">
+                El chat interno entre agentes estará disponible próximamente.
+              </p>
+              {loading ? (
+                <p className="text-xs text-muted-foreground text-center">Cargando agentes…</p>
+              ) : agents.length > 0 ? (
+                <div className="space-y-1 opacity-50">
+                  {agents.map(a => (
+                    <div key={a.email} className="px-3 py-2 rounded-lg bg-muted/50 flex items-center gap-2">
+                      <User className="h-3.5 w-3.5 text-muted-foreground" />
+                      <div>
+                        <p className="text-xs font-medium">{a.nombre}</p>
+                        <p className="text-[10px] text-muted-foreground">{a.email}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

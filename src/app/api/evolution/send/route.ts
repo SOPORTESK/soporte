@@ -103,8 +103,8 @@ async function persistMessageId(
 }
 
 export async function POST(req: NextRequest) {
-  const { case_id, text, mediaUrl, mediaType, fileName } = await req.json().catch(() => ({}));
-  if (!case_id || (!text && !mediaUrl)) return NextResponse.json({ error: "invalid" }, { status: 400 });
+  const { case_id, phone, text, mediaUrl, mediaType, fileName } = await req.json().catch(() => ({}));
+  if ((!case_id && !phone) || (!text && !mediaUrl)) return NextResponse.json({ error: "invalid" }, { status: 400 });
 
   const evoCfg = await getEvolutionConfig();
   const EVO_URL = evoCfg.url;
@@ -113,10 +113,18 @@ export async function POST(req: NextRequest) {
   if (!EVO_URL || !EVO_KEY || !EVO_INSTANCE) return NextResponse.json({ error: "not_configured" }, { status: 503 });
 
   const supabase = createServiceClient();
-  const { data: c } = await supabase.from("sek_cases").select("id, canal, customer_phone, cliente").eq("id", case_id).maybeSingle();
-  if (!c || String(c.canal).toLowerCase() !== "whatsapp") return NextResponse.json({ error: "case_not_whatsapp" }, { status: 400 });
 
-  const to = pickPhone(c);
+  let to: string | null = null;
+  let c: any = null;
+
+  if (phone) {
+    to = `${normalizePhone(phone)}@s.whatsapp.net`;
+  } else {
+    const row = await supabase.from("sek_cases").select("id, canal, customer_phone, cliente").eq("id", case_id).maybeSingle();
+    c = row.data;
+    if (!c || String(c.canal).toLowerCase() !== "whatsapp") return NextResponse.json({ error: "case_not_whatsapp" }, { status: 400 });
+    to = pickPhone(c);
+  }
   if (!to) return NextResponse.json({ error: "no_phone" }, { status: 400 });
 
   try {
@@ -146,7 +154,7 @@ export async function POST(req: NextRequest) {
       if (!res.ok) throw new Error(`evolution ${res.status}: ${JSON.stringify(mediaRes)}`);
       const msgId = mediaRes?.key?.id || mediaRes?.messageId || null;
       console.log("[evo-send] Éxito enviando media. messageId:", msgId);
-      if (msgId) await persistMessageId(supabase, case_id, msgId, { text, mediaUrl });
+      if (msgId && case_id) await persistMessageId(supabase, case_id, msgId, { text, mediaUrl });
       return NextResponse.json({ ok: true, messageId: msgId });
     } else {
       console.log("[evo-send] Intentando enviar texto a:", to);
@@ -162,7 +170,7 @@ export async function POST(req: NextRequest) {
       }
       const msgId = resData?.key?.id || resData?.messageId || null;
       console.log("[evo-send] Éxito enviando mensaje. messageId:", msgId);
-      if (msgId) await persistMessageId(supabase, case_id, msgId, { text });
+      if (msgId && case_id) await persistMessageId(supabase, case_id, msgId, { text });
       return NextResponse.json({ ok: true, messageId: msgId });
     }
   } catch (e: any) {
