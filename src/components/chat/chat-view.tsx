@@ -121,6 +121,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   const [messages, setMessages] = React.useState<UnifiedMessage[]>([]);
   const [draft, setDraft] = React.useState("");
   const [sending, setSending] = React.useState(false);
+  const sendingRef = React.useRef(false);
   const [agentEmail, setAgentEmail] = React.useState<string | null>(null);
   const [agentName, setAgentName] = React.useState<string | null>(null);
   const [agentRole, setAgentRole] = React.useState<string>("tecnico");
@@ -609,7 +610,8 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
 
   async function send(overrideContent?: string, mediaUrl?: string, mediaType?: string, fileName?: string, skipWhatsApp?: boolean) {
     const body = (overrideContent ?? draft).trim();
-    if ((!body && !mediaUrl) || sending || !agentEmail) return;
+    if ((!body && !mediaUrl) || sendingRef.current || !agentEmail) return;
+    sendingRef.current = true;
     setSending(true);
     const isNota = mode === "nota" && !overrideContent;
     console.log("[DEBUG send] agentName:", agentName, "agentEmail:", agentEmail);
@@ -639,10 +641,27 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     }
 
     try {
-      const baseHist = Array.isArray(sekCase.histtecnico) ? sekCase.histtecnico : [];
-      const newHist = [...baseHist, entry];
-      setSekCase(prev => ({ ...prev, histtecnico: newHist }));
-      const updates: Record<string, unknown> = { histtecnico: newHist };
+      // Usar append atómico via RPC para evitar duplicados y race conditions.
+      // El full-overwrite (read-modify-write) perdía mensajes cuando dos escrituras
+      // concurrentes leían el mismo array base.
+      const { error: appendErr } = await supabase.rpc("sek_append_hist", {
+        p_case_id: String(targetId),
+        p_entry: entry as any,
+        p_col: "histtecnico",
+        p_preview: (body || fileName || "").slice(0, 200),
+      });
+      if (appendErr) throw appendErr;
+
+      // Recargar el caso desde la BD para reflejar el estado real del historial
+      const { data: freshCase, error: reloadErr } = await supabase
+        .from("sek_cases")
+        .select("*")
+        .eq("id", String(targetId))
+        .maybeSingle();
+      if (reloadErr || !freshCase) throw reloadErr || new Error("No se pudo recargar el caso");
+      setSekCase(freshCase as SekCase);
+
+      const updates: Record<string, unknown> = {};
       const targetCerrado = String(sekCase.estado || "").toLowerCase() === "cerrado" || String(sekCase.estado || "").toLowerCase() === "resuelto";
       if (targetCerrado && !isNota) {
         updates.estado = "abierto";
@@ -706,7 +725,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     } catch (e: any) {
       toast.error("No se pudo enviar", { description: (e as any)?.message });
       setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...m, status: "error" } : m));
-    } finally { setSending(false); setReplyTo(null); }
+    } finally { sendingRef.current = false; setSending(false); setReplyTo(null); }
   }
 
   async function startRecording() {
@@ -1270,17 +1289,19 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       if (isWhatsApp && agentName) {
         const welcomeMsg = `Buen día. Gracias por contactarnos.\n\nMi nombre es ${agentName} y con gusto le asistiré con su caso.\n\nPara el registro, por favor facilítenos su:\n\nNombre completo\nCorreo electrónico\nNombre de la cuenta afiliada a Sekunet.\n\nQuedamos atentos. Gracias.`;
 
-        // Guardar mensaje en histtecnico
-        const baseHist = Array.isArray(sekCase.histtecnico) ? sekCase.histtecnico : [];
+        // Guardar mensaje en histtecnico (append atómico)
         const welcomeEntry = {
           role: "tecnico",
           author: agentName,
           time: new Date().toISOString(),
           content: welcomeMsg,
         };
-        const newHist = [...baseHist, welcomeEntry];
-        await supabase.from("sek_cases").update({ histtecnico: newHist }).eq("id", targetId);
-        setSekCase(prev => ({ ...prev, histtecnico: newHist }));
+        await supabase.rpc("sek_append_hist", {
+          p_case_id: String(targetId),
+          p_entry: welcomeEntry as any,
+          p_col: "histtecnico",
+          p_preview: welcomeMsg.slice(0, 200),
+        });
 
         // Enviar por WhatsApp vía Evolution API
         fetch("/api/evolution/send", {
@@ -1309,19 +1330,22 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       const oldAgentInfo = agents.find((a: any) => a.email === oldAgent);
       const oldName = oldAgentInfo ? [oldAgentInfo.nombre, oldAgentInfo.apellido].filter(Boolean).join(" ") : oldAgent;
 
-      // Nota de auditoría en histtecnico
-      const baseHist = Array.isArray(sekCase.histtecnico) ? sekCase.histtecnico : [];
+      // Nota de auditoría en histtecnico (append atómico)
       const noteEntry = {
         role: "nota",
         author: agentName || agentEmail || "Sistema",
         time: new Date().toISOString(),
         content: `Caso reasignado de ${oldName} a ${newName}`,
       };
-      const newHist = [...baseHist, noteEntry];
+      await supabase.rpc("sek_append_hist", {
+        p_case_id: String(targetId),
+        p_entry: noteEntry as any,
+        p_col: "histtecnico",
+        p_preview: noteEntry.content.slice(0, 200),
+      });
 
       const updates: Record<string, unknown> = {
         assigned_to: newAgentEmail,
-        histtecnico: newHist,
       };
       // Preservar accepted_at original — no resetear SLA
       if (!sekCase.accepted_at) {
@@ -1330,7 +1354,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
 
       const { error } = await supabase.from("sek_cases").update(updates).eq("id", targetId);
       if (error) throw error;
-      setSekCase(prev => ({ ...prev, assigned_to: newAgentEmail, histtecnico: newHist }));
+      setSekCase(prev => ({ ...prev, assigned_to: newAgentEmail }));
       toast.success(`Caso reasignado a ${newName}`);
       setShowReassign(false);
     } catch (e: any) {
@@ -2840,7 +2864,9 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
               onClick={() => {
                 if (!showEmojiPicker && menuBtnRef.current) {
                   const r = menuBtnRef.current.getBoundingClientRect();
-                  setMenuPos({ top: r.bottom + 4, left: Math.min(r.right - 200, window.innerWidth - 210) });
+                  const menuH = 44;
+                  const top = r.bottom + 4 + menuH > window.innerHeight ? r.top - menuH - 4 : r.bottom + 4;
+                  setMenuPos({ top, left: Math.min(r.right - 200, window.innerWidth - 210) });
                 }
                 setShowEmojiPicker(!showEmojiPicker); setShowActionMenu(false); setShowDeleteMenu(false);
               }}
@@ -2854,7 +2880,9 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
               onClick={() => {
                 if (!showActionMenu && menuBtnRef.current) {
                   const r = menuBtnRef.current.getBoundingClientRect();
-                  setMenuPos({ top: r.bottom + 4, left: Math.min(r.right - 180, window.innerWidth - 190) });
+                  const menuH = 320;
+                  const top = r.bottom + 4 + menuH > window.innerHeight ? r.top - menuH - 4 : r.bottom + 4;
+                  setMenuPos({ top, left: Math.min(r.right - 180, window.innerWidth - 190) });
                 }
                 setShowActionMenu(!showActionMenu); setShowEmojiPicker(false); setShowDeleteMenu(false);
               }}
@@ -2934,7 +2962,9 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
             <button onClick={() => {
               if (menuBtnRef.current) {
                 const r = menuBtnRef.current.getBoundingClientRect();
-                setMenuPos({ top: r.bottom + 4, left: Math.min(r.right - 180, window.innerWidth - 190) });
+                const menuH = 120;
+                const top = r.bottom + 4 + menuH > window.innerHeight ? r.top - menuH - 4 : r.bottom + 4;
+                setMenuPos({ top, left: Math.min(r.right - 180, window.innerWidth - 190) });
               }
               setShowDeleteMenu(true);
             }} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2 text-red-500">

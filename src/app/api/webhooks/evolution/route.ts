@@ -1277,35 +1277,38 @@ export async function POST(req: NextRequest) {
       console.log("[evo-webhook] Paso 8: procesando caso existente, isOutgoing:", isOutgoing);
       if (isOutgoing) {
         // Mensaje saliente: guardar en histtecnico
-        const hist = Array.isArray(existing.histtecnico) ? existing.histtecnico : [];
-        
-        // Anti-duplicación: evitar que el webhook guarde el mensaje si la UI ya lo guardó
+        // Re-leer histtecnico fresco desde BD para evitar race condition con el append
+        // que la UI pudo haber hecho justo antes de este webhook.
+        const { data: freshRow } = await supabase
+          .from("sek_cases")
+          .select("histtecnico")
+          .eq("id", existing.id)
+          .maybeSingle();
+        const hist = Array.isArray(freshRow?.histtecnico) ? freshRow.histtecnico : [];
+
+        // Anti-duplicación: evitar que el webhook guarde el mensaje si la UI ya lo guardó.
+        // Sin ventana de tiempo: el eco puede llegar tarde y aún debe deduplicar.
         let duplicateIndex = -1;
         const isDuplicate = hist.some((m: any, idx: number) => {
-          const timeDiff = Math.abs(new Date(now).getTime() - new Date(m.time).getTime());
-          if (timeDiff < 60000) { // Ventana de 60 segundos (aumentada)
-            // Si tiene el mismo messageId, es duplicado
-            if (m.messageId && keyId && m.messageId === keyId) {
+          // Si tiene el mismo messageId, es duplicado
+          if (m.messageId && keyId && m.messageId === keyId) {
+            duplicateIndex = idx;
+            return true;
+          }
+          // Si tiene texto, comparamos el texto (sin ventana de tiempo)
+          if (m.content && text && m.content.trim() === text.trim()) {
+            // Solo deduplicar si el mensaje existente no tiene messageId
+            // (si ya tiene messageId, fue guardado por el webhook y no es duplicado de la UI)
+            if (!m.messageId) {
               duplicateIndex = idx;
               return true;
             }
-            // Si tiene texto, comparamos el texto
-            if (m.content && text && m.content.trim() === text.trim()) {
-              duplicateIndex = idx;
-              return true;
-            }
-            // Si es un archivo, comparamos por mediaUrl o mediaType
-            if (mediaUrl && m.mediaUrl) {
-              // Extraer el nombre del archivo del URL
-              const url1 = mediaUrl.split('/').pop()?.split('?')[0];
-              const url2 = m.mediaUrl.split('/').pop()?.split('?')[0];
-              if (url1 && url2 && url1 === url2) {
-                duplicateIndex = idx;
-                return true;
-              }
-            }
-            // Si es un archivo sin texto, comparamos el tipo
-            if (!text && !m.content && m.mediaType && finalMediaType && m.mediaType === finalMediaType) {
+          }
+          // Si es un archivo, comparamos por mediaUrl
+          if (mediaUrl && m.mediaUrl) {
+            const url1 = mediaUrl.split('/').pop()?.split('?')[0];
+            const url2 = m.mediaUrl.split('/').pop()?.split('?')[0];
+            if (url1 && url2 && url1 === url2 && !m.messageId) {
               duplicateIndex = idx;
               return true;
             }

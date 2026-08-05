@@ -106,24 +106,31 @@ export async function POST(req: NextRequest) {
 
     if (SUPABASE_URL && SERVICE_KEY) {
       try {
+        const payload = {
+            mode: "tecnico",
+            case_id: validCaseId || undefined,
+            messages: updatedMessages.map(m => ({ role: m.role, content: m.content, mediaUrl: m.mediaUrl, mediaType: m.mediaType, fileName: m.fileName })),
+        };
+        console.log("[tech-assistant] Enviando a ia-agent:", JSON.stringify({
+          case_id: payload.case_id,
+          msgCount: payload.messages.length,
+          lastMsg: payload.messages[payload.messages.length - 1]?.content?.substring(0, 100),
+        }));
         const iaRes = await fetch(`${SUPABASE_URL}/functions/v1/ia-agent`, {
           method: "POST",
           headers: {
             "Authorization": `Bearer ${SERVICE_KEY}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({
-            mode: "tecnico",
-            case_id: validCaseId || undefined,
-            messages: updatedMessages.map(m => ({ role: m.role, content: m.content, mediaUrl: m.mediaUrl, mediaType: m.mediaType, fileName: m.fileName })),
-          }),
+          body: JSON.stringify(payload),
         });
         if (iaRes.ok) {
           const iaData = await iaRes.json();
           responseText = iaData.response || responseText;
+          console.log("[tech-assistant] Respuesta ia-agent:", responseText.substring(0, 200));
         } else {
           const errText = await iaRes.text();
-          console.error("[tech-assistant] ia-agent error:", iaRes.status, errText);
+          console.error("[tech-assistant] ia-agent error:", iaRes.status, errText.substring(0, 300));
         }
       } catch (e: any) {
         console.error("[tech-assistant] fetch ia-agent error:", e.message);
