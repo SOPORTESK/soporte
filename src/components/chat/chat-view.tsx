@@ -42,6 +42,7 @@ type UnifiedMessage = {
   transcription?: string;
   edited?: boolean;
   pinned?: boolean;
+  starred?: boolean;
 };
 
 function unifyMessages(c: SekCase): UnifiedMessage[] {
@@ -75,6 +76,7 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
       transcription: (e as any).transcription,
       edited: (e as any).edited,
       pinned: (e as any).pinned,
+      starred: (e as any).starred,
     });
   });
 
@@ -103,6 +105,7 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
       transcription: (e as any).transcription,
       edited: (e as any).edited,
       pinned: (e as any).pinned,
+      starred: (e as any).starred,
     });
   });
 
@@ -2436,6 +2439,28 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
     }
   }
 
+  async function handleToggleStar() {
+    if (!m.sourceCaseId || !m.historyType) return;
+    setShowActionMenu(false);
+    try {
+      const res = await fetch(`/api/messages/${m.sourceCaseId}/${m.originalIndex}/star`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ historyType: m.historyType }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error("No se pudo destacar", { description: data?.error || `HTTP ${res.status}` });
+        return;
+      }
+      onMessageUpdate?.(m.historyType, m.originalIndex!, { starred: data.starred });
+      toast.success(data.starred ? "Mensaje destacado" : "Mensaje no destacado");
+    } catch (e) {
+      console.error("[Bubble] Error destacando:", e);
+      toast.error("Error de red al destacar");
+    }
+  }
+
   async function saveEdit() {
     if (!editText.trim()) { toast.error("El mensaje no puede estar vacío"); return; }
     if (!m.sourceCaseId || !m.historyType) return;
@@ -2606,6 +2631,15 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
             <Pin className="h-2.5 w-2.5" /> Fijado
           </div>
         )}
+        {m.starred && (
+          <div className={cn(
+            "absolute -top-2 flex items-center gap-0.5 text-[9px] font-medium px-1.5 py-0.5 rounded-full shadow-sm",
+            m.pinned ? "-top-5 " : "",
+            "bg-amber-100 text-amber-700 border border-amber-300"
+          )}>
+            <Star className="h-2.5 w-2.5 fill-amber-500 text-amber-500" /> Destacado
+          </div>
+        )}
         <div className={cn(
           "flex items-center gap-1.5 text-[10px] font-semibold mb-0.5",
           isCliente && "text-muted-foreground",
@@ -2762,7 +2796,7 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
                   <Send className="h-3.5 w-3.5" /> Responder
                 </button>
               )}
-              {isTecnico && !m.mediaUrl && !m.deleted && (
+              {(isTecnico || isIA) && !m.mediaUrl && !m.deleted && m.historyType === "histtecnico" && (
                 <button onClick={startEdit} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2">
                   <Edit className="h-3.5 w-3.5" /> Editar
                 </button>
@@ -2775,6 +2809,9 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
               </button>
               <button onClick={handleTogglePin} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2">
                 <Pin className="h-3.5 w-3.5" /> {m.pinned ? "Desfijar" : "Fijar"}
+              </button>
+              <button onClick={handleToggleStar} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2">
+                <Star className="h-3.5 w-3.5" /> {m.starred ? "Quitar destacado" : "Destacar"}
               </button>
               {isAudio && (
                 <button onClick={() => { handleTranscribe(); setShowActionMenu(false); }} disabled={transcribing} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2 disabled:opacity-60">
