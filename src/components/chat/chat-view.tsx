@@ -1,5 +1,6 @@
 "use client";
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft, MoreVertical, Phone, Send, Paperclip, Bot,
@@ -2397,6 +2398,8 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
   const [savingEdit, setSavingEdit] = React.useState(false);
   const [transcription, setTranscription] = React.useState<string | undefined>(m.transcription);
   const [transcribing, setTranscribing] = React.useState(false);
+  const [menuPos, setMenuPos] = React.useState<{ top: number; left: number } | null>(null);
+  const menuBtnRef = React.useRef<HTMLButtonElement>(null);
 
   React.useEffect(() => { setTranscription(m.transcription); }, [m.transcription]);
 
@@ -2831,99 +2834,133 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
             (showActionMenu || showEmojiPicker || showDeleteMenu) ? "opacity-100" : "opacity-0 group-hover:opacity-100"
           )}>
             <button
-              onClick={() => { setShowEmojiPicker(!showEmojiPicker); setShowActionMenu(false); setShowDeleteMenu(false); }}
+              onClick={() => {
+                if (!showEmojiPicker && menuBtnRef.current) {
+                  const r = menuBtnRef.current.getBoundingClientRect();
+                  setMenuPos({ top: r.bottom + 4, left: Math.min(r.right - 200, window.innerWidth - 210) });
+                }
+                setShowEmojiPicker(!showEmojiPicker); setShowActionMenu(false); setShowDeleteMenu(false);
+              }}
               className="p-1 rounded-full hover:bg-black/10 dark:hover:bg-white/10"
               title="Reaccionar"
             >
               <Smile className="h-3.5 w-3.5" />
             </button>
             <button
-              onClick={() => { setShowActionMenu(!showActionMenu); setShowEmojiPicker(false); setShowDeleteMenu(false); }}
+              ref={menuBtnRef}
+              onClick={() => {
+                if (!showActionMenu && menuBtnRef.current) {
+                  const r = menuBtnRef.current.getBoundingClientRect();
+                  setMenuPos({ top: r.bottom + 4, left: Math.min(r.right - 180, window.innerWidth - 190) });
+                }
+                setShowActionMenu(!showActionMenu); setShowEmojiPicker(false); setShowDeleteMenu(false);
+              }}
               className="p-1 rounded-full hover:bg-black/10 dark:hover:bg-white/10"
               title="Más opciones"
             >
               <ChevronDown className="h-3.5 w-3.5" />
             </button>
           </div>
-
-          {/* Menús: siempre visibles cuando están abiertos (sin opacity) */}
-          {showEmojiPicker && (
-            <div className="absolute top-full right-0 mt-1 bg-card border border-border rounded-xl shadow-xl p-2 flex flex-wrap gap-1 z-30 w-[200px]">
-              {commonEmojis.map(emoji => (
-                <button
-                  key={emoji}
-                  onClick={() => { handleReaction(emoji); setShowEmojiPicker(false); }}
-                  className="w-8 h-8 rounded-lg hover:bg-muted flex items-center justify-center text-lg"
-                >
-                  {emoji}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* Dropdown de acciones principal */}
-          {showActionMenu && !showDeleteMenu && (
-            <div className="absolute top-full right-0 mt-1 bg-card border border-border rounded-xl shadow-xl py-1 z-30 min-w-[180px] overflow-hidden">
-              <button onClick={() => { setShowInfoModal(true); setShowActionMenu(false); }} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2">
-                <Info className="h-3.5 w-3.5" /> Info del mensaje
-              </button>
-              {onReply && (
-                <button onClick={() => { onReply(m); setShowActionMenu(false); }} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2">
-                  <Send className="h-3.5 w-3.5" /> Responder
-                </button>
-              )}
-              {(isTecnico || isIA) && !m.mediaUrl && !m.deleted && m.historyType === "histtecnico" && (
-                <button onClick={startEdit} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2">
-                  <Edit className="h-3.5 w-3.5" /> Editar
-                </button>
-              )}
-              <button onClick={handleCopy} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2">
-                <Copy className="h-3.5 w-3.5" /> Copiar texto
-              </button>
-              <button onClick={() => { setShowForwardModal(true); setShowActionMenu(false); }} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2">
-                <Forward className="h-3.5 w-3.5" /> Reenviar
-              </button>
-              <button onClick={handleTogglePin} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2">
-                <Pin className="h-3.5 w-3.5" /> {m.pinned ? "Desfijar" : "Fijar"}
-              </button>
-              <button onClick={handleToggleStar} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2">
-                <Star className="h-3.5 w-3.5" /> {m.starred ? "Quitar destacado" : "Destacar"}
-              </button>
-              {isAudio && (
-                <button onClick={() => { handleTranscribe(); setShowActionMenu(false); }} disabled={transcribing} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2 disabled:opacity-60">
-                  <Mic className="h-3.5 w-3.5" /> {transcribing ? "Transcribiendo…" : "Transcribir"}
-                </button>
-              )}
-              {m.mediaUrl && (
-                <button onClick={handleDownload} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2">
-                  <Download className="h-3.5 w-3.5" /> Guardar como
-                </button>
-              )}
-              <div className="border-t border-border my-1" />
-              <button onClick={() => setShowDeleteMenu(true)} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2 text-red-500">
-                <Trash2 className="h-3.5 w-3.5" /> Eliminar
-              </button>
-            </div>
-          )}
-
-          {/* Submenú de eliminación */}
-          {showDeleteMenu && (
-            <div className="absolute top-full right-0 mt-1 bg-card border border-border rounded-xl shadow-xl py-1 z-30 min-w-[180px]">
-              <button onClick={() => { setShowDeleteMenu(false); setShowActionMenu(true); }} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2 text-muted-foreground">
-                <ChevronDown className="h-3.5 w-3.5 rotate-90" /> Atrás
-              </button>
-              <div className="border-t border-border my-1" />
-              <button onClick={() => handleDelete("for_me")} className="w-full px-3 py-2 text-xs text-left hover:bg-muted">
-                Eliminar para mí
-              </button>
-              {isTecnico && (
-                <button onClick={() => handleDelete("for_everyone")} className="w-full px-3 py-2 text-xs text-left hover:bg-muted text-red-500">
-                  Eliminar para todos
-                </button>
-              )}
-            </div>
-          )}
         </div>
+
+        {/* Menús renderizados con portal para evitar recorte por overflow */}
+        {showEmojiPicker && menuPos && createPortal(
+          <div
+            className="fixed bg-card border border-border rounded-xl shadow-xl p-2 flex flex-wrap gap-1 z-[9999] w-[200px]"
+            style={{ top: menuPos.top, left: menuPos.left }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {commonEmojis.map(emoji => (
+              <button
+                key={emoji}
+                onClick={() => { handleReaction(emoji); setShowEmojiPicker(false); }}
+                className="w-8 h-8 rounded-lg hover:bg-muted flex items-center justify-center text-lg"
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>,
+          document.body
+        )}
+
+        {/* Dropdown de acciones principal */}
+        {showActionMenu && !showDeleteMenu && menuPos && createPortal(
+          <div
+            className="fixed bg-card border border-border rounded-xl shadow-xl py-1 z-[9999] min-w-[180px] overflow-hidden"
+            style={{ top: menuPos.top, left: menuPos.left }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button onClick={() => { setShowInfoModal(true); setShowActionMenu(false); }} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2">
+              <Info className="h-3.5 w-3.5" /> Info del mensaje
+            </button>
+            {onReply && (
+              <button onClick={() => { onReply(m); setShowActionMenu(false); }} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2">
+                <Send className="h-3.5 w-3.5" /> Responder
+              </button>
+            )}
+            {(isTecnico || isIA) && !m.mediaUrl && !m.deleted && m.historyType === "histtecnico" && (
+              <button onClick={startEdit} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2">
+                <Edit className="h-3.5 w-3.5" /> Editar
+              </button>
+            )}
+            <button onClick={handleCopy} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2">
+              <Copy className="h-3.5 w-3.5" /> Copiar texto
+            </button>
+            <button onClick={() => { setShowForwardModal(true); setShowActionMenu(false); }} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2">
+              <Forward className="h-3.5 w-3.5" /> Reenviar
+            </button>
+            <button onClick={handleTogglePin} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2">
+              <Pin className="h-3.5 w-3.5" /> {m.pinned ? "Desfijar" : "Fijar"}
+            </button>
+            <button onClick={handleToggleStar} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2">
+              <Star className="h-3.5 w-3.5" /> {m.starred ? "Quitar destacado" : "Destacar"}
+            </button>
+            {isAudio && (
+              <button onClick={() => { handleTranscribe(); setShowActionMenu(false); }} disabled={transcribing} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2 disabled:opacity-60">
+                <Mic className="h-3.5 w-3.5" /> {transcribing ? "Transcribiendo…" : "Transcribir"}
+              </button>
+            )}
+            {m.mediaUrl && (
+              <button onClick={handleDownload} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2">
+                <Download className="h-3.5 w-3.5" /> Guardar como
+              </button>
+            )}
+            <div className="border-t border-border my-1" />
+            <button onClick={() => {
+              if (menuBtnRef.current) {
+                const r = menuBtnRef.current.getBoundingClientRect();
+                setMenuPos({ top: r.bottom + 4, left: Math.min(r.right - 180, window.innerWidth - 190) });
+              }
+              setShowDeleteMenu(true);
+            }} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2 text-red-500">
+              <Trash2 className="h-3.5 w-3.5" /> Eliminar
+            </button>
+          </div>,
+          document.body
+        )}
+
+        {/* Submenú de eliminación */}
+        {showDeleteMenu && menuPos && createPortal(
+          <div
+            className="fixed bg-card border border-border rounded-xl shadow-xl py-1 z-[9999] min-w-[180px]"
+            style={{ top: menuPos.top, left: menuPos.left }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button onClick={() => { setShowDeleteMenu(false); setShowActionMenu(true); }} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2 text-muted-foreground">
+              <ChevronDown className="h-3.5 w-3.5 rotate-90" /> Atrás
+            </button>
+            <div className="border-t border-border my-1" />
+            <button onClick={() => handleDelete("for_me")} className="w-full px-3 py-2 text-xs text-left hover:bg-muted">
+              Eliminar para mí
+            </button>
+            {isTecnico && (
+              <button onClick={() => handleDelete("for_everyone")} className="w-full px-3 py-2 text-xs text-left hover:bg-muted text-red-500">
+                Eliminar para todos
+              </button>
+            )}
+          </div>,
+          document.body
+        )}
 
         {/* Modal de info del mensaje */}
       </div>
