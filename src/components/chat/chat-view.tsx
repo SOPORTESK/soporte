@@ -38,6 +38,7 @@ type UnifiedMessage = {
   messageId?: string;
   fromMe?: boolean;
   replyTo?: { content: string; author: string } | null;
+  transcription?: string;
 };
 
 function unifyMessages(c: SekCase): UnifiedMessage[] {
@@ -68,6 +69,7 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
       messageId: (e as any).messageId,
       fromMe: (e as any).fromMe ?? isAgente,
       replyTo: (e as any).replyTo ?? null,
+      transcription: (e as any).transcription,
     });
   });
 
@@ -93,6 +95,7 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
       messageId: (e as any).messageId,
       fromMe: (e as any).fromMe ?? isNota,
       replyTo: (e as any).replyTo ?? null,
+      transcription: (e as any).transcription,
     });
   });
 
@@ -2257,6 +2260,47 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
 
   const [showEmojiPicker, setShowEmojiPicker] = React.useState(false);
   const [showDeleteMenu, setShowDeleteMenu] = React.useState(false);
+  const [transcription, setTranscription] = React.useState<string | undefined>(m.transcription);
+  const [transcribing, setTranscribing] = React.useState(false);
+
+  React.useEffect(() => { setTranscription(m.transcription); }, [m.transcription]);
+
+  // El mediaType puede venir genérico desde WhatsApp, así que también se mira la extensión.
+  const audioExtensions = ["ogg", "opus", "mp3", "wav", "m4a", "aac", "webm"];
+  const mediaExt = (m.fileName || m.mediaUrl || "").split("?")[0].split(".").pop()?.toLowerCase() || "";
+  const isAudio = !!m.mediaUrl && !m.deleted && (
+    String(m.mediaType || "").startsWith("audio/") ||
+    String(m.mediaType || "") === "audio" ||
+    audioExtensions.includes(mediaExt)
+  );
+
+  async function handleTranscribe() {
+    const caseId = m.sourceCaseId;
+    if (!caseId || m.originalIndex === undefined || !m.historyType) {
+      toast.error("No se puede transcribir este mensaje");
+      return;
+    }
+    setTranscribing(true);
+    try {
+      const res = await fetch(`/api/messages/${caseId}/${m.originalIndex}/transcribe`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ historyType: m.historyType })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.transcription) {
+        toast.error("No se pudo transcribir", { description: data?.error || `HTTP ${res.status}` });
+        return;
+      }
+      setTranscription(data.transcription);
+      onMessageUpdate?.(m.historyType, m.originalIndex, { transcription: data.transcription });
+    } catch (e) {
+      console.error("[Bubble] Error transcribiendo:", e);
+      toast.error("Error de red al transcribir");
+    } finally {
+      setTranscribing(false);
+    }
+  }
 
   if (isSeparator) {
     return (
@@ -2405,6 +2449,31 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
         </div>
 
         {m.mediaUrl && <MediaPreview url={m.mediaUrl} type={m.mediaType} name={m.fileName} onImageClick={onImageClick} />}
+
+        {isAudio && (
+          transcription ? (
+            <div className={cn(
+              "mt-1.5 px-2.5 py-1.5 rounded-lg text-xs leading-relaxed whitespace-pre-wrap break-words max-w-[260px]",
+              isCliente ? "bg-muted/60 text-muted-foreground" : "bg-white/10 text-white/80"
+            )}>
+              <p className={cn("font-semibold text-[10px] mb-0.5 flex items-center gap-1", isCliente ? "text-muted-foreground" : "text-white/60")}>
+                <FileText className="h-2.5 w-2.5" /> Transcripción
+              </p>
+              {transcription}
+            </div>
+          ) : (
+            <button
+              onClick={handleTranscribe}
+              disabled={transcribing}
+              className={cn(
+                "mt-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors disabled:opacity-60",
+                isCliente ? "bg-muted hover:bg-muted/70 text-muted-foreground" : "bg-white/15 hover:bg-white/25 text-white/80"
+              )}
+            >
+              {transcribing ? "Transcribiendo…" : "Transcribir audio"}
+            </button>
+          )
+        )}
         
         {/* Cita (reply-to) */}
         {m.replyTo && (
