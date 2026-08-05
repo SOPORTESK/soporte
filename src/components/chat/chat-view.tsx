@@ -2418,7 +2418,10 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
   }
 
   async function handleTogglePin() {
-    if (!m.sourceCaseId || !m.historyType) return;
+    if (!m.sourceCaseId || !m.historyType) {
+      toast.error("No se puede fijar: faltan datos del mensaje");
+      return;
+    }
     setShowActionMenu(false);
     try {
       const res = await fetch(`/api/messages/${m.sourceCaseId}/${m.originalIndex}/pin`, {
@@ -2440,7 +2443,10 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
   }
 
   async function handleToggleStar() {
-    if (!m.sourceCaseId || !m.historyType) return;
+    if (!m.sourceCaseId || !m.historyType) {
+      toast.error("No se puede destacar: faltan datos del mensaje");
+      return;
+    }
     setShowActionMenu(false);
     try {
       const res = await fetch(`/api/messages/${m.sourceCaseId}/${m.originalIndex}/star`, {
@@ -2463,7 +2469,10 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
 
   async function saveEdit() {
     if (!editText.trim()) { toast.error("El mensaje no puede estar vacío"); return; }
-    if (!m.sourceCaseId || !m.historyType) return;
+    if (!m.sourceCaseId || !m.historyType) {
+      toast.error("No se puede editar: faltan datos del mensaje", { description: `caseId=${m.sourceCaseId} type=${m.historyType}` });
+      return;
+    }
     setSavingEdit(true);
     try {
       const res = await fetch(`/api/messages/${m.sourceCaseId}/${m.originalIndex}/edit`, {
@@ -2549,6 +2558,7 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
     const caseId = m.sourceCaseId;
     if (!agentEmail || m.originalIndex === undefined || !m.historyType || !caseId) {
       console.error("[Bubble] Datos faltantes para eliminar", { agentEmail, originalIndex: m.originalIndex, historyType: m.historyType, caseId });
+      toast.error("No se puede eliminar: faltan datos del mensaje", { description: `caseId=${caseId} idx=${m.originalIndex} type=${m.historyType}` });
       return;
     }
 
