@@ -2408,11 +2408,14 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
   React.useEffect(() => {
     if (!showActionMenu && !showEmojiPicker && !showDeleteMenu) return;
     function handleClickOutside(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setShowActionMenu(false);
-        setShowEmojiPicker(false);
-        setShowDeleteMenu(false);
-      }
+      const target = e.target as Node;
+      if (menuRef.current && menuRef.current.contains(target)) return;
+      // También ignorar clics dentro del portal del menú
+      const portalEl = (target as HTMLElement)?.closest?.("[data-menu-portal]");
+      if (portalEl) return;
+      setShowActionMenu(false);
+      setShowEmojiPicker(false);
+      setShowDeleteMenu(false);
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
@@ -2866,6 +2869,7 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
         {/* Menús renderizados con portal para evitar recorte por overflow */}
         {showEmojiPicker && menuPos && createPortal(
           <div
+            data-menu-portal
             className="fixed bg-card border border-border rounded-xl shadow-xl p-2 flex flex-wrap gap-1 z-[9999] w-[200px]"
             style={{ top: menuPos.top, left: menuPos.left }}
             onClick={(e) => e.stopPropagation()}
@@ -2886,6 +2890,7 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
         {/* Dropdown de acciones principal */}
         {showActionMenu && !showDeleteMenu && menuPos && createPortal(
           <div
+            data-menu-portal
             className="fixed bg-card border border-border rounded-xl shadow-xl py-1 z-[9999] min-w-[180px] overflow-hidden"
             style={{ top: menuPos.top, left: menuPos.left }}
             onClick={(e) => e.stopPropagation()}
@@ -2942,6 +2947,7 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
         {/* Submenú de eliminación */}
         {showDeleteMenu && menuPos && createPortal(
           <div
+            data-menu-portal
             className="fixed bg-card border border-border rounded-xl shadow-xl py-1 z-[9999] min-w-[180px]"
             style={{ top: menuPos.top, left: menuPos.left }}
             onClick={(e) => e.stopPropagation()}
