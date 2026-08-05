@@ -17,6 +17,7 @@ import { cn, formatTime, asText, clienteInfo } from "@/lib/utils";
 import { toast } from "sonner";
 import { CaseHistoryDrawer } from "./case-history-drawer";
 import { TemplateManager } from "./template-manager";
+import { MediaViewer } from "./media-viewer";
 import type { SekCase, SekHistEntry, ChannelKind } from "@/lib/types";
 
 type UnifiedMessage = {
@@ -217,7 +218,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     toast.success("Actualizado");
   }
 
-  const [previewImage, setPreviewImage] = React.useState<string | null>(null);
+  const [previewMedia, setPreviewMedia] = React.useState<{ url: string; type?: string; name?: string } | null>(null);
 
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const scrollerRef = React.useRef<HTMLDivElement>(null);
@@ -1738,7 +1739,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
                   <div className="flex-1 h-px bg-border" />
                 </div>
               )}
-              <Bubble m={m} clienteName={ci.nombre} onImageClick={setPreviewImage} agentEmail={agentEmail} onMessageUpdate={handleMessageUpdate} onReply={(msg) => { setReplyTo(msg); setMode("reply"); setTimeout(() => { const ta = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Mensaje"]'); if (ta) ta.focus(); }, 50); }} />
+              <Bubble m={m} clienteName={ci.nombre} onImageClick={(url, type, name) => setPreviewMedia({ url, type, name })} agentEmail={agentEmail} onMessageUpdate={handleMessageUpdate} onReply={(msg) => { setReplyTo(msg); setMode("reply"); setTimeout(() => { const ta = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Mensaje"]'); if (ta) ta.focus(); }, 50); }} />
             </React.Fragment>
           );
         })}
@@ -2066,19 +2067,14 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
         currentCase={sekCase}
       />
 
-      {/* Visor de imágenes a pantalla completa */}
-      {previewImage && (
-        <div 
-          className="fixed inset-0 z-[9999] bg-black/90 flex items-center justify-center p-4 cursor-zoom-out animate-fade-in"
-          onClick={() => setPreviewImage(null)}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img 
-            src={previewImage} 
-            alt="Vista completa" 
-            className="max-w-full max-h-full object-contain rounded-xl shadow-2xl transition-transform" 
-          />
-        </div>
+      {/* Visor de medios con pan/zoom/descarga */}
+      {previewMedia && (
+        <MediaViewer
+          url={previewMedia.url}
+          type={previewMedia.type}
+          name={previewMedia.name}
+          onClose={() => setPreviewMedia(null)}
+        />
       )}
     </div>
   );
@@ -2256,7 +2252,7 @@ function AudioPlayer({ url }: { url: string }) {
   );
 }
 
-function MediaPreview({ url, type, name, onImageClick }: { url: string; type?: string; name?: string; onImageClick?: (url: string) => void }) {
+function MediaPreview({ url, type, name, onImageClick }: { url: string; type?: string; name?: string; onImageClick?: (url: string, type?: string, name?: string) => void }) {
   if (!url) return null;
   const ext = (name || url).split("?")[0].split(".").pop()?.toLowerCase() ?? "";
   const audioExts = ["webm", "ogg", "mp3", "wav", "m4a", "aac", "opus"];
@@ -2273,7 +2269,7 @@ function MediaPreview({ url, type, name, onImageClick }: { url: string; type?: s
   if (t.startsWith("image/")) {
     return (
       <div 
-        onClick={() => onImageClick?.(url)} 
+        onClick={() => onImageClick?.(url, t, name)} 
         className="block mt-1 cursor-pointer transition-transform hover:scale-[1.02] active:scale-[0.98]"
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -2284,7 +2280,17 @@ function MediaPreview({ url, type, name, onImageClick }: { url: string; type?: s
   if (t.startsWith("video/")) {
     const isNote = (name || url).includes("nota-video");
     if (isNote) return <VideoNote url={url} type={t} />;
-    return <video src={url} controls className="max-w-[240px] rounded-lg mt-1" />;
+    return (
+      <div
+        onClick={() => onImageClick?.(url, t, name)}
+        className="block mt-1 cursor-pointer relative group"
+      >
+        <video src={url} preload="metadata" className="max-w-[240px] rounded-lg pointer-events-none" />
+        <div className="absolute inset-0 flex items-center justify-center bg-black/20 rounded-lg group-hover:bg-black/30 transition-colors">
+          <Play className="h-8 w-8 text-white/90 drop-shadow-lg" />
+        </div>
+      </div>
+    );
   }
   if (t.startsWith("audio/")) {
     return <AudioPlayer url={url} />;
@@ -2325,7 +2331,7 @@ function MediaPreview({ url, type, name, onImageClick }: { url: string; type?: s
 function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onReply }: { 
   m: UnifiedMessage; 
   clienteName: string; 
-  onImageClick?: (url: string) => void;
+  onImageClick?: (url: string, type?: string, name?: string) => void;
   agentEmail: string | null;
   onMessageUpdate?: (historyType: "histcliente" | "histtecnico", originalIndex: number, fieldsToUpdate: any) => void;
   onReply?: (m: UnifiedMessage) => void;
