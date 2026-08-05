@@ -2528,7 +2528,7 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
   }
 
   return (
-    <div className={cn("flex animate-fade-in group relative", isCliente ? "justify-start" : "justify-end")}>
+    <div className={cn("flex flex-wrap animate-fade-in group relative", isCliente ? "justify-start" : "justify-end")}>
       <div className={cn(
         "max-w-[85%] sm:max-w-[78%] rounded-2xl px-3.5 sm:px-4 py-2 shadow-sm relative",
         isCliente && "bg-card border border-border rounded-bl-sm",
@@ -2627,21 +2627,21 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
           {m.status === "error" && <span className="text-red-400">❌</span>}
         </div>
 
-        {/* Botones de acción estilo WhatsApp: emoji + chevron en la esquina */}
+        {/* Botones de acción: fuera de la burbuja para no tapar el contenido */}
         <div ref={menuRef} className={cn(
-          "absolute top-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-20",
-          isCliente ? "right-1" : "left-1"
+          "absolute top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-20",
+          isCliente ? "left-full ml-2" : "right-full mr-2"
         )}>
           <button
             onClick={() => { setShowEmojiPicker(!showEmojiPicker); setShowActionMenu(false); setShowDeleteMenu(false); }}
-            className="p-1 rounded-full hover:bg-black/10 dark:hover:bg-white/10"
+            className="p-1.5 rounded-full bg-card border border-border shadow-sm hover:bg-muted"
             title="Reaccionar"
           >
             <Smile className="h-3.5 w-3.5" />
           </button>
           <button
             onClick={() => { setShowActionMenu(!showActionMenu); setShowEmojiPicker(false); setShowDeleteMenu(false); }}
-            className="p-1 rounded-full hover:bg-black/10 dark:hover:bg-white/10"
+            className="p-1.5 rounded-full bg-card border border-border shadow-sm hover:bg-muted"
             title="Más opciones"
           >
             <ChevronDown className="h-3.5 w-3.5" />
@@ -2651,8 +2651,8 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
         {/* Emoji picker rápido */}
         {showEmojiPicker && (
           <div className={cn(
-            "absolute top-7 bg-card border border-border rounded-xl shadow-xl p-2 flex flex-wrap gap-1 z-30 max-w-[200px]",
-            isCliente ? "right-0" : "left-0"
+            "absolute top-full mt-1 bg-card border border-border rounded-xl shadow-xl p-2 flex flex-wrap gap-1 z-30 w-[200px]",
+            isCliente ? "left-full ml-2" : "right-full mr-2"
           )}>
             {commonEmojis.map(emoji => (
               <button
@@ -2669,8 +2669,8 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
         {/* Dropdown de acciones principal */}
         {showActionMenu && !showDeleteMenu && (
           <div className={cn(
-            "absolute top-7 bg-card border border-border rounded-xl shadow-xl py-1 z-30 min-w-[180px] overflow-hidden",
-            isCliente ? "right-0" : "left-0"
+            "absolute top-full mt-1 bg-card border border-border rounded-xl shadow-xl py-1 z-30 min-w-[180px] overflow-hidden",
+            isCliente ? "left-full ml-2" : "right-full mr-2"
           )}>
             <button onClick={() => { setShowInfoModal(true); setShowActionMenu(false); }} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2">
               <Info className="h-3.5 w-3.5" /> Info del mensaje
@@ -2709,8 +2709,8 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
         {/* Submenú de eliminación */}
         {showDeleteMenu && (
           <div className={cn(
-            "absolute top-7 bg-card border border-border rounded-xl shadow-xl py-1 z-30 min-w-[180px]",
-            isCliente ? "right-0" : "left-0"
+            "absolute top-full mt-1 bg-card border border-border rounded-xl shadow-xl py-1 z-30 min-w-[180px]",
+            isCliente ? "left-full ml-2" : "right-full mr-2"
           )}>
             <button onClick={() => { setShowDeleteMenu(false); setShowActionMenu(true); }} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2 text-muted-foreground">
               <ChevronDown className="h-3.5 w-3.5 rotate-90" /> Atrás
@@ -2790,8 +2790,8 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
 
         return (
           <div className={cn(
-            "absolute -bottom-3 flex flex-wrap gap-1 z-10",
-            isCliente ? "left-3" : "right-3"
+            "w-full flex flex-wrap gap-1 mt-1 px-3",
+            isCliente ? "justify-start" : "justify-end"
           )}>
             {cleanedReactions.map((ur, idx) => (
               <span
