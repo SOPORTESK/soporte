@@ -2337,20 +2337,8 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
 
   React.useEffect(() => { setTranscription(m.transcription); }, [m.transcription]);
 
-  // Cerrar todos los menús al hacer clic fuera
+  // Cerrar todos los menús al hacer clic fuera (usando backdrop, no addEventListener)
   const menuRef = React.useRef<HTMLDivElement>(null);
-  React.useEffect(() => {
-    if (!showActionMenu && !showEmojiPicker && !showDeleteMenu) return;
-    function handleClickOutside(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setShowActionMenu(false);
-        setShowEmojiPicker(false);
-        setShowDeleteMenu(false);
-      }
-    }
-    document.addEventListener("click", handleClickOutside);
-    return () => document.removeEventListener("click", handleClickOutside);
-  }, [showActionMenu, showEmojiPicker, showDeleteMenu]);
 
   // El mediaType puede venir genérico desde WhatsApp, así que también se mira la extensión.
   const audioExtensions = ["ogg", "opus", "mp3", "wav", "m4a", "aac", "webm"];
@@ -2761,8 +2749,13 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
           {m.status === "error" && <span className="text-red-400">❌</span>}
         </div>
 
+        {/* Backdrop invisible para cerrar menús al clic fuera */}
+        {(showActionMenu || showEmojiPicker || showDeleteMenu) && (
+          <div className="fixed inset-0 z-40" onClick={() => { setShowActionMenu(false); setShowEmojiPicker(false); setShowDeleteMenu(false); }} />
+        )}
+
         {/* Botones de acción: esquina superior derecha (opacity on hover) */}
-        <div ref={menuRef} className="absolute top-1 right-1 z-20">
+        <div ref={menuRef} className="absolute top-1 right-1 z-50">
           <div className={cn(
             "flex items-center gap-0.5 transition-opacity",
             (showActionMenu || showEmojiPicker || showDeleteMenu) ? "opacity-100" : "opacity-0 group-hover:opacity-100"
@@ -2785,7 +2778,7 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
 
           {/* Menús: siempre visibles cuando están abiertos (sin opacity) */}
           {showEmojiPicker && (
-            <div className="absolute top-full right-0 mt-1 bg-card border border-border rounded-xl shadow-xl p-2 flex flex-wrap gap-1 z-30 w-[200px]">
+            <div className="absolute top-full right-0 mt-1 bg-card border border-border rounded-xl shadow-xl p-2 flex flex-wrap gap-1 z-50 w-[200px]">
               {commonEmojis.map(emoji => (
                 <button
                   key={emoji}
@@ -2800,7 +2793,7 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
 
           {/* Dropdown de acciones principal */}
           {showActionMenu && !showDeleteMenu && (
-            <div className="absolute top-full right-0 mt-1 bg-card border border-border rounded-xl shadow-xl py-1 z-30 min-w-[180px] overflow-hidden">
+            <div className="absolute top-full right-0 mt-1 bg-card border border-border rounded-xl shadow-xl py-1 z-50 min-w-[180px] overflow-hidden">
               <button onClick={() => { setShowInfoModal(true); setShowActionMenu(false); }} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2">
                 <Info className="h-3.5 w-3.5" /> Info del mensaje
               </button>
@@ -2845,7 +2838,7 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
 
           {/* Submenú de eliminación */}
           {showDeleteMenu && (
-            <div className="absolute top-full right-0 mt-1 bg-card border border-border rounded-xl shadow-xl py-1 z-30 min-w-[180px]">
+            <div className="absolute top-full right-0 mt-1 bg-card border border-border rounded-xl shadow-xl py-1 z-50 min-w-[180px]">
               <button onClick={() => { setShowDeleteMenu(false); setShowActionMenu(true); }} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2 text-muted-foreground">
                 <ChevronDown className="h-3.5 w-3.5 rotate-90" /> Atrás
               </button>
