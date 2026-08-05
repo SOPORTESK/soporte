@@ -41,6 +41,7 @@ type UnifiedMessage = {
   replyTo?: { content: string; author: string } | null;
   transcription?: string;
   edited?: boolean;
+  pinned?: boolean;
 };
 
 function unifyMessages(c: SekCase): UnifiedMessage[] {
@@ -73,6 +74,7 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
       replyTo: (e as any).replyTo ?? null,
       transcription: (e as any).transcription,
       edited: (e as any).edited,
+      pinned: (e as any).pinned,
     });
   });
 
@@ -100,6 +102,7 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
       replyTo: (e as any).replyTo ?? null,
       transcription: (e as any).transcription,
       edited: (e as any).edited,
+      pinned: (e as any).pinned,
     });
   });
 
@@ -2411,6 +2414,28 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
     setShowActionMenu(false);
   }
 
+  async function handleTogglePin() {
+    if (!m.sourceCaseId || !m.historyType) return;
+    setShowActionMenu(false);
+    try {
+      const res = await fetch(`/api/messages/${m.sourceCaseId}/${m.originalIndex}/pin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ historyType: m.historyType }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error("No se pudo fijar", { description: data?.error || `HTTP ${res.status}` });
+        return;
+      }
+      onMessageUpdate?.(m.historyType, m.originalIndex!, { pinned: data.pinned });
+      toast.success(data.pinned ? "Mensaje fijado" : "Mensaje desfijado");
+    } catch (e) {
+      console.error("[Bubble] Error fijando:", e);
+      toast.error("Error de red al fijar");
+    }
+  }
+
   async function saveEdit() {
     if (!editText.trim()) { toast.error("El mensaje no puede estar vacío"); return; }
     if (!m.sourceCaseId || !m.historyType) return;
@@ -2573,6 +2598,14 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
         isIA && "bg-gradient-to-br from-violet-500/95 to-violet-600/95 text-white rounded-br-sm",
         isTecnico && "bg-brand-700 text-white rounded-br-sm"
       )}>
+        {m.pinned && (
+          <div className={cn(
+            "absolute -top-2 flex items-center gap-0.5 text-[9px] font-medium px-1.5 py-0.5 rounded-full shadow-sm",
+            isCliente ? "bg-card border border-border text-muted-foreground" : "bg-white/20 text-white"
+          )}>
+            <Pin className="h-2.5 w-2.5" /> Fijado
+          </div>
+        )}
         <div className={cn(
           "flex items-center gap-1.5 text-[10px] font-semibold mb-0.5",
           isCliente && "text-muted-foreground",
@@ -2740,8 +2773,8 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
               <button onClick={() => { setShowForwardModal(true); setShowActionMenu(false); }} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2">
                 <Forward className="h-3.5 w-3.5" /> Reenviar
               </button>
-              <button onClick={() => { toast.info("Fijar mensaje — próximamente"); setShowActionMenu(false); }} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2">
-                <Pin className="h-3.5 w-3.5" /> Fijar
+              <button onClick={handleTogglePin} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2">
+                <Pin className="h-3.5 w-3.5" /> {m.pinned ? "Desfijar" : "Fijar"}
               </button>
               {isAudio && (
                 <button onClick={() => { handleTranscribe(); setShowActionMenu(false); }} disabled={transcribing} className="w-full px-3 py-2 text-xs text-left hover:bg-muted flex items-center gap-2 disabled:opacity-60">
