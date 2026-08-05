@@ -74,11 +74,13 @@ function isDuplicateMessage(jid: string | null | undefined, content: string | nu
 }
 
 // Helper para enviar mensaje de texto por WhatsApp vía Evolution
-async function sendWhatsAppText(phone: string, text: string, evoCfg: any, delayMs: number = 0): Promise<boolean> {
+// Devuelve el messageId que asigna WhatsApp: sin él, el mensaje no se puede
+// revocar después ("eliminar para todos").
+async function sendWhatsAppText(phone: string, text: string, evoCfg: any, delayMs: number = 0): Promise<{ ok: boolean; messageId: string | null }> {
   try {
     if (!evoCfg?.url || !evoCfg?.apiKey || !evoCfg?.instance) {
       console.error("[evo-webhook] Evo config incompleta:", { url: !!evoCfg?.url, key: !!evoCfg?.apiKey, instance: !!evoCfg?.instance });
-      return false;
+      return { ok: false, messageId: null };
     }
     const to = phone.toString().trim();
     const formattedTo = to.replace(/[^0-9]/g, "");
@@ -98,13 +100,15 @@ async function sendWhatsAppText(phone: string, text: string, evoCfg: any, delayM
     if (!res.ok) {
       const err = await res.text();
       console.error("[evo-webhook] Error sending text:", res.status, err);
-      return false;
+      return { ok: false, messageId: null };
     }
-    console.log("[evo-webhook] Mensaje enviado exitosamente");
-    return true;
+    const data = await res.json().catch(() => ({} as any));
+    const messageId = data?.key?.id || null;
+    console.log("[evo-webhook] Mensaje enviado exitosamente. messageId:", messageId);
+    return { ok: true, messageId };
   } catch (e: any) {
     console.error("[evo-webhook] Exception sending text:", e.message);
-    return false;
+    return { ok: false, messageId: null };
   }
 }
 
@@ -186,10 +190,10 @@ async function sendWhatsAppMessages(phone: string, reply: any | any[], evoCfg: a
       sent = await sendWhatsAppList(phone || "", msg.listData, evoCfg, delayMs);
       if (!sent && text) {
         console.log("[evo-webhook] Lista fallo, enviando texto plano como fallback");
-        sent = await sendWhatsAppText(phone || "", text, evoCfg, delayMs);
+        sent = (await sendWhatsAppText(phone || "", text, evoCfg, delayMs)).ok;
       }
     } else {
-      sent = await sendWhatsAppText(phone || "", text, evoCfg, delayMs);
+      sent = (await sendWhatsAppText(phone || "", text, evoCfg, delayMs)).ok;
     }
 
     if (!sent) {
@@ -1424,14 +1428,17 @@ export async function POST(req: NextRequest) {
             }
 
             // Enviar respuesta por WhatsApp
-            await sendWhatsAppText(phone || jid || "", reply, evoCfg, 800);
+            const replySent = await sendWhatsAppText(phone || jid || "", reply, evoCfg, 800);
 
-            // Guardar respuesta en histtecnico (atómico)
+            // Guardar respuesta en histtecnico (atómico). El messageId queda
+            // registrado para poder revocar el mensaje más adelante.
             const replyEntry = {
               role: "ia",
               author: "Asistente Sekunet",
               time: new Date().toISOString(),
               content: reply,
+              fromMe: true,
+              ...(replySent.messageId ? { messageId: replySent.messageId } : {}),
             };
             await supabase.rpc("sek_append_hist", {
               p_case_id: String(existing.id),
@@ -1601,11 +1608,16 @@ export async function POST(req: NextRequest) {
       // bienvenida prometiendo un agente que no está disponible.
       if (modoNoAtendido && !isOpenNowCR()) {
         const msgHorario = await getFueraHorarioMsg(supabase);
+        // Se envía antes de insertar para poder guardar el messageId en el
+        // historial; el caso queda cerrado y el eco del webhook ya no lo rellena.
+        const horarioSent = await sendWhatsAppText(phone || jid || "", msgHorario, evoCfg, 500);
         const horarioEntry = {
           role: "ia",
           author: "Asistente Sekunet",
           time: new Date().toISOString(),
           content: msgHorario,
+          fromMe: true,
+          ...(horarioSent.messageId ? { messageId: horarioSent.messageId } : {}),
         };
         const nowIso = new Date().toISOString();
         const { data: newCase } = await supabase.from("sek_cases").insert({
@@ -1622,19 +1634,21 @@ export async function POST(req: NextRequest) {
           last_message_preview: (text || "").slice(0, 200),
         }).select("id").single();
 
-        console.log(`[evo-webhook] Modo No Atendido + fuera de horario — caso ${newCase?.id} creado cerrado, enviando horario`);
-        await sendWhatsAppText(phone || jid || "", msgHorario, evoCfg, 500);
+        console.log(`[evo-webhook] Modo No Atendido + fuera de horario — caso ${newCase?.id} creado cerrado`);
         return NextResponse.json({ ok: true, unattended: true, fueraHorario: true });
       }
 
       // ── Modo No Atendido: crear como escalado, mandar bienvenida, sin IA ──
       if (modoNoAtendido) {
         const WELCOME_MSG = "Hola\n\nBienvenido al soporte técnico de Sekunet.\n\nAgradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
+        const welcomeSent = await sendWhatsAppText(phone || jid || "", WELCOME_MSG, evoCfg, 500);
         const welcomeEntry = {
           role: "ia",
           author: "Asistente Sekunet",
           time: new Date().toISOString(),
           content: WELCOME_MSG,
+          fromMe: true,
+          ...(welcomeSent.messageId ? { messageId: welcomeSent.messageId } : {}),
         };
         const { data: newCase } = await supabase.from("sek_cases").insert({
           canal: "whatsapp",
@@ -1650,8 +1664,7 @@ export async function POST(req: NextRequest) {
           last_message_preview: (text || "").slice(0, 200),
         }).select("id").single();
 
-        console.log(`[evo-webhook] Modo No Atendido — caso ${newCase?.id} creado como escalado, enviando bienvenida`);
-        await sendWhatsAppText(phone || jid || "", WELCOME_MSG, evoCfg, 500);
+        console.log(`[evo-webhook] Modo No Atendido — caso ${newCase?.id} creado como escalado, bienvenida enviada`);
         return NextResponse.json({ ok: true, unattended: true });
       }
 

@@ -69,6 +69,39 @@ function detectMediaType(mime: string | null | undefined): "image" | "video" | "
   return "document";
 }
 
+// El eco de los mensajes salientes no siempre llega al webhook, así que el
+// messageId se guarda aquí mismo. Sin él no se puede revocar el mensaje después.
+// Se relee el historial justo antes de escribir para no pisar mensajes nuevos.
+async function persistMessageId(
+  supabase: any,
+  caseId: string,
+  messageId: string,
+  match: { text?: string; mediaUrl?: string }
+): Promise<void> {
+  try {
+    const { data } = await supabase.from("sek_cases").select("histtecnico").eq("id", caseId).maybeSingle();
+    const hist = Array.isArray(data?.histtecnico) ? [...data.histtecnico] : [];
+    const wanted = String(match.text || "").trim();
+
+    // Se recorre de atrás hacia adelante: el mensaje recién enviado es el último.
+    for (let i = hist.length - 1; i >= 0; i--) {
+      const e = hist[i];
+      if (typeof e !== "object" || e === null || e.messageId) continue;
+      const sameMedia = match.mediaUrl && e.mediaUrl === match.mediaUrl;
+      const sameText = wanted && String(e.content || "").trim() === wanted;
+      if (!sameMedia && !sameText) continue;
+
+      hist[i] = { ...e, messageId, fromMe: true };
+      const { error } = await supabase.from("sek_cases").update({ histtecnico: hist }).eq("id", caseId);
+      if (error) console.error("[evo-send] Error guardando messageId:", error);
+      return;
+    }
+    console.warn("[evo-send] No se encontró el mensaje en histtecnico para guardar el messageId");
+  } catch (e) {
+    console.error("[evo-send] Excepción guardando messageId:", e);
+  }
+}
+
 export async function POST(req: NextRequest) {
   const { case_id, text, mediaUrl, mediaType, fileName } = await req.json().catch(() => ({}));
   if (!case_id || (!text && !mediaUrl)) return NextResponse.json({ error: "invalid" }, { status: 400 });
@@ -113,6 +146,7 @@ export async function POST(req: NextRequest) {
       if (!res.ok) throw new Error(`evolution ${res.status}: ${JSON.stringify(mediaRes)}`);
       const msgId = mediaRes?.key?.id || mediaRes?.messageId || null;
       console.log("[evo-send] Éxito enviando media. messageId:", msgId);
+      if (msgId) await persistMessageId(supabase, case_id, msgId, { text, mediaUrl });
       return NextResponse.json({ ok: true, messageId: msgId });
     } else {
       console.log("[evo-send] Intentando enviar texto a:", to);
@@ -128,6 +162,7 @@ export async function POST(req: NextRequest) {
       }
       const msgId = resData?.key?.id || resData?.messageId || null;
       console.log("[evo-send] Éxito enviando mensaje. messageId:", msgId);
+      if (msgId) await persistMessageId(supabase, case_id, msgId, { text });
       return NextResponse.json({ ok: true, messageId: msgId });
     }
   } catch (e: any) {
