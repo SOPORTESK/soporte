@@ -62,18 +62,27 @@ export function TemplateManager({
     try {
       if (tab === "personal") {
         const isNew = editingTemplate.id.startsWith("new_");
-        const newId = isNew ? "p_" + Date.now() : editingTemplate.id;
-        const updatedTemplate = { ...editingTemplate, id: newId };
-        
-        let newTemplates;
+        const payload = {
+          agent_email: agentEmail,
+          nombre: editingTemplate.nombre,
+          texto: editingTemplate.texto,
+          cat: editingTemplate.cat || "general",
+          orden: personalTemplates.length,
+        };
+
         if (isNew) {
-          newTemplates = [...personalTemplates, updatedTemplate];
+          const { data, error } = await supabase.from("sek_plantillas_personal").insert([payload]).select().single();
+          if (error) throw error;
+          onPersonalTemplatesChange([...personalTemplates, { ...data, isGlobal: false }]);
         } else {
-          newTemplates = personalTemplates.map(t => t.id === updatedTemplate.id ? updatedTemplate : t);
+          const { error } = await supabase.from("sek_plantillas_personal").update({
+            nombre: editingTemplate.nombre,
+            texto: editingTemplate.texto,
+            cat: editingTemplate.cat || "general",
+          }).eq("id", editingTemplate.id);
+          if (error) throw error;
+          onPersonalTemplatesChange(personalTemplates.map(t => t.id === editingTemplate.id ? { ...t, ...editingTemplate } : t));
         }
-        
-        localStorage.setItem(`sek_plantillas_${agentEmail}`, JSON.stringify(newTemplates));
-        onPersonalTemplatesChange(newTemplates);
         toast.success("Plantilla personal guardada");
         setEditingTemplate(null);
       } else {
@@ -122,8 +131,10 @@ export function TemplateManager({
     reordered.splice(toIdx, 0, moved);
 
     if (tab === "personal") {
-      localStorage.setItem(`sek_plantillas_${agentEmail}`, JSON.stringify(reordered));
       onPersonalTemplatesChange(reordered);
+      reordered.forEach((t, i) => {
+        supabase.from("sek_plantillas_personal").update({ orden: i }).eq("id", t.id).then(() => {});
+      });
     } else {
       onGlobalTemplatesChange(reordered);
       reordered.forEach((t, i) => {
@@ -136,10 +147,14 @@ export function TemplateManager({
     if (!confirm(`¿Eliminar plantilla "${t.nombre}"?`)) return;
     
     if (tab === "personal") {
-      const newTemplates = personalTemplates.filter(pt => pt.id !== t.id);
-      localStorage.setItem(`sek_plantillas_${agentEmail}`, JSON.stringify(newTemplates));
-      onPersonalTemplatesChange(newTemplates);
-      toast.success("Plantilla personal eliminada");
+      try {
+        const { error } = await supabase.from("sek_plantillas_personal").delete().eq("id", t.id);
+        if (error) throw error;
+        onPersonalTemplatesChange(personalTemplates.filter(pt => pt.id !== t.id));
+        toast.success("Plantilla personal eliminada");
+      } catch (e: any) {
+        toast.error("Error al eliminar", { description: e.message });
+      }
     } else {
       if (!isAdmin) return;
       try {

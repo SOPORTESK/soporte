@@ -311,14 +311,26 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
 
   React.useEffect(() => {
     if (agentEmail) {
-      try {
-        const stored = localStorage.getItem(`sek_plantillas_${agentEmail}`);
-        if (stored) setPersonalPlantillas(JSON.parse(stored));
-      } catch (e) {
-        console.error("Error loading personal templates", e);
-      }
+      supabase.from("sek_plantillas_personal")
+        .select("id,nombre,texto,cat,orden")
+        .eq("agent_email", agentEmail)
+        .order("orden", { ascending: true })
+        .then(({ data, error }) => {
+          if (error) {
+            console.error("Error loading personal templates from Supabase:", error);
+            // Fallback a localStorage por si la tabla no existe aún
+            try {
+              const stored = localStorage.getItem(`sek_plantillas_${agentEmail}`);
+              if (stored) setPersonalPlantillas(JSON.parse(stored));
+            } catch (e) {
+              console.error("Error loading personal templates from localStorage", e);
+            }
+            return;
+          }
+          if (data) setPersonalPlantillas(data.map(d => ({ ...d, isGlobal: false })));
+        });
     }
-  }, [agentEmail]);
+  }, [agentEmail, supabase]);
 
   const isGrouped = !!initialCase._group;
   const targetId = initialCase._group?.targetCaseId ?? initialCase.id;
