@@ -53,9 +53,6 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
   const fromTecnico = Array.isArray(c.histtecnico) ? c.histtecnico : [];
   // Para casos agrupados, usar el targetCaseId real en vez del group key (tel:xxx)
   const realCaseId = (c as any)._group?.targetCaseId ?? c.id;
-  if (String(c.id).startsWith("tel:")) {
-    console.log(`[unifyMessages] c.id=${c.id} _group=${JSON.stringify((c as any)._group)} realCaseId=${realCaseId}`);
-  }
 
   fromCliente.forEach((e, i) => {
     const role = String(e.role || "user");
@@ -1792,7 +1789,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
                   <div className="flex-1 h-px bg-border" />
                 </div>
               )}
-              <Bubble m={m} clienteName={ci.nombre} onImageClick={(url, type, name) => setPreviewMedia({ url, type, name })} agentEmail={agentEmail} onMessageUpdate={handleMessageUpdate} onReply={(msg) => { setReplyTo(msg); setMode("reply"); setTimeout(() => { const ta = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Mensaje"]'); if (ta) ta.focus(); }, 50); }} />
+              <Bubble m={m} clienteName={ci.nombre} onImageClick={(url, type, name) => setPreviewMedia({ url, type, name })} agentEmail={agentEmail} onMessageUpdate={handleMessageUpdate} fallbackCaseId={targetId} onReply={(msg) => { setReplyTo(msg); setMode("reply"); setTimeout(() => { const ta = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Mensaje"]'); if (ta) ta.focus(); }, 50); }} />
             </React.Fragment>
           );
         })}
@@ -2389,16 +2386,21 @@ function MediaPreview({ url, type, name, onImageClick }: { url: string; type?: s
   );
 }
 
-function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onReply }: { 
+function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onReply, fallbackCaseId }: { 
   m: UnifiedMessage; 
   clienteName: string; 
   onImageClick?: (url: string, type?: string, name?: string) => void;
   agentEmail: string | null;
   onMessageUpdate?: (historyType: "histcliente" | "histtecnico", originalIndex: number, fieldsToUpdate: any) => void;
   onReply?: (m: UnifiedMessage) => void;
+  fallbackCaseId?: string | number;
 }) {
   const isCliente = m.source === "user";
   const isIA = m.source === "assistant";
+  // Si sourceCaseId es un group key (tel:xxx, case:xxx), usar fallbackCaseId (targetId real)
+  const rawCaseId = m.sourceCaseId;
+  const isGroupKey = typeof rawCaseId === "string" && (rawCaseId.startsWith("tel:") || rawCaseId.startsWith("case:"));
+  const caseId = isGroupKey ? (fallbackCaseId ?? rawCaseId) : rawCaseId;
   const isTecnico = m.source === "tecnico";
   const isNota = m.source === "nota";
   const isSeparator = m.content?.startsWith("── Nueva conversación");
@@ -2446,7 +2448,6 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
   );
 
   async function handleTranscribe() {
-    const caseId = m.sourceCaseId;
     if (!caseId || m.originalIndex === undefined || !m.historyType) {
       toast.error("No se puede transcribir este mensaje");
       return;
@@ -2502,13 +2503,13 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
   }
 
   async function handleTogglePin() {
-    if (!m.sourceCaseId || !m.historyType) {
+    if (!caseId || !m.historyType) {
       toast.error("No se puede fijar: faltan datos del mensaje");
       return;
     }
     setShowActionMenu(false);
     try {
-      const res = await fetch(`/api/messages/${m.sourceCaseId}/${m.originalIndex}/pin`, {
+      const res = await fetch(`/api/messages/${caseId}/${m.originalIndex}/pin`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ historyType: m.historyType }),
@@ -2527,13 +2528,13 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
   }
 
   async function handleToggleStar() {
-    if (!m.sourceCaseId || !m.historyType) {
+    if (!caseId || !m.historyType) {
       toast.error("No se puede destacar: faltan datos del mensaje");
       return;
     }
     setShowActionMenu(false);
     try {
-      const res = await fetch(`/api/messages/${m.sourceCaseId}/${m.originalIndex}/star`, {
+      const res = await fetch(`/api/messages/${caseId}/${m.originalIndex}/star`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ historyType: m.historyType }),
@@ -2553,13 +2554,13 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
 
   async function saveEdit() {
     if (!editText.trim()) { toast.error("El mensaje no puede estar vacío"); return; }
-    if (!m.sourceCaseId || !m.historyType) {
-      toast.error("No se puede editar: faltan datos del mensaje", { description: `caseId=${m.sourceCaseId} type=${m.historyType}` });
+    if (!caseId || !m.historyType) {
+      toast.error("No se puede editar: faltan datos del mensaje", { description: `caseId=${caseId} type=${m.historyType}` });
       return;
     }
     setSavingEdit(true);
     try {
-      const res = await fetch(`/api/messages/${m.sourceCaseId}/${m.originalIndex}/edit`, {
+      const res = await fetch(`/api/messages/${caseId}/${m.originalIndex}/edit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ historyType: m.historyType, content: editText.trim() }),
@@ -2598,7 +2599,6 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
   const commonEmojis = ["👍", "❤️", "😂", "😮", "😢", "😡", "🎉", "🔥", "👏", "✅"];
 
   const handleReaction = async (emoji: string) => {
-    const caseId = m.sourceCaseId;
     if (!agentEmail || m.originalIndex === undefined || !m.historyType || !caseId) {
       console.error("[Bubble] Datos faltantes para reacción", { agentEmail, originalIndex: m.originalIndex, historyType: m.historyType, caseId });
       return;
@@ -2639,7 +2639,6 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
   };
 
   const handleDelete = async (deleteType: "for_everyone" | "for_me") => {
-    const caseId = m.sourceCaseId;
     if (!agentEmail || m.originalIndex === undefined || !m.historyType || !caseId) {
       console.error("[Bubble] Datos faltantes para eliminar", { agentEmail, originalIndex: m.originalIndex, historyType: m.historyType, caseId });
       toast.error("No se puede eliminar: faltan datos del mensaje", { description: `caseId=${caseId} idx=${m.originalIndex} type=${m.historyType}` });
