@@ -534,13 +534,31 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
                 );
               })()}
             </div>
-            {/* Spark chart */}
-            <div className="flex items-end gap-0.5 mt-3 h-8">
-              {(periodoModo === "mes" ? sparkMes : spark7d).map((v, i) => (
-                <div key={i} className="flex-1 bg-violet-500/20 rounded-sm transition-all hover:bg-violet-500/50" style={{ height: `${Math.max(4, Math.round((v / (periodoModo === "mes" ? sparkMaxMes : sparkMax7d)) * 100))}%` }} title={`${v} casos`} />
-              ))}
-            </div>
             <p className="text-[10px] text-muted-foreground mt-1">{periodoModo === "mes" ? "este mes vs mes anterior" : "últimos 7 días vs semana anterior"}</p>
+            {/* Barra comparativa: actual vs anterior */}
+            <div className="flex items-end gap-3 mt-3 h-10">
+              {(() => {
+                const actual = periodoModo === "mes" ? casosMesActual : casos7d;
+                const anterior = periodoModo === "mes" ? casosMesAnterior : casosAntes7d;
+                const max = Math.max(actual, anterior, 1);
+                const labelActual = periodoModo === "mes" ? "Este mes" : "7 días";
+                const labelAnterior = periodoModo === "mes" ? "Mes ant." : "Sem. ant.";
+                return (
+                  <>
+                    <div className="flex-1 flex flex-col items-center gap-1">
+                      <span className="text-[10px] font-black tabular-nums text-violet-500">{actual}</span>
+                      <div className="w-full bg-violet-500 rounded-sm transition-all" style={{ height: `${Math.max(8, Math.round((actual / max) * 100))}%` }} />
+                      <span className="text-[9px] text-muted-foreground font-bold">{labelActual}</span>
+                    </div>
+                    <div className="flex-1 flex flex-col items-center gap-1">
+                      <span className="text-[10px] font-black tabular-nums text-muted-foreground">{anterior}</span>
+                      <div className="w-full bg-muted-foreground/30 rounded-sm transition-all" style={{ height: `${Math.max(8, Math.round((anterior / max) * 100))}%` }} />
+                      <span className="text-[9px] text-muted-foreground font-bold">{labelAnterior}</span>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
           </div>
         </div>
 
