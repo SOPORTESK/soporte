@@ -28,7 +28,8 @@ interface LiveStats {
 interface InitialData extends LiveStats {
   totalResueltos: number;
   tasaResolucion: number;
-  avgSla: number;
+  avgResolucion: number;
+  avgHandleTimes: Record<string, { ia: number[]; humano: number[] }>;
   avgSat: string | null;
   calsCount: number;
   casosUltSemana: number;
@@ -78,11 +79,11 @@ export function LiveDashboardStats({ initial }: { initial: InitialData }) {
         { count: totalCasos },
         { data: casosRecientes },
       ] = await Promise.all([
-        supabase.from("sek_cases").select("*", { count: "exact", head: true }).in("estado", ["ia_atendiendo", "abierto", "escalado", "pendiente"]).neq("es_test", true),
-        supabase.from("sek_cases").select("*", { count: "exact", head: true }).eq("estado", "escalado").neq("es_test", true),
-        supabase.from("sek_cases").select("*", { count: "exact", head: true }).eq("estado", "ia_atendiendo").neq("es_test", true),
-        supabase.from("sek_cases").select("*", { count: "exact", head: true }).neq("es_test", true),
-        supabase.from("sek_cases").select("id, title, estado, canal, created_at, assigned_to").neq("es_test", true).order("created_at", { ascending: false }).limit(6),
+        supabase.from("sek_cases").select("*", { count: "exact", head: true }).in("estado", ["ia_atendiendo", "abierto", "escalado", "pendiente"]).neq("canal", "simulator"),
+        supabase.from("sek_cases").select("*", { count: "exact", head: true }).eq("estado", "escalado").neq("canal", "simulator"),
+        supabase.from("sek_cases").select("*", { count: "exact", head: true }).eq("estado", "ia_atendiendo").neq("canal", "simulator"),
+        supabase.from("sek_cases").select("*", { count: "exact", head: true }).neq("canal", "simulator"),
+        supabase.from("sek_cases").select("id, title, estado, canal, created_at, assigned_to").neq("canal", "simulator").order("created_at", { ascending: false }).limit(6),
       ]);
 
       if (!mountedRef.current) return;
@@ -140,8 +141,8 @@ export function LiveDashboardStats({ initial }: { initial: InitialData }) {
       href: "/admin/estadisticas/atencion"
     },
     {
-      label: "SLA promedio", value: initial.avgSla > 0 ? `${initial.avgSla} min` : "—",
-      sub: "tiempo de resolución", icon: Clock,
+      label: "Tiempo de resolución", value: initial.avgResolucion > 0 ? `${initial.avgResolucion} min` : "—",
+      sub: "tiempo global del caso", icon: Clock,
       color: "text-sky-500", ring: "ring-sky-500/20", bg: "bg-sky-500/10",
       href: "/admin/estadisticas/atencion"
     },
@@ -307,7 +308,7 @@ export function LiveDashboardStats({ initial }: { initial: InitialData }) {
         {/* Ranking de agentes */}
         <div className="lg:col-span-2 rounded-2xl border border-border bg-card overflow-hidden">
           <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-            <h2 className="font-bold text-sm uppercase tracking-wider text-muted-foreground">Desempeño de agentes</h2>
+            <h2 className="font-bold text-sm uppercase tracking-wider text-muted-foreground">Equipo & Rendimiento</h2>
             <Link href="/admin/estadisticas/atencion" className="text-xs text-brand-600 hover:text-brand-700 font-semibold flex items-center gap-1">
               Detalle <ChevronRight className="h-3 w-3" />
             </Link>
@@ -320,15 +321,18 @@ export function LiveDashboardStats({ initial }: { initial: InitialData }) {
                   <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Rol</th>
                   <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Casos</th>
                   <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Resueltos</th>
+                  <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Handle time</th>
                   <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Cal. cliente</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {(() => {
-                  const perAgent: Record<string, { nombre: string; rol: string; total: number; resueltos: number; cals: number[] }> = {};
+                  const perAgent: Record<string, { nombre: string; rol: string; total: number; resueltos: number; cals: number[]; email: string }> = {};
                   initial.agentes?.forEach(a => {
-                    perAgent[a.email] = { nombre: agenteMap[a.email] || a.email, rol: a.rol, total: 0, resueltos: 0, cals: [] };
+                    perAgent[a.email] = { nombre: agenteMap[a.email] || a.email, rol: a.rol, total: 0, resueltos: 0, cals: [], email: a.email };
                   });
+                  // Incluir IA (system_prompt) en la tabla
+                  perAgent["system_prompt@sekunet.com"] = { nombre: "Asistente Virtual", rol: "ia", total: 0, resueltos: 0, cals: [], email: "system_prompt@sekunet.com" };
                   initial.allCasos?.forEach((c: any) => {
                     if (!c.assigned_to || !perAgent[c.assigned_to]) return;
                     perAgent[c.assigned_to].total++;
@@ -338,11 +342,15 @@ export function LiveDashboardStats({ initial }: { initial: InitialData }) {
                   });
                   const rows = Object.values(perAgent).sort((a, b) => b.resueltos - a.resueltos);
                   if (rows.length === 0) return (
-                    <tr><td colSpan={5} className="py-10 text-center text-sm text-muted-foreground">Sin datos de agentes</td></tr>
+                    <tr><td colSpan={6} className="py-10 text-center text-sm text-muted-foreground">Sin datos de agentes</td></tr>
                   );
                   return rows.map((a, i) => {
-                    const avgC = a.cals.length > 0 ? (a.cals.reduce((x, y) => x + y, 0) / a.cals.length).toFixed(1) : "—";
+                    const MIN_CALS = 4;
+                    const avgC = a.cals.length >= MIN_CALS ? (a.cals.reduce((x, y) => x + y, 0) / a.cals.length).toFixed(1) : "—";
                     const tasa = a.total > 0 ? Math.round((a.resueltos / a.total) * 100) : 0;
+                    const ht = initial.avgHandleTimes[a.email];
+                    const handleArr = a.rol === "ia" ? ht?.ia : ht?.humano;
+                    const handleMin = handleArr && handleArr.length > 0 ? Math.round(handleArr.reduce((a, b) => a + b, 0) / handleArr.length) : 0;
                     return (
                       <tr key={i} className="hover:bg-muted/30 transition-colors">
                         <td className="px-6 py-3">
@@ -357,10 +365,11 @@ export function LiveDashboardStats({ initial }: { initial: InitialData }) {
                         </td>
                         <td className="px-4 py-3 text-center">
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                            a.rol === "ia" ? "bg-violet-500/10 text-violet-600" :
                             a.rol === "superadmin" ? "bg-brand-500/10 text-brand-600" :
                             a.rol === "admin" ? "bg-violet-500/10 text-violet-600" :
                             "bg-muted text-muted-foreground"
-                          }`}>{a.rol}</span>
+                          }`}>{a.rol === "ia" ? "IA" : a.rol}</span>
                         </td>
                         <td className="px-4 py-3 text-center font-bold tabular-nums">{a.total}</td>
                         <td className="px-4 py-3 text-center">
@@ -371,6 +380,7 @@ export function LiveDashboardStats({ initial }: { initial: InitialData }) {
                             </div>
                           </div>
                         </td>
+                        <td className="px-4 py-3 text-center font-bold tabular-nums text-sky-600">{handleMin > 0 ? `${handleMin}m` : "—"}</td>
                         <td className="px-4 py-3 text-center">
                           <div className="flex items-center justify-center gap-1">
                             {avgC !== "—" && <Star className="h-3 w-3 text-amber-400 fill-amber-400" />}

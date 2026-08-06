@@ -58,15 +58,15 @@ export default async function AdminDashboardPage() {
     { data: agentConfig },
   ] = await Promise.all([
     supabase.from("sek_agent_config").select("*", { count: "exact", head: true }),
-    supabase.from("sek_cases").select("*", { count: "exact", head: true }),
-    supabase.from("sek_cases").select("*", { count: "exact", head: true }).in("estado", ["ia_atendiendo", "abierto", "escalado", "pendiente"]),
-    supabase.from("sek_cases").select("*", { count: "exact", head: true }).eq("estado", "escalado"),
-    supabase.from("sek_cases").select("*", { count: "exact", head: true }).eq("estado", "ia_atendiendo"),
+    supabase.from("sek_cases").select("*", { count: "exact", head: true }).neq("canal", "simulator"),
+    supabase.from("sek_cases").select("*", { count: "exact", head: true }).in("estado", ["ia_atendiendo", "abierto", "escalado", "pendiente"]).neq("canal", "simulator"),
+    supabase.from("sek_cases").select("*", { count: "exact", head: true }).eq("estado", "escalado").neq("canal", "simulator"),
+    supabase.from("sek_cases").select("*", { count: "exact", head: true }).eq("estado", "ia_atendiendo").neq("canal", "simulator"),
     supabase.from("sek_channels").select("*", { count: "exact", head: true }),
     supabase.from("sek_doc_chunks").select("*", { count: "exact", head: true }),
     supabase.from("sek_inventario").select("*", { count: "exact", head: true }),
-    supabase.from("sek_cases").select("id, title, estado, canal, created_at, assigned_to").order("created_at", { ascending: false }).limit(6),
-    supabase.from("sek_cases").select("id, estado, created_at, updated_at, closed_at, cliente, assigned_to"),
+    supabase.from("sek_cases").select("id, title, estado, canal, created_at, assigned_to").neq("canal", "simulator").order("created_at", { ascending: false }).limit(6),
+    supabase.from("sek_cases").select("id, estado, created_at, updated_at, closed_at, cliente, assigned_to, accepted_at, escalado_at").neq("canal", "simulator"),
     supabase.from("sek_agent_config").select("email, nombre, apellido, rol").neq("email", "system_prompt@sekunet.com"),
     supabase.from("sek_agent_config").select("system_prompt").eq("email", "system_prompt@sekunet.com").maybeSingle(),
   ]);
@@ -76,15 +76,42 @@ export default async function AdminDashboardPage() {
   const totalCasosN = totalCasos ?? 0;
   const tasaResolucion = totalCasosN > 0 ? Math.round((totalResueltos / totalCasosN) * 100) : 0;
 
+  // Tiempo de resolución global: created_at → closed_at
   const tiempos: number[] = [];
   allCasos?.forEach((c: any) => {
     const closedAt = c.closed_at || c.updated_at;
     if ((c.estado === "resuelto" || c.estado === "cerrado") && c.created_at && closedAt) {
       const diff = Math.round((new Date(closedAt).getTime() - new Date(c.created_at).getTime()) / 60000);
-      if (diff > 0 && diff < 10080) tiempos.push(diff); // ignorar outliers > 7 días
+      if (diff >= 0 && diff < 10080) tiempos.push(diff);
     }
   });
-  const avgSla = tiempos.length > 0 ? Math.round(tiempos.reduce((a, b) => a + b, 0) / tiempos.length) : 0;
+  const avgResolucion = tiempos.length > 0 ? Math.round(tiempos.reduce((a, b) => a + b, 0) / tiempos.length) : 0;
+
+  // Handle time por tipo de agente
+  // IA: desde created_at hasta escalado_at o closed_at
+  // Humano: desde accepted_at hasta closed_at
+  const handleTimes: Record<string, { ia: number[]; humano: number[] }> = {};
+  agentes?.forEach(a => { handleTimes[a.email] = { ia: [], humano: [] }; });
+  // También incluir system_prompt para IA
+  handleTimes["system_prompt@sekunet.com"] = { ia: [], humano: [] };
+  allCasos?.forEach((c: any) => {
+    const email = c.assigned_to;
+    if (!email || !handleTimes[email]) return;
+    if (email === "system_prompt@sekunet.com") {
+      // IA: created_at → escalado_at o closed_at
+      const end = c.escalado_at || c.closed_at;
+      if (c.created_at && end) {
+        const diff = Math.round((new Date(end).getTime() - new Date(c.created_at).getTime()) / 60000);
+        if (diff >= 0 && diff < 10080) handleTimes[email].ia.push(diff);
+      }
+    } else {
+      // Humano: accepted_at → closed_at
+      if (c.accepted_at && c.closed_at) {
+        const diff = Math.round((new Date(c.closed_at).getTime() - new Date(c.accepted_at).getTime()) / 60000);
+        if (diff >= 0 && diff < 10080) handleTimes[email].humano.push(diff);
+      }
+    }
+  });
 
   // Calificaciones del CLIENTE: calificacion_cliente que el cliente envía desde el widget al cerrar el chat.
   const cals = (allCasos ?? []).flatMap(c => {
@@ -137,7 +164,8 @@ export default async function AdminDashboardPage() {
         casosRecientes: (casosRecientes as any[]) ?? [],
         totalResueltos,
         tasaResolucion,
-        avgSla,
+        avgResolucion,
+        avgHandleTimes: handleTimes,
         avgSat: avgSat as string | null,
         calsCount: cals.length,
         casosUltSemana,

@@ -37,6 +37,8 @@ interface TeamPerformanceProps {
     tasaResolucion: number;
     avgSLA: number;
     avgCalificacionClienteGlobal: string;
+    calsCount?: number;
+    minCalsGlobal?: number;
     casosHoy: number;
     casosEstaSemana: number;
     cargaPromedio: number;
@@ -179,7 +181,7 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
     const calNum = agent.avgCalificacionCliente === "N/A" ? 3 : parseFloat(agent.avgCalificacionCliente);
     score += (calNum / 5) * 100 * 0.35; // 35% calificación del cliente
     const slaScore = agent.avgSLA === 0 ? 50 : Math.max(0, 100 - (agent.avgSLA / 60) * 10);
-    score += slaScore * 0.25; // 25% SLA
+    score += slaScore * 0.25; // 25% handle time
     return Math.round(Math.min(100, score));
   };
 
@@ -210,7 +212,7 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
               <div className="h-9 w-9 rounded-xl bg-sky-500/10 text-sky-500 grid place-items-center">
                 <Clock className="h-4 w-4" />
               </div>
-              <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">SLA Promedio</span>
+              <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Tiempo de resolución</span>
             </div>
             <p className="text-5xl font-black tracking-tight text-sky-500 tabular-nums">{formatSLA(globalStats.avgSLA)}</p>
             <p className="text-[11px] text-muted-foreground mt-1">IA + humanos · global</p>
@@ -231,7 +233,7 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
               {globalStats.avgCalificacionClienteGlobal !== "N/A" ? globalStats.avgCalificacionClienteGlobal : "—"}
             </p>
             <p className="text-[11px] text-muted-foreground mt-1">
-              {globalStats.avgCalificacionClienteGlobal !== "N/A" ? "de 5.0 · promedio global del cliente" : "sin calificaciones aún"}
+              {globalStats.avgCalificacionClienteGlobal !== "N/A" ? "de 5.0 · promedio global del cliente" : `Muestra insuficiente (${globalStats.calsCount ?? 0}/${globalStats.minCalsGlobal ?? 20})`}
             </p>
           </div>
         </div>
@@ -296,7 +298,7 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
               {([
                 { key: "resueltos", label: "Resueltos" },
                 { key: "calificacion", label: "Calif. cliente" },
-                { key: "sla", label: "SLA" },
+                { key: "sla", label: "Handle time" },
                 { key: "nombre", label: "Nombre" },
               ] as const).map(s => (
                 <button
@@ -329,7 +331,7 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
           <div className="flex-1 min-w-0 ml-4" />
           <div className="w-20 text-center"><p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Resueltos</p></div>
           <div className="w-14 text-center"><p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Tasa</p></div>
-          <div className="w-24 text-center"><p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">SLA</p></div>
+          <div className="w-24 text-center"><p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Handle time</p></div>
           <div className="w-24 text-center"><p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Calif. cliente</p></div>
           <div className="w-14 text-center"><p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Trend</p></div>
           <div className="w-20 text-center"><p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Score</p></div>
@@ -411,7 +413,7 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
                     </div>
                     <div className="w-24 flex items-center justify-center gap-1">
                       <Clock className="h-3 w-3 text-sky-500 shrink-0" />
-                      <p className="text-sm font-black text-sky-500 tabular-nums">{formatSLA(agent.avgSLA)}</p>
+                      <p className="text-sm font-black text-sky-500 tabular-nums" title="Handle time: tiempo del agente en el caso">{formatSLA(agent.avgSLA)}</p>
                     </div>
                     <div className="w-24 flex items-center justify-center gap-0.5">
                       {agent.avgCalificacionCliente !== "N/A" && <Star className="h-3 w-3 text-amber-400 fill-amber-400 shrink-0" />}
@@ -483,7 +485,7 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
                       <div className="rounded-xl border border-border bg-background/50 p-4">
                         <div className="flex items-center gap-2 mb-2">
                           <Clock className="h-3.5 w-3.5 text-sky-500" />
-                          <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Tiempo Respuesta</span>
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Handle time</span>
                         </div>
                         <p className="text-2xl font-black text-sky-500">{formatSLA(agent.avgSLA)}</p>
                         <p className="text-[10px] text-muted-foreground mt-1">

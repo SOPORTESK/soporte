@@ -31,13 +31,15 @@ export default async function AdminEquipoPage() {
   // ── Fetch performance data ──
   const { data: casos } = await supabase
     .from("sek_cases")
-    .select("id, assigned_to, created_at, updated_at, closed_at, estado, cliente, canal, accepted_at, histtecnico")
-    .not("assigned_to", "is", null);
+    .select("id, assigned_to, created_at, updated_at, closed_at, estado, cliente, canal, accepted_at, escalado_at, histtecnico")
+    .not("assigned_to", "is", null)
+    .neq("canal", "simulator");
 
   // Todos los casos (IA + humanos) para stats globales
   const { data: todosCasos } = await supabase
     .from("sek_cases")
-    .select("id, assigned_to, created_at, updated_at, closed_at, estado, cliente, accepted_at, histtecnico, histcliente");
+    .select("id, assigned_to, created_at, updated_at, closed_at, estado, cliente, accepted_at, escalado_at, histtecnico, histcliente")
+    .neq("canal", "simulator");
 
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
@@ -67,20 +69,26 @@ export default async function AdminEquipoPage() {
     if (c.estado === "resuelto" || c.estado === "cerrado") {
       s.resueltos++;
       if (c.updated_at) {
-        // Lógica de inicio: accepted_at -> primer mensaje técnico -> created_at
-        let startTimestamp = c.accepted_at;
-        if (!startTimestamp && Array.isArray(c.histtecnico)) {
-          const firstMsg = c.histtecnico.find((h: any) => h.role === "tecnico");
-          if (firstMsg) startTimestamp = firstMsg.time;
+        // Handle time: humano = accepted_at → closed_at, IA = created_at → escalado_at/closed_at
+        let startTimestamp: string | null = null;
+        let endTimestamp: string | null = (c as any).closed_at;
+        if (email === "system_prompt@sekunet.com") {
+          startTimestamp = c.created_at;
+          endTimestamp = c.escalado_at || (c as any).closed_at;
+        } else {
+          startTimestamp = c.accepted_at;
+          if (!startTimestamp && Array.isArray(c.histtecnico)) {
+            const firstMsg = c.histtecnico.find((h: any) => h.role === "tecnico");
+            if (firstMsg) startTimestamp = firstMsg.time;
+          }
         }
         
         const start = startTimestamp ? new Date(startTimestamp as string) : new Date(c.created_at);
-        const closedAt = (c as any).closed_at;
-        if (closedAt) {
-          const end = new Date(closedAt);
+        if (endTimestamp) {
+          const end = new Date(endTimestamp);
           if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
             const diff = Math.round((end.getTime() - start.getTime()) / (1000 * 60));
-            if (diff > 0 && diff < 10080) s.tiempos.push(diff);
+            if (diff >= 0 && diff < 10080) s.tiempos.push(diff);
           }
         }
       }
@@ -100,7 +108,7 @@ export default async function AdminEquipoPage() {
   // Merge agent data with stats
   const agentsWithPerformance = humanAgents.map(a => {
     const s = statsMap[a.email] || { totalAtendidos: 0, resueltos: 0, calificaciones: [], tiempos: [], casosHoy: 0, casosEstaSemana: 0, resueltosRecientes: 0, totalRecientes: 0 };
-    const avgCal = s.calificaciones.length > 0
+    const avgCal = s.calificaciones.length >= 4
       ? (s.calificaciones.reduce((x, y) => x + y, 0) / s.calificaciones.length).toFixed(1)
       : "N/A";
     const avgSLA = s.tiempos.length > 0
@@ -142,7 +150,7 @@ export default async function AdminEquipoPage() {
       if (isNaN(start.getTime()) || isNaN(end.getTime())) return 0;
       return Math.round((end.getTime() - start.getTime()) / 60000);
     })
-    .filter(t => t > 0);
+    .filter(t => t >= 0);
   const getCal = (c: any): number | null => {
     const cl = typeof c.cliente === "object" && c.cliente ? c.cliente as any : null;
     const v = cl?.calificacion_cliente;
@@ -152,14 +160,17 @@ export default async function AdminEquipoPage() {
   const allCalsGlobal = allCasos.map(getCal).filter((v): v is number => v !== null);
   const totalIA = allCasos.filter(c => !c.assigned_to || (c.assigned_to as string).includes("system_prompt")).length;
   const pctIA = allCasos.length > 0 ? Math.round((totalIA / allCasos.length) * 100) : 0;
+  const MIN_CALS_GLOBAL = 20;
   const globalStats = {
     totalCasos: allCasos.length,
     totalResueltos: allResueltos.length,
     tasaResolucion: allCasos.length > 0 ? Math.round((allResueltos.length / allCasos.length) * 100) : 0,
     avgSLA: allTiemposGlobal.length > 0 ? Math.round(allTiemposGlobal.reduce((a, b) => a + b, 0) / allTiemposGlobal.length) : 0,
-    avgCalificacionClienteGlobal: allCalsGlobal.length > 0
+    avgCalificacionClienteGlobal: allCalsGlobal.length >= MIN_CALS_GLOBAL
       ? (allCalsGlobal.reduce((a, b) => a + b, 0) / allCalsGlobal.length).toFixed(1)
       : "N/A",
+    calsCount: allCalsGlobal.length,
+    minCalsGlobal: MIN_CALS_GLOBAL,
     casosHoy: allCasos.filter(c => c.created_at >= todayStart).length,
     casosEstaSemana: allCasos.filter(c => c.created_at >= weekStart).length,
     cargaPromedio: humanAgents.length > 0 ? Math.round((allCasos.length) / humanAgents.length) : 0,
