@@ -356,7 +356,12 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   }, [agentEmail, supabase]);
 
   const isGrouped = !!initialCase._group;
-  const targetId = initialCase._group?.targetCaseId ?? initialCase.id;
+  // Asegurar que targetId sea siempre un UUID real, nunca un group key (tel:xxx, case:xxx)
+  const rawTargetId = initialCase._group?.targetCaseId ?? (sekCase as any)._group?.targetCaseId ?? initialCase.id;
+  const isGroupKey = typeof rawTargetId === "string" && (rawTargetId.startsWith("tel:") || rawTargetId.startsWith("case:"));
+  const targetId = isGroupKey
+    ? ((initialCase._group?.caseIds?.[0] ?? (sekCase as any)._group?.caseIds?.[0] ?? rawTargetId) as string)
+    : rawTargetId;
   const targetHisttecnico = initialCase._group?.targetHisttecnico ?? (Array.isArray(initialCase.histtecnico) ? initialCase.histtecnico : []);
   const targetEstado = initialCase._group?.targetEstado ?? initialCase.estado;
 
@@ -2560,6 +2565,7 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
     }
     setSavingEdit(true);
     try {
+      console.log("[saveEdit] caseId=", caseId, "sourceCaseId=", m.sourceCaseId, "fallbackCaseId=", fallbackCaseId, "idx=", m.originalIndex);
       const res = await fetch(`/api/messages/${caseId}/${m.originalIndex}/edit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2644,6 +2650,7 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
       toast.error("No se puede eliminar: faltan datos del mensaje", { description: `caseId=${caseId} idx=${m.originalIndex} type=${m.historyType}` });
       return;
     }
+    console.log("[handleDelete] caseId=", caseId, "sourceCaseId=", m.sourceCaseId, "fallbackCaseId=", fallbackCaseId, "idx=", m.originalIndex, "deleteType=", deleteType);
 
     // Actualización local/optimista sin recargar pantalla
     if (onMessageUpdate) {
