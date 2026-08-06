@@ -51,6 +51,8 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
   const out: UnifiedMessage[] = [];
   const fromCliente = Array.isArray(c.histcliente) ? c.histcliente : [];
   const fromTecnico = Array.isArray(c.histtecnico) ? c.histtecnico : [];
+  // Para casos agrupados, usar el targetCaseId real en vez del group key (tel:xxx)
+  const realCaseId = (c as any)._group?.targetCaseId ?? c.id;
 
   fromCliente.forEach((e, i) => {
     const role = String(e.role || "user");
@@ -71,7 +73,7 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
       deleted_for_me: (e as any).deleted_for_me,
       originalIndex: (e as any)._sourceIndex ?? i,
       historyType: "histcliente",
-      sourceCaseId: (e as any)._sourceCaseId ?? c.id,
+      sourceCaseId: (e as any)._sourceCaseId ?? realCaseId,
       messageId: (e as any).messageId,
       fromMe: (e as any).fromMe ?? isAgente,
       replyTo: (e as any).replyTo ?? null,
@@ -100,7 +102,7 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
       deleted_for_me: (e as any).deleted_for_me,
       originalIndex: (e as any)._sourceIndex ?? i,
       historyType: "histtecnico",
-      sourceCaseId: (e as any)._sourceCaseId ?? c.id,
+      sourceCaseId: (e as any)._sourceCaseId ?? realCaseId,
       messageId: (e as any).messageId,
       fromMe: (e as any).fromMe ?? isNota,
       replyTo: (e as any).replyTo ?? null,

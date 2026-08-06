@@ -23,6 +23,7 @@ export function EscalatedCasesBanner() {
         .eq("estado", "escalado")
         .is("assigned_to", null)
         .neq("es_test", true)
+        .neq("canal", "simulator")
         .order("escalado_at", { ascending: false });
 
       if (error) {

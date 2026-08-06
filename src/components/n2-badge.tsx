@@ -28,7 +28,8 @@ export function N2Badge({ initialCount }: { initialCount: number }) {
         .select("*", { count: "exact", head: true })
         .eq("estado", "escalado")
         .is("assigned_to", null)
-        .neq("es_test", true);
+        .neq("es_test", true)
+        .neq("canal", "simulator");
       setCount(c ?? 0);
     };
 
