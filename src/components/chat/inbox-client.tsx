@@ -546,6 +546,20 @@ export function InboxClient({
           setAllCases(allNew);
         }
         const filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail, agentName);
+        // Preservar caso seleccionado aunque no pase el filtro (ej: caso outbound nuevo sin assigned_to aún)
+        const currentSelected = selectedId ? (
+          newCases.find(c => String(c.id) === selectedId) ||
+          newCases.find(c => c._group?.caseIds?.some(cid => String(cid) === selectedId)) ||
+          (selectedId.startsWith("tel:") ? newCases.find(c => {
+            const tel = selectedId.substring(4);
+            return c.customer_phone?.includes(tel) || (c.cliente as any)?.telefono?.includes(tel);
+          }) : null) ||
+          cases.find(c => String(c.id) === selectedId) ||
+          null
+        ) : null;
+        if (currentSelected && !filteredNewCases.some(c => String(c.id) === String(currentSelected.id))) {
+          filteredNewCases.unshift(currentSelected);
+        }
         const prevTotal = prevCasesRef.current.length;
         const prevUnread = prevCasesRef.current.reduce((s, c) => s + (c.unread_count || 0), 0);
         const newTotal = filteredNewCases.length;
