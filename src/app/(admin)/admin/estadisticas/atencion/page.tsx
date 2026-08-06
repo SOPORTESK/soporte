@@ -4,10 +4,11 @@ import Link from "next/link";
 import { StatsExportButton } from "@/components/admin/stats-export-button";
 import { AgentRankingTable } from "@/components/admin/agent-ranking-table";
 import { MonthSelector } from "@/components/admin/month-selector";
+import { PeriodToggle } from "@/components/admin/period-toggle";
 
 export const dynamic = "force-dynamic";
 
-export default async function EstadisticasAtencionPage({ searchParams }: { searchParams: { mes?: string } }) {
+export default async function EstadisticasAtencionPage({ searchParams }: { searchParams: { mes?: string; periodo?: string } }) {
   const supabase = createClient();
 
   const { data: todosLosCasos } = await supabase
@@ -68,9 +69,10 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
   const totalActivos = casosConAsig.filter(c => c.estado === "abierto").length;
   const tasaResolucion = totalCasos > 0 ? Math.round((totalResueltos / totalCasos) * 100) : 0;
 
-  // ── Tendencia 7d vs 7d anterior (solo humanos)
-  const casos7d = casosConAsig.filter(c => new Date(c.created_at) >= hace7dias).length;
-  const casosAntes7d = casosConAsig.filter(c => new Date(c.created_at) >= hace14dias && new Date(c.created_at) < hace7dias).length;
+  // ── Tendencia 7d vs 7d anterior (siempre últimos 7 días reales, sin filtro de mes)
+  const casosHumanos = casos.filter(c => c.assigned_to && !c.assigned_to.includes("system_prompt"));
+  const casos7d = casosHumanos.filter(c => new Date(c.created_at) >= hace7dias).length;
+  const casosAntes7d = casosHumanos.filter(c => new Date(c.created_at) >= hace14dias && new Date(c.created_at) < hace7dias).length;
   const tendencia7d = casosAntes7d > 0 ? Math.round(((casos7d - casosAntes7d) / casosAntes7d) * 100) : null;
 
   // ── SLA (solo humanos): tiempo desde que la IA escala el caso hasta que un humano lo acepta
@@ -111,16 +113,38 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
   const prioridades: Record<string, number> = { urgente: 0, alta: 0, media: 0, baja: 0 };
   casosConAsig.forEach(c => { if (c.prioridad && prioridades[c.prioridad] !== undefined) prioridades[c.prioridad]++; });
 
-  // ── Últimos 7 días — volumen por día (solo humanos)
+  // ── Últimos 7 días — volumen por día (siempre últimos 7 días reales, sin filtro de mes)
   const spark7d: number[] = Array(7).fill(0);
-  casosConAsig.forEach(c => {
+  casosHumanos.forEach(c => {
     const d = new Date(c.created_at);
     if (d >= hace7dias) {
       const idx = Math.floor((d.getTime() - hace7dias.getTime()) / 86400000);
       if (idx >= 0 && idx < 7) spark7d[idx]++;
     }
   });
-  const sparkMax = Math.max(...spark7d, 1);
+  const sparkMax7d = Math.max(...spark7d, 1);
+
+  // ── Modo mes: volumen del mes actual vs mes anterior
+  const periodoModo = searchParams.periodo || "semana";
+  const mesActualDate = mesSeleccionado !== "all" ? new Date(mesSeleccionado + "-01") : new Date(now.getFullYear(), now.getMonth(), 1);
+  const mesAnteriorDate = new Date(mesActualDate.getFullYear(), mesActualDate.getMonth() - 1, 1);
+  const mesActualEnd = new Date(mesActualDate.getFullYear(), mesActualDate.getMonth() + 1, 1);
+  const casosMesActual_data = casosHumanos.filter(c => { const d = new Date(c.created_at); return d >= mesActualDate && d < mesActualEnd; });
+  const casosMesActual = casosMesActual_data.length;
+  const casosMesAnterior = casosHumanos.filter(c => { const d = new Date(c.created_at); return d >= mesAnteriorDate && d < mesActualDate; }).length;
+  const tendenciaMes = casosMesAnterior > 0 ? Math.round(((casosMesActual - casosMesAnterior) / casosMesAnterior) * 100) : null;
+
+  // Spark por día del mes actual
+  const diasEnMes = new Date(mesActualDate.getFullYear(), mesActualDate.getMonth() + 1, 0).getDate();
+  const sparkMes: number[] = Array(diasEnMes).fill(0);
+  casosMesActual_data.forEach(c => {
+    const d = new Date(c.created_at);
+    if (d >= mesActualDate && d < mesActualEnd) {
+      const idx = d.getDate() - 1;
+      if (idx >= 0 && idx < diasEnMes) sparkMes[idx]++;
+    }
+  });
+  const sparkMaxMes = Math.max(...sparkMes, 1);
 
   // ── Tiempo efectivo del agente: solo cuenta gaps cuando el SIGUIENTE mensaje es del agente
   //    cliente→agente = tiempo de respuesta del operador (cuenta, capado a UMBRAL)
@@ -446,6 +470,9 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
             Casos_Concurrentes_Pico: maxConcurrentes,
             Volumen_7d: casos7d,
             Tendencia_7d: tendencia7d === null ? "N/A" : `${tendencia7d > 0 ? "+" : ""}${tendencia7d}%`,
+            Volumen_Mes: casosMesActual,
+            Tendencia_Mes: tendenciaMes === null ? "N/A" : `${tendenciaMes > 0 ? "+" : ""}${tendenciaMes}%`,
+            Periodo_Activo: periodoModo === "mes" ? "Mes" : "7 días",
             Tiempo_Resolucion: avgTiempoResolucionGlobal > 0 ? formatSLA(avgTiempoResolucionGlobal) : "—",
             Casos_Resolucion: tiemposResolucionGlobal.length,
             Casos_Excluidos_Resolucion: casosExcluidosResolucion,
@@ -484,28 +511,36 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
 
       {/* ── KPIs FILA 2: Estratégicos ── */}
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {/* Volumen 7d con tendencia */}
+        {/* Volumen con toggle 7 días / Mes */}
         <div className="relative rounded-2xl border border-border bg-card p-5 overflow-hidden ring-1 ring-border/50">
           <div className="absolute -top-8 -right-8 h-28 w-28 rounded-full bg-violet-500/10 blur-2xl" />
           <div className="relative">
-            <div className="inline-flex items-center justify-center h-10 w-10 rounded-xl bg-violet-500/10 text-violet-500 mb-3">
-              <Activity className="h-5 w-5" />
+            <div className="flex items-center justify-between mb-3">
+              <div className="inline-flex items-center justify-center h-10 w-10 rounded-xl bg-violet-500/10 text-violet-500">
+                <Activity className="h-5 w-5" />
+              </div>
+              <PeriodToggle />
             </div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Volumen 7 días</p>
+            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">{periodoModo === "mes" ? "Volumen del mes" : "Volumen 7 días"}</p>
             <div className="flex items-baseline gap-2 mt-1">
-              <p className="text-4xl font-black tracking-tight tabular-nums text-violet-500">{casos7d}</p>
-              <span className={`text-xs font-black flex items-center gap-0.5 ${tendencia7d === null ? "text-muted-foreground" : tendencia7d > 0 ? "text-rose-400" : tendencia7d < 0 ? "text-emerald-400" : "text-muted-foreground"}`}>
-                {tendencia7d === null ? <Minus className="h-3 w-3" /> : tendencia7d > 0 ? <TrendingUp className="h-3 w-3" /> : tendencia7d < 0 ? <TrendingDown className="h-3 w-3" /> : <Minus className="h-3 w-3" />}
-                {tendencia7d === null ? "N/A" : `${tendencia7d > 0 ? "+" : ""}${tendencia7d}%`}
-              </span>
+              <p className="text-4xl font-black tracking-tight tabular-nums text-violet-500">{periodoModo === "mes" ? casosMesActual : casos7d}</p>
+              {(() => {
+                const tend = periodoModo === "mes" ? tendenciaMes : tendencia7d;
+                return (
+                  <span className={`text-xs font-black flex items-center gap-0.5 ${tend === null ? "text-muted-foreground" : tend > 0 ? "text-rose-400" : tend < 0 ? "text-emerald-400" : "text-muted-foreground"}`}>
+                    {tend === null ? <Minus className="h-3 w-3" /> : tend > 0 ? <TrendingUp className="h-3 w-3" /> : tend < 0 ? <TrendingDown className="h-3 w-3" /> : <Minus className="h-3 w-3" />}
+                    {tend === null ? "N/A" : `${tend > 0 ? "+" : ""}${tend}%`}
+                  </span>
+                );
+              })()}
             </div>
             {/* Spark chart */}
             <div className="flex items-end gap-0.5 mt-3 h-8">
-              {spark7d.map((v, i) => (
-                <div key={i} className="flex-1 bg-violet-500/20 rounded-sm transition-all hover:bg-violet-500/50" style={{ height: `${Math.max(4, Math.round((v / sparkMax) * 100))}%` }} title={`${v} casos`} />
+              {(periodoModo === "mes" ? sparkMes : spark7d).map((v, i) => (
+                <div key={i} className="flex-1 bg-violet-500/20 rounded-sm transition-all hover:bg-violet-500/50" style={{ height: `${Math.max(4, Math.round((v / (periodoModo === "mes" ? sparkMaxMes : sparkMax7d)) * 100))}%` }} title={`${v} casos`} />
               ))}
             </div>
-            <p className="text-[10px] text-muted-foreground mt-1">últimos 7 días vs semana anterior</p>
+            <p className="text-[10px] text-muted-foreground mt-1">{periodoModo === "mes" ? "este mes vs mes anterior" : "últimos 7 días vs semana anterior"}</p>
           </div>
         </div>
 
