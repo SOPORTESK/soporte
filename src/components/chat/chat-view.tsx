@@ -139,11 +139,18 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     originalIndex: number,
     fieldsToUpdate: any
   ) => {
+    // Actualizar messages in-place para evitar re-render pesado (flash negro)
+    setMessages(prev => prev.map(msg => {
+      if (msg.historyType === historyType && msg.originalIndex === originalIndex) {
+        return { ...msg, ...fieldsToUpdate };
+      }
+      return msg;
+    }));
+    // También actualizar sekCase para persistencia (sin disparar unifyMessages)
+    skipUnifyRef.current = true;
     setSekCase(prev => {
       const history = prev[historyType] || [];
       const updatedHistory = [...history];
-      // En casos agrupados, originalIndex es _sourceIndex (índice en el caso original),
-      // no el índice en el array merged. Buscar por coincidencia de _sourceIndex y _sourceCaseId.
       const matchIdx = updatedHistory.findIndex((e: any) =>
         (e._sourceIndex ?? updatedHistory.indexOf(e)) === originalIndex
       );
@@ -236,7 +243,14 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     historyLoadedRef.current = false;
     setSekCase(initialCase);
   }, [initialCase?.id]);
-  React.useEffect(() => { setMessages(unifyMessages(sekCase)); }, [sekCase]);
+  const skipUnifyRef = React.useRef(false);
+  React.useEffect(() => {
+    if (skipUnifyRef.current) {
+      skipUnifyRef.current = false;
+      return;
+    }
+    setMessages(unifyMessages(sekCase));
+  }, [sekCase]);
 
   /* Helper: combinar casos de un grupo en un único objeto histórico */
   const buildMergedCase = React.useCallback((baseCase: SekCase, casesData: SekCase[]): SekCase => {
@@ -2565,7 +2579,6 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
     }
     setSavingEdit(true);
     try {
-      console.log("[saveEdit] caseId=", caseId, "sourceCaseId=", m.sourceCaseId, "fallbackCaseId=", fallbackCaseId, "idx=", m.originalIndex);
       const res = await fetch(`/api/messages/${caseId}/${m.originalIndex}/edit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2650,7 +2663,6 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
       toast.error("No se puede eliminar: faltan datos del mensaje", { description: `caseId=${caseId} idx=${m.originalIndex} type=${m.historyType}` });
       return;
     }
-    console.log("[handleDelete] caseId=", caseId, "sourceCaseId=", m.sourceCaseId, "fallbackCaseId=", fallbackCaseId, "idx=", m.originalIndex, "deleteType=", deleteType);
 
     // Actualización local/optimista sin recargar pantalla
     if (onMessageUpdate) {
