@@ -147,7 +147,7 @@ export function LiveDashboardStats({ initial }: { initial: InitialData }) {
     },
     {
       label: "Satisfacción", value: initial.avgSat ? `${initial.avgSat} / 5` : "—",
-      sub: initial.calsCount > 0 ? `${initial.calsCount} calificaciones de clientes` : "Sin calificaciones aún", icon: Star,
+      sub: initial.avgSat ? `${initial.calsCount} calificaciones de clientes` : `Muestra insuficiente (${initial.calsCount}/20)`, icon: Star,
       color: "text-amber-400", ring: "ring-amber-400/20", bg: "bg-amber-400/10",
       href: "/admin/estadisticas/atencion"
     },

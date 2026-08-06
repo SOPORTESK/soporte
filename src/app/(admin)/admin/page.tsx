@@ -93,7 +93,8 @@ export default async function AdminDashboardPage() {
     if (cl?.calificacion_cliente && !isNaN(Number(cl.calificacion_cliente))) vals.push(Number(cl.calificacion_cliente));
     return vals;
   });
-  const avgSat = cals.length > 0 ? (cals.reduce((a, b) => a + b, 0) / cals.length).toFixed(1) : null;
+  const MIN_CALIFICACIONES = 20;
+  const avgSat = cals.length >= MIN_CALIFICACIONES ? (cals.reduce((a, b) => a + b, 0) / cals.length).toFixed(1) : null;
 
   // Actividad últimos 7 días
   const hace7 = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();

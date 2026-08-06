@@ -124,7 +124,6 @@ export function AgentRankingTable({ agentes }: { agentes: AgentRankingItem[] }) 
                       </div>
                       <div>
                         <p className="font-black text-sm leading-tight">{a.nombre}</p>
-                        <p className="text-[10px] text-muted-foreground">{a.activos} casos activos</p>
                       </div>
                     </div>
                   </td>

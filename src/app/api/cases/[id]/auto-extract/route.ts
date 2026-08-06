@@ -9,17 +9,8 @@ export async function POST(
     const supabase = createServiceClient();
     const id = params.id;
 
-    // Verificar si el bot está ON — si lo está, no hacer nada (el bot ya recopiló los datos)
-    const { data: iaConfig } = await supabase
-      .from("sek_agent_config")
-      .select("ia_activa")
-      .eq("email", "whatsapp_agent@sekunet.com")
-      .maybeSingle();
-
-    const iaActiva = iaConfig?.ia_activa ?? true;
-    if (iaActiva) {
-      return NextResponse.json({ ok: true, skipped: true, reason: "bot_on" });
-    }
+    // Ya no saltamos cuando el bot está ON: los casos escalados igual necesitan
+    // extracción de tema/marca/modelo y normalización de datos del cliente.
 
     // Obtener el caso con historial
     const { data: caseData, error: fetchError } = await supabase
@@ -32,10 +23,11 @@ export async function POST(
       return NextResponse.json({ error: "Caso no encontrado" }, { status: 404 });
     }
 
-    // Si ya tiene tema/marca/modelo, no hacer nada
-    const hasData = caseData.problema || caseData.marca || caseData.modelo ||
-      (caseData.title && caseData.title !== `WhatsApp — ${(caseData.cliente as any)?.whatsapp_name || (caseData.cliente as any)?.telefono || ""}`);
-    if (hasData && caseData.problema && caseData.marca) {
+    // Si ya tiene tema/marca/modelo Y datos del cliente completos, no hacer nada
+    const cli = (caseData.cliente && typeof caseData.cliente === "object") ? caseData.cliente as Record<string, unknown> : {};
+    const hasEquipmentData = caseData.problema && caseData.marca;
+    const hasClientData = !!(cli.nombre && (cli.correo || cli.cuenta));
+    if (hasEquipmentData && hasClientData) {
       return NextResponse.json({ ok: true, skipped: true, reason: "already_has_data" });
     }
 
@@ -77,22 +69,31 @@ export async function POST(
 
     const prompt = `Eres un analista de soporte técnico de Sekunet (Costa Rica). Analiza la siguiente conversación de WhatsApp entre un cliente y un agente de soporte, y extrae:
 
-1. "tema": El tema principal de la consulta. Debe ser uno de: ${TEMAS_VALIDOS.join(", ")}. Si no puedes determinarlo, deja vacío.
-2. "marca": La marca del equipo mencionado (ej: HIKVISION, Dahua, Epcom, ZKTeco). Si no se menciona, deja vacío.
-3. "modelo": El modelo del equipo (ej: DS-2CD2043G2-I, NVR-108MH, IPC-T221H). Si no se menciona, deja vacío.
-4. "descripcion_problema": Un resumen breve del problema o consulta (máximo 200 caracteres).
+1. "nombre": El nombre completo del cliente (nombre y apellido). Solo si el cliente lo dijo explícitamente. Si no, deja vacío.
+2. "correo": El correo electrónico del cliente. Solo si contiene @. Si el cliente dijo que no tiene, pon "Sin correo". Si no se menciona, deja vacío.
+3. "cuenta": El nombre de la empresa o cuenta afiliada a Sekunet. Solo si el cliente lo dijo explícitamente. Si dijo que no tiene, pon "Sin cuenta". Si no se menciona, deja vacío.
+4. "tema": El tema principal de la consulta. Debe ser uno de: ${TEMAS_VALIDOS.join(", ")}. Si no puedes determinarlo, deja vacío.
+5. "marca": La marca del equipo mencionado (ej: HIKVISION, Dahua, Epcom, ZKTeco). Si no se menciona, deja vacío.
+6. "modelo": El modelo del equipo (ej: DS-2CD2043G2-I, NVR-108MH, IPC-T221H). Si no se menciona, deja vacío.
+7. "descripcion_problema": Un resumen breve del problema o consulta (máximo 200 caracteres).
 
 Reglas:
 - Si el cliente envió un código como "DS-3E0505P-E-M", "NVR-108MH", "IPC-T221H", eso es un MODELO, no una marca.
 - Si el cliente envió una sola palabra como "Hikvision", "Dahua", "Epcom", "ZKTeco", eso es una MARCA.
-- Si no hay suficiente información para determinar un campo, déjalo vacío ("").
 - NO inventes datos. Solo extrae lo que esté explícito en la conversación.
+- NO extraigas el nombre de un correo o cuenta a partir del texto de otro campo.
+- Si un campo ya tiene valor en los DATOS ACTUALES y la conversación no aporta uno nuevo, mantén el valor existente.
+
+DATOS ACTUALES DEL CLIENTE:
+- nombre: ${String(cli.nombre || "")}
+- correo: ${String(cli.correo || "")}
+- cuenta: ${String(cli.cuenta || "")}
 
 CONVERSACIÓN:
 ${conversationText}
 
 Responde SOLO en formato JSON:
-{"tema": "...", "marca": "...", "modelo": "...", "descripcion_problema": "..."}`;
+{"nombre": "...", "correo": "...", "cuenta": "...", "tema": "...", "marca": "...", "modelo": "...", "descripcion_problema": "..."}`;
 
     const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -104,7 +105,7 @@ Responde SOLO en formato JSON:
         model: "gpt-4o-mini",
         messages: [{ role: "user", content: prompt }],
         temperature: 0.1,
-        max_tokens: 300,
+        max_tokens: 500,
       }),
     });
 
@@ -118,7 +119,7 @@ Responde SOLO en formato JSON:
     const rawContent = aiData.choices?.[0]?.message?.content || "";
 
     // Parsear la respuesta JSON
-    let extracted: { tema?: string; marca?: string; modelo?: string; descripcion_problema?: string } = {};
+    let extracted: { nombre?: string; correo?: string; cuenta?: string; tema?: string; marca?: string; modelo?: string; descripcion_problema?: string } = {};
     try {
       const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
       extracted = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
@@ -145,6 +146,35 @@ Responde SOLO en formato JSON:
     const marca = extracted.marca?.trim() || "";
     const modelo = extracted.modelo?.trim() || "";
     const descProblema = extracted.descripcion_problema?.trim() || "";
+    const extractNombre = extracted.nombre?.trim() || "";
+    const extractCorreo = extracted.correo?.trim() || "";
+    const extractCuenta = extracted.cuenta?.trim() || "";
+
+    // Actualizar datos del cliente (sin pisar los que ya existen)
+    const currentCliente = (caseData.cliente && typeof caseData.cliente === "object") ? caseData.cliente as Record<string, unknown> : {};
+    const updatedCliente: Record<string, unknown> = { ...currentCliente };
+    let clienteChanged = false;
+
+    if (extractNombre && !currentCliente.nombre) {
+      updatedCliente.nombre = extractNombre;
+      clienteChanged = true;
+    }
+    if (extractCorreo && !currentCliente.correo) {
+      updatedCliente.correo = extractCorreo;
+      clienteChanged = true;
+    }
+    if (extractCuenta && !currentCliente.cuenta) {
+      updatedCliente.cuenta = extractCuenta;
+      clienteChanged = true;
+    }
+    if (descProblema && !currentCliente.descripcion) {
+      updatedCliente.descripcion = descProblema;
+      clienteChanged = true;
+    }
+
+    if (clienteChanged) {
+      updates.cliente = updatedCliente;
+    }
 
     if (tema && TEMAS_VALIDOS.includes(tema)) {
       updates.problema = temaToProblema[tema] || tema.toLowerCase();
@@ -194,8 +224,8 @@ Responde SOLO en formato JSON:
       return NextResponse.json({ error: updateError.message }, { status: 500 });
     }
 
-    console.log(`[auto-extract] Caso ${id} actualizado: tema=${tema || "N/A"}, marca=${marca || "N/A"}, modelo=${modelo || "N/A"}`);
-    return NextResponse.json({ ok: true, extracted: { tema, marca, modelo, descripcion_problema: descProblema } });
+    console.log(`[auto-extract] Caso ${id} actualizado: tema=${tema || "N/A"}, marca=${marca || "N/A"}, modelo=${modelo || "N/A"}, nombre=${extractNombre || "N/A"}, correo=${extractCorreo || "N/A"}, cuenta=${extractCuenta || "N/A"}`);
+    return NextResponse.json({ ok: true, extracted: { tema, marca, modelo, descripcion_problema: descProblema, nombre: extractNombre, correo: extractCorreo, cuenta: extractCuenta } });
 
   } catch (e: any) {
     console.error("[auto-extract] Exception:", e.message);

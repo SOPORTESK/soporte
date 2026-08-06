@@ -1,12 +1,13 @@
 import { createClient } from "@/lib/supabase/server";
-import { Users, Clock, Star, TrendingUp, CheckCircle, FileText, Activity, ArrowUpRight, Target, BarChart3, Zap, AlertTriangle, UserCheck, TrendingDown, Minus } from "lucide-react";
+import { Users, Clock, Star, TrendingUp, CheckCircle, FileText, Activity, ArrowUpRight, Target, BarChart3, Zap, AlertTriangle, UserCheck, TrendingDown, Minus, Layers } from "lucide-react";
 import Link from "next/link";
 import { StatsExportButton } from "@/components/admin/stats-export-button";
 import { AgentRankingTable } from "@/components/admin/agent-ranking-table";
+import { MonthSelector } from "@/components/admin/month-selector";
 
 export const dynamic = "force-dynamic";
 
-export default async function EstadisticasAtencionPage() {
+export default async function EstadisticasAtencionPage({ searchParams }: { searchParams: { mes?: string } }) {
   const supabase = createClient();
 
   const { data: todosLosCasos } = await supabase
@@ -15,6 +16,24 @@ export default async function EstadisticasAtencionPage() {
 
   // Excluir casos del simulador — no representan atención real
   const casos = (todosLosCasos || []).filter(c => c.canal !== "simulator");
+
+  // ── Filtrar por mes si viene en searchParams (formato: YYYY-MM)
+  const mesSeleccionado = searchParams.mes || "all";
+  const casosFiltrados = mesSeleccionado !== "all"
+    ? casos.filter(c => {
+        const d = new Date(c.created_at);
+        const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+        return ym === mesSeleccionado;
+      })
+    : casos;
+
+  // ── Meses disponibles para el selector (basado en todos los casos)
+  const mesesSet = new Set<string>();
+  casos.forEach(c => {
+    const d = new Date(c.created_at);
+    mesesSet.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  });
+  const mesesDisponibles = Array.from(mesesSet).sort().reverse();
 
   // Helper: nombre legible del cliente para la lista desplegable
   const getClienteNombre = (c: any): string => {
@@ -40,8 +59,8 @@ export default async function EstadisticasAtencionPage() {
   const hace14dias = new Date(hoy); hace14dias.setDate(hoy.getDate() - 14);
   const hace30dias = new Date(hoy); hace30dias.setDate(hoy.getDate() - 30);
 
-  const casosConAsig = casos.filter(c => c.assigned_to && !c.assigned_to.includes("system_prompt"));
-  const casosSinAsig = casos.filter(c => !c.assigned_to || c.assigned_to.includes("system_prompt"));
+  const casosConAsig = casosFiltrados.filter(c => c.assigned_to && !c.assigned_to.includes("system_prompt"));
+  const casosSinAsig = casosFiltrados.filter(c => !c.assigned_to || c.assigned_to.includes("system_prompt"));
 
   // ── Métricas globales (solo agentes humanos)
   const totalCasos = casosConAsig.length;
@@ -52,7 +71,7 @@ export default async function EstadisticasAtencionPage() {
   // ── Tendencia 7d vs 7d anterior (solo humanos)
   const casos7d = casosConAsig.filter(c => new Date(c.created_at) >= hace7dias).length;
   const casosAntes7d = casosConAsig.filter(c => new Date(c.created_at) >= hace14dias && new Date(c.created_at) < hace7dias).length;
-  const tendencia7d = casosAntes7d > 0 ? Math.round(((casos7d - casosAntes7d) / casosAntes7d) * 100) : 0;
+  const tendencia7d = casosAntes7d > 0 ? Math.round(((casos7d - casosAntes7d) / casosAntes7d) * 100) : null;
 
   // ── SLA (solo humanos): tiempo desde que la IA escala el caso hasta que un humano lo acepta
   const tiemposTodos = casosConAsig
@@ -108,7 +127,7 @@ export default async function EstadisticasAtencionPage() {
   //    agente→agente  = operador sigue escribiendo (cuenta, capado a UMBRAL)
   //    agente→cliente = cliente leyendo/escribiendo (NO cuenta — es tiempo del cliente)
   //    Gaps > UMBRAL = inactividad/espera larga, no cuentan
-  const UMBRAL_GAP_MIN = 5;
+  const UMBRAL_GAP_MIN = 15;
   const isAgentRole = (r: any) => r === "agente" || r === "agent" || r === "tecnico";
   function tiempoEfectivo(histtecnico: any[], histcliente: any[], accepted_at?: string | null): number {
     const tech = (Array.isArray(histtecnico) ? histtecnico : [])
@@ -151,7 +170,8 @@ export default async function EstadisticasAtencionPage() {
 
   // ── NPS estimado (solo humanos)
   const todasCals = casosConAsig.map(getCal).filter((v): v is number => v !== null);
-  const avgCalificacionClienteGlobal = todasCals.length > 0
+  const MIN_CALIFICACIONES = 20;
+  const avgCalificacionClienteGlobal = todasCals.length >= MIN_CALIFICACIONES
     ? (todasCals.reduce((a, b) => a + b, 0) / todasCals.length).toFixed(1) : "N/A";
 
   // ── Stats por agente
@@ -220,6 +240,7 @@ export default async function EstadisticasAtencionPage() {
   const maxTotalAtendidos = Math.max(1, ...Object.values(statsPorAgente).map(s => s.totalAtendidos));
 
   const rankingAgentes = Object.values(statsPorAgente).map(s => {
+    const MIN_CALS_AGENTE = 4;
     const avgCal = s.calificaciones.length > 0 ? (s.calificaciones.reduce((a, b) => a + b, 0) / s.calificaciones.length) : 0;
     const avgSLA = s.tiemposEspera.length > 0 ? Math.round(s.tiemposEspera.reduce((a, b) => a + b, 0) / s.tiemposEspera.length) : 0;
     const tasa = s.totalAtendidos > 0 ? (s.resueltos / s.totalAtendidos) * 100 : 0;
@@ -231,19 +252,60 @@ export default async function EstadisticasAtencionPage() {
       ? Math.round(s.tiemposResolucion.reduce((a, b) => a + b, 0) / s.tiemposResolucion.length) : 0;
     const volumenDiario = s.casos30d > 0 ? (s.casos30d / 30) : 0;
 
-    // Score compuesto: 30% resolución + 25% tiempo de resolución + 20% satisfacción + 15% SLA + 10% volumen
+    // Score compuesto con redistribución de pesos cuando no hay datos
     const maxResolucionMin = 480; // 8 horas como tope penalizable
     const scoreRes = Math.round(tasa);
-    const scoreTiempoResolucion = avgResolucion > 0 ? Math.max(0, 100 - Math.round((avgResolucion / maxResolucionMin) * 100)) : 0;
-    const scoreSLA = avgSLA > 0 ? Math.max(0, 100 - Math.round((avgSLA / 480) * 100)) : 0;
-    const scoreSat = avgCal > 0 ? Math.round((avgCal / 5) * 100) : 0;
+    const scoreTiempoResolucion = avgResolucion > 0 ? Math.max(0, 100 - Math.round((avgResolucion / maxResolucionMin) * 100)) : null;
+    const scoreSLA = avgSLA > 0 ? Math.max(0, 100 - Math.round((avgSLA / 480) * 100)) : null;
+    const scoreSat = avgCal > 0 && s.calificaciones.length >= MIN_CALS_AGENTE ? Math.round((avgCal / 5) * 100) : null;
     const scoreVolumen = Math.round((s.totalAtendidos / maxTotalAtendidos) * 100);
-    const score = Math.round(scoreRes * 0.30 + scoreTiempoResolucion * 0.25 + scoreSat * 0.20 + scoreSLA * 0.15 + scoreVolumen * 0.10);
+
+    // Pesos base: 30% resolución, 25% tiempo, 20% sat, 15% SLA, 10% volumen
+    // Redistribuir el peso de componentes sin datos entre los que sí tienen
+    const pesos: Record<string, number> = { res: 0.30, tiempo: 0.25, sat: 0.20, sla: 0.15, vol: 0.10 };
+    const componentes: Record<string, number | null> = { res: scoreRes, tiempo: scoreTiempoResolucion, sat: scoreSat, sla: scoreSLA, vol: scoreVolumen };
+    const pesosActivos = Object.entries(pesos).filter(([k]) => componentes[k] !== null);
+    const pesoTotal = pesosActivos.reduce((sum, [, p]) => sum + p, 0);
+    const score = Math.round(pesosActivos.reduce((sum, [k, p]) => sum + (componentes[k] as number) * (p / pesoTotal), 0));
     const scoreValido = s.totalAtendidos >= MIN_CASOS_SCORE;
 
     const tasaEsc = s.totalAtendidos > 0 ? Math.round((s.escalados / s.totalAtendidos) * 100) : 0;
-    return { ...s, avgCalificacionCliente: avgCal > 0 ? avgCal.toFixed(1) : "N/A", avgSLA, tasa: Math.round(tasa), score, scoreValido, tasaEsc, avgEfectivo, avgEspera, avgResolucion, volumenDiario };
+    return { ...s, avgCalificacionCliente: avgCal > 0 && s.calificaciones.length >= MIN_CALS_AGENTE ? avgCal.toFixed(1) : "N/A", avgSLA, tasa: Math.round(tasa), score, scoreValido, tasaEsc, avgEfectivo, avgEspera, avgResolucion, volumenDiario, calificacionesCount: s.calificaciones.length };
   }).sort((a, b) => (Number(b.scoreValido) - Number(a.scoreValido)) || (b.score - a.score));
+
+  // ── Casos concurrentes: promedio de casos activos simultáneos
+  // Para cada caso, el intervalo activo va desde created_at hasta closed_at (o updated_at, o now si sigue abierto)
+  const intervalos = casosConAsig.map(c => {
+    const start = new Date(c.created_at).getTime();
+    const endRaw = (c as any).closed_at || c.updated_at;
+    const end = endRaw ? new Date(endRaw).getTime() : Date.now();
+    return { start, end };
+  }).filter(i => !isNaN(i.start) && !isNaN(i.end) && i.end > i.start);
+
+  // Crear eventos de inicio (+1) y fin (-1), ordenarlos, y calcular el promedio ponderado por tiempo
+  const eventos: Array<{ t: number; delta: number }> = [];
+  intervalos.forEach(i => {
+    eventos.push({ t: i.start, delta: 1 });
+    eventos.push({ t: i.end, delta: -1 });
+  });
+  eventos.sort((a, b) => a.t - b.t);
+
+  let concurrentesActuales = 0;
+  let sumaPonderada = 0;
+  let tiempoTotal = 0;
+  for (let i = 0; i < eventos.length - 1; i++) {
+    concurrentesActuales += eventos[i].delta;
+    const gap = eventos[i + 1].t - eventos[i].t;
+    if (gap > 0) {
+      sumaPonderada += concurrentesActuales * gap;
+      tiempoTotal += gap;
+    }
+  }
+  const avgConcurrentes = tiempoTotal > 0 ? (sumaPonderada / tiempoTotal).toFixed(1) : "0";
+  const maxConcurrentes = eventos.length > 0 ? Math.max(...eventos.reduce((acc, e, i) => {
+    if (i === 0) { acc.push(e.delta); return acc; }
+    acc.push(acc[acc.length - 1] + e.delta); return acc;
+  }, [] as number[])) : 0;
 
   // ── Volumen promedio: diario, semanal y mensual (solo humanos)
   const casos30d = casosConAsig.filter(c => new Date(c.created_at) >= hace30dias).length;
@@ -254,6 +316,10 @@ export default async function EstadisticasAtencionPage() {
   const avgTiempoResolucionGlobal = tiemposResolucionGlobal.length > 0
     ? Math.round(tiemposResolucionGlobal.reduce((sum, t) => sum + t, 0) / tiemposResolucionGlobal.length)
     : 0;
+  const totalCasosResolucion = casosConAsig.filter(c =>
+    (c.estado === "resuelto" || c.estado === "cerrado" || (c as any).closed_at) && c.accepted_at && (c as any).closed_at
+  ).length;
+  const casosExcluidosResolucion = totalCasosResolucion - tiemposResolucionGlobal.length;
 
   // ── Canales / Categorías (solo humanos)
   const canales: Record<string, number> = {};
@@ -351,9 +417,10 @@ export default async function EstadisticasAtencionPage() {
               <p className="text-[10px] font-black uppercase tracking-[0.25em] text-brand-600 dark:text-brand-400">Rendimiento · Estadísticas de Atención</p>
             </div>
             <h1 className="text-4xl lg:text-5xl font-black tracking-tight">Estadísticas de Atención</h1>
-            <p className="text-muted-foreground mt-2 text-sm">{nowStr} · {totalCasos} casos · {rankingAgentes.length} agentes</p>
+            <p className="text-muted-foreground mt-2 text-sm">{nowStr} · {totalCasos} casos · {rankingAgentes.length} agentes{mesSeleccionado !== "all" ? ` · ${mesSeleccionado}` : ""}</p>
           </div>
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-3 shrink-0 flex-wrap">
+            <MonthSelector availableMonths={mesesDisponibles} />
             <Link href="/admin/estadisticas" className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-border bg-card text-sm font-bold hover:bg-muted transition-all group">
               Analítica Clientes <ArrowUpRight className="h-3.5 w-3.5 opacity-40 group-hover:opacity-100" />
             </Link>
@@ -364,6 +431,33 @@ export default async function EstadisticasAtencionPage() {
         </div>
       </header>
 
+      {/* ── Exportar KPIs del mes ── */}
+      <div className="flex justify-end">
+        <StatsExportButton
+          data={[{
+            Mes: mesSeleccionado !== "all" ? mesSeleccionado : "Todos",
+            Total_Casos: totalCasos,
+            Casos_Activos: totalActivos,
+            Casos_Resueltos: totalResueltos,
+            Tasa_Resolucion_Pct: tasaResolucion,
+            AHT: formatSLA(avgAHTGlobal),
+            SLA_Promedio: formatSLA(avgSlaGlobal),
+            Casos_Concurrentes_Promedio: avgConcurrentes,
+            Casos_Concurrentes_Pico: maxConcurrentes,
+            Volumen_7d: casos7d,
+            Tendencia_7d: tendencia7d === null ? "N/A" : `${tendencia7d > 0 ? "+" : ""}${tendencia7d}%`,
+            Tiempo_Resolucion: avgTiempoResolucionGlobal > 0 ? formatSLA(avgTiempoResolucionGlobal) : "—",
+            Casos_Resolucion: tiemposResolucionGlobal.length,
+            Casos_Excluidos_Resolucion: casosExcluidosResolucion,
+            Volumen_Promedio_Diario: promedioDiario > 0 ? promedioDiario.toFixed(1) : "—",
+            Casos_30d: casos30d,
+            Agentes: rankingAgentes.length,
+            Fecha_Reporte: nowStr,
+          }]}
+          fileName={`Reporte_KPIs_Atencion_Sekunet_${mesSeleccionado !== "all" ? mesSeleccionado : new Date().toISOString().slice(0,10)}`}
+        />
+      </div>
+
       {/* ── KPIs FILA 1: Operacionales ── */}
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         {[
@@ -371,7 +465,7 @@ export default async function EstadisticasAtencionPage() {
           { label: "Tasa Resolución",  value: `${tasaResolucion}%`,   icon: CheckCircle,  color: "text-emerald-500", bg: "bg-emerald-500/10", sub: `${totalResueltos} de ${totalCasos} resueltos` },
           { label: "AHT",              value: formatSLA(avgAHTGlobal),    icon: Clock,    color: "text-violet-500",  bg: "bg-violet-500/10",  sub: `Tiempo activo por caso` },
           { label: "SLA Promedio",     value: formatSLA(avgSlaGlobal),icon: Clock,        color: "text-sky-500",     bg: "bg-sky-500/10",     sub: `Espera IA → humano`   },
-          { label: "Calif. cliente",     value: avgCalificacionClienteGlobal !== "N/A" ? `${avgCalificacionClienteGlobal}/5` : "—", icon: Star, color: "text-amber-400", bg: "bg-amber-400/10", sub: `${todasCals.length} calificaciones del cliente` },
+          { label: "Concurrentes",     value: avgConcurrentes, icon: Layers,    color: "text-amber-400",   bg: "bg-amber-400/10",   sub: `Promedio casos activos simultáneos · pico ${maxConcurrentes}` },
         ].map((k, i) => (
 
           <div key={i} className="relative rounded-2xl border border-border bg-card p-5 overflow-hidden hover:shadow-xl hover:-translate-y-0.5 transition-all ring-1 ring-border/50">
@@ -400,9 +494,9 @@ export default async function EstadisticasAtencionPage() {
             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Volumen 7 días</p>
             <div className="flex items-baseline gap-2 mt-1">
               <p className="text-4xl font-black tracking-tight tabular-nums text-violet-500">{casos7d}</p>
-              <span className={`text-xs font-black flex items-center gap-0.5 ${tendencia7d > 0 ? "text-rose-400" : tendencia7d < 0 ? "text-emerald-400" : "text-muted-foreground"}`}>
-                {tendencia7d > 0 ? <TrendingUp className="h-3 w-3" /> : tendencia7d < 0 ? <TrendingDown className="h-3 w-3" /> : <Minus className="h-3 w-3" />}
-                {tendencia7d > 0 ? "+" : ""}{tendencia7d}%
+              <span className={`text-xs font-black flex items-center gap-0.5 ${tendencia7d === null ? "text-muted-foreground" : tendencia7d > 0 ? "text-rose-400" : tendencia7d < 0 ? "text-emerald-400" : "text-muted-foreground"}`}>
+                {tendencia7d === null ? <Minus className="h-3 w-3" /> : tendencia7d > 0 ? <TrendingUp className="h-3 w-3" /> : tendencia7d < 0 ? <TrendingDown className="h-3 w-3" /> : <Minus className="h-3 w-3" />}
+                {tendencia7d === null ? "N/A" : `${tendencia7d > 0 ? "+" : ""}${tendencia7d}%`}
               </span>
             </div>
             {/* Spark chart */}
@@ -424,7 +518,7 @@ export default async function EstadisticasAtencionPage() {
             </div>
             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Tiempo de Resolución</p>
             <p className="text-4xl font-black mt-1 tracking-tight tabular-nums text-emerald-500">{avgTiempoResolucionGlobal > 0 ? formatSLA(avgTiempoResolucionGlobal) : "—"}</p>
-            <p className="text-[11px] text-muted-foreground mt-1.5">promedio aceptación → cierre · {tiemposResolucionGlobal.length} casos</p>
+            <p className="text-[11px] text-muted-foreground mt-1.5">promedio aceptación → cierre · {tiemposResolucionGlobal.length} casos{casosExcluidosResolucion > 0 ? ` · ${casosExcluidosResolucion} excluidos (+7d)` : ""}</p>
           </div>
         </div>
 
@@ -450,7 +544,7 @@ export default async function EstadisticasAtencionPage() {
             </div>
             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">CSAT Promedio</p>
             <p className="text-4xl font-black mt-1 tracking-tight tabular-nums text-amber-400">{avgCalificacionClienteGlobal !== "N/A" ? `${avgCalificacionClienteGlobal}/5` : "—"}</p>
-            <p className="text-[11px] text-muted-foreground mt-1.5">{todasCals.length} calificaciones del cliente</p>
+            <p className="text-[11px] text-muted-foreground mt-1.5">{todasCals.length >= MIN_CALIFICACIONES ? `${todasCals.length} calificaciones del cliente` : `Muestra insuficiente (${todasCals.length}/${MIN_CALIFICACIONES})`}</p>
           </div>
         </div>
       </section>
@@ -465,7 +559,7 @@ export default async function EstadisticasAtencionPage() {
               <div className="h-8 w-8 rounded-lg bg-brand-500/10 text-brand-500 grid place-items-center"><BarChart3 className="h-4 w-4" /></div>
               <div>
                 <h2 className="font-black text-sm">Desempeño Individual</h2>
-                <p className="text-[11px] text-muted-foreground">Score compuesto: 30% resolución · 25% tiempo resolución · 20% calif. cliente · 15% SLA · 10% volumen (mín. 5 casos)</p>
+                <p className="text-[11px] text-muted-foreground">Score compuesto: 30% resolución · 25% tiempo resolución · 20% calif. cliente · 15% SLA · 10% volumen · pesos redistribuidos si falta dato (mín. 5 casos, mín. 4 calif.)</p>
               </div>
             </div>
             <StatsExportButton
@@ -476,9 +570,10 @@ export default async function EstadisticasAtencionPage() {
                 Tiempo_Resolucion_Avg_min: (a as any).avgResolucion,
                 SLA_Promedio_min: a.avgSLA,
                 CalificacionCliente_Avg: a.avgCalificacionCliente,
-                Volumen_7d: a.casos7d, Volumen_Promedio_Diario: (a as any).volumenDiario.toFixed(1)
+                Volumen_7d: a.casos7d, Volumen_Promedio_Diario: (a as any).volumenDiario.toFixed(1),
+                Fecha_Reporte: nowStr
               }))}
-              fileName="Reporte_Desempeño_Atencion_Sekunet"
+              fileName={`Reporte_Desempeño_Atencion_Sekunet_${mesSeleccionado !== "all" ? mesSeleccionado : new Date().toISOString().slice(0,10)}`}
             />
           </div>
 

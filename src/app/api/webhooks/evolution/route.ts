@@ -1553,12 +1553,15 @@ export async function POST(req: NextRequest) {
 
     // ── AUTO-RELLENO: buscar casos previos del mismo teléfono para reutilizar datos ──
     let knownClient: Record<string, unknown> = {};
+    let knownProblema: string | null = null;
+    let knownMarca: string | null = null;
+    let knownModelo: string | null = null;
     if (!isOutgoing && contactPhone) {
       const cleanPhone = contactPhone.replace(/[^0-9]/g, "");
       const phoneWithSuffix = `${cleanPhone}@s.whatsapp.net`;
       const { data: prevCases } = await supabase
         .from("sek_cases")
-        .select("cliente, created_at")
+        .select("cliente, problema, marca, modelo, created_at")
         .or(`customer_phone.eq.${cleanPhone},customer_phone.eq.${cleanPhone}@s.whatsapp.net,customer_phone.eq.+${cleanPhone},customer_phone.eq.+${cleanPhone}@s.whatsapp.net`)
         .order("created_at", { ascending: false })
         .limit(20);
@@ -1569,7 +1572,14 @@ export async function POST(req: NextRequest) {
           const pcCliente = (pc.cliente && typeof pc.cliente === "object") ? pc.cliente as Record<string, unknown> : {};
           if (pcCliente.nombre || pcCliente.correo || pcCliente.cuenta) {
             knownClient = pcCliente;
-            console.log(`[evo-webhook] Auto-relleno: datos previos encontrados para ${cleanPhone} — nombre: ${pcCliente.nombre || "N/A"}, correo: ${pcCliente.correo || "N/A"}, cuenta: ${pcCliente.cuenta || "N/A"}`);
+            // Copiar también tema y descripcion del caso previo
+            if (pcCliente.tema) knownClient.tema = pcCliente.tema;
+            if (pcCliente.descripcion) knownClient.descripcion = pcCliente.descripcion;
+            // Copiar problema/marca/modelo del caso previo
+            if (pc.problema) knownProblema = pc.problema;
+            if (pc.marca) knownMarca = pc.marca;
+            if (pc.modelo) knownModelo = pc.modelo;
+            console.log(`[evo-webhook] Auto-relleno: datos previos encontrados para ${cleanPhone} — nombre: ${pcCliente.nombre || "N/A"}, correo: ${pcCliente.correo || "N/A"}, cuenta: ${pcCliente.cuenta || "N/A"}, tema: ${pcCliente.tema || "N/A"}, problema: ${pc.problema || "N/A"}`);
             break;
           }
         }
@@ -1601,6 +1611,8 @@ export async function POST(req: NextRequest) {
         telefono_real: senderPn || null,
         ...(knownClient.cedula ? { cedula: knownClient.cedula } : {}),
         ...(knownClient.equipo ? { equipo: knownClient.equipo } : {}),
+        ...(knownClient.tema ? { tema: knownClient.tema } : {}),
+        ...(knownClient.descripcion ? { descripcion: knownClient.descripcion } : {}),
         ...(mediaType && !mediaUrl && mediaDebug ? { debug_media: mediaDebug } : {}),
       };
 
@@ -1635,6 +1647,9 @@ export async function POST(req: NextRequest) {
           title: pushName ? `WhatsApp — ${pushName}` : (knownClient.nombre ? `WhatsApp — ${knownClient.nombre}` : `WhatsApp — ${contactPhone}`),
           last_message_at: msgTime,
           last_message_preview: (text || "").slice(0, 200),
+          ...(knownProblema ? { problema: knownProblema } : {}),
+          ...(knownMarca ? { marca: knownMarca } : {}),
+          ...(knownModelo ? { modelo: knownModelo } : {}),
         }).select("id").single();
 
         console.log(`[evo-webhook] Modo No Atendido + fuera de horario — caso ${newCase?.id} creado cerrado`);
@@ -1665,6 +1680,9 @@ export async function POST(req: NextRequest) {
           title: pushName ? `WhatsApp — ${pushName}` : (knownClient.nombre ? `WhatsApp — ${knownClient.nombre}` : `WhatsApp — ${contactPhone}`),
           last_message_at: msgTime,
           last_message_preview: (text || "").slice(0, 200),
+          ...(knownProblema ? { problema: knownProblema } : {}),
+          ...(knownMarca ? { marca: knownMarca } : {}),
+          ...(knownModelo ? { modelo: knownModelo } : {}),
         }).select("id").single();
 
         console.log(`[evo-webhook] Modo No Atendido — caso ${newCase?.id} creado como escalado, bienvenida enviada`);
@@ -1682,10 +1700,13 @@ export async function POST(req: NextRequest) {
         title: pushName ? `WhatsApp — ${pushName}` : (knownClient.nombre ? `WhatsApp — ${knownClient.nombre}` : `WhatsApp — ${contactPhone}`),
         last_message_at: msgTime,
         last_message_preview: (text || "").slice(0, 200),
+        ...(knownProblema ? { problema: knownProblema } : {}),
+        ...(knownMarca ? { marca: knownMarca } : {}),
+        ...(knownModelo ? { modelo: knownModelo } : {}),
       }).select("id").single();
 
       if (hasKnownData) {
-        console.log(`[evo-webhook] Caso ${newCase?.id} creado con datos auto-rellenados: nombre=${knownClient.nombre || "N/A"}, correo=${knownClient.correo || "N/A"}, cuenta=${knownClient.cuenta || "N/A"}`);
+        console.log(`[evo-webhook] Caso ${newCase?.id} creado con datos auto-rellenados: nombre=${knownClient.nombre || "N/A"}, correo=${knownClient.correo || "N/A"}, cuenta=${knownClient.cuenta || "N/A"}, problema=${knownProblema || "N/A"}, marca=${knownMarca || "N/A"}, modelo=${knownModelo || "N/A"}`);
       }
 
       // Disparar ia-agent para nuevo caso entrante

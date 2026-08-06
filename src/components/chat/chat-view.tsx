@@ -258,25 +258,10 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       id: baseCase.id,
       cliente: baseCase.cliente ?? target.cliente,
       estado: mergedEstado as SekCase["estado"],
-      histcliente: [],
-      histtecnico: [],
+      histcliente: Array.isArray(target.histcliente) ? target.histcliente : [],
+      histtecnico: Array.isArray(target.histtecnico) ? target.histtecnico : [],
       _group: baseCase._group,
     } as unknown as SekCase;
-    sorted.forEach((c, idx) => {
-      const hc = Array.isArray(c.histcliente) ? c.histcliente : [];
-      const ht = Array.isArray(c.histtecnico) ? c.histtecnico : [];
-      if (idx > 0) {
-        (merged.histtecnico as any[]).push({
-          role: "separator",
-          time: c.created_at,
-          content: `── Nueva conversación · ${new Date(c.created_at).toLocaleDateString("es-CR", { day: "2-digit", month: "short", year: "numeric" })} ──`,
-          author: "",
-          _separator: true,
-        });
-      }
-      hc.forEach((e: any, ei: number) => (merged.histcliente as any[]).push({ ...e, _sourceCaseId: c.id, _sourceIndex: ei }));
-      ht.forEach((e: any, ei: number) => (merged.histtecnico as any[]).push({ ...e, _sourceCaseId: c.id, _sourceIndex: ei }));
-    });
     return merged;
   }, []);
 
@@ -284,9 +269,9 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   React.useEffect(() => {
     let mounted = true;
     (async () => {
-      const hasHistory = (Array.isArray(initialCase.histcliente) && initialCase.histcliente.length > 0) ||
-                         (Array.isArray(initialCase.histtecnico) && initialCase.histtecnico.length > 0);
-      if (hasHistory) return;
+      const hasFullHistory = (Array.isArray(initialCase.histcliente) && initialCase.histcliente.length > 0) &&
+                             (Array.isArray(initialCase.histtecnico) && initialCase.histtecnico.length > 0);
+      if (hasFullHistory) return;
       try {
         const ids = initialCase._group?.caseIds?.length ? initialCase._group.caseIds : [initialCase.id];
         const { data } = await supabase

@@ -48,8 +48,10 @@ export function CaseHistoryDrawer({ isOpen, onClose, currentCase }: CaseHistoryD
       const { data, error } = await query.order("created_at", { ascending: false }).limit(50);
       if (error) throw error;
 
-      const currentId = String(cc.id);
-      const otherCases = (data || []).filter(c => String(c.id) !== currentId);
+      // Excluir solo el caso objetivo (el que se muestra en el chat activo).
+      // Los demás casos del grupo son el historial anterior que el usuario quiere ver.
+      const excludeId = String(cc._group?.targetCaseId ?? cc.id);
+      const otherCases = (data || []).filter(c => String(c.id) !== excludeId);
       setCases(otherCases as CaseWithDetails[]);
       setHasMore(otherCases.length >= PAGE_SIZE);
     } catch (err) {

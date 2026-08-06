@@ -69,29 +69,10 @@ function mergeGroups(rawCases: SekCase[]): SekCase[] {
       return e !== "cerrado" && e !== "resuelto";
     });
     const target = openCases[openCases.length - 1] ?? sorted[sorted.length - 1];
-    /* Si los casos no traen historial completo (modo ligero), no combinamos mensajes aquí.
-       ChatView se encargará de cargar el historial del caso objetivo. */
-    const hasHistory = sorted.some(c => Array.isArray(c.histcliente) || Array.isArray(c.histtecnico));
-    const histcliente: SekHistEntry[] = [];
-    const histtecnico: SekHistEntry[] = [];
-    if (hasHistory) {
-      sorted.forEach((c, idx) => {
-        const hc = Array.isArray(c.histcliente) ? c.histcliente : [];
-        const ht = Array.isArray(c.histtecnico) ? c.histtecnico : [];
-        if (idx > 0) {
-          /* Separador entre casos */
-          histtecnico.push({
-            role: "separator",
-            time: c.created_at,
-            content: `── Nueva conversación · ${new Date(c.created_at).toLocaleDateString("es-CR", { day: "2-digit", month: "short", year: "numeric" })} ──`,
-            author: "",
-            _separator: true,
-          } as SekHistEntry);
-        }
-        hc.forEach((e, ei) => histcliente.push({ ...e, _sourceCaseId: c.id, _sourceIndex: ei } as SekHistEntry));
-        ht.forEach((e, ei) => histtecnico.push({ ...e, _sourceCaseId: c.id, _sourceIndex: ei } as SekHistEntry));
-      });
-    }
+    /* Solo usar el historial del caso objetivo (el más reciente abierto).
+       Las conversaciones anteriores se ven en el CaseHistoryDrawer. */
+    const histcliente: SekHistEntry[] = Array.isArray(target.histcliente) ? target.histcliente : [];
+    const histtecnico: SekHistEntry[] = Array.isArray(target.histtecnico) ? target.histtecnico : [];
     /* Estado agregado: abierto si hay alguno abierto, si no, el del último */
     const anyOpen = openCases.length > 0;
     /* Prioridad agregada: máxima */
@@ -161,10 +142,9 @@ function mergeGroups(rawCases: SekCase[]): SekCase[] {
 
 const BASE_TITLE = "Sekunet Chat";
 
-// Campos para la lista del inbox. Incluye histcliente (solo lectura ligera) para poder
-// detectar mensajes nuevos del cliente y disparar el toast/sonido de notificación —
-// sin histcliente, esa comparación siempre veía longitud 0 y nunca notificaba.
-const CASE_LIST_FIELDS = "id,estado,canal,cliente,assigned_to,last_message_at,last_message_preview,unread_count,created_at,updated_at,title,prioridad,tags,customer_phone,histcliente,es_test";
+// Campos para la lista del inbox (consulta ligera sin historiales pesados).
+// Las notificaciones de mensajes nuevos usan unread_count y last_message_at.
+const CASE_LIST_FIELDS = "id,estado,canal,cliente,assigned_to,last_message_at,last_message_preview,unread_count,created_at,updated_at,title,prioridad,tags,customer_phone,es_test";
 
 async function fetchCasesMeta(supabase: any, limit = 200, agentEmail?: string) {
   let query = supabase
@@ -452,31 +432,26 @@ export function InboxClient({
             const changed = newMerged.find(ng => {
               if (String(ng.id) === selectedId) return false;
               const prev = prevMergedRef.current.find(p => String(p.id) === String(ng.id));
-              const prevLen = (Array.isArray(prev?.histcliente) ? prev!.histcliente.length : 0);
-              const newLen = (Array.isArray(ng.histcliente) ? ng.histcliente.length : 0);
-              // Solo notificar si realmente hay mensajes NUEVOS del cliente (no reorganización de grupos)
-              if (newLen <= prevLen) return false;
-              // Verificar que el último mensaje sea realmente nuevo (despues de la última vez)
-              const lastMsg = ng.histcliente?.[ng.histcliente.length - 1];
-              const prevLastMsg = prev?.histcliente?.[prev?.histcliente?.length - 1];
-              // Si el último mensaje cambió, es realmente nuevo
-              return lastMsg?.time !== prevLastMsg?.time || lastMsg?.content !== prevLastMsg?.content;
+              const prevUnread = prev?.unread_count || 0;
+              const newUnread = ng.unread_count || 0;
+              // Solo notificar si aumentaron los mensajes no leídos
+              if (newUnread <= prevUnread) return false;
+              // Verificar que el last_message_at cambió (mensaje realmente nuevo)
+              return ng.last_message_at !== prev?.last_message_at;
             });
 
             if (changed) {
               playNotif();
               const ci = clienteInfo(changed.cliente);
               const name = ci.nombre || ci.telefono || asText(changed.title) || "Cliente";
-              const hist = Array.isArray(changed.histcliente) ? changed.histcliente : [];
-              const last = hist[hist.length - 1];
               // No notificar si el mensaje es muy antiguo (más de 5 minutos) - evita notificaciones fantasma
-              const msgTime = last?.time ? new Date(last.time).getTime() : 0;
+              const msgTime = changed.last_message_at ? new Date(changed.last_message_at).getTime() : 0;
               const isRecent = (Date.now() - msgTime) < 5 * 60 * 1000;
               if (isRecent) {
                 const estadoC = String(changed.estado || "").toLowerCase();
                 const esIa = estadoC === "ia_atendiendo";
                 toast.info(esIa ? `🤖 Nuevo caso en Smart Inbox: ${name}` : `💬 Nuevo mensaje de ${name}`, {
-                  description: asText(last?.content).slice(0, 80),
+                  description: asText(changed.last_message_preview).slice(0, 80),
                   duration: 10000,
                   action: { label: "Ver", onClick: () => {
                     if (esIa) router.push("/smart-inbox");
@@ -572,10 +547,10 @@ export function InboxClient({
         }
         const filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail, agentName);
         const prevTotal = prevCasesRef.current.length;
-        const prevMsgs = prevCasesRef.current.reduce((s, c) => s + (c.histcliente?.length || 0), 0);
+        const prevUnread = prevCasesRef.current.reduce((s, c) => s + (c.unread_count || 0), 0);
         const newTotal = filteredNewCases.length;
-        const newMsgs = filteredNewCases.reduce((s, c) => s + (c.histcliente?.length || 0), 0);
-        if (newTotal !== prevTotal || newMsgs !== prevMsgs) {
+        const newUnread = filteredNewCases.reduce((s, c) => s + (c.unread_count || 0), 0);
+        if (newTotal !== prevTotal || newUnread !== prevUnread) {
           setCases(filteredNewCases);
           prevCasesRef.current = filteredNewCases;
           prevMergedRef.current = mergeGroups(filteredNewCases);
