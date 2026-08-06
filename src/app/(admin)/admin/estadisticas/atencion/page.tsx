@@ -691,33 +691,6 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
           totalCasos={casosConAsig.length}
         />
 
-          {/* Prioridades */}
-          <div className="lg:col-span-3 rounded-2xl border border-border bg-card p-6">
-            <div className="flex items-center gap-2 mb-5">
-              <div className="h-7 w-7 rounded-lg bg-rose-500/10 text-rose-500 grid place-items-center"><AlertTriangle className="h-3.5 w-3.5" /></div>
-              <h3 className="font-black text-sm uppercase tracking-widest text-muted-foreground">Por Prioridad</h3>
-            </div>
-            <div className="space-y-3">
-              {[
-                { k: "urgente", label: "Urgente", color: "bg-rose-500",   text: "text-rose-500"   },
-                { k: "alta",    label: "Alta",    color: "bg-amber-500",  text: "text-amber-500"  },
-                { k: "media",   label: "Media",   color: "bg-sky-500",    text: "text-sky-500"    },
-                { k: "baja",    label: "Baja",    color: "bg-emerald-500",text: "text-emerald-500"},
-              ].map(row => (
-                <div key={row.k} className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2 flex-1">
-                    <span className={`h-2 w-2 rounded-full ${row.color}`} />
-                    <span className="text-xs font-bold uppercase tracking-wide">{row.label}</span>
-                    <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-                      <div className={`h-full ${row.color} rounded-full`} style={{ width: `${totalCasos > 0 ? (prioridades[row.k] / totalCasos) * 100 : 0}%` }} />
-                    </div>
-                  </div>
-                  <span className={`text-xs font-black tabular-nums ${row.text} w-6 text-right`}>{prioridades[row.k]}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
           {/* Canales */}
           <div className="lg:col-span-3 rounded-2xl border border-border bg-card p-6">
             <div className="flex items-center gap-2 mb-5">

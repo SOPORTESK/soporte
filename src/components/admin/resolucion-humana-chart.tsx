@@ -47,10 +47,10 @@ export function ResolucionHumanaChart({ grupos, totalValidos, excluidos, sinDato
   }
 
   return (
-    <div className="lg:col-span-3 rounded-2xl border border-border bg-card p-6">
+    <div className="lg:col-span-6 rounded-2xl border border-border bg-card p-6">
       <div className="flex items-center gap-2 mb-5">
         <div className="h-7 w-7 rounded-lg bg-emerald-500/10 text-emerald-500 grid place-items-center"><Clock className="h-3.5 w-3.5" /></div>
-        <h3 className="font-black text-sm uppercase tracking-widest text-muted-foreground">Resolución Humana</h3>
+        <h3 className="font-black text-sm uppercase tracking-widest text-muted-foreground whitespace-nowrap">Resolución Equipo de Soporte</h3>
       </div>
       {totalValidos > 0 ? (
         <div className="space-y-3">
