@@ -5,6 +5,7 @@ import { StatsExportButton } from "@/components/admin/stats-export-button";
 import { AgentRankingTable } from "@/components/admin/agent-ranking-table";
 import { MonthSelector } from "@/components/admin/month-selector";
 import { PeriodToggle } from "@/components/admin/period-toggle";
+import { ResolucionHumanaChart } from "@/components/admin/resolucion-humana-chart";
 
 export const dynamic = "force-dynamic";
 
@@ -91,20 +92,44 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
   const avgSlaGlobal = tiemposTodos.length > 0 ? Math.round(tiemposTodos.reduce((a, b) => a + b, 0) / tiemposTodos.length) : 0;
 
   // ── Distribución de tiempo de resolución humana (aceptación → cierre, solo humanos)
-  const tiemposResolucionTodos = casosConAsig
-    .filter(c => c.estado === "resuelto" || c.estado === "cerrado" || (c as any).closed_at)
-    .filter(c => c.accepted_at && (c as any).closed_at)
+  const casosResolucion = casosConAsig
+    .filter(c => c.accepted_at && (c as any).closed_at && (c.estado === "resuelto" || c.estado === "cerrado" || (c as any).closed_at))
     .map(c => {
       const start = new Date(c.accepted_at!);
       const end = new Date((c as any).closed_at!);
-      if (isNaN(start.getTime()) || isNaN(end.getTime())) return 0;
-      return Math.round((end.getTime() - start.getTime()) / 60000);
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) return null;
+      const min = Math.round((end.getTime() - start.getTime()) / 60000);
+      if (min < 0) return null;
+      return {
+        id: c.id, title: c.title || "Caso sin título", agente: agenteMap[c.assigned_to!.toLowerCase()] || c.assigned_to!,
+        created_at: c.created_at, closed_at: (c as any).closed_at, accepted_at: c.accepted_at, minutos: min,
+        cliente: getClienteNombre(c),
+      };
     })
-    .filter(t => t > 0 && t < 10080);
-  const resLt1h = tiemposResolucionTodos.filter(t => t <= 60).length;
-  const res1_4h = tiemposResolucionTodos.filter(t => t > 60 && t <= 240).length;
-  const res4_8h = tiemposResolucionTodos.filter(t => t > 240 && t <= 480).length;
-  const resGt8h = tiemposResolucionTodos.filter(t => t > 480).length;
+    .filter((c): c is NonNullable<typeof c> => c !== null);
+
+  const casosValidos = casosResolucion.filter(c => c.minutos < 10080);
+  const casosExcluidosRes = casosResolucion.filter(c => c.minutos >= 10080);
+  const casosSinDatosRes = casosConAsig
+    .filter(c => {
+      // Sin accepted_at o closed_at
+      if (!c.accepted_at || !(c as any).closed_at) return true;
+      // Con ambos pero fecha inválida o tiempo <= 0
+      const start = new Date(c.accepted_at!);
+      const end = new Date((c as any).closed_at!);
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) return true;
+      if (Math.round((end.getTime() - start.getTime()) / 60000) < 0) return true;
+      return false;
+    })
+    .map(c => ({
+      id: c.id, title: c.title || "Caso sin título", agente: agenteMap[c.assigned_to!.toLowerCase()] || c.assigned_to!,
+      created_at: c.created_at, closed_at: (c as any).closed_at || "", accepted_at: c.accepted_at || "", minutos: 0,
+      cliente: getClienteNombre(c),
+    }));
+  const resLt1h = casosValidos.filter(c => c.minutos <= 60).length;
+  const res1_4h = casosValidos.filter(c => c.minutos > 60 && c.minutos <= 240).length;
+  const res4_8h = casosValidos.filter(c => c.minutos > 240 && c.minutos <= 480).length;
+  const resGt8h = casosValidos.filter(c => c.minutos > 480).length;
 
   // ── AHT (Average Handle Time): tiempo efectivo que el agente dedicó a cada caso
   // Se calcula después de tiempoEfectivo(), se deja el placeholder aquí y se resuelve abajo
@@ -652,36 +677,19 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
           />
         </div>
 
-        {/* Histograma de tiempo de resolución humana */}
-        <div className="lg:col-span-3 rounded-2xl border border-border bg-card p-6">
-            <div className="flex items-center gap-2 mb-5">
-              <div className="h-7 w-7 rounded-lg bg-emerald-500/10 text-emerald-500 grid place-items-center"><Clock className="h-3.5 w-3.5" /></div>
-              <h3 className="font-black text-sm uppercase tracking-widest text-muted-foreground">Resolución Humana</h3>
-            </div>
-            {tiemposResolucionTodos.length > 0 ? (
-              <div className="space-y-3">
-                {[
-                  { label: "< 1 hora", count: resLt1h, color: "bg-emerald-500", text: "text-emerald-500" },
-                  { label: "1 – 4 horas", count: res1_4h, color: "bg-amber-500", text: "text-amber-500" },
-                  { label: "4 – 8 horas", count: res4_8h, color: "bg-orange-500", text: "text-orange-500" },
-                  { label: "+8 horas", count: resGt8h, color: "bg-rose-500", text: "text-rose-500" },
-                ].map(row => (
-                  <div key={row.label} className="space-y-1.5">
-                    <div className="flex justify-between items-center">
-                      <span className={`text-xs font-black ${row.text}`}>{row.label}</span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-muted-foreground">{tiemposResolucionTodos.length > 0 ? Math.round((row.count / tiemposResolucionTodos.length) * 100) : 0}%</span>
-                        <span className={`text-xs font-black tabular-nums ${row.text}`}>{row.count}</span>
-                      </div>
-                    </div>
-                    <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
-                      <div className={`h-full ${row.color} rounded-full`} style={{ width: `${tiemposResolucionTodos.length > 0 ? (row.count / tiemposResolucionTodos.length) * 100 : 0}%` }} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : <p className="text-xs text-muted-foreground italic">Sin datos de resolución</p>}
-          </div>
+        {/* Histograma interactivo de tiempo de resolución humana */}
+        <ResolucionHumanaChart
+          totalValidos={casosValidos.length}
+          grupos={[
+            { label: "< 1 hora", count: resLt1h, color: "bg-emerald-500", text: "text-emerald-500", casos: casosValidos.filter(c => c.minutos <= 60) },
+            { label: "1 – 4 horas", count: res1_4h, color: "bg-amber-500", text: "text-amber-500", casos: casosValidos.filter(c => c.minutos > 60 && c.minutos <= 240) },
+            { label: "4 – 8 horas", count: res4_8h, color: "bg-orange-500", text: "text-orange-500", casos: casosValidos.filter(c => c.minutos > 240 && c.minutos <= 480) },
+            { label: "+8 horas", count: resGt8h, color: "bg-rose-500", text: "text-rose-500", casos: casosValidos.filter(c => c.minutos > 480) },
+          ]}
+          excluidos={{ count: casosExcluidosRes.length, casos: casosExcluidosRes }}
+          sinDatos={{ count: casosSinDatosRes.length, casos: casosSinDatosRes }}
+          totalCasos={casosConAsig.length}
+        />
 
           {/* Prioridades */}
           <div className="lg:col-span-3 rounded-2xl border border-border bg-card p-6">
