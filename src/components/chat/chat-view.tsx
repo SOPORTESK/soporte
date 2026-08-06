@@ -649,7 +649,8 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
         .eq("id", String(targetId))
         .maybeSingle();
       if (reloadErr || !freshCase) throw reloadErr || new Error("No se pudo recargar el caso");
-      setSekCase(freshCase as SekCase);
+      // Preservar _group al recargar para que unifyMessages use targetCaseId como sourceCaseId
+      setSekCase({ ...(freshCase as SekCase), _group: sekCase._group } as SekCase);
 
       const updates: Record<string, unknown> = {};
       const targetCerrado = String(sekCase.estado || "").toLowerCase() === "cerrado" || String(sekCase.estado || "").toLowerCase() === "resuelto";
