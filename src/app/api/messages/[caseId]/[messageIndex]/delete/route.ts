@@ -46,6 +46,9 @@ export async function POST(
   
   console.log("[DELETE MSG API] Iniciando", { caseId: params.caseId, messageIndex: params.messageIndex, deleteType, author, historyType });
   
+  // Log extra para diagnosticar
+  console.log("[DELETE MSG API] caseId type:", typeof params.caseId, "isGroupKey:", params.caseId.includes(":") || params.caseId.includes("|"));
+  
   // deleteType: "for_everyone" o "for_me"
   // historyType: "histcliente" o "histtecnico"
   const validDeleteTypes = ["for_everyone", "for_me"];
@@ -107,6 +110,8 @@ export async function POST(
   // Asegurar que message es un objeto
   const messageObj = typeof message === "object" && message !== null ? message : { content: String(message || "") };
 
+  console.log("[DELETE MSG API] Mensaje encontrado:", { hasMessageId: !!messageObj?.messageId, messageId: messageObj?.messageId, content: String(messageObj?.content || "").slice(0, 50), canal: caseData.canal });
+
   if (deleteType === "for_everyone") {
     // Eliminar para todos: marcar como deleted
     updatedMessage = { ...messageObj, deleted: true, content: "" };
@@ -116,6 +121,8 @@ export async function POST(
     const isWhatsApp = String(caseData.canal || "").toLowerCase() === "whatsapp";
     const messageId = resolveMessageId(messageObj, caseData, historyType);
     const to = pickPhone(caseData);
+
+    console.log("[DELETE MSG API] WhatsApp check:", { isWhatsApp, resolvedMessageId: messageId, phone: to });
 
     if (isWhatsApp && !messageId) {
       console.error("[DELETE MSG API] Sin messageId: no se puede revocar en WhatsApp");
