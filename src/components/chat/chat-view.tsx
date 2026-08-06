@@ -53,6 +53,9 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
   const fromTecnico = Array.isArray(c.histtecnico) ? c.histtecnico : [];
   // Para casos agrupados, usar el targetCaseId real en vez del group key (tel:xxx)
   const realCaseId = (c as any)._group?.targetCaseId ?? c.id;
+  if (String(c.id).startsWith("tel:")) {
+    console.log(`[unifyMessages] c.id=${c.id} _group=${JSON.stringify((c as any)._group)} realCaseId=${realCaseId}`);
+  }
 
   fromCliente.forEach((e, i) => {
     const role = String(e.role || "user");
