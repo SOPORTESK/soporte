@@ -893,7 +893,10 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
 
         const driveMsg = `Estimado cliente:\n\nA continuación, le compartimos el enlace para la descarga directa del archivo solicitado:\n\n${shareableLink}\n\nPor favor, tenga en cuenta que el enlace permanecerá activo durante las próximas 24 horas.\n\nSi requiere cualquier otra asistencia, con gusto estaremos para ayudarle.`;
 
-        // 5. Enviar el mensaje con el enlace por WhatsApp
+        // 5. Registrar en histtecnico PRIMERO (para que persistMessageId lo encuentre)
+        await send(driveMsg, undefined, undefined, undefined, true);
+
+        // 6. Enviar el mensaje con el enlace por WhatsApp
         const sendRes = await fetch("/api/evolution/send", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -906,9 +909,6 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
           const d = await sendRes.json().catch(() => ({}));
           throw new Error(d.error || `Error enviando a WhatsApp ${sendRes.status}`);
         }
-
-        // 6. Registrar en histtecnico
-        await send(driveMsg, undefined, undefined, undefined, true);
 
         toast.success("Archivo subido a Google Drive y enlace enviado por WhatsApp");
       } catch (err: any) {
