@@ -145,18 +145,25 @@ export async function POST(
             fromMe
           });
 
+          const isGroup = targetJid.includes("@g.us");
+          const bodyPayload: any = {
+            id: messageId,
+            remoteJid: targetJid,
+            fromMe: fromMe,
+          };
+          if (isGroup) {
+            bodyPayload.participant = targetJid;
+          }
+
+          console.log("[DELETE MSG API] Enviando a Evolution:", JSON.stringify(bodyPayload));
+
           const res = await fetch(`${evoCfg.url.replace(/\/$/, "")}/chat/deleteMessageForEveryone/${encodeURIComponent(evoCfg.instance)}`, {
             method: "DELETE",
             headers: {
               "Content-Type": "application/json",
               apikey: evoCfg.apiKey
             },
-            body: JSON.stringify({
-              id: messageId,
-              remoteJid: targetJid,
-              fromMe: fromMe,
-              participant: targetJid
-            })
+            body: JSON.stringify(bodyPayload)
           });
 
           const resData = await res.json().catch(() => ({}));

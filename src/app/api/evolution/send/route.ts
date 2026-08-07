@@ -82,6 +82,7 @@ async function persistMessageId(
     const { data } = await supabase.from("sek_cases").select("histtecnico").eq("id", caseId).maybeSingle();
     const hist = Array.isArray(data?.histtecnico) ? [...data.histtecnico] : [];
     const wanted = String(match.text || "").trim();
+    console.log("[evo-send] persistMessageId buscando:", { caseId, wanted: wanted.slice(0, 50), histLength: hist.length, lastEntryContent: String(hist[hist.length-1]?.content || "").slice(0, 50) });
 
     // Se recorre de atrás hacia adelante: el mensaje recién enviado es el último.
     for (let i = hist.length - 1; i >= 0; i--) {
@@ -94,9 +95,10 @@ async function persistMessageId(
       hist[i] = { ...e, messageId, fromMe: true };
       const { error } = await supabase.from("sek_cases").update({ histtecnico: hist }).eq("id", caseId);
       if (error) console.error("[evo-send] Error guardando messageId:", error);
+      console.log("[evo-send] messageId guardado en histtecnico[" + i + "]:", messageId);
       return;
     }
-    console.warn("[evo-send] No se encontró el mensaje en histtecnico para guardar el messageId");
+    console.warn("[evo-send] No se encontró el mensaje en histtecnico para guardar el messageId. Buscando:", wanted.slice(0, 80));
   } catch (e) {
     console.error("[evo-send] Excepción guardando messageId:", e);
   }
