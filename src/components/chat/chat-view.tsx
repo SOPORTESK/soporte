@@ -891,7 +891,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
           }),
         });
 
-        const driveMsg = `Estimado cliente:\n\nA continuación, le compartimos el enlace para la descarga directa del archivo solicitito:\n\n${shareableLink}\n\nPor favor, tenga en cuenta que el enlace permanecerá activo durante las próximas 2 horas.\n\nSi requiere cualquier otra asistencia, con gusto estaremos para ayudarle.`;
+        const driveMsg = `Estimado cliente:\n\nA continuación, le compartimos el enlace para la descarga directa del archivo solicitado:\n\n${shareableLink}\n\nPor favor, tenga en cuenta que el enlace permanecerá activo durante las próximas 24 horas.\n\nSi requiere cualquier otra asistencia, con gusto estaremos para ayudarle.`;
 
         // 5. Enviar el mensaje con el enlace por WhatsApp
         const sendRes = await fetch("/api/evolution/send", {

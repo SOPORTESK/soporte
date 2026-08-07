@@ -3,6 +3,10 @@
     {
       "path": "/api/drive-keepalive",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/drive-cleanup",
+      "schedule": "0 * * * *"
     }
   ],
   "headers": [

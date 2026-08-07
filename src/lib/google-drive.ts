@@ -141,4 +141,4 @@ export async function deleteFromDrive(fileId: string): Promise<boolean> {
 export const DRIVE_RETENTION_HOURS = 24;
 
 export const DRIVE_MSG_TEMPLATE = (link: string) =>
-  `Estimado cliente:\n\nA continuación, le compartimos el enlace para la descarga directa del archivo solicitido:\n\n${link}\n\nPor favor, tenga en cuenta que el enlace permanecerá activo durante las próximas 2 horas.\n\nSi requiere cualquier otra asistencia, con gusto estaremos para ayudarle.`;
+  `Estimado cliente:\n\nA continuación, le compartimos el enlace para la descarga directa del archivo solicitado:\n\n${link}\n\nPor favor, tenga en cuenta que el enlace permanecerá activo durante las próximas 24 horas.\n\nSi requiere cualquier otra asistencia, con gusto estaremos para ayudarle.`;
