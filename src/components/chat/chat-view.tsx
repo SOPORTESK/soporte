@@ -171,8 +171,12 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   const [personalPlantillas, setPersonalPlantillas] = React.useState<any[]>([]);
   const [uploadingFile, setUploadingFile] = React.useState(false);
   const [isRecording, setIsRecording] = React.useState(false);
+  const [recordingTime, setRecordingTime] = React.useState(0);
+  const [audioPreview, setAudioPreview] = React.useState<string | null>(null);
+  const [audioPreviewName, setAudioPreviewName] = React.useState<string | null>(null);
   const mediaRecRef = React.useRef<MediaRecorder | null>(null);
   const audioChunksRef = React.useRef<Blob[]>([]);
+  const recordingTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const processedFilesRef = React.useRef<Set<string>>(new Set());
   const [isRecordingVideo, setIsRecordingVideo] = React.useState(false);
   const videoRecRef = React.useRef<MediaRecorder | null>(null);
@@ -743,30 +747,60 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       rec.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
       rec.onstop = async () => {
         stream.getTracks().forEach(t => t.stop());
+        if (recordingTimerRef.current) { clearInterval(recordingTimerRef.current); recordingTimerRef.current = null; }
         const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
-        if (blob.size < 1000) return; // descartar grabaciones muy cortas
-        const file = new File([blob], `nota-voz-${Date.now()}.webm`, { type: "audio/webm" });
-        setUploadingFile(true);
-        try {
-          const path = `cases/${targetId}/${file.name}`;
-          const { error: upErr } = await supabase.storage.from("attachments").upload(path, file, { upsert: true, contentType: file.type || "audio/webm" });
-          if (upErr) throw upErr;
-          const { data: urlData } = supabase.storage.from("attachments").getPublicUrl(path);
-          await send("", urlData.publicUrl, file.type, file.name);
-        } catch (err: any) {
-          toast.error("Error al subir audio", { description: err?.message });
-        } finally { setUploadingFile(false); }
+        if (blob.size < 1000) { setIsRecording(false); setRecordingTime(0); return; }
+        const url = URL.createObjectURL(blob);
+        setAudioPreview(url);
+        setAudioPreviewName(`nota-voz-${Date.now()}.webm`);
+        setIsRecording(false);
+        setRecordingTime(0);
       };
       rec.start();
       mediaRecRef.current = rec;
       setIsRecording(true);
+      setRecordingTime(0);
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingTime(t => t + 1);
+      }, 1000);
     } catch (err: any) { toast.error("No se pudo acceder al micrófono", { description: err?.message }); }
   }
 
   function stopRecording() {
     mediaRecRef.current?.stop();
     mediaRecRef.current = null;
+  }
+
+  function cancelRecording() {
+    if (recordingTimerRef.current) { clearInterval(recordingTimerRef.current); recordingTimerRef.current = null; }
+    mediaRecRef.current?.stop();
+    mediaRecRef.current = null;
     setIsRecording(false);
+    setRecordingTime(0);
+  }
+
+  function cancelAudioPreview() {
+    if (audioPreview) URL.revokeObjectURL(audioPreview);
+    setAudioPreview(null);
+    setAudioPreviewName(null);
+  }
+
+  async function sendAudioPreview() {
+    if (!audioPreview || !audioPreviewName) return;
+    try {
+      const res = await fetch(audioPreview);
+      const blob = await res.blob();
+      const file = new File([blob], audioPreviewName, { type: "audio/webm" });
+      setUploadingFile(true);
+      const path = `cases/${targetId}/${file.name}`;
+      const { error: upErr } = await supabase.storage.from("attachments").upload(path, file, { upsert: true, contentType: file.type || "audio/webm" });
+      if (upErr) throw upErr;
+      const { data: urlData } = supabase.storage.from("attachments").getPublicUrl(path);
+      await send("", urlData.publicUrl, file.type, file.name);
+      cancelAudioPreview();
+    } catch (err: any) {
+      toast.error("Error al subir audio", { description: err?.message });
+    } finally { setUploadingFile(false); }
   }
 
   async function startVideoRecording() {
@@ -2011,22 +2045,62 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
               <Paperclip className="h-4 w-4" />
             )}
           </button>
-          <button
-            onMouseDown={startRecording}
-            onMouseUp={stopRecording}
-            onMouseLeave={isRecording ? stopRecording : undefined}
-            onTouchStart={(e) => { e.preventDefault(); startRecording(); }}
-            onTouchEnd={(e) => { e.preventDefault(); stopRecording(); }}
-            disabled={uploadingFile || isRecordingVideo}
-            className={cn(
-              "h-10 w-10 grid place-items-center rounded-lg transition-colors disabled:opacity-50 select-none",
-              isRecording ? "bg-red-500 text-white scale-110" : "text-muted-foreground hover:bg-muted"
-            )}
-            aria-label="Mantener para grabar audio"
-            title="Mantener presionado para grabar audio · Soltar para enviar"
-          >
-            <Mic className="h-4 w-4" />
-          </button>
+          {audioPreview ? (
+            <div className="flex items-center gap-1 bg-muted rounded-lg px-2 py-1">
+              <audio src={audioPreview} controls className="h-8" style={{ maxWidth: 180 }} />
+              <button
+                onClick={cancelAudioPreview}
+                disabled={uploadingFile}
+                className="h-8 w-8 grid place-items-center rounded text-muted-foreground hover:bg-red-500 hover:text-white disabled:opacity-50"
+                aria-label="Cancelar audio"
+                title="Cancelar"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+              <button
+                onClick={sendAudioPreview}
+                disabled={uploadingFile}
+                className="h-8 w-8 grid place-items-center rounded text-white bg-brand-700 hover:bg-brand-800 disabled:opacity-50"
+                aria-label="Enviar audio"
+                title="Enviar audio"
+              >
+                {uploadingFile ? <span className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Send className="h-4 w-4" />}
+              </button>
+            </div>
+          ) : isRecording ? (
+            <div className="flex items-center gap-2 bg-red-500/10 rounded-lg px-2 py-1">
+              <span className="h-3 w-3 rounded-full bg-red-500 animate-pulse" />
+              <span className="text-xs font-mono text-red-600 tabular-nums">
+                {Math.floor(recordingTime / 60)}:{String(recordingTime % 60).padStart(2, "0")}
+              </span>
+              <button
+                onClick={cancelRecording}
+                className="h-8 w-8 grid place-items-center rounded text-red-600 hover:bg-red-500 hover:text-white"
+                aria-label="Cancelar grabación"
+                title="Cancelar"
+              >
+                <X className="h-4 w-4" />
+              </button>
+              <button
+                onClick={stopRecording}
+                className="h-8 w-8 grid place-items-center rounded text-white bg-red-500 hover:bg-red-600"
+                aria-label="Detener grabación"
+                title="Detener y previsualizar"
+              >
+                <Square className="h-4 w-4" />
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={startRecording}
+              disabled={uploadingFile || isRecordingVideo}
+              className="h-10 w-10 grid place-items-center rounded-lg transition-colors disabled:opacity-50 select-none text-muted-foreground hover:bg-muted"
+              aria-label="Grabar audio"
+              title="Click para grabar audio"
+            >
+              <Mic className="h-4 w-4" />
+            </button>
+          )}
           <button
             onMouseDown={startVideoRecording}
             onMouseUp={stopVideoRecording}
