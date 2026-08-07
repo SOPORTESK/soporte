@@ -1,4 +1,10 @@
 {
+  "crons": [
+    {
+      "path": "/api/drive-keepalive",
+      "schedule": "0 3 * * *"
+    }
+  ],
   "headers": [
     {
       "source": "/manifest.json",

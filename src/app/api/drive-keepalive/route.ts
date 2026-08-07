@@ -2,18 +2,26 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
+export const maxDuration = 30;
 
 export async function GET(req: NextRequest) {
+  const authHeader = req.headers.get("authorization");
+  const expectedToken = process.env.CRON_SECRET;
+  if (!expectedToken || authHeader !== `Bearer ${expectedToken}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const supabase = createServiceClient();
     const { data, error } = await supabase
       .from("sek_drive_config")
-      .select("refresh_token")
+      .select("refresh_token, updated_at")
       .eq("id", 1)
       .single();
 
     if (error || !data?.refresh_token) {
-      return NextResponse.json({ error: "Google Drive no autorizado" }, { status: 500 });
+      console.error("[drive-keepalive] No hay refresh_token en BD");
+      return NextResponse.json({ ok: false, error: "No hay refresh_token configurado" }, { status: 500 });
     }
 
     const res = await fetch("https://oauth2.googleapis.com/token", {
@@ -29,25 +37,23 @@ export async function GET(req: NextRequest) {
 
     if (!res.ok) {
       const errBody = await res.text();
-      console.error("[drive-token] Refresh failed:", errBody.substring(0, 300));
+      console.error("[drive-keepalive] Refresh falló:", errBody.substring(0, 300));
       return NextResponse.json({
-        error: "Token de Google Drive expirado. Visite /api/drive-oauth-start para re-autorizar.",
+        ok: false,
+        error: "Refresh token inválido o expirado. Re-autorice en /api/drive-oauth-start",
         needsReauth: true,
       }, { status: 401 });
     }
-
-    const tokens = await res.json();
 
     await supabase
       .from("sek_drive_config")
       .update({ updated_at: new Date().toISOString() })
       .eq("id", 1);
 
-    return NextResponse.json({
-      accessToken: tokens.access_token,
-      folderId: process.env.GOOGLE_DRIVE_FOLDER_ID,
-    });
+    console.log("[drive-keepalive] Token refrescado correctamente");
+    return NextResponse.json({ ok: true });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message }, { status: 500 });
+    console.error("[drive-keepalive] Error:", e?.message);
+    return NextResponse.json({ ok: false, error: e?.message }, { status: 500 });
   }
 }
