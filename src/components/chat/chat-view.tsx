@@ -19,8 +19,6 @@ import { toast } from "sonner";
 import { CaseHistoryDrawer } from "./case-history-drawer";
 import { TemplateManager } from "./template-manager";
 import { MediaViewer } from "./media-viewer";
-import { SpellCheckTextarea } from "./spellcheck-textarea";
-import { useSpellCheck } from "./use-spellcheck";
 import type { SekCase, SekHistEntry, ChannelKind } from "@/lib/types";
 
 type UnifiedMessage = {
@@ -2216,15 +2214,22 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
             </button>
           )}
 
-          <SpellCheckTextareaWithHook
+          <Textarea
             value={draft}
-            onChange={(v) => { setDraft(v); onTyping(); }}
+            onChange={e => {
+              setDraft(e.target.value);
+              onTyping();
+              const el = e.target;
+              el.style.height = "auto";
+              el.style.height = Math.min(el.scrollHeight, 160) + "px";
+            }}
             onKeyDown={onKeyDown}
             onPaste={handlePaste}
             placeholder={mode === "nota" ? "Escribe una nota interna (solo visible para el equipo)…" : "Escribe un mensaje al cliente… (Enter envía, Ctrl+V para pegar imágenes)"}
             rows={1}
-            ariaLabel="Mensaje"
+            aria-label="Mensaje"
             className={cn(
+              "flex-1 min-w-0 max-h-40 overflow-y-auto transition-[height] duration-100",
               mode === "nota" && "border-amber-400 focus-visible:ring-amber-400/30"
             )}
           />
@@ -3489,31 +3494,3 @@ function ForwardModal({ message, agentEmail, onClose }: {
   );
 }
 
-function SpellCheckTextareaWithHook(props: {
-  value: string;
-  onChange: (v: string) => void;
-  onKeyDown?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
-  onPaste?: (e: React.ClipboardEvent<HTMLTextAreaElement>) => void;
-  placeholder?: string;
-  rows?: number;
-  ariaLabel?: string;
-  className?: string;
-  disabled?: boolean;
-}) {
-  const { errors, loading } = useSpellCheck(props.value);
-  return (
-    <SpellCheckTextarea
-      value={props.value}
-      onChange={props.onChange}
-      onKeyDown={props.onKeyDown}
-      onPaste={props.onPaste}
-      placeholder={props.placeholder}
-      rows={props.rows}
-      ariaLabel={props.ariaLabel}
-      className={props.className}
-      disabled={props.disabled}
-      errors={errors}
-      loading={loading}
-    />
-  );
-}
