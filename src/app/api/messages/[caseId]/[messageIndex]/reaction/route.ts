@@ -1,5 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { pickPhone } from "@/lib/evolution-phone";
+
+function resolveMessageId(messageObj: any, caseData: any, historyType: string): string | null {
+  if (messageObj?.messageId) return messageObj.messageId;
+  const otherType = historyType === "histcliente" ? "histtecnico" : "histcliente";
+  const other = Array.isArray(caseData?.[otherType]) ? caseData[otherType] : [];
+  const content = String(messageObj?.content || "").trim();
+  const time = new Date(messageObj?.time || 0).getTime();
+  const twin = other.find((e: any) => {
+    if (typeof e !== "object" || e === null || !e.messageId) return false;
+    const sameContent = content && String(e.content || "").trim() === content;
+    const sameTime = Math.abs(new Date(e.time || 0).getTime() - time) < 60000;
+    return sameContent && sameTime;
+  });
+  return twin?.messageId || null;
+}
 
 export async function POST(
   req: NextRequest,
@@ -7,8 +23,6 @@ export async function POST(
 ) {
   const supabase = createServiceClient();
   const { emoji, author, historyType } = await req.json();
-  
-  console.log("[REACTION API] Iniciando", { caseId: params.caseId, messageIndex: params.messageIndex, emoji, author, historyType });
   
   // historyType: "histcliente" o "histtecnico"
   const validHistoryTypes = ["histcliente", "histtecnico"];
@@ -20,7 +34,7 @@ export async function POST(
   // Si el caseId contiene separadores, es un ID de grupo - necesitamos encontrar el caso real
   let targetCaseId = params.caseId;
   if (params.caseId.includes("|") || params.caseId.includes(":")) {
-    console.log("[REACTION API] ID de grupo detectado, buscando caso real con teléfono:", params.caseId.split("|")[0]);
+    console.log("[REACTION API] ID de grupo detectado, buscando caso real");
     const { data: cases } = await supabase
       .from("sek_cases")
       .select("id")
@@ -29,7 +43,6 @@ export async function POST(
     
     if (cases && cases.length > 0) {
       targetCaseId = String(cases[0].id);
-      console.log("[REACTION API] Caso real encontrado:", targetCaseId);
     } else {
       console.error("[REACTION API] No se encontró caso real para el grupo");
       return NextResponse.json({ ok: false, error: "Caso no encontrado" }, { status: 404 });
@@ -50,8 +63,6 @@ export async function POST(
   const history = caseData[historyType] || [];
   const msgIndex = parseInt(params.messageIndex);
 
-  console.log("[REACTION API] Historial length:", history.length, "msgIndex:", msgIndex);
-
   if (msgIndex < 0 || msgIndex >= history.length) {
     console.error("[REACTION API] Índice de mensaje inválido");
     return NextResponse.json({ ok: false, error: "Índice de mensaje inválido" }, { status: 400 });
@@ -60,8 +71,6 @@ export async function POST(
   const message = history[msgIndex];
   const messageObj = typeof message === "object" && message !== null ? message : { content: String(message || "") };
   const reactions = (messageObj as any).reactions || [];
-
-  console.log("[REACTION API] Reacciones actuales:", reactions);
 
   // Verificar si el usuario ya reaccionó con este emoji
   const existingReactionIndex = reactions.findIndex(
@@ -75,20 +84,18 @@ export async function POST(
     // Quitar reacción existente
     updatedReactions = reactions.filter((_: any, i: number) => i !== existingReactionIndex);
     reactionToSend = ""; // Vacío elimina la reacción en WhatsApp
-    console.log("[REACTION API] Quitando reacción existente");
   } else {
     // Agregar nueva reacción
     updatedReactions = [
       ...reactions,
       { emoji, author, time: new Date().toISOString() }
     ];
-    console.log("[REACTION API] Agregando nueva reacción");
   }
 
   // Sincronizar con WhatsApp si es un canal de WhatsApp y tiene messageId
   const isWhatsApp = String(caseData.canal || "").toLowerCase() === "whatsapp";
-  const messageId = (messageObj as any).messageId;
-  const to = caseData.customer_phone;
+  const messageId = resolveMessageId(messageObj, caseData, historyType);
+  const to = pickPhone(caseData);
 
   if (isWhatsApp && messageId && to) {
     const EVO_URL = process.env.EVOLUTION_API_URL || "";
@@ -96,15 +103,8 @@ export async function POST(
     const EVO_INSTANCE = process.env.EVOLUTION_INSTANCE || "";
 
     if (EVO_URL && EVO_KEY && EVO_INSTANCE) {
-      const targetJid = to.includes("@") ? to : `${to.replace(/[^0-9]/g, "")}@s.whatsapp.net`;
+      const targetJid = to; // pickPhone ya retorna el JID completo
       try {
-        console.log("[REACTION API] Sincronizando con WhatsApp via Evolution API", {
-          to: targetJid,
-          reaction: reactionToSend,
-          messageId,
-          fromMe: (messageObj as any).fromMe ?? (historyType === "histtecnico")
-        });
-
         const res = await fetch(`${EVO_URL.replace(/\/$/, "")}/message/sendReaction/${encodeURIComponent(EVO_INSTANCE)}`, {
           method: "POST",
           headers: {
@@ -125,17 +125,11 @@ export async function POST(
         const resData = await res.json().catch(() => ({}));
         if (!res.ok) {
           console.error("[REACTION API] Error en respuesta de Evolution:", res.status, resData);
-        } else {
-          console.log("[REACTION API] Sincronización exitosa con WhatsApp.");
         }
       } catch (evoErr) {
         console.error("[REACTION API] Error conectando con Evolution API:", evoErr);
       }
-    } else {
-      console.warn("[REACTION API] Evolution API no configurada para sincronizar reacción.");
     }
-  } else {
-    console.log("[REACTION API] Omitiendo sincronización con WhatsApp:", { isWhatsApp, hasMessageId: !!messageId, to });
   }
 
   // Actualizar el mensaje en la base de datos
@@ -152,6 +146,5 @@ export async function POST(
     return NextResponse.json({ ok: false, error: updateError.message }, { status: 500 });
   }
 
-  console.log("[REACTION API] Reacción guardada exitosamente");
   return NextResponse.json({ ok: true, reactions: updatedReactions });
 }
