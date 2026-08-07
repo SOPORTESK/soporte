@@ -101,11 +101,9 @@ export async function POST(
     const to = pickPhone(caseData);
 
     if (isWhatsApp && !messageId) {
-      console.error("[DELETE MSG API] Sin messageId: no se puede revocar en WhatsApp");
-      return NextResponse.json({
-        ok: false,
-        error: "Este mensaje no se puede eliminar en WhatsApp (no tiene identificador de WhatsApp)"
-      }, { status: 409 });
+      console.warn("[DELETE MSG API] Sin messageId: eliminando solo local, no se puede revocar en WhatsApp");
+      // No bloquear: eliminar del historial local aunque no se pueda revocar en WhatsApp
+      // El mensaje ya fue enviado y no tiene tracking, no podemos hacer nada del lado del receptor
     }
 
     let whatsappRevoked = false;
@@ -153,8 +151,8 @@ export async function POST(
       }
     }
 
-    // Si es WhatsApp y no se revocó, retornar error para que la UI reverva
-    if (isWhatsApp && !whatsappRevoked) {
+    // Si es WhatsApp, se intentó revocar (había messageId) y falló, retornar error
+    if (isWhatsApp && messageId && !whatsappRevoked) {
       return NextResponse.json({ 
         ok: false, 
         error: whatsappError || "No se pudo eliminar del chat del cliente" 
