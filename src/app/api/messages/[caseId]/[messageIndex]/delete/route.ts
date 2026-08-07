@@ -122,7 +122,7 @@ export async function POST(
     const messageId = resolveMessageId(messageObj, caseData, historyType);
     const to = pickPhone(caseData);
 
-    console.log("[DELETE MSG API] WhatsApp check:", { isWhatsApp, resolvedMessageId: messageId, phone: to });
+    console.log("[DELETE MSG API] WhatsApp check:", { isWhatsApp, resolvedMessageId: messageId, phone: to, canal: caseData.canal });
 
     if (isWhatsApp && !messageId) {
       console.error("[DELETE MSG API] Sin messageId: no se puede revocar en WhatsApp");
@@ -132,6 +132,9 @@ export async function POST(
       }, { status: 409 });
     }
 
+    let whatsappRevoked = false;
+    let whatsappError: string | null = null;
+
     if (isWhatsApp && messageId && to) {
       const evoCfg = await getEvolutionConfig();
       const fromMe = (messageObj as any).fromMe ?? (historyType === "histtecnico");
@@ -139,12 +142,6 @@ export async function POST(
       if (evoCfg?.url && evoCfg?.apiKey && evoCfg?.instance) {
         const targetJid = to.includes("@") ? to : `${to.replace(/[^0-9]/g, "")}@s.whatsapp.net`;
         try {
-          console.log("[DELETE MSG API] Revocando mensaje en WhatsApp via Evolution API", {
-            to: targetJid,
-            messageId,
-            fromMe
-          });
-
           const isGroup = targetJid.includes("@g.us");
           const bodyPayload: any = {
             id: messageId,
@@ -167,21 +164,32 @@ export async function POST(
           });
 
           const resData = await res.json().catch(() => ({}));
+          console.log("[DELETE MSG API] Evolution response:", res.status, JSON.stringify(resData));
           if (!res.ok) {
             console.error("[DELETE MSG API] Error en respuesta de Evolution:", res.status, resData);
-            return NextResponse.json({ ok: false, error: `Evolution API: ${resData?.message || resData?.error || res.status}` }, { status: 500 });
+            whatsappError = `Evolution API: ${resData?.message || resData?.error || res.status}`;
           } else {
             console.log("[DELETE MSG API] Revocación exitosa en WhatsApp.");
+            whatsappRevoked = true;
           }
         } catch (evoErr) {
           console.error("[DELETE MSG API] Error conectando con Evolution API para revocar:", evoErr);
-          return NextResponse.json({ ok: false, error: "Error conectando con Evolution API" }, { status: 500 });
+          whatsappError = "Error conectando con Evolution API";
         }
       } else {
-        console.log("[DELETE MSG API] Evolution config no disponible, omitiendo revocación en WhatsApp");
+        console.log("[DELETE MSG API] Evolution config no disponible:", { url: !!evoCfg?.url, apiKey: !!evoCfg?.apiKey, instance: !!evoCfg?.instance });
+        whatsappError = "Evolution API no configurada";
       }
     } else {
       console.log("[DELETE MSG API] Omitiendo revocación en WhatsApp:", { isWhatsApp, hasMessageId: !!messageId, to });
+    }
+
+    // Si es WhatsApp y no se revocó, retornar error para que la UI reverva
+    if (isWhatsApp && !whatsappRevoked) {
+      return NextResponse.json({ 
+        ok: false, 
+        error: whatsappError || "No se pudo eliminar del chat del cliente" 
+      }, { status: 500 });
     }
   } else {
     // Eliminar para mi: agregar email a deleted_for_me
