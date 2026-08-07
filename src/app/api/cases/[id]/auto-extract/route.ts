@@ -57,15 +57,95 @@ export async function POST(
 
     // Llamar a OpenAI para extraer tema, marca, modelo
     const OPENAI_KEY = process.env.OPENAI_API_KEY || "";
-    if (!OPENAI_KEY) {
-      console.error("[auto-extract] OPENAI_API_KEY no configurada");
-      return NextResponse.json({ error: "OpenAI key missing" }, { status: 500 });
-    }
 
     const TEMAS_VALIDOS = [
       "Reset", "Desvinculación", "Configuración", "Visualización",
       "Cobros", "Garantía", "Asistencia Remota", "Otro"
     ];
+
+    // ── Fallback sin OpenAI: extracción por regex de datos del cliente ──
+    if (!OPENAI_KEY) {
+      console.warn("[auto-extract] OPENAI_API_KEY no configurada — usando extracción por regex");
+      
+      const fullText = allMsgs.map(m => m.content).join("\n");
+      const extracted: { nombre?: string; correo?: string; cuenta?: string; tema?: string; marca?: string; modelo?: string; descripcion_problema?: string } = {};
+
+      // Correo: patrón estándar
+      const emailMatch = fullText.match(/[\w.-]+@[\w.-]+\.\w+/);
+      if (emailMatch) extracted.correo = emailMatch[0];
+
+      // Nombre: buscar líneas que parezcan "Nombre Apellido" (2-4 palabras, sin números, sin @)
+      const lines = fullText.split(/\n/);
+      for (const line of lines) {
+        const trimmed = line.trim();
+        // Patrón: 2-5 palabras, solo letras y espacios, sin números ni símbolos
+        if (/^[A-Za-zÀ-ÿ]{2,}(\s+[A-Za-zÀ-ÿ]{2,}){1,4}$/.test(trimmed) && !trimmed.includes("@")) {
+          // Evitar que sea un nombre de agente (buscar en histtecnico)
+          const isAgentName = histTecnico.some((m: any) => {
+            const c = typeof m.content === "string" ? m.content : "";
+            return c.includes(trimmed);
+          });
+          if (!isAgentName) {
+            extracted.nombre = trimmed;
+            break;
+          }
+        }
+      }
+
+      // Tema por palabras clave
+      const lowerText = fullText.toLowerCase();
+      if (lowerText.includes("reset") || lowerText.includes("contrase")) extracted.tema = "Reset";
+      else if (lowerText.includes("desvincul") || lowerText.includes("desvinculac")) extracted.tema = "Desvinculación";
+      else if (lowerText.includes("configur")) extracted.tema = "Configuración";
+      else if (lowerText.includes("visual") || lowerText.includes("ver") || lowerText.includes("imagen")) extracted.tema = "Visualización";
+      else if (lowerText.includes("cobr") || lowerText.includes("pago") || lowerText.includes("factur")) extracted.tema = "Cobros";
+      else if (lowerText.includes("garant")) extracted.tema = "Garantía";
+      else if (lowerText.includes("remot") || lowerText.includes("asistenc")) extracted.tema = "Asistencia Remota";
+      else extracted.tema = "Otro";
+
+      // Marca por palabras clave
+      const marcas = ["hikvision", "dahua", "epcom", "zkteco", "hilook", "tenda"];
+      for (const m of marcas) {
+        if (lowerText.includes(m)) { extracted.marca = m.charAt(0).toUpperCase() + m.slice(1); break; }
+      }
+
+      // Aplicar extracción al caso
+      const extractNombre = extracted.nombre?.trim() || "";
+      const extractCorreo = extracted.correo?.trim() || "";
+      const extractCuenta = extracted.cuenta?.trim() || "";
+      const tema = extracted.tema?.trim() || "";
+      const marca = extracted.marca?.trim() || "";
+
+      const updatedCliente: Record<string, unknown> = { ...cli };
+      let clienteChanged = false;
+      if (extractNombre && !cli.nombre) { updatedCliente.nombre = extractNombre; clienteChanged = true; }
+      if (extractCorreo && !cli.correo) { updatedCliente.correo = extractCorreo; clienteChanged = true; }
+
+      const updates: Record<string, unknown> = {};
+      if (clienteChanged) updates.cliente = updatedCliente;
+      
+      const temaToProblema: Record<string, string> = {
+        "Reset": "reset", "Desvinculación": "desvinculacion", "Configuración": "configuracion",
+        "Visualización": "visualizacion", "Cobros": "cobros", "Garantía": "garantia",
+        "Asistencia Remota": "asistencia_remota", "Otro": "otro",
+      };
+      if (tema && TEMAS_VALIDOS.includes(tema)) updates.problema = temaToProblema[tema];
+      if (marca) updates.marca = marca;
+
+      if (Object.keys(updates).length === 0) {
+        console.log("[auto-extract] Regex fallback: no se extrajeron datos");
+        return NextResponse.json({ ok: true, skipped: true, reason: "no_data_extracted_regex" });
+      }
+
+      const { error: updateError } = await supabase.from("sek_cases").update(updates).eq("id", id);
+      if (updateError) {
+        console.error("[auto-extract] Regex update error:", updateError.message);
+        return NextResponse.json({ error: updateError.message }, { status: 500 });
+      }
+
+      console.log(`[auto-extract] Regex fallback OK: nombre=${extractNombre || "N/A"}, correo=${extractCorreo || "N/A"}, tema=${tema || "N/A"}, marca=${marca || "N/A"}`);
+      return NextResponse.json({ ok: true, extracted: { nombre: extractNombre, correo: extractCorreo, tema, marca }, method: "regex" });
+    }
 
     const prompt = `Eres un analista de soporte técnico de Sekunet (Costa Rica). Analiza la siguiente conversación de WhatsApp entre un cliente y un agente de soporte, y extrae:
 
