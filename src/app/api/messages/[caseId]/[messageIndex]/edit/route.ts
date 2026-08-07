@@ -1,26 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getEvolutionConfig } from "@/lib/evolution-config";
-
-function normalizePhone(raw: string): string {
-  const digits = raw.replace(/[^0-9]/g, "");
-  if (digits.length === 8 && !digits.startsWith("506")) return `506${digits}`;
-  return digits;
-}
-
-function pickPhone(c: any): string | null {
-  if (typeof c?.cliente === "object") {
-    const telReal = String(c.cliente?.telefono_real || "").trim();
-    if (telReal) return telReal.includes("@") ? telReal : `${normalizePhone(telReal)}@s.whatsapp.net`;
-  }
-  const cust = (c?.customer_phone || "").toString().trim();
-  if (cust) return cust.includes("@") ? cust : `${normalizePhone(cust)}@s.whatsapp.net`;
-  if (typeof c?.cliente === "object") {
-    const tel = String(c.cliente?.telefono || "").trim();
-    if (tel) return tel.includes("@") ? tel : `${normalizePhone(tel)}@s.whatsapp.net`;
-  }
-  return null;
-}
+import { pickPhone } from "@/lib/evolution-phone";
 
 function resolveMessageId(messageObj: any, caseData: any, historyType: string): string | null {
   if (messageObj?.messageId) return messageObj.messageId;

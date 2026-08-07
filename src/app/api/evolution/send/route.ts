@@ -1,36 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getEvolutionConfig } from "@/lib/evolution-config";
-
-function normalizePhone(raw: string): string {
-  const digits = raw.replace(/[^0-9]/g, "");
-  // Números de Costa Rica móviles tienen 8 dígitos; si no tiene prefijo, agregar 506.
-  if (digits.length === 8 && !raw.replace(/[^0-9]/g, "").startsWith("506")) return `506${digits}`;
-  return digits;
-}
-
-function pickPhone(c: any): string | null {
-  // 1. Prioridad: telefono_real (es el número verdadero desencriptado o vinculado manualmente)
-  if (typeof c?.cliente === "object") {
-    const telReal = String(c.cliente?.telefono_real || "").trim();
-    if (telReal) return telReal.includes("@") ? telReal : `${normalizePhone(telReal)}@s.whatsapp.net`;
-  }
-
-  // 2. Fallback a customer_phone (puede ser un @lid o jid normal)
-  const cust = (c?.customer_phone || "").toString().trim();
-  if (cust) {
-    if (cust.includes("@")) return cust;
-    return `${normalizePhone(cust)}@s.whatsapp.net`;
-  }
-  
-  // 3. Fallback a cliente.telefono
-  if (typeof c?.cliente === "object") {
-    const tel = String(c.cliente?.telefono || "").trim();
-    if (tel) return tel.includes("@") ? tel : `${normalizePhone(tel)}@s.whatsapp.net`;
-  }
-  
-  return null;
-}
+import { normalizePhone, pickPhone } from "@/lib/evolution-phone";
 
 function inferMimeFromExt(ext: string): string {
   const map: Record<string, string> = {
@@ -82,7 +53,6 @@ async function persistMessageId(
     const { data } = await supabase.from("sek_cases").select("histtecnico").eq("id", caseId).maybeSingle();
     const hist = Array.isArray(data?.histtecnico) ? [...data.histtecnico] : [];
     const wanted = String(match.text || "").trim();
-    console.log("[evo-send] persistMessageId buscando:", { caseId, wanted: wanted.slice(0, 50), histLength: hist.length, lastEntryContent: String(hist[hist.length-1]?.content || "").slice(0, 50) });
 
     // Se recorre de atrás hacia adelante: el mensaje recién enviado es el último.
     for (let i = hist.length - 1; i >= 0; i--) {
@@ -95,10 +65,9 @@ async function persistMessageId(
       hist[i] = { ...e, messageId, fromMe: true };
       const { error } = await supabase.from("sek_cases").update({ histtecnico: hist }).eq("id", caseId);
       if (error) console.error("[evo-send] Error guardando messageId:", error);
-      console.log("[evo-send] messageId guardado en histtecnico[" + i + "]:", messageId);
       return;
     }
-    console.warn("[evo-send] No se encontró el mensaje en histtecnico para guardar el messageId. Buscando:", wanted.slice(0, 80));
+    console.warn("[evo-send] No se encontró el mensaje en histtecnico para guardar el messageId");
   } catch (e) {
     console.error("[evo-send] Excepción guardando messageId:", e);
   }

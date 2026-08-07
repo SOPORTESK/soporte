@@ -1,32 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getEvolutionConfig } from "@/lib/evolution-config";
+import { pickPhone } from "@/lib/evolution-phone";
 
 export const maxDuration = 60;
-
-function normalizePhone(raw: string): string {
-  const digits = raw.replace(/[^0-9]/g, "");
-  // Números de Costa Rica móviles tienen 8 dígitos; si no tiene prefijo, agregar 506.
-  if (digits.length === 8 && !digits.startsWith("506")) return `506${digits}`;
-  return digits;
-}
-
-function pickPhone(c: any): string | null {
-  if (typeof c?.cliente === "object") {
-    const telReal = String(c.cliente?.telefono_real || "").trim();
-    if (telReal) return telReal.includes("@") ? telReal : `${normalizePhone(telReal)}@s.whatsapp.net`;
-  }
-  const cust = (c?.customer_phone || "").toString().trim();
-  if (cust) {
-    if (cust.includes("@")) return cust;
-    return `${normalizePhone(cust)}@s.whatsapp.net`;
-  }
-  if (typeof c?.cliente === "object") {
-    const tel = String(c.cliente?.telefono || "").trim();
-    if (tel) return tel.includes("@") ? tel : `${normalizePhone(tel)}@s.whatsapp.net`;
-  }
-  return null;
-}
 
 function detectMediaType(mime: string): "image" | "video" | "audio" | "document" {
   const m = mime.toLowerCase();

@@ -1,31 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getEvolutionConfig } from "@/lib/evolution-config";
-
-// Normalizar teléfono: agregar prefijo 506 para Costa Rica si tiene 8 dígitos
-function normalizePhone(raw: string): string {
-  const digits = raw.replace(/[^0-9]/g, "");
-  if (digits.length === 8 && !digits.startsWith("506")) return `506${digits}`;
-  return digits;
-}
-
-// Misma lógica que /api/evolution/send: retornar JID completo
-function pickPhone(c: any): string | null {
-  if (typeof c?.cliente === "object") {
-    const telReal = String(c.cliente?.telefono_real || "").trim();
-    if (telReal) return telReal.includes("@") ? telReal : `${normalizePhone(telReal)}@s.whatsapp.net`;
-  }
-  const cust = String(c?.customer_phone || "").trim();
-  if (cust) {
-    if (cust.includes("@")) return cust;
-    return `${normalizePhone(cust)}@s.whatsapp.net`;
-  }
-  if (typeof c?.cliente === "object") {
-    const tel = String(c.cliente?.telefono || "").trim();
-    if (tel) return tel.includes("@") ? tel : `${normalizePhone(tel)}@s.whatsapp.net`;
-  }
-  return null;
-}
+import { pickPhone } from "@/lib/evolution-phone";
 
 // El messageId lo rellena el webhook al recibir el eco del envío. Si el entry
 // consultado aún no lo tiene, se busca la copia del mismo mensaje en el otro
@@ -57,11 +33,6 @@ export async function POST(
   const supabase = createServiceClient();
   const { deleteType, author, historyType } = await req.json();
   
-  console.log("[DELETE MSG API] Iniciando", { caseId: params.caseId, messageIndex: params.messageIndex, deleteType, author, historyType });
-  
-  // Log extra para diagnosticar
-  console.log("[DELETE MSG API] caseId type:", typeof params.caseId, "isGroupKey:", params.caseId.includes(":") || params.caseId.includes("|"));
-  
   // deleteType: "for_everyone" o "for_me"
   // historyType: "histcliente" o "histtecnico"
   const validDeleteTypes = ["for_everyone", "for_me"];
@@ -80,7 +51,7 @@ export async function POST(
   // Si el caseId contiene separadores, es un ID de grupo - necesitamos encontrar el caso real
   let targetCaseId = params.caseId;
   if (params.caseId.includes("|") || params.caseId.includes(":")) {
-    console.log("[DELETE MSG API] ID de grupo detectado, buscando caso real con teléfono:", params.caseId.split("|")[0]);
+    console.log("[DELETE MSG API] ID de grupo detectado, buscando caso real");
     const { data: cases } = await supabase
       .from("sek_cases")
       .select("id")
@@ -89,7 +60,6 @@ export async function POST(
     
     if (cases && cases.length > 0) {
       targetCaseId = String(cases[0].id);
-      console.log("[DELETE MSG API] Caso real encontrado:", targetCaseId);
     } else {
       console.error("[DELETE MSG API] No se encontró caso real para el grupo");
       return NextResponse.json({ ok: false, error: "Caso no encontrado" }, { status: 404 });
@@ -110,8 +80,6 @@ export async function POST(
   const history = caseData[historyType] || [];
   const msgIndex = parseInt(params.messageIndex);
 
-  console.log("[DELETE MSG API] Historial length:", history.length, "msgIndex:", msgIndex);
-
   if (msgIndex < 0 || msgIndex >= history.length) {
     console.error("[DELETE MSG API] Índice de mensaje inválido");
     return NextResponse.json({ ok: false, error: "Índice de mensaje inválido" }, { status: 400 });
@@ -123,19 +91,14 @@ export async function POST(
   // Asegurar que message es un objeto
   const messageObj = typeof message === "object" && message !== null ? message : { content: String(message || "") };
 
-  console.log("[DELETE MSG API] Mensaje encontrado:", { hasMessageId: !!messageObj?.messageId, messageId: messageObj?.messageId, content: String(messageObj?.content || "").slice(0, 50), canal: caseData.canal, canalType: typeof caseData.canal, canalLower: String(caseData.canal || "").toLowerCase() });
-
   if (deleteType === "for_everyone") {
     // Eliminar para todos: marcar como deleted
     updatedMessage = { ...messageObj, deleted: true, content: "" };
-    console.log("[DELETE MSG API] Eliminando para todos");
 
     // Sincronizar con WhatsApp si es un canal de WhatsApp y tiene messageId
     const isWhatsApp = String(caseData.canal || "").toLowerCase() === "whatsapp";
     const messageId = resolveMessageId(messageObj, caseData, historyType);
     const to = pickPhone(caseData);
-
-    console.log("[DELETE MSG API] WhatsApp check:", { isWhatsApp, resolvedMessageId: messageId, phone: to, canal: caseData.canal });
 
     if (isWhatsApp && !messageId) {
       console.error("[DELETE MSG API] Sin messageId: no se puede revocar en WhatsApp");
@@ -165,8 +128,6 @@ export async function POST(
             bodyPayload.participant = targetJid;
           }
 
-          console.log("[DELETE MSG API] Enviando a Evolution:", JSON.stringify(bodyPayload));
-
           const res = await fetch(`${evoCfg.url.replace(/\/$/, "")}/chat/deleteMessageForEveryone/${encodeURIComponent(evoCfg.instance)}`, {
             method: "DELETE",
             headers: {
@@ -177,12 +138,10 @@ export async function POST(
           });
 
           const resData = await res.json().catch(() => ({}));
-          console.log("[DELETE MSG API] Evolution response:", res.status, JSON.stringify(resData));
           if (!res.ok) {
             console.error("[DELETE MSG API] Error en respuesta de Evolution:", res.status, resData);
             whatsappError = `Evolution API: ${resData?.message || resData?.error || res.status}`;
           } else {
-            console.log("[DELETE MSG API] Revocación exitosa en WhatsApp.");
             whatsappRevoked = true;
           }
         } catch (evoErr) {
@@ -190,22 +149,17 @@ export async function POST(
           whatsappError = "Error conectando con Evolution API";
         }
       } else {
-        console.log("[DELETE MSG API] Evolution config no disponible:", { url: !!evoCfg?.url, apiKey: !!evoCfg?.apiKey, instance: !!evoCfg?.instance });
         whatsappError = "Evolution API no configurada";
       }
-    } else {
-      console.log("[DELETE MSG API] Omitiendo revocación en WhatsApp:", { isWhatsApp, hasMessageId: !!messageId, to });
     }
 
     // Si es WhatsApp y no se revocó, retornar error para que la UI reverva
     if (isWhatsApp && !whatsappRevoked) {
-      console.error("[DELETE MSG API] RETORNANDO ERROR: whatsappRevoked=false, error=", whatsappError);
       return NextResponse.json({ 
         ok: false, 
         error: whatsappError || "No se pudo eliminar del chat del cliente" 
       }, { status: 500 });
     }
-    console.log("[DELETE MSG API] WhatsApp revocación status:", { isWhatsApp, whatsappRevoked, skipped: !isWhatsApp });
   } else {
     // Eliminar para mi: agregar email a deleted_for_me
     const deletedForMe = (messageObj as any).deleted_for_me || [];

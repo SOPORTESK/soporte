@@ -1,4 +1,5 @@
 import { createServiceClient } from "@/lib/supabase/service";
+import { pickPhone } from "@/lib/evolution-phone";
 
 async function refreshDriveTokenDaily() {
   try {
@@ -39,23 +40,6 @@ async function refreshDriveTokenDaily() {
   } catch (e: any) {
     console.warn("[drive-keepalive] Error:", e.message);
   }
-}
-
-function pickPhone(c: any): string | null {
-  if (typeof c?.cliente === "object") {
-    const telReal = String(c.cliente?.telefono_real || "").trim();
-    if (telReal) return telReal.includes("@") ? telReal : `${telReal.replace(/[^0-9]/g, "")}@s.whatsapp.net`;
-  }
-  const cust = (c?.customer_phone || "").toString().trim();
-  if (cust) {
-    if (cust.includes("@")) return cust;
-    return `${cust.replace(/[^0-9]/g, "")}@s.whatsapp.net`;
-  }
-  if (typeof c?.cliente === "object") {
-    const tel = String(c.cliente?.telefono || "").trim();
-    if (tel) return tel.includes("@") ? tel : `${tel.replace(/[^0-9]/g, "")}@s.whatsapp.net`;
-  }
-  return null;
 }
 
 // Guarda en memoria: mensajes ya enviados por este proceso (caseId:time).
