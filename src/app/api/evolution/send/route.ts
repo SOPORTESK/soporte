@@ -109,17 +109,31 @@ export async function POST(req: NextRequest) {
       }
 
       const mediatype = detectMediaType(finalMimeType);
-      const res = await fetch(`${EVO_URL.replace(/\/$/, "")}/message/sendMedia/${encodeURIComponent(EVO_INSTANCE)}` ,{
-        method: "POST",
-        headers: { "Content-Type": "application/json", apikey: EVO_KEY },
-        body: JSON.stringify({
+      const baseUrl = EVO_URL.replace(/\/$/, "");
+      const instance = encodeURIComponent(EVO_INSTANCE);
+
+      let evoEndpoint: string;
+      let evoBody: Record<string, unknown>;
+
+      if (mediatype === "audio") {
+        evoEndpoint = `${baseUrl}/message/sendWhatsAppAudio/${instance}`;
+        evoBody = { number: to, audio: mediaUrl };
+      } else {
+        evoEndpoint = `${baseUrl}/message/sendMedia/${instance}`;
+        evoBody = {
           number: to,
           mediatype,
           mimetype: finalMimeType || undefined,
           caption: text || undefined,
           media: mediaUrl,
           fileName: fileName || undefined,
-        })
+        };
+      }
+
+      const res = await fetch(evoEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: EVO_KEY },
+        body: JSON.stringify(evoBody),
       });
       const mediaRes = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(`evolution ${res.status}: ${JSON.stringify(mediaRes)}`);

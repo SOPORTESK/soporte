@@ -47,7 +47,16 @@ export async function POST(req: NextRequest) {
     let evoBody: Record<string, unknown>;
     let evoEndpoint: string;
 
-    if (mediaUrl) {
+    if (mediatype === "audio") {
+      // WhatsApp requiere un endpoint separado para audios (notas de voz / PTT)
+      evoEndpoint = `${baseUrl}/message/sendWhatsAppAudio/${instance}`;
+      if (mediaUrl) {
+        evoBody = { number: to, audio: mediaUrl };
+      } else {
+        const mediaData = base64.startsWith("data:") ? base64.split(",")[1] : base64;
+        evoBody = { number: to, audio: mediaData };
+      }
+    } else if (mediaUrl) {
       // Archivo grande: enviar por URL pública (sin pasar base64 por Vercel)
       evoEndpoint = `${baseUrl}/message/sendMedia/${instance}`;
       evoBody = { number: to, mediatype, mimetype: mimeType, media: mediaUrl, fileName };
