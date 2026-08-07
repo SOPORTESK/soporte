@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/drive-cleanup",
-      "schedule": "0 * * * *"
+      "schedule": "0 4 * * *"
     }
   ],
   "headers": [
