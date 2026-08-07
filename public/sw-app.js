@@ -1,4 +1,4 @@
-const CACHE_NAME = "sekunet-app-v2";
+const CACHE_NAME = "sekunet-app-v3";
 const PRECACHE = [
   "/",
   "/login",
@@ -27,6 +27,20 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
+  const url = new URL(event.request.url);
+  // No interceptar Next.js chunks, HTML, ni APIs - siempre red
+  if (url.pathname.startsWith("/_next/") || 
+      url.pathname.startsWith("/api/") ||
+      url.pathname.endsWith(".html") ||
+      url.pathname === "/" ||
+      url.pathname.startsWith("/login") ||
+      url.pathname.startsWith("/inbox") ||
+      url.pathname.startsWith("/mi-gestion") ||
+      url.pathname.startsWith("/smart-inbox") ||
+      url.pathname.startsWith("/soporte-avanzado")) {
+    return;
+  }
+  // Solo cachear recursos estáticos (imágenes, manifest, etc.)
   event.respondWith(
     fetch(event.request)
       .then((response) => {
