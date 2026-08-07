@@ -2,16 +2,29 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getEvolutionConfig } from "@/lib/evolution-config";
 
-// Misma prioridad que /api/evolution/send: telefono_real es el número verdadero.
-// customer_phone puede ser un @lid, y WhatsApp no revoca mensajes contra un @lid.
+// Normalizar teléfono: agregar prefijo 506 para Costa Rica si tiene 8 dígitos
+function normalizePhone(raw: string): string {
+  const digits = raw.replace(/[^0-9]/g, "");
+  if (digits.length === 8 && !digits.startsWith("506")) return `506${digits}`;
+  return digits;
+}
+
+// Misma lógica que /api/evolution/send: retornar JID completo
 function pickPhone(c: any): string | null {
-  const cliente = typeof c?.cliente === "object" && c.cliente !== null ? c.cliente : {};
-  const telReal = String(cliente.telefono_real || "").trim();
-  if (telReal) return telReal;
+  if (typeof c?.cliente === "object") {
+    const telReal = String(c.cliente?.telefono_real || "").trim();
+    if (telReal) return telReal.includes("@") ? telReal : `${normalizePhone(telReal)}@s.whatsapp.net`;
+  }
   const cust = String(c?.customer_phone || "").trim();
-  if (cust) return cust;
-  const tel = String(cliente.telefono || "").trim();
-  return tel || null;
+  if (cust) {
+    if (cust.includes("@")) return cust;
+    return `${normalizePhone(cust)}@s.whatsapp.net`;
+  }
+  if (typeof c?.cliente === "object") {
+    const tel = String(c.cliente?.telefono || "").trim();
+    if (tel) return tel.includes("@") ? tel : `${normalizePhone(tel)}@s.whatsapp.net`;
+  }
+  return null;
 }
 
 // El messageId lo rellena el webhook al recibir el eco del envío. Si el entry
@@ -140,7 +153,7 @@ export async function POST(
       const fromMe = (messageObj as any).fromMe ?? (historyType === "histtecnico");
 
       if (evoCfg?.url && evoCfg?.apiKey && evoCfg?.instance) {
-        const targetJid = to.includes("@") ? to : `${to.replace(/[^0-9]/g, "")}@s.whatsapp.net`;
+        const targetJid = to; // pickPhone ya retorna el JID completo
         try {
           const isGroup = targetJid.includes("@g.us");
           const bodyPayload: any = {
