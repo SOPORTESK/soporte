@@ -1203,7 +1203,18 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
 
         if (error) throw error;
 
-        fetch(`/api/cases/${targetId}/auto-extract`, { method: "POST" }).catch(() => {});
+        // Auto-extract: extraer datos del cliente de la conversación y actualizar estado local
+        try {
+          const extractRes = await fetch(`/api/cases/${targetId}/auto-extract`, { method: "POST" });
+          const extractData = await extractRes.json().catch(() => ({}));
+          if (extractData?.ok && extractData?.extracted) {
+            const ex = extractData.extracted;
+            if (ex.nombre && !updatedCliente.nombre) updatedCliente.nombre = ex.nombre;
+            if (ex.correo && !updatedCliente.correo) updatedCliente.correo = ex.correo;
+            if (ex.cuenta && !updatedCliente.cuenta) updatedCliente.cuenta = ex.cuenta;
+            console.log("[confirmClose] auto-extract OK:", ex);
+          }
+        } catch (e) { console.warn("[confirmClose] auto-extract failed:", e); }
 
         // Iniciar encuesta: envía mensaje al cliente y cambia estado a calificacion_pendiente
         console.log("[confirmClose] Iniciando encuesta para caso", targetId, "canal:", sekCase.canal);
@@ -1276,7 +1287,18 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
 
         if (error) throw error;
 
-        fetch(`/api/cases/${targetId}/auto-extract`, { method: "POST" }).catch(() => {});
+        // Auto-extract: extraer datos del cliente de la conversación y actualizar estado local
+        try {
+          const extractRes = await fetch(`/api/cases/${targetId}/auto-extract`, { method: "POST" });
+          const extractData = await extractRes.json().catch(() => ({}));
+          if (extractData?.ok && extractData?.extracted) {
+            const ex = extractData.extracted;
+            if (ex.nombre && !updatedCliente.nombre) updatedCliente.nombre = ex.nombre;
+            if (ex.correo && !updatedCliente.correo) updatedCliente.correo = ex.correo;
+            if (ex.cuenta && !updatedCliente.cuenta) updatedCliente.cuenta = ex.cuenta;
+            console.log("[confirmClose] auto-extract OK:", ex);
+          }
+        } catch (e) { console.warn("[confirmClose] auto-extract failed:", e); }
 
         modalShownRef.current = true;
         prevEstadoRef.current = "cerrado";
