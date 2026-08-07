@@ -179,8 +179,12 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   const recordingTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const processedFilesRef = React.useRef<Set<string>>(new Set());
   const [isRecordingVideo, setIsRecordingVideo] = React.useState(false);
+  const [recordingVideoTime, setRecordingVideoTime] = React.useState(0);
+  const [videoPreview, setVideoPreview] = React.useState<string | null>(null);
+  const [videoPreviewName, setVideoPreviewName] = React.useState<string | null>(null);
   const videoRecRef = React.useRef<MediaRecorder | null>(null);
   const videoChunksRef = React.useRef<Blob[]>([]);
+  const videoTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const [showActions, setShowActions] = React.useState(false);
   const [showHistory, setShowHistory] = React.useState(false);
   const [clienteTyping, setClienteTyping] = React.useState(false);
@@ -811,30 +815,60 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       rec.ondataavailable = (e) => { if (e.data.size > 0) videoChunksRef.current.push(e.data); };
       rec.onstop = async () => {
         stream.getTracks().forEach(t => t.stop());
+        if (videoTimerRef.current) { clearInterval(videoTimerRef.current); videoTimerRef.current = null; }
         const blob = new Blob(videoChunksRef.current, { type: "video/webm" });
-        if (blob.size < 5000) return;
-        const file = new File([blob], `nota-video-${Date.now()}.webm`, { type: "video/webm" });
-        setUploadingFile(true);
-        try {
-          const path = `cases/${targetId}/${file.name}`;
-          const { error: upErr } = await supabase.storage.from("attachments").upload(path, file, { upsert: true, contentType: file.type || "video/webm" });
-          if (upErr) throw upErr;
-          const { data: urlData } = supabase.storage.from("attachments").getPublicUrl(path);
-          await send("", urlData.publicUrl, file.type, file.name);
-        } catch (err: any) {
-          toast.error("Error al subir video", { description: err?.message });
-        } finally { setUploadingFile(false); }
+        if (blob.size < 5000) { setIsRecordingVideo(false); setRecordingVideoTime(0); return; }
+        const url = URL.createObjectURL(blob);
+        setVideoPreview(url);
+        setVideoPreviewName(`nota-video-${Date.now()}.webm`);
+        setIsRecordingVideo(false);
+        setRecordingVideoTime(0);
       };
       rec.start();
       videoRecRef.current = rec;
       setIsRecordingVideo(true);
+      setRecordingVideoTime(0);
+      videoTimerRef.current = setInterval(() => {
+        setRecordingVideoTime(t => t + 1);
+      }, 1000);
     } catch (err: any) { toast.error("No se pudo acceder a la c\u00e1mara", { description: err?.message }); }
   }
 
   function stopVideoRecording() {
     videoRecRef.current?.stop();
     videoRecRef.current = null;
+  }
+
+  function cancelVideoRecording() {
+    if (videoTimerRef.current) { clearInterval(videoTimerRef.current); videoTimerRef.current = null; }
+    videoRecRef.current?.stop();
+    videoRecRef.current = null;
     setIsRecordingVideo(false);
+    setRecordingVideoTime(0);
+  }
+
+  function cancelVideoPreview() {
+    if (videoPreview) URL.revokeObjectURL(videoPreview);
+    setVideoPreview(null);
+    setVideoPreviewName(null);
+  }
+
+  async function sendVideoPreview() {
+    if (!videoPreview || !videoPreviewName) return;
+    try {
+      const res = await fetch(videoPreview);
+      const blob = await res.blob();
+      const file = new File([blob], videoPreviewName, { type: "video/webm" });
+      setUploadingFile(true);
+      const path = `cases/${targetId}/${file.name}`;
+      const { error: upErr } = await supabase.storage.from("attachments").upload(path, file, { upsert: true, contentType: file.type || "video/webm" });
+      if (upErr) throw upErr;
+      const { data: urlData } = supabase.storage.from("attachments").getPublicUrl(path);
+      await send("", urlData.publicUrl, file.type, file.name);
+      cancelVideoPreview();
+    } catch (err: any) {
+      toast.error("Error al subir video", { description: err?.message });
+    } finally { setUploadingFile(false); }
   }
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -2101,22 +2135,62 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
               <Mic className="h-4 w-4" />
             </button>
           )}
-          <button
-            onMouseDown={startVideoRecording}
-            onMouseUp={stopVideoRecording}
-            onMouseLeave={isRecordingVideo ? stopVideoRecording : undefined}
-            onTouchStart={(e) => { e.preventDefault(); startVideoRecording(); }}
-            onTouchEnd={(e) => { e.preventDefault(); stopVideoRecording(); }}
-            disabled={uploadingFile || isRecording}
-            className={cn(
-              "h-10 w-10 grid place-items-center rounded-lg transition-all disabled:opacity-50 select-none",
-              isRecordingVideo ? "bg-red-500 text-white scale-110 animate-pulse" : "text-muted-foreground hover:bg-muted"
-            )}
-            aria-label="Mantener para grabar video"
-            title="Mantener presionado para nota de video · Soltar para enviar"
-          >
-            <Video className="h-4 w-4" />
-          </button>
+          {videoPreview ? (
+            <div className="flex items-center gap-1 bg-muted rounded-lg px-2 py-1">
+              <video src={videoPreview} className="h-8 w-12 object-cover rounded" muted />
+              <button
+                onClick={cancelVideoPreview}
+                disabled={uploadingFile}
+                className="h-8 w-8 grid place-items-center rounded text-muted-foreground hover:bg-red-500 hover:text-white disabled:opacity-50"
+                aria-label="Cancelar video"
+                title="Cancelar"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+              <button
+                onClick={sendVideoPreview}
+                disabled={uploadingFile}
+                className="h-8 w-8 grid place-items-center rounded text-white bg-brand-700 hover:bg-brand-800 disabled:opacity-50"
+                aria-label="Enviar video"
+                title="Enviar video"
+              >
+                {uploadingFile ? <span className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Send className="h-4 w-4" />}
+              </button>
+            </div>
+          ) : isRecordingVideo ? (
+            <div className="flex items-center gap-2 bg-red-500/10 rounded-lg px-2 py-1">
+              <span className="h-3 w-3 rounded-full bg-red-500 animate-pulse" />
+              <span className="text-xs font-mono text-red-600 tabular-nums">
+                {Math.floor(recordingVideoTime / 60)}:{String(recordingVideoTime % 60).padStart(2, "0")}
+              </span>
+              <button
+                onClick={cancelVideoRecording}
+                className="h-8 w-8 grid place-items-center rounded text-red-600 hover:bg-red-500 hover:text-white"
+                aria-label="Cancelar grabación"
+                title="Cancelar"
+              >
+                <X className="h-4 w-4" />
+              </button>
+              <button
+                onClick={stopVideoRecording}
+                className="h-8 w-8 grid place-items-center rounded text-white bg-red-500 hover:bg-red-600"
+                aria-label="Detener grabación"
+                title="Detener y previsualizar"
+              >
+                <Square className="h-4 w-4" />
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={startVideoRecording}
+              disabled={uploadingFile || isRecording}
+              className="h-10 w-10 grid place-items-center rounded-lg transition-colors disabled:opacity-50 select-none text-muted-foreground hover:bg-muted"
+              aria-label="Grabar video"
+              title="Click para grabar video"
+            >
+              <Video className="h-4 w-4" />
+            </button>
+          )}
 
           <Textarea
             value={draft}
