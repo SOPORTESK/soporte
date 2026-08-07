@@ -110,7 +110,7 @@ export async function POST(
   // Asegurar que message es un objeto
   const messageObj = typeof message === "object" && message !== null ? message : { content: String(message || "") };
 
-  console.log("[DELETE MSG API] Mensaje encontrado:", { hasMessageId: !!messageObj?.messageId, messageId: messageObj?.messageId, content: String(messageObj?.content || "").slice(0, 50), canal: caseData.canal });
+  console.log("[DELETE MSG API] Mensaje encontrado:", { hasMessageId: !!messageObj?.messageId, messageId: messageObj?.messageId, content: String(messageObj?.content || "").slice(0, 50), canal: caseData.canal, canalType: typeof caseData.canal, canalLower: String(caseData.canal || "").toLowerCase() });
 
   if (deleteType === "for_everyone") {
     // Eliminar para todos: marcar como deleted
@@ -186,11 +186,13 @@ export async function POST(
 
     // Si es WhatsApp y no se revocó, retornar error para que la UI reverva
     if (isWhatsApp && !whatsappRevoked) {
+      console.error("[DELETE MSG API] RETORNANDO ERROR: whatsappRevoked=false, error=", whatsappError);
       return NextResponse.json({ 
         ok: false, 
         error: whatsappError || "No se pudo eliminar del chat del cliente" 
       }, { status: 500 });
     }
+    console.log("[DELETE MSG API] WhatsApp revocación status:", { isWhatsApp, whatsappRevoked, skipped: !isWhatsApp });
   } else {
     // Eliminar para mi: agregar email a deleted_for_me
     const deletedForMe = (messageObj as any).deleted_for_me || [];
