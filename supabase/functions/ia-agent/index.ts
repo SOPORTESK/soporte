@@ -529,7 +529,8 @@ function getGeminiMimeType(mediaType: string, url: string): string {
 }
 
 async function callGeminiVision(mediaUrl: string, mediaType: string, userText: string): Promise<string> {
-  if (GEMINI_KEYS.length === 0) return "";
+  const FAIL_MSG = "[ANÁLISIS DE ADJUNTO NO DISPONIBLE] No se pudo procesar el archivo adjunto en este momento. Informe al técnico que el análisis automático falló y que debe verificar el contenido manualmente.";
+  if (GEMINI_KEYS.length === 0) return FAIL_MSG;
   try {
     const mimeType = getGeminiMimeType(mediaType, mediaUrl);
     const isAudio = mimeType.startsWith("audio/");
@@ -741,10 +742,10 @@ Analiza el documento COMPLETAMENTE:
       }
     }
 
-    return "";
+    return FAIL_MSG;
   } catch (e: any) {
     console.error("[ia-agent] Gemini Vision exception:", e.message);
-    return "";
+    return FAIL_MSG;
   }
 }
 
@@ -1171,8 +1172,77 @@ async function handleTechnicianMode(body: Record<string, unknown>): Promise<Resp
     }
   }
 
+  // ── #4: Detección programática de consulta de especificaciones técnicas ──
+  // Forzar búsqueda web ANTES de llamar a la IA para que todos los modelos
+  // (incluyendo fallbacks Llama) tengan información verificada.
+  let preWebContext = "";
+  if (lastUserMsg && lastUserMsg.content) {
+    const SPEC_KEYWORDS = [
+      "bateria", "batería", "voltaje", "volt", "corriente", "amperaje", "amper",
+      "dimension", "dimensión", "peso", "tamano", "tamaño", "compatib",
+      "firmware", "version", "versión", "alimentacion", "alimentación",
+      "consumo", "watio", "watt", "poE", "poe", "12v", "24v", "5v", "48v",
+      "mah", "capacidad", "frecuencia", "hz", "impedancia", "ohm",
+      "temperatura", "humedad", "ip65", "ip66", "ip67", "proteccion",
+    ];
+    const msgLower = lastUserMsg.content.toLowerCase();
+    const isSpecQuery = SPEC_KEYWORDS.some(kw => msgLower.includes(kw));
+    if (isSpecQuery) {
+      // Extraer marca/modelo del contexto del caso
+      const marcaMatch = caseContext.match(/Equipo:\s*([A-Za-z]+)/);
+      const marcaCaso = marcaMatch ? marcaMatch[1].trim() : "";
+      const webQuery = marcaCaso ? `${marcaCaso} ${lastUserMsg.content}` : lastUserMsg.content;
+      console.log("[tech-assistant] Detección automática BUSCAR_WEB:", webQuery.substring(0, 100));
+      try {
+        const searchRes = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: `Busca información técnica actualizada sobre: ${webQuery}. Consulta fichas técnicas oficiales del fabricante, sitios oficiales y foros técnicos. Responde en español, de forma concisa y precisa. Incluye la fuente de donde obtuviste la información.` }] }],
+              generationConfig: { maxOutputTokens: 600, temperature: 0.1 },
+              tools: [{ googleSearch: {} }],
+            }),
+          }
+        );
+        if (searchRes.ok) {
+          const searchData = await searchRes.json();
+          const webResult = searchData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+          if (webResult) {
+            preWebContext = `\n\n[Fuente: Búsqueda Web — Pre-búsqueda automática] Resultado para "${webQuery}":\n${webResult}\n\nUse esta información verificada para responder al técnico. Cite la fuente. NO invente especificaciones.`;
+            console.log("[tech-assistant] Pre-búsqueda web exitosa:", webResult.substring(0, 100));
+          }
+        }
+      } catch (e) {
+        console.error("[tech-assistant] Pre-búsqueda web error:", e);
+      }
+    }
+  }
+
+  // ── #5: Detección programática de marca+modelo para buscar en inventario ──
+  let preInventoryContext = "";
+  if (lastUserMsg && lastUserMsg.content) {
+    // Detectar patrones de marca + modelo en el mensaje del técnico
+    const marcaModeloMatch = lastUserMsg.content.match(/([A-Za-z]{3,})\s+([A-Za-z0-9][A-Za-z0-9\-_\.]{1,})/);
+    if (marcaModeloMatch) {
+      const searchQuery = marcaModeloMatch[0].trim();
+      console.log("[tech-assistant] Detección automática BUSCAR_INVENTARIO:", searchQuery);
+      const results = await searchInventory(searchQuery);
+      if (results.length === 1) {
+        const r = results[0];
+        preInventoryContext = `\n\n[RESULTADO_INVENTARIO — Pre-búsqueda automática] Equipo encontrado en cartera: ${r.marca} ${r.modelo} (${r.codigo || ""}).`;
+      } else if (results.length > 1) {
+        const options = results.slice(0, 5).map((r: any) => `${r.marca} ${r.modelo}`).join(", ");
+        preInventoryContext = `\n\n[RESULTADO_INVENTARIO — Pre-búsqueda automática] Varias coincidencias para "${searchQuery}": ${options}.`;
+      } else {
+        preInventoryContext = `\n\n[RESULTADO_INVENTARIO — Pre-búsqueda automática] "${searchQuery}" no se encontró en la cartera de Sekunet. Infórmelo al técnico si pregunta por disponibilidad.`;
+      }
+    }
+  }
+
   const chatMessages: ChatMessage[] = [
-    { role: "system", content: systemPrompt + caseContext + technicianAttachmentAnalysis + ragContext },
+    { role: "system", content: systemPrompt + caseContext + technicianAttachmentAnalysis + ragContext + preWebContext + preInventoryContext },
   ];
   for (const m of techMessages) {
     if (m.role === "assistant" || m.role === "ia" || m.role === "tecnico") {

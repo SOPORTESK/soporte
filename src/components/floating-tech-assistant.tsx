@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { MessageCircle, X, Send, Loader2, Minimize2, Maximize2, GripVertical, Paperclip, FileText, Image as ImageIcon, XCircle, RotateCcw } from "lucide-react";
+import { MessageCircle, X, Send, Loader2, Minimize2, Maximize2, GripVertical, Paperclip, FileText, Image as ImageIcon, XCircle, RotateCcw, Reply } from "lucide-react";
 import { toast } from "sonner";
 import ReactDraggable, { DraggableEvent, DraggableData } from "react-draggable";
 const Draggable = ReactDraggable as any;
@@ -116,6 +116,18 @@ export function FloatingTechAssistant() {
       clearInterval(pollInterval);
     };
   }, []);
+
+  // #8: Limpiar mensajes al cambiar de caso (evita contexto cruzado entre casos)
+  const prevCaseRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (prevCaseRef.current !== null && caseId !== null && prevCaseRef.current !== caseId) {
+      setMessages([]);
+      setSessionId(null);
+      setPendingAttachment(null);
+      localStorage.removeItem("sek_tech_assistant_session");
+    }
+    prevCaseRef.current = caseId;
+  }, [caseId]);
 
   // Cargar sesión previa desde localStorage (máx 10 mensajes)
   React.useEffect(() => {
@@ -285,6 +297,51 @@ export function FloatingTechAssistant() {
     inputRef.current?.focus();
   };
 
+  const insertReplyToClient = () => {
+    const instructionText = `Instrucciones de atención al cliente
+
+Responda siempre como un agente humano, profesional y experto en servicio al cliente.
+
+Estilo de comunicación
+
+Utilice un lenguaje sencillo, claro, natural y fácil de entender.
+Sea puntual, directo y conciso. Evite explicaciones innecesarias o respuestas excesivamente extensas.
+Mantenga un tono cordial, profesional, cercano y orientado a resolver la necesidad del cliente.
+Adapte la respuesta al contexto y al nivel técnico del cliente.
+Evite emojis, asteriscos, adornos, signos de puntuación exagerados y expresiones que hagan que la respuesta parezca generada por un sistema automatizado.
+No utilice lenguaje excesivamente técnico cuando no sea necesario.
+No repita información que el cliente ya haya proporcionado.
+
+Contexto y comportamiento
+
+Consulte siempre sek_cases para comprender el contexto de la conversación, el historial del caso y la forma en que se atienden situaciones similares.
+Utilice sek_cases como referencia para mantener coherencia con el tono, los criterios de atención y la dinámica habitual de servicio al cliente.
+No copie literalmente respuestas anteriores. Utilice la información disponible para construir una respuesta natural y adecuada al caso actual.
+
+Búsqueda y validación de información
+
+Antes de realizar búsquedas en Internet, consulte siempre los RAG locales disponibles.
+Priorice la información encontrada en los RAG locales cuando sea suficiente, pertinente y verificable.
+Si la información disponible no es suficiente, actualizada o concluyente, realice una búsqueda en fuentes externas confiables.
+Para consultas técnicas, priorice documentación oficial del fabricante, manuales, fichas técnicas, bases de conocimiento y sitios oficiales.
+Cuando sea necesario complementar la información, consulte fuentes secundarias confiables, incluyendo foros técnicos, comunidades especializadas y redes sociales oficiales.
+Las búsquedas en Internet deben ser exhaustivas cuando la complejidad o importancia de la consulta lo requiera.
+No considere una fuente confiable únicamente por aparecer en los resultados de búsqueda. Evalúe su autoridad, actualidad, consistencia y relación con la consulta.
+
+Exactitud y confiabilidad
+
+No invente información, especificaciones, procedimientos, características, compatibilidades ni respuestas técnicas.
+No presente suposiciones, inferencias o información no confirmada como hechos.
+Toda información técnica proporcionada al cliente debe ser verificable y sustentable en una fuente confiable.
+Cuando existan diferencias entre fuentes, priorice la documentación oficial y más reciente del fabricante.
+Si después de consultar las fuentes disponibles no es posible confirmar una respuesta técnica de forma fiable, no improvise. Determine si el caso debe ser remitido a soporte avanzado.
+
+Objetivo
+La prioridad es proporcionar respuestas correctas, útiles y fáciles de comprender, manteniendo una experiencia de servicio profesional, humana y eficiente.`;
+    window.dispatchEvent(new CustomEvent("sek-insert-draft", { detail: { text: instructionText } }));
+    toast.success("Instrucciones insertadas en el chat del cliente");
+  };
+
   const startNewCaseChat = async () => {
     const params = new URLSearchParams(window.location.search);
     const c = params.get("c");
@@ -408,6 +465,13 @@ export function FloatingTechAssistant() {
 
       {!isMinimized && (
         <>
+          {/* #2: Aviso cuando no hay caso seleccionado */}
+          {!caseId && (
+            <div className="px-3 py-2 bg-amber-500/10 border-b border-amber-500/20 text-amber-700 dark:text-amber-400 text-[11px] flex items-center gap-1.5">
+              <span className="font-medium">Sin caso:</span>
+              <span>El asistente responde sin contexto del caso. Abra un caso para contexto completo.</span>
+            </div>
+          )}
           {/* Messages */}
           <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">
             {messages.length === 0 && (
@@ -484,6 +548,15 @@ export function FloatingTechAssistant() {
                 aria-label="Adjuntar archivo"
               >
                 <Paperclip className="h-4 w-4" />
+              </button>
+              <button
+                onClick={insertReplyToClient}
+                disabled={loading}
+                className="h-10 w-10 flex items-center justify-center rounded-full border border-input text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-900/20 disabled:opacity-50"
+                aria-label="Responder al cliente"
+                title="Insertar instrucciones de respuesta al cliente"
+              >
+                <Reply className="h-4 w-4" />
               </button>
               <textarea
                 ref={inputRef}

@@ -134,6 +134,26 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     fetch("/api/admin/unattended-mode").then(r => r.json()).then(d => setModoNoAtendido(d.modo_no_atendido ?? false)).catch(() => {});
   }, []);
 
+  // Escuchar evento del asistente técnico flotante para insertar texto en el draft
+  React.useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.text) {
+        setDraft(detail.text);
+        setTimeout(() => {
+          const ta = document.querySelector('textarea[aria-label="Mensaje"]') as HTMLTextAreaElement | null;
+          if (ta) {
+            ta.focus();
+            ta.style.height = "auto";
+            ta.style.height = Math.min(ta.scrollHeight, 160) + "px";
+          }
+        }, 50);
+      }
+    };
+    window.addEventListener("sek-insert-draft", handler);
+    return () => window.removeEventListener("sek-insert-draft", handler);
+  }, []);
+
   const handleMessageUpdate = (
     historyType: "histcliente" | "histtecnico",
     originalIndex: number,
