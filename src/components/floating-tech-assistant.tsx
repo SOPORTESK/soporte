@@ -297,7 +297,7 @@ export function FloatingTechAssistant() {
     inputRef.current?.focus();
   };
 
-  const insertReplyToClient = () => {
+  const insertReplyToClient = async () => {
     const instructionText = `Instrucciones de atención al cliente
 
 Responda siempre como un agente humano, profesional y experto en servicio al cliente.
@@ -337,9 +337,41 @@ Cuando existan diferencias entre fuentes, priorice la documentación oficial y m
 Si después de consultar las fuentes disponibles no es posible confirmar una respuesta técnica de forma fiable, no improvise. Determine si el caso debe ser remitido a soporte avanzado.
 
 Objetivo
-La prioridad es proporcionar respuestas correctas, útiles y fáciles de comprender, manteniendo una experiencia de servicio profesional, humana y eficiente.`;
-    window.dispatchEvent(new CustomEvent("sek-insert-draft", { detail: { text: instructionText } }));
-    toast.success("Instrucciones insertadas en el chat del cliente");
+La prioridad es proporcionar respuestas correctas, útiles y fáciles de comprender, manteniendo una experiencia de servicio profesional, humana y eficiente.
+
+Redacte la respuesta para el cliente basándose en el contexto del caso y la última pregunta del cliente. Responda SOLO con el texto de la respuesta, sin explicaciones adicionales ni comentarios.`;
+    setLoading(true);
+    try {
+      const res = await fetch("/api/tech-assistant/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: instructionText,
+          case_id: caseId,
+          messages: messages.slice(-9),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Error del asistente");
+      const aiResponse = data.messages?.[data.messages.length - 1]?.content || "";
+      if (aiResponse) {
+        const finalMessages = (data.messages || []).slice(-10);
+        setMessages(finalMessages);
+        localStorage.setItem("sek_tech_assistant_session", JSON.stringify({
+          session_id: sessionId || null,
+          messages: finalMessages,
+        }));
+        window.dispatchEvent(new CustomEvent("sek-insert-draft", { detail: { text: aiResponse } }));
+        toast.success("Respuesta insertada en el chat del cliente");
+      } else {
+        toast.error("El asistente no generó una respuesta");
+      }
+    } catch (e: any) {
+      toast.error(e?.message || "Error al generar respuesta");
+    } finally {
+      setLoading(false);
+      inputRef.current?.focus();
+    }
   };
 
   const startNewCaseChat = async () => {
