@@ -247,13 +247,7 @@ export function FloatingTechAssistant() {
   };
 
   const handleBubbleDrag = (_e: DraggableEvent, data: DraggableData) => {
-    if (dragStartPosRef.current) {
-      const dx = data.x - dragStartPosRef.current.x;
-      const dy = data.y - dragStartPosRef.current.y;
-      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
-        dragMovedRef.current = true;
-      }
-    }
+    dragMovedRef.current = true;
     setBubblePosition({ x: data.x, y: data.y });
   };
 
@@ -261,13 +255,9 @@ export function FloatingTechAssistant() {
     const next = clampPosition({ x: data.x, y: data.y }, 56, 8);
     setBubblePosition(next);
     localStorage.setItem("sek_tech_assistant_bubble_pos_v3", JSON.stringify(next));
-    if (dragMovedRef.current) {
-      setTimeout(() => { dragMovedRef.current = false; }, 150);
-    }
   };
 
   const handleBubbleMouseDown = () => {
-    dragStartPosRef.current = { x: bubblePosition.x, y: bubblePosition.y };
     dragMovedRef.current = false;
   };
 
