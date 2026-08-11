@@ -1517,6 +1517,48 @@ Deno.serve(async (req) => {
     let shouldClose = false;
     const clienteData = typeof caso.cliente === "object" ? caso.cliente : {};
     const lastUserContent = lastMsg.content?.trim() || "";
+
+    // ── Parser multi-campo: extraer nombre, correo y cuenta de un solo mensaje ──
+    // El cliente puede mandar todo junto: "Jeaustin Barrantes\njbarrantes@sts-cr.com\nSi"
+    let dataChanged = false;
+    if (!clienteData?.nombre || !clienteData?.correo || !clienteData?.cuenta) {
+      // Extraer correo del mensaje
+      const emailInMsg = extractEmailFromText(lastUserContent);
+      if (emailInMsg && esCorreoValidoAgent(emailInMsg) && !clienteData?.correo) {
+        clienteData.correo = emailInMsg;
+        dataChanged = true;
+        console.log(`[ia-agent] Multi-parse: correo=${emailInMsg}`);
+      }
+      // Extraer nombre: primera línea que no sea email y tenga 2+ caracteres
+      if (!clienteData?.nombre) {
+        const lines = lastUserContent.split(/[\n,;]/).map(l => l.trim()).filter(Boolean);
+        for (const line of lines) {
+          if (line.length >= 2 && !extractEmailFromText(line) && !/^\d+$/.test(line) && !/^(si|no|ok|gracias|hola|buenas)$/i.test(line)) {
+            clienteData.nombre = line;
+            dataChanged = true;
+            console.log(`[ia-agent] Multi-parse: nombre=${line}`);
+            break;
+          }
+        }
+      }
+      // Extraer cuenta: línea que no sea nombre ni email ni respuesta corta
+      if (!clienteData?.cuenta && clienteData?.nombre) {
+        const lines = lastUserContent.split(/[\n,;]/).map(l => l.trim()).filter(Boolean);
+        for (const line of lines) {
+          if (line !== clienteData.nombre && !extractEmailFromText(line) && line.length >= 2 && !/^(si|no|ok|gracias|hola|buenas)$/i.test(line)) {
+            clienteData.cuenta = line;
+            dataChanged = true;
+            console.log(`[ia-agent] Multi-parse: cuenta=${line}`);
+            break;
+          }
+        }
+      }
+      if (dataChanged) {
+        await db.from("sek_cases").update({ cliente: clienteData }).eq("id", case_id);
+        console.log(`[ia-agent] Multi-parse guardado: ${JSON.stringify(clienteData)}`);
+      }
+    }
+
     const flowStep = detectFlowStep(histcliente, clienteData);
     console.log(`[ia-agent] FLOW-STEP: ${flowStep} | cliente: nombre=${JSON.stringify(clienteData?.nombre)}, correo=${JSON.stringify(clienteData?.correo)}, cuenta=${JSON.stringify(clienteData?.cuenta)}, tema=${JSON.stringify(clienteData?.tema)}`);
 
