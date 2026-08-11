@@ -1536,6 +1536,12 @@ Deno.serve(async (req) => {
     } else if (flowStep === "PEDIR_NOMBRE") {
       aiResponse = "Reciba un cordial saludo de parte del equipo de Soporte Sekunet. Para brindarle una mejor asistencia, por favor indíquenos su nombre completo.";
     } else if (flowStep === "PEDIR_CORREO") {
+      // Guardar el nombre del cliente si no está guardado (el usuario ya respondió con su nombre)
+      if (!clienteData?.nombre && lastUserContent.trim().length >= 2 && !extractEmailFromText(lastUserContent)) {
+        clienteData.nombre = lastUserContent.trim();
+        await db.from("sek_cases").update({ cliente: clienteData }).eq("id", case_id);
+        console.log(`[ia-agent] Nombre guardado deterministamente: ${lastUserContent.trim()}`);
+      }
       // Check if user provided an invalid email
       const emailInMsg = extractEmailFromText(lastUserContent);
       if (emailInMsg && !esCorreoValidoAgent(emailInMsg)) {
