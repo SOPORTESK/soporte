@@ -1,0 +1,4 @@
+project_id = "jwlavcjwuhdydmusqskx"
+
+[functions.ia-agent]
+verify_jwt = false

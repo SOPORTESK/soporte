@@ -1518,38 +1518,47 @@ Deno.serve(async (req) => {
     const clienteData = typeof caso.cliente === "object" ? caso.cliente : {};
     const lastUserContent = lastMsg.content?.trim() || "";
 
-    // ── Parser multi-campo: extraer nombre, correo y cuenta de un solo mensaje ──
-    // El cliente puede mandar todo junto: "Jeaustin Barrantes\njbarrantes@sts-cr.com\nSi"
+    // ── Parser multi-campo: escanear TODOS los mensajes del usuario ──
+    // El cliente puede haber mandado nombre, correo y cuenta en cualquier mensaje anterior
     let dataChanged = false;
     if (!clienteData?.nombre || !clienteData?.correo || !clienteData?.cuenta) {
-      // Extraer correo del mensaje
-      const emailInMsg = extractEmailFromText(lastUserContent);
-      if (emailInMsg && esCorreoValidoAgent(emailInMsg) && !clienteData?.correo) {
-        clienteData.correo = emailInMsg;
-        dataChanged = true;
-        console.log(`[ia-agent] Multi-parse: correo=${emailInMsg}`);
-      }
-      // Extraer nombre: primera línea que no sea email y tenga 2+ caracteres
-      if (!clienteData?.nombre) {
-        const lines = lastUserContent.split(/[\n,;]/).map(l => l.trim()).filter(Boolean);
-        for (const line of lines) {
-          if (line.length >= 2 && !extractEmailFromText(line) && !/^\d+$/.test(line) && !/^(si|no|ok|gracias|hola|buenas)$/i.test(line)) {
-            clienteData.nombre = line;
+      const allUserMsgs = histcliente.filter(m => m.role === "user").map(m => (m.content || "").trim()).filter(Boolean);
+      for (const userMsg of allUserMsgs) {
+        if (dataChanged) break;
+        // Extraer correo
+        if (!clienteData?.correo) {
+          const emailInMsg = extractEmailFromText(userMsg);
+          if (emailInMsg && esCorreoValidoAgent(emailInMsg)) {
+            clienteData.correo = emailInMsg;
             dataChanged = true;
-            console.log(`[ia-agent] Multi-parse: nombre=${line}`);
-            break;
+            console.log(`[ia-agent] Multi-parse: correo=${emailInMsg}`);
           }
         }
-      }
-      // Extraer cuenta: línea que no sea nombre ni email ni respuesta corta
-      if (!clienteData?.cuenta && clienteData?.nombre) {
-        const lines = lastUserContent.split(/[\n,;]/).map(l => l.trim()).filter(Boolean);
-        for (const line of lines) {
-          if (line !== clienteData.nombre && !extractEmailFromText(line) && line.length >= 2 && !/^(si|no|ok|gracias|hola|buenas)$/i.test(line)) {
-            clienteData.cuenta = line;
-            dataChanged = true;
-            console.log(`[ia-agent] Multi-parse: cuenta=${line}`);
-            break;
+        // Extraer nombre: primera línea/parte que no sea email, número, ni respuesta corta
+        if (!clienteData?.nombre) {
+          const parts = userMsg.split(/[\n,;/]+/).map(l => l.trim()).filter(Boolean);
+          for (const part of parts) {
+            // Quitar el email de la parte si está incrustado
+            const partSinEmail = part.replace(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/, "").trim();
+            if (partSinEmail.length >= 2 && !/^\d+$/.test(partSinEmail) && !/^(si|no|ok|gracias|hola|buenas|buenas tardes|buenos dias)$/i.test(partSinEmail) && !/^tengo\b/i.test(partSinEmail)) {
+              clienteData.nombre = partSinEmail;
+              dataChanged = true;
+              console.log(`[ia-agent] Multi-parse: nombre=${partSinEmail}`);
+              break;
+            }
+          }
+        }
+        // Extraer cuenta: parte que no sea nombre ni email ni respuesta corta ni consulta técnica
+        if (!clienteData?.cuenta && clienteData?.nombre) {
+          const parts = userMsg.split(/[\n,;/]+/).map(l => l.trim()).filter(Boolean);
+          for (const part of parts) {
+            const partSinEmail = part.replace(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/, "").trim();
+            if (partSinEmail !== clienteData.nombre && partSinEmail.length >= 2 && !/^(si|no|ok|gracias|hola|buenas|buenas tardes|buenos dias)$/i.test(partSinEmail) && !/^tengo\b/i.test(partSinEmail) && !extractEmailFromText(part)) {
+              clienteData.cuenta = partSinEmail;
+              dataChanged = true;
+              console.log(`[ia-agent] Multi-parse: cuenta=${partSinEmail}`);
+              break;
+            }
           }
         }
       }
