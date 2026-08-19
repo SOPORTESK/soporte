@@ -69,8 +69,6 @@
     "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.108.2",
     "@xyflow/react": "^12.11.2",
-    "active-win": "^8.2.1",
-    "better-sqlite3": "^13.0.3",
     "clsx": "^2.1.1",
     "electron-updater": "^6.8.3",
     "ffmpeg-static": "^5.3.0",
@@ -83,12 +81,16 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-draggable": "^4.7.0",
-    "screenshot-desktop": "^1.15.6",
     "sonner": "^1.5.0",
     "tailwind-merge": "^2.5.4",
     "tesseract.js": "^7.0.0",
-    "uiohook-napi": "^1.5.5",
     "xlsx": "^0.18.5"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^13.0.3",
+    "active-win": "^8.2.1",
+    "screenshot-desktop": "^1.15.6",
+    "uiohook-napi": "^1.5.5"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
