@@ -14,10 +14,11 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
 
   const { data: todosLosCasos } = await supabase
     .from("sek_cases")
-    .select("id, assigned_to, created_at, updated_at, closed_at, estado, cliente, title, canal, cat, prioridad, histtecnico, histcliente, accepted_at, escalado_at, tags, problema");
+    .select("id, assigned_to, created_at, updated_at, closed_at, estado, cliente, title, canal, cat, prioridad, histtecnico, histcliente, accepted_at, escalado_at, tags, problema, es_test")
+    .neq("canal", "simulator")
+    .neq("es_test", true);
 
-  // Excluir casos del simulador — no representan atención real
-  const casos = (todosLosCasos || []).filter(c => c.canal !== "simulator");
+  const casos = todosLosCasos || [];
 
   // ── Filtrar por mes si viene en searchParams (formato: YYYY-MM)
   const mesSeleccionado = searchParams.mes || "all";
@@ -64,16 +65,15 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
   const casosConAsig = casosFiltrados.filter(c => c.assigned_to && !c.assigned_to.includes("system_prompt"));
   const casosSinAsig = casosFiltrados.filter(c => !c.assigned_to || c.assigned_to.includes("system_prompt"));
 
-  // ── Métricas globales (solo agentes humanos)
-  const totalCasos = casosConAsig.length;
-  const totalResueltos = casosConAsig.filter(c => c.estado === "resuelto" || c.estado === "cerrado" || (c as any).closed_at).length;
-  const totalActivos = casosConAsig.filter(c => c.estado === "abierto").length;
+  // ── Métricas globales (todos los casos)
+  const totalCasos = casosFiltrados.length;
+  const totalResueltos = casosFiltrados.filter(c => c.estado === "resuelto" || c.estado === "cerrado" || (c as any).closed_at).length;
+  const totalActivos = casosFiltrados.filter(c => c.estado === "abierto").length;
   const tasaResolucion = totalCasos > 0 ? Math.round((totalResueltos / totalCasos) * 100) : 0;
 
   // ── Tendencia 7d vs 7d anterior (siempre últimos 7 días reales, sin filtro de mes)
-  const casosHumanos = casos.filter(c => c.assigned_to && !c.assigned_to.includes("system_prompt"));
-  const casos7d = casosHumanos.filter(c => new Date(c.created_at) >= hace7dias).length;
-  const casosAntes7d = casosHumanos.filter(c => new Date(c.created_at) >= hace14dias && new Date(c.created_at) < hace7dias).length;
+  const casos7d = casos.filter(c => new Date(c.created_at) >= hace7dias).length;
+  const casosAntes7d = casos.filter(c => new Date(c.created_at) >= hace14dias && new Date(c.created_at) < hace7dias).length;
   const tendencia7d = casosAntes7d > 0 ? Math.round(((casos7d - casosAntes7d) / casosAntes7d) * 100) : null;
 
   // ── SLA (solo humanos): tiempo desde que la IA escala el caso hasta que un humano lo acepta
@@ -140,7 +140,7 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
 
   // ── Últimos 7 días — volumen por día (siempre últimos 7 días reales, sin filtro de mes)
   const spark7d: number[] = Array(7).fill(0);
-  casosHumanos.forEach(c => {
+  casos.forEach(c => {
     const d = new Date(c.created_at);
     if (d >= hace7dias) {
       const idx = Math.floor((d.getTime() - hace7dias.getTime()) / 86400000);
@@ -154,9 +154,9 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
   const mesActualDate = mesSeleccionado !== "all" ? new Date(mesSeleccionado + "-01") : new Date(now.getFullYear(), now.getMonth(), 1);
   const mesAnteriorDate = new Date(mesActualDate.getFullYear(), mesActualDate.getMonth() - 1, 1);
   const mesActualEnd = new Date(mesActualDate.getFullYear(), mesActualDate.getMonth() + 1, 1);
-  const casosMesActual_data = casosHumanos.filter(c => { const d = new Date(c.created_at); return d >= mesActualDate && d < mesActualEnd; });
+  const casosMesActual_data = casos.filter(c => { const d = new Date(c.created_at); return d >= mesActualDate && d < mesActualEnd; });
   const casosMesActual = casosMesActual_data.length;
-  const casosMesAnterior = casosHumanos.filter(c => { const d = new Date(c.created_at); return d >= mesAnteriorDate && d < mesActualDate; }).length;
+  const casosMesAnterior = casos.filter(c => { const d = new Date(c.created_at); return d >= mesAnteriorDate && d < mesActualDate; }).length;
   const tendenciaMes = casosMesAnterior > 0 ? Math.round(((casosMesActual - casosMesAnterior) / casosMesAnterior) * 100) : null;
 
   // Spark por día del mes actual

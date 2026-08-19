@@ -1,6 +1,6 @@
 {
   "name": "sekunet-chat",
-  "version": "1.0.4",
+  "version": "1.1.0",
   "private": true,
   "main": "electron/main.cjs",
   "scripts": {
@@ -24,7 +24,18 @@
       "electron/**/*",
       "public/logo.png",
       "public/iSoTienda3D.png",
-      "public/logo.ico"
+      "public/logo.ico",
+      "node_modules/active-win/**/*",
+      "node_modules/better-sqlite3/**/*",
+      "node_modules/screenshot-desktop/**/*",
+      "node_modules/uiohook-napi/**/*"
+    ],
+    "asarUnpack": [
+      "**/*.{node,dll}",
+      "**/node_modules/active-win/**",
+      "**/node_modules/better-sqlite3/**",
+      "**/node_modules/screenshot-desktop/**",
+      "**/node_modules/uiohook-napi/**"
     ],
     "directories": {
       "output": "release"
@@ -58,6 +69,8 @@
     "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.108.2",
     "@xyflow/react": "^12.11.2",
+    "active-win": "^8.2.1",
+    "better-sqlite3": "^13.0.3",
     "clsx": "^2.1.1",
     "electron-updater": "^6.8.3",
     "ffmpeg-static": "^5.3.0",
@@ -70,12 +83,15 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-draggable": "^4.7.0",
+    "screenshot-desktop": "^1.15.6",
     "sonner": "^1.5.0",
     "tailwind-merge": "^2.5.4",
     "tesseract.js": "^7.0.0",
+    "uiohook-napi": "^1.5.5",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^22.7.5",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.0",

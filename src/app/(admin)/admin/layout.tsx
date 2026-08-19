@@ -7,7 +7,7 @@ import { LogoutButton } from "@/components/logout-button";
 import { Avatar, Badge } from "@/components/ui/avatar";
 import { SidebarLink } from "@/components/sidebar-link";
 import { LayoutDashboard, Settings, BookOpen, Bot, Package,
-  ArrowLeft, Users, ShieldCheck, MessageCircle, Workflow
+  ArrowLeft, Users, ShieldCheck, MessageCircle, Workflow, Activity
 } from "lucide-react";
 import type { SekAgent } from "@/lib/types";
 import { MobileNav } from "@/components/admin/mobile-nav";
@@ -15,6 +15,7 @@ import { GodModeAdminWrapper } from "@/components/god-mode-admin-wrapper";
 import { GodModeGuard } from "@/components/god-mode-guard";
 import { EscalatedCasesBanner } from "@/components/escalated-cases-banner";
 import { FloatingTechAssistant } from "@/components/floating-tech-assistant";
+import { ActivityTrackerProvider } from "@/components/activity-tracker-provider";
 
 export const dynamic = 'force-dynamic';
 
@@ -81,6 +82,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
               <NavSection title="Gestión">
                 <SidebarLink href="/admin/equipo" icon={<Users className="h-4 w-4" />}>Equipo</SidebarLink>
+                {isAdmin && <SidebarLink href="/admin/actividad" icon={<Activity className="h-4 w-4" />}>Activity Tracker</SidebarLink>}
                 {isAdmin && <SidebarLink href="/admin/inventario" icon={<Package className="h-4 w-4" />}>Inventario</SidebarLink>}
                 {isAdmin && <SidebarLink href="/admin/manuales" icon={<BookOpen className="h-4 w-4" />}>Manuales</SidebarLink>}
               </NavSection>
@@ -134,6 +136,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           </main>
         </div>
         <FloatingTechAssistant />
+        <ActivityTrackerProvider agentEmail={a.email} agentName={fullName} />
       </GodModeAdminWrapper>
     </GodModeGuard>
   );

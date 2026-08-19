@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getEvolutionConfig } from "@/lib/evolution-config";
 
 export const maxDuration = 30;
+export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {

@@ -161,4 +161,71 @@ export function startLocalCronJobs() {
       running = false;
     }
   }, 15000);
+
+  // Cleanup de activity_log >60 días, 1 vez al día
+  let lastCleanup = 0;
+  setInterval(async () => {
+    const now = Date.now();
+    if (now - lastCleanup < 24 * 60 * 60 * 1000) return;
+    lastCleanup = now;
+    try {
+      const { cleanupOldEvents } = await import("@/lib/activity-db");
+      await cleanupOldEvents(60);
+      console.log("[local-cron-bridge] Activity log cleanup completado (>60 días)");
+    } catch (e: any) {
+      console.error("[local-cron-bridge] Error en activity cleanup:", e.message);
+    }
+  }, 60 * 60 * 1000); // revisar cada hora
+
+  // Generar reportes IA de actividad cada 10 minutos para todos los agentes
+  let lastReportRun = 0;
+  setInterval(async () => {
+    // Solo en Vercel (producción cloud). En local, aunque sea NODE_ENV=production,
+    // no correr para no saturar Supabase con consultas pesadas.
+    if (!process.env.VERCEL) return;
+
+    const now = Date.now();
+    if (now - lastReportRun < 10 * 60 * 1000) return;
+    lastReportRun = now;
+    try {
+      const supabase = createServiceClient();
+      const today = new Date().toISOString().split("T")[0];
+
+      // Obtener agentes activos (con actividad en los últimos 30 min)
+      const { data: recentAgents } = await supabase
+        .from("activity_log")
+        .select("agent_email, agent_name")
+        .gte("created_at", new Date(Date.now() - 30 * 60 * 1000).toISOString())
+        .order("created_at", { ascending: false });
+
+      if (!recentAgents || recentAgents.length === 0) return;
+
+      // Agentes únicos
+      const unique = new Map<string, string>();
+      recentAgents.forEach((a: any) => {
+        if (!unique.has(a.agent_email)) unique.set(a.agent_email, a.agent_name || a.agent_email);
+      });
+
+      console.log(`[local-cron-bridge] Generando reportes IA para ${unique.size} agentes activos`);
+
+      for (const [email, name] of unique) {
+        try {
+          const res = await fetch(
+            `${process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3100"}/api/activity/process`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ agent_email: email, agent_name: name, date: today }),
+            }
+          );
+          const data = await res.json();
+          console.log(`[local-cron-bridge] Reporte ${email}: ${data.provider || "fallback"}`);
+        } catch (e: any) {
+          console.error(`[local-cron-bridge] Error reporte ${email}:`, e.message);
+        }
+      }
+    } catch (e: any) {
+      console.error("[local-cron-bridge] Error en generación automática de reportes:", e.message);
+    }
+  }, 60 * 1000); // revisar cada 1 min, ejecuta cada 10 min
 }

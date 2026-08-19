@@ -33,6 +33,18 @@ function LoginPageContent() {
   const [showPwd, setShowPwd] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [supabaseDown, setSupabaseDown] = React.useState(false);
+
+  function isSupabaseError(err: any): boolean {
+    if (!err) return false;
+    // AuthRetryableFetchError con status 504/502/503
+    if (err.status === 504 || err.status === 502 || err.status === 503) return true;
+    if (err.name === "AuthRetryableFetchError") return true;
+    if (err.__isAuthError && (err.status >= 500 || !err.status)) return true;
+    const msg = (err?.message || err?.toString() || "").toLowerCase();
+    return msg.includes("504") || msg.includes("timeout") || msg.includes("fetch failed") ||
+           msg.includes("network") || msg.includes("unreachable") || msg.includes("connection");
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -46,7 +58,12 @@ function LoginPageContent() {
       router.replace(next);
       router.refresh();
     } catch (err: any) {
-      setError(err?.message || "No fue posible iniciar sesión");
+      if (isSupabaseError(err)) {
+        setSupabaseDown(true);
+        setError("Supabase no está disponible en este momento. Reintente en unos minutos.");
+      } else {
+        setError(err?.message || "No fue posible iniciar sesión");
+      }
     } finally { setLoading(false); }
   }
 
@@ -195,7 +212,20 @@ function LoginPageContent() {
               </p>
             </div>
 
-            {error && (
+            {supabaseDown && (
+              <div role="alert" className="mb-4 rounded-lg border border-amber-500/50 bg-amber-500/10 p-4 text-sm">
+                <div className="flex items-start gap-2 text-amber-400 font-semibold mb-1">
+                  <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                  Supabase no disponible
+                </div>
+                <p className="text-amber-300/80 text-xs">
+                  La base de datos en la nube (Supabase) no est&aacute; respondiendo.
+                  Esto afecta tanto la versi&oacute;n web como la local.
+                  El sistema reintentar&aacute; autom&aacute;ticamente.
+                </p>
+              </div>
+            )}
+            {error && !supabaseDown && (
               <div role="alert" className="mb-4 flex items-start gap-2 rounded-lg border border-[hsl(var(--danger)/.4)] bg-[hsl(var(--danger)/.1)] p-3 text-sm text-[hsl(var(--danger))]">
                 <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" /> <span>{error}</span>
               </div>

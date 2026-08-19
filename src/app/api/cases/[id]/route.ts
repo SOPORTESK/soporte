@@ -21,8 +21,9 @@ export async function DELETE(
     if (id.startsWith("tel:")) {
       const phone = id.substring(4);
       console.log("[DELETE /api/cases/[id]] Buscando casos con teléfono:", phone);
-      // Soportar coincidencia exacta de número, o con sufijo @s.whatsapp.net o @g.us, o ilike parcial
-      query = query.or(`customer_phone.eq.${phone},customer_phone.eq.${phone}@s.whatsapp.net,customer_phone.ilike.%${phone}%`);
+      // Coincidencia exacta o con sufijo @s.whatsapp.net/@g.us.
+      // NO usar ilike parcial: "63381153" coincidiría con "50663381153" y borraría ambos.
+      query = query.or(`customer_phone.eq.${phone},customer_phone.eq.${phone}@s.whatsapp.net,customer_phone.eq.${phone}@g.us`);
     } else if (id.startsWith("mail:")) {
       const email = id.substring(5);
       console.log("[DELETE /api/cases/[id]] Buscando casos con email:", email);

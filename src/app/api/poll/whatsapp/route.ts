@@ -3,6 +3,7 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { getEvolutionConfig } from "@/lib/evolution-config";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 // Polling simple: consulta mensajes recientes de Evolution API y los procesa
 // como si vinieran del webhook. Usado como fallback cuando el webhook falla.

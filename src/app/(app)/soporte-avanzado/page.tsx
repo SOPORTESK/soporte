@@ -1,30 +1,32 @@
 import { createClient } from "@/lib/supabase/server";
 import { InboxClient } from "@/components/chat/inbox-client";
+import { queryWithFallback } from "@/lib/supabase/resilient";
 
 export const dynamic = "force-dynamic";
 
 export default async function SoporteAvanzadoPage({ searchParams }: { searchParams: { c?: string } }) {
   const supabase = createClient();
-  
-  // Obtener todos los casos y filtrar: escalados sin agente asignado
-  const { data: allCases, error } = await supabase
-    .from("sek_cases")
-    .select("*")
-    .neq("canal", "simulator")
-    .neq("es_test", true)
-    .order("last_message_at", { ascending: false, nullsFirst: false })
-    .order("created_at", { ascending: false })
-    .limit(1000);
 
-  if (error) console.error("[soporte-avanzado] sek_cases error:", error.message);
+  const { data: n2Cases, error } = await queryWithFallback(
+    "soporte_avanzado",
+    async () => {
+      const { data, error } = await supabase
+        .from("sek_cases")
+        .select("*")
+        .eq("estado", "escalado")
+        .is("assigned_to", null)
+        .neq("canal", "simulator")
+        .neq("es_test", true)
+        .order("last_message_at", { ascending: false, nullsFirst: false })
+        .order("created_at", { ascending: false })
+        .limit(1000);
+      return { data, error };
+    },
+    []
+  );
+  if (error) console.error("[soporte-avanzado] sek_cases error:", error);
+  console.log(`[soporte-avanzado] Casos escalados sin agente: ${n2Cases?.length || 0}`);
 
-  // Soporte Avanzado: casos escalados que aún NO han sido tomados por ningún agente
-  const n2Cases = (allCases || []).filter(c => {
-    const estado = String(c.estado || "").toLowerCase();
-    return estado === "escalado" && !c.assigned_to;
-  });
-  console.log(`[soporte-avanzado] Total casos: ${allCases?.length || 0}, Casos escalados sin agente: ${n2Cases.length}`);
-  
   const selectedId = searchParams.c ?? null;
 
   return (

@@ -4,9 +4,15 @@ const path = require('path');
 const fs   = require('fs');
 const { autoUpdater } = require('electron-updater');
 
+// ─── ACTIVITY TRACKER (global desktop-level) ──────────────────────────────────
+const { startDesktopTracking, stopDesktopTracking } = require('./tracker.cjs');
+
+// IPC para recibir el email del agente desde la web
+ipcMain.on('activity-start', (_, { email, name }) => startDesktopTracking(email, name));
+ipcMain.on('activity-stop', () => stopDesktopTracking());
+
 const PROD_URL = 'https://sekachat.vercel.app';
 const DEV_URL  = 'http://localhost:3100';
-const isDev    = process.env.NODE_ENV === 'development';
 
 const APP_ICON = fs.existsSync(path.join(__dirname, '../public/logo.ico'))
   ? path.join(__dirname, '../public/logo.ico')

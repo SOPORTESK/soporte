@@ -23,14 +23,18 @@ export async function POST(req: NextRequest) {
     const fileName = file.name || `archivo_${Date.now()}`;
     const mimeType = file.type || "application/octet-stream";
 
-    console.log(`[upload-drive] Subiendo "${fileName}" (${(file.size / 1024 / 1024).toFixed(1)} MB) a Google Drive...`);
+    console.log(
+      `[upload-drive] Subiendo "${fileName}" (${(file.size / 1024 / 1024).toFixed(1)} MB) a Google Drive...`
+    );
 
     const { fileId, shareableLink } = await uploadToDrive(fileBuffer, fileName, mimeType);
 
     console.log(`[upload-drive] Archivo subido. fileId=${fileId}, link=${shareableLink}`);
 
     const supabase = createServiceClient();
-    const expiresAt = new Date(Date.now() + DRIVE_RETENTION_HOURS * 60 * 60 * 1000).toISOString();
+    const expiresAt = new Date(
+      Date.now() + DRIVE_RETENTION_HOURS * 60 * 60 * 1000
+    ).toISOString();
 
     await supabase.from("sek_drive_files").insert({
       drive_file_id: fileId,
@@ -46,13 +50,16 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
-      shareableLink,
       fileId,
       fileName,
+      shareableLink,
       expiresAt,
     });
   } catch (e: any) {
     console.error("[upload-drive] Error:", e);
-    return NextResponse.json({ error: e?.message || "Error al subir a Drive" }, { status: 500 });
+    return NextResponse.json(
+      { error: e?.message || "Error al subir a Drive" },
+      { status: 500 }
+    );
   }
 }

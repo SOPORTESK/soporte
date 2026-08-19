@@ -4,6 +4,7 @@ import { deleteFromDrive } from "@/lib/google-drive";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
+export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {

@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Camera, Lock, Eye, EyeOff, Check, X, ChevronUp, Circle, LogOut } from "lucide-react";
+import { Camera, Lock, Eye, EyeOff, Check, X, ChevronUp, Circle, LogOut, Activity as ActivityIcon, FileText, ChevronRight, X as XIcon, RefreshCw, Wrench, Coffee, Timer } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { logActivity } from "@/lib/activity-client";
 
 interface Agent {
   email: string;
@@ -51,7 +52,7 @@ function AvatarImg({ url, name, size = 36 }: { url?: string | null; name: string
 
 export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; onlineAgents: OnlineAgent[] }) {
   const [open, setOpen] = useState(false);
-  const [tab, setTab] = useState<"profile" | "team">("profile");
+  const [tab, setTab] = useState<"profile" | "team" | "activity">("profile");
   const [status, setStatus] = useState(agent.status || "online");
   const [avatarUrl, setAvatarUrl] = useState(agent.avatar_url || null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
@@ -65,9 +66,146 @@ export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; online
   const router = useRouter();
   const supabase = createClient();
   const fullName = [agent.nombre, agent.apellido].filter(Boolean).join(" ") || agent.email;
+  const [myActivity, setMyActivity] = useState<any[]>([]);
+  const [myMetrics, setMyMetrics] = useState<any>(null);
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [myReport, setMyReport] = useState<string>("");
+  const [loadingReport, setLoadingReport] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const [elapsed, setElapsed] = useState("");
+  const [manualTask, setManualTask] = useState<{ type: string; label: string; start: number } | null>(null);
+  const [manualElapsed, setManualElapsed] = useState("");
+
+  useEffect(() => {
+    if (tab !== "activity" || !open) return;
+    const fetchActivity = () => {
+      fetch(`/api/activity/timeline?agent=${encodeURIComponent(agent.email)}&date=${new Date().toISOString().split("T")[0]}`)
+        .then(r => r.json())
+        .then(d => setMyActivity(d.timeline || []))
+        .catch(() => {});
+      fetch(`/api/activity/timeline?agent=${encodeURIComponent(agent.email)}&date=${new Date().toISOString().split("T")[0]}&metrics=true`)
+        .then(r => r.json())
+        .then(d => setMyMetrics(d))
+        .catch(() => {});
+    };
+    fetchActivity();
+    setLastUpdate(new Date());
+    const interval = setInterval(() => {
+      fetchActivity();
+      setLastUpdate(new Date());
+    }, 600000);
+    const ticker = setInterval(() => {
+      if (lastUpdate) {
+        const sec = Math.floor((Date.now() - lastUpdate.getTime()) / 1000);
+        if (sec < 60) setElapsed(`hace ${sec}s`);
+        else if (sec < 3600) setElapsed(`hace ${Math.floor(sec / 60)}m`);
+        else setElapsed(`hace ${Math.floor(sec / 3600)}h`);
+      } else {
+        setElapsed("");
+      }
+      if (manualTask) {
+        const ms = Date.now() - manualTask.start;
+        const m = Math.floor(ms / 60000);
+        const s = Math.floor((ms % 60000) / 1000);
+        setManualElapsed(`${m}:${s.toString().padStart(2, "0")}`);
+      }
+    }, 1000);
+    return () => { clearInterval(interval); clearInterval(ticker); };
+  }, [tab, open, agent.email, lastUpdate, manualTask]);
+
+  const startManualTask = (type: string, label: string) => {
+    if (manualTask) return;
+    setManualTask({ type, label, start: Date.now() });
+    logActivity({
+      agent_email: agent.email,
+      agent_name: fullName,
+      action: `Inició: ${label}`,
+      category: type,
+      metadata: { manual: true, task: label },
+    });
+  };
+
+  const stopManualTask = () => {
+    if (!manualTask) return;
+    const duration = Date.now() - manualTask.start;
+    const min = Math.floor(duration / 60000);
+    const sec = Math.round((duration % 60000) / 1000);
+    logActivity({
+      agent_email: agent.email,
+      agent_name: fullName,
+      action: `Terminó: ${manualTask.label} (${min}min ${sec}s)`,
+      category: manualTask.type,
+      duration_ms: duration,
+      metadata: { manual: true, task: manualTask.label, duration_seconds: Math.round(duration / 1000) },
+    });
+    setManualTask(null);
+    setManualElapsed("");
+    fetchActivity();
+  };
+
+  const handleSync = async () => {
+    setSyncing(true);
+    try {
+      const res = await fetch("/api/activity/process", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agent_email: agent.email, agent_name: fullName, date: new Date().toISOString().split("T")[0] }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(`Sincronizado con ${data.provider || "IA"}`);
+        fetchActivity();
+      } else {
+        toast.error(data.error || "Error al sincronizar");
+      }
+    } catch (e) {
+      toast.error("Error de red");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const fetchActivity = () => {
+    fetch(`/api/activity/timeline?agent=${encodeURIComponent(agent.email)}&date=${new Date().toISOString().split("T")[0]}`)
+      .then(r => r.json())
+      .then(d => setMyActivity(d.timeline || []))
+      .catch(() => {});
+    fetch(`/api/activity/timeline?agent=${encodeURIComponent(agent.email)}&date=${new Date().toISOString().split("T")[0]}&metrics=true`)
+      .then(r => r.json())
+      .then(d => setMyMetrics(d))
+      .catch(() => {});
+  };
+
+  const handleMyReport = async () => {
+    setLoadingReport(true);
+    setShowReportModal(true);
+    setMyReport("");
+    try {
+      const res = await fetch("/api/activity/process", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agent_email: agent.email, agent_name: fullName, date: new Date().toISOString().split("T")[0] }),
+      });
+      const data = await res.json();
+      if (data.report) {
+        const r = data.report;
+        setMyReport(`${r.resumen_ejecutivo || ""}\n\n--- Línea de tiempo ---\n${r.linea_tiempo || ""}\n\n--- Métricas ---\n${r.metricas || ""}\n\n--- Interpretación ---\n${r.interpretacion || ""}`);
+      } else {
+        setMyReport("No hay suficientes datos para generar un reporte.");
+      }
+    } catch (e) {
+      setMyReport("Error al generar el reporte.");
+    } finally {
+      setLoadingReport(false);
+    }
+  };
 
   // Marcar online al montar + auto-away por inactividad + heartbeat
   useEffect(() => {
+    if (!process.env.VERCEL) return;
+
     fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online" }) }).catch(() => {});
     const handleUnload = () => navigator.sendBeacon("/api/profile/status", JSON.stringify({ status: "offline" }));
     window.addEventListener("beforeunload", handleUnload);
@@ -98,10 +236,10 @@ export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; online
       clearTimeout(idleTimer);
       idleTimer = setTimeout(() => {
         setStatus(prev => {
-          // Only auto-away from "online" — don't override manual states
           if (prev === "online") {
             isIdle = true;
             fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "away" }) }).catch(() => {});
+            logActivity({ agent_email: agent.email, agent_name: fullName, action: `Sin actividad detectada por 5 minutos, estado cambiado automáticamente a "Ausente"`, category: "Inactividad", duration_ms: IDLE_TIMEOUT_MS });
             return "away";
           }
           return prev;
@@ -124,6 +262,7 @@ export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; online
   const handleStatusChange = async (s: string) => {
     setStatus(s);
     await fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: s }) }).catch(() => {});
+    logActivity({ agent_email: agent.email, agent_name: fullName, action: `Cambió su estado de conexión de "${status}" a "${s}"`, category: "Actividad general", metadata: { from: status, to: s } });
     router.refresh();
   };
 
@@ -164,12 +303,15 @@ export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; online
     <div className="border-t border-border">
       {/* Panel expandible */}
       {open && (
-        <div className="border-b border-border bg-card">
+        <div className="border-b border-border bg-card overflow-y-auto" style={{ maxHeight: "70vh" }}>
           {/* Tabs */}
           <div className="flex border-b border-border">
             <button onClick={() => setTab("profile")} className={`flex-1 text-xs font-semibold py-2.5 transition-colors ${tab === "profile" ? "text-foreground border-b-2 border-violet-500" : "text-muted-foreground hover:text-foreground"}`}>Mi Perfil</button>
             <button onClick={() => setTab("team")} className={`flex-1 text-xs font-semibold py-2.5 transition-colors ${tab === "team" ? "text-foreground border-b-2 border-violet-500" : "text-muted-foreground hover:text-foreground"}`}>
               Equipo {others.length > 0 && <span className="ml-1 px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 text-[10px]">{others.length}</span>}
+            </button>
+            <button onClick={() => setTab("activity")} className={`flex-1 text-xs font-semibold py-2.5 transition-colors ${tab === "activity" ? "text-foreground border-b-2 border-violet-500" : "text-muted-foreground hover:text-foreground"}`}>
+              <ActivityIcon className="h-3.5 w-3.5 inline-block" />
             </button>
           </div>
 
@@ -267,8 +409,228 @@ export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; online
               )}
             </div>
           )}
+
+          {tab === "activity" && (
+            <div className="flex flex-col" style={{ minHeight: "400px", maxHeight: "520px" }}>
+              {/* Header con gradiente */}
+              <div className="px-3 py-2.5 bg-gradient-to-br from-violet-500/10 via-indigo-500/5 to-transparent border-b border-border/50">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[11px] font-bold tracking-wide text-foreground/80 uppercase">Actividad de hoy</span>
+                  <div className="flex items-center gap-1.5">
+                    {elapsed && (
+                      <span className="text-[9px] text-muted-foreground/70 flex items-center gap-0.5">
+                        <span className="h-1 w-1 rounded-full bg-emerald-500 animate-pulse" />
+                        {elapsed}
+                      </span>
+                    )}
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-violet-500/10 text-violet-500">
+                      {myMetrics?.productivityScore || 0}%
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-[10px] text-muted-foreground mb-2">
+                  <span className="flex items-center gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    {myMetrics?.totalActiveTime || "0m"} activo
+                  </span>
+                  <span className="text-border">|</span>
+                  <span className="flex items-center gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-zinc-400" />
+                    {myMetrics?.totalIdleTime || "0m"} inactivo
+                  </span>
+                </div>
+                <div className="h-1.5 rounded-full bg-muted overflow-hidden flex">
+                  <div className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 transition-all duration-500" style={{ width: `${myMetrics?.productivityScore || 0}%` }} />
+                  <div className="h-full bg-zinc-600/40 transition-all duration-500" style={{ width: `${100 - (myMetrics?.productivityScore || 0)}%` }} />
+                </div>
+              </div>
+
+              {/* Lista scrollable con cards */}
+              <div className="flex-1 overflow-y-auto px-2.5 py-2 space-y-1" style={{ minHeight: "260px", maxHeight: "360px" }}>
+                {myActivity.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                    <ActivityIcon className="h-6 w-6 mb-2 opacity-30" />
+                    <p className="text-[11px]">Sin actividad registrada hoy</p>
+                  </div>
+                ) : (
+                  myActivity.slice(0, 30).map((e: any, i: number) => {
+                    const catConfig: Record<string, { color: string; bg: string; ring: string }> = {
+                      "Atención telefónica":      { color: "text-orange-400",  bg: "bg-orange-500/10",  ring: "bg-orange-500" },
+                      "Mensajería":               { color: "text-green-400",   bg: "bg-green-500/10",   ring: "bg-green-500" },
+                      "Atención de tickets":      { color: "text-blue-400",    bg: "bg-blue-500/10",    ring: "bg-blue-500" },
+                      "Trámites de garantías":    { color: "text-purple-400",  bg: "bg-purple-500/10",  ring: "bg-purple-500" },
+                      "Investigación y desarrollo": { color: "text-cyan-400",  bg: "bg-cyan-500/10",    ring: "bg-cyan-500" },
+                      "Labores manuales":         { color: "text-amber-400",   bg: "bg-amber-500/10",   ring: "bg-amber-500" },
+                      "Gestión de correos":       { color: "text-yellow-400",  bg: "bg-yellow-500/10",  ring: "bg-yellow-500" },
+                      "Inactividad":              { color: "text-zinc-400",    bg: "bg-zinc-500/10",    ring: "bg-zinc-400" },
+                      "Escalado":                 { color: "text-red-400",     bg: "bg-red-500/10",     ring: "bg-red-500" },
+                      "Navegación":               { color: "text-sky-400",     bg: "bg-sky-500/10",     ring: "bg-sky-500" },
+                      "Otros":                    { color: "text-violet-400",  bg: "bg-violet-500/10",  ring: "bg-violet-500" },
+                    };
+                    const cat = catConfig[e.category] || catConfig["Otros"];
+                    const d = new Date(e.created_at);
+                    const time = isNaN(d.getTime()) ? "" : d.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit" });
+                    return (
+                      <div key={e.id} className={`group flex items-start gap-2 px-2.5 py-1.5 rounded-lg ${cat.bg} hover:bg-opacity-20 transition-all duration-150`}>
+                        <div className="flex flex-col items-center pt-0.5 shrink-0">
+                          <span className={`h-2 w-2 rounded-full ${cat.ring}`} />
+                          {i < Math.min(myActivity.length, 30) - 1 && <span className="w-px h-full bg-border/40 mt-0.5" />}
+                        </div>
+                        <div className="flex-1 min-w-0 pb-1">
+                          <p className="text-[11px] leading-snug text-foreground/90 line-clamp-2">{e.action}</p>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className="text-[9px] text-muted-foreground tabular-nums">{time}</span>
+                            <span className={`text-[9px] font-medium ${cat.color}`}>· {e.category}</span>
+                            {e.duration_ms && <span className="text-[9px] text-muted-foreground/70">· {Math.round(e.duration_ms / 1000)}s</span>}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Timer manual activo */}
+              {manualTask && (
+                <div className="mx-2.5 mb-1 px-2.5 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <Timer className="h-3 w-3 text-amber-500 shrink-0 animate-pulse" />
+                    <span className="text-[10px] font-medium text-amber-600 truncate">{manualTask.label}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-[10px] font-mono text-amber-600 tabular-nums">{manualElapsed}</span>
+                    <button onClick={stopManualTask} className="text-[10px] font-semibold text-amber-700 hover:text-amber-800 px-1.5 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 transition-colors">
+                      Detener
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Botones de tareas manuales */}
+              {!manualTask && (
+                <div className="px-2.5 flex gap-1.5">
+                  <button
+                    onClick={() => startManualTask("Labores manuales", "Salida a bodega")}
+                    className="flex-1 flex items-center justify-center gap-1 text-[10px] font-medium px-1.5 py-1.5 rounded-lg bg-muted/40 hover:bg-muted/70 transition-colors"
+                  >
+                    <Wrench className="h-3 w-3" />
+                    Bodega
+                  </button>
+                  <button
+                    onClick={() => startManualTask("Labores manuales", "Acondicionamiento de demostradores")}
+                    className="flex-1 flex items-center justify-center gap-1 text-[10px] font-medium px-1.5 py-1.5 rounded-lg bg-muted/40 hover:bg-muted/70 transition-colors"
+                  >
+                    <Wrench className="h-3 w-3" />
+                    Demostradores
+                  </button>
+                  <button
+                    onClick={() => startManualTask("Labores manuales", "Tarea manual")}
+                    className="flex-1 flex items-center justify-center gap-1 text-[10px] font-medium px-1.5 py-1.5 rounded-lg bg-muted/40 hover:bg-muted/70 transition-colors"
+                  >
+                    <Wrench className="h-3 w-3" />
+                    Otra
+                  </button>
+                  <button
+                    onClick={() => startManualTask("Inactividad", "Almuerzo / Pausa")}
+                    className="flex-1 flex items-center justify-center gap-1 text-[10px] font-medium px-1.5 py-1.5 rounded-lg bg-muted/40 hover:bg-muted/70 transition-colors"
+                  >
+                    <Coffee className="h-3 w-3" />
+                    Almuerzo
+                  </button>
+                </div>
+              )}
+
+              {/* Footer con botones premium */}
+              <div className="px-2.5 py-2 border-t border-border/50 space-y-1.5">
+                <button
+                  onClick={handleSync}
+                  disabled={syncing}
+                  className="w-full flex items-center justify-center gap-1.5 text-[11px] font-semibold px-2 py-2 rounded-lg bg-gradient-to-r from-violet-600 to-indigo-600 text-white hover:from-violet-700 hover:to-indigo-700 transition-all duration-200 disabled:opacity-50 shadow-sm"
+                >
+                  <RefreshCw className={`h-3 w-3 ${syncing ? "animate-spin" : ""}`} />
+                  {syncing ? "Sincronizando..." : "Forzar sincronización"}
+                </button>
+                <div className="flex gap-1.5">
+                  <button
+                    onClick={() => setShowDetailModal(true)}
+                    className="flex-1 flex items-center justify-center gap-1 text-[11px] font-medium px-2 py-1.5 rounded-lg bg-muted/50 hover:bg-muted transition-colors"
+                  >
+                    <ChevronRight className="h-3 w-3" />
+                    Ver detalle
+                  </button>
+                  <button
+                    onClick={handleMyReport}
+                    className="flex-1 flex items-center justify-center gap-1 text-[11px] font-medium px-2 py-1.5 rounded-lg bg-muted/50 hover:bg-muted transition-colors"
+                  >
+                    <FileText className="h-3 w-3" />
+                    Mi reporte
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
+
+          {/* Modal: Ver detalle */}
+          {showDetailModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowDetailModal(false)}>
+              <div className="bg-card border border-border rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+                  <h3 className="text-sm font-bold">Mi actividad — Detalle del día</h3>
+                  <button onClick={() => setShowDetailModal(false)} className="p-1 rounded-lg hover:bg-muted/50"><XIcon className="h-4 w-4" /></button>
+                </div>
+                <div className="flex-1 overflow-y-auto p-4 space-y-1.5">
+                  {myActivity.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-8">Sin actividad registrada</p>
+                  ) : myActivity.map((e: any) => {
+                    const catColor =
+                      e.category === "Atención de casos" ? "bg-blue-500" :
+                      e.category === "Gestión de casos" ? "bg-emerald-500" :
+                      e.category === "Inactividad" ? "bg-zinc-400" :
+                      e.category === "Escalado" ? "bg-red-500" :
+                      e.category === "Navegación" ? "bg-sky-500" :
+                      e.category === "Gestión de correos" ? "bg-amber-500" :
+                      e.category === "Soporte técnico" ? "bg-cyan-500" :
+                      "bg-violet-500";
+                    const d = new Date(e.created_at);
+                    const time = isNaN(d.getTime()) ? "" : d.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit" });
+                    return (
+                      <div key={e.id} className="flex items-start gap-2.5 px-3 py-2 rounded-lg hover:bg-muted/40 transition-colors">
+                        <span className={`h-2 w-2 rounded-full mt-1.5 shrink-0 ${catColor}`} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium">{e.action}</p>
+                          <p className="text-xs text-muted-foreground">{time} · {e.category}{e.duration_ms ? ` · ${Math.round(e.duration_ms / 1000)}s` : ""}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modal: Mi reporte IA */}
+          {showReportModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowReportModal(false)}>
+              <div className="bg-card border border-border rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+                  <h3 className="text-sm font-bold">Mi reporte de actividad</h3>
+                  <button onClick={() => setShowReportModal(false)} className="p-1 rounded-lg hover:bg-muted/50"><XIcon className="h-4 w-4" /></button>
+                </div>
+                <div className="flex-1 overflow-y-auto p-4">
+                  {loadingReport ? (
+                    <div className="flex flex-col items-center justify-center py-12">
+                      <div className="h-6 w-6 border-2 border-violet-500 border-t-transparent rounded-full animate-spin mb-3" />
+                      <p className="text-sm text-muted-foreground">Generando reporte con IA...</p>
+                    </div>
+                  ) : (
+                    <div className="text-sm whitespace-pre-wrap leading-relaxed">{myReport}</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
       {/* Barra inferior siempre visible */}
       <div className="p-3 space-y-2">

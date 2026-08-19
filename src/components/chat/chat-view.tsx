@@ -11,6 +11,7 @@ import {
   Info, Copy, Forward, Pin, Edit
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { logActivity } from "@/lib/activity-client";
 import { Avatar, Badge } from "@/components/ui/avatar";
 import { Textarea } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -45,6 +46,8 @@ type UnifiedMessage = {
   edited?: boolean;
   pinned?: boolean;
   starred?: boolean;
+  // Índice secuencial para desempatar mensajes con el mismo time
+  seq?: number;
 };
 
 function unifyMessages(c: SekCase): UnifiedMessage[] {
@@ -53,6 +56,9 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
   const fromTecnico = Array.isArray(c.histtecnico) ? c.histtecnico : [];
   // Para casos agrupados, usar el targetCaseId real en vez del group key (tel:xxx)
   const realCaseId = (c as any)._group?.targetCaseId ?? c.id;
+  let seq = 0;
+
+  const toTime = (e: any) => e.time || c.created_at || new Date(0).toISOString();
 
   fromCliente.forEach((e, i) => {
     const role = String(e.role || "user");
@@ -61,7 +67,7 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
       id: `c-${i}`,
       source: role === "assistant" || role === "ia" ? "assistant" : role === "nota" ? "nota" : role === "tecnico" ? "tecnico" : "user",
       content: asText(e.content),
-      time: e.time || c.created_at,
+      time: toTime(e),
       authorName: isAgente ? (asText(e.author) || "Soporte Sekunet") : undefined,
       status: "sent",
       read_at: e.read_at as string | undefined,
@@ -81,6 +87,7 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
       edited: (e as any).edited,
       pinned: (e as any).pinned,
       starred: (e as any).starred,
+      seq: seq++,
     });
   });
 
@@ -90,7 +97,7 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
       id: `t-${i}`,
       source: isNota ? "nota" : "tecnico",
       content: asText(e.content),
-      time: e.time || c.created_at,
+      time: toTime(e),
       authorName: asText(e.author) || undefined,
       status: "sent",
       read_at: e.read_at as string | undefined,
@@ -110,10 +117,34 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
       edited: (e as any).edited,
       pinned: (e as any).pinned,
       starred: (e as any).starred,
+      seq: seq++,
     });
   });
 
-  return out.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+  return out
+    .filter((m) => {
+      const isEmpty = !m.content || m.content.trim().length === 0;
+      const isDeleted = m.deleted || m.deleted_for_me;
+      return !isEmpty && !isDeleted;
+    })
+    .sort((a, b) => {
+    const ta = new Date(a.time).getTime();
+    const tb = new Date(b.time).getTime();
+    const da = isNaN(ta) ? Number.MAX_SAFE_INTEGER : ta;
+    const db = isNaN(tb) ? Number.MAX_SAFE_INTEGER : tb;
+    if (da !== db) return da - db;
+    return (a.seq || 0) - (b.seq || 0);
+  });
+}
+
+function debugLogMessages(msgs: UnifiedMessage[], caseId: string | number) {
+  console.group(`[unifyMessages] caso ${caseId} — ${msgs.length} mensajes`);
+  msgs.forEach((m, i) => {
+    console.log(
+      `[${i}] seq=${m.seq} time=${m.time} source=${m.source} author=${m.authorName || "cliente"} content="${(m.content || "").slice(0, 60)}"`
+    );
+  });
+  console.groupEnd();
 }
 
 export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; onBack: () => void }) {
@@ -277,7 +308,9 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       skipUnifyRef.current = false;
       return;
     }
-    setMessages(unifyMessages(sekCase));
+    const unified = unifyMessages(sekCase);
+    debugLogMessages(unified, sekCase.id);
+    setMessages(unified);
   }, [sekCase]);
 
   /* Helper: combinar casos de un grupo en un único objeto histórico */
@@ -441,22 +474,12 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       } catch { /* lock timeout en dev - ignorar */ }
     })();
 
-    console.log(`[chat-view] Suscribiendo realtime para caso ${targetId}${isGrouped ? " (grupo)" : ""}`);
     const channel = supabase
       .channel(`case-${targetId}`)
-      .on("system", { event: "*" }, (msg) => {
-        console.log(`[chat-view] system event:`, msg.event, msg);
-      })
       .on("postgres_changes", {
         event: "UPDATE", schema: "public", table: "sek_cases",
         filter: `id=eq.${targetId}`
       }, async (payload) => {
-        console.log(`[chat-view] realtime UPDATE recibido para ${targetId}:`, {
-          hasHistcliente: payload.new?.histcliente !== undefined,
-          histclienteLen: Array.isArray(payload.new?.histcliente) ? payload.new.histcliente.length : 0,
-          hasHisttecnico: payload.new?.histtecnico !== undefined,
-          histtecnicoLen: Array.isArray(payload.new?.histtecnico) ? payload.new.histtecnico.length : 0,
-        });
 
         // Para chats agrupados, el payload solo trae el caso objetivo; recargar el historial completo del grupo
         // para no perder mensajes de otros casos del mismo cliente.
@@ -497,11 +520,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
         });
       })
       .subscribe((status, err) => {
-        console.log(`[chat-view] realtime subscription status:`, status, err || "");
-        // Si el canal se cae (error, timeout o cierre inesperado), reconectar tras 2s
-        // para no depender únicamente del polling en caso de fallas de red prolongadas.
         if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
-          console.warn(`[chat-view] canal realtime perdido (${status}), reintentando en 2s...`);
           setTimeout(() => { if (mounted) { try { channel.subscribe(); } catch {} } }, 2000);
         }
       });
@@ -520,8 +539,10 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     /* Función de refetch reutilizable: la usa tanto el polling periódico como
        el listener de visibilidad (para refrescar de inmediato al volver a la pestaña,
        cubriendo el caso donde el navegador/OS pausó los timers en segundo plano). */
+    let pollInFlight = false;
     const doPoll = async () => {
-      console.log(`[chat-view] polling ${targetId}${isGrouped ? " (grupo)" : ""}`);
+      if (pollInFlight) return;
+      pollInFlight = true;
       try {
         if (isGrouped && initialCaseRef.current._group?.caseIds?.length) {
           // Para chats agrupados, recargar el historial completo de todos los casos
@@ -542,7 +563,6 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
           .maybeSingle();
         if (error) { console.error(`[chat-view] polling error:`, error); return; }
         if (data && mounted) {
-          console.log(`[chat-view] polling data: hc=${Array.isArray(data.histcliente)?data.histcliente.length:0}, ht=${Array.isArray(data.histtecnico)?data.histtecnico.length:0}, last=${data.last_message_preview?.slice(0,40)}`);
           setSekCase(prev => {
             const update: any = {
               estado: data.estado,
@@ -578,11 +598,13 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
         }
       } catch (e) {
         console.error(`[chat-view] polling error:`, e);
+      } finally {
+        pollInFlight = false;
       }
     };
 
     /* Polling de respaldo cada 10s con campos mínimos */
-    const poll = setInterval(doPoll, 10000);
+    const poll = setInterval(doPoll, 15000);
 
     /* Refetch inmediato al volver a la pestaña/ventana. Cubre el caso donde el
        navegador o el sistema operativo pausó los timers en segundo plano (pestaña
@@ -590,7 +612,6 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
        sin que el agente lo notara. */
     const handleVisibility = () => {
       if (document.visibilityState === "visible") {
-        console.log("[chat-view] pestaña visible de nuevo, forzando refetch inmediato");
         doPoll();
       }
     };
@@ -760,7 +781,14 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     } catch (e: any) {
       toast.error("No se pudo enviar", { description: (e as any)?.message });
       setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...m, status: "error" } : m));
-    } finally { sendingRef.current = false; setSending(false); setReplyTo(null); }
+    } finally {
+      sendingRef.current = false;
+      setSending(false);
+      setReplyTo(null);
+      if (!isNota) {
+        // Mensajería se trackea por tiempo en caso via use-activity-tracker
+      }
+    }
   }
 
   async function startRecording() {
@@ -914,77 +942,27 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
         description: `"${file.name}" pesa ${(file.size / 1024 / 1024).toFixed(1)} MB. Esto puede tardar unos minutos.`,
       });
       try {
-        // 1. Obtener access token desde el backend
-        const tokenRes = await fetch("/api/drive-token");
-        if (!tokenRes.ok) {
-          const d = await tokenRes.json().catch(() => ({}));
-          if (d.needsReauth) {
-            throw new Error("Google Drive requiere re-autorización. Un administrador debe visitar /api/drive-oauth-start para reconectar.");
-          }
-          throw new Error(d.error || `Error ${tokenRes.status}`);
-        }
-        const { accessToken, folderId } = await tokenRes.json();
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("caseId", String(targetId));
+        formData.append("agentEmail", agentEmail);
 
-        // 2. Subir directamente a Google Drive desde el navegador
-        const boundary = "-------sekunet" + Date.now().toString(36);
-        const metadata = JSON.stringify({ name: file.name, parents: [folderId] });
-        const fileBuffer = await file.arrayBuffer();
-        const body = new Blob([
-          new Blob([`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n`]),
-          new Blob([metadata]),
-          new Blob([`\r\n--${boundary}\r\nContent-Type: ${file.type || "application/octet-stream"}\r\n\r\n`]),
-          new Blob([fileBuffer]),
-          new Blob([`\r\n--${boundary}--\r\n`]),
-        ], { type: `multipart/related; boundary=${boundary}` });
-
-        const uploadRes = await fetch(
-          "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id",
-          {
-            method: "POST",
-            headers: { Authorization: `Bearer ${accessToken}` },
-            body,
-          }
-        );
+        const uploadRes = await fetch("/api/upload-drive", {
+          method: "POST",
+          body: formData,
+        });
         if (!uploadRes.ok) {
-          const d = await uploadRes.text();
-          throw new Error(`Drive upload failed: ${d}`);
+          const d = await uploadRes.json().catch(() => ({}));
+          throw new Error(d.error || `Error ${uploadRes.status}`);
         }
-        const uploadData = await uploadRes.json();
-        const fileId = uploadData.id;
-
-        // 3. Hacer el archivo público
-        await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ role: "reader", type: "anyone" }),
-        });
-
-        const shareableLink = `https://drive.google.com/file/d/${fileId}/view?usp=sharing`;
-
-        // 4. Registrar en BD
-        await fetch("/api/drive-register", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            fileId,
-            fileName: file.name,
-            mimeType: file.type || "application/octet-stream",
-            fileSize: file.size,
-            shareableLink,
-            caseId: String(targetId),
-            agentEmail,
-          }),
-        });
+        const { shareableLink } = await uploadRes.json();
 
         const driveMsg = `Estimado cliente:\n\nA continuación, le compartimos el enlace para la descarga directa del archivo solicitito:\n\n${shareableLink}\n\nPor favor, tenga en cuenta que el enlace permanecerá activo durante las próximas 2 horas.\n\nSi requiere cualquier otra asistencia, con gusto estaremos para ayudarle.`;
 
-        // 5. Registrar en histtecnico PRIMERO (para que persistMessageId lo encuentre)
+        // Registrar en histtecnico PRIMERO (para que persistMessageId lo encuentre)
         await send(driveMsg, undefined, undefined, undefined, true);
 
-        // 6. Enviar el mensaje con el enlace por WhatsApp
+        // Enviar el mensaje con el enlace por WhatsApp
         const sendRes = await fetch("/api/evolution/send", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1161,6 +1139,14 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       if (error) { toast.error("Error al cerrar caso"); return; }
       setSekCase(prev => ({ ...prev, estado: "cerrado" }));
       toast.success("Caso cerrado");
+      logActivity({
+        agent_email: agentEmail,
+        agent_name: agentName || agentEmail,
+        action: `Cerró el caso ${sekCase.customer_phone || targetId} (modo no atendido)`,
+        category: "Gestión de casos",
+        case_id: targetId,
+        metadata: { previous_state: sekCase.estado, new_state: "cerrado", channel: sekCase.canal },
+      });
       setShowActions(false);
       return;
     }
@@ -1399,6 +1385,14 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       if (error) throw error;
       setSekCase(prev => ({ ...prev, estado: "abierto", assigned_to: agentEmail }));
       toast.success("Caso aceptado");
+      logActivity({
+        agent_email: agentEmail,
+        agent_name: agentName || agentEmail,
+        action: `Tomó el caso ${sekCase.customer_phone || targetId} del estado "escalado" y lo movió a "abierto"`,
+        category: "Gestión de casos",
+        case_id: targetId,
+        metadata: { previous_state: "escalado", new_state: "abierto", channel: sekCase.canal },
+      });
       fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "busy" }) });
 
       // Enviar mensaje de bienvenida automático para casos WhatsApp

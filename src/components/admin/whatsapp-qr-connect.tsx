@@ -71,8 +71,7 @@ export function WhatsAppQRConnect() {
   async function logout() {
     setLastError(null);
     try {
-      let r = await evoProxy(`/instance/logout/${encodeURIComponent(instance)}`, "DELETE");
-      if (!r.ok) r = await evoProxy(`/instance/logout/${encodeURIComponent(instance)}`, "POST");
+      const r = await evoProxy(`/instance/logout/${encodeURIComponent(instance)}`, "DELETE");
       setLastResponse(`logout: HTTP ${r.status}\n${JSON.stringify(r.data).slice(0, 500)}`);
       if (!r.ok) throw new Error(`HTTP ${r.status}: ${JSON.stringify(r.data)}`);
       toast.success("Sesión cerrada. Puede generar QR ahora.");

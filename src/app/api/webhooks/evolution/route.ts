@@ -1224,12 +1224,27 @@ export async function POST(req: NextRequest) {
   let replyTo: { content: string; author: string } | null = null;
   try {
     const msgObj = get(payload, "data.messages.0.message") || get(payload, "data.message") || get(payload, "message") || {};
-    const ctx = msgObj?.extendedTextMessage?.contextInfo || msgObj?.contextInfo;
+    // contextInfo puede venir en cualquier tipo de mensaje (conversation, extendedText, image, video, document, etc.)
+    const ctx = msgObj?.extendedTextMessage?.contextInfo
+      || msgObj?.conversation?.contextInfo
+      || msgObj?.imageMessage?.contextInfo
+      || msgObj?.videoMessage?.contextInfo
+      || msgObj?.ptvMessage?.contextInfo
+      || msgObj?.audioMessage?.contextInfo
+      || msgObj?.documentMessage?.contextInfo
+      || msgObj?.documentWithCaptionMessage?.message?.contextInfo
+      || msgObj?.viewOnceMessage?.message?.contextInfo
+      || msgObj?.ephemeralMessage?.message?.extendedTextMessage?.contextInfo
+      || msgObj?.ephemeralMessage?.message?.conversation?.contextInfo
+      || msgObj?.ephemeralMessage?.message?.imageMessage?.contextInfo
+      || msgObj?.ephemeralMessage?.message?.videoMessage?.contextInfo
+      || msgObj?.contextInfo;
     if (ctx?.quotedMessage) {
       const qm = ctx.quotedMessage;
-      const quotedText = qm.conversation || qm.extendedTextMessage?.text || qm.imageMessage?.caption || qm.videoMessage?.caption || "";
+      const quotedText = qm.conversation || qm.extendedTextMessage?.text || qm.imageMessage?.caption || qm.videoMessage?.caption || qm.documentMessage?.caption || qm.documentWithCaptionMessage?.message?.caption || "";
       if (quotedText) {
-        replyTo = { content: quotedText.slice(0, 200), author: ctx.participant || "Cliente" };
+        const authorPhone = jidToPhone(ctx.participant) || ctx.participant || "Cliente";
+        replyTo = { content: quotedText.slice(0, 200), author: authorPhone };
       }
     }
   } catch {}
@@ -1322,7 +1337,8 @@ export async function POST(req: NextRequest) {
           updatedHist[duplicateIndex] = {
             ...updatedHist[duplicateIndex],
             messageId: keyId,
-            fromMe: true
+            fromMe: true,
+            time: msgTime,
           };
           await supabase
             .from("sek_cases")

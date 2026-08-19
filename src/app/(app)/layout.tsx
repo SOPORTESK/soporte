@@ -15,46 +15,100 @@ import { N2Badge } from "@/components/n2-badge";
 import { SmartInboxBadge } from "@/components/smart-inbox-badge";
 import { EscalatedCasesBanner } from "@/components/escalated-cases-banner";
 import { FloatingTechAssistant } from "@/components/floating-tech-assistant";
+import { ActivityTrackerProvider } from "@/components/activity-tracker-provider";
+import { getUserWithTimeout, queryWithFallback } from "@/lib/supabase/resilient";
 
 export const dynamic = 'force-dynamic';
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { user } = await getUserWithTimeout(supabase);
   if (!user) redirect("/login");
 
-  const { data: agent } = await supabase
-    .from("sek_agent_config").select("*").ilike("email", user.email!).maybeSingle();
+  const email = user.email!;
+
+  const { data: agent, fromCache: agentFromCache } = await queryWithFallback(
+    `agent_config_${email}`,
+    async () => {
+      const { data, error } = await supabase
+        .from("sek_agent_config").select("*").ilike("email", email).maybeSingle();
+      return { data, error };
+    },
+    null
+  );
   const a = agent as SekAgent | null;
 
   const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
-  const { data: onlineAgents } = await supabase
-    .from("sek_agent_config")
-    .select("email, nombre, apellido, avatar_url, status, last_seen_at")
-    .neq("status", "offline")
-    .gte("last_seen_at", twoMinutesAgo);
+  const { data: onlineAgents } = await queryWithFallback(
+    "online_agents",
+    async () => {
+      const { data, error } = await supabase
+        .from("sek_agent_config")
+        .select("email, nombre, apellido, avatar_url, status, last_seen_at")
+        .neq("status", "offline")
+        .gte("last_seen_at", twoMinutesAgo);
+      return { data, error };
+    },
+    []
+  );
 
-  const { count: n2Count } = await supabase
-    .from("sek_cases")
-    .select("*", { count: "exact", head: true })
-    .eq("estado", "escalado")
-    .is("assigned_to", null);
+  const { data: n2CountData } = await queryWithFallback(
+    "n2_count",
+    async () => {
+      const { count, error } = await supabase
+        .from("sek_cases")
+        .select("*", { count: "exact", head: true })
+        .eq("estado", "escalado")
+        .is("assigned_to", null);
+      return { data: count as any, error };
+    },
+    0
+  );
+  const n2Count = (n2CountData as number) ?? 0;
 
-  // Contar casos en Smart Inbox (IA atendiendo)
-  const { count: smartCount } = await supabase
-    .from("sek_cases")
-    .select("*", { count: "exact", head: true })
-    .eq("estado", "ia_atendiendo")
-    .neq("canal", "simulator");
+  const { data: smartCountData } = await queryWithFallback(
+    "smart_count",
+    async () => {
+      const { count, error } = await supabase
+        .from("sek_cases")
+        .select("*", { count: "exact", head: true })
+        .eq("estado", "ia_atendiendo")
+        .neq("canal", "simulator");
+      return { data: count as any, error };
+    },
+    0
+  );
+  const smartCount = (smartCountData as number) ?? 0;
 
+  if (!a) {
+    // Si viene del cache, mostrar banner de advertencia pero no bloquear
+    if (agentFromCache) {
+      // Datos del cache: el agente está registrado, pero Supabase no responde ahora
+    } else {
+      return (
+        <div className="min-h-dvh grid place-items-center p-6 px-safe">
+          <div className="max-w-md text-center space-y-4">
+            <h1 className="text-2xl font-bold">Acceso restringido</h1>
+            <p className="text-muted-foreground">
+              Tu correo <strong>{email}</strong> no est&aacute; registrado como agente en
+              <code className="mx-1 rounded bg-muted px-1">sek_agent_config</code>.
+            </p>
+            <LogoutButton />
+          </div>
+        </div>
+      );
+    }
+  }
+
+  // Si agent es null pero vino del cache (no debería pasar, pero por seguridad)
   if (!a) {
     return (
       <div className="min-h-dvh grid place-items-center p-6 px-safe">
         <div className="max-w-md text-center space-y-4">
-          <h1 className="text-2xl font-bold">Acceso restringido</h1>
+          <h1 className="text-2xl font-bold">Supabase no disponible</h1>
           <p className="text-muted-foreground">
-            Tu correo <strong>{user.email}</strong> no está registrado como agente en
-            <code className="mx-1 rounded bg-muted px-1">sek_agent_config</code>.
+            No se pudo verificar tu acceso. La base de datos no est&aacute; respondiendo.
+            Reintent&aacute; en unos segundos.
           </p>
           <LogoutButton />
         </div>
@@ -66,7 +120,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const isTecnico = a.rol === "tecnico";
   const canAccessAdmin = isAdmin || isTecnico;
   const adminHref = isTecnico ? "/admin/equipo" : "/admin";
-  const fullName = [a.nombre, a.apellido].filter(Boolean).join(" ") || user.email!;
+  const fullName = [a.nombre, a.apellido].filter(Boolean).join(" ") || email;
 
   return (
     <GodModeWrapper originalAgent={a}>
@@ -114,7 +168,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           </div>
         )}
 
-        <nav className="flex-1 p-3 space-y-1">
+        <nav className="flex-1 min-h-0 p-3 space-y-1 overflow-y-auto">
           <SidebarLink href="/smart-inbox" icon={<Bot className="h-4 w-4" />} badge={<SmartInboxBadge initialCount={smartCount ?? 0} />}>Smart Inbox</SidebarLink>
           <SidebarLink href="/soporte-avanzado" icon={<Wrench className="h-4 w-4" />} badge={<N2Badge initialCount={n2Count ?? 0} />}>Soporte Avanzado</SidebarLink>
           <SidebarLink href="/mi-gestion" icon={<FolderKanban className="h-4 w-4" />}>Mi Bandeja de Gestión</SidebarLink>
@@ -143,6 +197,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       onlineAgents={onlineAgents || []}
     />
     <FloatingTechAssistant />
+    <ActivityTrackerProvider agentEmail={a.email} agentName={fullName} enabled={canAccessAdmin} />
     </div>
     </GodModeWrapper>
   );

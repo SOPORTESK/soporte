@@ -1,9 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  serverExternalPackages: ["pdf-parse", "tesseract.js", "ffmpeg-static", "fluent-ffmpeg"],
   experimental: {
     instrumentationHook: true,
+    serverComponentsExternalPackages: ["pdf-parse", "tesseract.js", "ffmpeg-static", "fluent-ffmpeg"],
   },
   images: {
     unoptimized: true,
