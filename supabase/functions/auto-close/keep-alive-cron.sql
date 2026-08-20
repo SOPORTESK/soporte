@@ -13,7 +13,7 @@ SECURITY DEFINER
 AS $$
 BEGIN
   PERFORM net.http_get(
-    url := 'https://sekunet-evolution-api.onrender.com/',
+    url := 'https://evolution-api-latest-is1z.onrender.com/',
     headers := '{}'::jsonb
   );
 END;
