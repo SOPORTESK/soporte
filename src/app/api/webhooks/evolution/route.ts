@@ -515,8 +515,8 @@ async function extractJid(payload: any, evoUrl: string, evoKey: string, evoInsta
   let rawJid: string | null = null;
   const msg = get(payload, "data.messages.0");
   
-  // Buscar pnJid o senderPn en otros campos (senderPn viene directo en el payload de v2.3)
-  let possiblePnJid = get(msg, "verifiedBizName") || get(payload, "data.pnJid") || get(msg, "senderPn") || get(payload, "data.senderPn") || get(payload, "senderPn");
+  // Buscar pnJid o senderPn en otros campos (senderPn viene en key.senderPn en v2.3)
+  let possiblePnJid = get(msg, "verifiedBizName") || get(payload, "data.pnJid") || get(msg, "key.senderPn") || get(msg, "senderPn") || get(payload, "data.key.senderPn") || get(payload, "data.senderPn") || get(payload, "senderPn");
 
   if (msg) {
     const fromMe = !!get(msg, "key.fromMe");
@@ -604,8 +604,8 @@ async function extractJid(payload: any, evoUrl: string, evoKey: string, evoInsta
     }
     
     // Último recurso: si el payload trae senderPn (número real @s.whatsapp.net),
-    // usarlo en vez del LID opaco.
-    const senderPnFallback = get(msg, "senderPn") || get(payload, "data.senderPn") || get(payload, "senderPn");
+    // usarlo en vez del LID opaco. En v2.3 está en key.senderPn.
+    const senderPnFallback = get(msg, "key.senderPn") || get(msg, "senderPn") || get(payload, "data.key.senderPn") || get(payload, "data.senderPn") || get(payload, "senderPn");
     if (senderPnFallback && String(senderPnFallback).endsWith("@s.whatsapp.net")) {
       console.log("[evo-webhook] LID no resuelto por contacts, usando senderPn como JID:", senderPnFallback);
       return String(senderPnFallback);
