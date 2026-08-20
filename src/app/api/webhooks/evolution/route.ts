@@ -610,6 +610,11 @@ async function extractJid(payload: any, evoUrl: string, evoKey: string, evoInsta
       console.log("[evo-webhook] LID no resuelto por contacts, usando senderPn como JID:", senderPnFallback);
       return String(senderPnFallback);
     }
+
+    // Si llegamos aquí, el LID no se pudo resolver por ninguna vía.
+    // Devolver null para que el mensaje NO se guarde con un identificador opaco.
+    console.warn("[evo-webhook] LID no resuelto por ninguna vía, descartando mensaje:", rawJid);
+    return null;
   }
 
   return rawJid;

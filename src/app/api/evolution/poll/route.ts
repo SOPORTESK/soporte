@@ -115,7 +115,14 @@ export async function GET(req: NextRequest) {
       if (fromMe) {
         phone = jidToPhone(remoteJid);
       } else {
-        phone = jidToPhone(senderPn) || jidToPhone(remoteJid);
+        // Para LID opaco, SIEMPRE usar senderPn. Si no trae senderPn, ignorar
+        // el mensaje porque el LID no identifica al cliente.
+        if (String(remoteJid || "").endsWith("@lid")) {
+          if (!senderPn) continue; // Sin senderPn no podemos identificar al cliente
+          phone = jidToPhone(senderPn);
+        } else {
+          phone = jidToPhone(senderPn) || jidToPhone(remoteJid);
+        }
       }
 
       if (!phone) continue;
@@ -133,9 +140,10 @@ export async function GET(req: NextRequest) {
           .order("created_at", { ascending: false })
           .limit(1)
           .maybeSingle();
-        if (matchCase) {
-          caseId = matchCase.id;
-          phoneToCase.set(phone, caseId);
+        if (matchCase?.id) {
+          const id: string = matchCase.id;
+          caseId = id;
+          phoneToCase.set(phone, id);
         }
       }
 
