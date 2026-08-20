@@ -73,7 +73,12 @@ export function WhatsAppQRConnect() {
     try {
       const r = await evoProxy(`/instance/logout/${encodeURIComponent(instance)}`, "DELETE");
       setLastResponse(`logout: HTTP ${r.status}\n${JSON.stringify(r.data).slice(0, 500)}`);
-      if (!r.ok) throw new Error(`HTTP ${r.status}: ${JSON.stringify(r.data)}`);
+      if (!r.ok) {
+        throw new Error(
+          `El servidor de Evolution (${evoUrl}) respondió HTTP ${r.status}. ` +
+          `Verifique que la URL configurada arriba sea la correcta. Detalle: ${JSON.stringify(r.data)}`
+        );
+      }
       toast.success("Sesión cerrada. Puede generar QR ahora.");
       setStatus("close");
       setQrCode(null);

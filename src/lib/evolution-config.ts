@@ -10,17 +10,15 @@ interface EvolutionConfig {
 const DEFAULT_KEY = "evolution_api_config";
 
 export async function getEvolutionConfig(): Promise<EvolutionConfig> {
-  // PRIORIDAD 1: variables de entorno (.env.local) — siempre mandan
   const envUrl = process.env.EVOLUTION_API_URL || "";
   const envKey = process.env.EVOLUTION_API_KEY || "";
   const envInstance = process.env.EVOLUTION_INSTANCE || "";
-  if (envUrl && envKey && envInstance) {
-    return { url: envUrl, apiKey: envKey, instance: envInstance };
-  }
 
   const supabase = createServiceClient();
 
-  // 2. Fallback a Supabase (cifrado)
+  // PRIORIDAD 1: config guardada desde el panel admin (cifrada en Supabase).
+  // El panel debe poder cambiar la URL sin depender de redeploys ni de variables
+  // de entorno desactualizadas; las env vars quedan solo como respaldo.
   try {
     const { data, error } = await supabase
       .from("sek_app_settings")
@@ -41,7 +39,7 @@ export async function getEvolutionConfig(): Promise<EvolutionConfig> {
     // tabla no existe o error de descifrado
   }
 
-  // 3. Último fallback
+  // PRIORIDAD 2: variables de entorno
   return { url: envUrl, apiKey: envKey, instance: envInstance };
 }
 
@@ -54,18 +52,18 @@ export async function saveEvolutionConfig(cfg: EvolutionConfig): Promise<void> {
   });
   const { encrypted, iv, tag } = encrypt(payload);
 
-  try {
-    await supabase
-      .from("sek_app_settings")
-      .upsert({
-        key: DEFAULT_KEY,
-        value: encrypted,
-        iv,
-        tag,
-        updated_at: new Date().toISOString(),
-      });
-  } catch (e: any) {
-    throw new Error("No se pudo guardar en Supabase. Aplique la migración 0009_app_settings.sql: " + e?.message);
+  const { error } = await supabase
+    .from("sek_app_settings")
+    .upsert({
+      key: DEFAULT_KEY,
+      value: encrypted,
+      iv,
+      tag,
+      updated_at: new Date().toISOString(),
+    });
+
+  if (error) {
+    throw new Error("No se pudo guardar en Supabase. Aplique la migración 0009_app_settings.sql: " + error.message);
   }
 }
 
