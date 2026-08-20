@@ -1222,6 +1222,19 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
           }
         } catch (e) { console.warn("[confirmClose] auto-extract failed:", e); }
 
+        // Enviar mensaje de despedida al cliente por WhatsApp antes de la encuesta
+        const farewellMsg = "Ha sido un placer atenderle. Quedamos a su disposición. ¡Que tenga un excelente día!";
+        try {
+          const phone = (sekCase as any).customer_phone || (sekCase.cliente as any)?.telefono || "";
+          if (phone) {
+            await fetch("/api/evolution/send", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ case_id: targetId, phone, text: farewellMsg }),
+            });
+          }
+        } catch (e) { console.warn("[confirmClose] Error enviando despedida:", e); }
+
         // Iniciar encuesta: envía mensaje al cliente y cambia estado a calificacion_pendiente
         console.log("[confirmClose] Iniciando encuesta para caso", targetId, "canal:", sekCase.canal);
         const surveyRes = await fetch(`/api/cases/${targetId}/start-survey`, { method: "POST" });
@@ -1398,7 +1411,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       // Enviar mensaje de bienvenida automático para casos WhatsApp
       const isWhatsApp = String(sekCase.canal || "").toLowerCase() === "whatsapp";
       if (isWhatsApp && agentName) {
-        const welcomeMsg = `Buen día. Gracias por contactarnos.\n\nMi nombre es ${agentName} y con gusto le asistiré con su caso.\n\nPara el registro, por favor facilítenos su:\n\nNombre completo\nCorreo electrónico\nNombre de la cuenta afiliada a Sekunet.\n\nQuedamos atentos. Gracias.`;
+        const welcomeMsg = `Buen día. Gracias por contactarnos.\n\nMi nombre es ${agentName} y con gusto le asistiré con su caso.\n\nPara el registro, por favor facilítenos su:\n\nNombre completo\nCorreo electrónico\nNombre de la cuenta afiliada a Sekunet.\nNombre del vendedor encargado de su cuenta\n\nQuedamos atentos. Gracias.`;
 
         // Guardar mensaje en histtecnico (append atómico)
         const welcomeEntry = {
