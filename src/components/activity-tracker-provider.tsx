@@ -36,9 +36,11 @@ export function ActivityTrackerProvider({
 
     if (electronAPI?.isElectron) {
       // Electron: usar IPC nativo para tracking de OS
+      // Guard: el preload puede no exponer estas funciones en todas las versiones
+      if (typeof electronAPI.activityStart !== "function") return;
       electronAPI.activityStart(agentEmail, agentName);
       return () => {
-        electronAPI.activityStop();
+        if (typeof electronAPI.activityStop === "function") electronAPI.activityStop();
       };
     } else {
       // Web/local: intentar desktop-agent via API (solo funciona en local)
