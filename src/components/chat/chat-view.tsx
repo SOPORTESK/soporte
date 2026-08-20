@@ -123,7 +123,7 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
 
   return out
     .filter((m) => {
-      const isEmpty = !m.content || m.content.trim().length === 0;
+      const isEmpty = (!m.content || m.content.trim().length === 0) && !m.mediaUrl;
       const isDeleted = m.deleted || m.deleted_for_me;
       return !isEmpty && !isDeleted;
     })

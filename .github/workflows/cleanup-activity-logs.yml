@@ -1,0 +1,28 @@
+name: Cleanup Activity Logs
+
+# Borra logs de actividad mayores a 60 días.
+# Corre semanal los domingos a las 03:00 UTC.
+# Mantiene los últimos 2 meses para analíticas.
+
+on:
+  schedule:
+    - cron: '0 3 * * 0'
+  workflow_dispatch:
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Call cleanup endpoint
+        run: |
+          RESPONSE=$(curl -s -w "\n%{http_code}" -m 55 "https://sekachat.vercel.app/api/activity/cleanup")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+          echo "HTTP: $HTTP_CODE"
+          echo "Response: $BODY"
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "Cleanup failed with HTTP $HTTP_CODE"
+            exit 1
+          fi
+          echo "Cleanup OK"

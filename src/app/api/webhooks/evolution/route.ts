@@ -1332,6 +1332,22 @@ export async function POST(req: NextRequest) {
               return true;
             }
           }
+          // Dedup fuzzy: si el agente editó el mensaje después de enviarlo,
+          // el texto ya no coincide exacto. Comparar por prefijo (primeros 30 chars)
+          // y por ventana de tiempo (60 segundos).
+          if (m.content && text && !m.messageId) {
+            const prefix1 = m.content.trim().slice(0, 30).toLowerCase();
+            const prefix2 = text.trim().slice(0, 30).toLowerCase();
+            if (prefix1 && prefix2 && prefix1 === prefix2) {
+              const msgTime = m.time ? new Date(m.time).getTime() : 0;
+              const echoTime = msgTime ? new Date(msgTime).getTime() : Date.now();
+              const diff = Math.abs(echoTime - msgTime);
+              if (diff < 120000) { // 2 minutos
+                duplicateIndex = idx;
+                return true;
+              }
+            }
+          }
           // Si es un archivo, comparamos por mediaUrl
           if (mediaUrl && m.mediaUrl) {
             const url1 = mediaUrl.split('/').pop()?.split('?')[0];
