@@ -707,6 +707,18 @@ export async function POST(req: NextRequest) {
   let payload: any = null;
   try { payload = await req.json(); } catch { payload = null; }
   console.log("[evo-webhook] Payload recibido, event:", payload?.event);
+  // DEBUG: log completo del payload para ver dónde viene senderPn
+  if (payload?.event === "MESSAGES_UPSERT") {
+    try {
+      await supabase.from("sek_app_settings").upsert({
+        key: "debug_last_payload",
+        value: JSON.stringify(payload).slice(0, 5000),
+        iv: "debug",
+        tag: "debug",
+        updated_at: new Date().toISOString(),
+      });
+    } catch {}
+  }
 
   // LOG: si el mensaje tiene documentMessage, guardar el payload completo para debug
   const _dbgMsg = payload?.data?.message || payload?.data?.messages?.[0]?.message || payload?.message;
