@@ -1071,9 +1071,12 @@ Deno.serve(async (req: Request) => {
     }
 
     const estado = String(caso.estado || "").toLowerCase();
-    if (estado === "cerrado" || estado === "resuelto" || estado === "escalado") {
-      console.log("[seka-whatsapp] Caso ya no activo:", estado);
-      return new Response(JSON.stringify({ ok: true, skipped: true }), { status: 200, headers: corsHeaders });
+    // SÓLO atender si el caso está en modo IA. Cualquier otro estado (abierto, escalado,
+    // cerrado, resuelto, calificacion_pendiente) significa que un humano tomó el caso o
+    // ya fue cerrado, y la IA NO debe interferir.
+    if (estado !== "ia_atendiendo") {
+      console.log("[seka-whatsapp] Caso no está en ia_atendiendo:", estado, "— skip");
+      return new Response(JSON.stringify({ ok: true, skipped: true, reason: `estado_${estado}` }), { status: 200, headers: corsHeaders });
     }
 
     const histcliente: HistMsg[] = Array.isArray(caso.histcliente) ? caso.histcliente : [];

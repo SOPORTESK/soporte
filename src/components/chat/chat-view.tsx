@@ -1915,7 +1915,10 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
         )}
         {messages.map((m, i) => {
           const prev = messages[i - 1];
+          const next = messages[i + 1];
           const showDate = !prev || new Date(prev.time).toDateString() !== new Date(m.time).toDateString();
+          const isSameAuthorAsPrev = prev && prev.source === m.source;
+          const isSameAuthorAsNext = next && next.source === m.source;
           return (
             <React.Fragment key={m.id}>
               {showDate && (
@@ -1925,7 +1928,19 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
                   <div className="flex-1 h-px bg-border" />
                 </div>
               )}
-              <Bubble m={m} clienteName={ci.nombre} onImageClick={(url, type, name) => setPreviewMedia({ url, type, name })} agentEmail={agentEmail} onMessageUpdate={handleMessageUpdate} fallbackCaseId={targetId} onReply={(msg) => { setReplyTo(msg); setMode("reply"); setTimeout(() => { const ta = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Mensaje"]'); if (ta) ta.focus(); }, 50); }} />
+              <div className={cn("transition-opacity", isSameAuthorAsPrev ? "-mt-0.5" : "mt-2")}>
+                <Bubble
+                  m={m}
+                  prev={prev}
+                  next={next}
+                  clienteName={ci.nombre}
+                  onImageClick={(url, type, name) => setPreviewMedia({ url, type, name })}
+                  agentEmail={agentEmail}
+                  onMessageUpdate={handleMessageUpdate}
+                  fallbackCaseId={targetId}
+                  onReply={(msg) => { setReplyTo(msg); setMode("reply"); setTimeout(() => { const ta = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Mensaje"]'); if (ta) ta.focus(); }, 50); }}
+                />
+              </div>
             </React.Fragment>
           );
         })}
@@ -2602,8 +2617,10 @@ function MediaPreview({ url, type, name, onImageClick }: { url: string; type?: s
   );
 }
 
-function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onReply, fallbackCaseId }: { 
+function Bubble({ m, prev, next, clienteName, onImageClick, agentEmail, onMessageUpdate, onReply, fallbackCaseId }: { 
   m: UnifiedMessage; 
+  prev?: UnifiedMessage;
+  next?: UnifiedMessage;
   clienteName: string; 
   onImageClick?: (url: string, type?: string, name?: string) => void;
   agentEmail: string | null;
@@ -2897,6 +2914,9 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
     }
   };
 
+  const isSameAuthorAsPrev = prev && prev.source === m.source;
+  const showHeader = !isSameAuthorAsPrev;
+
   if (isDeletedForMe || isDeletedForEveryone) {
     // Mensaje eliminado - mostrar placeholder
     return (
@@ -2951,6 +2971,7 @@ function Bubble({ m, clienteName, onImageClick, agentEmail, onMessageUpdate, onR
         )}
         <div className={cn(
           "flex items-center gap-1.5 text-[10px] font-semibold mb-0.5",
+          !showHeader && "hidden",
           isCliente && "text-muted-foreground",
           (isIA || isTecnico) && "opacity-90"
         )}>
