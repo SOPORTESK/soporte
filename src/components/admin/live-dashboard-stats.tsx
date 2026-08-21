@@ -81,11 +81,11 @@ export function LiveDashboardStats({ initial }: { initial: InitialData }) {
         { count: totalCasos },
         { data: casosRecientes },
       ] = await Promise.all([
-        supabase.from("sek_cases").select("*", { count: "exact", head: true }).in("estado", ["ia_atendiendo", "abierto", "escalado", "pendiente"]).neq("canal", "simulator"),
-        supabase.from("sek_cases").select("*", { count: "exact", head: true }).eq("estado", "escalado").neq("canal", "simulator"),
-        supabase.from("sek_cases").select("*", { count: "exact", head: true }).eq("estado", "ia_atendiendo").neq("canal", "simulator"),
-        supabase.from("sek_cases").select("*", { count: "exact", head: true }).neq("canal", "simulator"),
-        supabase.from("sek_cases").select("id, title, estado, canal, created_at, assigned_to").neq("canal", "simulator").order("created_at", { ascending: false }).limit(6),
+        supabase.from("sek_cases").select("*", { count: "exact", head: true }).in("estado", ["ia_atendiendo", "abierto", "escalado", "pendiente"]).neq("canal", "simulator").neq("es_test", true),
+        supabase.from("sek_cases").select("*", { count: "exact", head: true }).eq("estado", "escalado").neq("canal", "simulator").neq("es_test", true),
+        supabase.from("sek_cases").select("*", { count: "exact", head: true }).eq("estado", "ia_atendiendo").neq("canal", "simulator").neq("es_test", true),
+        supabase.from("sek_cases").select("*", { count: "exact", head: true }).neq("canal", "simulator").neq("es_test", true),
+        supabase.from("sek_cases").select("id, title, estado, canal, created_at, assigned_to").neq("canal", "simulator").neq("es_test", true).order("created_at", { ascending: false }).limit(6),
       ]);
 
       if (!mountedRef.current) return;

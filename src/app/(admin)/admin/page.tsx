@@ -50,7 +50,7 @@ export default async function AdminDashboardPage() {
     { count: casosEscalados },
     { count: casosIa },
     { count: totalCanales },
-    { count: totalDocs },
+    { data: docChunks },
     { count: totalInventario },
     { data: casosRecientes },
     { data: allCasos },
@@ -63,13 +63,16 @@ export default async function AdminDashboardPage() {
     supabase.from("sek_cases").select("*", { count: "exact", head: true }).eq("estado", "escalado").neq("canal", "simulator").neq("es_test", true),
     supabase.from("sek_cases").select("*", { count: "exact", head: true }).eq("estado", "ia_atendiendo").neq("canal", "simulator").neq("es_test", true),
     supabase.from("sek_channels").select("*", { count: "exact", head: true }),
-    supabase.from("sek_doc_chunks").select("*", { count: "exact", head: true }),
+    supabase.from("sek_doc_chunks").select("doc_id, doc_name"),
     supabase.from("sek_inventario").select("*", { count: "exact", head: true }),
     supabase.from("sek_cases").select("id, title, estado, canal, created_at, assigned_to").neq("canal", "simulator").neq("es_test", true).order("created_at", { ascending: false }).limit(6),
     supabase.from("sek_cases").select("id, estado, created_at, updated_at, closed_at, cliente, assigned_to, accepted_at, escalado_at").neq("canal", "simulator").neq("es_test", true),
     supabase.from("sek_agent_config").select("email, nombre, apellido, rol").neq("email", "system_prompt@sekunet.com"),
     supabase.from("sek_agent_config").select("system_prompt, ia_activa, modo_no_atendido").eq("email", "system_prompt@sekunet.com").maybeSingle(),
   ]);
+
+  // Manuales unicos: contar por doc_id distinto (no por cantidad de chunks)
+  const manualesUnicos = new Set(docChunks?.map((d: any) => d.doc_id).filter(Boolean)).size;
 
   // ── Calcular KPIs ──────────────────────────────────────────────────────────
   const totalResueltos = allCasos?.filter(c => c.estado === "resuelto" || c.estado === "cerrado" || (c as any).closed_at).length ?? 0;
@@ -173,7 +176,7 @@ export default async function AdminDashboardPage() {
         casosUltSemana,
         totalAgentes: totalAgentes ?? 0,
         totalInventario: totalInventario ?? 0,
-        totalDocs: totalDocs ?? 0,
+        totalDocs: manualesUnicos,
         totalCanales: totalCanales ?? 0,
         promptLen,
         iaActiva,
