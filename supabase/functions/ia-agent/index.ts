@@ -216,14 +216,16 @@ INTERACCIÓN CON EL TÉCNICO:
 
 HERRAMIENTAS DISPONIBLES:
 - Buscar equipos en el inventario con [BUSCAR_INVENTARIO: marca modelo].
-- Buscar información actualizada en la web con [BUSCAR_WEB: consulta]. USE ESTA HERRAMIENTA SIEMPRE que el técnico pregunte por especificaciones técnicas (baterías, voltaje, dimensiones, compatibilidad, firmware, etc.). No responda especificaciones de memoria.
+- Buscar información actualizada en la web con [BUSCAR_WEB: consulta]. USE ESTA HERRAMIENTA SIEMPRE que el técnico pregunte por cualquier información técnica de un equipo (especificaciones, compatibilidad, funcionalidades, integraciones, firmware, etc.). No responda de memoria.
 - Resumir casos y conversaciones cuando se le solicite.
 
-VERIFICACIÓN DE ESPECIFICACIONES TÉCNICAS (OBLIGATORIO):
-- Cuando el técnico pregunte por una especificación técnica específica (tipo de batería, voltaje, corriente, dimensiones, compatibilidad, versión de firmware, etc.), está OBLIGADO a emitir [BUSCAR_WEB: marca modelo especificación] ANTES de responder.
-- NO invente especificaciones basándose en su conocimiento general. Los equipos varían entre modelos y versiones.
-- Si la búsqueda web no devuelve información clara, indique al técnico que no pudo verificar la especificación y sugiera consultar la ficha técnica oficial del fabricante.
+VERIFICACIÓN DE INFORMACIÓN TÉCNICA (OBLIGATORIO):
+- Cuando el técnico pregunte por CUALQUIER información técnica de un equipo — especificaciones (batería, voltaje, corriente, dimensiones), compatibilidad con plataformas/software/apps, funcionalidades soportadas, integraciones, versiones de firmware, protocolos, etc. — está OBLIGADO a emitir [BUSCAR_WEB: marca modelo consulta] ANTES de responder.
+- NO invente información basándose en su conocimiento general. Los equipos varían entre modelos, versiones y regiones. Lo que usted "sabe" puede estar desactualizado o ser incorrecto para un modelo específico.
+- Si la búsqueda web no devuelve información clara, indique al técnico que no pudo verificar la información y sugiera consultar la ficha técnica oficial del fabricante.
 - Cite la fuente de la información obtenida.
+- REGLA CRÍTICA DE AUTOCORRECCIÓN: Si el técnico corrige una respuesta suya o le dice que la información es falsa, NO cambie de opinión automáticamente ni asuma que el técnico tiene razón. Emita [BUSCAR_WEB: marca modelo consulta] para VERIFICAR antes de responder nuevamente. Nunca dé una respuesta contradictoria a una anterior sin haber verificado primero.
+- REGLA DE HONESTIDAD: Si no encontró información verificable, diga explícitamente "No pude verificar esta información en las fuentes oficiales." No presente suposiciones como hechos.
 
 REGLAS:
 - No invente información técnica. Si no está seguro, indique que no dispone de la información y sugiera escalar a Soporte Avanzado.
@@ -1279,22 +1281,38 @@ async function handleTechnicianMode(body: Record<string, unknown>): Promise<Resp
     const webQuery = techWebMatch[1].trim();
     try {
       const searchRes = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_CHAT_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            contents: [{ parts: [{ text: `Busca información técnica actualizada sobre: ${webQuery}. Consulta fichas técnicas oficiales del fabricante, sitios oficiales y foros técnicos. Responde en español, de forma concisa y precisa. Incluye la fuente de donde obtuviste la información.` }] }],
-            generationConfig: { maxOutputTokens: 600, temperature: 0.1 },
+            contents: [{ parts: [{ text: `Búsqueda técnica sobre: ${webQuery}
+
+INSTRUCCIONES PARA LA BÚSQUEDA:
+1. Priorice SITIOS OFICIALES del fabricante (hikvision.com, dahuasecurity.com, zkteco.com, etc.) y sus portales de soporte/descargas.
+2. Consulte fichas técnicas (datasheets), manuales de usuario y notas técnicas oficiales.
+3. Si no encuentra información oficial, busque en foros técnicos reconocidos (forum.hikvision.com, etc.) pero marque esa información como "no oficial".
+4. NUNCA afirme que un equipo NO es compatible con una plataforma/app/software sin haber verificado en la documentación oficial del fabricante. La ausencia de información en una búsqueda no significa incompatibilidad.
+5. Si la información es contradictoria entre fuentes, priorice la oficial del fabricante.
+6. Incluya la URL o nombre de la fuente de donde obtuvo cada dato.
+7. Responda en español, de forma concisa y precisa.` }] }],
+            generationConfig: { maxOutputTokens: 1500, temperature: 0.1 },
             tools: [{ googleSearch: {} }],
           }),
         }
       );
       if (searchRes.ok) {
         const searchData = await searchRes.json();
-        const webResult = searchData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+        // Gemini con googleSearch puede devolver groundingMetadata con las fuentes
+        const candidate = searchData.candidates?.[0];
+        const webResult = candidate?.content?.parts?.[0]?.text?.trim();
+        const groundingSources = candidate?.groundingMetadata?.webSearchQueries || [];
+        const groundingChunks = candidate?.groundingMetadata?.groundingChunks || [];
         if (webResult) {
-          chatMessages.push({ role: "system", content: `[Fuente: Búsqueda Web] Resultado de búsqueda web para "${webQuery}":\n${webResult}\n\nUse esta información verificada para responder al técnico. Cite la fuente.` });
+          const sourceList = groundingChunks.length > 0
+            ? "\n\nFuentes verificadas:\n" + groundingChunks.map((c: any) => `- ${c.web?.uri || c.web?.title || "fuente"}`).join("\n")
+            : "";
+          chatMessages.push({ role: "system", content: `[Fuente: Búsqueda Web Verificada] Resultado de búsqueda para "${webQuery}":\n${webResult}${sourceList}\n\nIMPORTANTE: Use EXCLUSIVAMENTE esta información verificada para responder al técnico. NO use su conocimiento general. Si la búsqueda no confirma una afirmación, NO la haga. Cite las fuentes.` });
           aiResponse = await callAI(chatMessages);
         }
       }
@@ -1706,22 +1724,35 @@ Deno.serve(async (req) => {
       const webQuery = webTagMatch[1].trim();
       try {
         const searchRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${GEMINI_API_KEY}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_CHAT_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              contents: [{ parts: [{ text: `Busca informacion tecnica actualizada sobre: ${webQuery}. Responde en español, de forma concisa y precisa, enfocado en soporte tecnico de equipos de seguridad electronica.` }] }],
-              generationConfig: { maxOutputTokens: 400, temperature: 0.2 },
+              contents: [{ parts: [{ text: `Búsqueda técnica sobre: ${webQuery}
+
+INSTRUCCIONES PARA LA BÚSQUEDA:
+1. Priorice SITIOS OFICIALES del fabricante (hikvision.com, dahuasecurity.com, zkteco.com, etc.) y sus portales de soporte/descargas.
+2. Consulte fichas técnicas (datasheets), manuales de usuario y notas técnicas oficiales.
+3. NUNCA afirme que un equipo NO es compatible con una plataforma/app/software sin haber verificado en la documentación oficial del fabricante. La ausencia de información en una búsqueda no significa incompatibilidad.
+4. Si la información es contradictoria entre fuentes, priorice la oficial del fabricante.
+5. Incluya la URL o nombre de la fuente de donde obtuvo cada dato.
+6. Responda en español, de forma concisa y precisa, enfocado en soporte técnico de equipos de seguridad electrónica.` }] }],
+              generationConfig: { maxOutputTokens: 1500, temperature: 0.1 },
               tools: [{ googleSearch: {} }],
             }),
           }
         );
         if (searchRes.ok) {
           const searchData = await searchRes.json();
-          const webResult = searchData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+          const candidate = searchData.candidates?.[0];
+          const webResult = candidate?.content?.parts?.[0]?.text?.trim();
+          const groundingChunks = candidate?.groundingMetadata?.groundingChunks || [];
           if (webResult) {
-            chatMessages.push({ role: "system", content: `[Fuente: Búsqueda Web] Resultado de busqueda web para "${webQuery}":\n${webResult}\n\nEsta información fue obtenida de internet. Si la usas, indica al cliente que proviene de una búsqueda web.` });
+            const sourceList = groundingChunks.length > 0
+              ? "\n\nFuentes verificadas:\n" + groundingChunks.map((c: any) => `- ${c.web?.uri || c.web?.title || "fuente"}`).join("\n")
+              : "";
+            chatMessages.push({ role: "system", content: `[Fuente: Búsqueda Web Verificada] Resultado de búsqueda web para "${webQuery}":\n${webResult}${sourceList}\n\nIMPORTANTE: Use EXCLUSIVAMENTE esta información verificada para responder al cliente. NO use su conocimiento general. Cite las fuentes.` });
             aiResponse = await callAI(chatMessages);
 
             // Guardar resultado web en RAG para consultas futuras
@@ -1729,7 +1760,7 @@ Deno.serve(async (req) => {
               await db.from("sek_doc_chunks").insert({
                 doc_id: null,
                 doc_name: `Búsqueda Web: ${webQuery.substring(0, 100)}`,
-                content: webResult.substring(0, 2000),
+                content: (webResult + sourceList).substring(0, 2000),
                 chunk_index: 0,
               });
             } catch (_saveErr) { /* no bloquea si falla el guardado */ }

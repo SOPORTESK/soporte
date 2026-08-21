@@ -101,7 +101,7 @@ export async function POST(
     const to = pickPhone(caseData);
 
     if (isWhatsApp && !messageId) {
-      console.warn("[DELETE MSG API] Sin messageId: eliminando solo local, no se puede revocar en WhatsApp");
+      console.warn("[DELETE MSG API] Sin messageId: eliminando solo local, no se puede revocar en WhatsApp. Canal:", caseData.canal, "phone:", to);
       // No bloquear: eliminar del historial local aunque no se pueda revocar en WhatsApp
       // El mensaje ya fue enviado y no tiene tracking, no podemos hacer nada del lado del receptor
     }
@@ -112,6 +112,15 @@ export async function POST(
     if (isWhatsApp && messageId && to) {
       const evoCfg = await getEvolutionConfig();
       const fromMe = (messageObj as any).fromMe ?? (historyType === "histtecnico");
+
+      console.log("[DELETE MSG API] Intentando revocar en WhatsApp:", {
+        messageId,
+        remoteJid: to,
+        fromMe,
+        historyType,
+        evoUrl: evoCfg?.url,
+        evoInstance: evoCfg?.instance,
+      });
 
       if (evoCfg?.url && evoCfg?.apiKey && evoCfg?.instance) {
         const targetJid = to; // pickPhone ya retorna el JID completo
@@ -126,6 +135,8 @@ export async function POST(
             bodyPayload.participant = targetJid;
           }
 
+          console.log("[DELETE MSG API] Enviando a Evolution:", JSON.stringify(bodyPayload));
+
           const res = await fetch(`${evoCfg.url.replace(/\/$/, "")}/chat/deleteMessageForEveryone/${encodeURIComponent(evoCfg.instance)}`, {
             method: "DELETE",
             headers: {
@@ -136,11 +147,14 @@ export async function POST(
           });
 
           const resData = await res.json().catch(() => ({}));
+          console.log("[DELETE MSG API] Respuesta de Evolution:", res.status, JSON.stringify(resData));
+
           if (!res.ok) {
             console.error("[DELETE MSG API] Error en respuesta de Evolution:", res.status, resData);
             whatsappError = `Evolution API: ${resData?.message || resData?.error || res.status}`;
           } else {
             whatsappRevoked = true;
+            console.log("[DELETE MSG API] WhatsApp revocado OK");
           }
         } catch (evoErr) {
           console.error("[DELETE MSG API] Error conectando con Evolution API para revocar:", evoErr);
@@ -148,6 +162,7 @@ export async function POST(
         }
       } else {
         whatsappError = "Evolution API no configurada";
+        console.error("[DELETE MSG API] Evolution no configurada. url:", !!evoCfg?.url, "key:", !!evoCfg?.apiKey, "instance:", !!evoCfg?.instance);
       }
     }
 
