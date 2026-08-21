@@ -1,6 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { Bot, Brain, FileText, Clock, AlertCircle, Zap, Globe, Eye, Package, ArrowUpRight, CheckCircle2, Activity, Sparkles } from "lucide-react";
 import nextDynamic from "next/dynamic";
+import { IaModelsStatus } from "@/components/admin/ia-models-status";
+import { UnattendedModeToggle } from "@/components/admin/unattended-mode-toggle";
 
 const MetaAgentChat = nextDynamic(
   () => import("@/components/admin/meta-agent-chat").then(m => m.MetaAgentChat),
@@ -22,17 +24,36 @@ export default async function AdminAgenteIAPage() {
 
   const { data: agentConfig } = await supabase
     .from("sek_agent_config")
-    .select("system_prompt, nombre, apellido")
+    .select("system_prompt, nombre, apellido, ia_activa, modo_no_atendido")
     .eq("email", "system_prompt@sekunet.com")
     .maybeSingle();
 
+  const iaActiva = agentConfig?.ia_activa ?? true;
+  const modoNoAtendido = agentConfig?.modo_no_atendido ?? false;
+
   const { data: cases } = await supabase
     .from("sek_cases")
-    .select("estado, canal")
+    .select("estado, canal, created_at, escalado_at, closed_at")
     .in("estado", ["ia_atendiendo", "escalado"]);
 
   const iaAtendiendo = cases?.filter(c => c.estado === "ia_atendiendo").length || 0;
   const escalados = cases?.filter(c => c.estado === "escalado").length || 0;
+
+  // Métricas reales de hoy
+  const hoy = new Date();
+  const inicioHoy = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate()).toISOString();
+  const { data: casosHoy } = await supabase
+    .from("sek_cases")
+    .select("id, estado, created_at, escalado_at, closed_at, assigned_to")
+    .gte("created_at", inicioHoy)
+    .neq("canal", "simulator")
+    .neq("es_test", true);
+
+  const casosHoyTotal = casosHoy?.length || 0;
+  const casosHoyIa = casosHoy?.filter(c => c.assigned_to === "system_prompt@sekunet.com" || c.assigned_to === "whatsapp_agent@sekunet.com").length || 0;
+  const casosHoyEscalados = casosHoy?.filter(c => c.estado === "escalado" || c.escalado_at).length || 0;
+  const casosHoyResueltos = casosHoy?.filter(c => c.estado === "cerrado" || c.estado === "resuelto" || c.closed_at).length || 0;
+  const tasaEscalacion = casosHoyTotal > 0 ? Math.round((casosHoyEscalados / casosHoyTotal) * 100) : 0;
 
   const capabilities = [
     { icon: FileText, title: "RAG sobre Manuales", desc: "Búsqueda semántica con embeddings", color: "violet" },
@@ -79,11 +100,53 @@ export default async function AdminAgenteIAPage() {
             Sistema Experto de Conocimiento y Atención · Gemini 3.1 Flash Lite con RAG sobre manuales
           </p>
         </div>
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-xs font-semibold w-fit">
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-          Sistema Operativo
+        <div className="flex flex-col items-end gap-2">
+          {modoNoAtendido ? (
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-600 text-xs font-semibold w-fit">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+              Modo No Atendido
+            </div>
+          ) : iaActiva ? (
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-xs font-semibold w-fit">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              Sistema Operativo
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-rose-500/10 border border-rose-500/20 text-rose-500 text-xs font-semibold w-fit">
+              <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
+              IA Pausada
+            </div>
+          )}
+          <UnattendedModeToggle initialValue={modoNoAtendido} />
         </div>
       </header>
+
+      {/* Métricas de hoy */}
+      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-2xl border border-border bg-card p-5">
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">Casos hoy</p>
+          <p className="text-3xl font-black mt-2 tabular-nums">{casosHoyTotal}</p>
+          <p className="text-xs text-muted-foreground mt-1">Total recibidos hoy</p>
+        </div>
+        <div className="rounded-2xl border border-border bg-card p-5">
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">Atendidos por IA</p>
+          <p className="text-3xl font-black mt-2 tabular-nums text-violet-500">{casosHoyIa}</p>
+          <p className="text-xs text-muted-foreground mt-1">Hoy</p>
+        </div>
+        <div className="rounded-2xl border border-border bg-card p-5">
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">Escalados hoy</p>
+          <p className="text-3xl font-black mt-2 tabular-nums text-amber-500">{casosHoyEscalados}</p>
+          <p className="text-xs text-muted-foreground mt-1">{tasaEscalacion}% del total</p>
+        </div>
+        <div className="rounded-2xl border border-border bg-card p-5">
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">Resueltos hoy</p>
+          <p className="text-3xl font-black mt-2 tabular-nums text-emerald-500">{casosHoyResueltos}</p>
+          <p className="text-xs text-muted-foreground mt-1">Cerrados hoy</p>
+        </div>
+      </section>
+
+      {/* Estado de modelos IA */}
+      <IaModelsStatus />
 
       {/* KPI Strip */}
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -102,9 +165,17 @@ export default async function AdminAgenteIAPage() {
               <div className="h-11 w-11 rounded-2xl bg-violet-500/10 border border-violet-500/20 text-violet-500 grid place-items-center">
                 <Brain className="h-5 w-5" />
               </div>
-              <div className="flex items-center gap-1.5 text-[10px] font-bold px-2 py-1 rounded-full border bg-emerald-500/10 border-emerald-500/20 text-emerald-500">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                En línea
+              <div className={`flex items-center gap-1.5 text-[10px] font-bold px-2 py-1 rounded-full border ${
+                modoNoAtendido
+                  ? "bg-amber-500/10 border-amber-500/20 text-amber-500"
+                  : iaActiva
+                    ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-500"
+                    : "bg-rose-500/10 border-rose-500/20 text-rose-500"
+              }`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${
+                  modoNoAtendido ? "bg-amber-500" : iaActiva ? "bg-emerald-500 animate-pulse" : "bg-rose-500"
+                }`} />
+                {modoNoAtendido ? "No atendido" : iaActiva ? "En línea" : "Pausado"}
               </div>
             </div>
           </div>

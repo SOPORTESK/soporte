@@ -38,6 +38,8 @@ interface InitialData extends LiveStats {
   totalDocs: number;
   totalCanales: number;
   promptLen: number;
+  iaActiva: boolean;
+  modoNoAtendido: boolean;
   agentes: { email: string; nombre: string; apellido: string | null; rol: string }[];
   allCasos: any[];
 }
@@ -273,17 +275,27 @@ export function LiveDashboardStats({ initial }: { initial: InitialData }) {
           <div className="relative">
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-bold text-sm uppercase tracking-wider text-muted-foreground">Estado Asistente Virtual</h2>
-              <span className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-600 bg-emerald-500/10 px-2 py-1 rounded-full">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" /> EN LÍNEA
-              </span>
+              {initial.modoNoAtendido ? (
+                <span className="flex items-center gap-1.5 text-[10px] font-bold text-amber-600 bg-amber-500/10 px-2 py-1 rounded-full">
+                  <span className="h-1.5 w-1.5 rounded-full bg-amber-500" /> NO ATENDIDO
+                </span>
+              ) : initial.iaActiva ? (
+                <span className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-600 bg-emerald-500/10 px-2 py-1 rounded-full">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" /> EN LÍNEA
+                </span>
+              ) : (
+                <span className="flex items-center gap-1.5 text-[10px] font-bold text-rose-600 bg-rose-500/10 px-2 py-1 rounded-full">
+                  <span className="h-1.5 w-1.5 rounded-full bg-rose-500" /> PAUSADO
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-3 mb-6">
               <div className="h-12 w-12 rounded-2xl bg-violet-500/10 text-violet-500 grid place-items-center">
                 <Brain className="h-6 w-6" />
               </div>
               <div>
-                <p className="font-bold">Gemini 2.0 Flash</p>
-                <p className="text-xs text-muted-foreground">Google AI · 1,500 RPD</p>
+                <p className="font-bold">Gemini 3.1 Flash Lite</p>
+                <p className="text-xs text-muted-foreground">Google AI Studio</p>
               </div>
             </div>
             <div className="space-y-3">

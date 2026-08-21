@@ -68,7 +68,7 @@ export default async function AdminDashboardPage() {
     supabase.from("sek_cases").select("id, title, estado, canal, created_at, assigned_to").neq("canal", "simulator").neq("es_test", true).order("created_at", { ascending: false }).limit(6),
     supabase.from("sek_cases").select("id, estado, created_at, updated_at, closed_at, cliente, assigned_to, accepted_at, escalado_at").neq("canal", "simulator").neq("es_test", true),
     supabase.from("sek_agent_config").select("email, nombre, apellido, rol").neq("email", "system_prompt@sekunet.com"),
-    supabase.from("sek_agent_config").select("system_prompt").eq("email", "system_prompt@sekunet.com").maybeSingle(),
+    supabase.from("sek_agent_config").select("system_prompt, ia_activa, modo_no_atendido").eq("email", "system_prompt@sekunet.com").maybeSingle(),
   ]);
 
   // ── Calcular KPIs ──────────────────────────────────────────────────────────
@@ -132,6 +132,8 @@ export default async function AdminDashboardPage() {
   agentes?.forEach(a => { agenteMap[a.email] = `${a.nombre || ""} ${a.apellido || ""}`.trim() || a.email; });
 
   const promptLen = agentConfig?.system_prompt?.length ?? 0;
+  const iaActiva = agentConfig?.ia_activa ?? true;
+  const modoNoAtendido = agentConfig?.modo_no_atendido ?? false;
 
   const now = new Date().toLocaleString("es-CR", { timeZone: "America/Costa_Rica", dateStyle: "long", timeStyle: "short" });
 
@@ -174,6 +176,8 @@ export default async function AdminDashboardPage() {
         totalDocs: totalDocs ?? 0,
         totalCanales: totalCanales ?? 0,
         promptLen,
+        iaActiva,
+        modoNoAtendido,
         agentes: agentes ?? [],
         allCasos: allCasos ?? [],
       }} />
