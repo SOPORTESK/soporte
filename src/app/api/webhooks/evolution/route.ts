@@ -1673,10 +1673,12 @@ export async function POST(req: NextRequest) {
         // Se envía antes de insertar para poder guardar el messageId en el
         // historial; el caso queda cerrado y el eco del webhook ya no lo rellena.
         const horarioSent = await sendWhatsAppText(phone || jid || "", msgHorario, evoCfg, 500);
+        const clientTimeMs = new Date(msgTime).getTime();
+        const horarioTime = isNaN(clientTimeMs) ? new Date().toISOString() : new Date(clientTimeMs + 1).toISOString();
         const horarioEntry = {
           role: "ia",
           author: "Asistente Sekunet",
-          time: new Date().toISOString(),
+          time: horarioTime,
           content: msgHorario,
           fromMe: true,
           ...(horarioSent.messageId ? { messageId: horarioSent.messageId } : {}),
@@ -1707,10 +1709,12 @@ export async function POST(req: NextRequest) {
       if (modoNoAtendido) {
         const WELCOME_MSG = "Hola\n\nBienvenido al soporte técnico de Sekunet.\n\nAgradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
         const welcomeSent = await sendWhatsAppText(phone || jid || "", WELCOME_MSG, evoCfg, 500);
+        const clientTimeMs = new Date(msgTime).getTime();
+        const welcomeTime = isNaN(clientTimeMs) ? new Date().toISOString() : new Date(clientTimeMs + 1).toISOString();
         const welcomeEntry = {
           role: "ia",
           author: "Asistente Sekunet",
-          time: new Date().toISOString(),
+          time: welcomeTime,
           content: WELCOME_MSG,
           fromMe: true,
           ...(welcomeSent.messageId ? { messageId: welcomeSent.messageId } : {}),
