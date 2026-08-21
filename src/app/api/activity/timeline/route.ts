@@ -13,7 +13,9 @@ export async function GET(req: NextRequest) {
 
     if (metrics && agent) {
       const m = await getActivityMetrics(agent, date);
-      return NextResponse.json(m);
+      const res = NextResponse.json(m);
+      res.headers.set("Cache-Control", "s-maxage=60, stale-while-revalidate=300");
+      return res;
     }
 
     let timeline = await getActivityTimeline(agent, date);
@@ -30,7 +32,9 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ timeline });
+    const res = NextResponse.json({ timeline });
+    res.headers.set("Cache-Control", "s-maxage=60, stale-while-revalidate=300");
+    return res;
   } catch (error: any) {
     console.error("[activity/timeline] Error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });

@@ -197,7 +197,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       onlineAgents={onlineAgents || []}
     />
     <FloatingTechAssistant />
-    <ActivityTrackerProvider agentEmail={a.email} agentName={fullName} enabled={canAccessAdmin} />
+    <ActivityTrackerProvider agentEmail={a.email} agentName={fullName} enabled={isAdmin} />
     </div>
     </GodModeWrapper>
   );

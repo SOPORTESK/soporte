@@ -247,7 +247,7 @@ export function useActivityTracker(agentEmail: string, agentName: string, enable
 
       // Identificar qué tipo de elemento se clickeó
       const tag = target.tagName?.toLowerCase();
-      const text = target.textContent?.trim().substring(0, 40) || "";
+      const text = target.textContent?.trim().substring(0, 50) || "";
       const role = target.getAttribute("role") || "";
       const className = target.className || "";
       const id = target.id || "";
@@ -260,12 +260,27 @@ export function useActivityTracker(agentEmail: string, agentName: string, enable
       else if (target.closest("button")) elementType = "botón";
       else if (target.closest("a")) elementType = "enlace";
 
-      // Solo loguear clicks significativos (no cada click)
+      // Loguear clicks significativos en tiempo real
       if (elementType === "botón" || elementType === "enlace") {
         const interactionKey = `${elementType}:${text}`;
         if (!interactionLoggedRef.current.has(interactionKey)) {
           interactionLoggedRef.current.add(interactionKey);
-          // No loguear cada click - solo contar para el heartbeat
+          // Loguear la acción específica
+          const label = text || id || elementType;
+          const activeCaseId = lastCaseIdRef.current;
+          logActivity({
+            agent_email: agentEmail,
+            agent_name: agentName,
+            action: `Clickeó ${elementType} "${label}"`,
+            category: "Navegación",
+            case_id: activeCaseId || undefined,
+            metadata: {
+              element_type: elementType,
+              label,
+              page: lastPathRef.current,
+              case_id: activeCaseId || undefined,
+            },
+          });
         }
       }
 

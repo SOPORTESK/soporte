@@ -82,7 +82,6 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
               <NavSection title="Gestión">
                 <SidebarLink href="/admin/equipo" icon={<Users className="h-4 w-4" />}>Equipo</SidebarLink>
-                {isAdmin && <SidebarLink href="/admin/actividad" icon={<Activity className="h-4 w-4" />}>Activity Tracker</SidebarLink>}
                 {isAdmin && <SidebarLink href="/admin/inventario" icon={<Package className="h-4 w-4" />}>Inventario</SidebarLink>}
                 {isAdmin && <SidebarLink href="/admin/manuales" icon={<BookOpen className="h-4 w-4" />}>Manuales</SidebarLink>}
               </NavSection>
