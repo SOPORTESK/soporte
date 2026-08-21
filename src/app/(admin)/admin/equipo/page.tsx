@@ -114,8 +114,8 @@ export default async function AdminEquipoPage() {
     const avgSLA = s.tiempos.length > 0
       ? Math.round(s.tiempos.reduce((x, y) => x + y, 0) / s.tiempos.length)
       : 0;
-    const tasa = s.totalAtendidos > 0 ? Math.round((s.resueltos / s.totalAtendidos) * 100) : 0;
-    const tasaReciente = s.totalRecientes > 0 ? Math.round((s.resueltosRecientes / s.totalRecientes) * 100) : 0;
+    const tasa = s.totalAtendidos > 0 ? Math.floor((s.resueltos / s.totalAtendidos) * 100) : 0;
+    const tasaReciente = s.totalRecientes > 0 ? Math.floor((s.resueltosRecientes / s.totalRecientes) * 100) : 0;
     const tendencia: "up" | "down" | "stable" = tasaReciente > tasa ? "up" : tasaReciente < tasa ? "down" : "stable";
 
     return {
@@ -164,7 +164,7 @@ export default async function AdminEquipoPage() {
   const globalStats = {
     totalCasos: allCasos.length,
     totalResueltos: allResueltos.length,
-    tasaResolucion: allCasos.length > 0 ? Math.round((allResueltos.length / allCasos.length) * 100) : 0,
+    tasaResolucion: allCasos.length > 0 ? Math.floor((allResueltos.length / allCasos.length) * 100) : 0,
     avgSLA: allTiemposGlobal.length > 0 ? Math.round(allTiemposGlobal.reduce((a, b) => a + b, 0) / allTiemposGlobal.length) : 0,
     avgCalificacionClienteGlobal: allCalsGlobal.length >= MIN_CALS_GLOBAL
       ? (allCalsGlobal.reduce((a, b) => a + b, 0) / allCalsGlobal.length).toFixed(1)

@@ -56,7 +56,7 @@ export default async function AgentProfilePage({
 
   const avgCal  = cals.length > 0 ? (cals.reduce((a, b) => a + b, 0) / cals.length).toFixed(1) : null;
   const avgSLA  = tiempos.length > 0 ? Math.round(tiempos.reduce((a, b) => a + b, 0) / tiempos.length) : 0;
-  const tasa    = (casos || []).length > 0 ? Math.round((resueltos.length / (casos || []).length) * 100) : 0;
+  const tasa    = (casos || []).length > 0 ? Math.floor((resueltos.length / (casos || []).length) * 100) : 0;
 
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();

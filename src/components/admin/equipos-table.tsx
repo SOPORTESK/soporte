@@ -46,7 +46,7 @@ export function EquiposTable({ equipos }: { equipos: EquipoData[] }) {
               <tr><td colSpan={5} className="py-10 text-center text-muted-foreground">Sin datos de equipos aún.</td></tr>
             )}
             {visible.map((e, i) => {
-              const tasa = e.total > 0 ? Math.round((e.resueltos / e.total) * 100) : 0;
+              const tasa = e.total > 0 ? Math.floor((e.resueltos / e.total) * 100) : 0;
               return (
                 <tr key={i} className="hover:bg-muted/20 transition-colors">
                   <td className="px-4 py-2.5">

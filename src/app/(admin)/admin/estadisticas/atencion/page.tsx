@@ -69,7 +69,7 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
   const totalCasos = casosFiltrados.length;
   const totalResueltos = casosFiltrados.filter(c => c.estado === "resuelto" || c.estado === "cerrado" || (c as any).closed_at).length;
   const totalActivos = casosFiltrados.filter(c => c.estado === "abierto").length;
-  const tasaResolucion = totalCasos > 0 ? Math.round((totalResueltos / totalCasos) * 100) : 0;
+  const tasaResolucion = totalCasos > 0 ? Math.floor((totalResueltos / totalCasos) * 100) : 0;
 
   // ── Tendencia 7d vs 7d anterior (siempre últimos 7 días reales, sin filtro de mes)
   const casos7d = casos.filter(c => new Date(c.created_at) >= hace7dias).length;
@@ -292,7 +292,7 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
     const MIN_CALS_AGENTE = 4;
     const avgCal = s.calificaciones.length > 0 ? (s.calificaciones.reduce((a, b) => a + b, 0) / s.calificaciones.length) : 0;
     const avgSLA = s.tiemposEspera.length > 0 ? Math.round(s.tiemposEspera.reduce((a, b) => a + b, 0) / s.tiemposEspera.length) : 0;
-    const tasa = s.totalAtendidos > 0 ? (s.resueltos / s.totalAtendidos) * 100 : 0;
+    const tasa = s.totalAtendidos > 0 ? Math.floor((s.resueltos / s.totalAtendidos) * 100) : 0;
     const avgEfectivo = s.tiemposEfectivos.length > 0
       ? Math.round(s.tiemposEfectivos.reduce((a, b) => a + b, 0) / s.tiemposEfectivos.length) : 0;
     const avgEspera = s.tiemposEspera.length > 0

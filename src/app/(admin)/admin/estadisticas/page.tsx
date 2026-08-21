@@ -827,7 +827,7 @@ export default async function EstadisticasClientePage() {
             )}
             {topProblemas.slice(0, 8).map((p, i) => {
               const pct = Math.round((p.total / maxProblema) * 100);
-              const resPct = p.total > 0 ? Math.round((p.resueltos / p.total) * 100) : 0;
+              const resPct = p.total > 0 ? Math.floor((p.resueltos / p.total) * 100) : 0;
               return (
                 <div key={i} className="group/p">
                   <div className="flex items-center justify-between mb-1.5">

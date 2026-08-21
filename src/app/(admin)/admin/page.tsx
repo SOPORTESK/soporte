@@ -77,7 +77,7 @@ export default async function AdminDashboardPage() {
   // ── Calcular KPIs ──────────────────────────────────────────────────────────
   const totalResueltos = allCasos?.filter(c => c.estado === "resuelto" || c.estado === "cerrado" || (c as any).closed_at).length ?? 0;
   const totalCasosN = totalCasos ?? 0;
-  const tasaResolucion = totalCasosN > 0 ? Math.round((totalResueltos / totalCasosN) * 100) : 0;
+  const tasaResolucion = totalCasosN > 0 ? Math.floor((totalResueltos / totalCasosN) * 100) : 0;
 
   // Tiempo de resolución global: created_at → closed_at
   const tiempos: number[] = [];

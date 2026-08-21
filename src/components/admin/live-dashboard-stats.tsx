@@ -359,7 +359,7 @@ export function LiveDashboardStats({ initial }: { initial: InitialData }) {
                   return rows.map((a, i) => {
                     const MIN_CALS = 4;
                     const avgC = a.cals.length >= MIN_CALS ? (a.cals.reduce((x, y) => x + y, 0) / a.cals.length).toFixed(1) : "—";
-                    const tasa = a.total > 0 ? Math.round((a.resueltos / a.total) * 100) : 0;
+                    const tasa = a.total > 0 ? Math.floor((a.resueltos / a.total) * 100) : 0;
                     const ht = initial.avgHandleTimes[a.email];
                     const handleArr = a.rol === "ia" ? ht?.ia : ht?.humano;
                     const handleMin = handleArr && handleArr.length > 0 ? Math.round(handleArr.reduce((a, b) => a + b, 0) / handleArr.length) : 0;

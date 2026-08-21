@@ -355,7 +355,7 @@ export function ClientProfilePanel({ perfiles }: { perfiles: PerfilClienteDTO[] 
                                 { label: "Estado", value: sc.label, color: sc.color, icon: <span className={`h-2.5 w-2.5 rounded-full ${sc.dot}`} /> },
                                 { label: "Casos Totales", value: p.total.toString(), color: "text-foreground", icon: <BarChart3 className="h-3.5 w-3.5 text-brand-500" /> },
                                 { label: "Abiertos", value: p.abiertos.toString(), color: p.abiertos > 0 ? "text-rose-500" : "text-muted-foreground", icon: <ShieldAlert className="h-3.5 w-3.5" /> },
-                                { label: "Resueltos", value: `${p.total > 0 ? Math.round((p.resueltos / p.total) * 100) : 0}%`, color: "text-emerald-500", icon: <Star className="h-3.5 w-3.5" /> },
+                                { label: "Resueltos", value: `${p.total > 0 ? Math.floor((p.resueltos / p.total) * 100) : 0}%`, color: "text-emerald-500", icon: <Star className="h-3.5 w-3.5" /> },
                                 { label: "Frecuencia", value: `${p.frecuenciaMes}/mes`, color: "text-amber-400", icon: <Repeat2 className="h-3.5 w-3.5" /> },
                               ].map((m, j) => (
                                 <div key={j} className="flex items-center gap-2 p-2 rounded-lg bg-muted/20 border border-border/20">
