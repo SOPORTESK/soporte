@@ -45,13 +45,33 @@ export async function GET() {
     return NextResponse.json({ error: pErr?.message || mErr?.message, providers: [], models: [] }, { status: 500 });
   }
 
-  // Enmascarar keys, nunca devolver la key completa
-  const safeProviders = (providers ?? []).map(p => ({
-    ...p,
-    api_key: undefined,
-    api_key_masked: maskKey(p.api_key),
-    has_key: !!p.api_key,
-  }));
+  // Estado de la key derivado de los modelos ya validados:
+  // - algún modelo UP        -> key funcionando
+  // - todos DOWN por auth    -> key rechazada
+  // - sin key                -> no configurada
+  const authRe = /api[_ ]?key|unauthorized|invalid.*key|permission|401|403|credential/i;
+
+  const safeProviders = (providers ?? []).map(p => {
+    const own = (models ?? []).filter(m => m.provider_id === p.id);
+    const up = own.filter(m => m.last_status === "up").length;
+    const checked = own.filter(m => m.last_status).length;
+    const authFails = own.filter(m => m.last_status === "down" && authRe.test(m.last_error ?? "")).length;
+
+    let key_status: "valid" | "invalid" | "no-key" | "unchecked" = "unchecked";
+    if (!p.api_key) key_status = "no-key";
+    else if (up > 0) key_status = "valid";
+    else if (checked > 0 && authFails === checked) key_status = "invalid";
+
+    return {
+      ...p,
+      api_key: undefined,
+      api_key_masked: maskKey(p.api_key),
+      has_key: !!p.api_key,
+      key_status,
+      models_up: up,
+      models_total: own.length,
+    };
+  });
 
   return NextResponse.json({ providers: safeProviders, models: models ?? [] });
 }
