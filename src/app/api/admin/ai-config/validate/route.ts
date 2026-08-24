@@ -54,7 +54,7 @@ async function pingModel(
           contents: [{ parts: [{ text: "OK" }] }],
           generationConfig: { maxOutputTokens: 5, temperature: 0 },
         }),
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(30000),
       });
     } else {
       // OpenAI-compatible: groq, openrouter, nvidia, openai
@@ -76,7 +76,7 @@ async function pingModel(
           max_tokens: 5,
           temperature: 0,
         }),
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(30000),
       });
     }
 
