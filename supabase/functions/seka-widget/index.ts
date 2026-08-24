@@ -98,8 +98,8 @@ const AI_FALLBACK_CHAIN: ModelConfig[] = [
   { provider: "nvidia", model: "meta/llama-3.2-90b-vision-instruct" },
   { provider: "openrouter", model: "meta-llama/llama-3.2-11b-vision-instruct:free" },
   { provider: "openrouter", model: "qwen/qwen-2-vl-7b-instruct:free" },
-  { provider: "google", model: "gemini-2.0-flash" },
-  { provider: "google", model: "gemini-1.5-flash" }
+  { provider: "google", model: "gemini-3.5-flash" },
+  { provider: "google", model: "gemini-3.1-flash-lite" }
 ];
 
 const temaToTag = (tema: string): string | null => {

@@ -140,7 +140,7 @@ ${transcript || "(sin mensajes aún)"}
         }
 
         const geminiRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${geminiKey}`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -280,13 +280,13 @@ Responde como el Asistente Virtual. Español, conciso, sin emojis.`;
     let replyContent = "";
 
     if (geminiKey) {
-      console.log("[meta-chat] llamando Gemini 3.1 | turns:", geminiContents.length);
+      console.log("[meta-chat] llamando Gemini 3.5-flash-lite | turns:", geminiContents.length);
       const ctrl1 = new AbortController();
       const t1 = setTimeout(() => ctrl1.abort(), 15000);
       let geminiRes: Response;
       try {
         geminiRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${geminiKey}`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -307,22 +307,22 @@ Responde como el Asistente Virtual. Español, conciso, sin emojis.`;
 
       if (!geminiRes.ok) {
         const errText = geminiRes.status !== 503 ? await geminiRes.text() : "(timeout/abort)";
-        console.warn("[meta-chat] Gemini 3.1 error:", geminiRes.status, errText, "| intentando fallback");
+        console.warn("[meta-chat] Gemini 3.5 error:", geminiRes.status, errText, "| intentando fallback");
       } else {
         const geminiData = await geminiRes.json();
         replyContent = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || "";
-        console.log("[meta-chat] Gemini 3.1 ok | reply length:", replyContent.length);
+        console.log("[meta-chat] Gemini 3.5 ok | reply length:", replyContent.length);
       }
     }
 
-    // Fallback 1: gemini-2.0-flash
+    // Fallback 1: gemini-3.5-flash
     if (!replyContent) {
-      console.log("[meta-chat] fallback 1: gemini-2.0-flash...");
+      console.log("[meta-chat] fallback 1: gemini-3.5-flash...");
       const ctrl2 = new AbortController();
       const t2 = setTimeout(() => ctrl2.abort(), 15000);
       try {
         const r2 = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -349,14 +349,14 @@ Responde como el Asistente Virtual. Español, conciso, sin emojis.`;
       }
     }
 
-    // Fallback 2: gemini-2.5-flash
+    // Fallback 2: gemini-3-flash-preview
     if (!replyContent) {
-      console.log("[meta-chat] fallback 2: gemini-2.5-flash...");
+      console.log("[meta-chat] fallback 2: gemini-3-flash-preview...");
       const ctrl3 = new AbortController();
       const t3 = setTimeout(() => ctrl3.abort(), 15000);
       try {
         const r3 = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },

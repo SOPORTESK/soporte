@@ -19,10 +19,10 @@ let geminiKeyIdx = 0;
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
 
 // Modelos de Gemini para fallback y visión
-const GEMINI_CHAT_MODEL = "gemini-3.1-flash-lite";
-const GEMINI_VISION_MODEL = "gemini-3.1-flash-lite";
-const GEMINI_IMAGE_MODEL = "gemini-3.1-flash-lite";
-const GEMINI_FALLBACK_MODEL = "gemini-3.1-flash-lite";
+const GEMINI_CHAT_MODEL = "gemini-3.5-flash-lite";
+const GEMINI_VISION_MODEL = "gemini-3.5-flash-lite";
+const GEMINI_IMAGE_MODEL = "gemini-3.5-flash-lite";
+const GEMINI_FALLBACK_MODEL = "gemini-flash-lite-latest";
 
 const STRICT_DATA_COLLECTION = `
 ## FLUJO OBLIGATORIO DE RECOPILACIÓN DE DATOS — SIN EXCEPCIONES
@@ -1197,7 +1197,7 @@ async function handleTechnicianMode(body: Record<string, unknown>): Promise<Resp
       console.log("[tech-assistant] Detección automática BUSCAR_WEB:", webQuery.substring(0, 100));
       try {
         const searchRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${GEMINI_API_KEY}`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },

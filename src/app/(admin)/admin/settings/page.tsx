@@ -147,9 +147,9 @@ export default async function AdminSettingsPage() {
             </div>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {[
-                { label: "Modelo Primario", value: "gemini-3.1-flash-lite", sub: "Google AI · 1,500 RPD" },
-                { label: "Visión", value: "gemini-3.1-flash-lite", sub: "Google AI · Multimodal" },
-                { label: "Búsqueda Web", value: "gemini-3.1-flash-lite", sub: "+ Google Search Grounding" },
+                { label: "Modelo Primario", value: "gemini-3.5-flash-lite", sub: "Google AI Studio" },
+                { label: "Visión", value: "gemini-3.5-flash-lite", sub: "Google AI · Multimodal" },
+                { label: "Búsqueda Web", value: "gemini-3.5-flash", sub: "+ Google Search Grounding" },
                 { label: "Temperature", value: "0.3", sub: "Respuestas deterministas" },
                 { label: "Max Tokens", value: "600", sub: "Respuestas concisas" },
                 { label: "Horario", value: "L-V 7:30–17:00", sub: "Hora Costa Rica (UTC-6)" },

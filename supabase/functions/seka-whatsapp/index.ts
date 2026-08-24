@@ -122,8 +122,8 @@ interface ModelConfig {
 }
 
 const AI_FALLBACK_CHAIN: ModelConfig[] = [
-  { provider: "google", model: "gemini-2.0-flash" },
-  { provider: "google", model: "gemini-1.5-flash" },
+  { provider: "google", model: "gemini-3.5-flash" },
+  { provider: "google", model: "gemini-3.1-flash-lite" },
   { provider: "nvidia", model: "meta/llama-3.2-11b-vision-instruct" },
   { provider: "nvidia", model: "meta/llama-3.2-90b-vision-instruct" },
   { provider: "openrouter", model: "meta-llama/llama-3.2-11b-vision-instruct:free" },
@@ -397,7 +397,7 @@ async function validarModelo(marca: string, modelo: string): Promise<{ valido: b
 
   try {
     const searchRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${GEMINI_KEY}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },

@@ -113,16 +113,19 @@ async function checkOpenAI(model: string, purpose: string, usedIn: string[]): Pr
 export async function GET() {
   const checks: Promise<ModelCheck>[] = [
     // ── Google AI Studio (Gemini) ──
-    checkGemini("gemini-3.1-flash-lite", "Chat principal · RAG · Supervisor · Visión · Transcripción", [
+    checkGemini("gemini-3.5-flash-lite", "Chat principal · RAG · Supervisor · Visión · Transcripción", [
       "ia-agent", "seka-whatsapp", "seka-widget", "auto-close", "learn-case",
       "meta-chat", "transcribe", "agente-ia/analyze", "manuales/upload-gemini",
     ]),
-    checkGemini("gemini-2.0-flash", "Búsqueda web (googleSearch) · Análisis", [
+    checkGemini("gemini-flash-lite-latest", "Fallback de chat", ["ia-agent (fallback)", "seka-whatsapp (fallback)"]),
+    checkGemini("gemini-3.5-flash", "Búsqueda web (googleSearch) · Análisis", [
       "ia-agent (web search)", "seka-whatsapp (web search)", "meta-chat (análisis)",
     ]),
-    checkGemini("gemini-2.5-flash", "Análisis avanzado meta-chat", ["meta-chat (análisis profundo)"]),
-    checkGemini("gemini-2.0-flash-lite", "Fallback de chat", ["ia-agent (fallback)", "seka-whatsapp (fallback)"]),
-    checkGemini("gemini-1.5-flash", "Fallback de visión (cadena)", ["seka-whatsapp (visión)", "seka-widget (visión)"]),
+    checkGemini("gemini-3.1-flash-lite", "Respaldo · Visión", ["ia-agent (respaldo)", "seka-whatsapp (respaldo)"]),
+    checkGemini("gemini-3-flash-preview", "Análisis avanzado meta-chat", ["meta-chat (análisis profundo)"]),
+    checkGemini("gemini-3.6-flash", "Visión de archivos (cadena fallback)", [
+      "seka-whatsapp (visión)", "seka-widget (visión)",
+    ]),
 
     // ── Groq ──
     checkGroq("llama-3.3-70b-versatile", "Procesamiento de actividad · Fallback chat", [
