@@ -103,11 +103,23 @@ export function AiConfigPanel() {
       setProviders(data.providers ?? []);
       setModels(data.models ?? []);
       setRoles(data.roles ?? []);
+      // Guardar proveedores con key para auto-probar en el efecto
+      providersWithKeyRef.current = (data.providers ?? []).filter((p: any) => p.has_key).map((p: any) => p.id);
     } catch (e: any) { setTableError(e.message); }
     finally { setLoading(false); }
   }
 
+  const providersWithKeyRef = React.useRef<string[]>([]);
+
   React.useEffect(() => { load(); }, []);
+
+  // Auto-probar las keys al cargar para tener las listas de modelos disponibles
+  React.useEffect(() => {
+    if (loading || providersWithKeyRef.current.length === 0) return;
+    for (const id of providersWithKeyRef.current) {
+      testKey(id).catch(() => {});
+    }
+  }, [loading]);
 
   async function api(url: string, init: RequestInit) {
     const res = await fetch(url, init);
