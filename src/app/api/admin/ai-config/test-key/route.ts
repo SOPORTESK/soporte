@@ -66,10 +66,11 @@ export async function POST(req: NextRequest) {
     const latencyMs = Date.now() - start;
     if (res.ok) {
       const data = await res.json().catch(() => ({} as any));
-      const count = Array.isArray(data?.models) ? data.models.length
-        : Array.isArray(data?.data) ? data.data.length
-        : null;
-      return NextResponse.json({ status: "valid", latencyMs, modelsAvailable: count });
+      const raw = data?.models ?? data?.data ?? [];
+      const modelList: string[] = Array.isArray(raw)
+        ? raw.map((m: any) => m.id || m.name || m).filter((s: any) => typeof s === "string").sort()
+        : [];
+      return NextResponse.json({ status: "valid", latencyMs, modelsAvailable: modelList.length, modelList });
     }
 
     const data = await res.json().catch(() => ({} as any));

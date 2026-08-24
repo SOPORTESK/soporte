@@ -78,7 +78,7 @@ export function AiConfigPanel() {
   const [validating, setValidating] = React.useState(false);
   const [busyModel, setBusyModel] = React.useState<string | null>(null);
   const [testingKey, setTestingKey] = React.useState<string | null>(null);
-  const [keyResult, setKeyResult] = React.useState<Record<string, { status: string; latencyMs?: number; error?: string; modelsAvailable?: number | null }>>({});
+  const [keyResult, setKeyResult] = React.useState<Record<string, { status: string; latencyMs?: number; error?: string; modelsAvailable?: number | null; modelList?: string[] }>>({});
   const [tableError, setTableError] = React.useState<string | null>(null);
   const [collapsed, setCollapsed] = React.useState<Record<string, boolean>>({});
 
@@ -127,9 +127,29 @@ export function AiConfigPanel() {
       setEditKey(null); setKeyValue(""); setShowKey(false);
       setKeyResult(r => { const n = { ...r }; delete n[id]; return n; });
       await load();
+      // Probar la key y luego revalidar todos los modelos del proveedor
       await testKey(id);
+      await revalidateProviderModels(id);
     } catch (e: any) { toast.error(e.message); }
     finally { setSavingKey(false); }
+  }
+
+  async function revalidateProviderModels(providerId: string) {
+    const pModels = models.filter(m => m.provider_id === providerId && m.activo);
+    for (const m of pModels) {
+      setBusyModel(m.id);
+      try {
+        const data = await api("/api/admin/ai-config/validate", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ model_id: m.id }),
+        });
+        const r = data.results[0];
+        if (r.status === "up") toast.success(`${m.modelo} · UP · ${r.latencyMs}ms`);
+        else if (r.status !== "no-key") toast.error(`${m.modelo} · ${r.status.toUpperCase()}`);
+      } catch {}
+      finally { setBusyModel(null); }
+    }
+    await load();
   }
 
   async function testKey(id: string) {
@@ -435,9 +455,11 @@ export function AiConfigPanel() {
                               ${idx > 0 ? "border-t border-border" : ""} ${!m.activo ? "opacity-45" : ""}`}>
                             {isEditing ? (
                               <div className="space-y-2">
-                                <input value={editData.modelo} onChange={e => setEditData(d => ({ ...d, modelo: e.target.value }))}
-                                  placeholder="Nombre del modelo" autoFocus
-                                  className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500/40" />
+                                <ModelSelector
+                                  available={keyResult[m.provider_id]?.modelList}
+                                  value={editData.modelo}
+                                  onChange={v => setEditData(d => ({ ...d, modelo: v }))}
+                                />
                                 <input value={editData.proposito} onChange={e => setEditData(d => ({ ...d, proposito: e.target.value }))}
                                   placeholder="Propósito" onKeyDown={e => { if (e.key === "Enter") saveModel(m.id); }}
                                   className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40" />
@@ -531,9 +553,11 @@ export function AiConfigPanel() {
                       {/* Agregar modelo */}
                       {addingFor === p.id ? (
                         <div className={`border-t border-border p-4 space-y-2 ${st.soft}`}>
-                          <input value={newModel.modelo} onChange={e => setNewModel(d => ({ ...d, modelo: e.target.value }))}
-                            placeholder="Nombre exacto del modelo (ej: gemini-3.5-flash)" autoFocus
-                            className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500/40" />
+                          <ModelSelector
+                            available={keyResult[p.id]?.modelList}
+                            value={newModel.modelo}
+                            onChange={v => setNewModel(d => ({ ...d, modelo: v }))}
+                          />
                           <input value={newModel.proposito} onChange={e => setNewModel(d => ({ ...d, proposito: e.target.value }))}
                             placeholder="Propósito (ej: Chat principal)" onKeyDown={e => { if (e.key === "Enter") addModel(p.id); }}
                             className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40" />
@@ -572,5 +596,54 @@ export function AiConfigPanel() {
         })}
       </div>
     </section>
+  );
+}
+
+/** Selector de modelo: dropdown con los modelos disponibles en la cuenta del proveedor,
+ *  o input manual si la lista no se cargó o el modelo no aparece en ella. */
+function ModelSelector({ available, value, onChange }: {
+  available?: string[];
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [manual, setManual] = React.useState(false);
+  const hasList = available && available.length > 0;
+  const inList = hasList && available!.includes(value);
+
+  // Si hay lista y el valor actual no está en ella, mostrar modo manual
+  React.useEffect(() => {
+    if (hasList && value && !inList) setManual(true);
+  }, [hasList, inList, value]);
+
+  if (!hasList || manual) {
+    return (
+      <div className="flex items-center gap-2">
+        <input value={value} onChange={e => onChange(e.target.value)}
+          placeholder="Nombre del modelo (ej: gemini-3.5-flash)" autoFocus
+          className="flex-1 px-3 py-2 rounded-lg border border-border bg-background text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500/40" />
+        {hasList && (
+          <button type="button" onClick={() => setManual(false)}
+            className="text-[10px] font-bold text-brand-600 hover:text-brand-700 whitespace-nowrap px-2">
+            Ver lista
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <select value={value} onChange={e => onChange(e.target.value)}
+        className="flex-1 px-3 py-2 rounded-lg border border-border bg-background text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500/40 cursor-pointer">
+        <option value="">— Seleccione un modelo —</option>
+        {available!.map(m => (
+          <option key={m} value={m}>{m}</option>
+        ))}
+      </select>
+      <button type="button" onClick={() => setManual(true)}
+        className="text-[10px] font-bold text-muted-foreground hover:text-foreground whitespace-nowrap px-2">
+        Escribir manual
+      </button>
+    </div>
   );
 }
