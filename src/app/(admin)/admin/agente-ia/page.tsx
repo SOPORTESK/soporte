@@ -1,7 +1,10 @@
 import { createClient } from "@/lib/supabase/server";
-import { Bot, Brain, FileText, Clock, AlertCircle, Zap, Globe, Eye, Package, ArrowUpRight, CheckCircle2, Activity, Sparkles } from "lucide-react";
+import {
+  Bot, Brain, FileText, Clock, AlertCircle, Zap, Globe, Eye, Package,
+  ArrowUpRight, CheckCircle2, Activity, Sparkles, TrendingUp,
+} from "lucide-react";
 import nextDynamic from "next/dynamic";
-import { IaModelsStatus } from "@/components/admin/ia-models-status";
+import { AiConfigPanel } from "@/components/admin/ai-config-panel";
 import { UnattendedModeToggle } from "@/components/admin/unattended-mode-toggle";
 
 const MetaAgentChat = nextDynamic(
@@ -30,10 +33,11 @@ export default async function AdminAgenteIAPage() {
 
   const iaActiva = agentConfig?.ia_activa ?? true;
   const modoNoAtendido = agentConfig?.modo_no_atendido ?? false;
+  const promptLen = agentConfig?.system_prompt?.length ?? 0;
 
   const { data: cases } = await supabase
     .from("sek_cases")
-    .select("estado, canal, created_at, escalado_at, closed_at")
+    .select("estado")
     .in("estado", ["ia_atendiendo", "escalado"]);
 
   const iaAtendiendo = cases?.filter(c => c.estado === "ia_atendiendo").length || 0;
@@ -44,7 +48,7 @@ export default async function AdminAgenteIAPage() {
   const inicioHoy = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate()).toISOString();
   const { data: casosHoy } = await supabase
     .from("sek_cases")
-    .select("id, estado, created_at, escalado_at, closed_at, assigned_to")
+    .select("id, estado, escalado_at, closed_at, assigned_to")
     .gte("created_at", inicioHoy)
     .neq("canal", "simulator")
     .neq("es_test", true);
@@ -53,24 +57,46 @@ export default async function AdminAgenteIAPage() {
   const casosHoyIa = casosHoy?.filter(c => c.assigned_to === "system_prompt@sekunet.com" || c.assigned_to === "whatsapp_agent@sekunet.com").length || 0;
   const casosHoyEscalados = casosHoy?.filter(c => c.estado === "escalado" || c.escalado_at).length || 0;
   const casosHoyResueltos = casosHoy?.filter(c => c.estado === "cerrado" || c.estado === "resuelto" || c.closed_at).length || 0;
-  const tasaEscalacion = casosHoyTotal > 0 ? Math.round((casosHoyEscalados / casosHoyTotal) * 100) : 0;
+  const tasaEscalacion = casosHoyTotal > 0 ? Math.floor((casosHoyEscalados / casosHoyTotal) * 100) : 0;
+
+  const estado = modoNoAtendido
+    ? { label: "Modo No Atendido", cls: "bg-amber-500/10 border-amber-500/20 text-amber-600", dot: "bg-amber-500", pulse: false }
+    : iaActiva
+      ? { label: "Sistema Operativo", cls: "bg-emerald-500/10 border-emerald-500/20 text-emerald-500", dot: "bg-emerald-500", pulse: true }
+      : { label: "IA Pausada", cls: "bg-rose-500/10 border-rose-500/20 text-rose-500", dot: "bg-rose-500", pulse: false };
+
+  const kpis = [
+    { label: "Activos IA", value: iaAtendiendo, sub: "Atendiendo ahora", icon: Brain, color: "violet", subIcon: Activity },
+    { label: "Escalados", value: escalados, sub: "Esperando agente", icon: AlertCircle, color: "amber", subIcon: AlertCircle },
+    { label: "Casos hoy", value: casosHoyTotal, sub: `${casosHoyIa} por IA`, icon: TrendingUp, color: "brand", subIcon: TrendingUp },
+    { label: "Resueltos hoy", value: casosHoyResueltos, sub: `${tasaEscalacion}% escalación`, icon: CheckCircle2, color: "emerald", subIcon: CheckCircle2 },
+  ];
+
+  const kpiColor: Record<string, { border: string; bg: string; text: string; grad: string }> = {
+    violet:  { border: "hover:border-violet-500/40",  bg: "bg-violet-500/10 border-violet-500/20 text-violet-500",   text: "text-violet-500",  grad: "from-violet-500/5" },
+    amber:   { border: "hover:border-amber-500/40",   bg: "bg-amber-500/10 border-amber-500/20 text-amber-500",      text: "text-amber-500",   grad: "from-amber-500/5" },
+    brand:   { border: "hover:border-brand-500/40",   bg: "bg-brand-500/10 border-brand-500/20 text-brand-500",      text: "text-brand-500",   grad: "from-brand-500/5" },
+    emerald: { border: "hover:border-emerald-500/40", bg: "bg-emerald-500/10 border-emerald-500/20 text-emerald-500", text: "text-emerald-500", grad: "from-emerald-500/5" },
+  };
 
   const capabilities = [
     { icon: FileText, title: "RAG sobre Manuales", desc: "Búsqueda semántica con embeddings", color: "violet" },
-    { icon: Globe, title: "Búsqueda Web", desc: "Gemini 3.1 Flash Lite · Info en tiempo real", color: "blue" },
+    { icon: Globe, title: "Búsqueda Web", desc: "Google Search Grounding en tiempo real", color: "blue" },
     { icon: Eye, title: "Visión de Archivos", desc: "Analiza imágenes, video y documentos", color: "cyan" },
     { icon: Package, title: "Inventario Inteligente", desc: "Búsqueda fuzzy en cartera Sekunet", color: "emerald" },
     { icon: ArrowUpRight, title: "Escalación N2", desc: "Detección automática y etiquetado", color: "amber" },
     { icon: Clock, title: "Horario de Atención", desc: "Costa Rica · L-V 7:30–17:00", color: "rose" },
     { icon: Sparkles, title: "Aprendizaje Continuo", desc: "Resume y guarda en RAG cada caso al cerrar", color: "indigo" },
+    { icon: Brain, title: "Prompt del Sistema", desc: `${promptLen.toLocaleString()} caracteres activos`, color: "violet" },
   ];
 
   const edgeFunctions = [
     { name: "ia-agent", desc: "Procesa mensajes · RAG · escalación" },
-    { name: "auto-close", desc: "Cierra casos por inactividad (5 min)" },
-    { name: "learn-case", desc: "Aprendizaje obligatorio al cerrar (Regla Inmutable)" },
+    { name: "seka-whatsapp", desc: "Recibe y responde WhatsApp" },
+    { name: "seka-widget", desc: "Atiende el widget web" },
+    { name: "auto-close", desc: "Cierra casos por inactividad" },
+    { name: "learn-case", desc: "Aprendizaje obligatorio al cerrar" },
     { name: "send-transcript", desc: "Transcripción por email al cerrar" },
-    { name: "whatsapp-webhook", desc: "Recibe y responde WhatsApp" },
   ];
 
   const colorMap: Record<string, string> = {
@@ -86,154 +112,64 @@ export default async function AdminAgenteIAPage() {
   return (
     <div className="max-w-7xl mx-auto p-6 lg:p-8 space-y-8">
 
-      {/* Header */}
-      <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-violet-500 mb-1">Plataforma · IA</p>
-          <h1 className="text-3xl font-bold flex items-center gap-3">
-            <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-indigo-600 shadow-lg shadow-violet-500/30">
-              <Bot className="h-5 w-5 text-white" />
-            </span>
-            Agente IA — Asistente Virtual
-          </h1>
-          <p className="text-muted-foreground mt-1 text-sm">
-            Sistema Experto de Conocimiento y Atención · Gemini 3.1 Flash Lite con RAG sobre manuales
-          </p>
-        </div>
-        <div className="flex flex-col items-end gap-2">
-          {modoNoAtendido ? (
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-600 text-xs font-semibold w-fit">
-              <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-              Modo No Atendido
+      {/* ── HEADER ──────────────────────────────────────────────────────────── */}
+      <header className="relative overflow-hidden rounded-3xl border border-border bg-card p-6 lg:p-8">
+        <div className="absolute -top-24 -right-24 h-64 w-64 rounded-full bg-violet-500/10 blur-3xl" />
+        <div className="absolute -bottom-32 -left-32 h-64 w-64 rounded-full bg-indigo-500/5 blur-3xl" />
+        <div className="relative flex flex-col lg:flex-row lg:items-end justify-between gap-5">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-violet-500 mb-2">Plataforma · Inteligencia Artificial</p>
+            <h1 className="text-3xl lg:text-4xl font-black tracking-tight flex items-center gap-3">
+              <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-indigo-600 shadow-lg shadow-violet-500/30">
+                <Bot className="h-6 w-6 text-white" />
+              </span>
+              Asistente Virtual
+            </h1>
+            <p className="text-muted-foreground mt-2 text-sm max-w-2xl">
+              Sistema experto de conocimiento y atención con RAG sobre manuales, visión multimodal y escalación automática a N2.
+            </p>
+          </div>
+          <div className="flex flex-col items-start lg:items-end gap-3 shrink-0">
+            <div className={`flex items-center gap-2 px-3.5 py-2 rounded-full border text-xs font-bold ${estado.cls}`}>
+              <span className={`h-1.5 w-1.5 rounded-full ${estado.dot} ${estado.pulse ? "animate-pulse" : ""}`} />
+              {estado.label}
             </div>
-          ) : iaActiva ? (
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-xs font-semibold w-fit">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              Sistema Operativo
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-rose-500/10 border border-rose-500/20 text-rose-500 text-xs font-semibold w-fit">
-              <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
-              IA Pausada
-            </div>
-          )}
-          <UnattendedModeToggle initialValue={modoNoAtendido} />
+          </div>
         </div>
       </header>
 
-      {/* Métricas de hoy */}
+      {/* ── KPIs ────────────────────────────────────────────────────────────── */}
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-2xl border border-border bg-card p-5">
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">Casos hoy</p>
-          <p className="text-3xl font-black mt-2 tabular-nums">{casosHoyTotal}</p>
-          <p className="text-xs text-muted-foreground mt-1">Total recibidos hoy</p>
-        </div>
-        <div className="rounded-2xl border border-border bg-card p-5">
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">Atendidos por IA</p>
-          <p className="text-3xl font-black mt-2 tabular-nums text-violet-500">{casosHoyIa}</p>
-          <p className="text-xs text-muted-foreground mt-1">Hoy</p>
-        </div>
-        <div className="rounded-2xl border border-border bg-card p-5">
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">Escalados hoy</p>
-          <p className="text-3xl font-black mt-2 tabular-nums text-amber-500">{casosHoyEscalados}</p>
-          <p className="text-xs text-muted-foreground mt-1">{tasaEscalacion}% del total</p>
-        </div>
-        <div className="rounded-2xl border border-border bg-card p-5">
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">Resueltos hoy</p>
-          <p className="text-3xl font-black mt-2 tabular-nums text-emerald-500">{casosHoyResueltos}</p>
-          <p className="text-xs text-muted-foreground mt-1">Cerrados hoy</p>
-        </div>
-      </section>
-
-      {/* Estado de modelos IA */}
-      <IaModelsStatus />
-
-      {/* KPI Strip */}
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {/* IA Atendiendo + Estado online */}
-        <div className="group relative overflow-hidden rounded-2xl border border-border bg-card p-5 hover:border-violet-500/40 transition-all duration-300">
-          <div className="absolute inset-0 bg-gradient-to-br from-violet-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-          <div className="flex items-start justify-between relative">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">Activos IA</p>
-              <p className="text-4xl font-black mt-2 tabular-nums">{iaAtendiendo}</p>
-              <p className="text-xs text-muted-foreground mt-1.5 flex items-center gap-1">
-                <Activity className="h-3 w-3 text-violet-500" /> Atendiendo ahora
-              </p>
-            </div>
-            <div className="flex flex-col items-end gap-2">
-              <div className="h-11 w-11 rounded-2xl bg-violet-500/10 border border-violet-500/20 text-violet-500 grid place-items-center">
-                <Brain className="h-5 w-5" />
-              </div>
-              <div className={`flex items-center gap-1.5 text-[10px] font-bold px-2 py-1 rounded-full border ${
-                modoNoAtendido
-                  ? "bg-amber-500/10 border-amber-500/20 text-amber-500"
-                  : iaActiva
-                    ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-500"
-                    : "bg-rose-500/10 border-rose-500/20 text-rose-500"
-              }`}>
-                <span className={`h-1.5 w-1.5 rounded-full ${
-                  modoNoAtendido ? "bg-amber-500" : iaActiva ? "bg-emerald-500 animate-pulse" : "bg-rose-500"
-                }`} />
-                {modoNoAtendido ? "No atendido" : iaActiva ? "En línea" : "Pausado"}
+        {kpis.map(k => {
+          const c = kpiColor[k.color];
+          return (
+            <div key={k.label}
+              className={`group relative overflow-hidden rounded-2xl border border-border bg-card p-5 ${c.border} transition-all duration-300`}>
+              <div className={`absolute inset-0 bg-gradient-to-br ${c.grad} to-transparent opacity-0 group-hover:opacity-100 transition-opacity`} />
+              <div className="relative flex items-start justify-between">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">{k.label}</p>
+                  <p className="text-4xl font-black mt-2 tabular-nums">{k.value}</p>
+                  <p className="text-xs text-muted-foreground mt-1.5 flex items-center gap-1">
+                    <k.subIcon className={`h-3 w-3 ${c.text}`} /> {k.sub}
+                  </p>
+                </div>
+                <div className={`h-11 w-11 rounded-2xl border grid place-items-center shrink-0 ${c.bg}`}>
+                  <k.icon className="h-5 w-5" />
+                </div>
               </div>
             </div>
-          </div>
-        </div>
-
-        {/* Escalados */}
-        <div className="group relative overflow-hidden rounded-2xl border border-border bg-card p-5 hover:border-amber-500/40 transition-all duration-300">
-          <div className="absolute inset-0 bg-gradient-to-br from-amber-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-          <div className="flex items-start justify-between relative">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">Escalados</p>
-              <p className="text-4xl font-black mt-2 tabular-nums">{escalados}</p>
-              <p className="text-xs text-muted-foreground mt-1.5 flex items-center gap-1">
-                <AlertCircle className="h-3 w-3 text-amber-500" /> Esperando agente
-              </p>
-            </div>
-            <div className="h-11 w-11 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-500 grid place-items-center">
-              <AlertCircle className="h-5 w-5" />
-            </div>
-          </div>
-        </div>
-
-        {/* Modelo */}
-        <div className="group relative overflow-hidden rounded-2xl border border-border bg-card p-5 hover:border-indigo-500/40 transition-all duration-300">
-          <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-          <div className="flex items-start justify-between relative">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">Motor IA</p>
-              <p className="text-lg font-black mt-2 leading-tight">Gemini<br/>3.1 Flash Lite</p>
-              <p className="text-xs text-muted-foreground mt-1.5 flex items-center gap-1">
-                <Zap className="h-3 w-3 text-indigo-500" /> Google AI Studio
-              </p>
-            </div>
-            <div className="h-11 w-11 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-500 grid place-items-center">
-              <Zap className="h-5 w-5" />
-            </div>
-          </div>
-        </div>
-
-        {/* Visión */}
-        <div className="group relative overflow-hidden rounded-2xl border border-border bg-card p-5 hover:border-cyan-500/40 transition-all duration-300">
-          <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-          <div className="flex items-start justify-between relative">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">Visión</p>
-              <p className="text-lg font-black mt-2 leading-tight">Gemini<br/>3.1 Flash Lite</p>
-              <p className="text-xs text-muted-foreground mt-1.5 flex items-center gap-1">
-                <Eye className="h-3 w-3 text-cyan-500" /> Imágenes · Archivos
-              </p>
-            </div>
-            <div className="h-11 w-11 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-500 grid place-items-center">
-              <Eye className="h-5 w-5" />
-            </div>
-          </div>
-        </div>
+          );
+        })}
       </section>
 
-      {/* Chat de entrenamiento — zona principal */}
+      {/* ── MODO NO ATENDIDO ────────────────────────────────────────────────── */}
+      <UnattendedModeToggle initialValue={modoNoAtendido} />
+
+      {/* ── PROVEEDORES Y MODELOS ───────────────────────────────────────────── */}
+      <AiConfigPanel />
+
+      {/* ── CHAT DE ENTRENAMIENTO ───────────────────────────────────────────── */}
       <MetaAgentChat
         isSuperadmin={isSuperadmin}
         initialPrompt={agentConfig?.system_prompt || `Usted es el Asistente Virtual, agente de soporte técnico especializado de Sekunet.
@@ -252,19 +188,17 @@ FLUJO:
 5. Cierre con: "Que tenga un excelente día."`}
       />
 
-      {/* Capacidades + Edge Functions */}
+      {/* ── CAPACIDADES + EDGE FUNCTIONS ────────────────────────────────────── */}
       <div className="grid gap-6 lg:grid-cols-2">
-
-        {/* Capacidades */}
         <section className="rounded-2xl border border-border bg-card p-6">
           <h2 className="text-sm font-bold uppercase tracking-widest text-muted-foreground mb-5 flex items-center gap-2">
-            <Brain className="h-4 w-4" /> Capacidades del Asistente Virtual
+            <Brain className="h-4 w-4" /> Capacidades del Asistente
           </h2>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {capabilities.map((cap, i) => (
-              <div key={i} className={`flex items-start gap-3 p-3.5 rounded-xl border ${colorMap[cap.color]} bg-opacity-5`}>
+              <div key={i} className={`flex items-start gap-3 p-3.5 rounded-xl border ${colorMap[cap.color]}`}>
                 <cap.icon className="h-4 w-4 mt-0.5 shrink-0" />
-                <div>
+                <div className="min-w-0">
                   <p className="text-xs font-semibold leading-tight">{cap.title}</p>
                   <p className="text-[11px] opacity-70 mt-0.5 leading-tight">{cap.desc}</p>
                 </div>
@@ -273,7 +207,6 @@ FLUJO:
           </div>
         </section>
 
-        {/* Edge Functions */}
         <section className="rounded-2xl border border-border bg-card p-6">
           <h2 className="text-sm font-bold uppercase tracking-widest text-muted-foreground mb-5 flex items-center gap-2">
             <Zap className="h-4 w-4" /> Edge Functions
@@ -281,23 +214,22 @@ FLUJO:
           <div className="space-y-2.5">
             {edgeFunctions.map((fn, i) => (
               <div key={i} className="flex items-center justify-between p-3.5 rounded-xl bg-muted/40 border border-border hover:bg-muted/70 transition-colors">
-                <div className="flex items-center gap-3">
-                  <div className="h-8 w-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 grid place-items-center">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="h-8 w-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 grid place-items-center shrink-0">
                     <CheckCircle2 className="h-4 w-4 text-emerald-500" />
                   </div>
-                  <div>
-                    <p className="text-sm font-semibold font-mono">{fn.name}</p>
-                    <p className="text-[11px] text-muted-foreground">{fn.desc}</p>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold font-mono truncate">{fn.name}</p>
+                    <p className="text-[11px] text-muted-foreground truncate">{fn.desc}</p>
                   </div>
                 </div>
-                <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
+                <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 shrink-0">
                   Activa
                 </span>
               </div>
             ))}
           </div>
         </section>
-
       </div>
     </div>
   );
