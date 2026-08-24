@@ -1,28 +1,79 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { getChain, getModel, getProviderKey } from "../_shared/ai-config.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const NVIDIA_KEY = Deno.env.get("NVIDIA_API_KEY") ?? "";
-const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
+const GEMINI_API_KEY_ENV = Deno.env.get("GEMINI_API_KEY") ?? "";
 const GEMINI_API_KEY_2 = Deno.env.get("GEMINI_API_KEY_2") ?? "";
-const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY") ?? "";
-const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY") ?? "";
 const NIM_BASE = "https://integrate.api.nvidia.com/v1";
-const GROQ_MODEL = "llama-3.3-70b-versatile";
-const NIM_MODEL = "meta/llama-3.1-8b-instruct";
-const OPENROUTER_VISION_MODEL = "nvidia/nemotron-nano-12b-v2-vl:free";
-
-// Rotación de keys de Gemini (3,000 req/día total con 3 keys)
-const GEMINI_KEYS = [GEMINI_API_KEY, GEMINI_API_KEY_2].filter(k => k.length > 0);
-let geminiKeyIdx = 0;
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
 
-// Modelos de Gemini para fallback y visión
-const GEMINI_CHAT_MODEL = "gemini-3.5-flash-lite";
-const GEMINI_VISION_MODEL = "gemini-3.5-flash-lite";
-const GEMINI_IMAGE_MODEL = "gemini-3.5-flash-lite";
-const GEMINI_FALLBACK_MODEL = "gemini-flash-lite-latest";
+// ── Configuración de modelos y keys ────────────────────────────────────────
+// Se resuelve desde la BD (tablas sek_ai_providers / sek_ai_models) en cada
+// request. El administrador la gestiona en /admin/agente-ia. Si la BD no
+// responde, _shared/ai-config.ts devuelve una cadena de respaldo.
+let GEMINI_API_KEY = GEMINI_API_KEY_ENV;
+let GROQ_API_KEY = Deno.env.get("GROQ_API_KEY") ?? "";
+let OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY") ?? "";
+let GEMINI_CHAT_MODEL = "gemini-3.5-flash-lite";
+let GEMINI_VISION_MODEL = "gemini-3.5-flash-lite";
+let GEMINI_IMAGE_MODEL = "gemini-3.5-flash-lite";
+let GEMINI_FALLBACK_MODEL = "gemini-flash-lite-latest";
+let GEMINI_WEB_MODEL = "gemini-3.5-flash";
+let GROQ_MODEL = "llama-3.3-70b-versatile";
+let NIM_MODEL = "meta/llama-3.1-8b-instruct";
+let OPENROUTER_VISION_MODEL = "nvidia/nemotron-nano-12b-v2-vl:free";
+
+/** Carga la configuración vigente. Se llama al inicio de cada request. */
+async function refreshAiConfig() {
+  try {
+    const [chatChain, visionChain, webModel] = await Promise.all([
+      getChain("chat"),
+      getChain("vision"),
+      getModel("web_search"),
+    ]);
+
+    const chatGoogle = chatChain.filter(m => m.provider === "google");
+    if (chatGoogle[0]) GEMINI_CHAT_MODEL = chatGoogle[0].modelo;
+    if (chatGoogle[1]) GEMINI_FALLBACK_MODEL = chatGoogle[1].modelo;
+
+    const groq = chatChain.find(m => m.provider === "groq");
+    if (groq) GROQ_MODEL = groq.modelo;
+
+    const nim = chatChain.find(m => m.provider === "nvidia");
+    if (nim) NIM_MODEL = nim.modelo;
+
+    const visionGoogle = visionChain.find(m => m.provider === "google");
+    if (visionGoogle) { GEMINI_VISION_MODEL = visionGoogle.modelo; GEMINI_IMAGE_MODEL = visionGoogle.modelo; }
+
+    const visionOr = visionChain.find(m => m.provider === "openrouter");
+    if (visionOr) OPENROUTER_VISION_MODEL = visionOr.modelo;
+
+    if (webModel) GEMINI_WEB_MODEL = webModel.modelo;
+
+    const [gKey, grKey, orKey] = await Promise.all([
+      getProviderKey("google"),
+      getProviderKey("groq"),
+      getProviderKey("openrouter"),
+    ]);
+    if (gKey) GEMINI_API_KEY = gKey;
+    if (grKey) GROQ_API_KEY = grKey;
+    if (orKey) OPENROUTER_API_KEY = orKey;
+
+    GEMINI_KEYS = [GEMINI_API_KEY, GEMINI_API_KEY_2].filter(k => k.length > 0);
+
+    console.log(`[ia-agent] config: chat=${GEMINI_CHAT_MODEL} fallback=${GEMINI_FALLBACK_MODEL} web=${GEMINI_WEB_MODEL} vision=${GEMINI_VISION_MODEL}`);
+  } catch (e) {
+    console.warn("[ia-agent] no se pudo refrescar la config de IA:", (e as Error)?.message);
+  }
+}
+
+// Rotación de keys de Gemini
+let GEMINI_KEYS = [GEMINI_API_KEY, GEMINI_API_KEY_2].filter(k => k.length > 0);
+let geminiKeyIdx = 0;
+
 
 const STRICT_DATA_COLLECTION = `
 ## FLUJO OBLIGATORIO DE RECOPILACIÓN DE DATOS — SIN EXCEPCIONES
@@ -1197,7 +1248,7 @@ async function handleTechnicianMode(body: Record<string, unknown>): Promise<Resp
       console.log("[tech-assistant] Detección automática BUSCAR_WEB:", webQuery.substring(0, 100));
       try {
         const searchRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_WEB_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1331,6 +1382,9 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
+
+  // Refrescar la configuración de IA desde la BD (gestionada en /admin/agente-ia)
+  await refreshAiConfig();
 
   try {
     const body = await req.json().catch(() => ({}));

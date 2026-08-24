@@ -1,8 +1,8 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { getModel } from "../_shared/ai-config.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
 const INACTIVITY_MINUTES_DEFAULT = 10;   // canales humanos (whatsapp, etc.)
 const INACTIVITY_MINUTES_IA = 10;        // widget atendido por IA — mismo umbral que manual
 const CLOSE_MSG = "Al no haber recibido respuesta, procederemos a cerrar esta conversación. Si necesita asistencia adicional, puede contactarnos nuevamente y con gusto le atenderemos. ¡Que tenga un excelente día!";
@@ -100,7 +100,8 @@ async function sendViaEvolution(phone: string, text: string): Promise<string | n
 
 // Aprendizaje: genera resumen de la conversación y lo guarda en RAG
 async function learnFromCase(caso: any): Promise<void> {
-  if (!GEMINI_API_KEY) return;
+  const aiModel = await getModel("learn");
+  if (!aiModel) return;
   try {
     const hist: { role: string; content: string }[] = [];
     for (const m of (caso.histcliente ?? [])) {
@@ -119,7 +120,7 @@ async function learnFromCase(caso: any): Promise<void> {
     const prompt = `Analiza esta conversación de soporte técnico y genera un resumen CONCISO (max 200 palabras) que incluya: EQUIPO, PROBLEMA, RESOLUCIÓN o motivo de escalado, y LECCIÓN APRENDIDA para futuros casos similares.\n\nConversación:\n${conversationText}`;
 
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`,
+      `${aiModel.baseUrl}/models/${aiModel.modelo}:generateContent?key=${aiModel.apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getChain, getModel } from "@/lib/ai/config";
 
 export const dynamic = "force-dynamic";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
@@ -81,11 +82,9 @@ ${transcript || "(sin mensajes aún)"}
       }
     }
     console.log("[meta-chat] body parseado ok | msg length:", message?.length, "| history:", history?.length);
-    const geminiKey = process.env.GEMINI_API_KEY;
 
-    if (!geminiKey) {
-      return NextResponse.json({ error: "No hay API key de IA configurada (GEMINI_API_KEY)" }, { status: 500 });
-    }
+    // Modelo para analizar archivos adjuntos (rol "vision", configurable en el panel)
+    const visionModel = await getModel("vision");
 
     // Verificar rol del usuario que llama
     console.log("[meta-chat] verificando auth...");
@@ -113,8 +112,8 @@ ${transcript || "(sin mensajes aún)"}
 
     let fileDescription = "";
 
-    // Si hay un archivo y tenemos Gemini, lo analizamos primero
-    if (file && geminiKey) {
+    // Si hay un archivo y hay modelo de visión configurado, lo analizamos primero
+    if (file && visionModel) {
       try {
         const isImage = file.type?.startsWith("image/");
         let parts: object[];
@@ -140,7 +139,7 @@ ${transcript || "(sin mensajes aún)"}
         }
 
         const geminiRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${geminiKey}`,
+          `${visionModel.baseUrl}/models/${visionModel.modelo}:generateContent?key=${visionModel.apiKey}`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -277,17 +276,16 @@ Responde como el Asistente Virtual. Español, conciso, sin emojis.`;
     // Si empieza con "model", descartar ese turno
     if (geminiContents[0]?.role === "model") geminiContents.shift();
 
+    // La cadena de modelos se configura en /admin/agente-ia (rol "meta_chat").
+    // Se recorre en orden hasta que uno responda.
+    const chain = await getChain("meta_chat");
     let replyContent = "";
+    let usedModel = "";
 
-    if (geminiKey) {
-      console.log("[meta-chat] llamando Gemini 3.5-flash-lite | turns:", geminiContents.length);
-      const ctrl1 = new AbortController();
-      const t1 = setTimeout(() => ctrl1.abort(), 15000);
-      let geminiRes: Response;
+    for (const m of chain) {
       try {
-        geminiRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${geminiKey}`,
-          {
+        if (m.provider === "google") {
+          const res = await fetch(`${m.baseUrl}/models/${m.modelo}:generateContent?key=${m.apiKey}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -295,144 +293,45 @@ Responde como el Asistente Virtual. Español, conciso, sin emojis.`;
               contents: geminiContents,
               generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
             }),
-            signal: ctrl1.signal,
+            signal: AbortSignal.timeout(20000),
+          });
+          if (!res.ok) {
+            console.warn(`[meta-chat] ${m.modelo} respondió ${res.status}`);
+            continue;
           }
-        );
-      } catch (fetchErr: any) {
-        console.warn("[meta-chat] Gemini 3.1 fetch error:", fetchErr.message);
-        geminiRes = new Response(null, { status: 503 });
-      } finally {
-        clearTimeout(t1);
-      }
-
-      if (!geminiRes.ok) {
-        const errText = geminiRes.status !== 503 ? await geminiRes.text() : "(timeout/abort)";
-        console.warn("[meta-chat] Gemini 3.5 error:", geminiRes.status, errText, "| intentando fallback");
-      } else {
-        const geminiData = await geminiRes.json();
-        replyContent = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || "";
-        console.log("[meta-chat] Gemini 3.5 ok | reply length:", replyContent.length);
-      }
-    }
-
-    // Fallback 1: gemini-3.5-flash
-    if (!replyContent) {
-      console.log("[meta-chat] fallback 1: gemini-3.5-flash...");
-      const ctrl2 = new AbortController();
-      const t2 = setTimeout(() => ctrl2.abort(), 15000);
-      try {
-        const r2 = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              system_instruction: { parts: [{ text: systemInstruction }] },
-              contents: geminiContents,
-              generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
-            }),
-            signal: ctrl2.signal,
-          }
-        );
-        if (r2.ok) {
-          const d2 = await r2.json();
-          replyContent = d2.candidates?.[0]?.content?.parts?.[0]?.text || "";
-          console.log("[meta-chat] fallback 1 ok | length:", replyContent.length);
+          const data = await res.json();
+          replyContent = data.candidates?.[0]?.content?.parts?.map((p: any) => p.text).filter(Boolean).join("") || "";
         } else {
-          const e2 = await r2.text();
-          console.warn("[meta-chat] fallback 1 error:", r2.status, e2.slice(0, 200));
+          const messages = [
+            { role: "system", content: systemInstruction },
+            ...recentHistory.map((h: any) => ({ role: h.role === "assistant" ? "assistant" : "user", content: h.content })),
+            { role: "user", content: userMsg },
+          ];
+          const res = await fetch(`${m.baseUrl}/chat/completions`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${m.apiKey}` },
+            body: JSON.stringify({ model: m.modelo, messages, temperature: 0.1, max_tokens: 8192 }),
+            signal: AbortSignal.timeout(60000),
+          });
+          if (!res.ok) {
+            console.warn(`[meta-chat] ${m.provider}/${m.modelo} respondió ${res.status}`);
+            continue;
+          }
+          const data = await res.json();
+          replyContent = data.choices?.[0]?.message?.content || "";
+        }
+
+        if (replyContent.trim()) {
+          usedModel = `${m.provider}/${m.modelo}`;
+          console.log(`[meta-chat] respondió ${usedModel} | length: ${replyContent.length}`);
+          break;
         }
       } catch (e: any) {
-        console.warn("[meta-chat] fallback 1 fetch error:", e.message);
-      } finally {
-        clearTimeout(t2);
+        console.warn(`[meta-chat] ${m.provider}/${m.modelo} error:`, e?.message);
       }
     }
 
-    // Fallback 2: gemini-3-flash-preview
-    if (!replyContent) {
-      console.log("[meta-chat] fallback 2: gemini-3-flash-preview...");
-      const ctrl3 = new AbortController();
-      const t3 = setTimeout(() => ctrl3.abort(), 15000);
-      try {
-        const r3 = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              system_instruction: { parts: [{ text: systemInstruction }] },
-              contents: geminiContents,
-              generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
-            }),
-            signal: ctrl3.signal,
-          }
-        );
-        if (r3.ok) {
-          const d3 = await r3.json();
-          replyContent = d3.candidates?.[0]?.content?.parts?.[0]?.text || "";
-          console.log("[meta-chat] fallback 2 ok | length:", replyContent.length);
-        } else {
-          const e3 = await r3.text();
-          console.error("[meta-chat] fallback 2 error:", r3.status, e3.slice(0, 200));
-        }
-      } catch (e: any) {
-        console.error("[meta-chat] fallback 2 fetch error:", e.message);
-      } finally {
-        clearTimeout(t3);
-      }
-    }
-
-    // Fallback 3: NVIDIA NIM — meta/llama-3.3-70b-instruct (OpenAI-compatible)
-    const nvidiaKey = process.env.NVIDIA_API_KEY;
-    if (!replyContent && nvidiaKey) {
-      console.log("[meta-chat] fallback 3: NVIDIA llama-3.3-70b-instruct...");
-      const ctrl4 = new AbortController();
-      const t4 = setTimeout(() => ctrl4.abort(), 60000);
-      try {
-        const nvidiaMessages = [
-          { role: "system", content: systemInstruction },
-          ...recentHistory.map((h: any) => ({ role: h.role === "assistant" ? "assistant" : "user", content: h.content })),
-          { role: "user", content: userMsg },
-        ];
-        const r4 = await fetch(
-          "https://integrate.api.nvidia.com/v1/chat/completions",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${nvidiaKey}`,
-            },
-            body: JSON.stringify({
-              model: "meta/llama-3.3-70b-instruct",
-              messages: nvidiaMessages,
-              temperature: 0.1,
-              max_tokens: 8192,
-            }),
-            signal: ctrl4.signal,
-          }
-        );
-        if (r4.ok) {
-          const d4 = await r4.json();
-          const candidate = d4.choices?.[0]?.message?.content || "";
-          if (candidate.trim()) {
-            replyContent = candidate;
-            console.log("[meta-chat] fallback 3 (NVIDIA) ok | length:", replyContent.length);
-          } else {
-            console.error("[meta-chat] fallback 3 (NVIDIA) devolvió contenido vacío", JSON.stringify(d4).slice(0, 300));
-          }
-        } else {
-          const e4 = await r4.text();
-          console.error("[meta-chat] fallback 3 (NVIDIA) error:", r4.status, e4.slice(0, 200));
-        }
-      } catch (e: any) {
-        console.error("[meta-chat] fallback 3 (NVIDIA) fetch error:", e.message);
-      } finally {
-        clearTimeout(t4);
-      }
-    }
-
-    if (!replyContent) throw new Error("Todos los modelos de IA están saturados. Espere 1 minuto e intente de nuevo.");
+    if (!replyContent) throw new Error("Todos los modelos configurados están saturados o caídos. Verifique el estado en el panel de Agente IA.");
     let newPrompt: string | null = null;
     let summary = "";
     let blocked = false;

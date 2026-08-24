@@ -1,10 +1,8 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { getChain, getModel, getProviderKey } from "../_shared/ai-config.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const NVIDIA_KEY   = Deno.env.get("NVIDIA_API_KEY") ?? "";
-const GEMINI_KEY   = Deno.env.get("GEMINI_API_KEY") ?? "";
-const OPENROUTER_KEY = Deno.env.get("OPENROUTER_API_KEY") ?? "";
 const NIM_BASE     = "https://integrate.api.nvidia.com/v1";
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
@@ -109,31 +107,20 @@ interface HistMsg {
   fileName?: string;
 }
 
+// ─── MOTOR DE IA RESILIENTE (AI ROUTER) ───────────────────────────────────────
+// La cadena de modelos se configura en /admin/agente-ia (rol "vision").
+// Se carga desde la BD con cache corto; si la BD no responde, _shared/ai-config.ts
+// usa una cadena de respaldo.
+
 interface NimMessage {
   role: "system" | "user" | "assistant";
   content: string | Array<{ type: string; text?: string; image_url?: { url: string } }>;
 }
 
-// ─── MOTOR DE IA RESILIENTE (AI ROUTER) ───────────────────────────────────────
-type AIProvider = "nvidia" | "openrouter" | "google";
-interface ModelConfig {
-  provider: AIProvider;
-  model: string;
-}
-
-const AI_FALLBACK_CHAIN: ModelConfig[] = [
-  { provider: "google", model: "gemini-3.5-flash" },
-  { provider: "google", model: "gemini-3.1-flash-lite" },
-  { provider: "nvidia", model: "meta/llama-3.2-11b-vision-instruct" },
-  { provider: "nvidia", model: "meta/llama-3.2-90b-vision-instruct" },
-  { provider: "openrouter", model: "meta-llama/llama-3.2-11b-vision-instruct:free" },
-  { provider: "openrouter", model: "qwen/qwen-2-vl-7b-instruct:free" }
-];
-
-async function callNvidia(model: string, messages: NimMessage[]): Promise<string> {
-  const res = await fetch(`${NIM_BASE}/chat/completions`, {
+async function callNvidia(model: string, apiKey: string, baseUrl: string, messages: NimMessage[]): Promise<string> {
+  const res = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${NVIDIA_KEY}` },
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
     body: JSON.stringify({ model, messages, temperature: 0.2, max_tokens: 400, stream: false, response_format: { type: "json_object" } }),
     signal: AbortSignal.timeout(10000)
   });
@@ -142,12 +129,12 @@ async function callNvidia(model: string, messages: NimMessage[]): Promise<string
   return data.choices?.[0]?.message?.content?.trim() ?? "";
 }
 
-async function callOpenRouter(model: string, messages: NimMessage[]): Promise<string> {
-  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+async function callOpenRouter(model: string, apiKey: string, baseUrl: string, messages: NimMessage[]): Promise<string> {
+  const res = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
-    headers: { 
-      "Content-Type": "application/json", 
-      "Authorization": `Bearer ${OPENROUTER_KEY}`,
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
       "HTTP-Referer": "https://sekunet.com",
       "X-Title": "Chat Sekunet"
     },
@@ -159,7 +146,7 @@ async function callOpenRouter(model: string, messages: NimMessage[]): Promise<st
   return data.choices?.[0]?.message?.content?.trim() ?? "";
 }
 
-async function callGoogle(model: string, messages: NimMessage[]): Promise<string> {
+async function callGoogle(model: string, apiKey: string, baseUrl: string, messages: NimMessage[]): Promise<string> {
   const system = messages.find(m => m.role === "system");
   const turns = messages.filter(m => m.role !== "system");
   const contents = turns.map(m => ({
@@ -168,9 +155,9 @@ async function callGoogle(model: string, messages: NimMessage[]): Promise<string
   }));
   const body: any = { contents, generationConfig: { temperature: 0.2, maxOutputTokens: 400, responseMimeType: "application/json" } };
   if (system) body.systemInstruction = { parts: [{ text: system.content as string }] };
-  
+
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
+    `${baseUrl}/models/${model}:generateContent?key=${apiKey}`,
     { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(10000) }
   );
   if (!res.ok) throw new Error(`Status ${res.status}`);
@@ -180,22 +167,23 @@ async function callGoogle(model: string, messages: NimMessage[]): Promise<string
 
 async function callAIWithFallbacks(messages: NimMessage[]): Promise<string> {
   const errors: string[] = [];
-  
-  for (const config of AI_FALLBACK_CHAIN) {
+  const chain = await getChain("vision");
+
+  for (const m of chain) {
     try {
-      if (config.provider === "nvidia") {
-        return await callNvidia(config.model, messages);
-      } else if (config.provider === "openrouter") {
-        return await callOpenRouter(config.model, messages);
-      } else if (config.provider === "google") {
-        return await callGoogle(config.model, messages);
+      if (m.provider === "nvidia") {
+        return await callNvidia(m.modelo, m.apiKey, m.baseUrl, messages);
+      } else if (m.provider === "openrouter") {
+        return await callOpenRouter(m.modelo, m.apiKey, m.baseUrl, messages);
+      } else if (m.provider === "google") {
+        return await callGoogle(m.modelo, m.apiKey, m.baseUrl, messages);
       }
     } catch (e: any) {
-      console.warn(`[AI Router] Falló ${config.provider} -> ${config.model}: ${e.message}`);
-      errors.push(`${config.model}(${e.message})`);
+      console.warn(`[AI Router] Falló ${m.provider} -> ${m.modelo}: ${e.message}`);
+      errors.push(`${m.modelo}(${e.message})`);
     }
   }
-  
+
   throw new Error(`AI Router agotó todos los fallbacks. Errores: ${errors.join(", ")}`);
 }
 
@@ -389,15 +377,17 @@ async function validarModelo(marca: string, modelo: string): Promise<{ valido: b
     return { valido: true, fuente: "inventario", detalle: inv.detalle };
   }
 
-  // Fallback externo: búsqueda real en internet usando Gemini con Google Search.
-  if (!GEMINI_KEY) {
-    console.warn("[seka-whatsapp] GEMINI_KEY no configurado, no se puede realizar búsqueda web para validar modelo.");
+  // Fallback externo: búsqueda real en internet usando el modelo configurado
+  // para el rol "web_search" (gestionado en /admin/agente-ia).
+  const webModel = await getModel("web_search");
+  if (!webModel) {
+    console.warn("[seka-whatsapp] sin modelo configurado para web_search, no se puede validar por internet.");
     return { valido: false, fuente: "no_encontrado", detalle: "Modelo no encontrado en inventario; búsqueda web no disponible" };
   }
 
   try {
     const searchRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${GEMINI_KEY}`,
+      `${webModel.baseUrl}/models/${webModel.modelo}:generateContent?key=${webModel.apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },

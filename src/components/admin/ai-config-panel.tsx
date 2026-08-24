@@ -27,13 +27,26 @@ interface Model {
   provider_id: string;
   modelo: string;
   proposito: string | null;
+  usado_en: string[] | null;
   activo: boolean;
   orden: number;
+  roles: string[] | null;
   last_status: "up" | "down" | "no-key" | null;
   last_latency_ms: number | null;
   last_error: string | null;
   last_checked_at: string | null;
 }
+
+interface RoleDef {
+  id: string;
+  nombre: string;
+  descripcion: string | null;
+}
+
+const ROLE_LABELS: Record<string, string> = {
+  chat: "Chat", web_search: "Web", vision: "Visión", transcribe: "Audio",
+  meta_chat: "Meta", learn: "Aprender", auto_close: "Cierre", extract: "Extraer", activity: "Actividad",
+};
 
 const P: Record<string, { grad: string; accent: string; soft: string; text: string }> = {
   google:     { grad: "from-violet-500 to-indigo-600",  accent: "bg-violet-500",  soft: "bg-violet-500/10 border-violet-500/20",  text: "text-violet-500" },
@@ -60,6 +73,7 @@ const MODEL_ST = {
 export function AiConfigPanel() {
   const [providers, setProviders] = React.useState<Provider[]>([]);
   const [models, setModels] = React.useState<Model[]>([]);
+  const [roles, setRoles] = React.useState<RoleDef[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [validating, setValidating] = React.useState(false);
   const [busyModel, setBusyModel] = React.useState<string | null>(null);
@@ -74,10 +88,10 @@ export function AiConfigPanel() {
   const [savingKey, setSavingKey] = React.useState(false);
 
   const [addingFor, setAddingFor] = React.useState<string | null>(null);
-  const [newModel, setNewModel] = React.useState({ modelo: "", proposito: "" });
+  const [newModel, setNewModel] = React.useState({ modelo: "", proposito: "", roles: [] as string[] });
 
   const [editModel, setEditModel] = React.useState<string | null>(null);
-  const [editData, setEditData] = React.useState({ modelo: "", proposito: "" });
+  const [editData, setEditData] = React.useState({ modelo: "", proposito: "", roles: [] as string[] });
 
   async function load() {
     setLoading(true);
@@ -88,6 +102,7 @@ export function AiConfigPanel() {
       setTableError(null);
       setProviders(data.providers ?? []);
       setModels(data.models ?? []);
+      setRoles(data.roles ?? []);
     } catch (e: any) { setTableError(e.message); }
     finally { setLoading(false); }
   }
@@ -152,7 +167,7 @@ export function AiConfigPanel() {
         body: JSON.stringify({ provider_id: pid, ...newModel, orden: 99 }),
       });
       toast.success("Modelo agregado");
-      setAddingFor(null); setNewModel({ modelo: "", proposito: "" });
+      setAddingFor(null); setNewModel({ modelo: "", proposito: "", roles: [] });
       await load();
     } catch (e: any) { toast.error(e.message); }
   }
@@ -426,6 +441,19 @@ export function AiConfigPanel() {
                                 <input value={editData.proposito} onChange={e => setEditData(d => ({ ...d, proposito: e.target.value }))}
                                   placeholder="Propósito" onKeyDown={e => { if (e.key === "Enter") saveModel(m.id); }}
                                   className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40" />
+                                <div className="flex flex-wrap gap-1.5">
+                                  {roles.map(r => {
+                                    const on = editData.roles.includes(r.id);
+                                    return (
+                                      <button key={r.id} type="button"
+                                        onClick={() => setEditData(d => ({ ...d, roles: on ? d.roles.filter(x => x !== r.id) : [...d.roles, r.id] }))}
+                                        className={`text-[10px] font-bold px-2 py-1 rounded-md border transition-colors ${on ? "bg-brand-500/15 text-brand-600 border-brand-500/30" : "bg-muted/40 text-muted-foreground border-border hover:bg-muted"}`}
+                                        title={r.descripcion || r.id}>
+                                        {ROLE_LABELS[r.id] || r.id}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
                                 <div className="flex gap-2">
                                   <button onClick={() => saveModel(m.id)}
                                     className="flex-1 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-600 text-xs font-bold hover:bg-emerald-500/25 transition-colors">Guardar</button>
@@ -438,7 +466,7 @@ export function AiConfigPanel() {
                                 {/* punto de estado */}
                                 <span className={`h-2 w-2 rounded-full shrink-0 ${ms?.dot ?? "bg-muted-foreground/30"} ${m.last_status === "up" ? "shadow-[0_0_8px] shadow-emerald-500/50" : ""}`} />
 
-                                {/* nombre + propósito */}
+                                {/* nombre + propósito + roles */}
                                 <div className="min-w-0 flex-1">
                                   <p className="text-sm font-semibold font-mono truncate leading-tight">{m.modelo}</p>
                                   <p className="text-[11px] text-muted-foreground truncate leading-tight mt-0.5">
@@ -446,6 +474,15 @@ export function AiConfigPanel() {
                                   </p>
                                   {m.last_error && (
                                     <p className="text-[10px] text-rose-500 font-mono truncate mt-0.5">{m.last_error}</p>
+                                  )}
+                                  {m.roles && m.roles.length > 0 && (
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                      {m.roles.map(r => (
+                                        <span key={r} className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-brand-500/10 text-brand-600 border border-brand-500/20">
+                                          {ROLE_LABELS[r] || r}
+                                        </span>
+                                      ))}
+                                    </div>
                                   )}
                                 </div>
 
@@ -469,7 +506,7 @@ export function AiConfigPanel() {
                                       className="p-1.5 rounded-lg hover:bg-brand-500/10 text-muted-foreground hover:text-brand-600 transition-colors" title="Validar este modelo">
                                       {busyModel === m.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
                                     </button>
-                                    <button onClick={() => { setEditModel(m.id); setEditData({ modelo: m.modelo, proposito: m.proposito || "" }); }}
+                                    <button onClick={() => { setEditModel(m.id); setEditData({ modelo: m.modelo, proposito: m.proposito || "", roles: m.roles ?? [] }); }}
                                       className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors" title="Editar">
                                       <Pencil className="h-3.5 w-3.5" />
                                     </button>
@@ -500,10 +537,23 @@ export function AiConfigPanel() {
                           <input value={newModel.proposito} onChange={e => setNewModel(d => ({ ...d, proposito: e.target.value }))}
                             placeholder="Propósito (ej: Chat principal)" onKeyDown={e => { if (e.key === "Enter") addModel(p.id); }}
                             className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40" />
+                          <div className="flex flex-wrap gap-1.5">
+                            {roles.map(r => {
+                              const on = newModel.roles.includes(r.id);
+                              return (
+                                <button key={r.id} type="button"
+                                  onClick={() => setNewModel(d => ({ ...d, roles: on ? d.roles.filter(x => x !== r.id) : [...d.roles, r.id] }))}
+                                  className={`text-[10px] font-bold px-2 py-1 rounded-md border transition-colors ${on ? "bg-brand-500/15 text-brand-600 border-brand-500/30" : "bg-muted/40 text-muted-foreground border-border hover:bg-muted"}`}
+                                  title={r.descripcion || r.id}>
+                                  {ROLE_LABELS[r.id] || r.id}
+                                </button>
+                              );
+                            })}
+                          </div>
                           <div className="flex gap-2">
                             <button onClick={() => addModel(p.id)}
                               className="flex-1 py-2 rounded-lg bg-brand-600 text-white text-xs font-bold hover:bg-brand-700 transition-colors">Agregar modelo</button>
-                            <button onClick={() => { setAddingFor(null); setNewModel({ modelo: "", proposito: "" }); }}
+                            <button onClick={() => { setAddingFor(null); setNewModel({ modelo: "", proposito: "", roles: [] }); }}
                               className="flex-1 py-2 rounded-lg bg-muted text-muted-foreground text-xs font-bold hover:bg-muted/70 transition-colors">Cancelar</button>
                           </div>
                         </div>

@@ -6,12 +6,10 @@
 // (RAG). Es IDEMPOTENTE: si el caso ya tiene aprendizaje guardado, no duplica.
 // ════════════════════════════════════════════════════════════════════════════
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { getChain } from "../_shared/ai-config.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
-const GEMINI_MODEL = "gemini-3.5-flash-lite";
-const GEMINI_FALLBACK = "gemini-3.5-flash";
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
 
@@ -78,10 +76,10 @@ interface ChatMessage {
   content: string;
 }
 
-async function callGemini(prompt: string, model: string): Promise<string> {
-  if (!GEMINI_API_KEY) throw new Error("no_gemini_key");
+async function callGemini(prompt: string, baseUrl: string, modelo: string, apiKey: string): Promise<string> {
+  if (!apiKey) throw new Error("no_api_key");
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
+    `${baseUrl}/models/${modelo}:generateContent?key=${apiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -188,25 +186,36 @@ ${transcript}
 
 Genera el resumen estructurado siguiendo EXACTAMENTE el formato indicado.`;
 
-    // 4. Generar resumen con Gemini (con fallback)
+    // 4. Generar resumen recorriendo la cadena configurada (rol "learn")
     let summary = "";
-    try {
-      summary = await callGemini(fullPrompt, GEMINI_MODEL);
-    } catch (e: any) {
-      console.warn("[learn-case] modelo principal falló, usando fallback:", e.message);
+    const chain = await getChain("learn");
+    let lastErr = "";
+    for (const m of chain) {
       try {
-        summary = await callGemini(fullPrompt, GEMINI_FALLBACK);
-      } catch (e2: any) {
-        console.error("[learn-case] ambos modelos fallaron:", e2.message);
-        return new Response(JSON.stringify({ error: "gemini_unavailable", detail: e2.message }), {
-          status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        if (m.provider === "google") {
+          summary = await callGemini(fullPrompt, m.baseUrl, m.modelo, m.apiKey);
+        } else {
+          // OpenAI-compatible
+          const res = await fetch(`${m.baseUrl}/chat/completions`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${m.apiKey}` },
+            body: JSON.stringify({ model: m.modelo, messages: [{ role: "user", content: fullPrompt }], temperature: 0.2, max_tokens: 1500 }),
+            signal: AbortSignal.timeout(30000),
+          });
+          if (!res.ok) throw new Error(`status ${res.status}`);
+          const data = await res.json();
+          summary = data.choices?.[0]?.message?.content?.trim() ?? "";
+        }
+        if (summary && summary.length >= 80) break;
+      } catch (e: any) {
+        console.warn(`[learn-case] ${m.provider}/${m.modelo} falló:`, e.message);
+        lastErr = e.message;
       }
     }
 
     if (!summary || summary.length < 80) {
-      return new Response(JSON.stringify({ skip: true, reason: "summary_too_short", length: summary.length }), {
-        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      return new Response(JSON.stringify({ error: "all_models_failed", detail: lastErr }), {
+        status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 

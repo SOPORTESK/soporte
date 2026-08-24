@@ -1,11 +1,8 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { getChain } from "../_shared/ai-config.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const NVIDIA_KEY   = Deno.env.get("NVIDIA_API_KEY") ?? "";
-const GEMINI_KEY   = Deno.env.get("GEMINI_API_KEY") ?? "";
-const OPENROUTER_KEY = Deno.env.get("OPENROUTER_API_KEY") ?? "";
-const NIM_BASE     = "https://integrate.api.nvidia.com/v1";
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
 
@@ -87,20 +84,7 @@ interface NimMessage {
 }
 
 // ─── MOTOR DE IA RESILIENTE (AI ROUTER) ───────────────────────────────────────
-type AIProvider = "nvidia" | "openrouter" | "google";
-interface ModelConfig {
-  provider: AIProvider;
-  model: string;
-}
-
-const AI_FALLBACK_CHAIN: ModelConfig[] = [
-  { provider: "nvidia", model: "meta/llama-3.2-11b-vision-instruct" },
-  { provider: "nvidia", model: "meta/llama-3.2-90b-vision-instruct" },
-  { provider: "openrouter", model: "meta-llama/llama-3.2-11b-vision-instruct:free" },
-  { provider: "openrouter", model: "qwen/qwen-2-vl-7b-instruct:free" },
-  { provider: "google", model: "gemini-3.5-flash" },
-  { provider: "google", model: "gemini-3.1-flash-lite" }
-];
+// La cadena de modelos se configura en /admin/agente-ia (rol "chat").
 
 const temaToTag = (tema: string): string | null => {
   if (!tema) return null;
@@ -112,10 +96,10 @@ const temaToTag = (tema: string): string | null => {
   return map[key] || null;
 };
 
-async function callNvidia(model: string, messages: NimMessage[]): Promise<string> {
-  const res = await fetch(`${NIM_BASE}/chat/completions`, {
+async function callNvidia(model: string, apiKey: string, baseUrl: string, messages: NimMessage[]): Promise<string> {
+  const res = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${NVIDIA_KEY}` },
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
     body: JSON.stringify({ model, messages, temperature: 0.2, max_tokens: 512, stream: false }),
     signal: AbortSignal.timeout(12000)
   });
@@ -124,12 +108,12 @@ async function callNvidia(model: string, messages: NimMessage[]): Promise<string
   return data.choices?.[0]?.message?.content?.trim() ?? "";
 }
 
-async function callOpenRouter(model: string, messages: NimMessage[]): Promise<string> {
-  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+async function callOpenRouter(model: string, apiKey: string, baseUrl: string, messages: NimMessage[]): Promise<string> {
+  const res = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
-    headers: { 
-      "Content-Type": "application/json", 
-      "Authorization": `Bearer ${OPENROUTER_KEY}`,
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
       "HTTP-Referer": "https://sekunet.com",
       "X-Title": "Chat Sekunet"
     },
@@ -141,7 +125,7 @@ async function callOpenRouter(model: string, messages: NimMessage[]): Promise<st
   return data.choices?.[0]?.message?.content?.trim() ?? "";
 }
 
-async function callGoogle(model: string, messages: NimMessage[]): Promise<string> {
+async function callGoogle(model: string, apiKey: string, baseUrl: string, messages: NimMessage[]): Promise<string> {
   const system = messages.find(m => m.role === "system");
   const turns = messages.filter(m => m.role !== "system");
   const contents = turns.map(m => ({
@@ -150,9 +134,9 @@ async function callGoogle(model: string, messages: NimMessage[]): Promise<string
   }));
   const body: any = { contents, generationConfig: { temperature: 0.2, maxOutputTokens: 512 } };
   if (system) body.systemInstruction = { parts: [{ text: system.content as string }] };
-  
+
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
+    `${baseUrl}/models/${model}:generateContent?key=${apiKey}`,
     { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(12000) }
   );
   if (!res.ok) throw new Error(`Status ${res.status}`);
@@ -162,22 +146,23 @@ async function callGoogle(model: string, messages: NimMessage[]): Promise<string
 
 async function callAIWithFallbacks(messages: NimMessage[]): Promise<string> {
   const errors: string[] = [];
-  
-  for (const config of AI_FALLBACK_CHAIN) {
+  const chain = await getChain("chat");
+
+  for (const m of chain) {
     try {
-      if (config.provider === "nvidia") {
-        return await callNvidia(config.model, messages);
-      } else if (config.provider === "openrouter") {
-        return await callOpenRouter(config.model, messages);
-      } else if (config.provider === "google") {
-        return await callGoogle(config.model, messages);
+      if (m.provider === "nvidia") {
+        return await callNvidia(m.modelo, m.apiKey, m.baseUrl, messages);
+      } else if (m.provider === "openrouter") {
+        return await callOpenRouter(m.modelo, m.apiKey, m.baseUrl, messages);
+      } else if (m.provider === "google") {
+        return await callGoogle(m.modelo, m.apiKey, m.baseUrl, messages);
       }
     } catch (e: any) {
-      console.warn(`[AI Router] Modelo no disponible ${config.provider} -> ${config.model}: ${e.message}`);
-      errors.push(`${config.model}(${e.message})`);
+      console.warn(`[AI Router] Modelo no disponible ${m.provider} -> ${m.modelo}: ${e.message}`);
+      errors.push(`${m.modelo}(${e.message})`);
     }
   }
-  
+
   throw new Error(`AI Router agotó todos los modelos. Errores: ${errors.join(", ")}`);
 }
 

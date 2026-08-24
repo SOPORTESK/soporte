@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
+import { invalidateAiConfigCache } from "@/lib/ai/config";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -36,9 +37,10 @@ export async function GET() {
   if (!auth.ok) return auth.res;
 
   const db = admin();
-  const [{ data: providers, error: pErr }, { data: models, error: mErr }] = await Promise.all([
+  const [{ data: providers, error: pErr }, { data: models, error: mErr }, { data: roles }] = await Promise.all([
     db.from("sek_ai_providers").select("*").order("orden"),
     db.from("sek_ai_models").select("*").order("provider_id").order("orden"),
+    db.from("sek_ai_roles").select("*").order("orden"),
   ]);
 
   if (pErr || mErr) {
@@ -73,7 +75,7 @@ export async function GET() {
     };
   });
 
-  return NextResponse.json({ providers: safeProviders, models: models ?? [] });
+  return NextResponse.json({ providers: safeProviders, models: models ?? [], roles: roles ?? [] });
 }
 
 // PATCH: actualizar API key o estado de un proveedor
@@ -93,5 +95,6 @@ export async function PATCH(req: NextRequest) {
   const { error } = await admin().from("sek_ai_providers").update(patch).eq("id", provider_id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  invalidateAiConfigCache();
   return NextResponse.json({ success: true });
 }

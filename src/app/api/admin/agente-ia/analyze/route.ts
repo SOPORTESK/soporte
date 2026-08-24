@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getModel } from "@/lib/ai/config";
 
 // Análisis de simulación por el meta-agente
 export async function POST(req: NextRequest) {
   try {
     const { simulationHistory, currentPrompt } = await req.json();
-    const geminiKey = process.env.GEMINI_API_KEY;
+    // Modelo configurable desde /admin/agente-ia (rol "meta_chat")
+    const aiModel = await getModel("meta_chat");
 
-    if (!geminiKey) {
-      return NextResponse.json({ error: "GEMINI_API_KEY no configurada" }, { status: 500 });
+    if (!aiModel) {
+      return NextResponse.json({ error: "Sin modelo configurado para análisis" }, { status: 500 });
     }
 
     // Verificar autenticación
@@ -76,7 +78,7 @@ Proporciona un análisis detallado identificando:
 3. Sugerencias específicas para mejorar el prompt`;
 
     const geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${geminiKey}`,
+      `${aiModel.baseUrl}/models/${aiModel.modelo}:generateContent?key=${aiModel.apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },

@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getActivityTimeline, insertActivitySummary, type ActivityLog } from "@/lib/activity-db";
+import { getChain, type ResolvedModel } from "@/lib/ai/config";
 
 export const runtime = "nodejs";
-
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY;
-const GROQ_API_KEY = process.env.GROQ_API_KEY;
 
 export async function POST(req: NextRequest) {
   try {
@@ -88,67 +85,27 @@ Responde SOLO en formato JSON:
     let reportData: any = null;
     let providerUsed = "";
 
-    // ─── Fallback 1: Gemini 3.6 Flash ──────────────────────────────────
-    if (!reportData && GEMINI_API_KEY) {
+    // La cadena de modelos se configura en /admin/agente-ia (rol "activity").
+    // Se recorre en orden hasta que uno devuelva un JSON válido.
+    const chain = await getChain("activity");
+    for (const m of chain) {
       try {
-        console.log("[activity/process] Intentando Gemini 3.6 Flash...");
-        const result = await callGemini(prompt, "gemini-3.6-flash");
-        if (result) {
-          reportData = JSON.parse(result);
-          providerUsed = "Gemini 3.6 Flash";
-          console.log("[activity/process] ✓ Gemini 3.6 Flash OK");
+        console.log(`[activity/process] Intentando ${m.provider}/${m.modelo}...`);
+        const raw = m.provider === "google"
+          ? await callGeminiModel(prompt, m)
+          : await callOpenAiCompatible(prompt, m);
+        if (raw) {
+          reportData = JSON.parse(raw);
+          providerUsed = `${m.provider}/${m.modelo}`;
+          console.log(`[activity/process] ✓ ${providerUsed} OK`);
+          break;
         }
       } catch (e: any) {
-        console.warn("[activity/process] Gemini 3.6 Flash falló:", e.message);
+        console.warn(`[activity/process] ${m.provider}/${m.modelo} falló:`, e.message);
       }
     }
 
-    // ─── Fallback 2: Gemini 3.5 Flash-Lite ────────────────────────────
-    if (!reportData && GEMINI_API_KEY) {
-      try {
-        console.log("[activity/process] Intentando Gemini 3.5 Flash-Lite...");
-        const result = await callGemini(prompt, "gemini-3.5-flash-lite");
-        if (result) {
-          reportData = JSON.parse(result);
-          providerUsed = "Gemini 3.5 Flash-Lite";
-          console.log("[activity/process] ✓ Gemini 3.5 Flash-Lite OK");
-        }
-      } catch (e: any) {
-        console.warn("[activity/process] Gemini 3.5 Flash-Lite falló:", e.message);
-      }
-    }
-
-    // ─── Fallback 3: NVIDIA NIM (llama-3.3-70b) ────────────────────────
-    if (!reportData && NVIDIA_API_KEY) {
-      try {
-        console.log("[activity/process] Intentando NVIDIA llama-3.3-70b...");
-        const result = await callNvidia(prompt);
-        if (result) {
-          reportData = JSON.parse(result);
-          providerUsed = "NVIDIA llama-3.3-70b";
-          console.log("[activity/process] ✓ NVIDIA OK");
-        }
-      } catch (e: any) {
-        console.warn("[activity/process] NVIDIA falló:", e.message);
-      }
-    }
-
-    // ─── Fallback 4: Groq (llama-3.3-70b) ──────────────────────────────
-    if (!reportData && GROQ_API_KEY) {
-      try {
-        console.log("[activity/process] Intentando Groq llama-3.3-70b...");
-        const result = await callGroq(prompt);
-        if (result) {
-          reportData = JSON.parse(result);
-          providerUsed = "Groq llama-3.3-70b";
-          console.log("[activity/process] ✓ Groq OK");
-        }
-      } catch (e: any) {
-        console.warn("[activity/process] Groq falló:", e.message);
-      }
-    }
-
-    // ─── Fallback 5: Reporte básico sin IA ─────────────────────────────
+    // Si toda la cadena falla, se genera un reporte básico sin IA
     if (!reportData) {
       console.log("[activity/process] Sin IA disponible, generando reporte básico...");
       reportData = generateBasicReport(timeline, agent_name);
@@ -207,47 +164,44 @@ Responde SOLO en formato JSON:
   }
 }
 
-// ─── Providers de IA ───────────────────────────────────────────────────
+// ─── Llamadas genéricas: el modelo y la key vienen del panel de admin ──
 
-async function callGemini(prompt: string, model: string): Promise<string | null> {
+function extractJson(text: string | undefined): string | null {
+  if (!text) return null;
+  const match = text.match(/\{[\s\S]*\}/);
+  return match ? match[0] : null;
+}
+
+async function callGeminiModel(prompt: string, m: ResolvedModel): Promise<string | null> {
   try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.4, maxOutputTokens: 800 },
-        }),
-      }
-    );
+    const res = await fetch(`${m.baseUrl}/models/${m.modelo}:generateContent?key=${m.apiKey}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.4, maxOutputTokens: 800 },
+      }),
+      signal: AbortSignal.timeout(30000),
+    });
     if (!res.ok) {
-      const errText = await res.text();
-      console.warn(`[activity/process] Gemini ${model} error ${res.status}:`, errText.substring(0, 200));
+      console.warn(`[activity/process] ${m.modelo} error ${res.status}:`, (await res.text()).substring(0, 200));
       return null;
     }
     const data = await res.json();
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) return null;
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    return jsonMatch ? jsonMatch[0] : null;
+    return extractJson(data?.candidates?.[0]?.content?.parts?.[0]?.text);
   } catch (e: any) {
-    console.warn(`[activity/process] Gemini ${model} fetch error:`, e.message);
+    console.warn(`[activity/process] ${m.modelo} fetch error:`, e.message);
     return null;
   }
 }
 
-async function callNvidia(prompt: string): Promise<string | null> {
+async function callOpenAiCompatible(prompt: string, m: ResolvedModel): Promise<string | null> {
   try {
-    const res = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
+    const res = await fetch(`${m.baseUrl}/chat/completions`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${NVIDIA_API_KEY}`,
-      },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${m.apiKey}` },
       body: JSON.stringify({
-        model: "meta/llama-3.3-70b-instruct",
+        model: m.modelo,
         messages: [
           { role: "system", content: "Eres un analista de productividad laboral. Respondes solo en JSON." },
           { role: "user", content: prompt },
@@ -255,53 +209,16 @@ async function callNvidia(prompt: string): Promise<string | null> {
         temperature: 0.4,
         max_tokens: 800,
       }),
+      signal: AbortSignal.timeout(30000),
     });
     if (!res.ok) {
-      const errText = await res.text();
-      console.warn("[activity/process] NVIDIA error:", res.status, errText.substring(0, 200));
+      console.warn(`[activity/process] ${m.provider}/${m.modelo} error ${res.status}:`, (await res.text()).substring(0, 200));
       return null;
     }
     const data = await res.json();
-    const text = data?.choices?.[0]?.message?.content;
-    if (!text) return null;
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    return jsonMatch ? jsonMatch[0] : null;
+    return extractJson(data?.choices?.[0]?.message?.content);
   } catch (e: any) {
-    console.warn("[activity/process] NVIDIA fetch error:", e.message);
-    return null;
-  }
-}
-
-async function callGroq(prompt: string): Promise<string | null> {
-  try {
-    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${GROQ_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
-        messages: [
-          { role: "system", content: "Eres un analista de productividad laboral. Respondes solo en JSON." },
-          { role: "user", content: prompt },
-        ],
-        temperature: 0.4,
-        max_tokens: 800,
-      }),
-    });
-    if (!res.ok) {
-      const errText = await res.text();
-      console.warn("[activity/process] Groq error:", res.status, errText.substring(0, 200));
-      return null;
-    }
-    const data = await res.json();
-    const text = data?.choices?.[0]?.message?.content;
-    if (!text) return null;
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    return jsonMatch ? jsonMatch[0] : null;
-  } catch (e: any) {
-    console.warn("[activity/process] Groq fetch error:", e.message);
+    console.warn(`[activity/process] ${m.provider}/${m.modelo} fetch error:`, e.message);
     return null;
   }
 }

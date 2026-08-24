@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { getModel } from "@/lib/ai/config";
 
 const MAX_AUDIO_BYTES = 15 * 1024 * 1024; // Gemini acepta inline_data hasta ~20 MB
 
@@ -24,9 +25,10 @@ export async function POST(
   req: NextRequest,
   { params }: { params: { caseId: string; messageIndex: string } }
 ) {
-  const geminiKey = process.env.GEMINI_API_KEY;
-  if (!geminiKey) {
-    return NextResponse.json({ ok: false, error: "GEMINI_API_KEY no configurada" }, { status: 500 });
+  // El modelo de transcripción se configura en /admin/agente-ia (rol "transcribe")
+  const aiModel = await getModel("transcribe");
+  if (!aiModel) {
+    return NextResponse.json({ ok: false, error: "Sin modelo configurado para transcripción" }, { status: 500 });
   }
 
   const supabase = createServiceClient();
@@ -83,7 +85,7 @@ export async function POST(
   let transcription = "";
   try {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${geminiKey}`,
+      `${aiModel.baseUrl}/models/${aiModel.modelo}:generateContent?key=${aiModel.apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },

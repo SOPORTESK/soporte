@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { getModel } from "@/lib/ai/config";
 
 export async function POST(
   req: NextRequest,
@@ -55,17 +56,17 @@ export async function POST(
       .join("\n")
       .slice(0, 4000);
 
-    // Llamar a OpenAI para extraer tema, marca, modelo
-    const OPENAI_KEY = process.env.OPENAI_API_KEY || "";
+    // Modelo configurable desde /admin/agente-ia (rol "extract")
+    const aiModel = await getModel("extract");
 
     const TEMAS_VALIDOS = [
       "Reset", "Desvinculación", "Configuración", "Visualización",
       "Cobros", "Garantía", "Asistencia Remota", "Otro"
     ];
 
-    // ── Fallback sin OpenAI: extracción por regex de datos del cliente ──
-    if (!OPENAI_KEY) {
-      console.warn("[auto-extract] OPENAI_API_KEY no configurada — usando extracción por regex");
+    // ── Fallback sin modelo de IA: extracción por regex de datos del cliente ──
+    if (!aiModel) {
+      console.warn("[auto-extract] sin modelo configurado para el rol 'extract' — usando extracción por regex");
       
       const fullText = allMsgs.map(m => m.content).join("\n");
       const extracted: { nombre?: string; correo?: string; cuenta?: string; tema?: string; marca?: string; modelo?: string; descripcion_problema?: string } = {};
@@ -175,28 +176,48 @@ ${conversationText}
 Responde SOLO en formato JSON:
 {"nombre": "...", "correo": "...", "cuenta": "...", "tema": "...", "marca": "...", "modelo": "...", "descripcion_problema": "..."}`;
 
-    const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${OPENAI_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.1,
-        max_tokens: 500,
-      }),
-    });
-
-    if (!aiRes.ok) {
-      const errText = await aiRes.text();
-      console.error("[auto-extract] OpenAI error:", errText);
+    // El proveedor puede ser Gemini (formato propio) u OpenAI-compatible
+    let rawContent = "";
+    try {
+      if (aiModel.provider === "google") {
+        const res = await fetch(`${aiModel.baseUrl}/models/${aiModel.modelo}:generateContent?key=${aiModel.apiKey}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.1, maxOutputTokens: 500 },
+          }),
+          signal: AbortSignal.timeout(25000),
+        });
+        if (!res.ok) {
+          console.error("[auto-extract] error de IA:", (await res.text()).slice(0, 300));
+          return NextResponse.json({ error: "AI extraction failed" }, { status: 500 });
+        }
+        const data = await res.json();
+        rawContent = data.candidates?.[0]?.content?.parts?.map((p: any) => p.text).filter(Boolean).join("") || "";
+      } else {
+        const res = await fetch(`${aiModel.baseUrl}/chat/completions`, {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${aiModel.apiKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: aiModel.modelo,
+            messages: [{ role: "user", content: prompt }],
+            temperature: 0.1,
+            max_tokens: 500,
+          }),
+          signal: AbortSignal.timeout(25000),
+        });
+        if (!res.ok) {
+          console.error("[auto-extract] error de IA:", (await res.text()).slice(0, 300));
+          return NextResponse.json({ error: "AI extraction failed" }, { status: 500 });
+        }
+        const data = await res.json();
+        rawContent = data.choices?.[0]?.message?.content || "";
+      }
+    } catch (e: any) {
+      console.error("[auto-extract] fetch error:", e?.message);
       return NextResponse.json({ error: "AI extraction failed" }, { status: 500 });
     }
-
-    const aiData = await aiRes.json();
-    const rawContent = aiData.choices?.[0]?.message?.content || "";
 
     // Parsear la respuesta JSON
     let extracted: { nombre?: string; correo?: string; cuenta?: string; tema?: string; marca?: string; modelo?: string; descripcion_problema?: string } = {};
