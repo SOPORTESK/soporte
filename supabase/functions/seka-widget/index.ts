@@ -150,20 +150,45 @@ async function callAIWithFallbacks(messages: NimMessage[]): Promise<string> {
 
   for (const m of chain) {
     try {
-      if (m.provider === "nvidia") {
-        return await callNvidia(m.modelo, m.apiKey, m.baseUrl, messages);
-      } else if (m.provider === "openrouter") {
-        return await callOpenRouter(m.modelo, m.apiKey, m.baseUrl, messages);
-      } else if (m.provider === "google") {
+      if (m.provider === "google") {
         return await callGoogle(m.modelo, m.apiKey, m.baseUrl, messages);
+      } else {
+        // Todos los demás proveedores son OpenAI-compatible:
+        // groq, openrouter, nvidia, openai, deepseek, cloudflare, etc.
+        return await callOpenAICompatible(m.provider, m.modelo, m.apiKey, m.baseUrl, messages);
       }
     } catch (e: any) {
       console.warn(`[AI Router] Modelo no disponible ${m.provider} -> ${m.modelo}: ${e.message}`);
-      errors.push(`${m.modelo}(${e.message})`);
+      errors.push(`${m.provider}/${m.modelo}(${e.message})`);
     }
   }
 
   throw new Error(`AI Router agotó todos los modelos. Errores: ${errors.join(", ")}`);
+}
+
+/** Llamada genérica OpenAI-compatible para cualquier proveedor. */
+async function callOpenAICompatible(
+  provider: string, model: string, apiKey: string, baseUrl: string, messages: NimMessage[]
+): Promise<string> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "Authorization": `Bearer ${apiKey}`,
+  };
+  // OpenRouter pide referer y título
+  if (provider === "openrouter") {
+    headers["HTTP-Referer"] = "https://sekunet.com";
+    headers["X-Title"] = "Chat Sekunet";
+  }
+
+  const res = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ model, messages, temperature: 0.2, max_tokens: 512, stream: false }),
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) throw new Error(`Status ${res.status}`);
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content?.trim() ?? "";
 }
 
 // ─── UTILIDADES FUZZY PARA MARCAS ─────────────────────────────────────────────

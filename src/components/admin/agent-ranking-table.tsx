@@ -77,9 +77,67 @@ function AgentCasesPanel({ casos }: { casos: AgentCaseItem[] }) {
 
 export function AgentRankingTable({ agentes }: { agentes: AgentRankingItem[] }) {
   const [expanded, setExpanded] = React.useState<string | null>(null);
+  const [fechaFiltro, setFechaFiltro] = React.useState<string>("");
+
+  const fechaSeleccionada = React.useMemo(() => {
+    if (!fechaFiltro) return null;
+    const d = new Date(fechaFiltro + "T00:00:00-06:00");
+    return isNaN(d.getTime()) ? null : d;
+  }, [fechaFiltro]);
+
+  const agentesFiltrados = React.useMemo(() => {
+    if (!fechaSeleccionada) return agentes;
+    const inicio = fechaSeleccionada.getTime();
+    const fin = inicio + 24 * 60 * 60 * 1000;
+    return agentes.map((a) => {
+      const casosDelDia = a.casos.filter((c) => {
+        const t = new Date(c.created_at).getTime();
+        return t >= inicio && t < fin;
+      });
+      const activos = casosDelDia.filter((c) =>
+        ["abierto", "asignado", "pendiente"].includes(c.estado)
+      ).length;
+      const resueltos = casosDelDia.filter((c) =>
+        ["resuelto", "cerrado"].includes(c.estado)
+      ).length;
+      return {
+        ...a,
+        casos: casosDelDia,
+        totalAtendidos: casosDelDia.length,
+        activos,
+        resueltos,
+        tasa: casosDelDia.length > 0 ? Math.floor((resueltos / casosDelDia.length) * 100) : 0,
+      };
+    });
+  }, [agentes, fechaSeleccionada]);
 
   return (
-    <div className="overflow-x-auto">
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 px-1">
+        <label className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">
+          Filtrar por día:
+        </label>
+        <input
+          type="date"
+          value={fechaFiltro}
+          onChange={(e) => setFechaFiltro(e.target.value)}
+          className="text-xs font-bold rounded-md border border-border bg-background px-2 py-1 text-foreground focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+        />
+        {fechaFiltro && (
+          <button
+            onClick={() => setFechaFiltro("")}
+            className="text-[10px] font-black uppercase text-muted-foreground hover:text-rose-500 transition-colors"
+          >
+            ✕ Limpiar
+          </button>
+        )}
+        {fechaSeleccionada && (
+          <span className="text-[10px] font-bold text-brand-500">
+            Mostrando {agentesFiltrados.reduce((sum, a) => sum + a.totalAtendidos, 0)} casos del {fechaSeleccionada.toLocaleDateString("es-CR", { day: "2-digit", month: "short", year: "numeric" })}
+          </span>
+        )}
+      </div>
+      <div className="overflow-x-auto">
       <table className="w-full text-sm min-w-[1200px]">
         <thead>
           <tr className="border-b border-border bg-muted/10">
@@ -98,9 +156,9 @@ export function AgentRankingTable({ agentes }: { agentes: AgentRankingItem[] }) 
           </tr>
         </thead>
         <tbody className="divide-y divide-border/50">
-          {agentes.length === 0 ? (
+          {agentesFiltrados.length === 0 ? (
             <tr><td colSpan={12} className="py-16 text-center text-sm text-muted-foreground">Sin datos de atención registrados.</td></tr>
-          ) : agentes.map((a, i) => {
+          ) : agentesFiltrados.map((a, i) => {
             const isTop = i === 0 && agentes.length > 1;
             const initials = a.nombre.split(" ").filter(Boolean).map(n => n[0]).join("").substring(0, 2).toUpperCase();
             const scoreColor = a.score >= 75 ? "text-emerald-500" : a.score >= 50 ? "text-amber-400" : "text-rose-500";
@@ -212,6 +270,7 @@ export function AgentRankingTable({ agentes }: { agentes: AgentRankingItem[] }) 
           })}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

@@ -597,9 +597,13 @@ async function callGeminiVision(mediaUrl: string, mediaType: string, userText: s
     let modelName = GEMINI_IMAGE_MODEL;
     if (isVideo) {
       modelName = GEMINI_VISION_MODEL;
-      console.log(`[ia-agent] Usando Gemini 3.1 Flash para video: ${mediaUrl}`);
+      console.log(`[ia-agent] Usando ${modelName} para video: ${mediaUrl}`);
+    } else if (isAudio) {
+      // Audio necesita un modelo que soporte entrada de audio (gemini-3.5-flash o superior)
+      modelName = GEMINI_VISION_MODEL;
+      console.log(`[ia-agent] Usando ${modelName} para audio: ${mediaUrl}`);
     } else {
-      console.log(`[ia-agent] Usando Gemini 1.5 Flash para ${mimeType}: ${mediaUrl}`);
+      console.log(`[ia-agent] Usando ${modelName} para ${mimeType}: ${mediaUrl}`);
     }
 
     let prompt = "";
@@ -719,7 +723,7 @@ Analiza el documento COMPLETAMENTE:
     const fileRes = await fetch(mediaUrl);
     if (!fileRes.ok) {
       console.error("[ia-agent] Error descargando archivo:", fileRes.status, mediaUrl);
-      return "";
+      return `[ANÁLISIS DE ADJUNTO FALLIDO] No se pudo descargar el archivo (HTTP ${fileRes.status}). El técnico debe verificar el contenido manualmente.`;
     }
     const fileBuffer = await fileRes.arrayBuffer();
     const fileSizeKB = fileBuffer.byteLength / 1024;

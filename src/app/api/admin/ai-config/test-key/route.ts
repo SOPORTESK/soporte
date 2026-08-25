@@ -54,9 +54,24 @@ export async function POST(req: NextRequest) {
     if (provider_id === "google") {
       const base = p.base_url || "https://generativelanguage.googleapis.com/v1beta";
       res = await fetch(`${base}/models?key=${p.api_key}`, { signal: AbortSignal.timeout(12000) });
+    } else if (provider_id === "cloudflare" || (p.base_url || "").includes("api.cloudflare.com")) {
+      // Cloudflare no soporta /v1/models (405). Usa /ai/models/search propio.
+      if (!p.base_url) return NextResponse.json({ status: "unknown", error: "base_url no configurada. Edite el proveedor y agregue la URL con su Account ID." });
+      if (p.base_url.includes("{ACCOUNT_ID}")) return NextResponse.json({ status: "unknown", error: "La base_url todavía tiene {ACCOUNT_ID}. Edite el proveedor y reemplácelo por su Account ID real." });
+      const base = (p.base_url || "").replace(/\/ai\/v1\/?$/, "").replace(/\/+$/, "");
+      if (!base) return NextResponse.json({ status: "unknown", error: "base_url no configurada para Cloudflare" });
+      res = await fetch(`${base}/ai/models/search?task=Text%20Generation`, {
+        headers: { "Authorization": `Bearer ${p.api_key}` },
+        signal: AbortSignal.timeout(12000),
+      });
     } else {
-      const url = listEndpoints[provider_id];
-      if (!url) return NextResponse.json({ status: "unknown", error: "Proveedor sin endpoint de validación" });
+      // Para proveedores OpenAI-compatible: usar endpoint conocido o derivar de base_url
+      let url = listEndpoints[provider_id];
+      if (!url) {
+        const base = (p.base_url || "").replace(/\/+$/, "");
+        if (!base) return NextResponse.json({ status: "unknown", error: "base_url no configurada para este proveedor" });
+        url = `${base}/models`;
+      }
       res = await fetch(url, {
         headers: { "Authorization": `Bearer ${p.api_key}` },
         signal: AbortSignal.timeout(12000),
@@ -66,9 +81,18 @@ export async function POST(req: NextRequest) {
     const latencyMs = Date.now() - start;
     if (res.ok) {
       const data = await res.json().catch(() => ({} as any));
-      const raw = data?.models ?? data?.data ?? [];
+      // Cloudflare /ai/models/search devuelve { success, result: [{ id: UUID, name: "@cf/..." }] }
+      // Otros proveedores devuelven { data: [{ id: "model-name" }] } o { models: [...] }
+      const raw = data?.models ?? data?.data ?? data?.result ?? [];
+      const isCloudflare = provider_id === "cloudflare" || (p.base_url || "").includes("api.cloudflare.com");
       const modelList: string[] = Array.isArray(raw)
-        ? raw.map((m: any) => m.id || m.name || m).filter((s: any) => typeof s === "string").sort()
+        ? raw.map((m: any) => {
+            // Cloudflare: usar "name" (ej: @cf/meta/llama-3.1-8b-instruct), no "id" (UUID)
+            if (isCloudflare) return m.name || m.id || m;
+            return m.id || m.name || m;
+          })
+          .filter((s: any) => typeof s === "string" && s.length > 0)
+          .sort()
         : [];
       return NextResponse.json({ status: "valid", latencyMs, modelsAvailable: modelList.length, modelList });
     }

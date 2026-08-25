@@ -84,15 +84,68 @@ export async function PATCH(req: NextRequest) {
   if (!auth.ok) return auth.res;
 
   const body = await req.json();
-  const { provider_id, api_key, activo, base_url } = body;
+  const { provider_id, api_key, activo, base_url, nombre, docs_url } = body;
   if (!provider_id) return NextResponse.json({ error: "provider_id requerido" }, { status: 400 });
 
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (api_key !== undefined) patch.api_key = api_key || null;
   if (activo !== undefined) patch.activo = activo;
-  if (base_url !== undefined) patch.base_url = base_url;
+  if (base_url !== undefined) patch.base_url = base_url || null;
+  if (nombre !== undefined) patch.nombre = nombre;
+  if (docs_url !== undefined) patch.docs_url = docs_url || null;
 
   const { error } = await admin().from("sek_ai_providers").update(patch).eq("id", provider_id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  invalidateAiConfigCache();
+  return NextResponse.json({ success: true });
+}
+
+// POST: crear un nuevo proveedor
+export async function POST(req: NextRequest) {
+  const auth = await requireAdmin();
+  if (!auth.ok) return auth.res;
+
+  const body = await req.json();
+  const { id, nombre, base_url, docs_url, api_key } = body;
+  if (!id || !nombre) {
+    return NextResponse.json({ error: "id y nombre son requeridos" }, { status: 400 });
+  }
+
+  // id en minúsculas, sin espacios
+  const cleanId = String(id).trim().toLowerCase().replace(/\s+/g, "_");
+
+  const { data: existing } = await admin().from("sek_ai_providers").select("id").eq("id", cleanId).maybeSingle();
+  if (existing) {
+    return NextResponse.json({ error: `Ya existe un proveedor con id "${cleanId}"` }, { status: 409 });
+  }
+
+  const { data, error } = await admin().from("sek_ai_providers").insert({
+    id: cleanId,
+    nombre: String(nombre).trim(),
+    base_url: base_url?.trim() || null,
+    docs_url: docs_url?.trim() || null,
+    api_key: api_key?.trim() || null,
+    activo: true,
+    orden: 99,
+  }).select("id").single();
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  invalidateAiConfigCache();
+  return NextResponse.json({ success: true, id: data.id });
+}
+
+// DELETE: eliminar un proveedor (cascade elimina sus modelos)
+export async function DELETE(req: NextRequest) {
+  const auth = await requireAdmin();
+  if (!auth.ok) return auth.res;
+
+  const { searchParams } = new URL(req.url);
+  const provider_id = searchParams.get("provider_id");
+  if (!provider_id) return NextResponse.json({ error: "provider_id requerido" }, { status: 400 });
+
+  const { error } = await admin().from("sek_ai_providers").delete().eq("id", provider_id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   invalidateAiConfigCache();

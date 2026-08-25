@@ -73,7 +73,7 @@ async function pingModel(
         body: JSON.stringify({
           model: modelo,
           messages: [{ role: "user", content: "OK" }],
-          max_tokens: 5,
+          max_tokens: 16,
           temperature: 0,
         }),
         signal: AbortSignal.timeout(30000),
