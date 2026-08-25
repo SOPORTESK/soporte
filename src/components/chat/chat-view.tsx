@@ -159,10 +159,20 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   const [agentName, setAgentName] = React.useState<string | null>(null);
   const [agentRole, setAgentRole] = React.useState<string>("tecnico");
   const [modoNoAtendido, setModoNoAtendido] = React.useState(false);
+  const modoNoAtendidoRef = React.useRef(false);
+  const [modoNoAtendidoLoaded, setModoNoAtendidoLoaded] = React.useState(false);
   const [replyTo, setReplyTo] = React.useState<UnifiedMessage | null>(null);
 
   React.useEffect(() => {
-    fetch("/api/admin/unattended-mode").then(r => r.json()).then(d => setModoNoAtendido(d.modo_no_atendido ?? false)).catch(() => {});
+    fetch("/api/admin/unattended-mode")
+      .then(r => r.json())
+      .then(d => {
+        const val = d.modo_no_atendido ?? false;
+        setModoNoAtendido(val);
+        modoNoAtendidoRef.current = val;
+        setModoNoAtendidoLoaded(true);
+      })
+      .catch(() => setModoNoAtendidoLoaded(true));
   }, []);
 
   // Escuchar evento del asistente técnico flotante para insertar texto en el draft
@@ -652,7 +662,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
 
     // prev === "" → carga inicial, no disparar
     // Solo disparar si cambió de un estado no-final a final durante esta sesión
-    if (prev !== "" && !isFinal(prev) && isFinal(curr) && !modalShownRef.current && !modoNoAtendido) {
+    if (prev !== "" && !isFinal(prev) && isFinal(curr) && !modalShownRef.current && modoNoAtendidoLoaded && !modoNoAtendidoRef.current) {
       modalShownRef.current = true;
       const prevRating = (sekCase.cliente as any)?.calificacion_agente;
       if (prevRating) setClientRating(Number(prevRating) || 5);
@@ -1115,7 +1125,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     // Siempre mostrar modal de calificación al cerrar
     // Si ya tiene calificación previa, pre-rellenar
     // EXCEPTO en modo no atendido: cerrar directamente sin modal
-    if (newEstado === "cerrado" && !modoNoAtendido) {
+    if (newEstado === "cerrado" && !modoNoAtendidoRef.current) {
       const prevRating = (sekCase.cliente as any)?.calificacion_agente;
       if (prevRating) setClientRating(Number(prevRating) || 5);
       modalShownRef.current = true;
@@ -1131,7 +1141,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     }
 
     // Modo No Atendido: cerrar directamente sin modal ni encuesta
-    if (newEstado === "cerrado" && modoNoAtendido) {
+    if (newEstado === "cerrado" && modoNoAtendidoRef.current) {
       const { error } = await supabase.from("sek_cases").update({
         estado: "cerrado",
         closed_at: new Date().toISOString(),
