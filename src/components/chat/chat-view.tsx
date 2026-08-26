@@ -131,13 +131,6 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
       return !isEmpty && !isDeleted;
     })
     .sort((a, b) => {
-    // Si ningún mensaje tiene _localSeq (todos tienen seq de la BD),
-    // ordenar por seq — es el orden real de inserción.
-    // Si alguno tiene _localSeq (mensajes viejos sin backfill), caer a time.
-    const hasLocal = out.some(m => m._localSeq !== undefined);
-    if (!hasLocal) {
-      return (a.seq || 0) - (b.seq || 0);
-    }
     const ta = new Date(a.time).getTime();
     const tb = new Date(b.time).getTime();
     const da = isNaN(ta) ? Number.MAX_SAFE_INTEGER : ta;
