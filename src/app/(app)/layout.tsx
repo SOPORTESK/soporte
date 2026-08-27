@@ -85,14 +85,21 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     if (agentFromCache) {
       // Datos del cache: el agente está registrado, pero Supabase no responde ahora
     } else {
+      // No hay cache Y Supabase no respondió — probablemente timeout temporal.
+      // NO bloquear con "Acceso restringido". Mostrar pantalla de reconexión con auto-retry.
       return (
         <div className="min-h-dvh grid place-items-center p-6 px-safe">
           <div className="max-w-md text-center space-y-4">
-            <h1 className="text-2xl font-bold">Acceso restringido</h1>
+            <h1 className="text-2xl font-bold">Reconectando...</h1>
             <p className="text-muted-foreground">
-              Tu correo <strong>{email}</strong> no est&aacute; registrado como agente en
-              <code className="mx-1 rounded bg-muted px-1">sek_agent_config</code>.
+              No se pudo conectar con el servidor. Reintentando autom&aacute;ticamente.
             </p>
+            <p className="text-xs text-muted-foreground">
+              Usuario: {email}
+            </p>
+            <script dangerouslySetInnerHTML={{ __html: `
+              setTimeout(function() { window.location.reload(); }, 5000);
+            `}} />
             <LogoutButton />
           </div>
         </div>
@@ -105,11 +112,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     return (
       <div className="min-h-dvh grid place-items-center p-6 px-safe">
         <div className="max-w-md text-center space-y-4">
-          <h1 className="text-2xl font-bold">Supabase no disponible</h1>
+          <h1 className="text-2xl font-bold">Reconectando...</h1>
           <p className="text-muted-foreground">
-            No se pudo verificar tu acceso. La base de datos no est&aacute; respondiendo.
-            Reintent&aacute; en unos segundos.
+            No se pudo verificar tu acceso. Reintentando autom&aacute;ticamente.
           </p>
+          <script dangerouslySetInnerHTML={{ __html: `
+            setTimeout(function() { window.location.reload(); }, 5000);
+          `}} />
           <LogoutButton />
         </div>
       </div>

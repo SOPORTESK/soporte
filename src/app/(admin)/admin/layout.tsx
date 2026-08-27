@@ -16,19 +16,70 @@ import { GodModeGuard } from "@/components/god-mode-guard";
 import { EscalatedCasesBanner } from "@/components/escalated-cases-banner";
 import { FloatingTechAssistant } from "@/components/floating-tech-assistant";
 import { ActivityTrackerProvider } from "@/components/activity-tracker-provider";
+import { getUserWithTimeout, queryWithFallback } from "@/lib/supabase/resilient";
 
 export const dynamic = 'force-dynamic';
 
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { user } = await getUserWithTimeout(supabase);
   if (!user) redirect("/login");
 
-  const { data: agent } = await supabase
-    .from("sek_agent_config").select("*").ilike("email", user.email!).maybeSingle();
+  const email = user.email!;
+
+  const { data: agent, fromCache: agentFromCache } = await queryWithFallback(
+    `agent_config_${email}`,
+    async () => {
+      const { data, error } = await supabase
+        .from("sek_agent_config").select("*").ilike("email", email).maybeSingle();
+      return { data, error };
+    },
+    null
+  );
   const a = agent as SekAgent | null;
-  if (!a) redirect("/login");
+
+  if (!a) {
+    if (agentFromCache) {
+      // Datos del cache: el agente está registrado, pero Supabase no responde ahora
+    } else {
+      // No hay cache Y Supabase no respondió — reconectar en vez de mandar al login
+      return (
+        <div className="min-h-dvh grid place-items-center p-6 px-safe">
+          <div className="max-w-md text-center space-y-4">
+            <h1 className="text-2xl font-bold">Reconectando...</h1>
+            <p className="text-muted-foreground">
+              No se pudo conectar con el servidor. Reintentando autom&aacute;ticamente.
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Usuario: {email}
+            </p>
+            <script dangerouslySetInnerHTML={{ __html: `
+              setTimeout(function() { window.location.reload(); }, 5000);
+            `}} />
+            <LogoutButton />
+          </div>
+        </div>
+      );
+    }
+  }
+
+  if (!a) {
+    return (
+      <div className="min-h-dvh grid place-items-center p-6 px-safe">
+        <div className="max-w-md text-center space-y-4">
+          <h1 className="text-2xl font-bold">Reconectando...</h1>
+          <p className="text-muted-foreground">
+            No se pudo verificar tu acceso. Reintentando autom&aacute;ticamente.
+          </p>
+          <script dangerouslySetInnerHTML={{ __html: `
+            setTimeout(function() { window.location.reload(); }, 5000);
+          `}} />
+          <LogoutButton />
+        </div>
+      </div>
+    );
+  }
 
   const isAdmin = ["admin","superadmin"].includes(a.rol);
   const isTecnico = a.rol === "tecnico";
