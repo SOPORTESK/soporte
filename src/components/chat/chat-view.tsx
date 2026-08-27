@@ -952,20 +952,92 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
         description: `"${file.name}" pesa ${(file.size / 1024 / 1024).toFixed(1)} MB. Esto puede tardar unos minutos.`,
       });
       try {
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("caseId", String(targetId));
-        formData.append("agentEmail", agentEmail);
+        // 1. Obtener access token de corta duración desde Vercel (sin subir el archivo)
+        const tokenRes = await fetch("/api/drive-token");
+        if (!tokenRes.ok) throw new Error("No se pudo obtener token de Drive");
+        const { accessToken, folderId } = await tokenRes.json();
 
-        const uploadRes = await fetch("/api/upload-drive", {
-          method: "POST",
-          body: formData,
-        });
-        if (!uploadRes.ok) {
-          const d = await uploadRes.json().catch(() => ({}));
-          throw new Error(d.error || `Error ${uploadRes.status}`);
+        // 2. Iniciar resumable upload directo a Google Drive desde el navegador
+        const initRes = await fetch(
+          "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              "Content-Type": "application/json; charset=UTF-8",
+              "X-Upload-Content-Type": file.type || "application/octet-stream",
+              "X-Upload-Content-Length": String(file.size),
+            },
+            body: JSON.stringify({ name: file.name, parents: [folderId] }),
+          }
+        );
+        if (!initRes.ok) throw new Error(`Drive init failed: ${await initRes.text()}`);
+        const uploadUrl = initRes.headers.get("Location") || initRes.headers.get("location");
+        if (!uploadUrl) throw new Error("No se obtuvo URL de subida");
+
+        // 3. Subir el archivo en chunks de 8MB
+        const chunkSize = 8 * 1024 * 1024;
+        let start = 0;
+        let fileId = "";
+        while (start < file.size) {
+          const end = Math.min(start + chunkSize - 1, file.size - 1);
+          const chunk = file.slice(start, end + 1);
+          const uploadRes = await fetch(uploadUrl, {
+            method: "PUT",
+            headers: {
+              "Content-Range": `bytes ${start}-${end}/${file.size}`,
+              "Content-Length": String(end - start + 1),
+              "Content-Type": file.type || "application/octet-stream",
+            },
+            body: chunk,
+          });
+          if (uploadRes.status === 308) {
+            const range = uploadRes.headers.get("Range");
+            if (range) {
+              const match = range.match(/bytes=\d+-(\d+)/);
+              if (match) start = parseInt(match[1], 10) + 1;
+              else start = end + 1;
+            } else {
+              start = end + 1;
+            }
+            continue;
+          }
+          if (uploadRes.status === 200 || uploadRes.status === 201) {
+            const data = await uploadRes.json();
+            fileId = data.id;
+            break;
+          }
+          if (!uploadRes.ok) throw new Error(`Chunk failed: ${await uploadRes.text()}`);
+          start = end + 1;
         }
-        const { shareableLink } = await uploadRes.json();
+        if (!fileId) throw new Error("Subida completada sin fileId");
+
+        // 4. Hacer público el archivo
+        await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ role: "reader", type: "anyone" }),
+        });
+
+        const shareableLink = `https://drive.google.com/file/d/${fileId}/view?usp=sharing`;
+
+        // 5. Registrar en BD (sin subir el archivo, solo metadatos)
+        await fetch("/api/drive-register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fileId,
+            fileName: file.name,
+            mimeType: file.type || "application/octet-stream",
+            fileSize: file.size,
+            shareableLink,
+            caseId: String(targetId),
+            agentEmail,
+          }),
+        });
 
         const driveMsg = `Estimado cliente:\n\nA continuación, le compartimos el enlace para la descarga directa del archivo solicitito:\n\n${shareableLink}\n\nPor favor, tenga en cuenta que el enlace permanecerá activo durante las próximas 2 horas.\n\nSi requiere cualquier otra asistencia, con gusto estaremos para ayudarle.`;
 

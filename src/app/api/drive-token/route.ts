@@ -1,54 +1,21 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createServiceClient } from "@/lib/supabase/service";
+import { NextResponse } from "next/server";
+import { refreshAccessToken } from "@/lib/google-drive";
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+export const maxDuration = 30;
 
-export async function GET(req: NextRequest) {
+// Devuelve un access token de corta duración para que el navegador
+// suba directo a Google Drive sin pasar el archivo por Vercel.
+export async function GET() {
   try {
-    const supabase = createServiceClient();
-    const { data, error } = await supabase
-      .from("sek_drive_config")
-      .select("refresh_token")
-      .eq("id", 1)
-      .single();
-
-    if (error || !data?.refresh_token) {
-      return NextResponse.json({ error: "Google Drive no autorizado" }, { status: 500 });
-    }
-
-    const res = await fetch("https://oauth2.googleapis.com/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        refresh_token: data.refresh_token,
-        client_id: process.env.GOOGLE_OAUTH_CLIENT_ID!,
-        client_secret: process.env.GOOGLE_OAUTH_CLIENT_SECRET!,
-        grant_type: "refresh_token",
-      }),
-    });
-
-    if (!res.ok) {
-      const errBody = await res.text();
-      console.error("[drive-token] Refresh failed:", errBody.substring(0, 300));
-      return NextResponse.json({
-        error: "Token de Google Drive expirado. Visite /api/drive-oauth-start para re-autorizar.",
-        needsReauth: true,
-      }, { status: 401 });
-    }
-
-    const tokens = await res.json();
-
-    await supabase
-      .from("sek_drive_config")
-      .update({ updated_at: new Date().toISOString() })
-      .eq("id", 1);
-
-    return NextResponse.json({
-      accessToken: tokens.access_token,
-      folderId: process.env.GOOGLE_DRIVE_FOLDER_ID,
-    });
+    const accessToken = await refreshAccessToken();
+    const folderId =
+      process.env.GOOGLE_DRIVE_FOLDER_ID || "1GpDjU1Tu3n_FRF-BwwRJuMISOIjhsVht";
+    return NextResponse.json({ accessToken, folderId });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message }, { status: 500 });
+    return NextResponse.json(
+      { error: e?.message || "No se pudo obtener token de Drive" },
+      { status: 500 }
+    );
   }
 }

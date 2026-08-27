@@ -85,7 +85,7 @@ async function getRefreshToken(): Promise<string> {
   return token;
 }
 
-async function refreshAccessToken(): Promise<string> {
+export async function refreshAccessToken(): Promise<string> {
   if (cachedToken && Date.now() < cachedToken.expiresAt - 60 * 1000) {
     return cachedToken.token;
   }
