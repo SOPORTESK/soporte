@@ -48,7 +48,6 @@ type UnifiedMessage = {
   starred?: boolean;
   // Índice secuencial para desempatar mensajes con el mismo time
   seq?: number;
-  _localSeq?: number;
 };
 
 function unifyMessages(c: SekCase): UnifiedMessage[] {
@@ -88,8 +87,7 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
       edited: (e as any).edited,
       pinned: (e as any).pinned,
       starred: (e as any).starred,
-      seq: (e as any).seq ?? seq,
-      _localSeq: (e as any).seq === undefined ? seq++ : undefined,
+      seq: seq++,
     });
   });
 
@@ -119,8 +117,7 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
       edited: (e as any).edited,
       pinned: (e as any).pinned,
       starred: (e as any).starred,
-      seq: (e as any).seq ?? seq,
-      _localSeq: (e as any).seq === undefined ? seq++ : undefined,
+      seq: seq++,
     });
   });
 
