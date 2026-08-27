@@ -59,6 +59,101 @@ function createWindow() {
     }
     return { action: 'allow' };
   });
+
+  // ─── MANEJO DE ERRORES Y AUTO-RECARGA ──────────────────────────────────────
+  let reloadAttempts = 0;
+  const MAX_RELOAD_ATTEMPTS = 5;
+  const RELOAD_COOLDOWN = 10000; // 10s entre intentos
+
+  // La pagina fallo al cargar (timeout, red caida, DNS, etc)
+  win.webContents.on('did-fail-load', (_, errorCode, errorDescription, validatedURL) => {
+    if (errorCode === -3) return; // ERR_ABORTED — recarga normal, ignorar
+    console.error(`[did-fail-load] ${errorCode}: ${errorDescription} | URL: ${validatedURL}`);
+    if (reloadAttempts < MAX_RELOAD_ATTEMPTS) {
+      reloadAttempts++;
+      console.log(`[auto-reload] intento ${reloadAttempts}/${MAX_RELOAD_ATTEMPTS} en ${RELOAD_COOLDOWN/1000}s...`);
+      setTimeout(() => {
+        if (win && !win.isDestroyed()) {
+          win.loadURL(isDev ? DEV_URL : PROD_URL);
+        }
+      }, RELOAD_COOLDOWN);
+    }
+  });
+
+  // La pagina termino de cargar — resetear contador
+  win.webContents.on('did-finish-load', () => {
+    if (reloadAttempts > 0) {
+      console.log(`[auto-reload] pagina cargada OK despues de ${reloadAttempts} intento(s)`);
+    }
+    reloadAttempts = 0;
+  });
+
+  // El proceso de renderizado se cerro o crasheo (pantalla negra)
+  win.webContents.on('render-process-gone', (_, details) => {
+    console.error(`[render-process-gone] reason: ${details.reason} | exitCode: ${details.exitCode}`);
+    if (reloadAttempts < MAX_RELOAD_ATTEMPTS) {
+      reloadAttempts++;
+      console.log(`[auto-reload] render-process-gone, recargando en ${RELOAD_COOLDOWN/1000}s (intento ${reloadAttempts})...`);
+      setTimeout(() => {
+        if (win && !win.isDestroyed()) {
+          win.loadURL(isDev ? DEV_URL : PROD_URL);
+        }
+      }, RELOAD_COOLDOWN);
+    } else {
+      console.error('[auto-reload] maximo de intentos alcanzado, no se recarga mas');
+      dialog.showErrorBox(
+        'Soporte Sekunet - Error',
+        'La aplicacion crasheo multiples veces y no se pudo recuperar.\n\nPor favor cierre y vuelva a abrir la aplicacion.'
+      );
+    }
+  });
+
+  // La pagina no responde (congelada)
+  win.webContents.on('unresponsive', () => {
+    console.error('[unresponsive] la pagina dejo de responder');
+    if (Notification.isSupported()) {
+      new Notification({
+        title: 'Soporte Sekunet',
+        body: 'La aplicacion no responde. Recargando automaticamente...',
+        icon: APP_ICON,
+      }).show();
+    }
+    setTimeout(() => {
+      if (win && !win.isDestroyed()) {
+        win.webContents.reload();
+      }
+    }, 3000);
+  });
+
+  // El proceso GPU crasheo (causa comum de pantalla negra en Electron)
+  app.on('gpu-process-crashed', (_, killed) => {
+    console.error(`[gpu-process-crashed] killed: ${killed}`);
+  });
+
+  // Detectar si la pagina se queda en blanco despues de cargar
+  // (pasa cuando React crashea y no renderiza nada)
+  let blankCheckTimer = null;
+  win.webContents.on('did-finish-load', () => {
+    if (blankCheckTimer) clearTimeout(blankCheckTimer);
+    blankCheckTimer = setTimeout(async () => {
+      if (!win || win.isDestroyed()) return;
+      try {
+        // Verificar si el body esta vacio o solo tiene el background
+        const result = await win.webContents.executeJavaScript(`
+          document.body && document.body.innerHTML
+            ? document.body.innerHTML.length
+            : 0
+        `);
+        if (result < 100) {
+          console.error(`[blank-check] body casi vacio (${result} chars), recargando...`);
+          win.webContents.reload();
+        }
+      } catch (e) {
+        // executeJavaScript puede fallar si el renderer ya no existe
+        console.error('[blank-check] no se pudo inspeccionar:', e.message);
+      }
+    }, 5000);
+  });
 }
 
 // ─── AUTO-ACTUALIZACIÓN ───────────────────────────────────────────────────────
@@ -113,6 +208,21 @@ ipcMain.on('abrir-impersonar', (_, { url, nombre }) => {
   impWin.webContents.setWindowOpenHandler(({ url: u }) => {
     if (!u.startsWith('https://sekachat.vercel.app')) { shell.openExternal(u); return { action: 'deny' }; }
     return { action: 'allow' };
+  });
+
+  // Auto-recargar si crashea
+  impWin.webContents.on('render-process-gone', (_, details) => {
+    console.error(`[imp-render-process-gone] reason: ${details.reason}`);
+    setTimeout(() => {
+      if (impWin && !impWin.isDestroyed()) impWin.loadURL(url);
+    }, 5000);
+  });
+  impWin.webContents.on('did-fail-load', (_, errorCode, errorDescription) => {
+    if (errorCode === -3) return;
+    console.error(`[imp-did-fail-load] ${errorCode}: ${errorDescription}`);
+    setTimeout(() => {
+      if (impWin && !impWin.isDestroyed()) impWin.loadURL(url);
+    }, 5000);
   });
 });
 
