@@ -48,8 +48,11 @@ function getMessageKey(jid: string | null | undefined, content: string | null | 
   // El messageId de WhatsApp identifica cada mensaje de forma única: es la clave
   // correcta. Solo se cae al texto/media cuando el payload no lo trae.
   if (messageId) return `id:${messageId}`;
-  const key = mediaUrl ? `${jid}:${mediaUrl}` : `${jid}:${content?.slice(0, 50)}`;
-  return key;
+  if (mediaUrl) return `${jid}:${mediaUrl}`;
+  if (content) return `${jid}:${content.slice(0, 50)}`;
+  // Sin messageId, sin mediaUrl, sin content (ej: imagen sin caption antes de
+  // descargar media). Usar timestamp + random para que no colisionen entre sí.
+  return `${jid}:nomedia:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function isDuplicateMessage(jid: string | null | undefined, content: string | null | undefined, mediaUrl?: string, messageId?: string | null): boolean {
@@ -820,7 +823,7 @@ export async function POST(req: NextRequest) {
   // de comparar el texto, que descartaba respuestas repetidas legítimas del
   // cliente ("1", "si", "ok") dentro de la ventana de 30s.
   const keyId: string | null =
-    get(payload, "data.key.id") || get(payload, "key.id") || get(payload, "data.messages.0.key.id") || null;
+    get(payload, "data.key.id") || get(payload, "key.id") || get(payload, "data.messages.0.key.id") || get(payload, "data.message.key.id") || get(payload, "message.key.id") || null;
 
   // Hora real de envío según WhatsApp. La UI ordena los mensajes por este campo,
   // así que usar la hora de recepción hacía que el orden no coincidiera con el
