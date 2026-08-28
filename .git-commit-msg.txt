@@ -1,9 +1,25 @@
-fix: paralelizar queries del layout para navegacion mas rapida
+fix: orden definitivo de mensajes con seq + sek_append_hist en todo el motor IA
 
-El layout (app) hacia 4 queries secuenciales a Supabase (agent,
-online_agents, n2_count, smart_count). Cada una esperaba a la
-anterior, sumando 1.2s+ de latencia por navegacion. Ahora se
-ejecutan en paralelo con Promise.all, reduciendo a ~300ms.
+Problema: Los mensajes de la IA se guardaban con append directo
+(histtecnico: [...hist, newMsg]) sin pasar por sek_append_hist, lo que
+los dejaba sin seq y messageId. El chat-view ordenaba por time primero,
+causando desorden cuando los timestamps no eran exactos.
+
+Solucion definitiva (5 fases):
+
+1. chat-view.tsx: Ordenar por seq primero, time solo como fallback
+   para mensajes viejos sin seq
+
+2. Backfill de 14,455 mensajes existentes (797 casos) con seq asignado
+   en lotes de 50 con pausas de 2s para no saturar la BD
+
+3. Motor IA (seka-whatsapp): 35 reemplazos de append directo por
+   appendTecnico/appendTecnicoMulti que usan sek_append_hist RPC.
+   Todos los mensajes de la IA ahora reciben seq automaticamente.
+
+4. Webhook ya usaba sek_append_hist para mensajes del cliente (verificado)
+
+5. Fallback: si sek_append_hist falla, appendTecnico cae al metodo viejo
 
 Generated with [Devin](https://devin.ai)
 

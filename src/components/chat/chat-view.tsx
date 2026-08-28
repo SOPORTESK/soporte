@@ -128,6 +128,15 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
       return !isEmpty && !isDeleted;
     })
     .sort((a, b) => {
+    // Ordenar por seq primero (asignado por sek_append_hist en la BD).
+    // Si ambos tienen seq, ese es el orden definitivo.
+    // Si ninguno tiene seq (mensajes viejos sin backfill), caer a time.
+    const sa = a.seq ?? null;
+    const sb = b.seq ?? null;
+    if (sa !== null && sb !== null) return sa - sb;
+    if (sa !== null) return -1; // a tiene seq, va primero
+    if (sb !== null) return 1;  // b tiene seq, va primero
+    // Ninguno tiene seq: ordenar por time como fallback
     const ta = new Date(a.time).getTime();
     const tb = new Date(b.time).getTime();
     const da = isNaN(ta) ? Number.MAX_SAFE_INTEGER : ta;
