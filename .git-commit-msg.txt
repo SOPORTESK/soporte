@@ -1,25 +1,18 @@
-fix: orden definitivo de mensajes con seq + sek_append_hist en todo el motor IA
+fix: ordenar mensajes por time (correcto) no por seq (insertion order)
 
-Problema: Los mensajes de la IA se guardaban con append directo
-(histtecnico: [...hist, newMsg]) sin pasar por sek_append_hist, lo que
-los dejaba sin seq y messageId. El chat-view ordenaba por time primero,
-causando desorden cuando los timestamps no eran exactos.
+El sort por seq estaba mal porque sek_append_hist asigna seq por orden
+de INSERCION en la BD, no por timestamp del mensaje. Mensajes
+retrasados (webhook procesa tarde) recibian seq alto aunque su time
+fuera anterior.
 
-Solucion definitiva (5 fases):
+Datos reales del caso 15f65781 lo confirmaron:
+- seq=6, time=14:13:22 (cliente "Buenos dias") ← time anterior, seq alto
+- seq=1, time=14:13:26 (César "Buen día...") ← time posterior, seq bajo
 
-1. chat-view.tsx: Ordenar por seq primero, time solo como fallback
-   para mensajes viejos sin seq
+Orden por time = orden cronologico correcto.
+Orden por seq = orden de insercion, NO cronologico.
 
-2. Backfill de 14,455 mensajes existentes (797 casos) con seq asignado
-   en lotes de 50 con pausas de 2s para no saturar la BD
-
-3. Motor IA (seka-whatsapp): 35 reemplazos de append directo por
-   appendTecnico/appendTecnicoMulti que usan sek_append_hist RPC.
-   Todos los mensajes de la IA ahora reciben seq automaticamente.
-
-4. Webhook ya usaba sek_append_hist para mensajes del cliente (verificado)
-
-5. Fallback: si sek_append_hist falla, appendTecnico cae al metodo viejo
+Verificado: 127 mensajes en 20 casos, todos con time valido (0 null, 0 invalid).
 
 Generated with [Devin](https://devin.ai)
 
