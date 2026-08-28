@@ -22,8 +22,28 @@ export const dynamic = 'force-dynamic';
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const supabase = createClient();
-  const { user } = await getUserWithTimeout(supabase);
-  if (!user) redirect("/login");
+  const { user, timedOut } = await getUserWithTimeout(supabase);
+  if (!user) {
+    if (timedOut) {
+      // Supabase Auth tardó demasiado — la sesión probablemente sigue activa.
+      // NO redirigir a login. Mostrar pantalla de reconexión con auto-retry.
+      return (
+        <div className="min-h-dvh grid place-items-center p-6 px-safe">
+          <div className="max-w-md text-center space-y-4">
+            <h1 className="text-2xl font-bold">Reconectando...</h1>
+            <p className="text-muted-foreground">
+              No se pudo conectar con el servidor. Reintentando autom&aacute;ticamente.
+            </p>
+            <script dangerouslySetInnerHTML={{ __html: `
+              setTimeout(function() { window.location.reload(); }, 5000);
+            `}} />
+            <LogoutButton />
+          </div>
+        </div>
+      );
+    }
+    redirect("/login");
+  }
 
   const email = user.email!;
 

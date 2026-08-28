@@ -371,7 +371,7 @@ async function callGeminiChat(messages: ChatMessage[], keyOverride?: string): Pr
     parts: [{ text: m.content }],
   }));
 
-  const body: Record<string, unknown> = { contents, generationConfig: { temperature: 0.3, maxOutputTokens: 2048 } };
+  const body: Record<string, unknown> = { contents, generationConfig: { temperature: 0.3, maxOutputTokens: 3072 } };
   if (systemMsg) body.system_instruction = { parts: [{ text: systemMsg.content }] };
 
   const res = await fetch(
@@ -406,7 +406,7 @@ async function callGeminiFallback(messages: ChatMessage[]): Promise<string> {
       const systemMsg = messages.find(m => m.role === "system");
       const chatMsgs = messages.filter(m => m.role !== "system");
       const contents = chatMsgs.map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
-      const body: Record<string, unknown> = { contents, generationConfig: { temperature: 0.3, maxOutputTokens: 2048 } };
+      const body: Record<string, unknown> = { contents, generationConfig: { temperature: 0.3, maxOutputTokens: 3072 } };
       if (systemMsg) body.system_instruction = { parts: [{ text: systemMsg.content }] };
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_FALLBACK_MODEL}:generateContent?key=${key}`,
@@ -434,7 +434,7 @@ async function callGroq(messages: ChatMessage[]): Promise<string> {
       model: GROQ_MODEL,
       messages: messages.map(m => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content })),
       temperature: 0.3,
-      max_tokens: 2048,
+      max_tokens: 3072,
     }),
   });
   if (!res.ok) {
@@ -456,7 +456,7 @@ async function callNIM(messages: ChatMessage[]): Promise<string> {
       model: NIM_MODEL,
       messages: messages.map(m => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content })),
       temperature: 0.3,
-      max_tokens: 2048,
+      max_tokens: 3072,
     }),
   });
   if (!res.ok) {
@@ -479,7 +479,7 @@ async function callOpenRouter(messages: ChatMessage[], model?: string): Promise<
       model: useModel,
       messages: messages.map(m => ({ role: m.role, content: m.content })),
       temperature: 0.3,
-      max_tokens: 2048,
+      max_tokens: 3072,
     }),
   });
   if (!res.ok) {

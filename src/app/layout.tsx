@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
+import { AuthStateProvider } from "@/components/auth-state-provider";
 import { Toaster } from "sonner";
 
 
@@ -45,9 +46,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           Saltar al contenido
         </a>
         <ThemeProvider>
-
-          {children}
-          <Toaster richColors position="top-right" closeButton />
+          <AuthStateProvider>
+            {children}
+            <Toaster richColors position="top-right" closeButton />
+          </AuthStateProvider>
         </ThemeProvider>
         <script
           dangerouslySetInnerHTML={{

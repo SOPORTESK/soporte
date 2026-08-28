@@ -9,9 +9,31 @@ export default function Home() {
 
   useEffect(() => {
     const supabase = createClient();
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      router.replace(user ? "/inbox" : "/login");
-    });
+    let cancelled = false;
+    // Retry hasta 3 veces con 2s entre cada intento — si Supabase Auth
+    // está lento, no mandar al usuario a login sin haberlo intentado.
+    async function check(retries = 3) {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (cancelled) return;
+        if (user) {
+          router.replace("/inbox");
+        } else if (retries > 0) {
+          setTimeout(() => check(retries - 1), 2000);
+        } else {
+          router.replace("/login");
+        }
+      } catch {
+        if (cancelled) return;
+        if (retries > 0) {
+          setTimeout(() => check(retries - 1), 2000);
+        } else {
+          router.replace("/login");
+        }
+      }
+    }
+    check();
+    return () => { cancelled = true; };
   }, [router]);
 
   return (

@@ -1,0 +1,229 @@
+﻿node.exe : Vercel CLI 59.5.0 (Node.js 25.9.0)
+En línea: 1 Carácter: 1
++ & "C:\Program Files\nodejs/node.exe" "C:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Vercel CLI 59.5.0 (Node.js 25.9.0):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+WARNING! Did you mean to deploy the subdirectory "logs"? Use `vc --cwd logs` instead.
+Resolving deployment "sekachat.vercel.app"
+Fetching project "prj_2PtlyIszXDcxz1GMJoB3bH6jaw3k"
+Fetching logs...
+TIME         HOST                 LEVEL                               
+14:54:08.88  sekachat.vercel.app  info   ╬╗ GET /inbox                 
+
+14:54:08.88  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:54:08.37  sekachat.vercel.app  info   ╬╗ GET /mi-gestion            
+[mi-gestion] Agente: cbatista@sekunet.com (c├®sar andr├®s batista), Mis casos: 127
+
+14:54:08.37  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:54:08.12  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:54:02.38  sekachat.vercel.app  info   ╬Á GET /mi-gestion            
+[mi-gestion] Agente: mbermudez@sekunet.com (matthew bermudez), Mis casos: 138
+
+14:54:02.38  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:53:48.22  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:53:47.99  sekachat.vercel.app  info   ╬Á GET /inbox                 
+
+14:53:41.31  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:53:38.87  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:53:38.37  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:53:38.33  sekachat.vercel.app  info   ╬╗ GET /mi-gestion            
+[mi-gestion] Agente: cbatista@sekunet.com (c├®sar andr├®s batista), Mis casos: 127
+
+14:53:38.33  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:53:32.38  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:53:18.35  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:53:18.11  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:53:08.89  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:53:08.89  sekachat.vercel.app  info   ╬Á GET /inbox                 
+
+14:53:08.37  sekachat.vercel.app  info   ╬Á GET /mi-gestion            
+[mi-gestion] Agente: cbatista@sekunet.com (c├®sar andr├®s batista), Mis casos: 127
+
+14:53:08.37  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:53:08.12  sekachat.vercel.app  info   ╬Á GET /mi-gestion            
+[mi-gestion] Agente: sbolsios@sekunet.com (josseph bolsios), Mis casos: 95
+
+14:53:08.12  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:53:02.38  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:53:02.38  sekachat.vercel.app  info   ╬╗ GET /mi-gestion            
+[mi-gestion] Agente: mbermudez@sekunet.com (matthew bermudez), Mis casos: 138
+
+14:52:49.33  sekachat.vercel.app  info   ╬Á GET /inbox                 
+
+14:52:49.28  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:52:38.89  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:52:38.37  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:52:38.33  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:52:32.52  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:52:18.47  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:52:09.22  sekachat.vercel.app  info   ╬Á GET /mi-gestion            
+
+14:52:09.22  sekachat.vercel.app  info   ╬╗ GET /soporte-avanzado      
+
+14:52:09.22  sekachat.vercel.app  info   ╬╗ GET /admin/equipo          
+
+14:52:09.22  sekachat.vercel.app  info   ╬╗ GET /smart-inbox           
+
+14:52:08.91  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:52:08.37  sekachat.vercel.app  info   ╬╗ GET /mi-gestion            
+[mi-gestion] Agente: cbatista@sekunet.com (c├®sar andr├®s batista), Mis casos: 127
+
+14:52:08.37  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:52:08.13  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:52:05.46  sekachat.vercel.app  info   ╬Á GET /inbox                 
+
+14:52:05.23  sekachat.vercel.app  info   ╬Á GET /inbox                 
+
+14:52:05.00  sekachat.vercel.app  info   ╬Á GET /inbox                 
+
+14:52:02.38  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:52:02.38  sekachat.vercel.app  info   ╬Á GET /mi-gestion            
+[mi-gestion] Agente: mbermudez@sekunet.com (matthew bermudez), Mis casos: 138
+
+14:51:47.99  sekachat.vercel.app  info   ╬Á GET /inbox                 
+
+14:51:47.99  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:51:41.31  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:51:38.66  sekachat.vercel.app  info   ╬╗ POST /api/activity/log     
+
+14:51:38.38  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:54:08.88  sekachat.vercel.app  info   ╬╗ GET /inbox                 
+
+14:54:08.88  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:54:08.37  sekachat.vercel.app  info   ╬╗ GET /mi-gestion            
+[mi-gestion] Agente: cbatista@sekunet.com (c├®sar andr├®s batista), Mis casos: 127
+
+14:54:08.37  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:54:08.12  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:54:02.38  sekachat.vercel.app  info   ╬Á GET /mi-gestion            
+[mi-gestion] Agente: mbermudez@sekunet.com (matthew bermudez), Mis casos: 138
+
+14:54:02.38  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:53:48.22  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:53:47.99  sekachat.vercel.app  info   ╬Á GET /inbox                 
+
+14:53:41.31  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:53:38.87  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:53:38.37  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:53:38.33  sekachat.vercel.app  info   ╬╗ GET /mi-gestion            
+[mi-gestion] Agente: cbatista@sekunet.com (c├®sar andr├®s batista), Mis casos: 127
+
+14:53:38.33  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:53:32.38  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:53:18.35  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:53:18.11  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:53:08.89  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:53:08.89  sekachat.vercel.app  info   ╬Á GET /inbox                 
+
+14:53:08.37  sekachat.vercel.app  info   ╬Á GET /mi-gestion            
+[mi-gestion] Agente: cbatista@sekunet.com (c├®sar andr├®s batista), Mis casos: 127
+
+14:53:08.37  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:53:08.12  sekachat.vercel.app  info   ╬Á GET /mi-gestion            
+[mi-gestion] Agente: sbolsios@sekunet.com (josseph bolsios), Mis casos: 95
+
+14:53:08.12  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:53:02.38  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:53:02.38  sekachat.vercel.app  info   ╬╗ GET /mi-gestion            
+[mi-gestion] Agente: mbermudez@sekunet.com (matthew bermudez), Mis casos: 138
+
+14:52:49.33  sekachat.vercel.app  info   ╬Á GET /inbox                 
+
+14:52:49.28  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:52:38.89  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:52:38.37  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:52:38.33  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:52:32.52  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:52:18.47  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:52:09.22  sekachat.vercel.app  info   ╬╗ GET /mi-gestion            
+
+14:52:09.22  sekachat.vercel.app  info   ╬╗ GET /soporte-avanzado      
+
+14:52:09.22  sekachat.vercel.app  info   ╬╗ GET /admin/equipo          
+
+14:52:09.22  sekachat.vercel.app  info   ╬╗ GET /smart-inbox           
+
+14:52:08.91  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:52:08.37  sekachat.vercel.app  info   ╬╗ GET /mi-gestion            
+[mi-gestion] Agente: cbatista@sekunet.com (c├®sar andr├®s batista), Mis casos: 127
+
+14:52:08.37  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:52:08.13  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:52:05.46  sekachat.vercel.app  info   ╬Á GET /inbox                 
+
+14:52:05.23  sekachat.vercel.app  info   ╬Á GET /inbox                 
+
+14:52:05.00  sekachat.vercel.app  info   ╬Á GET /inbox                 
+
+14:52:02.38  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:52:02.38  sekachat.vercel.app  info   ╬Á GET /mi-gestion            
+[mi-gestion] Agente: mbermudez@sekunet.com (matthew bermudez), Mis casos: 138
+
+14:51:47.99  sekachat.vercel.app  info   ╬╗ GET /inbox                 
+
+14:51:47.99  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:51:41.31  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+14:51:38.66  sekachat.vercel.app  info   ╬╗ POST /api/activity/log     
+
+14:51:38.38  sekachat.vercel.app  info   ╬╗ POST /api/profile/status   
+
+Fetched 100 logs for soportesks-projects/sekachat

@@ -10,7 +10,7 @@ import { cacheGet, cacheSet } from "./cache";
 const AUTH_TIMEOUT_MS = 8000;
 const DATA_TIMEOUT_MS = 15000;
 
-export async function getUserWithTimeout(supabase: any): Promise<{ user: any }> {
+export async function getUserWithTimeout(supabase: any): Promise<{ user: any; timedOut: boolean }> {
   try {
     const result = await Promise.race([
       supabase.auth.getUser(),
@@ -18,10 +18,11 @@ export async function getUserWithTimeout(supabase: any): Promise<{ user: any }> 
         setTimeout(() => reject(new Error("auth_timeout")), AUTH_TIMEOUT_MS)
       ),
     ]);
-    return result.data;
+    return { user: result.data.user, timedOut: false };
   } catch (e) {
     console.warn("[resilient] getUser timeout/error:", (e as Error).message);
-    return { user: null };
+    // timedOut=true para que el layout sepa que NO debe redirigir a login
+    return { user: null, timedOut: true };
   }
 }
 

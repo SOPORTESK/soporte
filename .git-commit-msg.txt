@@ -1,17 +1,18 @@
-diag: scripts de diagnostico de orden, duplicados y messageId
+fix: no cerrar sesion por timeout de Supabase Auth
 
-Punto de restauracion antes de refactor de ordenamiento de mensajes.
+Problema: getUserWithTimeout devolvia {user:null} tanto en timeout
+como en "no hay sesion". Los layouts redirigian a login en ambos
+casos, sacando al usuario de la app cuando Supabase estaba lento.
 
-- diag-orden-mensajes.mjs: detecta mensajes fuera de orden por timestamp
-- diag-duplicados.mjs: detecta pares duplicados y mide delta de tiempo
-- diag-messageid.mjs: mide cobertura de messageId por tipo de mensaje
-- 20260819_seq_and_content_dedupe.sql: migracion pendiente (seq + dedupe por contenido)
-- 20260819_backfill_seq_msgid.sql: backfill pendiente de seq y messageId
-
-Estado actual:
-- 14.126 mensajes, 118 casos afectados por desorden
-- 1.620 duplicados, 42% de mensajes sin messageId
-- IA 92% sin id, tecnico 52% sin id, cliente 0% sin id
+Solucion:
+1. getUserWithTimeout ahora devuelve {timedOut:true} cuando es timeout
+2. Layouts (app, admin, actividad, admin/page) muestran "Reconectando..."
+   en vez de redirigir a login cuando es timeout
+3. Middleware no redirige a login en timeout
+4. pagina "/" reintent 3x antes de mandar a login
+5. AuthStateProvider con onAuthStateChange: solo redirige a login
+   cuando la sesion REALMENTE expira (SIGNED_OUT)
+6. Refresh token proactivo cada 10min para mantener sesion viva en Electron
 
 Generated with [Devin](https://devin.ai)
 

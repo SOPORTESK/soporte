@@ -43,6 +43,7 @@ export async function updateSession(request: NextRequest) {
   // Timeout protection: si getUser() tarda más de 8s, dejar pasar
   // (las páginas/API hacen su propia verificación de auth)
   let user: any = null;
+  let timedOut = false;
   try {
     const result = await Promise.race([
       supabase.auth.getUser(),
@@ -52,11 +53,14 @@ export async function updateSession(request: NextRequest) {
     ]);
     user = result.data.user;
   } catch (e) {
+    timedOut = true;
     console.warn("[middleware] getUser timeout/error, letting request through:", (e as Error).message);
     return response;
   }
 
-  if (!user && !isAuthPage && !isPublic) {
+  // Solo redirigir a login si sabemos con certeza que no hay sesión.
+  // Si fue timeout, dejar pasar — el layout maneja la reconexión.
+  if (!user && !timedOut && !isAuthPage && !isPublic) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("next", pathname);
