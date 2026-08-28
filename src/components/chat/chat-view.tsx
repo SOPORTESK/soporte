@@ -2067,6 +2067,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
                   agentEmail={agentEmail}
                   onMessageUpdate={handleMessageUpdate}
                   fallbackCaseId={targetId}
+                  onRetrySend={retrySend}
                   onReply={(msg) => { setReplyTo(msg); setMode("reply"); setTimeout(() => { const ta = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Mensaje"]'); if (ta) ta.focus(); }, 50); }}
                 />
               </div>
@@ -2746,16 +2747,17 @@ function MediaPreview({ url, type, name, onImageClick }: { url: string; type?: s
   );
 }
 
-function Bubble({ m, prev, next, clienteName, onImageClick, agentEmail, onMessageUpdate, onReply, fallbackCaseId }: { 
-  m: UnifiedMessage; 
+function Bubble({ m, prev, next, clienteName, onImageClick, agentEmail, onMessageUpdate, onReply, fallbackCaseId, onRetrySend }: {
+  m: UnifiedMessage;
   prev?: UnifiedMessage;
   next?: UnifiedMessage;
-  clienteName: string; 
+  clienteName: string;
   onImageClick?: (url: string, type?: string, name?: string) => void;
   agentEmail: string | null;
   onMessageUpdate?: (historyType: "histcliente" | "histtecnico", originalIndex: number, fieldsToUpdate: any) => void;
   onReply?: (m: UnifiedMessage) => void;
   fallbackCaseId?: string | number;
+  onRetrySend?: (m: UnifiedMessage) => void;
 }) {
   const isCliente = m.source === "user";
   const isIA = m.source === "assistant";
@@ -3207,9 +3209,9 @@ function Bubble({ m, prev, next, clienteName, onImageClick, agentEmail, onMessag
               <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none"><path d="M2 8L6 12 14 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
             </span>
           )}
-          {m.status === "error" && (
+          {m.status === "error" && onRetrySend && (
             <button
-              onClick={() => retrySend(m)}
+              onClick={() => onRetrySend(m)}
               className="text-red-400 hover:text-red-300 underline text-[10px]"
               title="Reintentar envío a WhatsApp"
             >
