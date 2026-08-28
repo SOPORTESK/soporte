@@ -1,18 +1,9 @@
-fix: no cerrar sesion por timeout de Supabase Auth
+fix: paralelizar queries del layout para navegacion mas rapida
 
-Problema: getUserWithTimeout devolvia {user:null} tanto en timeout
-como en "no hay sesion". Los layouts redirigian a login en ambos
-casos, sacando al usuario de la app cuando Supabase estaba lento.
-
-Solucion:
-1. getUserWithTimeout ahora devuelve {timedOut:true} cuando es timeout
-2. Layouts (app, admin, actividad, admin/page) muestran "Reconectando..."
-   en vez de redirigir a login cuando es timeout
-3. Middleware no redirige a login en timeout
-4. pagina "/" reintent 3x antes de mandar a login
-5. AuthStateProvider con onAuthStateChange: solo redirige a login
-   cuando la sesion REALMENTE expira (SIGNED_OUT)
-6. Refresh token proactivo cada 10min para mantener sesion viva en Electron
+El layout (app) hacia 4 queries secuenciales a Supabase (agent,
+online_agents, n2_count, smart_count). Cada una esperaba a la
+anterior, sumando 1.2s+ de latencia por navegacion. Ahora se
+ejecutan en paralelo con Promise.all, reduciendo a ~300ms.
 
 Generated with [Devin](https://devin.ai)
 

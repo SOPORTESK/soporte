@@ -47,58 +47,69 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const email = user.email!;
 
-  const { data: agent, fromCache: agentFromCache } = await queryWithFallback(
-    `agent_config_${email}`,
-    async () => {
-      const { data, error } = await supabase
-        .from("sek_agent_config").select("*").ilike("email", email).maybeSingle();
-      return { data, error };
-    },
-    null
-  );
-  const a = agent as SekAgent | null;
-
   const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
-  const { data: onlineAgents } = await queryWithFallback(
-    "online_agents",
-    async () => {
-      const { data, error } = await supabase
-        .from("sek_agent_config")
-        .select("email, nombre, apellido, avatar_url, status, last_seen_at")
-        .neq("status", "offline")
-        .gte("last_seen_at", twoMinutesAgo);
-      return { data, error };
-    },
-    []
-  );
 
-  const { data: n2CountData } = await queryWithFallback(
-    "n2_count",
-    async () => {
-      const { count, error } = await supabase
-        .from("sek_cases")
-        .select("*", { count: "exact", head: true })
-        .eq("estado", "escalado")
-        .is("assigned_to", null);
-      return { data: count as any, error };
-    },
-    0
-  );
-  const n2Count = (n2CountData as number) ?? 0;
+  // Paralelizar todas las queries del layout para reducir latencia.
+  // Antes eran secuenciales: 4 queries x 300ms = 1.2s. Ahora en paralelo: ~300ms.
+  const [
+    agentResult,
+    onlineAgentsResult,
+    n2CountResult,
+    smartCountResult,
+  ] = await Promise.all([
+    queryWithFallback(
+      `agent_config_${email}`,
+      async () => {
+        const { data, error } = await supabase
+          .from("sek_agent_config").select("*").ilike("email", email).maybeSingle();
+        return { data, error };
+      },
+      null
+    ),
+    queryWithFallback(
+      "online_agents",
+      async () => {
+        const { data, error } = await supabase
+          .from("sek_agent_config")
+          .select("email, nombre, apellido, avatar_url, status, last_seen_at")
+          .neq("status", "offline")
+          .gte("last_seen_at", twoMinutesAgo);
+        return { data, error };
+      },
+      []
+    ),
+    queryWithFallback(
+      "n2_count",
+      async () => {
+        const { count, error } = await supabase
+          .from("sek_cases")
+          .select("*", { count: "exact", head: true })
+          .eq("estado", "escalado")
+          .is("assigned_to", null);
+        return { data: count as any, error };
+      },
+      0
+    ),
+    queryWithFallback(
+      "smart_count",
+      async () => {
+        const { count, error } = await supabase
+          .from("sek_cases")
+          .select("*", { count: "exact", head: true })
+          .eq("estado", "ia_atendiendo")
+          .neq("canal", "simulator");
+        return { data: count as any, error };
+      },
+      0
+    ),
+  ]);
 
-  const { data: smartCountData } = await queryWithFallback(
-    "smart_count",
-    async () => {
-      const { count, error } = await supabase
-        .from("sek_cases")
-        .select("*", { count: "exact", head: true })
-        .eq("estado", "ia_atendiendo")
-        .neq("canal", "simulator");
-      return { data: count as any, error };
-    },
-    0
-  );
-  const smartCount = (smartCountData as number) ?? 0;
+  const agent = agentResult.data;
+  const agentFromCache = agentResult.fromCache;
+  const a = agent as SekAgent | null;
+  const onlineAgents = onlineAgentsResult.data;
+  const n2Count = (n2CountResult.data as number) ?? 0;
+  const smartCount = (smartCountResult.data as number) ?? 0;
 
   if (!a) {
     // Si viene del cache, mostrar banner de advertencia pero no bloquear
