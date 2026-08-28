@@ -813,7 +813,6 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   // Reintentar envío a WhatsApp de un mensaje que falló
   async function retrySend(msg: UnifiedMessage) {
     if (!sekCase) return;
-    const targetId = realCaseId;
     setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, status: "pending" } : m));
     try {
       const res = await fetch("/api/evolution/send", {
