@@ -43,7 +43,26 @@ function createWindow() {
     },
   });
 
-  win.loadURL(isDev ? DEV_URL : PROD_URL);
+  // Limpiar cache HTTP al iniciar para que siempre cargue la versión más
+  // reciente de sekachat.vercel.app. Sin esto, Chromium cachea los JS
+  // bundles y el usuario ve código viejo incluso después de un deploy.
+  const ses = win.webContents.session;
+  ses.clearCache().then(() => {
+    console.log('[electron] Cache HTTP limpiado, cargando URL...');
+    win.loadURL(isDev ? DEV_URL : PROD_URL);
+  }).catch((err) => {
+    console.error('[electron] Error limpiando cache:', err);
+    win.loadURL(isDev ? DEV_URL : PROD_URL);
+  });
+
+  // Hard reload con Ctrl+Shift+R (ignora cache)
+  win.webContents.on('before-input-event', (event, input) => {
+    if (input.key === 'R' && (input.control || input.meta) && input.shift) {
+      console.log('[electron] Hard reload (Ctrl+Shift+R)');
+      win.webContents.reloadIgnoringCache();
+      event.preventDefault();
+    }
+  });
 
   if (isDev) {
     win.webContents.once('did-finish-load', () => {
