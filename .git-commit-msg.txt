@@ -1,18 +1,17 @@
-fix: ordenar mensajes por time (correcto) no por seq (insertion order)
+fix: orden de mensajes por seq + envío a WhatsApp antes de guardar en BD
 
-El sort por seq estaba mal porque sek_append_hist asigna seq por orden
-de INSERCION en la BD, no por timestamp del mensaje. Mensajes
-retrasados (webhook procesa tarde) recibian seq alto aunque su time
-fuera anterior.
+1. Trigger sek_auto_assign_seq en PostgreSQL asigna seq automáticamente
+   a cualquier mensaje insertado en histcliente/histtecnico, sin importar
+   el origen (webhook, agente, widget, etc.). Garantiza orden permanente.
 
-Datos reales del caso 15f65781 lo confirmaron:
-- seq=6, time=14:13:22 (cliente "Buenos dias") ← time anterior, seq alto
-- seq=1, time=14:13:26 (César "Buen día...") ← time posterior, seq bajo
+2. chat-view.tsx ordena por seq (orden de inserción real) en lugar de
+   time (que puede mentir por delay del webhook o reloj desincronizado).
 
-Orden por time = orden cronologico correcto.
-Orden por seq = orden de insercion, NO cronologico.
+3. Flujo de envío refactorizado: /api/evolution/send envía a WhatsApp
+   PRIMERO y solo guarda en BD si WhatsApp confirma. Si falla, no se
+   guarda nada. Elimina mensajes fantasma con UUID que nunca llegaron.
 
-Verificado: 127 mensajes en 20 casos, todos con time valido (0 null, 0 invalid).
+4. Botón "Reintentar" en mensajes con error de envío a WhatsApp.
 
 Generated with [Devin](https://devin.ai)
 

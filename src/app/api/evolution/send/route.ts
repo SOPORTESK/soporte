@@ -40,41 +40,8 @@ function detectMediaType(mime: string | null | undefined): "image" | "video" | "
   return "document";
 }
 
-// El eco de los mensajes salientes no siempre llega al webhook, así que el
-// messageId se guarda aquí mismo. Sin él no se puede revocar el mensaje después.
-// Se relee el historial justo antes de escribir para no pisar mensajes nuevos.
-async function persistMessageId(
-  supabase: any,
-  caseId: string,
-  messageId: string,
-  match: { text?: string; mediaUrl?: string }
-): Promise<void> {
-  try {
-    const { data } = await supabase.from("sek_cases").select("histtecnico").eq("id", caseId).maybeSingle();
-    const hist = Array.isArray(data?.histtecnico) ? [...data.histtecnico] : [];
-    const wanted = String(match.text || "").trim();
-
-    // Se recorre de atrás hacia adelante: el mensaje recién enviado es el último.
-    for (let i = hist.length - 1; i >= 0; i--) {
-      const e = hist[i];
-      if (typeof e !== "object" || e === null || e.messageId) continue;
-      const sameMedia = match.mediaUrl && e.mediaUrl === match.mediaUrl;
-      const sameText = wanted && String(e.content || "").trim() === wanted;
-      if (!sameMedia && !sameText) continue;
-
-      hist[i] = { ...e, messageId, fromMe: true };
-      const { error } = await supabase.from("sek_cases").update({ histtecnico: hist }).eq("id", caseId);
-      if (error) console.error("[evo-send] Error guardando messageId:", error);
-      return;
-    }
-    console.warn("[evo-send] No se encontró el mensaje en histtecnico para guardar el messageId");
-  } catch (e) {
-    console.error("[evo-send] Excepción guardando messageId:", e);
-  }
-}
-
 export async function POST(req: NextRequest) {
-  const { case_id, phone, text, mediaUrl, mediaType, fileName } = await req.json().catch(() => ({}));
+  const { case_id, phone, text, mediaUrl, mediaType, fileName, entry } = await req.json().catch(() => ({}));
   if ((!case_id && !phone) || (!text && !mediaUrl)) return NextResponse.json({ error: "invalid" }, { status: 400 });
 
   const evoCfg = await getEvolutionConfig();
@@ -99,6 +66,8 @@ export async function POST(req: NextRequest) {
   if (!to) return NextResponse.json({ error: "no_phone" }, { status: 400 });
 
   try {
+    let msgId: string | null = null;
+
     if (mediaUrl) {
       let finalMimeType = mediaType;
       if (!finalMimeType || finalMimeType === "application/octet-stream") {
@@ -137,13 +106,11 @@ export async function POST(req: NextRequest) {
       });
       const mediaRes = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(`evolution ${res.status}: ${JSON.stringify(mediaRes)}`);
-      const msgId = mediaRes?.key?.id || mediaRes?.messageId || null;
+      msgId = mediaRes?.key?.id || mediaRes?.messageId || null;
       console.log("[evo-send] Éxito enviando media. messageId:", msgId);
-      if (msgId && case_id) await persistMessageId(supabase, case_id, msgId, { text, mediaUrl });
-      return NextResponse.json({ ok: true, messageId: msgId });
     } else {
       console.log("[evo-send] Intentando enviar texto a:", to);
-      const res = await fetch(`${EVO_URL.replace(/\/$/, "")}/message/sendText/${encodeURIComponent(EVO_INSTANCE)}` ,{
+      const res = await fetch(`${EVO_URL.replace(/\/$/, "")}/message/sendText/${encodeURIComponent(EVO_INSTANCE)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", apikey: EVO_KEY },
         body: JSON.stringify({ number: to, text })
@@ -153,11 +120,27 @@ export async function POST(req: NextRequest) {
         console.error("[evo-send] Error en respuesta de Evolution:", res.status, resData);
         throw new Error(`evolution ${res.status}: ${JSON.stringify(resData)}`);
       }
-      const msgId = resData?.key?.id || resData?.messageId || null;
+      msgId = resData?.key?.id || resData?.messageId || null;
       console.log("[evo-send] Éxito enviando mensaje. messageId:", msgId);
-      if (msgId && case_id) await persistMessageId(supabase, case_id, msgId, { text });
-      return NextResponse.json({ ok: true, messageId: msgId });
     }
+
+    // WhatsApp confirmó la entrega. Ahora sí guardar en la BD con el ID real.
+    if (msgId && case_id && entry) {
+      const finalEntry = { ...entry, messageId: msgId, fromMe: true };
+      const { error: appendErr } = await supabase.rpc("sek_append_hist", {
+        p_case_id: String(case_id),
+        p_entry: finalEntry as any,
+        p_col: "histtecnico",
+        p_preview: (text || fileName || "").slice(0, 200),
+      });
+      if (appendErr) {
+        console.error("[evo-send] Error guardando en BD tras envío exitoso:", appendErr);
+        // El mensaje SÍ se entregó a WhatsApp, pero no se pudo guardar en BD.
+        // Lo reportamos pero no fallamos el response.
+      }
+    }
+
+    return NextResponse.json({ ok: true, messageId: msgId });
   } catch (e: any) {
     console.error("[evo-send] ERROR FATAL ENVIANDO MENSAJE:", e);
     return NextResponse.json({ ok: false, error: e?.message || "send_failed" }, { status: 500 });

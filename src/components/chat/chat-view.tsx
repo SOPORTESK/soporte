@@ -128,14 +128,22 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
       return !isEmpty && !isDeleted;
     })
     .sort((a, b) => {
-    // Ordenar por time primero (timestamp real del mensaje).
-    // seq como desempate cuando los times son iguales o inválidos.
-    const ta = new Date(a.time).getTime();
-    const tb = new Date(b.time).getTime();
-    const da = isNaN(ta) ? Number.MAX_SAFE_INTEGER : ta;
-    const db = isNaN(tb) ? Number.MAX_SAFE_INTEGER : tb;
-    if (da !== db) return da - db;
-    return (a.seq || 0) - (b.seq || 0);
+    // Ordenar por seq (orden de inserción en la BD).
+    // Los mensajes sin seq (NULL = iniciales, creados con el caso)
+    // van primero, ordenados por time entre ellos.
+    // seq es más confiable que time porque el time del webhook puede
+    // tener delay o el reloj del agente estar desincronizado.
+    const sa = a.seq ?? null;
+    const sb = b.seq ?? null;
+    if (sa === null && sb === null) {
+      // Ambos sin seq: ordenar por time
+      const ta = new Date(a.time).getTime();
+      const tb = new Date(b.time).getTime();
+      return (isNaN(ta) ? Number.MAX_SAFE_INTEGER : ta) - (isNaN(tb) ? Number.MAX_SAFE_INTEGER : tb);
+    }
+    if (sa === null) return -1; // a sin seq → va primero
+    if (sb === null) return 1;  // b sin seq → va primero
+    return sa - sb;
   });
 }
 
@@ -708,27 +716,9 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     }
 
     try {
-      // Usar append atómico via RPC para evitar duplicados y race conditions.
-      // El full-overwrite (read-modify-write) perdía mensajes cuando dos escrituras
-      // concurrentes leían el mismo array base.
-      const { error: appendErr } = await supabase.rpc("sek_append_hist", {
-        p_case_id: String(targetId),
-        p_entry: entry as any,
-        p_col: "histtecnico",
-        p_preview: (body || fileName || "").slice(0, 200),
-      });
-      if (appendErr) throw appendErr;
+      const isWhatsApp = String(sekCase.canal || "").toLowerCase() === "whatsapp";
 
-      // Recargar el caso desde la BD para reflejar el estado real del historial
-      const { data: freshCase, error: reloadErr } = await supabase
-        .from("sek_cases")
-        .select("*")
-        .eq("id", String(targetId))
-        .maybeSingle();
-      if (reloadErr || !freshCase) throw reloadErr || new Error("No se pudo recargar el caso");
-      // Preservar _group al recargar para que unifyMessages use targetCaseId como sourceCaseId
-      setSekCase({ ...(freshCase as SekCase), _group: sekCase._group } as SekCase);
-
+      // Actualizar estado del caso (re-abrir, auto-aceptar, etc.)
       const updates: Record<string, unknown> = {};
       const targetCerrado = String(sekCase.estado || "").toLowerCase() === "cerrado" || String(sekCase.estado || "").toLowerCase() === "resuelto";
       if (targetCerrado && !isNota) {
@@ -741,32 +731,26 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
           updates.tags = [...sendTags, "re-open"];
         }
       }
-      
-      // Auto-aceptar caso si el agente responde y aún no tiene accepted_at
       if (!isNota && !sekCase.accepted_at) {
         updates.accepted_at = new Date().toISOString();
         updates.estado = "abierto";
         updates.assigned_to = agentEmail;
       }
+      if (Object.keys(updates).length > 0) {
+        await supabase.from("sek_cases").update(updates).eq("id", targetId);
+      }
 
-      const { error } = await supabase
-        .from("sek_cases")
-        .update(updates)
-        .eq("id", targetId);
-      if (error) throw error;
-      setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...m, status: "sent" } : m));
-
-      // Si se reabrió el caso desde cerrado, navegar a Mi Gestión
       if (targetCerrado && !isNota) {
         setSekCase(prev => ({ ...prev, estado: "abierto", assigned_to: updates.assigned_to as string, tags: updates.tags as any ?? prev.tags }));
         router.push(`/mi-gestion?c=${targetId}`);
       }
 
-      // Envío por WhatsApp vía Evolution API (solo mensajes no-nota y canal whatsapp)
-      const isWhatsApp = String(sekCase.canal || "").toLowerCase() === "whatsapp";
       if (!isNota && isWhatsApp && !skipWhatsApp) {
-        // Disparar en segundo plano
-        fetch("/api/evolution/send", {
+        // FLUJO WHATSAPP: enviar a WhatsApp PRIMERO.
+        // /api/evolution/send envía a WhatsApp y, solo si confirma,
+        // guarda en la BD con el ID real de WhatsApp.
+        // Si WhatsApp falla, no se guarda nada en la BD.
+        const res = await fetch("/api/evolution/send", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -775,20 +759,43 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
             mediaUrl: mediaUrl || undefined,
             mediaType: mediaType || undefined,
             fileName: fileName || undefined,
+            entry: entry as any,
           })
-        }).then(async res => {
-          const data = await res.json().catch(() => ({}));
-          if (!res.ok) {
-            toast.error("Error al enviar a WhatsApp", { description: data.error || "Evolution API falló" });
-          } else if (data?.messageId) {
-            // El messageId permite revocar el mensaje después ("eliminar para todos").
-            // Se marca solo en memoria; el webhook lo persiste al recibir el eco del envío.
-            setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...m, messageId: data.messageId } : m));
-          }
-        }).catch(err => {
-          console.error("Fetch evolution/send failed:", err);
-          toast.error("Error de red al enviar a WhatsApp");
         });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...m, status: "error" } : m));
+          toast.error("No se entregó a WhatsApp", { description: data.error || "Evolution API falló" });
+          return;
+        }
+        // WhatsApp confirmó. Recargar el caso desde la BD.
+        const { data: freshCase } = await supabase
+          .from("sek_cases")
+          .select("*")
+          .eq("id", String(targetId))
+          .maybeSingle();
+        if (freshCase) {
+          setSekCase({ ...(freshCase as SekCase), _group: sekCase._group } as SekCase);
+        }
+        setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...m, status: "sent", ...(data?.messageId ? { messageId: data.messageId } : {}) } : m));
+      } else {
+        // FLUJO NO-WHATSAPP (notas, widget, etc.): guardar en BD directamente.
+        const { error: appendErr } = await supabase.rpc("sek_append_hist", {
+          p_case_id: String(targetId),
+          p_entry: entry as any,
+          p_col: "histtecnico",
+          p_preview: (body || fileName || "").slice(0, 200),
+        });
+        if (appendErr) throw appendErr;
+        const { data: freshCase } = await supabase
+          .from("sek_cases")
+          .select("*")
+          .eq("id", String(targetId))
+          .maybeSingle();
+        if (freshCase) {
+          setSekCase({ ...(freshCase as SekCase), _group: sekCase._group } as SekCase);
+        }
+        setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...m, status: "sent" } : m));
       }
     } catch (e: any) {
       toast.error("No se pudo enviar", { description: (e as any)?.message });
@@ -800,6 +807,45 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       if (!isNota) {
         // Mensajería se trackea por tiempo en caso via use-activity-tracker
       }
+    }
+  }
+
+  // Reintentar envío a WhatsApp de un mensaje que falló
+  async function retrySend(msg: UnifiedMessage) {
+    if (!sekCase) return;
+    const targetId = realCaseId;
+    setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, status: "pending" } : m));
+    try {
+      const res = await fetch("/api/evolution/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          case_id: targetId,
+          text: msg.content || undefined,
+          mediaUrl: msg.mediaUrl || undefined,
+          mediaType: msg.mediaType || undefined,
+          fileName: msg.fileName || undefined,
+          entry: {
+            role: "tecnico",
+            time: new Date().toISOString(),
+            content: msg.content || "",
+            author: agentName || agentEmail,
+            ...(msg.mediaUrl ? { mediaUrl: msg.mediaUrl, mediaType: msg.mediaType, fileName: msg.fileName } : {}),
+          },
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, status: "error" } : m));
+        toast.error("No se entregó a WhatsApp", { description: data.error || "Evolution API falló" });
+      } else {
+        setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, status: "sent", ...(data?.messageId ? { messageId: data.messageId } : {}) } : m));
+        toast.success("Mensaje enviado");
+      }
+    } catch (err) {
+      console.error("Retry send failed:", err);
+      setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, status: "error" } : m));
+      toast.error("Error de red al reintentar");
     }
   }
 
@@ -3162,7 +3208,15 @@ function Bubble({ m, prev, next, clienteName, onImageClick, agentEmail, onMessag
               <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none"><path d="M2 8L6 12 14 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
             </span>
           )}
-          {m.status === "error" && <span className="text-red-400">❌</span>}
+          {m.status === "error" && (
+            <button
+              onClick={() => retrySend(m)}
+              className="text-red-400 hover:text-red-300 underline text-[10px]"
+              title="Reintentar envío a WhatsApp"
+            >
+              ❌ Reintentar
+            </button>
+          )}
         </div>
 
         {/* Botones de acción: esquina superior derecha (opacity on hover) */}
