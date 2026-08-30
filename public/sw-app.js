@@ -1,4 +1,4 @@
-const CACHE_NAME = "sekunet-app-v4";
+const CACHE_NAME = "sekunet-app-v5";
 const PRECACHE = [
   "/",
   "/login",

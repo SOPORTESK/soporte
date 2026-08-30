@@ -1388,7 +1388,7 @@ export async function POST(req: NextRequest) {
           p_entry: entry,
           p_col: "histtecnico",
           p_preview: (text || "").slice(0, 200),
-          p_customer_phone: jid,
+          p_customer_phone: phone || jid,
         });
         if (appendOutErr) {
           console.error("[evo-webhook] Error en sek_append_hist (histtecnico):", appendOutErr);
@@ -1405,7 +1405,7 @@ export async function POST(req: NextRequest) {
           p_entry: entry,
           p_col: "histcliente",
           p_preview: (text || "").slice(0, 200),
-          p_customer_phone: jid,
+          p_customer_phone: phone || jid,
         });
         if (appendErr) {
           console.error("[evo-webhook] Error en sek_append_hist (histcliente):", appendErr);
@@ -1498,7 +1498,7 @@ export async function POST(req: NextRequest) {
               p_entry: replyEntry,
               p_col: "histtecnico",
               p_preview: (reply || "").slice(0, 200),
-              p_customer_phone: jid,
+              p_customer_phone: phone || jid,
             });
 
             // Actualizar estado + calificación

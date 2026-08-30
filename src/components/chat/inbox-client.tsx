@@ -69,10 +69,23 @@ function mergeGroups(rawCases: SekCase[]): SekCase[] {
       return e !== "cerrado" && e !== "resuelto";
     });
     const target = openCases[openCases.length - 1] ?? sorted[sorted.length - 1];
-    /* Solo usar el historial del caso objetivo (el más reciente abierto).
-       Las conversaciones anteriores se ven en el CaseHistoryDrawer. */
-    const histcliente: SekHistEntry[] = Array.isArray(target.histcliente) ? target.histcliente : [];
-    const histtecnico: SekHistEntry[] = Array.isArray(target.histtecnico) ? target.histtecnico : [];
+    /* Historial de TODOS los casos abiertos del grupo, no solo del objetivo.
+       Cuando dos mensajes del cliente llegan casi simultáneamente, el webhook
+       puede crear dos casos abiertos para el mismo teléfono; si aquí se leyera
+       solo el historial del objetivo, los mensajes que cayeron en el caso
+       hermano quedarían invisibles en el chat aunque sí estén en la BD.
+       Cada entrada se etiqueta con _sourceCaseId para que editar/eliminar/
+       reaccionar sigan apuntando al caso real que la contiene.
+       Las conversaciones ya cerradas se ven en el CaseHistoryDrawer. */
+    const mergeFrom = openCases.length > 0 ? openCases : [target];
+    const tag = (arr: unknown, caseId: SekCase["id"]): SekHistEntry[] =>
+      (Array.isArray(arr) ? arr : []).map(e =>
+        (e && typeof e === "object" && (e as any)._sourceCaseId === undefined)
+          ? { ...(e as SekHistEntry), _sourceCaseId: caseId } as SekHistEntry
+          : e as SekHistEntry
+      );
+    const histcliente: SekHistEntry[] = mergeFrom.flatMap(c => tag(c.histcliente, c.id));
+    const histtecnico: SekHistEntry[] = mergeFrom.flatMap(c => tag(c.histtecnico, c.id));
     /* Estado agregado: abierto si hay alguno abierto, si no, el del último */
     const anyOpen = openCases.length > 0;
     /* Prioridad agregada: máxima */

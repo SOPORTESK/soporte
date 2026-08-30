@@ -350,17 +350,45 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       return target.estado;
     })();
 
+    /* Historial de TODOS los casos abiertos del grupo, no solo del objetivo.
+       El webhook puede haber dejado mensajes del cliente en un caso hermano
+       abierto (dos mensajes simultáneos crean dos casos para el mismo
+       teléfono); leyendo solo el objetivo esos mensajes nunca se mostraban.
+       _sourceCaseId preserva el caso real de cada mensaje para editar/borrar. */
+    const openForMerge = sorted.filter(c => {
+      const e = String(c.estado || "").toLowerCase();
+      return e !== "cerrado" && e !== "resuelto";
+    });
+    const mergeFrom = openForMerge.length > 0 ? openForMerge : [target];
+    const tag = (arr: unknown, caseId: SekCase["id"]) =>
+      (Array.isArray(arr) ? arr : []).map((e: any) =>
+        (e && typeof e === "object" && e._sourceCaseId === undefined)
+          ? { ...e, _sourceCaseId: caseId }
+          : e
+      );
+
     const merged = {
       ...target,
       id: baseCase.id,
       cliente: baseCase.cliente ?? target.cliente,
       estado: mergedEstado as SekCase["estado"],
-      histcliente: Array.isArray(target.histcliente) ? target.histcliente : [],
-      histtecnico: Array.isArray(target.histtecnico) ? target.histtecnico : [],
+      histcliente: mergeFrom.flatMap(c => tag(c.histcliente, c.id)),
+      histtecnico: mergeFrom.flatMap(c => tag(c.histtecnico, c.id)),
       _group: baseCase._group,
     } as unknown as SekCase;
     return merged;
   }, []);
+
+  /* Recargar el caso desde la BD preservando la fusión del grupo.
+     Recargar solo el caso objetivo borraba del chat los mensajes que viven en
+     casos hermanos abiertos del mismo teléfono. */
+  const reloadCaseFromDb = React.useCallback(async (baseCase: SekCase, fallbackId: string | number) => {
+    const HIST_FIELDS = "id,estado,canal,cliente,assigned_to,customer_phone,created_at,updated_at,last_message_at,last_message_preview,histcliente,histtecnico,accepted_at,closed_at,tags,prioridad,title";
+    const ids = baseCase._group?.caseIds?.length ? baseCase._group.caseIds : [fallbackId];
+    const { data } = await supabase.from("sek_cases").select(HIST_FIELDS).in("id", ids);
+    if (!data || data.length === 0) return null;
+    return buildMergedCase(baseCase, data as unknown as SekCase[]);
+  }, [supabase, buildMergedCase]);
 
   /* Cargar historial completo si el caso llegó en modo ligero (sin histcliente/histtecnico) */
   React.useEffect(() => {
@@ -768,15 +796,9 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
           toast.error("No se entregó a WhatsApp", { description: data.error || "Evolution API falló" });
           return;
         }
-        // WhatsApp confirmó. Recargar el caso desde la BD.
-        const { data: freshCase } = await supabase
-          .from("sek_cases")
-          .select("*")
-          .eq("id", String(targetId))
-          .maybeSingle();
-        if (freshCase) {
-          setSekCase({ ...(freshCase as SekCase), _group: sekCase._group } as SekCase);
-        }
+        // WhatsApp confirmó. Recargar preservando la fusión del grupo.
+        const reloaded = await reloadCaseFromDb(sekCase, targetId);
+        if (reloaded) setSekCase(reloaded);
         setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...m, status: "sent", ...(data?.messageId ? { messageId: data.messageId } : {}) } : m));
       } else {
         // FLUJO NO-WHATSAPP (notas, widget, etc.): guardar en BD directamente.
@@ -787,14 +809,8 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
           p_preview: (body || fileName || "").slice(0, 200),
         });
         if (appendErr) throw appendErr;
-        const { data: freshCase } = await supabase
-          .from("sek_cases")
-          .select("*")
-          .eq("id", String(targetId))
-          .maybeSingle();
-        if (freshCase) {
-          setSekCase({ ...(freshCase as SekCase), _group: sekCase._group } as SekCase);
-        }
+        const reloaded = await reloadCaseFromDb(sekCase, targetId);
+        if (reloaded) setSekCase(reloaded);
         setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...m, status: "sent" } : m));
       }
     } catch (e: any) {
@@ -1542,26 +1558,30 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       if (isWhatsApp && agentName) {
         const welcomeMsg = `Buen día. Gracias por contactarnos.\n\nMi nombre es ${agentName} y con gusto le asistiré con su caso.\n\nPara el registro, por favor facilítenos su:\n\nNombre completo\nCorreo electrónico\nNombre de la cuenta afiliada a Sekunet.\nNombre del vendedor encargado de su cuenta\n\nQuedamos atentos. Gracias.`;
 
-        // Guardar mensaje en histtecnico (append atómico)
+        // El envío TIENE que completarse antes del router.push de más abajo:
+        // un fetch sin await se cancela cuando la navegación desmonta la
+        // página, y el mensaje quedaba guardado en la BD sin llegar nunca a
+        // WhatsApp. Se envía primero y /api/evolution/send lo persiste solo
+        // si WhatsApp confirma la entrega.
         const welcomeEntry = {
           role: "tecnico",
           author: agentName,
           time: new Date().toISOString(),
           content: welcomeMsg,
         };
-        await supabase.rpc("sek_append_hist", {
-          p_case_id: String(targetId),
-          p_entry: welcomeEntry as any,
-          p_col: "histtecnico",
-          p_preview: welcomeMsg.slice(0, 200),
-        });
-
-        // Enviar por WhatsApp vía Evolution API
-        fetch("/api/evolution/send", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ case_id: targetId, text: welcomeMsg }),
-        }).catch(err => console.error("Error enviando bienvenida:", err));
+        try {
+          const res = await fetch("/api/evolution/send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ case_id: targetId, text: welcomeMsg, entry: welcomeEntry }),
+          });
+          if (!res.ok) {
+            const d = await res.json().catch(() => ({}));
+            toast.error("No se entregó la bienvenida a WhatsApp", { description: d.error || `Error ${res.status}` });
+          }
+        } catch {
+          toast.error("No se entregó la bienvenida a WhatsApp", { description: "Error de red" });
+        }
       }
 
       // Prevent the ChatView from disappearing by navigating to Mi Gestión where the case is currently assigned.
