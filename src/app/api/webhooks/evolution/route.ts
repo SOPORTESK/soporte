@@ -709,6 +709,44 @@ function extractMessageTime(payload: any): string {
   return new Date().toISOString();
 }
 
+/**
+ * Búsqueda-o-creación ATÓMICA del caso de WhatsApp por teléfono.
+ *
+ * Este webhook se ejecuta en paralelo (una invocación por mensaje). Cuando el
+ * cliente manda varios mensajes seguidos, todas las invocaciones preguntaban
+ * "¿existe caso activo?", todas respondían que no porque ninguna había
+ * insertado aún, y todas insertaban: la conversación quedaba partida en
+ * varios casos y el agente veía solo un fragmento. Visto en producción con
+ * tres imágenes que crearon tres casos en medio segundo.
+ *
+ * sek_wa_claim_case toma un pg_advisory_xact_lock sobre el teléfono, así que
+ * la segunda invocación espera y sí encuentra el caso recién creado.
+ *
+ * Devuelve null si la función SQL no está instalada, para que el llamador
+ * pueda caer al camino anterior en vez de perder el mensaje.
+ */
+async function claimWaCase(
+  supabase: any,
+  phone: string,
+  payload: Record<string, unknown>
+): Promise<{ caseId: string; created: boolean } | null> {
+  if (!phone) return null;
+  const { data, error } = await supabase.rpc("sek_wa_claim_case", {
+    p_phone: phone,
+    p_new_case: payload,
+  });
+  if (error) {
+    console.error("[evo-webhook] sek_wa_claim_case no disponible, usando inserción directa:", error.message);
+    return null;
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row?.case_id) {
+    console.error("[evo-webhook] sek_wa_claim_case devolvió una fila vacía:", JSON.stringify(data));
+    return null;
+  }
+  return { caseId: String(row.case_id), created: !!row.was_created };
+}
+
 export async function POST(req: NextRequest) {
   console.log("[evo-webhook] === INICIO WEBHOOK ===");
   const supabase = createServiceClient();
@@ -1639,8 +1677,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (isOutgoing) {
-      await supabase.from("sek_cases").insert({
-        canal: "whatsapp",
+      const outPayload = {
         estado: "pendiente",
         prioridad: "media",
         customer_phone: contactPhone,
@@ -1650,7 +1687,25 @@ export async function POST(req: NextRequest) {
         title: `WhatsApp — ${contactPhone}`,
         last_message_at: msgTime,
         last_message_preview: (text || "").slice(0, 200),
-      });
+      };
+      const claimed = await claimWaCase(supabase, contactPhone, outPayload);
+      if (claimed) {
+        // created=false: otra invocación concurrente ya abrió el caso. El
+        // claim solo inserta el historial cuando crea, así que aquí hay que
+        // agregar este mensaje al caso que ganó la carrera.
+        if (!claimed.created) {
+          await supabase.rpc("sek_append_hist", {
+            p_case_id: claimed.caseId,
+            p_entry: entry,
+            p_col: "histtecnico",
+            p_preview: (text || "").slice(0, 200),
+            p_customer_phone: phone || jid,
+          });
+        }
+        console.log(`[evo-webhook] Saliente sin caso previo → ${claimed.caseId} (creado: ${claimed.created})`);
+      } else {
+        await supabase.from("sek_cases").insert(({ canal: "whatsapp", ...outPayload } as any));
+      }
     } else {
       const clienteData: Record<string, unknown> = {
         telefono: contactPhone,
@@ -1672,64 +1727,89 @@ export async function POST(req: NextRequest) {
       // Sin esta verificación, un cliente que escribe de madrugada recibía la
       // bienvenida prometiendo un agente que no está disponible.
       if (modoNoAtendido && !isOpenNowCR()) {
-        const msgHorario = await getFueraHorarioMsg(supabase);
-        // Se envía antes de insertar para poder guardar el messageId en el
-        // historial; el caso queda cerrado y el eco del webhook ya no lo rellena.
-        const horarioSent = await sendWhatsAppText(phone || jid || "", msgHorario, evoCfg, 500);
-        const clientTimeMs = new Date(msgTime).getTime();
-        const horarioTime = isNaN(clientTimeMs) ? new Date().toISOString() : new Date(clientTimeMs + 1).toISOString();
-        const horarioEntry = {
-          role: "ia",
-          author: "Asistente Sekunet",
-          time: horarioTime,
-          content: msgHorario,
-          fromMe: true,
-          ...(horarioSent.messageId ? { messageId: horarioSent.messageId } : {}),
-        };
         const nowIso = new Date().toISOString();
-        const { data: newCase } = await supabase.from("sek_cases").insert({
-          canal: "whatsapp",
+        const horarioTitle = pushName ? `WhatsApp — ${pushName}` : (knownClient.nombre ? `WhatsApp — ${knownClient.nombre}` : `WhatsApp — ${contactPhone}`);
+        const horarioPayload = {
           estado: "cerrado",
           prioridad: "media",
           customer_phone: contactPhone,
           cliente: clienteData,
           histcliente: [entry],
-          histtecnico: [horarioEntry],
           closed_at: nowIso,
-          title: pushName ? `WhatsApp — ${pushName}` : (knownClient.nombre ? `WhatsApp — ${knownClient.nombre}` : `WhatsApp — ${contactPhone}`),
+          title: horarioTitle,
           last_message_at: msgTime,
           last_message_preview: (text || "").slice(0, 200),
           ...(knownProblema ? { problema: knownProblema } : {}),
           ...(knownMarca ? { marca: knownMarca } : {}),
           ...(knownModelo ? { modelo: knownModelo } : {}),
+        };
+
+        const claimed = await claimWaCase(supabase, contactPhone, horarioPayload);
+        if (claimed) {
+          if (!claimed.created) {
+            // Ganó otra invocación: agregar el mensaje al caso existente y
+            // NO repetir el aviso de horario.
+            await supabase.rpc("sek_append_hist", {
+              p_case_id: claimed.caseId,
+              p_entry: entry,
+              p_col: "histcliente",
+              p_preview: (text || "").slice(0, 200),
+              p_customer_phone: phone || jid,
+            });
+            console.log(`[evo-webhook] Fuera de horario — mensaje agregado al caso existente ${claimed.caseId}, sin repetir aviso`);
+            return NextResponse.json({ ok: true, unattended: true, fueraHorario: true, reused: true });
+          }
+          const msgHorario = await getFueraHorarioMsg(supabase);
+          const horarioSent = await sendWhatsAppText(phone || jid || "", msgHorario, evoCfg, 500);
+          const clientTimeMs = new Date(msgTime).getTime();
+          await supabase.rpc("sek_append_hist", {
+            p_case_id: claimed.caseId,
+            p_entry: {
+              role: "ia",
+              author: "Asistente Sekunet",
+              time: isNaN(clientTimeMs) ? new Date().toISOString() : new Date(clientTimeMs + 1).toISOString(),
+              content: msgHorario,
+              fromMe: true,
+              ...(horarioSent.messageId ? { messageId: horarioSent.messageId } : {}),
+            },
+            p_col: "histtecnico",
+            p_preview: msgHorario.slice(0, 200),
+          });
+          console.log(`[evo-webhook] Modo No Atendido + fuera de horario — caso ${claimed.caseId} creado cerrado`);
+          return NextResponse.json({ ok: true, unattended: true, fueraHorario: true });
+        }
+
+        // Respaldo: función SQL no instalada.
+        const msgHorario = await getFueraHorarioMsg(supabase);
+        const horarioSent = await sendWhatsAppText(phone || jid || "", msgHorario, evoCfg, 500);
+        const clientTimeMs = new Date(msgTime).getTime();
+        const horarioEntry = {
+          role: "ia",
+          author: "Asistente Sekunet",
+          time: isNaN(clientTimeMs) ? new Date().toISOString() : new Date(clientTimeMs + 1).toISOString(),
+          content: msgHorario,
+          fromMe: true,
+          ...(horarioSent.messageId ? { messageId: horarioSent.messageId } : {}),
+        };
+        const { data: newCase } = await supabase.from("sek_cases").insert({
+          canal: "whatsapp",
+          ...horarioPayload,
+          histtecnico: [horarioEntry],
         }).select("id").single();
 
-        console.log(`[evo-webhook] Modo No Atendido + fuera de horario — caso ${newCase?.id} creado cerrado`);
+        console.log(`[evo-webhook] Modo No Atendido + fuera de horario — caso ${newCase?.id} creado cerrado (respaldo)`);
         return NextResponse.json({ ok: true, unattended: true, fueraHorario: true });
       }
 
       // ── Modo No Atendido: crear como escalado, mandar bienvenida, sin IA ──
       if (modoNoAtendido) {
         const WELCOME_MSG = "Hola\n\nBienvenido al soporte técnico de Sekunet.\n\nAgradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
-        const welcomeSent = await sendWhatsAppText(phone || jid || "", WELCOME_MSG, evoCfg, 500);
-        const clientTimeMs = new Date(msgTime).getTime();
-        const welcomeTime = isNaN(clientTimeMs) ? new Date().toISOString() : new Date(clientTimeMs + 1).toISOString();
-        const welcomeEntry = {
-          role: "ia",
-          author: "Asistente Sekunet",
-          time: welcomeTime,
-          content: WELCOME_MSG,
-          fromMe: true,
-          ...(welcomeSent.messageId ? { messageId: welcomeSent.messageId } : {}),
-        };
-        const { data: newCase } = await supabase.from("sek_cases").insert({
-          canal: "whatsapp",
+        const unattPayload = {
           estado: "escalado",
           prioridad: "media",
           customer_phone: contactPhone,
           cliente: clienteData,
           histcliente: [entry],
-          histtecnico: [welcomeEntry],
           escalado_at: new Date().toISOString(),
           title: pushName ? `WhatsApp — ${pushName}` : (knownClient.nombre ? `WhatsApp — ${knownClient.nombre}` : `WhatsApp — ${contactPhone}`),
           last_message_at: msgTime,
@@ -1737,14 +1817,64 @@ export async function POST(req: NextRequest) {
           ...(knownProblema ? { problema: knownProblema } : {}),
           ...(knownMarca ? { marca: knownMarca } : {}),
           ...(knownModelo ? { modelo: knownModelo } : {}),
+        };
+
+        const claimed = await claimWaCase(supabase, contactPhone, unattPayload);
+        if (claimed) {
+          if (!claimed.created) {
+            // Ganó otra invocación: agregar el mensaje al caso que ya existe
+            // y NO repetir la bienvenida.
+            await supabase.rpc("sek_append_hist", {
+              p_case_id: claimed.caseId,
+              p_entry: entry,
+              p_col: "histcliente",
+              p_preview: (text || "").slice(0, 200),
+              p_customer_phone: phone || jid,
+            });
+            console.log(`[evo-webhook] Modo No Atendido — mensaje agregado al caso existente ${claimed.caseId}, sin repetir bienvenida`);
+            return NextResponse.json({ ok: true, unattended: true, reused: true });
+          }
+          const welcomeSent = await sendWhatsAppText(phone || jid || "", WELCOME_MSG, evoCfg, 500);
+          const clientTimeMs = new Date(msgTime).getTime();
+          await supabase.rpc("sek_append_hist", {
+            p_case_id: claimed.caseId,
+            p_entry: {
+              role: "ia",
+              author: "Asistente Sekunet",
+              time: isNaN(clientTimeMs) ? new Date().toISOString() : new Date(clientTimeMs + 1).toISOString(),
+              content: WELCOME_MSG,
+              fromMe: true,
+              ...(welcomeSent.messageId ? { messageId: welcomeSent.messageId } : {}),
+            },
+            p_col: "histtecnico",
+            p_preview: WELCOME_MSG.slice(0, 200),
+          });
+          console.log(`[evo-webhook] Modo No Atendido — caso ${claimed.caseId} creado como escalado, bienvenida enviada`);
+          return NextResponse.json({ ok: true, unattended: true });
+        }
+
+        // Respaldo: función SQL no instalada.
+        const welcomeSent = await sendWhatsAppText(phone || jid || "", WELCOME_MSG, evoCfg, 500);
+        const clientTimeMs = new Date(msgTime).getTime();
+        const welcomeEntry = {
+          role: "ia",
+          author: "Asistente Sekunet",
+          time: isNaN(clientTimeMs) ? new Date().toISOString() : new Date(clientTimeMs + 1).toISOString(),
+          content: WELCOME_MSG,
+          fromMe: true,
+          ...(welcomeSent.messageId ? { messageId: welcomeSent.messageId } : {}),
+        };
+        const { data: newCase } = await supabase.from("sek_cases").insert({
+          canal: "whatsapp",
+          ...unattPayload,
+          histtecnico: [welcomeEntry],
         }).select("id").single();
 
-        console.log(`[evo-webhook] Modo No Atendido — caso ${newCase?.id} creado como escalado, bienvenida enviada`);
+        console.log(`[evo-webhook] Modo No Atendido — caso ${newCase?.id} creado como escalado (respaldo)`);
         return NextResponse.json({ ok: true, unattended: true });
       }
 
-      const { data: newCase } = await supabase.from("sek_cases").insert({
-        canal: "whatsapp",
+      const iaPayload = {
         estado: "ia_atendiendo",
         prioridad: "media",
         customer_phone: contactPhone,
@@ -1757,18 +1887,44 @@ export async function POST(req: NextRequest) {
         ...(knownProblema ? { problema: knownProblema } : {}),
         ...(knownMarca ? { marca: knownMarca } : {}),
         ...(knownModelo ? { modelo: knownModelo } : {}),
-      }).select("id").single();
+      };
+
+      let nuevoCaseId: string | null = null;
+      let seCreo = true;
+      const claimed = await claimWaCase(supabase, contactPhone, iaPayload);
+      if (claimed) {
+        nuevoCaseId = claimed.caseId;
+        seCreo = claimed.created;
+        if (!seCreo) {
+          // Ganó otra invocación: agregar el mensaje al caso existente. No se
+          // vuelve a disparar la IA; la invocación que creó el caso ya lo hizo.
+          await supabase.rpc("sek_append_hist", {
+            p_case_id: nuevoCaseId,
+            p_entry: entry,
+            p_col: "histcliente",
+            p_preview: (text || "").slice(0, 200),
+            p_customer_phone: phone || jid,
+          });
+          console.log(`[evo-webhook] Mensaje agregado al caso existente ${nuevoCaseId}, sin disparar IA de nuevo`);
+        }
+      } else {
+        const { data: newCase } = await supabase.from("sek_cases").insert({
+          canal: "whatsapp",
+          ...iaPayload,
+        }).select("id").single();
+        nuevoCaseId = newCase?.id ? String(newCase.id) : null;
+      }
 
       if (hasKnownData) {
-        console.log(`[evo-webhook] Caso ${newCase?.id} creado con datos auto-rellenados: nombre=${knownClient.nombre || "N/A"}, correo=${knownClient.correo || "N/A"}, cuenta=${knownClient.cuenta || "N/A"}, problema=${knownProblema || "N/A"}, marca=${knownMarca || "N/A"}, modelo=${knownModelo || "N/A"}`);
+        console.log(`[evo-webhook] Caso ${nuevoCaseId} creado con datos auto-rellenados: nombre=${knownClient.nombre || "N/A"}, correo=${knownClient.correo || "N/A"}, cuenta=${knownClient.cuenta || "N/A"}, problema=${knownProblema || "N/A"}, marca=${knownMarca || "N/A"}, modelo=${knownModelo || "N/A"}`);
       }
 
       // Disparar ia-agent para nuevo caso entrante
       const SUPABASE_URL2 = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
       const SERVICE_KEY2 = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-      console.log(`[evo-webhook] Env vars check: SUPABASE_URL=${SUPABASE_URL2 ? "present" : "missing"}, SERVICE_KEY=${SERVICE_KEY2 ? "present" : "missing"}, newCase.id=${newCase?.id}`);
-      if (SUPABASE_URL2 && SERVICE_KEY2 && newCase?.id) {
-        console.log(`[evo-webhook] Invocando seka-whatsapp para NUEVO caso ${newCase.id}`);
+      console.log(`[evo-webhook] Env vars check: SUPABASE_URL=${SUPABASE_URL2 ? "present" : "missing"}, SERVICE_KEY=${SERVICE_KEY2 ? "present" : "missing"}, caseId=${nuevoCaseId}`);
+      if (SUPABASE_URL2 && SERVICE_KEY2 && nuevoCaseId && seCreo) {
+        console.log(`[evo-webhook] Invocando seka-whatsapp para NUEVO caso ${nuevoCaseId}`);
         try {
           const iaRes = await fetch(`${SUPABASE_URL2}/functions/v1/seka-whatsapp`, {
             method: "POST",
@@ -1776,7 +1932,7 @@ export async function POST(req: NextRequest) {
               "Authorization": `Bearer ${SERVICE_KEY2}`,
               "Content-Type": "application/json",
             },
-            body: JSON.stringify({ case_id: newCase.id, force_estado: "ia_atendiendo" }),
+            body: JSON.stringify({ case_id: nuevoCaseId, force_estado: "ia_atendiendo" }),
           });
           console.log(`[evo-webhook] seka-whatsapp status (nuevo caso):`, iaRes.status);
           const iaData = await iaRes.json().catch((e) => {
@@ -1787,10 +1943,10 @@ export async function POST(req: NextRequest) {
           if (iaData.reply) {
             await sendWhatsAppMessages(phone || jid || "", iaData.reply, evoCfg, flowSettings);
           } else {
-            console.warn(`[evo-webhook] seka-whatsapp no devolvió reply para nuevo caso ${newCase.id}:`, iaData);
+            console.warn(`[evo-webhook] seka-whatsapp no devolvió reply para nuevo caso ${nuevoCaseId}:`, iaData);
           }
         } catch (err: any) {
-          console.error(`[evo-webhook] Error invocando seka-whatsapp para nuevo caso ${newCase.id}:`, err?.message || err);
+          console.error(`[evo-webhook] Error invocando seka-whatsapp para nuevo caso ${nuevoCaseId}:`, err?.message || err);
         }
       }
     }

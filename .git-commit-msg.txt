@@ -1,22 +1,31 @@
-﻿fix: el chat pintaba todos los mensajes del cliente y luego los del tecnico
+﻿fix: busqueda-o-creacion atomica del caso de WhatsApp por telefono
 
-unifyMessages declaraba `let seq = 0` y asignaba `seq: seq++` recorriendo
-primero histcliente completo y despues histtecnico completo, ignorando por
-completo el `seq` que sek_append_hist ya guarda en cada entrada. Como el
-orden final se calculaba sobre ese contador posicional, el chat mostraba
-todos los mensajes entrantes y luego todos los salientes, con las fechas
-intercaladas al azar.
+El webhook corre en paralelo, una invocacion por mensaje. Cuando el cliente
+mandaba varios mensajes seguidos, todas preguntaban `existe caso activo?`,
+todas respondian que no porque ninguna habia insertado aun, y todas
+insertaban. La conversacion quedaba partida y el agente veia un fragmento.
 
-Reproducido con el caso 0b5f9a3e (50687043603), cuyos seq reales son
-1,4,2,3: en pantalla salia 27/8, 31/8, 27/8, 31/8. El comentario del codigo
-decia `Ordenar por seq (orden de insercion en la BD)` pero nunca leia
-e.seq.
+Evidencia en produccion, telefono 50687043603: tres imagenes enviadas juntas
+crearon tres casos en medio segundo (21:06:40.027, .031, .493). Ese telefono
+acumulaba 11 casos. Con 50683443000 fueron dos casos con 5 ms de diferencia.
 
-Ahora se lee el seq real de la BD y el orden se calcula por tiempo, que es
-lo unico comparable entre mensajes de casos distintos (el seq se reinicia
-por caso). El seq queda como desempate para mensajes del mismo caso dentro
-de una ventana de 2 minutos, donde el reloj de WhatsApp y el del agente
-pueden diferir.
+Ahora las cuatro ramas de creacion (saliente, fuera de horario, modo no
+atendido y flujo normal con IA) pasan por sek_wa_claim_case, que toma un
+pg_advisory_xact_lock sobre el telefono: la segunda invocacion espera y si
+encuentra el caso recien creado. Cuando was_created es false se agrega el
+mensaje al caso que gano la carrera y no se repite la bienvenida ni el aviso
+de horario ni se dispara la IA de nuevo.
+
+Verificado con 8 llamadas concurrentes sobre el mismo telefono: un solo caso
+creado y un solo was_created=true.
+
+Si la funcion SQL no esta instalada, claimWaCase devuelve null y cada rama
+cae a la insercion directa anterior, para no perder el mensaje.
+
+La funcion tambien normaliza customer_phone al guardarlo, que era el origen
+de que un caso quedara con 50683443000 y otro con
+50683443000@s.whatsapp.net, y numera el seq de los mensajes iniciales para
+que sea coherente con lo que agrega despues sek_append_hist.
 
 Generated with [Devin](https://devin.ai)
 
