@@ -1,35 +1,22 @@
-fix: mensajes entrantes ocultos y bienvenida no entregada a WhatsApp
+﻿fix: el chat pintaba todos los mensajes del cliente y luego los del tecnico
 
-Dos defectos distintos, ambos reproducidos con datos de produccion.
+unifyMessages declaraba `let seq = 0` y asignaba `seq: seq++` recorriendo
+primero histcliente completo y despues histtecnico completo, ignorando por
+completo el `seq` que sek_append_hist ya guarda en cada entrada. Como el
+orden final se calculaba sobre ese contador posicional, el chat mostraba
+todos los mensajes entrantes y luego todos los salientes, con las fechas
+intercaladas al azar.
 
-1) ENTRANTES INVISIBLES (no era que no llegaran)
-   Cuando dos mensajes del cliente llegan casi a la vez, dos invocaciones
-   concurrentes del webhook consultan "hay caso activo?", ambas responden
-   que no y ambas insertan: quedan dos casos abiertos para el mismo
-   telefono (visto en produccion con 5 ms de diferencia).
-   La UI agrupaba ambos casos pero leia el historial de UNO solo
-   (buildMergedCase e inbox-client tomaban target.histcliente), asi que
-   los mensajes que caian en el caso hermano nunca se mostraban aunque
-   si estuvieran en la base.
-   Ahora se fusiona el historial de TODOS los casos abiertos del grupo y
-   cada entrada lleva _sourceCaseId para que editar/borrar/reaccionar
-   sigan apuntando al caso real que la contiene.
-   El reload posterior a enviar tambien preservaba solo el objetivo; se
-   unifica en reloadCaseFromDb.
+Reproducido con el caso 0b5f9a3e (50687043603), cuyos seq reales son
+1,4,2,3: en pantalla salia 27/8, 31/8, 27/8, 31/8. El comentario del codigo
+decia `Ordenar por seq (orden de insercion en la BD)` pero nunca leia
+e.seq.
 
-2) BIENVENIDA NUNCA ENTREGADA
-   acceptCase guardaba el mensaje con sek_append_hist y disparaba
-   /api/evolution/send SIN await, seguido de router.push. La navegacion
-   desmontaba la pagina y el navegador abortaba la peticion en vuelo: el
-   mensaje quedaba en la base pero jamas llegaba a Evolution (por eso no
-   aparecia ni una llamada en los logs y el cliente veia el chat vacio).
-   Ahora se espera la respuesta, se envia primero a WhatsApp con el entry
-   y /api/evolution/send lo persiste solo si WhatsApp confirma. Si falla
-   se avisa al agente en vez de fallar en silencio.
-
-3) El webhook ya no pisa customer_phone con el JID (p_customer_phone:
-   phone || jid); eso hacia derivar el formato entre casos del mismo
-   telefono.
+Ahora se lee el seq real de la BD y el orden se calcula por tiempo, que es
+lo unico comparable entre mensajes de casos distintos (el seq se reinicia
+por caso). El seq queda como desempate para mensajes del mismo caso dentro
+de una ventana de 2 minutos, donde el reloj de WhatsApp y el del agente
+pueden diferir.
 
 Generated with [Devin](https://devin.ai)
 

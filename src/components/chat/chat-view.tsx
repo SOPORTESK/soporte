@@ -56,9 +56,15 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
   const fromTecnico = Array.isArray(c.histtecnico) ? c.histtecnico : [];
   // Para casos agrupados, usar el targetCaseId real en vez del group key (tel:xxx)
   const realCaseId = (c as any)._group?.targetCaseId ?? c.id;
-  let seq = 0;
 
   const toTime = (e: any) => e.time || c.created_at || new Date(0).toISOString();
+  /* seq REAL de la BD. sek_append_hist lo asigna como max(seq)+1 sobre ambos
+     historiales, así que es un contador global del caso y sirve para ordenar.
+     Antes aquí se ignoraba y se reemplazaba por un contador posicional
+     (0,1,2... recorriendo primero histcliente y luego histtecnico), lo que
+     hacía que el chat pintara TODOS los mensajes del cliente y después TODOS
+     los del técnico, rompiendo la cronología. */
+  const dbSeq = (e: any) => (typeof e?.seq === "number" && isFinite(e.seq) ? e.seq : undefined);
 
   fromCliente.forEach((e, i) => {
     const role = String(e.role || "user");
@@ -87,7 +93,7 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
       edited: (e as any).edited,
       pinned: (e as any).pinned,
       starred: (e as any).starred,
-      seq: seq++,
+      seq: dbSeq(e),
     });
   });
 
@@ -117,7 +123,7 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
       edited: (e as any).edited,
       pinned: (e as any).pinned,
       starred: (e as any).starred,
-      seq: seq++,
+      seq: dbSeq(e),
     });
   });
 
@@ -128,23 +134,27 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
       return !isEmpty && !isDeleted;
     })
     .sort((a, b) => {
-    // Ordenar por seq (orden de inserción en la BD).
-    // Los mensajes sin seq (NULL = iniciales, creados con el caso)
-    // van primero, ordenados por time entre ellos.
-    // seq es más confiable que time porque el time del webhook puede
-    // tener delay o el reloj del agente estar desincronizado.
-    const sa = a.seq ?? null;
-    const sb = b.seq ?? null;
-    if (sa === null && sb === null) {
-      // Ambos sin seq: ordenar por time
+      /* El eje principal es el TIEMPO: es lo único comparable entre mensajes
+         de distintos casos (el seq se reinicia en cada caso, así que usarlo
+         como eje principal mezclaba fechas de días distintos).
+         El seq de la BD se usa solo para desempatar mensajes del mismo caso
+         casi simultáneos, donde el reloj de WhatsApp y el del agente pueden
+         diferir unos segundos y el orden por time quedaría invertido. */
       const ta = new Date(a.time).getTime();
       const tb = new Date(b.time).getTime();
-      return (isNaN(ta) ? Number.MAX_SAFE_INTEGER : ta) - (isNaN(tb) ? Number.MAX_SAFE_INTEGER : tb);
-    }
-    if (sa === null) return -1; // a sin seq → va primero
-    if (sb === null) return 1;  // b sin seq → va primero
-    return sa - sb;
-  });
+      const va = isNaN(ta) ? Number.MAX_SAFE_INTEGER : ta;
+      const vb = isNaN(tb) ? Number.MAX_SAFE_INTEGER : tb;
+      const sa = a.seq;
+      const sb = b.seq;
+      const mismoCaso = String(a.sourceCaseId ?? "") === String(b.sourceCaseId ?? "");
+
+      if (mismoCaso && sa !== undefined && sb !== undefined && Math.abs(va - vb) < 120000) {
+        return sa - sb;
+      }
+      if (va !== vb) return va - vb;
+      if (sa !== undefined && sb !== undefined) return sa - sb;
+      return 0;
+    });
 }
 
 function debugLogMessages(msgs: UnifiedMessage[], caseId: string | number) {
