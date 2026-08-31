@@ -65,40 +65,63 @@ export async function GET(req: NextRequest) {
 
     const html = await res.text();
 
-    // Extraer etiquetas OpenGraph y estándar
+    // Extraer título
     const ogTitle =
       extractMeta(html, /<meta\s+property=["']og:title["']\s+content=["'](.*?)["']/i) ||
       extractMeta(html, /<meta\s+content=["'](.*?)["']\s+property=["']og:title["']/i) ||
       extractMeta(html, /<title[^>]*>(.*?)<\/title>/i);
 
+    // Extraer descripción
     const ogDescription =
       extractMeta(html, /<meta\s+property=["']og:description["']\s+content=["'](.*?)["']/i) ||
       extractMeta(html, /<meta\s+name=["']description["']\s+content=["'](.*?)["']/i) ||
       extractMeta(html, /<meta\s+content=["'](.*?)["']\s+name=["']description["']/i);
 
-    let ogImage =
+    // Extraer imagen: 1) og:image / twitter:image, 2) primera etiqueta <img> de la página, 3) favicon
+    let rawImage =
       extractMeta(html, /<meta\s+property=["']og:image["']\s+content=["'](.*?)["']/i) ||
       extractMeta(html, /<meta\s+content=["'](.*?)["']\s+property=["']og:image["']/i) ||
-      extractMeta(html, /<meta\s+name=["']twitter:image["']\s+content=["'](.*?)["']/i);
+      extractMeta(html, /<meta\s+name=["']twitter:image["']\s+content=["'](.*?)["']/i) ||
+      extractMeta(html, /<meta\s+content=["'](.*?)["']\s+name=["']twitter:image["']/i);
 
-    const ogSiteName =
-      extractMeta(html, /<meta\s+property=["']og:site_name["']\s+content=["'](.*?)["']/i) ||
-      targetUrl.hostname;
+    if (!rawImage) {
+      // Buscar primera imagen relevante en el cuerpo del HTML
+      const allImgs = [...html.matchAll(/<img[^>]+src=["']([^"']+)["']/gi)].map((m) => m[1]);
+      const validImg = allImgs.find(
+        (src) =>
+          !src.includes("icon") &&
+          !src.includes("avatar") &&
+          !src.includes("pixel") &&
+          !src.startsWith("data:")
+      );
+      rawImage = validImg || allImgs[0] || null;
+    }
 
-    // Convertir URLs relativas de imágenes a absolutas
-    if (ogImage && !ogImage.startsWith("http://") && !ogImage.startsWith("https://")) {
+    if (!rawImage) {
+      // Fallback a favicon / apple-touch-icon
+      rawImage =
+        extractMeta(html, /<link[^>]+rel=["'](?:apple-touch-icon|icon)["'][^>]+href=["']([^"']+)["']/i) ||
+        extractMeta(html, /<link[^>]+href=["']([^"']+)["'][^>]+rel=["'](?:apple-touch-icon|icon)["']/i);
+    }
+
+    let ogImage: string | null = null;
+    if (rawImage) {
       try {
-        ogImage = new URL(ogImage, targetUrl.origin).toString();
+        ogImage = new URL(rawImage, targetUrl.href).toString();
       } catch {
         ogImage = null;
       }
     }
 
+    const ogSiteName =
+      extractMeta(html, /<meta\s+property=["']og:site_name["']\s+content=["'](.*?)["']/i) ||
+      targetUrl.hostname;
+
     const result = {
       ok: true,
       title: ogTitle ? decodeEntities(ogTitle) : targetUrl.hostname,
       description: ogDescription ? decodeEntities(ogDescription) : null,
-      image: ogImage || null,
+      image: ogImage,
       siteName: ogSiteName,
       domain: targetUrl.hostname,
       url: targetUrl.toString(),
