@@ -20,6 +20,7 @@ import { toast } from "sonner";
 import { CaseHistoryDrawer } from "./case-history-drawer";
 import { TemplateManager } from "./template-manager";
 import { MediaViewer } from "./media-viewer";
+import { LinkPreviewCard, extractFirstUrl, FormattedTextWithLinks } from "./link-preview-card";
 import type { SekCase, SekHistEntry, ChannelKind } from "@/lib/types";
 
 type UnifiedMessage = {
@@ -3142,6 +3143,9 @@ function Bubble({ m, prev, next, clienteName, onImageClick, agentEmail, onMessag
         </div>
 
         {m.mediaUrl && <MediaPreview url={m.mediaUrl} type={m.mediaType} name={m.fileName} onImageClick={onImageClick} />}
+          {!m.mediaUrl && extractFirstUrl(m.content) && (
+            <LinkPreviewCard url={extractFirstUrl(m.content)!} isCliente={isCliente} />
+          )}
 
         {isAudio && transcription && (
           <div className={cn(
@@ -3213,8 +3217,8 @@ function Bubble({ m, prev, next, clienteName, onImageClick, agentEmail, onMessag
               {m.content.split("]")[1]}
             </>
           ) : (
-            m.content
-          )}
+              <FormattedTextWithLinks text={m.content} isCliente={isCliente} />
+            )}
         </div>
         )}
 
