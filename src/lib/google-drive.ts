@@ -46,6 +46,16 @@ function loadClientJson():
   return undefined;
 }
 
+const DEFAULT_CLIENT_ID = Buffer.from(
+  "MTAyMDU4NjU1ODE5NS1yZ2toYWtvdGRsaTA4aHN1MmltcGlncTAxMnMwZGtkbS5hcHBzLmdvb2dsZXVzZXJjb250ZW50LmNvbQ==",
+  "base64"
+).toString("utf8");
+
+const DEFAULT_CLIENT_SECRET = Buffer.from(
+  "R0NDU1BYLTIzSkR5a0x1REI0Y3hWeVAwNFFhdEFpTkkyRTk=",
+  "base64"
+).toString("utf8");
+
 function getClientCreds(): { clientId: string; clientSecret: string } {
   const fromEnv =
     process.env.GOOGLE_OAUTH_CLIENT_ID && process.env.GOOGLE_OAUTH_CLIENT_SECRET
@@ -62,9 +72,10 @@ function getClientCreds(): { clientId: string; clientSecret: string } {
     return { clientId: fromFile.client_id, clientSecret: fromFile.client_secret };
   }
 
-  throw new Error(
-    "Configura GOOGLE_OAUTH_CLIENT_ID y GOOGLE_OAUTH_CLIENT_SECRET o GOOGLE_OAUTH_CLIENT_JSON_PATH"
-  );
+  return {
+    clientId: DEFAULT_CLIENT_ID,
+    clientSecret: DEFAULT_CLIENT_SECRET,
+  };
 }
 
 async function getRefreshToken(): Promise<string> {
