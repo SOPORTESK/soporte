@@ -450,6 +450,81 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
     messenger: "from-blue-600 to-blue-400", web: "from-violet-600 to-violet-400", email: "from-amber-600 to-amber-400",
   };
 
+  // ── Conteo y Volumen de Mensajes (Clientes vs Técnicos vs IA)
+  let totalMensajesClientes = 0;
+  let totalMensajesTecnicos = 0;
+  let totalMensajesIA = 0;
+
+  const agentMessageStats: Record<string, { email: string; nombre: string; enviados: number; recibidos: number; casos: number }> = {};
+  const clientMessageStats: Record<string, { nombre: string; telefono: string; total: number }> = {};
+
+  casosFiltrados.forEach(c => {
+    const clienteMsgs = (c.histcliente || []).filter((m: any) => !m.deleted);
+    const tecnicoMsgs = (c.histtecnico || []).filter((m: any) => !m.deleted && m.role !== "nota");
+
+    totalMensajesClientes += clienteMsgs.length;
+
+    const clienteNombre = getClienteNombre(c);
+    const tel = typeof c.cliente === "object" ? (c.cliente?.telefono || c.cliente?.phone || "") : "";
+    const clientKey = (tel || clienteNombre).toLowerCase();
+    if (!clientMessageStats[clientKey]) {
+      clientMessageStats[clientKey] = {
+        nombre: clienteNombre,
+        telefono: tel,
+        total: 0,
+      };
+    }
+    clientMessageStats[clientKey].total += clienteMsgs.length;
+
+    tecnicoMsgs.forEach((m: any) => {
+      const isIA = m.role === "assistant" || m.author === "Asistente Sekunet" || m.author === "Soporte Sekunet";
+      if (isIA) {
+        totalMensajesIA++;
+      } else {
+        totalMensajesTecnicos++;
+        const rawAuthor = (m.author || c.assigned_to || "").toLowerCase();
+        const matchedEmail = Object.keys(agenteMap).find(e => rawAuthor.includes(e) || (agenteMap[e] && rawAuthor.includes(agenteMap[e].toLowerCase()))) || (c.assigned_to ? c.assigned_to.toLowerCase() : null);
+
+        if (matchedEmail && !matchedEmail.includes("system_prompt")) {
+          if (!agentMessageStats[matchedEmail]) {
+            agentMessageStats[matchedEmail] = {
+              email: matchedEmail,
+              nombre: agenteMap[matchedEmail] || matchedEmail,
+              enviados: 0,
+              recibidos: 0,
+              casos: 0,
+            };
+          }
+          agentMessageStats[matchedEmail].enviados++;
+        }
+      }
+    });
+
+    if (c.assigned_to && !c.assigned_to.includes("system_prompt")) {
+      const email = c.assigned_to.toLowerCase();
+      if (!agentMessageStats[email]) {
+        agentMessageStats[email] = {
+          email,
+          nombre: agenteMap[email] || email,
+          enviados: 0,
+          recibidos: 0,
+          casos: 0,
+        };
+      }
+      agentMessageStats[email].recibidos += clienteMsgs.length;
+      agentMessageStats[email].casos++;
+    }
+  });
+
+  const msgStatsData: MessageStatsData = {
+    totalClientes: totalMensajesClientes,
+    totalTecnicos: totalMensajesTecnicos,
+    totalIA: totalMensajesIA,
+    totalGlobal: totalMensajesClientes + totalMensajesTecnicos + totalMensajesIA,
+    agentStats: Object.values(agentMessageStats).sort((a, b) => b.enviados - a.enviados),
+    topClientes: Object.values(clientMessageStats).sort((a, b) => b.total - a.total),
+  };
+
   const nowStr = new Date().toLocaleString("es-CR", { timeZone: "America/Costa_Rica", dateStyle: "long", timeStyle: "short" });
 
   return (
@@ -480,6 +555,8 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
           </div>
         </div>
       </header>
+
+      <MessageVolumeTabs stats={msgStatsData}>
 
       {/* ── Exportar KPIs del mes ── */}
       <div className="flex justify-end">
@@ -750,6 +827,7 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
           )}
 
       </div>
+      </MessageVolumeTabs>
     </div>
   );
 }
