@@ -333,6 +333,56 @@ async function processReadReceipt(supabase: any, messageId: string): Promise<boo
   return false;
 }
 
+// Procesar revocación / eliminación de mensajes por parte del remitente (WhatsApp "Se eliminó este mensaje")
+async function processRevokedMessage(supabase: any, messageId: string): Promise<boolean> {
+  console.log("[evo-webhook] Procesando revocación de mensaje:", messageId);
+  const { data: openCases } = await supabase
+    .from("sek_cases")
+    .select("id, histcliente, histtecnico")
+    .not("estado", "in", '("cerrado","resuelto")')
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  if (!openCases) return false;
+
+  for (const c of openCases) {
+    let updated = false;
+    const histCliente = Array.isArray(c.histcliente) ? [...c.histcliente] : [];
+    const idxCliente = histCliente.findIndex((m: any) => m.messageId === messageId);
+    if (idxCliente >= 0) {
+      histCliente[idxCliente] = {
+        ...histCliente[idxCliente],
+        deleted: true,
+        content: "🚫 Se eliminó este mensaje.",
+        mediaUrl: null,
+      };
+      updated = true;
+    }
+
+    const histTecnico = Array.isArray(c.histtecnico) ? [...c.histtecnico] : [];
+    const idxTecnico = histTecnico.findIndex((m: any) => m.messageId === messageId);
+    if (idxTecnico >= 0) {
+      histTecnico[idxTecnico] = {
+        ...histTecnico[idxTecnico],
+        deleted: true,
+        content: "🚫 Se eliminó este mensaje.",
+        mediaUrl: null,
+      };
+      updated = true;
+    }
+
+    if (updated) {
+      await supabase
+        .from("sek_cases")
+        .update({ histcliente: histCliente, histtecnico: histTecnico })
+        .eq("id", c.id);
+      console.log(`[evo-webhook] Mensaje ${messageId} marcado como eliminado en caso ${c.id}`);
+      return true;
+    }
+  }
+  return false;
+}
+
 function inferMimeFromExt(ext: string): string {
   const map: Record<string, string> = {
     "xml": "text/xml",
@@ -630,32 +680,53 @@ function extractText(payload: any): string | null {
     "message.extendedTextMessage.text",
     "text",
     "body",
-    "message.imageMessage.caption",
-    "message.videoMessage.caption",
     "data.message.conversation",
     "data.message.extendedTextMessage.text",
+    // Image, video, document captions (direct data.message style)
+    "data.message.imageMessage.caption",
+    "data.message.videoMessage.caption",
+    "data.message.documentMessage.caption",
+    "data.message.documentWithCaptionMessage.message.documentMessage.caption",
+    "data.message.documentWithCaptionMessage.message.caption",
+    "data.imageMessage.caption",
+    "data.videoMessage.caption",
+    "data.documentMessage.caption",
+    "message.imageMessage.caption",
+    "message.videoMessage.caption",
+    "message.documentMessage.caption",
     // Baileys messages.upsert style (array)
     "data.messages.0.message.conversation",
     "data.messages.0.message.extendedTextMessage.text",
     "data.messages.0.message.imageMessage.caption",
     "data.messages.0.message.videoMessage.caption",
+    "data.messages.0.message.documentMessage.caption",
     // Ephemeral wrapper
     "data.messages.0.message.ephemeralMessage.message.conversation",
     "data.messages.0.message.ephemeralMessage.message.extendedTextMessage.text",
     "data.messages.0.message.ephemeralMessage.message.imageMessage.caption",
     "data.messages.0.message.ephemeralMessage.message.videoMessage.caption",
+    "data.messages.0.message.ephemeralMessage.message.documentMessage.caption",
+    "data.message.ephemeralMessage.message.conversation",
+    "data.message.ephemeralMessage.message.extendedTextMessage.text",
+    "data.message.ephemeralMessage.message.imageMessage.caption",
+    "data.message.ephemeralMessage.message.videoMessage.caption",
+    "data.message.ephemeralMessage.message.documentMessage.caption",
     // ptvMessage (video note / "videito circular")
     "data.messages.0.message.ptvMessage.caption",
     "message.ptvMessage.caption",
     "data.message.ptvMessage.caption",
-    // viewOnceMessage with video
+    // viewOnceMessage with video / image
+    "data.messages.0.message.viewOnceMessage.message.imageMessage.caption",
     "data.messages.0.message.viewOnceMessage.message.videoMessage.caption",
-    "message.viewOnceMessage.message.videoMessage.caption",
+    "data.message.viewOnceMessage.message.imageMessage.caption",
     "data.message.viewOnceMessage.message.videoMessage.caption",
+    "message.viewOnceMessage.message.imageMessage.caption",
+    "message.viewOnceMessage.message.videoMessage.caption",
     // documentWithCaptionMessage (video sent as document with caption)
     "data.messages.0.message.documentWithCaptionMessage.message.caption",
+    "data.messages.0.message.documentWithCaptionMessage.message.documentMessage.caption",
     "message.documentWithCaptionMessage.message.caption",
-    "data.message.documentWithCaptionMessage.message.caption",
+    "message.documentWithCaptionMessage.message.documentMessage.caption",
     // Lista interactiva (listResponseMessage) — el cliente toca una opción
     "message.listResponseMessage.title",
     "data.message.listResponseMessage.title",
@@ -675,6 +746,25 @@ function extractText(payload: any): string | null {
     const v = get(payload, f);
     if (typeof v === "string" && v.trim()) return v.trim();
   }
+
+  // Fallback recursivo para extraer cualquier propiedad caption o text existente en el payload
+  function findCaptionDeep(obj: any, depth = 0): string | null {
+    if (!obj || typeof obj !== "object" || depth > 6) return null;
+    if (typeof obj.caption === "string" && obj.caption.trim()) return obj.caption.trim();
+    if (typeof obj.text === "string" && obj.text.trim()) return obj.text.trim();
+    if (typeof obj.conversation === "string" && obj.conversation.trim()) return obj.conversation.trim();
+    for (const key of Object.keys(obj)) {
+      if (typeof obj[key] === "object" && obj[key] !== null) {
+        const found = findCaptionDeep(obj[key], depth + 1);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  const deep = findCaptionDeep(payload?.data || payload);
+  if (deep) return deep;
+
   try {
     if (typeof payload?.message === "string" && payload.message.trim()) return payload.message.trim();
   } catch {}
@@ -943,6 +1033,17 @@ export async function POST(req: NextRequest) {
       await processIncomingReaction(supabase, targetMessageId, emoji, author);
     }
     return NextResponse.json({ ok: true });
+  }
+
+  // 4. Interceptar mensaje eliminado por el usuario (protocolMessage con REVOKE)
+  const protocolMsg = upsertMsgObj?.protocolMessage || payload?.data?.message?.protocolMessage || payload?.message?.protocolMessage;
+  if (protocolMsg) {
+    const targetMessageId = protocolMsg.key?.id || protocolMsg.keyId;
+    console.log("[evo-webhook] Recibido protocolMessage (eliminación de mensaje):", { targetMessageId, type: protocolMsg.type });
+    if (targetMessageId) {
+      await processRevokedMessage(supabase, targetMessageId);
+    }
+    return NextResponse.json({ ok: true, revoked: true });
   }
 
   // ANTI-BUCLE: si fromMe=true, es respuesta enviada por nosotros (ej. la IA) — salir de inmediato
