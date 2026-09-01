@@ -31,12 +31,15 @@ export function CloseStaleCases({ hoursThreshold = 2 }: { hoursThreshold?: numbe
         .select("id, title, estado, assigned_to, created_at, last_message_at, canal")
         .in("estado", ["abierto", "ia_atendiendo", "escalado", "pendiente"])
         .neq("canal", "simulator")
-        .lt("created_at", threshold)
-        .order("created_at", { ascending: true })
+        .order("last_message_at", { ascending: true, nullsFirst: true })
         .limit(50);
 
       if (error) throw error;
-      setStaleCases(data || []);
+      const filtered = (data || []).filter(c => {
+        const ref = c.last_message_at || c.created_at;
+        return ref && new Date(ref).getTime() < new Date(threshold).getTime();
+      });
+      setStaleCases(filtered);
       setShowPanel(true);
     } catch (e: any) {
       toast.error("Error al buscar casos", { description: e?.message });
@@ -131,7 +134,7 @@ export function CloseStaleCases({ hoursThreshold = 2 }: { hoursThreshold?: numbe
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-semibold truncate">{c.title || "Sin t&iacute;tulo"}</p>
                   <p className="text-[10px] text-muted-foreground">
-                    {c.canal} &middot; {c.assigned_to || "Sin asignar"} &middot; {formatDaysAgo(c.created_at)} atr&aacute;s
+                    {c.canal} &middot; {c.assigned_to || "Sin asignar"} &middot; {formatDaysAgo(c.last_message_at || c.created_at)} atr&aacute;s
                   </p>
                 </div>
                 <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600">

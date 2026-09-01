@@ -1334,7 +1334,21 @@ export async function POST(req: NextRequest) {
       const ACTIVE_STATES = ["ia_atendiendo", "pendiente", "escalado", "abierto", "calificacion_pendiente"];
       existing = openCases.find((c: any) => ACTIVE_STATES.includes(c.estado) && matchesPhone(c)) || null;
 
-      // 2. Si no hay caso activo, NO reabrir el cerrado — se crea un caso nuevo.
+      // 2. Si el caso activo tiene más de 24 horas desde su creación y el cliente escribe,
+      //    se cierra automáticamente el caso viejo para iniciar un caso nuevo y fresco con tiempo desde cero.
+      if (existing && !isOutgoing) {
+        const caseAgeHours = (Date.now() - new Date(existing.created_at).getTime()) / (1000 * 60 * 60);
+        if (caseAgeHours > 24) {
+          console.log(`[evo-webhook] Caso ${existing.id} tiene ${caseAgeHours.toFixed(1)}h de antigüedad. Cerrando automáticamente para abrir caso nuevo fresco.`);
+          await supabase
+            .from("sek_cases")
+            .update({ estado: "cerrado", closed_at: new Date().toISOString() })
+            .eq("id", existing.id);
+          existing = null;
+        }
+      }
+
+      // 3. Si no hay caso activo, NO reabrir el cerrado — se crea un caso nuevo.
       //    Solo un humano puede reabrir un caso cerrado (desde la UI).
       //    La re-apertura automatica causaba: historial viejo confundiendo a la IA,
       //    datos corruptos persistiendo, y la IA sin saludar al continuar el flujo.
