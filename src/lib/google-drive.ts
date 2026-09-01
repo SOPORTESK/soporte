@@ -76,9 +76,6 @@ function getClientCreds(): { clientId: string; clientSecret: string } {
 }
 
 async function getRefreshToken(): Promise<string> {
-  const fromEnv = process.env.GOOGLE_DRIVE_REFRESH_TOKEN;
-  if (fromEnv) return fromEnv;
-
   const supabase = createServiceClient();
   const { data } = await supabase
     .from("sek_drive_config")
@@ -86,7 +83,7 @@ async function getRefreshToken(): Promise<string> {
     .eq("id", 1)
     .single();
 
-  const token = data?.refresh_token;
+  const token = data?.refresh_token || process.env.GOOGLE_DRIVE_REFRESH_TOKEN;
   if (!token) {
     throw new Error("Google Drive no autorizado. Visite /api/drive-oauth-start.");
   }
