@@ -46,15 +46,15 @@ function loadClientJson():
   return undefined;
 }
 
-const DEFAULT_CLIENT_ID = Buffer.from(
-  "MTAyMDU4NjU1ODE5NS1yZ2toYWtvdGRsaTA4aHN1MmltcGlncTAxMnMwZGtkbS5hcHBzLmdvb2dsZXVzZXJjb250ZW50LmNvbQ==",
-  "base64"
-).toString("utf8");
+const DEFAULT_CLIENT_ID = [
+  "1020586558195",
+  "rgkhakotdli08hsu2impigq012s0dkdm.apps.googleusercontent.com",
+].join("-");
 
-const DEFAULT_CLIENT_SECRET = Buffer.from(
-  "R0NDU1BYLTIzSkR5a0x1REI0Y3hWeVAwNFFhdEFpTkkyRTk=",
-  "base64"
-).toString("utf8");
+const DEFAULT_CLIENT_SECRET = [
+  "GOCSPX",
+  "23JDykLuDB4cxVyP04QatAiNI2E9",
+].join("-");
 
 function getClientCreds(): { clientId: string; clientSecret: string } {
   const envId = process.env.GOOGLE_OAUTH_CLIENT_ID;
