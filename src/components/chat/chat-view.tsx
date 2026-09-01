@@ -1546,12 +1546,34 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     if (accepting || !agentEmail) return;
     setAccepting(true);
     try {
-      const { error } = await supabase.from("sek_cases").update({
-        estado: "abierto",
-        assigned_to: agentEmail,
-        accepted_at: new Date().toISOString(),
-      }).eq("id", targetId);
+      // Bloqueo atómico: solo actualizar si el caso sigue sin asignar o en estado escalado/pendiente/ia_atendiendo
+      const { data: updatedRows, error } = await supabase
+        .from("sek_cases")
+        .update({
+          estado: "abierto",
+          assigned_to: agentEmail,
+          accepted_at: new Date().toISOString(),
+        })
+        .eq("id", targetId)
+        .or("assigned_to.is.null,estado.in.(escalado,pendiente,ia_atendiendo)")
+        .select("id, assigned_to");
+
       if (error) throw error;
+
+      if (!updatedRows || updatedRows.length === 0) {
+        // El caso ya fue tomado por otro agente
+        const { data: freshCase } = await supabase
+          .from("sek_cases")
+          .select("assigned_to")
+          .eq("id", targetId)
+          .maybeSingle();
+        const otherAgent = freshCase?.assigned_to || "otro técnico";
+        toast.warning(`Este caso ya fue tomado por ${otherAgent}`);
+        setSekCase(prev => ({ ...prev, estado: "abierto", assigned_to: freshCase?.assigned_to || prev.assigned_to }));
+        setAccepting(false);
+        return;
+      }
+
       setSekCase(prev => ({ ...prev, estado: "abierto", assigned_to: agentEmail }));
       toast.success("Caso aceptado");
       logActivity({
