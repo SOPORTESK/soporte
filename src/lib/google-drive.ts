@@ -57,18 +57,15 @@ const DEFAULT_CLIENT_SECRET = Buffer.from(
 ).toString("utf8");
 
 function getClientCreds(): { clientId: string; clientSecret: string } {
-  const fromEnv =
-    process.env.GOOGLE_OAUTH_CLIENT_ID && process.env.GOOGLE_OAUTH_CLIENT_SECRET
-      ? {
-          clientId: process.env.GOOGLE_OAUTH_CLIENT_ID,
-          clientSecret: process.env.GOOGLE_OAUTH_CLIENT_SECRET,
-        }
-      : undefined;
+  const envId = process.env.GOOGLE_OAUTH_CLIENT_ID;
+  const envSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
 
-  if (fromEnv) return fromEnv;
+  if (envId && envSecret && envId.startsWith("1020586558195")) {
+    return { clientId: envId, clientSecret: envSecret };
+  }
 
   const fromFile = loadClientJson();
-  if (fromFile) {
+  if (fromFile && fromFile.client_id.startsWith("1020586558195")) {
     return { clientId: fromFile.client_id, clientSecret: fromFile.client_secret };
   }
 
