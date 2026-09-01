@@ -21,6 +21,7 @@ export function CaseHistoryDrawer({ isOpen, onClose, currentCase }: CaseHistoryD
   const [cases, setCases] = React.useState<CaseWithDetails[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [hasMore, setHasMore] = React.useState(true);
+  const [drawerTab, setDrawerTab] = React.useState<"casos" | "mensajes">("casos");
   const PAGE_SIZE = 5;
 
   const ci = clienteInfo(currentCase.cliente);
@@ -151,7 +152,7 @@ export function CaseHistoryDrawer({ isOpen, onClose, currentCase }: CaseHistoryD
           <div className="flex items-center gap-2">
             <History className="h-5 w-5 text-muted-foreground" />
             <div>
-              <h2 className="font-semibold">Historial de conversaciones</h2>
+              <h2 className="font-semibold text-sm">Historial y Métricas de Cliente</h2>
               <p className="text-xs text-muted-foreground">
                 {ci.nombre || ci.telefono || "Cliente"}
               </p>
@@ -184,7 +185,7 @@ export function CaseHistoryDrawer({ isOpen, onClose, currentCase }: CaseHistoryD
             </div>
           )}
 
-          {cases.map((c, idx) => {
+          {drawerTab === "casos" && cases.map((c, idx) => {
             const isExpanded = c._expanded;
             const estadoLower = String(c.estado || "").toLowerCase();
             const isClosed = estadoLower === "cerrado" || estadoLower === "resuelto";

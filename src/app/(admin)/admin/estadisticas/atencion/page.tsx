@@ -6,6 +6,7 @@ import { AgentRankingTable } from "@/components/admin/agent-ranking-table";
 import { MonthSelector } from "@/components/admin/month-selector";
 import { PeriodToggle } from "@/components/admin/period-toggle";
 import { ResolucionHumanaChart } from "@/components/admin/resolucion-humana-chart";
+import { MessageVolumeTabs, MessageStatsData } from "@/components/admin/message-volume-tabs";
 
 export const dynamic = "force-dynamic";
 
