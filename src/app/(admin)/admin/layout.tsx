@@ -150,6 +150,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               {!isTecnico && (
                 <NavSection title="General">
                   <SidebarLink href="/admin" icon={<LayoutDashboard className="h-4 w-4" />}>Resumen</SidebarLink>
+                  <SidebarLink href="/admin/actividad" icon={<Activity className="h-4 w-4" />}>Actividad</SidebarLink>
                 </NavSection>
               )}
 

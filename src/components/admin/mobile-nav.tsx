@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, Settings, BookOpen, Bot, Package,
-  Users, MessageCircle, X, Menu, ShieldCheck
+  Users, MessageCircle, X, Menu, ShieldCheck, Activity
 } from "lucide-react";
 
 export function MobileNav({ isAdmin = true, isTecnico = false }: { isAdmin?: boolean; isTecnico?: boolean }) {
@@ -13,7 +13,10 @@ export function MobileNav({ isAdmin = true, isTecnico = false }: { isAdmin?: boo
   const pathname = usePathname();
 
   const navItems = [
-    ...(!isTecnico ? [{ section: "General", items: [{ href: "/admin", label: "Resumen", icon: LayoutDashboard }] }] : []),
+    ...(!isTecnico ? [{ section: "General", items: [
+      { href: "/admin", label: "Resumen", icon: LayoutDashboard },
+      { href: "/admin/actividad", label: "Actividad", icon: Activity },
+    ] }] : []),
     { section: "Gestión", items: [
       { href: "/admin/equipo", label: "Equipo", icon: Users },
       ...(isAdmin ? [
