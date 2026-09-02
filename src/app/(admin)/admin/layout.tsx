@@ -17,6 +17,7 @@ import { EscalatedCasesBanner } from "@/components/escalated-cases-banner";
 import { FloatingTechAssistant } from "@/components/floating-tech-assistant";
 import { ActivityTrackerProvider } from "@/components/activity-tracker-provider";
 import { getUserWithTimeout, queryWithFallback } from "@/lib/supabase/resilient";
+import { getAgentGroupPermissions } from "@/lib/permissions";
 
 export const dynamic = 'force-dynamic';
 
@@ -99,10 +100,13 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     );
   }
 
-  const isAdmin = ["admin","superadmin"].includes(a.rol);
+  const userPerms = await getAgentGroupPermissions(a.rol);
+  const isSuperadmin = a.rol === "superadmin";
+  const isAdmin = ["admin", "superadmin"].includes(a.rol);
   const isTecnico = a.rol === "tecnico";
-  // Solo admin, superadmin y tecnico pueden acceder al panel admin
-  if (!isAdmin && !isTecnico) redirect("/inbox");
+  
+  const canAccessAdmin = isSuperadmin || isAdmin || userPerms.inventory.view || userPerms.manuals.view || userPerms.stats.view || userPerms.ai.view || userPerms.settings.view;
+  if (!canAccessAdmin) redirect("/inbox");
 
   const fullName = [a.nombre, a.apellido].filter(Boolean).join(" ") || user.email!;
 

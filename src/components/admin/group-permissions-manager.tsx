@@ -2,76 +2,40 @@
 
 import * as React from "react";
 import { 
-  Shield, Plus, Trash2, Save, 
-  MessageSquare, BarChart3, Package, BookOpen, Bot,
-  Loader2
+  Shield, Plus, Trash2, Save, Users, UserPlus, X,
+  MessageSquare, BarChart3, Package, BookOpen, Bot, Settings,
+  Loader2, CheckCircle2, UserCheck
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import type { PermissionGroup, GroupPermissions } from "@/lib/permissions";
 
-export interface PermissionGroup {
-  id: string;
-  name: string;
-  description: string;
-  isSystem?: boolean;
-  permissions: {
-    inbox: {
-      view: boolean;
-      viewAll: boolean;
-      reply: boolean;
-      reassign: boolean;
-      internalNotes: boolean;
-      closeCase: boolean;
-      delete?: boolean;
-    };
-    stats: {
-      view: boolean;
-      viewSLA: boolean;
-      viewVolume: boolean;
-      export: boolean;
-    };
-    inventory: {
-      view: boolean;
-      create: boolean;
-      edit: boolean;
-      delete: boolean;
-    };
-    manuals: {
-      view: boolean;
-      upload: boolean;
-      delete: boolean;
-    };
-    ai: {
-      view: boolean;
-      toggleMode: boolean;
-      train: boolean;
-      restorePrompt: boolean;
-    };
-    settings: {
-      view: boolean;
-      manageChannels: boolean;
-      qrConnect: boolean;
-      dangerZone: boolean;
-    };
-  };
+interface AgentItem {
+  email: string;
+  nombre: string | null;
+  apellido: string | null;
+  rol: string;
+  avatar_url?: string | null;
 }
 
 export function GroupPermissionsManager({ isSuperadmin }: { isSuperadmin?: boolean }) {
   const [groups, setGroups] = React.useState<PermissionGroup[]>([]);
+  const [agents, setAgents] = React.useState<AgentItem[]>([]);
   const [selectedGroupId, setSelectedGroupId] = React.useState<string>("admin");
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
+  const [assigningAgent, setAssigningAgent] = React.useState<string>("");
 
-  // Modal para nuevo grupo
+  // Crear nuevo grupo
   const [isCreating, setIsCreating] = React.useState(false);
   const [newGroupName, setNewGroupName] = React.useState("");
   const [newGroupDesc, setNewGroupDesc] = React.useState("");
 
-  const loadGroups = React.useCallback(async () => {
+  const loadData = React.useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch("/api/admin/permission-groups");
-      if (!res.ok) throw new Error("Error al cargar grupos");
+      if (!res.ok) throw new Error("Error al cargar datos");
       const data = await res.json();
       if (data.groups && Array.isArray(data.groups)) {
         setGroups(data.groups);
@@ -79,41 +43,58 @@ export function GroupPermissionsManager({ isSuperadmin }: { isSuperadmin?: boole
           setSelectedGroupId(data.groups[0].id);
         }
       }
+      if (data.agents && Array.isArray(data.agents)) {
+        setAgents(data.agents);
+      }
     } catch (e: any) {
-      toast.error("Error cargando grupos", { description: e.message });
+      toast.error("Error cargando permisos", { description: e.message });
     } finally {
       setLoading(false);
     }
   }, [selectedGroupId]);
 
   React.useEffect(() => {
-    loadGroups();
-  }, [loadGroups]);
+    loadData();
+  }, [loadData]);
 
   const selectedGroup = groups.find(g => g.id === selectedGroupId) || groups[0];
+  const groupMembers = agents.filter(a => a.rol === selectedGroup?.id);
+  const availableAgents = agents.filter(a => a.rol !== selectedGroup?.id);
 
-  function togglePerm(module: keyof PermissionGroup["permissions"], permKey: string) {
+  function togglePerm(moduleKey: keyof PermissionGroup["permissions"], actionKey: keyof GroupPermissions) {
     if (!selectedGroup) return;
-    if (selectedGroup.id === "superadmin" && !isSuperadmin) {
-      toast.warning("El grupo Superadmin tiene permisos totales fijos");
+    if (selectedGroup.id === "superadmin") {
+      toast.warning("El grupo Superadmin cuenta con acceso total fijo.");
       return;
     }
 
     setGroups(prev => prev.map(g => {
       if (g.id !== selectedGroup.id) return g;
-      const mod = { ...g.permissions[module] } as any;
-      mod[permKey] = !mod[permKey];
+      const currentModule = { ...g.permissions[moduleKey] };
+      currentModule[actionKey] = !currentModule[actionKey];
+
+      // Si desactiva view, desactivar edit, create, delete
+      if (actionKey === "view" && !currentModule.view) {
+        currentModule.edit = false;
+        currentModule.create = false;
+        currentModule.delete = false;
+      }
+      // Si activa edit/create/delete, activar view automáticamente
+      if (actionKey !== "view" && currentModule[actionKey]) {
+        currentModule.view = true;
+      }
+
       return {
         ...g,
         permissions: {
           ...g.permissions,
-          [module]: mod,
+          [moduleKey]: currentModule,
         },
       };
     }));
   }
 
-  async function handleSave() {
+  async function handleSavePermissions() {
     setSaving(true);
     try {
       const res = await fetch("/api/admin/permission-groups", {
@@ -122,7 +103,7 @@ export function GroupPermissionsManager({ isSuperadmin }: { isSuperadmin?: boole
         body: JSON.stringify({ groups }),
       });
       if (!res.ok) throw new Error("Error al guardar cambios");
-      toast.success("Permisos de grupos actualizados correctamente");
+      toast.success("Matriz de permisos guardada exitosamente");
     } catch (e: any) {
       toast.error("Error al guardar", { description: e.message });
     } finally {
@@ -135,19 +116,19 @@ export function GroupPermissionsManager({ isSuperadmin }: { isSuperadmin?: boole
       toast.error("El nombre del grupo es obligatorio");
       return;
     }
-    const newId = newGroupName.toLowerCase().replace(/[^a-z0-9]/g, "-") + "-" + Date.now().toString().slice(-4);
+    const newId = newGroupName.toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-") + "-" + Date.now().toString().slice(-4);
     const newGroup: PermissionGroup = {
       id: newId,
       name: newGroupName.trim(),
       description: newGroupDesc.trim() || "Grupo personalizado",
       isSystem: false,
       permissions: {
-        inbox: { view: true, viewAll: false, reply: true, reassign: false, internalNotes: true, closeCase: true, delete: false },
-        stats: { view: false, viewSLA: false, viewVolume: false, export: false },
-        inventory: { view: true, create: false, edit: false, delete: false },
-        manuals: { view: true, upload: false, delete: false },
-        ai: { view: false, toggleMode: false, train: false, restorePrompt: false },
-        settings: { view: false, manageChannels: false, qrConnect: false, dangerZone: false },
+        inbox: { view: true, edit: true, create: true, delete: false },
+        stats: { view: false, edit: false, create: false, delete: false },
+        inventory: { view: true, edit: false, create: false, delete: false },
+        manuals: { view: true, edit: false, create: false, delete: false },
+        ai: { view: false, edit: false, create: false, delete: false },
+        settings: { view: false, edit: false, create: false, delete: false },
       },
     };
 
@@ -161,7 +142,7 @@ export function GroupPermissionsManager({ isSuperadmin }: { isSuperadmin?: boole
 
   function handleDeleteGroup(id: string) {
     if (["superadmin", "admin", "tecnico"].includes(id)) {
-      toast.error("No se pueden eliminar los grupos principales del sistema");
+      toast.error("No se pueden eliminar los roles base del sistema");
       return;
     }
     setGroups(prev => prev.filter(g => g.id !== id));
@@ -171,30 +152,58 @@ export function GroupPermissionsManager({ isSuperadmin }: { isSuperadmin?: boole
     toast.success("Grupo eliminado");
   }
 
+  async function handleAssignMember(emailToAssign: string, targetGroupId: string) {
+    if (!emailToAssign) return;
+    try {
+      const res = await fetch("/api/admin/permission-groups/assign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: emailToAssign, groupId: targetGroupId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Error al asignar miembro");
+
+      setAgents(prev => prev.map(a => a.email === emailToAssign ? { ...a, rol: targetGroupId } : a));
+      setAssigningAgent("");
+      toast.success("Miembro asignado correctamente al grupo");
+    } catch (e: any) {
+      toast.error("Error al asignar miembro", { description: e.message });
+    }
+  }
+
   if (loading) {
     return (
-      <div className="py-16 text-center text-muted-foreground flex flex-col items-center justify-center gap-2">
+      <div className="py-20 text-center text-muted-foreground flex flex-col items-center justify-center gap-2">
         <Loader2 className="h-6 w-6 animate-spin text-brand-500" />
-        <p className="text-xs">Cargando matriz de permisos...</p>
+        <p className="text-xs font-semibold">Cargando matriz de permisos y miembros...</p>
       </div>
     );
   }
 
+  const MODULES: { key: keyof PermissionGroup["permissions"]; label: string; icon: any; color: string; desc: string }[] = [
+    { key: "inbox", label: "Bandeja de Entrada & Chats", icon: MessageSquare, color: "text-sky-400 bg-sky-500/10 border-sky-500/20", desc: "Gestión de tickets, atención de clientes y notas internas" },
+    { key: "stats", label: "Estadísticas & Reportes", icon: BarChart3, color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20", desc: "Métricas de SLA, volumen de mensajes y exportación de datos" },
+    { key: "inventory", label: "Inventario de Equipos", icon: Package, color: "text-amber-400 bg-amber-500/10 border-amber-500/20", desc: "Catálogo de marcas, modelos y compatibilidad técnica" },
+    { key: "manuals", label: "Manuales y Documentos", icon: BookOpen, color: "text-indigo-400 bg-indigo-500/10 border-indigo-500/20", desc: "Base de conocimiento y guías de servicio técnico" },
+    { key: "ai", label: "Agente IA y Automatizaciones", icon: Bot, color: "text-purple-400 bg-purple-500/10 border-purple-500/20", desc: "Entrenamiento del asistente virtual y modos de operación" },
+    { key: "settings", label: "Configuración & Plataforma", icon: Settings, color: "text-rose-400 bg-rose-500/10 border-rose-500/20", desc: "Canales de mensajería, conexión QR de WhatsApp y ajustes globales" },
+  ];
+
   return (
     <div className="p-6 space-y-6 animate-in fade-in-50 duration-150">
-      {/* Encabezado y Guardar */}
+      {/* Header con botón Guardar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border/60 pb-4">
         <div>
           <h3 className="text-base font-black text-foreground flex items-center gap-2">
-            <Shield className="h-4 w-4 text-brand-500" /> Matriz de Permisos y Accesos por Grupo
+            <Shield className="h-4 w-4 text-brand-500" /> Matriz de Permisos y Gestión de Grupos
           </h3>
           <p className="text-xs text-muted-foreground">
-            Configure con casillas e interruptores qué puede ver y editar cada grupo en cada panel y subpanel.
+            Cree grupos de trabajo, asigne técnicos y active o desactive permisos granulares por módulo.
           </p>
         </div>
 
         <button
-          onClick={handleSave}
+          onClick={handleSavePermissions}
           disabled={saving}
           className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-brand-600/20 disabled:opacity-50"
         >
@@ -204,10 +213,10 @@ export function GroupPermissionsManager({ isSuperadmin }: { isSuperadmin?: boole
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Columna Izquierda: Lista de Grupos */}
+        {/* ── COLUMNA IZQUIERDA: LISTA DE GRUPOS ── */}
         <div className="lg:col-span-4 space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-black uppercase tracking-wider text-muted-foreground">Grupos Disponibles</span>
+            <span className="text-[11px] font-black uppercase tracking-wider text-muted-foreground">Grupos Configurados</span>
             <button
               onClick={() => setIsCreating(true)}
               className="flex items-center gap-1 text-xs font-bold text-brand-500 hover:text-brand-400 transition-colors"
@@ -220,6 +229,7 @@ export function GroupPermissionsManager({ isSuperadmin }: { isSuperadmin?: boole
             {groups.map((group) => {
               const isSelected = group.id === selectedGroupId;
               const isSys = group.isSystem;
+              const count = agents.filter(a => a.rol === group.id).length;
 
               return (
                 <div
@@ -228,28 +238,26 @@ export function GroupPermissionsManager({ isSuperadmin }: { isSuperadmin?: boole
                   className={cn(
                     "p-3 rounded-xl border text-left cursor-pointer transition-all flex items-start justify-between gap-2 group",
                     isSelected
-                      ? "bg-brand-600/10 border-brand-500/40 ring-1 ring-brand-500/20"
+                      ? "bg-brand-600/10 border-brand-500/40 ring-1 ring-brand-500/20 shadow-sm"
                       : "bg-muted/30 border-border/50 hover:bg-muted/60"
                   )}
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <p className={cn("text-xs font-bold", isSelected ? "text-brand-400" : "text-foreground")}>
+                      <p className={cn("text-xs font-bold truncate", isSelected ? "text-brand-400" : "text-foreground")}>
                         {group.name}
                       </p>
-                      {isSys && (
-                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-muted text-muted-foreground font-bold">
-                          Sistema
-                        </span>
-                      )}
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-semibold shrink-0">
+                        {count} {count === 1 ? "miembro" : "miembros"}
+                      </span>
                     </div>
-                    <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-1">{group.description}</p>
+                    <p className="text-[10px] text-muted-foreground mt-1 line-clamp-1">{group.description}</p>
                   </div>
 
                   {!isSys && (
                     <button
                       onClick={(e) => { e.stopPropagation(); handleDeleteGroup(group.id); }}
-                      className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-500 transition-all"
+                      className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-500 transition-all shrink-0"
                       title="Eliminar grupo"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
@@ -269,14 +277,14 @@ export function GroupPermissionsManager({ isSuperadmin }: { isSuperadmin?: boole
                 placeholder="Nombre del grupo (ej: Facturación / Ventas)"
                 value={newGroupName}
                 onChange={(e) => setNewGroupName(e.target.value)}
-                className="w-full px-3 py-1.5 text-xs rounded-lg border border-border bg-background text-foreground"
+                className="w-full px-3 py-1.5 text-xs rounded-lg border border-border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-brand-500"
               />
               <input
                 type="text"
-                placeholder="Descripción corta"
+                placeholder="Descripción corta del grupo"
                 value={newGroupDesc}
                 onChange={(e) => setNewGroupDesc(e.target.value)}
-                className="w-full px-3 py-1.5 text-xs rounded-lg border border-border bg-background text-foreground"
+                className="w-full px-3 py-1.5 text-xs rounded-lg border border-border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-brand-500"
               />
               <div className="flex items-center justify-end gap-2 pt-1">
                 <button
@@ -287,7 +295,7 @@ export function GroupPermissionsManager({ isSuperadmin }: { isSuperadmin?: boole
                 </button>
                 <button
                   onClick={handleCreateGroup}
-                  className="px-3 py-1 text-xs font-bold rounded-lg bg-brand-600 text-white hover:bg-brand-700"
+                  className="px-3 py-1 text-xs font-bold rounded-lg bg-brand-600 text-white hover:bg-brand-700 shadow-sm"
                 >
                   Crear
                 </button>
@@ -296,184 +304,195 @@ export function GroupPermissionsManager({ isSuperadmin }: { isSuperadmin?: boole
           )}
         </div>
 
-        {/* Columna Derecha: Matriz de Permisos */}
-        <div className="lg:col-span-8 space-y-4">
+        {/* ── COLUMNA DERECHA: GESTIÓN DE MIEMBROS Y MATRIZ DE PERMISOS ── */}
+        <div className="lg:col-span-8 space-y-6">
           {selectedGroup && (
-            <div className="rounded-2xl border border-border/60 bg-background/50 p-5 space-y-6">
-              <div>
-                <div className="flex items-center gap-2">
-                  <h4 className="text-sm font-black text-foreground">
-                    Permisos para: <span className="text-brand-400">{selectedGroup.name}</span>
-                  </h4>
+            <div className="space-y-6">
+              
+              {/* ── SECCIÓN 1: MIEMBROS ASIGNADOS AL GRUPO ── */}
+              <div className="rounded-2xl border border-border/60 bg-muted/20 p-5 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border/40 pb-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="h-7 w-7 rounded-lg bg-brand-500/10 text-brand-500 grid place-items-center shrink-0">
+                      <Users className="h-3.5 w-3.5" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-black uppercase tracking-wider text-foreground">
+                        Miembros en <span className="text-brand-400">{selectedGroup.name}</span> ({groupMembers.length})
+                      </h4>
+                      <p className="text-[10px] text-muted-foreground">Técnicos que heredan automáticamente estos permisos</p>
+                    </div>
+                  </div>
+
+                  {/* Asignar nuevo miembro */}
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={assigningAgent}
+                      onChange={(e) => setAssigningAgent(e.target.value)}
+                      className="px-2.5 py-1.5 text-xs rounded-lg border border-border bg-background text-foreground focus:outline-none"
+                    >
+                      <option value="">+ Seleccionar técnico para agregar...</option>
+                      {availableAgents.map(a => (
+                        <option key={a.email} value={a.email}>
+                          {[a.nombre, a.apellido].filter(Boolean).join(" ") || a.email} ({a.rol})
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={() => handleAssignMember(assigningAgent, selectedGroup.id)}
+                      disabled={!assigningAgent}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold transition-all disabled:opacity-40"
+                    >
+                      <UserPlus className="h-3.5 w-3.5" /> Asignar
+                    </button>
+                  </div>
+                </div>
+
+                {/* Lista de Chips de Miembros */}
+                <div className="flex flex-wrap gap-2">
+                  {groupMembers.map(member => {
+                    const name = [member.nombre, member.apellido].filter(Boolean).join(" ") || member.email;
+                    const isProtected = member.rol === "superadmin" && !isSuperadmin;
+
+                    return (
+                      <div
+                        key={member.email}
+                        className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-border/60 bg-background text-xs font-medium group"
+                      >
+                        <div className="h-5 w-5 rounded-full bg-brand-500/20 text-brand-400 grid place-items-center text-[10px] font-bold shrink-0">
+                          {name.substring(0, 2).toUpperCase()}
+                        </div>
+                        <span className="text-foreground">{name}</span>
+                        <span className="text-[10px] text-muted-foreground">({member.email})</span>
+                        
+                        {!isProtected && selectedGroup.id !== "tecnico" && (
+                          <button
+                            onClick={() => handleAssignMember(member.email, "tecnico")}
+                            className="text-muted-foreground hover:text-red-500 p-0.5 rounded transition-colors ml-1"
+                            title="Remover de este grupo (reasignar a Soporte Avanzado)"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {groupMembers.length === 0 && (
+                    <p className="text-xs text-muted-foreground py-2">
+                      No hay técnicos asignados a este grupo actualmente.
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* ── SECCIÓN 2: TABLA MATRIZ FORMAL DE PERMISOS ── */}
+              <div className="rounded-2xl border border-border/60 bg-card overflow-hidden">
+                {/* Cabecera de la tabla */}
+                <div className="p-4 border-b border-border/60 bg-muted/30 flex items-center justify-between">
+                  <div>
+                    <h4 className="text-xs font-black uppercase tracking-wider text-foreground">
+                      Matriz de Accesos por Módulo
+                    </h4>
+                    <p className="text-[10px] text-muted-foreground">
+                      Controles de Lectura, Escritura, Creación y Borrado
+                    </p>
+                  </div>
                   {selectedGroup.id === "superadmin" && (
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20">
-                      Acceso Total Fijo
+                      Superadmin: Acceso Total Fijo
                     </span>
                   )}
                 </div>
-                <p className="text-xs text-muted-foreground mt-0.5">{selectedGroup.description}</p>
-              </div>
 
-              {/* Módulo 1: Bandeja de Entrada & Chats */}
-              <div className="space-y-3 rounded-xl border border-border/40 p-4 bg-muted/20">
-                <div className="flex items-center gap-2 border-b border-border/40 pb-2">
-                  <MessageSquare className="h-4 w-4 text-sky-400" />
-                  <span className="text-xs font-black uppercase text-foreground">Bandeja de Entrada & Chats</span>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                  {[
-                    { key: "view", label: "Acceso a la Bandeja", desc: "Permite abrir la vista del chat" },
-                    { key: "viewAll", label: "Ver Todos los Casos", desc: "Ver casos de otros técnicos además de los propios" },
-                    { key: "reply", label: "Responder y Enviar Mensajes", desc: "Escribir respuestas y enviar archivos" },
-                    { key: "reassign", label: "Reasignar Casos", desc: "Transferir casos a otros compañeros" },
-                    { key: "internalNotes", label: "Notas Internas", desc: "Crear y ver notas amarillas privadas" },
-                    { key: "closeCase", label: "Cerrar / Resolver Casos", desc: "Marcar tickets como resueltos o cerrados" },
-                  ].map(p => {
-                    const checked = (selectedGroup.permissions.inbox as any)[p.key] ?? false;
-                    return (
-                      <div
-                        key={p.key}
-                        onClick={() => togglePerm("inbox", p.key)}
-                        className={cn(
-                          "flex items-center justify-between p-2.5 rounded-lg border cursor-pointer transition-colors",
-                          checked ? "bg-sky-500/10 border-sky-500/30" : "bg-background/40 border-border/40 hover:bg-muted/40"
-                        )}
-                      >
-                        <div className="min-w-0 pr-2">
-                          <p className="text-xs font-bold text-foreground">{p.label}</p>
-                          <p className="text-[10px] text-muted-foreground">{p.desc}</p>
-                        </div>
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => {}}
-                          className="h-4 w-4 rounded accent-sky-500 pointer-events-none"
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+                {/* Tabla formal */}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-border/40 bg-muted/10 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                        <th className="py-3 px-4">Módulo / Panel</th>
+                        <th className="py-3 px-3 text-center w-24">Ver (Lectura)</th>
+                        <th className="py-3 px-3 text-center w-24">Editar</th>
+                        <th className="py-3 px-3 text-center w-24">Crear</th>
+                        <th className="py-3 px-3 text-center w-24">Eliminar</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/40">
+                      {MODULES.map((mod) => {
+                        const perms = selectedGroup.permissions[mod.key];
 
-              {/* Módulo 2: Estadísticas & Analítica */}
-              <div className="space-y-3 rounded-xl border border-border/40 p-4 bg-muted/20">
-                <div className="flex items-center gap-2 border-b border-border/40 pb-2">
-                  <BarChart3 className="h-4 w-4 text-emerald-400" />
-                  <span className="text-xs font-black uppercase text-foreground">Estadísticas & Reportes</span>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                  {[
-                    { key: "view", label: "Ver Panel de Estadísticas", desc: "Acceso general a /admin/estadisticas" },
-                    { key: "viewSLA", label: "Ver Rendimiento y SLAs", desc: "Métricas de tiempos y ranking de agentes" },
-                    { key: "viewVolume", label: "Pestaña Volumen de Mensajes", desc: "Conteo exacto de mensajes clientes/técnicos" },
-                    { key: "export", label: "Exportar Reportes", desc: "Descarga de datos a Excel, CSV y PDF" },
-                  ].map(p => {
-                    const checked = (selectedGroup.permissions.stats as any)[p.key] ?? false;
-                    return (
-                      <div
-                        key={p.key}
-                        onClick={() => togglePerm("stats", p.key)}
-                        className={cn(
-                          "flex items-center justify-between p-2.5 rounded-lg border cursor-pointer transition-colors",
-                          checked ? "bg-emerald-500/10 border-emerald-500/30" : "bg-background/40 border-border/40 hover:bg-muted/40"
-                        )}
-                      >
-                        <div className="min-w-0 pr-2">
-                          <p className="text-xs font-bold text-foreground">{p.label}</p>
-                          <p className="text-[10px] text-muted-foreground">{p.desc}</p>
-                        </div>
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => {}}
-                          className="h-4 w-4 rounded accent-emerald-500 pointer-events-none"
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+                        return (
+                          <tr key={mod.key} className="hover:bg-muted/20 transition-colors">
+                            <td className="py-3.5 px-4">
+                              <div className="flex items-center gap-3">
+                                <div className={cn("h-8 w-8 rounded-lg border grid place-items-center shrink-0", mod.color)}>
+                                  <mod.icon className="h-4 w-4" />
+                                </div>
+                                <div>
+                                  <p className="font-bold text-foreground text-xs">{mod.label}</p>
+                                  <p className="text-[10px] text-muted-foreground leading-tight">{mod.desc}</p>
+                                </div>
+                              </div>
+                            </td>
 
-              {/* Módulo 3: Inventario & Manuales */}
-              <div className="space-y-3 rounded-xl border border-border/40 p-4 bg-muted/20">
-                <div className="flex items-center gap-2 border-b border-border/40 pb-2">
-                  <Package className="h-4 w-4 text-amber-400" />
-                  <span className="text-xs font-black uppercase text-foreground">Inventario & Manuales</span>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                  {[
-                    { mod: "inventory", key: "view", label: "Consultar Inventario", desc: "Ver lista de modelos y compatibilidad" },
-                    { mod: "inventory", key: "edit", label: "Modificar Equipos", desc: "Crear y editar modelos de inventario" },
-                    { mod: "inventory", key: "delete", label: "Eliminar Equipos", desc: "Borrar registros del inventario" },
-                    { mod: "manuals", key: "view", label: "Consultar Manuales", desc: "Buscar y ver guías técnicas" },
-                    { mod: "manuals", key: "upload", label: "Subir Manuales", desc: "Cargar nuevos archivos PDF/docs" },
-                    { mod: "manuals", key: "delete", label: "Eliminar Manuales", desc: "Borrar manuales de la base técnica" },
-                  ].map(p => {
-                    const checked = ((selectedGroup.permissions as any)[p.mod] as any)[p.key] ?? false;
-                    return (
-                      <div
-                        key={`${p.mod}-${p.key}`}
-                        onClick={() => togglePerm(p.mod as any, p.key)}
-                        className={cn(
-                          "flex items-center justify-between p-2.5 rounded-lg border cursor-pointer transition-colors",
-                          checked ? "bg-amber-500/10 border-amber-500/30" : "bg-background/40 border-border/40 hover:bg-muted/40"
-                        )}
-                      >
-                        <div className="min-w-0 pr-2">
-                          <p className="text-xs font-bold text-foreground">{p.label}</p>
-                          <p className="text-[10px] text-muted-foreground">{p.desc}</p>
-                        </div>
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => {}}
-                          className="h-4 w-4 rounded accent-amber-500 pointer-events-none"
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+                            {/* Columna Ver */}
+                            <td className="py-3.5 px-3 text-center">
+                              <label className="inline-flex items-center justify-center cursor-pointer p-1">
+                                <input
+                                  type="checkbox"
+                                  checked={perms.view}
+                                  onChange={() => togglePerm(mod.key, "view")}
+                                  disabled={selectedGroup.id === "superadmin"}
+                                  className="h-4 w-4 rounded accent-brand-500 cursor-pointer disabled:opacity-50"
+                                />
+                              </label>
+                            </td>
 
-              {/* Módulo 4: IA & Plataforma */}
-              <div className="space-y-3 rounded-xl border border-border/40 p-4 bg-muted/20">
-                <div className="flex items-center gap-2 border-b border-border/40 pb-2">
-                  <Bot className="h-4 w-4 text-purple-400" />
-                  <span className="text-xs font-black uppercase text-foreground">IA & Configuración de Plataforma</span>
+                            {/* Columna Editar */}
+                            <td className="py-3.5 px-3 text-center">
+                              <label className="inline-flex items-center justify-center cursor-pointer p-1">
+                                <input
+                                  type="checkbox"
+                                  checked={perms.edit}
+                                  onChange={() => togglePerm(mod.key, "edit")}
+                                  disabled={selectedGroup.id === "superadmin"}
+                                  className="h-4 w-4 rounded accent-brand-500 cursor-pointer disabled:opacity-50"
+                                />
+                              </label>
+                            </td>
+
+                            {/* Columna Crear */}
+                            <td className="py-3.5 px-3 text-center">
+                              <label className="inline-flex items-center justify-center cursor-pointer p-1">
+                                <input
+                                  type="checkbox"
+                                  checked={perms.create}
+                                  onChange={() => togglePerm(mod.key, "create")}
+                                  disabled={selectedGroup.id === "superadmin"}
+                                  className="h-4 w-4 rounded accent-brand-500 cursor-pointer disabled:opacity-50"
+                                />
+                              </label>
+                            </td>
+
+                            {/* Columna Eliminar */}
+                            <td className="py-3.5 px-3 text-center">
+                              <label className="inline-flex items-center justify-center cursor-pointer p-1">
+                                <input
+                                  type="checkbox"
+                                  checked={perms.delete}
+                                  onChange={() => togglePerm(mod.key, "delete")}
+                                  disabled={selectedGroup.id === "superadmin"}
+                                  className="h-4 w-4 rounded accent-brand-500 cursor-pointer disabled:opacity-50"
+                                />
+                              </label>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                  {[
-                    { mod: "ai", key: "view", label: "Acceso a Panel IA", desc: "Ver métricas y estado del bot" },
-                    { mod: "ai", key: "toggleMode", label: "Modo IA & No Atendido", desc: "Encender/Apagar el bot y horario nocturno" },
-                    { mod: "ai", key: "train", label: "Entrenar Asistente IA", desc: "Modificar prompt y reglas del sistema" },
-                    { mod: "ai", key: "restorePrompt", label: "Restaurar Versiones Prompt", desc: "Revertir a versiones anteriores del bot" },
-                    { mod: "settings", key: "manageChannels", label: "Configurar Canales", desc: "Activar y parametrizar canales de chat" },
-                    { mod: "settings", key: "qrConnect", label: "Vincular WhatsApp QR", desc: "Escanear QR de Evolution API" },
-                  ].map(p => {
-                    const checked = ((selectedGroup.permissions as any)[p.mod] as any)[p.key] ?? false;
-                    return (
-                      <div
-                        key={`${p.mod}-${p.key}`}
-                        onClick={() => togglePerm(p.mod as any, p.key)}
-                        className={cn(
-                          "flex items-center justify-between p-2.5 rounded-lg border cursor-pointer transition-colors",
-                          checked ? "bg-purple-500/10 border-purple-500/30" : "bg-background/40 border-border/40 hover:bg-muted/40"
-                        )}
-                      >
-                        <div className="min-w-0 pr-2">
-                          <p className="text-xs font-bold text-foreground">{p.label}</p>
-                          <p className="text-[10px] text-muted-foreground">{p.desc}</p>
-                        </div>
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => {}}
-                          className="h-4 w-4 rounded accent-purple-500 pointer-events-none"
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
+
               </div>
 
             </div>
