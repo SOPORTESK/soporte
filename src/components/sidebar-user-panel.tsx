@@ -35,6 +35,20 @@ const STATUS_LABELS: Record<string, { label: string; color: string; icon?: strin
 
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutos
 
+const TAREAS_FISICAS = [
+  { label: "Ir a Bodega", category: "Labores manuales" },
+  { label: "Ir a Ventanilla", category: "Atención presencial" },
+  { label: "Ir al Baño", category: "Pausa personal" },
+  { label: "Iniciar Diagnóstico Físico", category: "Soporte técnico" },
+  { label: "Reunión", category: "Reunión interna" },
+  { label: "Exhibidores", category: "Labores manuales" },
+  { label: "Soporte a Ventas", category: "Soporte comercial" },
+  { label: "Capacitacion de clientes", category: "Capacitación" },
+  { label: "Inventario y Actualización de Bodega GAR", category: "Inventario" },
+  { label: "Limpieza de taller", category: "Mantenimiento" },
+  { label: "Capacitacion de Personal", category: "Capacitación" },
+];
+
 function AvatarImg({ url, name, size = 36 }: { url?: string | null; name: string; size?: number }) {
   const initials = name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase();
   const colors = ["bg-violet-500", "bg-indigo-500", "bg-sky-500", "bg-emerald-500", "bg-amber-500", "bg-rose-500"];
@@ -78,6 +92,7 @@ export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; online
   const [elapsed, setElapsed] = useState("");
   const [manualTask, setManualTask] = useState<{ type: string; label: string; start: number } | null>(null);
   const [manualElapsed, setManualElapsed] = useState("");
+  const [showPhysicalTasksModal, setShowPhysicalTasksModal] = useState(false);
 
   useEffect(() => {
     if (tab !== "activity" || !open) return;
@@ -515,36 +530,15 @@ export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; online
                 </div>
               )}
 
-              {/* Botones de tareas manuales */}
+              {/* Botón para Tareas Físicas / Fuera de Estación */}
               {!manualTask && (
-                <div className="px-2.5 flex gap-1.5">
+                <div className="px-2.5">
                   <button
-                    onClick={() => startManualTask("Labores manuales", "Salida a bodega")}
-                    className="flex-1 flex items-center justify-center gap-1 text-[10px] font-medium px-1.5 py-1.5 rounded-lg bg-muted/40 hover:bg-muted/70 transition-colors"
+                    onClick={() => setShowPhysicalTasksModal(true)}
+                    className="w-full flex items-center justify-center gap-1.5 text-xs font-bold py-2.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-600/25 transition-all hover:scale-[1.01] active:scale-[0.99]"
                   >
-                    <Wrench className="h-3 w-3" />
-                    Bodega
-                  </button>
-                  <button
-                    onClick={() => startManualTask("Labores manuales", "Acondicionamiento de demostradores")}
-                    className="flex-1 flex items-center justify-center gap-1 text-[10px] font-medium px-1.5 py-1.5 rounded-lg bg-muted/40 hover:bg-muted/70 transition-colors"
-                  >
-                    <Wrench className="h-3 w-3" />
-                    Demostradores
-                  </button>
-                  <button
-                    onClick={() => startManualTask("Labores manuales", "Tarea manual")}
-                    className="flex-1 flex items-center justify-center gap-1 text-[10px] font-medium px-1.5 py-1.5 rounded-lg bg-muted/40 hover:bg-muted/70 transition-colors"
-                  >
-                    <Wrench className="h-3 w-3" />
-                    Otra
-                  </button>
-                  <button
-                    onClick={() => startManualTask("Inactividad", "Almuerzo / Pausa")}
-                    className="flex-1 flex items-center justify-center gap-1 text-[10px] font-medium px-1.5 py-1.5 rounded-lg bg-muted/40 hover:bg-muted/70 transition-colors"
-                  >
-                    <Coffee className="h-3 w-3" />
-                    Almuerzo
+                    <Wrench className="h-3.5 w-3.5" />
+                    Tareas Físicas / Fuera de Estación
                   </button>
                 </div>
               )}
@@ -636,6 +630,49 @@ export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; online
                   ) : (
                     <div className="text-sm whitespace-pre-wrap leading-relaxed">{myReport}</div>
                   )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modal: Tareas Físicas / Fuera de Estación */}
+          {showPhysicalTasksModal && (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-in fade-in duration-200"
+              onClick={() => setShowPhysicalTasksModal(false)}
+            >
+              <div
+                className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 duration-200"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-muted/20">
+                  <div>
+                    <h3 className="text-base font-black text-foreground">Tareas Físicas / Fuera de Estación</h3>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Selecciona una tarea para pausar la recolección automática.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setShowPhysicalTasksModal(false)}
+                    className="p-1.5 rounded-xl border border-border hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <XIcon className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[70vh] overflow-y-auto">
+                  {TAREAS_FISICAS.map((task) => (
+                    <button
+                      key={task.label}
+                      onClick={() => {
+                        startManualTask(task.category, task.label);
+                        setShowPhysicalTasksModal(false);
+                      }}
+                      className="w-full py-3.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold text-xs sm:text-sm text-center shadow-md shadow-blue-600/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                    >
+                      {task.label}
+                    </button>
+                  ))}
                 </div>
               </div>
             </div>

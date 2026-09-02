@@ -238,52 +238,9 @@ export function useActivityTracker(agentEmail: string, agentName: string, enable
       }, IDLE_THRESHOLD);
     };
 
-    // ── Track clicks significativos (botones, links, inputs) ──
-    const handleClick = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (!target) return;
-
+    // ── Track clicks (solo contar e idle reset, sin spamear logs individuales) ──
+    const handleClick = (_e: MouseEvent) => {
       clickCountRef.current++;
-
-      // Identificar qué tipo de elemento se clickeó
-      const tag = target.tagName?.toLowerCase();
-      const text = target.textContent?.trim().substring(0, 50) || "";
-      const role = target.getAttribute("role") || "";
-      const className = target.className || "";
-      const id = target.id || "";
-
-      let elementType = "elemento";
-      if (tag === "button" || role === "button") elementType = "botón";
-      else if (tag === "a") elementType = "enlace";
-      else if (tag === "input" || tag === "textarea") elementType = "campo de texto";
-      else if (tag === "select") elementType = "selector";
-      else if (target.closest("button")) elementType = "botón";
-      else if (target.closest("a")) elementType = "enlace";
-
-      // Loguear clicks significativos en tiempo real
-      if (elementType === "botón" || elementType === "enlace") {
-        const interactionKey = `${elementType}:${text}`;
-        if (!interactionLoggedRef.current.has(interactionKey)) {
-          interactionLoggedRef.current.add(interactionKey);
-          // Loguear la acción específica
-          const label = text || id || elementType;
-          const activeCaseId = lastCaseIdRef.current;
-          logActivity({
-            agent_email: agentEmail,
-            agent_name: agentName,
-            action: `Clickeó ${elementType} "${label}"`,
-            category: "Navegación",
-            case_id: activeCaseId || undefined,
-            metadata: {
-              element_type: elementType,
-              label,
-              page: lastPathRef.current,
-              case_id: activeCaseId || undefined,
-            },
-          });
-        }
-      }
-
       resetIdle();
     };
 
