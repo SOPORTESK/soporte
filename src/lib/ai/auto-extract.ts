@@ -1,4 +1,4 @@
-﻿import { createServiceClient } from "@/lib/supabase/service";
+import { createServiceClient } from "@/lib/supabase/service";
 import { getModel } from "@/lib/ai/config";
 
 const TEMAS_VALIDOS = [
@@ -62,15 +62,21 @@ export async function performAutoExtract(id: string) {
 
     const aiModel = await getModel("extract");
 
-    const prompt = `Eres un analista de soporte técnico de Sekunet (Costa Rica). Analiza la siguiente conversación de WhatsApp entre un cliente y un agente de soporte, y extrae:
+    const prompt = `Eres un analista de soporte técnico de Sekunet (Costa Rica). Analiza la siguiente conversación de WhatsApp entre un cliente y un agente de soporte, y extrae los datos técnicos y de contacto:
 
-1. "nombre": El nombre completo del cliente (nombre y apellido). Solo si el cliente lo dijo explícitamente. Si no, deja vacío.
-2. "correo": El correo electrónico del cliente. Solo si contiene @. Si el cliente dijo que no tiene, pon "Sin correo". Si no se menciona, deja vacío.
-3. "cuenta": El nombre de la empresa o cuenta afiliada a Sekunet. Solo si el cliente lo dijo explícitamente. Si dijo que no tiene, pon "Sin cuenta". Si no se menciona, deja vacío.
-4. "tema": El tema principal de la consulta. Debe ser uno de: ${TEMAS_VALIDOS.join(", ")}. Si no puedes determinarlo, deja vacío.
-5. "marca": La marca del equipo mencionado (ej: HIKVISION, Dahua, Epcom, ZKTeco). Si no se menciona, deja vacío.
-6. "modelo": El modelo del equipo (ej: DS-2CD2043G2-I, NVR-108MH, IPC-T221H). Si no se menciona, deja vacío.
-7. "descripcion_problema": Un resumen breve del problema o consulta (máximo 200 caracteres).
+1. "nombre": El nombre completo del cliente (nombre y apellido).
+2. "correo": El correo electrónico del cliente. Solo si contiene @. Si el cliente dijo que no tiene, pon "Sin correo".
+3. "cuenta": El nombre de la empresa, negocio o cuenta afiliada a Sekunet.
+   REGLA DE CUENTA AFILIADA:
+   - Muchos instaladores independientes o clientes finales tienen la cuenta registrada a su propio nombre personal.
+   - Si el cliente responde con su nombre dos veces (ej: "Nombre \n correo \n Nombre"), o si indica que la cuenta está a nombre propio, asigna ese mismo nombre como "cuenta". NO lo dejes vacío.
+   - Si menciona una empresa (ej: "Sistemas DJC", "Coopesantos", "RIMTEC"), pon la empresa.
+   - Si dice que no tiene cuenta, pon "Sin cuenta".
+4. "vendedor": Nombre del vendedor o agente comercial encargado de su cuenta (si lo menciona).
+5. "tema": El tema principal de la consulta. Debe ser exactamente uno de: ${TEMAS_VALIDOS.join(", ")}. Si no se planteó problema antes de cerrar, pon "Otro".
+6. "marca": La marca del equipo mencionado (ej: HIKVISION, Dahua, Epcom, ZKTeco). Si no se menciona, deja vacío.
+7. "modelo": El modelo del equipo (ej: DS-2CD2043G2-I, NVR-108MH, IPC-T221H). Si no se menciona, deja vacío.
+8. "descripcion_problema": Un resumen breve del problema o motivo de cierre (máximo 200 caracteres).
 
 DATOS ACTUALES DEL CLIENTE:
 - nombre: ${String(cli.nombre || "")}
@@ -81,7 +87,7 @@ CONVERSACIÓN:
 ${conversationText}
 
 Responde SOLO en formato JSON:
-{"nombre": "...", "correo": "...", "cuenta": "...", "tema": "...", "marca": "...", "modelo": "...", "descripcion_problema": "..."}`;
+{"nombre": "...", "correo": "...", "cuenta": "...", "vendedor": "...", "tema": "...", "marca": "...", "modelo": "...", "descripcion_problema": "..."}`;
 
     let rawContent = "";
     const apiKey = aiModel?.apiKey || process.env.GEMINI_API_KEY;
@@ -106,7 +112,7 @@ Responde SOLO en formato JSON:
       }
     }
 
-    let extracted: { nombre?: string; correo?: string; cuenta?: string; tema?: string; marca?: string; modelo?: string; descripcion_problema?: string } = {};
+    let extracted: { nombre?: string; correo?: string; cuenta?: string; vendedor?: string; tema?: string; marca?: string; modelo?: string; descripcion_problema?: string } = {};
     if (rawContent) {
       try {
         const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
@@ -131,6 +137,7 @@ Responde SOLO en formato JSON:
     const extractNombre = extracted.nombre?.trim() || "";
     const extractCorreo = extracted.correo?.trim() || "";
     const extractCuenta = extracted.cuenta?.trim() || "";
+    const extractVendedor = extracted.vendedor?.trim() || "";
 
     const currentCliente = (caseData.cliente && typeof caseData.cliente === "object") ? caseData.cliente as Record<string, unknown> : {};
     const updatedCliente: Record<string, unknown> = { ...currentCliente };
@@ -146,6 +153,10 @@ Responde SOLO en formato JSON:
     }
     if (extractCuenta && !currentCliente.cuenta) {
       updatedCliente.cuenta = extractCuenta;
+      clienteChanged = true;
+    }
+    if (extractVendedor && !currentCliente.vendedor) {
+      updatedCliente.vendedor = extractVendedor;
       clienteChanged = true;
     }
     if (descProblema && !currentCliente.descripcion) {
