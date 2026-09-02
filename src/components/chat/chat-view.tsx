@@ -2045,75 +2045,146 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
               </div>
             )}
 
-            {/* Modal de edición de datos del cliente */}
+            {/* Modal de edición de datos del cliente (Diseño Premium) */}
             {editingCliente && (
-              <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm">
-                <div className="bg-card border border-border rounded-t-3xl sm:rounded-3xl w-full max-w-md shadow-2xl overflow-hidden pb-safe max-h-[90vh] flex flex-col">
-                  <div className="flex justify-between items-center px-4 py-3 border-b border-border bg-muted/20 shrink-0">
-                    <div className="flex items-center gap-1.5">
-                      <User className="h-4 w-4 text-brand-500" />
-                      <p className="font-bold text-sm">Editar datos del cliente</p>
+              <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/70 backdrop-blur-md animate-in fade-in duration-200">
+                <div className="bg-card border border-border rounded-t-3xl sm:rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden pb-safe max-h-[92vh] flex flex-col ring-1 ring-white/10">
+                  {/* Modal Header */}
+                  <div className="flex justify-between items-center px-5 py-4 border-b border-border/60 bg-muted/30 shrink-0">
+                    <div className="flex items-center gap-2.5">
+                      <div className="h-8 w-8 rounded-xl bg-brand-500/10 text-brand-500 grid place-items-center">
+                        <User className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <p className="font-black text-sm tracking-tight text-foreground">Editar datos del cliente</p>
+                        <p className="text-[10px] text-muted-foreground">Información personal, equipo y tipo de consulta</p>
+                      </div>
                     </div>
-                    <button onClick={() => setEditingCliente(false)} className="p-1.5 rounded-lg hover:bg-muted">
+                    <button
+                      onClick={() => setEditingCliente(false)}
+                      className="p-1.5 rounded-xl hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                    >
                       <X className="h-4 w-4" />
                     </button>
                   </div>
-                  <div className="p-4 flex flex-col gap-3 overflow-y-auto">
+
+                  {/* Modal Body */}
+                  <div className="p-5 flex flex-col gap-3.5 overflow-y-auto scrollbar-none">
+                    {/* Fila 1: Nombre */}
                     <div>
-                      <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Nombre completo</label>
+                      <label className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">Nombre completo</label>
                       <input
                         type="text"
                         value={clienteDraft.nombre}
                         onChange={e => setClienteDraft(d => ({ ...d, nombre: e.target.value }))}
-                        placeholder="Nombre y apellido"
-                        className="mt-1 flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        placeholder="Nombre y apellido del cliente"
+                        className="mt-1 flex h-10 w-full rounded-xl border border-input bg-background/80 px-3.5 py-2 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-brand-500/30 transition-all"
                       />
                     </div>
-                    <div>
-                      <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Cuenta / Empresa</label>
-                      <input
-                        type="text"
-                        value={clienteDraft.cuenta}
-                        onChange={e => setClienteDraft(d => ({ ...d, cuenta: e.target.value }))}
-                        placeholder="Nombre de la empresa o cuenta"
-                        className="mt-1 flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                      />
+
+                    {/* Fila 2: Cuenta y Correo */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">Cuenta / Empresa</label>
+                        <input
+                          type="text"
+                          value={clienteDraft.cuenta}
+                          onChange={e => setClienteDraft(d => ({ ...d, cuenta: e.target.value }))}
+                          placeholder="Empresa o cuenta afiliada"
+                          className="mt-1 flex h-10 w-full rounded-xl border border-input bg-background/80 px-3.5 py-2 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-brand-500/30 transition-all"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">Correo electrónico</label>
+                        <input
+                          type="email"
+                          value={clienteDraft.correo}
+                          onChange={e => setClienteDraft(d => ({ ...d, correo: e.target.value }))}
+                          placeholder="correo@ejemplo.com"
+                          className="mt-1 flex h-10 w-full rounded-xl border border-input bg-background/80 px-3.5 py-2 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-brand-500/30 transition-all"
+                        />
+                      </div>
                     </div>
-                    <div>
-                      <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Correo electrónico</label>
-                      <input
-                        type="text"
-                        value={clienteDraft.correo}
-                        onChange={e => setClienteDraft(d => ({ ...d, correo: e.target.value }))}
-                        placeholder="correo@ejemplo.com"
-                        className="mt-1 flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                      />
+
+                    {/* Fila 3: Teléfono y Tipo de Consulta */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">Teléfono</label>
+                        <input
+                          type="text"
+                          value={clienteDraft.telefono}
+                          onChange={e => setClienteDraft(d => ({ ...d, telefono: e.target.value }))}
+                          placeholder="Ej: 50688888888"
+                          className="mt-1 flex h-10 w-full rounded-xl border border-input bg-background/80 px-3.5 py-2 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-brand-500/30 transition-all"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">Tipo de Consulta</label>
+                        <select
+                          value={clienteDraft.tipo_consulta}
+                          onChange={e => setClienteDraft(d => ({ ...d, tipo_consulta: e.target.value }))}
+                          className="mt-1 flex h-10 w-full rounded-xl border border-input bg-background/80 px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-brand-500/30 transition-all"
+                        >
+                          <option value="">Seleccionar tipo...</option>
+                          {OPCIONES_TIPO_CONSULTA.map(op => (
+                            <option key={op.value} value={op.value}>{op.label}</option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
-                    <div>
-                      <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Teléfono</label>
-                      <input
-                        type="text"
-                        value={clienteDraft.telefono}
-                        onChange={e => setClienteDraft(d => ({ ...d, telefono: e.target.value }))}
-                        placeholder="50688888888"
-                        className="mt-1 flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                      />
+
+                    {/* Fila 4: Marca, Modelo y Serie (3 columnas) */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 p-3 rounded-2xl bg-muted/20 border border-border/50">
+                      <div>
+                        <label className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">Marca</label>
+                        <input
+                          type="text"
+                          value={clienteDraft.marca}
+                          onChange={e => setClienteDraft(d => ({ ...d, marca: e.target.value }))}
+                          placeholder="Ej: Hikvision, Dahua"
+                          className="mt-1 flex h-9 w-full rounded-lg border border-input bg-background/90 px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-brand-500/30 transition-all"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">Modelo</label>
+                        <input
+                          type="text"
+                          value={clienteDraft.modelo}
+                          onChange={e => setClienteDraft(d => ({ ...d, modelo: e.target.value }))}
+                          placeholder="Ej: DS-7208HQHI"
+                          className="mt-1 flex h-9 w-full rounded-lg border border-input bg-background/90 px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-brand-500/30 transition-all"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">N° de Serie</label>
+                        <input
+                          type="text"
+                          value={clienteDraft.serie}
+                          onChange={e => setClienteDraft(d => ({ ...d, serie: e.target.value }))}
+                          placeholder="Ej: 123456789"
+                          className="mt-1 flex h-9 w-full rounded-lg border border-input bg-background/90 px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-brand-500/30 transition-all"
+                        />
+                      </div>
                     </div>
+
+                    {/* Fila 5: Descripción */}
                     <div>
-                      <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Descripción</label>
+                      <label className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">Descripción del problema</label>
                       <textarea
                         value={clienteDraft.descripcion}
                         onChange={e => setClienteDraft(d => ({ ...d, descripcion: e.target.value }))}
-                        placeholder="Descripción del problema o comentario"
+                        placeholder="Detalles adicionales del problema o solicitud..."
                         rows={2}
-                        className="mt-1 flex w-full rounded-xl border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 resize-none"
+                        className="mt-1 flex w-full rounded-xl border border-input bg-background/80 px-3.5 py-2 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-brand-500/30 transition-all resize-none"
                       />
                     </div>
-                    <div className="flex gap-2 justify-end mt-2">
-                      <Button variant="ghost" onClick={() => setEditingCliente(false)} disabled={savingCliente}>
+
+                    {/* Footer Buttons */}
+                    <div className="flex gap-2 justify-end pt-2 border-t border-border/40">
+                      <Button variant="ghost" onClick={() => setEditingCliente(false)} disabled={savingCliente} className="rounded-xl text-xs">
                         Cancelar
                       </Button>
-                      <Button variant="default" onClick={saveClienteFields} disabled={savingCliente}>
+                      <Button variant="default" onClick={saveClienteFields} disabled={savingCliente} className="rounded-xl text-xs font-bold shadow-md shadow-brand-600/20">
                         {savingCliente ? "Guardando..." : "Guardar"}
                       </Button>
                     </div>
