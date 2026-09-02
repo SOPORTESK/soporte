@@ -219,90 +219,53 @@ export default async function EstadisticasClientePage() {
     .map(e => ({ ...e, clientesCount: e.clientes.size }))
     .sort((a, b) => b.total - a.total);
 
-  // ── Solicitudes / problemas más frecuentes
-  const labels: Record<string, string> = {
-    sin_imagen: "Sin imagen", sin_grabacion: "Sin grabación", sin_acceso_remoto: "Sin acceso remoto",
-    sin_energia: "Sin energía", error_configuracion: "Error de configuración", conectividad_red: "Conectividad / red",
-    reset_contrasena: "Reset contraseña", desvinculacion_cuenta: "Desvinculación cuenta",
-    dano_fisico: "Daño físico", actualizacion_firmware: "Actualización firmware",
-    instalacion_nueva: "Instalación nueva", deteccion_incendio: "Detección incendio",
-    control_acceso: "Control de acceso", intrusion_alarma: "Intrusión / alarma", otro: "Otro",
+  // ── Las 7 categorías oficiales del menú
+  const canonicalCategory = (raw: unknown): { key: string; label: string } => {
+    if (!raw) return { key: "otro", label: "Otro" };
+    const s = String(raw).toLowerCase().trim();
+    if (s.includes("reset") || s.includes("clave") || s.includes("contrase") || s.includes("xml") || s.includes("guid") || s.includes("desbloque")) {
+      return { key: "reset", label: "Reset" };
+    }
+    if (s.includes("desvincul") || s.includes("desvinc")) {
+      return { key: "desvinculacion", label: "Desvinculación" };
+    }
+    if (s.includes("firmware") || s.includes("flashe") || s.includes("actualiz")) {
+      return { key: "firmware", label: "Firmware" };
+    }
+    if (s.includes("licencia") || s.includes("biotime") || s.includes("hikcentral") || s.includes("activac")) {
+      return { key: "licencias", label: "Licencias" };
+    }
+    if (s.includes("software") || s.includes("ivms") || s.includes("app") || s.includes("programa") || s.includes("driver") || s.includes("smartpss")) {
+      return { key: "software", label: "Software" };
+    }
+    if (s.includes("configur") || s.includes("imagen") || s.includes("grabaci") || s.includes("remoto") || s.includes("red") || s.includes("energia") || s.includes("acceso") || s.includes("alarma") || s.includes("incendio") || s.includes("instalaci")) {
+      return { key: "configuraciones", label: "Configuraciones" };
+    }
+    return { key: "otro", label: "Otro" };
   };
-  const normalizeKey = (s: string) =>
-    s.toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-z0-9]+/g, "_")
-      .replace(/^_+|_+$/g, "");
 
-  // Mapeo de tags a etiquetas de problema. Los sub-estados de reset/desvinculacion
-  // se agrupan bajo el problema principal para no hacer un reguero de categorías.
-  const tagAProblema: Record<string, string> = {
-    reset: "Reset contraseña",
-    reset_contrasena: "Reset contraseña",
-    verificacion_pendiente: "Reset contraseña",
-    imagen_pendiente: "Reset contraseña",
-    xml_pendiente: "Reset contraseña",
-    modelo_pendiente: "Reset contraseña",
-    modelo_no_validado: "Reset contraseña",
-    desvinculacion: "Desvinculación cuenta",
-    desvinculacion_cuenta: "Desvinculación cuenta",
-    sin_imagen: "Sin imagen",
-    sin_grabacion: "Sin grabación",
-    sin_acceso_remoto: "Sin acceso remoto",
-    sin_energia: "Sin energía",
-    error_configuracion: "Error de configuración",
-    conectividad_red: "Conectividad / red",
-    dano_fisico: "Daño físico",
-    actualizacion_firmware: "Actualización firmware",
-    instalacion_nueva: "Instalación nueva",
-    deteccion_incendio: "Detección incendio",
-    control_acceso: "Control de acceso",
-    intrusion_alarma: "Intrusión / alarma",
-    otro: "Otro",
-  };
   // Tags que NO son problemas (deben ignorarse)
   const tagsNoProblema = new Set(["saliente", "entrante", "urgente", "vip"]);
 
-  // Mapeo de temas del title a etiquetas (fallback cuando no hay tags)
-  const temaAProblema: Record<string, string> = {
-    reset: "Reset contraseña",
-    desvinculacion: "Desvinculación cuenta",
-    configuraciones: "Configuraciones",
-    software: "Software",
-    soporte: "Soporte general",
-    acceso: "Control de acceso",
-    camara: "Cámaras",
-    nvr: "NVR / Grabador",
-    dvr: "DVR / Grabador",
-    alarma: "Alarma / Intrusión",
-    incendio: "Detección incendio",
-    red: "Conectividad / red",
-    firmware: "Actualización firmware",
-  };
-
-  // ── Derivar clave de problema: tipo_consulta manual, columna, tags, o tema del title
-  const deriveProblema = (c: any): { key: string; label: string } | null => {
+  // ── Derivar clave de problema: exclusivamente entre las 7 categorías oficiales
+  const deriveProblema = (c: any): { key: string; label: string } => {
     const manualTipo = (c.cliente && typeof c.cliente === "object") ? (c.cliente as any).tipo_consulta : null;
-    if (manualTipo && String(manualTipo).trim()) {
-      const mt = String(manualTipo).trim();
-      return { key: normalizeKey(mt), label: mt };
-    }
-    if (c.problema) return { key: c.problema, label: labels[c.problema] || c.problema };
+    if (manualTipo) return canonicalCategory(manualTipo);
+    if (c.problema) return canonicalCategory(c.problema);
     const tags: string[] = Array.isArray(c.tags) ? c.tags : [];
     for (const t of tags) {
       const tl = String(t).toLowerCase().trim();
       if (tagsNoProblema.has(tl)) continue;
-      if (tagAProblema[tl]) return { key: normalizeKey(tagAProblema[tl]), label: tagAProblema[tl] };
-      if (labels[tl]) return { key: tl, label: labels[tl] };
+      const mapped = canonicalCategory(tl);
+      if (mapped.key !== "otro") return mapped;
     }
-    // Fallback: tema del title (antes del em-dash)
     const title = String(c.title || "").trim();
-    const tema = title.split("\u2014")[0].trim().toLowerCase().replace(/[^a-z0-9]/g, "");
-    if (tema && temaAProblema[tema]) {
-      return { key: tema, label: temaAProblema[tema] };
+    if (title.includes("—")) {
+      const tema = title.split("—")[0].trim();
+      const mapped = canonicalCategory(tema);
+      if (mapped.key !== "otro") return mapped;
     }
-    return null;
+    return { key: "otro", label: "Otro" };
   };
 
   const problemaMap: Record<string, { label: string; total: number; resueltos: number; ultimoCasoId: string | number }> = {};

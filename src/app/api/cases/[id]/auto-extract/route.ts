@@ -60,8 +60,8 @@ export async function POST(
     const aiModel = await getModel("extract");
 
     const TEMAS_VALIDOS = [
-      "Reset", "Desvinculación", "Configuración", "Visualización",
-      "Cobros", "Garantía", "Asistencia Remota", "Otro"
+      "Configuraciones", "Reset", "Desvinculación", "Firmware",
+      "Software", "Licencias", "Otro"
     ];
 
     // ── Fallback sin modelo de IA: extracción por regex de datos del cliente ──
@@ -232,13 +232,12 @@ Responde SOLO en formato JSON:
 
     // Mapear tema a problema key
     const temaToProblema: Record<string, string> = {
-      "Reset": "reset",
-      "Desvinculación": "desvinculacion",
-      "Configuración": "configuracion",
-      "Visualización": "visualizacion",
-      "Cobros": "cobros",
-      "Garantía": "garantia",
-      "Asistencia Remota": "asistencia_remota",
+      "Configuraciones": "configuracion",
+      "Reset": "reset_contrasena",
+      "Desvinculación": "desvinculacion_cuenta",
+      "Firmware": "actualizacion_firmware",
+      "Software": "software",
+      "Licencias": "licencias",
       "Otro": "otro",
     };
 
