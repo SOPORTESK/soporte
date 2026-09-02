@@ -25,7 +25,10 @@ export async function PATCH(
     }
 
     // Solo permitir editar campos seguros del cliente
-    const allowedFields = new Set(["nombre", "cuenta", "correo", "telefono", "cedula", "descripcion"]);
+    const allowedFields = new Set([
+      "nombre", "cuenta", "correo", "telefono", "cedula", 
+      "descripcion", "marca", "modelo", "serie", "tipo_consulta"
+    ]);
     const cleanFields: Record<string, string> = {};
     for (const [key, value] of Object.entries(fields)) {
       if (allowedFields.has(key) && typeof value === "string") {

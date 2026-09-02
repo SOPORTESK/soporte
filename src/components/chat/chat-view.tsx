@@ -285,7 +285,27 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   const [reassigning, setReassigning] = React.useState(false);
   const [editingCliente, setEditingCliente] = React.useState(false);
   const [savingCliente, setSavingCliente] = React.useState(false);
-  const [clienteDraft, setClienteDraft] = React.useState({ nombre: "", cuenta: "", correo: "", telefono: "", descripcion: "" });
+  const [clienteDraft, setClienteDraft] = React.useState({
+    nombre: "",
+    cuenta: "",
+    correo: "",
+    telefono: "",
+    marca: "",
+    modelo: "",
+    serie: "",
+    tipo_consulta: "",
+    descripcion: "",
+  });
+
+  const OPCIONES_TIPO_CONSULTA = [
+    { value: "Configuraciones", label: "1. Configuraciones" },
+    { value: "Reset", label: "2. Reset" },
+    { value: "Desvinculación", label: "3. Desvinculación" },
+    { value: "Firmware", label: "4. Firmware" },
+    { value: "Software", label: "5. Software" },
+    { value: "Licencias", label: "6. Licencias" },
+    { value: "Otro", label: "7. Otro" },
+  ];
 
   const CATEGORIAS = [
     { value: "sin_imagen", label: "Sin imagen" },
@@ -1712,7 +1732,11 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       cuenta: ci.cuenta || "",
       correo: ci.correo || "",
       telefono: ci.telefono || "",
-      descripcion: String(c.descripcion || ""),
+      marca: String(c.marca || (sekCase as any).marca || ""),
+      modelo: String(c.modelo || (sekCase as any).modelo || ""),
+      serie: String(c.serie || (sekCase as any).serie || ""),
+      tipo_consulta: String(c.tipo_consulta || (sekCase as any).tipo_consulta || ""),
+      descripcion: String(c.descripcion || (sekCase as any).descripcion || ""),
     });
     setEditingCliente(true);
   }
