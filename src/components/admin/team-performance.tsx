@@ -284,15 +284,40 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
 
       {/* ── AGENT PERFORMANCE CARDS ────────────────────────── */}
       <div className="rounded-2xl border border-border bg-card overflow-hidden">
-        {/* Header con controles */}
+        {/* Header con Pestañas */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-6 py-4 border-b border-border bg-gradient-to-r from-muted/20 to-transparent">
-          <div className="flex items-center gap-3">
-            <div className="h-8 w-8 rounded-lg bg-brand-500/10 text-brand-500 grid place-items-center">
-              <BarChart3 className="h-4 w-4" />
-            </div>
-            <div>
-              <h2 className="font-black text-sm tracking-tight">Rendimiento por Agente</h2>
-              <p className="text-[11px] text-muted-foreground">{agents.length} agentes · Ordenar por desempeño</p>
+          <div className="flex items-center gap-2">
+            <div className="inline-flex p-1 rounded-xl bg-muted/60 border border-border/50 gap-1">
+              <button
+                type="button"
+                onClick={() => setActiveView("rendimiento")}
+                className={cn(
+                  "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all",
+                  activeView === "rendimiento"
+                    ? "bg-brand-600 text-white shadow-sm"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
+                )}
+              >
+                <BarChart3 className="h-3.5 w-3.5" />
+                <span>Rendimiento por Agente</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveView("permisos")}
+                className={cn(
+                  "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all",
+                  activeView === "permisos"
+                    ? "bg-brand-600 text-white shadow-sm"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
+                )}
+              >
+                <Shield className="h-3.5 w-3.5" />
+                <span>Permisos y Grupos</span>
+                <span className="px-1.5 py-0.2 rounded-full text-[9px] bg-sky-500/20 text-sky-400 font-black">
+                  Nuevo
+                </span>
+              </button>
             </div>
           </div>
           <div className="flex items-center gap-2">
