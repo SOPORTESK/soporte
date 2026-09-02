@@ -1969,6 +1969,13 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
                 ) : (
                   <>
                     <button
+                      onClick={toggleCaso}
+                      className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-muted transition-colors text-red-500 font-medium cursor-pointer"
+                    >
+                      <XCircle className="h-4 w-4 text-red-500" /> Cerrar caso
+                    </button>
+                    <div className="border-t border-border/50 my-1" />
+                    <button
                       disabled={closingDirect}
                       onClick={() => cerrarCasoConMensaje("despedida")}
                       className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-muted transition-colors text-emerald-500 font-medium cursor-pointer"
