@@ -4,11 +4,12 @@ import * as React from "react";
 import { 
   Shield, Plus, Trash2, Save, Users, UserPlus, X,
   MessageSquare, BarChart3, Package, BookOpen, Bot, Settings,
-  Loader2, ChevronDown, ChevronRight, Sliders
+  Loader2, ChevronDown, ChevronRight, Sliders, Activity, UserCheck,
+  TrendingUp, Globe, Smartphone, Database, Lock
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import type { PermissionGroup, GroupPermissions } from "@/lib/permissions";
+import type { PermissionGroup } from "@/lib/permissions";
 
 interface AgentItem {
   email: string;
@@ -33,47 +34,57 @@ interface ModuleDef {
   subcategories: SubcategoryDef[];
 }
 
-const MODULE_DEFINITIONS: ModuleDef[] = [
+export const COMPLETE_MODULE_DEFINITIONS: ModuleDef[] = [
+  {
+    key: "stats",
+    label: "Estadísticas, Analítica & CRM",
+    icon: BarChart3,
+    color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
+    desc: "Métricas globales, KPIs de atención, SLAs, volumen y analítica de clientes",
+    subcategories: [
+      { key: "resumen_general", label: "Resumen General (/admin)", desc: "Panel de control principal con tarjetas y actividad en vivo" },
+      { key: "estadisticas_detalladas", label: "Estadísticas Detalladas (/admin/estadisticas)", desc: "Analítica profunda, gráficos de volumen histórico y estados" },
+      { key: "estadisticas_atencion", label: "Estadísticas de Atención & SLAs (/admin/estadisticas/atencion)", desc: "Ranking de agentes, tiempos de respuesta (AHT) y SLAs" },
+      { key: "volumen_mensajes", label: "Pestaña Volumen de Mensajes", desc: "Conteo exacto de mensajes de clientes, técnicos e IA" },
+      { key: "analitica_clientes", label: "Analítica de Clientes & CRM (/admin/clientes)", desc: "Directorio de clientes, historial de contacto y desbloqueo" },
+      { key: "registro_actividad", label: "Registro de Actividad en Vivo (/admin/actividad)", desc: "Monitoreo en tiempo real de sesiones y eventos del equipo" },
+      { key: "exportar_reportes", label: "Exportación de Reportes", desc: "Descarga de métricas en formatos Excel, CSV e Imprimir PDF" },
+    ],
+  },
   {
     key: "team",
-    label: "Equipo & Rendimiento",
+    label: "Equipo & Desempeño",
     icon: Users,
     color: "text-amber-400 bg-amber-500/10 border-amber-500/20",
-    desc: "Gestión de técnicos, roles, invitar miembros y permisos",
+    desc: "Gestión de agentes, perfiles, rendimiento, contraseñas y permisos",
     subcategories: [
-      { key: "view_list", label: "Ver Lista de Técnicos y Métricas", desc: "Permite ver los agentes y sus indicadores de atención" },
-      { key: "add_agent", label: "Invitar / Agregar Nuevos Agentes", desc: "Botón '+ Agregar' para crear cuentas de técnicos" },
-      { key: "edit_agent", label: "Modificar Perfiles y Roles", desc: "Cambiar nombre, teléfono o rol de compañeros" },
-      { key: "reset_password", label: "Restablecer Contraseñas", desc: "Generar nueva clave de acceso para técnicos" },
-      { key: "delete_agent", label: "Eliminar Cuentas de Técnicos", desc: "Borrar agentes de la base de datos" },
-      { key: "manage_groups", label: "Gestión de Grupos y Permisos", desc: "Pestaña 'Permisos y Grupos' para editar accesos" },
+      { key: "view_team_list", label: "Tabla Rendimiento por Agente (/admin/equipo)", desc: "Ver técnicos, scores individuales y estado de actividad" },
+      { key: "view_agent_profile", label: "Perfiles Detallados (/admin/equipo/perfil)", desc: "Ver ficha completa, métricas y casos atendidos por agente" },
+      { key: "add_agent", label: "Invitar / Agregar Nuevos Agentes", desc: "Crear cuentas de técnicos y administradores" },
+      { key: "edit_agent", label: "Modificar Perfiles y Roles", desc: "Editar nombres, teléfonos y asignación de rol" },
+      { key: "reset_password", label: "Restablecer Contraseñas", desc: "Cambiar o generar nuevas claves de acceso para técnicos" },
+      { key: "delete_agent", label: "Eliminar Cuentas de Técnicos", desc: "Borrar agentes de la plataforma" },
+      { key: "manage_groups", label: "Pestaña Permisos y Grupos", desc: "Crear grupos de trabajo y configurar la matriz de accesos" },
     ],
   },
   {
     key: "inbox",
-    label: "Bandeja de Entrada & Chats",
+    label: "Bandeja de Entrada & Atención",
     icon: MessageSquare,
     color: "text-sky-400 bg-sky-500/10 border-sky-500/20",
-    desc: "Gestión de tickets, atención de clientes y notas internas",
+    desc: "Bandejas de chat, soporte avanzado, notas internas y gestión de tickets",
     subcategories: [
-      { key: "my_cases", label: "Ver Mis Casos Asignados", desc: "Acceso al chat para responder clientes asignados" },
-      { key: "all_cases", label: "Ver Casos de Todos los Técnicos", desc: "Consultar conversaciones de otros agentes" },
-      { key: "reply", label: "Responder y Enviar Archivos", desc: "Escribir respuestas en WhatsApp / Web" },
-      { key: "reassign", label: "Reasignar Casos", desc: "Transferir chats a otros compañeros" },
-      { key: "internal_notes", label: "Notas Internas Privadas", desc: "Crear y leer notas amarillas del caso" },
-      { key: "close_case", label: "Cerrar / Resolver Casos", desc: "Marcar tickets como resueltos o cerrados" },
-    ],
-  },
-  {
-    key: "stats",
-    label: "Estadísticas & Reportes",
-    icon: BarChart3,
-    color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
-    desc: "Métricas de SLA, volumen de mensajes y exportación",
-    subcategories: [
-      { key: "sla_performance", label: "Pestaña Rendimiento y SLAs", desc: "Tiempos de resolución, handle time y ranking" },
-      { key: "message_volume", label: "Pestaña Volumen de Mensajes", desc: "Conteo exacto de mensajes cliente vs técnico" },
-      { key: "export_reports", label: "Exportar Reportes (Excel / CSV / PDF)", desc: "Botones de descarga de analíticas operativas" },
+      { key: "inbox_principal", label: "Bandeja Principal (/inbox)", desc: "Acceso al chat unificado para atender clientes" },
+      { key: "smart_inbox", label: "Smart Inbox (/smart-inbox)", desc: "Bandeja inteligente con categorización automática" },
+      { key: "soporte_avanzado", label: "Soporte Avanzado N2 (/soporte-avanzado)", desc: "Casos escalados que requieren diagnóstico especializado" },
+      { key: "mi_gestion", label: "Mi Gestión (/mi-gestion)", desc: "Vista filtrada solo de los casos asignados al técnico actual" },
+      { key: "web_preview", label: "Vista Previa Web (/inbox/web-preview)", desc: "Simulador de chat web en vivo" },
+      { key: "ver_todos_casos", label: "Ver Casos de Todos los Técnicos", desc: "Permite inspeccionar chats asignados a otros agentes" },
+      { key: "responder_mensajes", label: "Responder y Enviar Archivos", desc: "Escribir respuestas, enviar fotos, videos y documentos" },
+      { key: "reasignar_casos", label: "Reasignar Casos", desc: "Transferir chats a otros compañeros de equipo" },
+      { key: "notas_internas", label: "Notas Internas Privadas", desc: "Crear y visualizar notas amarillas internas del caso" },
+      { key: "historial_cliente_drawer", label: "Historial de Cliente y Conteo de Mensajes", desc: "Abrir cajón lateral con histórico de casos y métricas del cliente" },
+      { key: "cerrar_casos", label: "Cerrar / Resolver Casos", desc: "Marcar tickets como resueltos o cerrados definitivamente" },
     ],
   },
   {
@@ -81,37 +92,39 @@ const MODULE_DEFINITIONS: ModuleDef[] = [
     label: "Inventario de Equipos",
     icon: Package,
     color: "text-orange-400 bg-orange-500/10 border-orange-500/20",
-    desc: "Catálogo de marcas, modelos y compatibilidad técnica",
+    desc: "Catálogo de marcas, modelos, series y compatibilidad técnica",
     subcategories: [
-      { key: "view_catalog", label: "Consultar Catálogo de Modelos", desc: "Buscar marcas, series y especificaciones" },
-      { key: "edit_models", label: "Crear y Editar Equipos", desc: "Modificar información de modelos en el inventario" },
-      { key: "bulk_upload", label: "Carga Masiva de Inventario", desc: "Subida de archivos Excel/CSV al catálogo" },
-      { key: "delete_models", label: "Eliminar Equipos del Inventario", desc: "Borrar registros del catálogo técnico" },
+      { key: "view_inventory", label: "Consultar Catálogo (/admin/inventario)", desc: "Búsqueda y visualización de modelos y marcas" },
+      { key: "create_edit_models", label: "Crear y Editar Modelos", desc: "Agregar o modificar información de equipos en el catálogo" },
+      { key: "bulk_upload", label: "Carga Masiva de Archivos", desc: "Importar inventario desde planillas Excel / CSV" },
+      { key: "delete_models", label: "Eliminar Equipos del Catálogo", desc: "Borrar registros de inventario" },
     ],
   },
   {
     key: "manuals",
-    label: "Manuales y Documentos",
+    label: "Manuales & Base de Conocimiento",
     icon: BookOpen,
     color: "text-indigo-400 bg-indigo-500/10 border-indigo-500/20",
-    desc: "Base de conocimiento y guías de servicio técnico",
+    desc: "Guías técnicas, esquemáticos y documentos de soporte",
     subcategories: [
-      { key: "view_docs", label: "Consultar y Descargar Manuales", desc: "Ver guías de servicio y esquemáticos técnicos" },
-      { key: "upload_docs", label: "Subir Nuevos Manuales PDF", desc: "Cargar guías y documentos al almacenamiento" },
-      { key: "delete_docs", label: "Eliminar Manuales", desc: "Borrar archivos de la base de conocimiento" },
+      { key: "view_manuals", label: "Consultar y Descargar Manuales (/admin/manuales)", desc: "Acceso a la biblioteca de documentos técnicos" },
+      { key: "upload_manuals", label: "Subir Nuevos Documentos PDF", desc: "Cargar manuales al repositorio y procesamiento RAG" },
+      { key: "delete_manuals", label: "Eliminar Documentos", desc: "Borrar manuales de la base de conocimiento" },
     ],
   },
   {
     key: "ai",
-    label: "Agente IA y Automatizaciones",
+    label: "Agente IA, Flujos & Automatizaciones",
     icon: Bot,
     color: "text-purple-400 bg-purple-500/10 border-purple-500/20",
-    desc: "Entrenamiento del asistente virtual y modos de operación",
+    desc: "Configuración del bot, entrenamiento, simulador y árboles de decisión",
     subcategories: [
-      { key: "bot_status", label: "Ver Estado y Métricas de la IA", desc: "Monitor de actividad del asistente virtual" },
-      { key: "toggle_modes", label: "Modo IA & Modo No Atendido", desc: "Encender/Apagar el bot y horario nocturno" },
-      { key: "train_prompt", label: "Entrenar Prompt y Reglas", desc: "Modificar instrucciones y directrices del bot" },
-      { key: "restore_prompt", label: "Historial y Restauración de Prompt", desc: "Revertir a versiones anteriores del asistente" },
+      { key: "view_ai_panel", label: "Panel Agente IA (/admin/agente-ia)", desc: "Monitor de actividad y estado del asistente virtual" },
+      { key: "flujos_bot", label: "Flujos del Bot (/admin/flujos-bot)", desc: "Árboles de decisión y respuestas automáticas del bot" },
+      { key: "toggle_ai_modes", label: "Modo IA & Modo No Atendido", desc: "Encender/Apagar el bot y configurar horario nocturno" },
+      { key: "train_prompt", label: "Entrenamiento del Prompt y Reglas", desc: "Modificar instrucciones y directrices del asistente" },
+      { key: "restore_prompt_versions", label: "Historial y Restauración de Prompt", desc: "Revertir a versiones anteriores del sistema" },
+      { key: "ai_models_config", label: "Proveedores y Modelos de IA", desc: "Configuración de Gemini, OpenAI y API keys" },
     ],
   },
   {
@@ -119,12 +132,13 @@ const MODULE_DEFINITIONS: ModuleDef[] = [
     label: "Configuración & Plataforma",
     icon: Settings,
     color: "text-rose-400 bg-rose-500/10 border-rose-500/20",
-    desc: "Canales de mensajería, conexión QR y ajustes globales",
+    desc: "Canales de mensajería, WhatsApp QR, Evolution API y base de datos",
     subcategories: [
-      { key: "channels", label: "Configuración de Canales", desc: "Parametrizar WhatsApp, Widget web, etc." },
-      { key: "qr_connect", label: "Vincular WhatsApp QR", desc: "Escanear QR de Evolution API en tiempo real" },
-      { key: "evolution_config", label: "Configurar Servidor Evolution API", desc: "URL base y API keys de la instancia" },
-      { key: "danger_zone", label: "Zona de Peligro (Reset Operacional)", desc: "Reinicio total de datos (Reservado Superadmin)" },
+      { key: "view_settings", label: "Configuración General (/admin/settings)", desc: "Ajustes de la aplicación y perfil personal" },
+      { key: "manage_channels", label: "Canales de Atención (/admin/canales)", desc: "Parametrizar WhatsApp, Web Widget, etc." },
+      { key: "whatsapp_qr_connect", label: "Conexión WhatsApp QR", desc: "Escanear QR de Evolution API en tiempo real" },
+      { key: "evolution_api_config", label: "Configuración de Servidor Evolution API", desc: "Instancia, URL base y API keys de WhatsApp" },
+      { key: "danger_zone", label: "Zona de Peligro (Reset de Base de Datos)", desc: "Reinicio operacional de datos (Exclusivo Superadmin)" },
     ],
   },
 ];
@@ -198,7 +212,7 @@ export function GroupPermissionsManager({ isSuperadmin }: { isSuperadmin?: boole
           Object.keys(subs).forEach(k => subs[k] = false);
           currentModule.subcategories = subs;
         } else {
-          const modDef = MODULE_DEFINITIONS.find(m => m.key === moduleKey);
+          const modDef = COMPLETE_MODULE_DEFINITIONS.find(m => m.key === moduleKey);
           const subs = { ...(currentModule.subcategories || {}) };
           modDef?.subcategories.forEach(s => subs[s.key] = true);
           currentModule.subcategories = subs;
@@ -258,7 +272,7 @@ export function GroupPermissionsManager({ isSuperadmin }: { isSuperadmin?: boole
         body: JSON.stringify({ groups }),
       });
       if (!res.ok) throw new Error("Error al guardar cambios");
-      toast.success("Matriz de permisos y subcategorías guardada con éxito");
+      toast.success("Matriz completa de categorías y subcategorías guardada con éxito");
     } catch (e: any) {
       toast.error("Error al guardar", { description: e.message });
     } finally {
@@ -272,20 +286,27 @@ export function GroupPermissionsManager({ isSuperadmin }: { isSuperadmin?: boole
       return;
     }
     const newId = newGroupName.toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-") + "-" + Date.now().toString().slice(-4);
+    
+    // Plantilla inicial para nuevo grupo
+    const initialPermissions: any = {};
+    COMPLETE_MODULE_DEFINITIONS.forEach(m => {
+      const subs: Record<string, boolean> = {};
+      m.subcategories.forEach(s => subs[s.key] = false);
+      initialPermissions[m.key] = {
+        view: false,
+        edit: false,
+        create: false,
+        delete: false,
+        subcategories: subs,
+      };
+    });
+
     const newGroup: PermissionGroup = {
       id: newId,
       name: newGroupName.trim(),
       description: newGroupDesc.trim() || "Grupo personalizado",
       isSystem: false,
-      permissions: {
-        team: { view: false, edit: false, create: false, delete: false, subcategories: { view_list: false, add_agent: false, edit_agent: false, reset_password: false, delete_agent: false, manage_groups: false } },
-        inbox: { view: true, edit: true, create: true, delete: false, subcategories: { my_cases: true, all_cases: false, reply: true, reassign: false, internal_notes: true, close_case: true } },
-        stats: { view: false, edit: false, create: false, delete: false, subcategories: { sla_performance: false, message_volume: false, export_reports: false } },
-        inventory: { view: true, edit: false, create: false, delete: false, subcategories: { view_catalog: true, edit_models: false, bulk_upload: false, delete_models: false } },
-        manuals: { view: true, edit: false, create: false, delete: false, subcategories: { view_docs: true, upload_docs: false, delete_docs: false } },
-        ai: { view: false, edit: false, create: false, delete: false, subcategories: { bot_status: false, toggle_modes: false, train_prompt: false, restore_prompt: false } },
-        settings: { view: false, edit: false, create: false, delete: false, subcategories: { channels: false, qr_connect: false, evolution_config: false, danger_zone: false } },
-      },
+      permissions: initialPermissions,
     };
 
     setGroups(prev => [...prev, newGroup]);
@@ -331,7 +352,7 @@ export function GroupPermissionsManager({ isSuperadmin }: { isSuperadmin?: boole
     return (
       <div className="py-20 text-center text-muted-foreground flex flex-col items-center justify-center gap-2">
         <Loader2 className="h-6 w-6 animate-spin text-brand-500" />
-        <p className="text-xs font-semibold">Cargando matriz de permisos y subcategorías...</p>
+        <p className="text-xs font-semibold">Cargando todas las categorías y subcategorías...</p>
       </div>
     );
   }
@@ -342,10 +363,10 @@ export function GroupPermissionsManager({ isSuperadmin }: { isSuperadmin?: boole
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border/60 pb-4">
         <div>
           <h3 className="text-base font-black text-foreground flex items-center gap-2">
-            <Shield className="h-4 w-4 text-brand-500" /> Matriz de Permisos por Panel y Subcategorías
+            <Shield className="h-4 w-4 text-brand-500" /> Matriz Completa de Categorías y Subcategorías
           </h3>
           <p className="text-xs text-muted-foreground">
-            Gestione grupos, asigne miembros y despliegue las subcategorías (▼) para control granular.
+            Gestione grupos, asigne técnicos y controle la visibilidad y permisos de cada sección y subsección.
           </p>
         </div>
 
@@ -363,7 +384,7 @@ export function GroupPermissionsManager({ isSuperadmin }: { isSuperadmin?: boole
         {/* ── COLUMNA IZQUIERDA: LISTA DE GRUPOS ── */}
         <div className="lg:col-span-4 space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-black uppercase tracking-wider text-muted-foreground">Grupos Configurados</span>
+            <span className="text-[11px] font-black uppercase tracking-wider text-muted-foreground">Grupos Disponibles</span>
             <button
               onClick={() => setIsCreating(true)}
               className="flex items-center gap-1 text-xs font-bold text-brand-500 hover:text-brand-400 transition-colors"
@@ -421,14 +442,14 @@ export function GroupPermissionsManager({ isSuperadmin }: { isSuperadmin?: boole
               <p className="text-xs font-bold text-foreground">Crear Nuevo Grupo</p>
               <input
                 type="text"
-                placeholder="Nombre del grupo (ej: Facturación / Ventas)"
+                placeholder="Nombre del grupo (ej: Facturación / Supervisión)"
                 value={newGroupName}
                 onChange={(e) => setNewGroupName(e.target.value)}
                 className="w-full px-3 py-1.5 text-xs rounded-lg border border-border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-brand-500"
               />
               <input
                 type="text"
-                placeholder="Descripción corta del grupo"
+                placeholder="Descripción del grupo"
                 value={newGroupDesc}
                 onChange={(e) => setNewGroupDesc(e.target.value)}
                 className="w-full px-3 py-1.5 text-xs rounded-lg border border-border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-brand-500"
@@ -533,15 +554,15 @@ export function GroupPermissionsManager({ isSuperadmin }: { isSuperadmin?: boole
                 </div>
               </div>
 
-              {/* ── SECCIÓN 2: TABLA MATRIZ CON SUBCATEGORÍAS DESPLEGABLES ── */}
+              {/* ── SECCIÓN 2: TABLA MATRIZ CON TODAS LAS CATEGORÍAS Y SUBCATEGORÍAS ── */}
               <div className="rounded-2xl border border-border/60 bg-card overflow-hidden">
                 <div className="p-4 border-b border-border/60 bg-muted/30 flex items-center justify-between">
                   <div>
                     <h4 className="text-xs font-black uppercase tracking-wider text-foreground">
-                      Matriz de Accesos por Panel y Subcategorías
+                      Matriz Completa de Accesos y Subcategorías
                     </h4>
                     <p className="text-[10px] text-muted-foreground">
-                      Toque la flecha (▼) en cualquier módulo para ajustar subcategorías individuales
+                      Toque la flecha (▼) en cualquier módulo para ajustar subfunciones individuales
                     </p>
                   </div>
                   {selectedGroup.id === "superadmin" && (
@@ -563,7 +584,7 @@ export function GroupPermissionsManager({ isSuperadmin }: { isSuperadmin?: boole
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border/40">
-                      {MODULE_DEFINITIONS.map((mod) => {
+                      {COMPLETE_MODULE_DEFINITIONS.map((mod) => {
                         const perms = selectedGroup.permissions[mod.key] || { view: false, edit: false, create: false, delete: false, subcategories: {} };
                         const isExpanded = !!expandedModules[mod.key];
                         const subcategories = mod.subcategories;
