@@ -33,7 +33,7 @@ export const DEFAULT_GROUPS: PermissionGroup[] = [
     permissions: {
       team: { view: true, edit: true, create: true, delete: true, subcategories: { view_list: true, add_agent: true, edit_agent: true, reset_password: true, delete_agent: true, manage_groups: true } },
       inbox: { view: true, edit: true, create: true, delete: true, subcategories: { my_cases: true, all_cases: true, reply: true, reassign: true, internal_notes: true, close_case: true } },
-      stats: { view: true, edit: true, create: true, delete: true, subcategories: { sla_performance: true, message_volume: true, export_reports: true } },
+      stats: { view: true, edit: true, create: true, delete: true, subcategories: { resumen_general: true, registro_actividad: true, auditoria_pantalla: true, ranking_apps_sitios: true, heatmap_intensidad: true, dictamen_ejecutivo_ia: true, sla_performance: true, message_volume: true, export_reports: true } },
       inventory: { view: true, edit: true, create: true, delete: true, subcategories: { view_catalog: true, edit_models: true, bulk_upload: true, delete_models: true } },
       manuals: { view: true, edit: true, create: true, delete: true, subcategories: { view_docs: true, upload_docs: true, delete_docs: true } },
       ai: { view: true, edit: true, create: true, delete: true, subcategories: { bot_status: true, toggle_modes: true, train_prompt: true, restore_prompt: true } },
@@ -48,7 +48,7 @@ export const DEFAULT_GROUPS: PermissionGroup[] = [
     permissions: {
       team: { view: true, edit: true, create: true, delete: true, subcategories: { view_list: true, add_agent: true, edit_agent: true, reset_password: true, delete_agent: true, manage_groups: true } },
       inbox: { view: true, edit: true, create: true, delete: false, subcategories: { my_cases: true, all_cases: true, reply: true, reassign: true, internal_notes: true, close_case: true } },
-      stats: { view: true, edit: true, create: true, delete: false, subcategories: { sla_performance: true, message_volume: true, export_reports: true } },
+      stats: { view: true, edit: true, create: true, delete: false, subcategories: { resumen_general: true, registro_actividad: true, auditoria_pantalla: true, ranking_apps_sitios: true, heatmap_intensidad: true, dictamen_ejecutivo_ia: true, sla_performance: true, message_volume: true, export_reports: true } },
       inventory: { view: true, edit: true, create: true, delete: true, subcategories: { view_catalog: true, edit_models: true, bulk_upload: true, delete_models: true } },
       manuals: { view: true, edit: true, create: true, delete: true, subcategories: { view_docs: true, upload_docs: true, delete_docs: true } },
       ai: { view: true, edit: true, create: true, delete: false, subcategories: { bot_status: true, toggle_modes: true, train_prompt: true, restore_prompt: true } },
@@ -63,7 +63,7 @@ export const DEFAULT_GROUPS: PermissionGroup[] = [
     permissions: {
       team: { view: false, edit: false, create: false, delete: false, subcategories: { view_list: false, add_agent: false, edit_agent: false, reset_password: false, delete_agent: false, manage_groups: false } },
       inbox: { view: true, edit: true, create: true, delete: false, subcategories: { my_cases: true, all_cases: false, reply: true, reassign: false, internal_notes: true, close_case: true } },
-      stats: { view: false, edit: false, create: false, delete: false, subcategories: { sla_performance: false, message_volume: false, export_reports: false } },
+      stats: { view: false, edit: false, create: false, delete: false, subcategories: { resumen_general: false, registro_actividad: false, auditoria_pantalla: false, ranking_apps_sitios: false, heatmap_intensidad: false, dictamen_ejecutivo_ia: false, sla_performance: false, message_volume: false, export_reports: false } },
       inventory: { view: true, edit: false, create: false, delete: false, subcategories: { view_catalog: true, edit_models: false, bulk_upload: false, delete_models: false } },
       manuals: { view: true, edit: false, create: false, delete: false, subcategories: { view_docs: true, upload_docs: false, delete_docs: false } },
       ai: { view: false, edit: false, create: false, delete: false, subcategories: { bot_status: false, toggle_modes: false, train_prompt: false, restore_prompt: false } },
