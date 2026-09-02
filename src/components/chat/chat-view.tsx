@@ -1589,7 +1589,19 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       // Enviar mensaje de bienvenida automático para casos WhatsApp
       const isWhatsApp = String(sekCase.canal || "").toLowerCase() === "whatsapp";
       if (isWhatsApp && agentName) {
-        const welcomeMsg = `Buen día. Gracias por contactarnos.\n\nMi nombre es ${agentName} y con gusto le asistiré con su caso.\n\nPara el registro, por favor facilítenos su:\n\nNombre completo\nCorreo electrónico\nNombre de la cuenta afiliada a Sekunet.\nNombre del vendedor encargado de su cuenta\n\nQuedamos atentos. Gracias.`;
+        const clientData = clienteInfo(sekCase.cliente);
+        const rawName = (clientData.nombre || "").trim();
+        const isRawPhone = /^[+\d\s()-]{6,}$/.test(rawName);
+        const hasClientInfo = Boolean(rawName && !isRawPhone && rawName.toLowerCase() !== "cliente") || Boolean(clientData.correo) || Boolean(clientData.cuenta);
+
+        let welcomeMsg = "";
+        if (hasClientInfo) {
+          // Cliente ya registrado / conocido: pedir marca, modelo y motivo
+          welcomeMsg = `Buen día. Gracias por contactarnos.\n\nMi nombre es ${agentName} y con gusto le asistiré con su caso.\n\nPara el registro, por favor indiquenos:\n\n-Marca y modelo del equipo a consultar\n-Motivo de la consulta o solicitud\n\nCon esta información podremos brindarle una atención más precisa.`;
+        } else {
+          // Cliente nuevo / sin datos personales: pedir ficha de registro
+          welcomeMsg = `Buen día. Gracias por contactarnos.\n\nMi nombre es ${agentName} y con gusto le asistiré con su caso.\n\nPara el registro, por favor facilítenos su:\n\nNombre completo\nCorreo electrónico\nNombre de la cuenta afiliada a Sekunet.\nNombre del vendedor encargado de su cuenta\n\nQuedamos atentos. Gracias.`;
+        }
 
         // El envío TIENE que completarse antes del router.push de más abajo:
         // un fetch sin await se cancela cuando la navegación desmonta la
