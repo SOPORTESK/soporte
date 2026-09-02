@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { useState } from "react";
 import {
@@ -161,7 +161,7 @@ export function ActivityAiBriefing({ agentEmail, agentName, date, timeline = [] 
           <Sparkles className="h-8 w-8 text-violet-500/50 mx-auto animate-pulse" />
           <p className="text-sm font-bold text-foreground">Dictamen Ejecutivo no generado aún</p>
           <p className="text-xs text-muted-foreground max-w-md mx-auto">
-            Haga clic en <strong>"Generar Dictamen del Día"</strong> para que la IA consolide las horas efectivas, llamadas, chats y patrones de concentración de la jornada.
+            Haga clic en <strong>&ldquo;Generar Dictamen del Día&rdquo;</strong> para que la IA consolide las horas efectivas, llamadas, chats y patrones de concentración de la jornada.
           </p>
         </div>
       ) : (
