@@ -97,6 +97,45 @@ export default async function EstadisticasClientePage() {
 
   const topClientes = Object.values(mapa).sort((a, b) => b.total - a.total);
 
+  // ── Normalización canónica de marcas
+  const normalizeBrand = (b: string): string => {
+    if (!b) return "";
+    const lower = b.trim().toLowerCase();
+    if (lower.includes("hikvision") || lower === "hik") return "Hikvision";
+    if (lower.includes("zkteco") || lower === "zk") return "ZKTeco";
+    if (lower.includes("dahua") || lower === "dah") return "Dahua";
+    if (lower.includes("cisco")) return "Cisco";
+    if (lower.includes("ezviz")) return "EZVIZ";
+    if (lower.includes("epcom")) return "Epcom";
+    if (lower.includes("hilook")) return "HiLook";
+    if (lower.includes("paradox")) return "Paradox";
+    if (lower.includes("ubiquiti") || lower.includes("unifi")) return "Ubiquiti";
+    if (lower.includes("tp-link") || lower === "tplink") return "TP-Link";
+    if (lower.includes("western digital") || lower === "wd") return "Western Digital";
+    if (lower.includes("seagate")) return "Seagate";
+    return b.trim().charAt(0).toUpperCase() + b.trim().slice(1).toLowerCase();
+  };
+
+  // ── Limpiador y estandarizador de modelos
+  const normalizeModel = (m: string | null | undefined): string | null => {
+    if (!m) return null;
+    let s = String(m).trim();
+    if (!s || s.toLowerCase() === "sin modelo" || s.toLowerCase() === "null" || s.toLowerCase() === "undefined") return null;
+    // Eliminar corchetes, comillas y prefijos SKU como [HIK-, HIK-, DAH-, ZK-
+    s = s.replace(/^\[?(?:HIK|DAH|ZK|EZ)-?/i, "").replace(/[\])"']+$/, "").replace(/^["'(\[]+/, "").trim();
+    // Eliminar especificaciones de lentes entre paréntesis como (2.8mm) o (3.6mm)
+    s = s.replace(/\s*\(\d+(?:\.\d+)?mm\)/i, "").trim();
+    // Unificar espacios dentro del código alfanumérico: "ds 2cd1347g0" -> "DS-2CD1347G0"
+    if (/^[a-zA-Z]{1,4}\s+\d/i.test(s)) {
+      s = s.replace(/^([a-zA-Z]{1,4})\s+/i, "$1-");
+    }
+    // Normalizar a mayúsculas si parece código de modelo alfanumérico
+    if (/^[a-zA-Z0-9_-]+$/i.test(s) || /^[a-zA-Z0-9\s_-]+$/i.test(s)) {
+      s = s.toUpperCase().replace(/\s+/g, "-");
+    }
+    return s.length >= 2 ? s : null;
+  };
+
   // ── Derivar equipo (marca + modelo opcional) solo si hay valores válidos
   const deriveEquipo = (c: any): { marca: string; modelo: string | null } | null => {
     const esMarcaValida = (s: string) => {
@@ -114,9 +153,9 @@ export default async function EstadisticasClientePage() {
       if (esMarcaValida(marca)) {
         const modelo = c.modelo ? String(c.modelo).trim() : "";
         if (modelo && esModeloValido(modelo)) {
-          return { marca, modelo };
+          return { marca: normalizeBrand(marca), modelo: normalizeModel(modelo) };
         }
-        return { marca, modelo: null };
+        return { marca: normalizeBrand(marca), modelo: null };
       }
     }
 
@@ -125,7 +164,7 @@ export default async function EstadisticasClientePage() {
     if (cli.marca && String(cli.marca).trim()) {
       const marca = String(cli.marca).trim();
       const modelo = cli.modelo ? String(cli.modelo).trim() : null;
-      return { marca, modelo };
+      return { marca: normalizeBrand(marca), modelo: normalizeModel(modelo) };
     }
     const raw = String(cli.equipo_match || cli.equipo || "").trim();
     if (raw && raw.length > 3) {
@@ -133,7 +172,7 @@ export default async function EstadisticasClientePage() {
       const partes = sinCodigo.split(/\s+/).filter(Boolean);
       if (partes.length >= 1 && esMarcaValida(partes[0])) {
         const modelo = partes.slice(1).join(" ");
-        return { marca: partes[0], modelo: modelo && esModeloValido(modelo) ? modelo : null };
+        return { marca: normalizeBrand(partes[0]), modelo: modelo && esModeloValido(modelo) ? normalizeModel(modelo) : null };
       }
     }
 
@@ -147,13 +186,13 @@ export default async function EstadisticasClientePage() {
     for (let i = 0; i < eqWords.length; i++) {
       if (esMarcaValida(eqWords[i])) {
         const resto = limpio.substring(limpio.indexOf(eqWords[i]) + eqWords[i].length).trim();
-        return { marca: eqWords[i], modelo: resto && esModeloValido(resto) ? resto.replace(/\s*[:：]\s*$/, "").trim() : null };
+        return { marca: normalizeBrand(eqWords[i]), modelo: resto && esModeloValido(resto) ? normalizeModel(resto.replace(/\s*[:：]\s*$/, "").trim()) : null };
       }
     }
     return null;
   };
 
-  // ── Equipos más reportados (deriva de columnas o de cliente.equipo)
+  // ── Equipos más reportados (agrupación inteligente por marca canónica y modelo normalizado)
   const equipoMap: Record<string, {
     marca: string; modelo: string | null; cat: string;
     total: number; resueltos: number;
@@ -161,10 +200,12 @@ export default async function EstadisticasClientePage() {
   }> = {};
   (casos || []).forEach(c => {
     const eq = deriveEquipo(c);
-    if (!eq) return;
-    const key = `${eq.marca}||${eq.modelo || ""}`;
+    if (!eq || !eq.marca) return;
+    const canMarca = normalizeBrand(eq.marca);
+    const canModelo = normalizeModel(eq.modelo);
+    const key = `${canMarca.toLowerCase()}||${canModelo ? canModelo.toLowerCase() : ""}`;
     if (!equipoMap[key]) {
-      equipoMap[key] = { marca: eq.marca, modelo: eq.modelo, cat: (c as any).cat || "", total: 0, resueltos: 0, clientes: new Set(), ultimoCasoId: c.id, ultimoCasoAt: c.created_at };
+      equipoMap[key] = { marca: canMarca, modelo: canModelo, cat: (c as any).cat || "", total: 0, resueltos: 0, clientes: new Set(), ultimoCasoId: c.id, ultimoCasoAt: c.created_at };
     }
     const e = equipoMap[key];
     e.total++;
