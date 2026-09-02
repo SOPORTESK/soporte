@@ -8,7 +8,7 @@ import {
   XCircle, Image as ImageIcon, FileText, Music, Video,
   Download, X, ChevronDown, History, HandMetal, Star, Tag, AlertTriangle,
   Mic, Play, Pause, Square, Smile, Trash2, UserCheck,
-  Info, Copy, Forward, Pin, Edit
+  Info, Copy, Forward, Pin, Edit, Clock, RotateCcw
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { logActivity } from "@/lib/activity-client";
@@ -1346,6 +1346,86 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     router.push(`/mi-gestion?c=${targetId}`);
   }
 
+  const [closingDirect, setClosingDirect] = React.useState(false);
+
+  const MSG_DESPEDIDA = "Ha sido un placer atenderle. Si no tiene ninguna otra consulta, cerramos la conversación por aquí. ¡Que tenga un excelente día!";
+  const MSG_INACTIVIDAD = "Debido a que no hemos recibido respuesta, vamos a cerrar esta conversación. Si necesita ayuda, con gusto le atendemos. ¡Que tenga un buen día!";
+
+  async function cerrarCasoConMensaje(tipo: "despedida" | "inactividad") {
+    if (closingDirect) return;
+    setClosingDirect(true);
+    setShowActions(false);
+
+    const msg = tipo === "despedida" ? MSG_DESPEDIDA : MSG_INACTIVIDAD;
+    const isWhatsApp = String(sekCase.canal || "").toLowerCase() === "whatsapp";
+    const phone = (sekCase as any).customer_phone || (sekCase.cliente as any)?.telefono || "";
+
+    try {
+      // 1. Enviar el mensaje por WhatsApp
+      if (isWhatsApp && phone) {
+        await fetch("/api/evolution/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ case_id: targetId, phone, text: msg }),
+        });
+      }
+
+      // 2. Registrar el mensaje en histtecnico
+      const nowIso = new Date().toISOString();
+      const entry = {
+        role: "tecnico",
+        author: agentName || agentEmail,
+        time: nowIso,
+        content: msg,
+        fromMe: true,
+      };
+
+      await supabase.rpc("sek_append_hist", {
+        p_case_id: targetId,
+        p_entry: entry,
+        p_col: "histtecnico",
+        p_preview: msg.slice(0, 200),
+        p_customer_phone: phone,
+      });
+
+      // 3. Cerrar el caso directamente en la base de datos (encuesta clausurada)
+      const { error: closeErr } = await supabase.from("sek_cases").update({
+        estado: "cerrado",
+        closed_at: nowIso,
+        last_message_at: nowIso,
+        last_message_preview: msg.slice(0, 200),
+      }).eq("id", targetId);
+
+      if (closeErr) throw closeErr;
+
+      // 4. Disparar extracción de IA en segundo plano
+      fetch(`/api/cases/${targetId}/auto-extract`, { method: "POST" })
+        .then(r => r.json())
+        .catch(e => console.warn("[cerrarCasoConMensaje] auto-extract:", e));
+
+      // 5. Actualizar estado local
+      prevEstadoRef.current = "cerrado";
+      setSekCase(prev => ({ ...prev, estado: "cerrado" }));
+      toast.success(tipo === "despedida" ? "Caso cerrado con despedida" : "Caso cerrado por inactividad");
+
+      if (agentEmail) {
+        logActivity({
+          agent_email: agentEmail,
+          agent_name: agentName || agentEmail,
+          action: tipo === "despedida" ? "Cerró el caso con despedida" : "Cerró el caso por inactividad",
+          category: "Gestión de casos",
+          case_id: targetId,
+          metadata: { previous_state: sekCase.estado, new_state: "cerrado", tipo_cierre: tipo },
+        });
+      }
+    } catch (err: any) {
+      console.error("[cerrarCasoConMensaje] Error:", err);
+      toast.error("Error al cerrar el caso", { description: err?.message });
+    } finally {
+      setClosingDirect(false);
+    }
+  }
+
   async function confirmCloseWithRating() {
     if (submittingRating) return;
     setSubmittingRating(true);
@@ -1879,14 +1959,31 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
                     <div className="border-t border-border/50 my-1" />
                   </>
                 )}
-                <button
-                  onClick={toggleCaso}
-                  className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-muted transition-colors"
-                >
-                  {cerrado
-                    ? <><CheckCircle2 className="h-4 w-4 text-green-500" /> Reabrir caso</>
-                    : <><XCircle className="h-4 w-4 text-red-500" /> Cerrar caso</>}
-                </button>
+                {cerrado ? (
+                  <button
+                    onClick={toggleCaso}
+                    className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-muted transition-colors text-blue-500 font-medium"
+                  >
+                    <RotateCcw className="h-4 w-4 text-blue-500" /> Reabrir caso
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      disabled={closingDirect}
+                      onClick={() => cerrarCasoConMensaje("despedida")}
+                      className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-muted transition-colors text-emerald-500 font-medium cursor-pointer"
+                    >
+                      <CheckCircle2 className="h-4 w-4 text-emerald-500" /> Despedida y Cierre
+                    </button>
+                    <button
+                      disabled={closingDirect}
+                      onClick={() => cerrarCasoConMensaje("inactividad")}
+                      className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-muted transition-colors text-amber-500 font-medium cursor-pointer"
+                    >
+                      <Clock className="h-4 w-4 text-amber-500" /> Cerrar por Inactividad
+                    </button>
+                  </>
+                )}
                 <div className="border-t border-border/50 my-1" />
                 <button
                   onClick={() => { toggleAutoClosePaused(); setShowActions(false); }}
