@@ -222,7 +222,10 @@ export default async function EstadisticasClientePage() {
   // ── Las 7 categorías oficiales del menú
   const canonicalCategory = (raw: unknown): { key: string; label: string } => {
     if (!raw) return { key: "otro", label: "Otro" };
-    const s = String(raw).toLowerCase().trim();
+    let s = String(raw).toLowerCase().trim();
+    // Ignorar si es únicamente la palabra del canal (ej: "WhatsApp")
+    if (s === "whatsapp" || s.startsWith("whatsapp")) return { key: "otro", label: "Otro" };
+
     if (s.includes("reset") || s.includes("clave") || s.includes("contrase") || s.includes("xml") || s.includes("guid") || s.includes("desbloque")) {
       return { key: "reset", label: "Reset" };
     }
@@ -235,7 +238,7 @@ export default async function EstadisticasClientePage() {
     if (s.includes("licencia") || s.includes("biotime") || s.includes("hikcentral") || s.includes("activac")) {
       return { key: "licencias", label: "Licencias" };
     }
-    if (s.includes("software") || s.includes("ivms") || s.includes("app") || s.includes("programa") || s.includes("driver") || s.includes("smartpss")) {
+    if (s.includes("software") || s.includes("ivms") || s.includes("hik-connect") || s.includes("hik connect") || s.includes("smartpss") || s.includes("toolbox") || s.includes("sadp") || s.includes("driver") || s.includes("programa")) {
       return { key: "software", label: "Software" };
     }
     if (s.includes("configur") || s.includes("imagen") || s.includes("grabaci") || s.includes("remoto") || s.includes("red") || s.includes("energia") || s.includes("acceso") || s.includes("alarma") || s.includes("incendio") || s.includes("instalaci")) {
