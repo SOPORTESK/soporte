@@ -16,6 +16,31 @@ export async function POST(req: NextRequest) {
     const { email, newPassword } = await req.json();
     const normalizedEmail = normalizeEmail(email || "");
 
+    const { createClient: createServerClient } = require("@/lib/supabase/server");
+    const serverSupabase = createServerClient();
+    const { data: { user: callerUser } } = await serverSupabase.auth.getUser();
+    if (!callerUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const { data: caller } = await serverSupabase
+      .from("sek_agent_config")
+      .select("rol")
+      .ilike("email", callerUser.email!)
+      .single();
+
+    if (!caller || !["admin", "superadmin"].includes(caller.rol)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const { data: targetAgent } = await serverSupabase
+      .from("sek_agent_config")
+      .select("rol")
+      .ilike("email", normalizedEmail)
+      .single();
+
+    if (targetAgent?.rol === "superadmin" && caller.rol !== "superadmin") {
+      return NextResponse.json({ error: "No tienes permiso para restablecer la contraseña de un Superadministrador." }, { status: 403 });
+    }
+
     const supabaseAdmin = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,

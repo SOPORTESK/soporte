@@ -440,29 +440,37 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
                     >
                       {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                     </button>
-                    {isSuperadmin && (
-                      <>
-                        <button onClick={() => { setEditingAgent(agent); setFormData(agent); }}
-                          className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground" title="Cambiar rol">
-                          <Edit2 className="h-3.5 w-3.5" />
-                        </button>
-                        <button onClick={() => { setResettingAgent(agent); setFormData({ password: "" }); }}
-                          className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-amber-500" title="Resetear contraseña">
-                          <Key className="h-3.5 w-3.5" />
-                        </button>
-                        <button onClick={() => handleDelete(agent.email)}
-                          className="p-2 rounded-lg hover:bg-red-500/10 transition-colors text-muted-foreground hover:text-red-500" title="Eliminar">
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                        <Link
-                          href={`/admin/equipo/perfil?email=${encodeURIComponent(agent.email)}`}
-                          className="p-2 rounded-lg hover:bg-violet-500/10 transition-colors text-muted-foreground hover:text-violet-500"
-                          title="Ver perfil del agente"
-                        >
-                          <Eye className="h-3.5 w-3.5" />
-                        </Link>
-                      </>
-                    )}
+                    {(() => {
+                      const isTargetSuperadmin = agent.rol === "superadmin";
+                      const canEditThisAgent = isSuperadmin || !isTargetSuperadmin;
+                      return (
+                        <>
+                          {canEditThisAgent && (
+                            <>
+                              <button onClick={() => { setEditingAgent(agent); setFormData(agent); }}
+                                className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground" title="Cambiar rol">
+                                <Edit2 className="h-3.5 w-3.5" />
+                              </button>
+                              <button onClick={() => { setResettingAgent(agent); setFormData({ password: "" }); }}
+                                className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-amber-500" title="Resetear contraseña">
+                                <Key className="h-3.5 w-3.5" />
+                              </button>
+                              <button onClick={() => handleDelete(agent.email)}
+                                className="p-2 rounded-lg hover:bg-red-500/10 transition-colors text-muted-foreground hover:text-red-500" title="Eliminar">
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </>
+                          )}
+                          <Link
+                            href={`/admin/equipo/perfil?email=${encodeURIComponent(agent.email)}`}
+                            className="p-2 rounded-lg hover:bg-violet-500/10 transition-colors text-muted-foreground hover:text-violet-500"
+                            title="Ver perfil del agente"
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                          </Link>
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
 
@@ -559,7 +567,7 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
                 className="w-full p-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30 transition-all">
                 <option value="tecnico">Soporte Avanzado</option>
                 <option value="admin">Admin</option>
-                <option value="superadmin">Superadmin</option>
+                {isSuperadmin && <option value="superadmin">Superadmin</option>}
               </select>
             </div>
             <button onClick={handleInvite} disabled={loading}

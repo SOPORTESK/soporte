@@ -7,7 +7,7 @@ async function getSuperadmin() {
   if (!user) return { error: "No autenticado", supabase: null };
   const { data: agent } = await supabase
     .from("sek_agent_config").select("rol").ilike("email", user.email!).maybeSingle();
-  if (agent?.rol !== "superadmin") return { error: "Solo superadmin puede realizar esta acción", supabase: null };
+  if (!["admin", "superadmin"].includes(agent?.rol || "")) return { error: "Sin permisos", supabase: null };
   return { error: null, supabase };
 }
 

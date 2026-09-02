@@ -177,31 +177,36 @@ export function TeamClient({ humanAgents, sekaAgent, isSuperadmin }: TeamClientP
                   {roleIcon} {a.rol === "tecnico" ? "Soporte Avanzado" : a.rol}
                 </Badge>
                 
-                {isSuperadmin && (
-                  <div className="flex items-center gap-1 ml-2">
-                    <button 
-                      onClick={() => handleEdit(a)}
-                      className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-                      title="Cambiar rol"
-                    >
-                      <Edit2 className="h-4 w-4" />
-                    </button>
-                    <button 
-                      onClick={() => { setResettingAgent(a); setFormData({ password: "" }); }}
-                      className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-amber-600"
-                      title="Resetear contraseña"
-                    >
-                      <Key className="h-4 w-4" />
-                    </button>
-                    <button 
-                      onClick={() => handleDelete(a.email)}
-                      className="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors text-muted-foreground hover:text-red-600"
-                      title="Eliminar agente"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                )}
+                {(() => {
+                  const isTargetSuperadmin = a.rol === "superadmin";
+                  const canEditThisAgent = isSuperadmin || !isTargetSuperadmin;
+                  if (!canEditThisAgent) return null;
+                  return (
+                    <div className="flex items-center gap-1 ml-2">
+                      <button 
+                        onClick={() => handleEdit(a)}
+                        className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                        title="Cambiar rol"
+                      >
+                        <Edit2 className="h-4 w-4" />
+                      </button>
+                      <button 
+                        onClick={() => { setResettingAgent(a); setFormData({ password: "" }); }}
+                        className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-amber-600"
+                        title="Resetear contraseña"
+                      >
+                        <Key className="h-4 w-4" />
+                      </button>
+                      <button 
+                        onClick={() => handleDelete(a.email)}
+                        className="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors text-muted-foreground hover:text-red-600"
+                        title="Eliminar agente"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  );
+                })()}
               </div>
             </li>
           );

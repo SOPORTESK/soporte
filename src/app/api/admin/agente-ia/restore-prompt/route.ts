@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
       .ilike("email", user.email!)
       .maybeSingle();
 
-    if (agentRow?.rol !== "superadmin") {
+    if (!["admin", "superadmin"].includes(agentRow?.rol || "")) {
       return NextResponse.json({ error: "Solo el superadmin puede restaurar versiones anteriores." }, { status: 403 });
     }
 

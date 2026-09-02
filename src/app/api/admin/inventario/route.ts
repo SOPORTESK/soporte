@@ -99,7 +99,7 @@ export async function DELETE(req: NextRequest) {
     .ilike("email", user.email!)
     .single();
     
-  if (!agent || agent.rol !== "superadmin") {
+  if (!agent || !["admin", "superadmin"].includes(agent.rol)) {
     return NextResponse.json({ error: "Forbidden - Superadmin only" }, { status: 403 });
   }
   

@@ -31,12 +31,27 @@ export async function PATCH(req: NextRequest) {
     .ilike("email", user.email!)
     .single();
     
-  if (!currentAgent || currentAgent.rol !== "superadmin") {
-    return NextResponse.json({ error: "Forbidden - Superadmin only" }, { status: 403 });
+  if (!currentAgent || !["admin", "superadmin"].includes(currentAgent.rol)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   
   const body = await req.json();
   const { email, rol, ...updates } = body;
+
+  // Verificar si el agente objetivo es superadmin
+  const { data: targetAgent } = await supabase
+    .from("sek_agent_config")
+    .select("rol")
+    .ilike("email", email)
+    .single();
+
+  if (targetAgent?.rol === "superadmin" && currentAgent.rol !== "superadmin") {
+    return NextResponse.json({ error: "No tienes permiso para modificar a un Superadministrador." }, { status: 403 });
+  }
+
+  if (rol === "superadmin" && currentAgent.rol !== "superadmin") {
+    return NextResponse.json({ error: "Solo un Superadministrador puede asignar el rol de Superadmin." }, { status: 403 });
+  }
   
   const { data, error } = await supabase
     .from("sek_agent_config")
