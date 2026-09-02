@@ -8,6 +8,8 @@ import {
   Award, Target, BarChart3, ArrowUpRight, ChevronDown, ChevronUp, Minus, Eye
 } from "lucide-react";
 import { Badge } from "@/components/ui/avatar";
+import { cn } from "@/lib/utils";
+import { GroupPermissionsManager } from "./group-permissions-manager";
 
 interface AgentPerformance {
   email: string;
@@ -69,6 +71,7 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState<Record<string, any>>({});
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
+  const [activeView, setActiveView] = useState<"rendimiento" | "permisos">("rendimiento");
   const [sortBy, setSortBy] = useState<"resueltos" | "calificacion" | "sla" | "nombre">("resueltos");
 
   const sortedAgents = [...agents].sort((a, b) => {
@@ -325,6 +328,10 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
           </div>
         </div>
 
+        {activeView === "permisos" ? (
+          <GroupPermissionsManager isSuperadmin={isSuperadmin} />
+        ) : (
+          <>
         {/* Column Headers */}
         <div className="hidden md:flex items-center px-6 py-2 border-b border-border bg-muted/10">
           <div className="w-8 shrink-0" />
@@ -535,6 +542,8 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
             </div>
           )}
         </div>
+          </>
+        )}
       </div>
 
       {/* ── MODALS ──────────────────────────────────────────── */}
