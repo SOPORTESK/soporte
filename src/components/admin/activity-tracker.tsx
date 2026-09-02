@@ -1,12 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
 import {
   Activity,
   Clock,
   TrendingUp,
-  Circle,
   RefreshCw,
   Settings,
   Mail,
@@ -19,7 +18,24 @@ import {
   Phone,
   ShieldCheck,
   Code,
+  Camera,
+  Flame,
+  Monitor,
+  Sparkles,
+  Calendar,
+  Users,
+  Filter,
+  Search,
+  CheckCircle2,
+  ChevronRight,
+  Laptop,
 } from "lucide-react";
+import { Avatar } from "@/components/ui/avatar";
+import { ActivityLivePulse, type LiveAgent } from "./activity-live-pulse";
+import { ActivityHeatmap } from "./activity-heatmap";
+import { ActivityAppsRanking } from "./activity-apps-ranking";
+import { ActivityScreenGallery } from "./activity-screen-gallery";
+import { ActivityAiBriefing } from "./activity-ai-briefing";
 
 interface TimelineEntry {
   id: number;
@@ -33,25 +49,10 @@ interface TimelineEntry {
   created_at: string;
 }
 
-interface Metrics {
-  totalActiveTime: string;
-  totalIdleTime: string;
-  productivityScore: number;
-  totalEvents: number;
-  activeEvents: number;
-  idleEvents: number;
-  categories: Record<string, number>;
-  trackingStatus: string;
-}
-
-interface Summary {
-  id: number;
-  agent_email: string;
-  date: string;
-  summary: string;
-  category: string;
-  time_block: string;
-  created_at: string;
+interface Props {
+  agentEmail?: string;
+  agentName?: string;
+  isAdmin?: boolean;
 }
 
 const CATEGORY_ICONS: Record<string, any> = {
@@ -73,534 +74,452 @@ const CATEGORY_ICONS: Record<string, any> = {
 };
 
 const CATEGORY_COLORS: Record<string, string> = {
-  "Atención telefónica": "text-orange-400 bg-orange-500/10",
-  "Mensajería": "text-green-400 bg-green-500/10",
-  "Atención de tickets": "text-blue-400 bg-blue-500/10",
-  "Trámites de garantías": "text-purple-400 bg-purple-500/10",
-  "Investigación y desarrollo": "text-cyan-400 bg-cyan-500/10",
-  "Labores manuales": "text-amber-400 bg-amber-500/10",
-  "Gestión de correos": "text-yellow-400 bg-yellow-500/10",
-  "Gestión de casos": "text-emerald-400 bg-emerald-500/10",
-  "Escalado": "text-red-400 bg-red-500/10",
-  "Asistente IA": "text-cyan-400 bg-cyan-500/10",
-  "Inactividad": "text-zinc-400 bg-zinc-500/10",
-  "Navegación": "text-sky-400 bg-sky-500/10",
-  "Actividad general": "text-indigo-400 bg-indigo-500/10",
-  "Soporte técnico": "text-amber-400 bg-amber-500/10",
-  "Otros": "text-slate-400 bg-slate-500/10",
+  "Atención telefónica": "text-orange-400 bg-orange-500/10 border-orange-500/20",
+  "Mensajería": "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
+  "Atención de tickets": "text-blue-400 bg-blue-500/10 border-blue-500/20",
+  "Trámites de garantías": "text-purple-400 bg-purple-500/10 border-purple-500/20",
+  "Investigación y desarrollo": "text-cyan-400 bg-cyan-500/10 border-cyan-500/20",
+  "Labores manuales": "text-amber-400 bg-amber-500/10 border-amber-500/20",
+  "Gestión de correos": "text-yellow-400 bg-yellow-500/10 border-yellow-500/20",
+  "Gestión de casos": "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
+  "Escalado": "text-red-400 bg-red-500/10 border-red-500/20",
+  "Asistente IA": "text-cyan-400 bg-cyan-500/10 border-cyan-500/20",
+  "Inactividad": "text-zinc-400 bg-zinc-500/10 border-zinc-500/20",
+  "Navegación": "text-sky-400 bg-sky-500/10 border-sky-500/20",
+  "Actividad general": "text-indigo-400 bg-indigo-500/10 border-indigo-500/20",
+  "Soporte técnico": "text-amber-400 bg-amber-500/10 border-amber-500/20",
+  "Otros": "text-slate-400 bg-slate-500/10 border-slate-500/20",
 };
 
 function formatTime(ts: string): string {
   if (!ts) return "";
   const d = new Date(ts);
   if (isNaN(d.getTime())) return "";
-  return d.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
-function formatDate(ts: string): string {
-  if (!ts) return "";
-  const d = new Date(ts);
-  if (isNaN(d.getTime())) return "";
-  return d.toLocaleDateString("es-CR", { day: "2-digit", month: "2-digit", year: "numeric" });
+function formatDuration(ms: number | null): string {
+  if (!ms) return "";
+  const totalSec = Math.round(ms / 1000);
+  if (totalSec < 60) return `${totalSec}s`;
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  if (m < 60) return `${m}m ${s}s`;
+  const h = Math.floor(m / 60);
+  const remM = m % 60;
+  return `${h}h ${remM}m`;
 }
 
-export function ActivityTracker({
-  agentEmail,
-  agentName,
-  isAdmin = false,
-}: {
-  agentEmail?: string;
-  agentName?: string;
-  isAdmin?: boolean;
-}) {
-  const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
-  const [metrics, setMetrics] = useState<Metrics | null>(null);
-  const [summaries, setSummaries] = useState<Summary[]>([]);
-  const [loading, setLoading] = useState(true);
+export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Props) {
+  const [liveAgents, setLiveAgents] = useState<LiveAgent[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<string | undefined>(agentEmail);
-  const [selectedDate, setSelectedDate] = useState(
-    new Date().toISOString().split("T")[0]
-  );
-  const [showSettings, setShowSettings] = useState(false);
-  const [activeTab, setActiveTab] = useState<"timeline" | "summary">("timeline");
-  const [processing, setProcessing] = useState(false);
-  const [viewMode, setViewMode] = useState<"recent" | "full">("recent");
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
+  const [activeTab, setActiveTab] = useState<"live" | "timeline" | "screenshots" | "apps" | "briefing">("live");
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+  const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [searchFilter, setSearchFilter] = useState<string>("");
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [autoRefreshSec, setAutoRefreshSec] = useState<number>(30);
+
+  // Cargar estado en vivo de agentes
+  const fetchLive = useCallback(async () => {
     try {
-      const lastMinutesParam = viewMode === "recent" ? "&lastMinutes=10" : "";
-      const timelineRes = await fetch(
-        `/api/activity/timeline?agent=${selectedAgent || ""}&date=${selectedDate}${lastMinutesParam}`
-      );
-      const timelineData = await timelineRes.json();
-      setTimeline(timelineData.timeline || []);
-
-      if (selectedAgent) {
-        const metricsRes = await fetch(
-          `/api/activity/timeline?agent=${selectedAgent}&date=${selectedDate}&metrics=true`
-        );
-        setMetrics(await metricsRes.json());
+      const res = await fetch("/api/activity/live");
+      const data = await res.json();
+      if (data.ok && data.agents) {
+        setLiveAgents(data.agents);
+        if (!selectedAgent && data.agents.length > 0) {
+          setSelectedAgent(data.agents[0].email);
+        }
       }
-
-      const summaryRes = await fetch(
-        `/api/activity/summary?agent=${selectedAgent || ""}&date=${selectedDate}`
-      );
-      const summaryData = await summaryRes.json();
-      setSummaries(summaryData.summaries || []);
     } catch (e) {
-      console.error("[activity-tracker] Error fetching:", e);
+      console.error("[tracker] error fetching live:", e);
+    }
+  }, [selectedAgent]);
+
+  // Cargar timeline del agente y fecha seleccionados
+  const fetchTimeline = useCallback(async () => {
+    if (!selectedAgent) return;
+    setRefreshing(true);
+    try {
+      const res = await fetch(`/api/activity/timeline?agent=${encodeURIComponent(selectedAgent)}&date=${selectedDate}`);
+      const data = await res.json();
+      setTimeline(data.timeline || []);
+    } catch (e) {
+      console.error("[tracker] error fetching timeline:", e);
     } finally {
+      setRefreshing(false);
       setLoading(false);
     }
-  }, [selectedAgent, selectedDate, viewMode]);
+  }, [selectedAgent, selectedDate]);
 
   useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 600000);
-    return () => clearInterval(interval);
-  }, [fetchData]);
+    fetchLive();
+  }, [fetchLive]);
 
-  const handleForceSync = async () => {
-    if (!selectedAgent) {
-      toast.error("Seleccione un agente para procesar");
-      return;
+  useEffect(() => {
+    fetchTimeline();
+  }, [fetchTimeline]);
+
+  // Auto-refresco periódico
+  useEffect(() => {
+    if (autoRefreshSec <= 0) return;
+    const interval = setInterval(() => {
+      fetchLive();
+      fetchTimeline();
+    }, autoRefreshSec * 1000);
+    return () => clearInterval(interval);
+  }, [autoRefreshSec, fetchLive, fetchTimeline]);
+
+  const currentAgentObj = liveAgents.find((a) => a.email.toLowerCase() === selectedAgent?.toLowerCase());
+
+  // Filtrado de timeline
+  const filteredTimeline = timeline.filter((item) => {
+    if (categoryFilter !== "all" && item.category !== categoryFilter) return false;
+    if (searchFilter) {
+      const term = searchFilter.toLowerCase();
+      const actionMatch = (item.action || "").toLowerCase().includes(term);
+      const catMatch = (item.category || "").toLowerCase().includes(term);
+      const appMatch = JSON.stringify(item.metadata || {}).toLowerCase().includes(term);
+      return actionMatch || catMatch || appMatch;
     }
-    setProcessing(true);
-    try {
-      const res = await fetch("/api/activity/process", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          agent_email: selectedAgent,
-          agent_name: agentName || selectedAgent,
-          date: selectedDate,
-        }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        toast.success(`Reporte generado con ${data.provider || "IA"} (${data.blocks || 0} bloques)`);
-        fetchData();
-      } else {
-        toast.error(data.error || "Error al procesar");
-      }
-    } catch (e) {
-      toast.error("Error de red al procesar");
-    } finally {
-      setProcessing(false);
-    }
-  };
+    return true;
+  });
+
+  const categoriesAvailable = Array.from(new Set(timeline.map((t) => t.category).filter(Boolean)));
 
   return (
-    <div className="h-full flex flex-col bg-background">
-      {/* Header */}
-      <div className="border-b border-border px-6 py-4 flex items-center justify-between">
+    <div className="h-full flex flex-col bg-background overflow-hidden">
+      {/* ── HEADER PRINCIPAL PREMIUM ── */}
+      <div className="border-b border-border bg-card/60 backdrop-blur-md px-6 py-4 flex-shrink-0 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <Activity className="h-5 w-5 text-violet-500" />
+          <div className="h-10 w-10 rounded-2xl bg-gradient-to-tr from-violet-600 to-indigo-600 text-white grid place-items-center shadow-md shadow-violet-600/20">
+            <Activity className="h-5 w-5" />
+          </div>
           <div>
-            <h2 className="text-lg font-bold">Activity Tracker</h2>
-            <p className="text-xs text-muted-foreground">
-              {agentName || "Todos los agentes"} — {selectedDate}
+            <div className="flex items-center gap-2">
+              <h1 className="text-base font-black text-foreground">Suite de Auditoría y Actividad</h1>
+              <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/30">
+                Enterprise
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Monitoreo integral de espacios de trabajo, llamadas, mensajería y aplicaciones de escritorio.
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleForceSync}
-            disabled={processing}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-border hover:bg-muted/50 transition-colors disabled:opacity-50"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${processing ? "animate-spin" : ""}`} />
-            {processing ? "Procesando..." : "Forzar sincronización"}
-          </button>
-          <button
-            onClick={() => setShowSettings((v) => !v)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-border hover:bg-muted/50 transition-colors"
-          >
-            <Settings className="h-3.5 w-3.5" />
-            Settings
-          </button>
-        </div>
-      </div>
 
-      {/* Settings panel */}
-      {showSettings && (
-        <div className="border-b border-border px-6 py-3 bg-muted/30 flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <label className="text-xs font-medium text-muted-foreground">Agente:</label>
-            <input
-              type="text"
-              value={selectedAgent || ""}
-              onChange={(e) => setSelectedAgent(e.target.value || undefined)}
-              placeholder="Todos"
-              className="text-xs px-2 py-1 rounded border border-border bg-background w-48 focus:outline-none focus:ring-1 focus:ring-violet-500"
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <label className="text-xs font-medium text-muted-foreground">Fecha:</label>
+        {/* Controles de fecha y refresco */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Selector de fecha */}
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-border bg-background shadow-sm text-xs font-semibold">
+            <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
             <input
               type="date"
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
-              className="text-xs px-2 py-1 rounded border border-border bg-background focus:outline-none focus:ring-1 focus:ring-violet-500"
+              className="bg-transparent text-foreground focus:outline-none cursor-pointer"
             />
           </div>
-          <div className="flex items-center gap-2">
-            <label className="text-xs font-medium text-muted-foreground">Vista:</label>
-            <button
-              onClick={() => setViewMode("recent")}
-              className={`text-xs px-2 py-1 rounded ${viewMode === "recent" ? "bg-violet-500 text-white" : "border border-border hover:bg-muted/50"}`}
-            >
-              Últimos 10 min
-            </button>
-            <button
-              onClick={() => setViewMode("full")}
-              className={`text-xs px-2 py-1 rounded ${viewMode === "full" ? "bg-violet-500 text-white" : "border border-border hover:bg-muted/50"}`}
-            >
-              Día completo
-            </button>
-          </div>
-        </div>
-      )}
 
-      {/* Metrics bar */}
-      {metrics && (
-        <div className="border-b border-border px-6 py-3 grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="flex items-center gap-2">
-            <Circle
-              className={`h-2.5 w-2.5 ${
-                metrics.trackingStatus === "ACTIVE" ? "text-emerald-500 fill-emerald-500" : "text-zinc-400 fill-zinc-400"
+          {/* Selector de Auto-refresco */}
+          <div className="flex items-center gap-1 px-2 py-1 rounded-xl border border-border bg-background text-xs font-semibold text-muted-foreground">
+            <span className="text-[10px] uppercase font-bold text-muted-foreground/80 pl-1">Auto:</span>
+            {[
+              { label: "15s", val: 15 },
+              { label: "30s", val: 30 },
+              { label: "60s", val: 60 },
+              { label: "Off", val: 0 },
+            ].map((opt) => (
+              <button
+                key={opt.val}
+                onClick={() => setAutoRefreshSec(opt.val)}
+                className={`px-2 py-0.5 rounded-lg text-[11px] font-bold transition-colors ${
+                  autoRefreshSec === opt.val
+                    ? "bg-violet-600 text-white"
+                    : "hover:bg-muted text-muted-foreground"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Botón refrescar */}
+          <button
+            onClick={() => {
+              fetchLive();
+              fetchTimeline();
+            }}
+            disabled={refreshing}
+            className="p-2 rounded-xl border border-border bg-background hover:bg-muted text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+            title="Refrescar datos ahora"
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin text-violet-500" : ""}`} />
+          </button>
+        </div>
+      </div>
+
+      {/* ── BARRA HORIZONTAL DE COLABORADORES ── */}
+      <div className="border-b border-border bg-card/30 px-6 py-2.5 flex-shrink-0 flex items-center gap-2 overflow-x-auto scrollbar-none">
+        <span className="text-[11px] font-black uppercase tracking-wider text-muted-foreground shrink-0 mr-1 flex items-center gap-1.5">
+          <Users className="h-3.5 w-3.5" /> Equipo:
+        </span>
+
+        {liveAgents.map((ag) => {
+          const isSelected = selectedAgent?.toLowerCase() === ag.email.toLowerCase();
+          const isOnline = ag.status === "active";
+          const isAway = ag.status === "away";
+
+          return (
+            <button
+              key={ag.email}
+              onClick={() => setSelectedAgent(ag.email)}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all shrink-0 ${
+                isSelected
+                  ? "border-violet-500 bg-violet-500/15 text-violet-300 shadow-sm"
+                  : "border-border/60 bg-card hover:bg-muted/40 text-muted-foreground hover:text-foreground"
               }`}
-            />
-            <div>
-              <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Tracking Status</p>
-              <p className="text-sm font-bold">{metrics.trackingStatus}</p>
-            </div>
-          </div>
-          <div>
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Total Active Time</p>
-            <p className="text-sm font-bold text-emerald-400">{metrics.totalActiveTime}</p>
-          </div>
-          <div>
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Total Idle Time</p>
-            <p className="text-sm font-bold text-zinc-400">{metrics.totalIdleTime}</p>
-          </div>
-          <div>
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Productivity Score</p>
-            <div className="flex items-center gap-2">
-              <p className="text-sm font-bold">{metrics.productivityScore}%</p>
-              <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
-                <div
-                  className="h-full bg-violet-500 rounded-full transition-all"
-                  style={{ width: `${metrics.productivityScore}%` }}
+            >
+              <span className="relative">
+                <Avatar src={ag.avatar_url} name={ag.name} className="h-5 w-5 text-[9px] font-black" />
+                <span
+                  className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border border-card ${
+                    isOnline ? "bg-emerald-500" : isAway ? "bg-amber-500" : "bg-zinc-400"
+                  }`}
                 />
+              </span>
+              <span className="truncate max-w-[130px]">{ag.name.split(" ")[0]}</span>
+              {ag.hasDesktopApp && (
+                <span title="Desktop App Conectada">
+                  <Laptop className="h-3 w-3 text-blue-400/80 shrink-0" />
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ── NAVEGACIÓN POR PESTAÑAS ── */}
+      <div className="border-b border-border px-6 flex-shrink-0 bg-card/20 flex items-center gap-1 overflow-x-auto scrollbar-none">
+        {[
+          { id: "live", label: "En Vivo & Resumen", icon: Activity },
+          { id: "timeline", label: "Línea de Tiempo", icon: Clock },
+          { id: "screenshots", label: "Capturas de Pantalla", icon: Camera },
+          { id: "apps", label: "Apps y Sitios Web", icon: Monitor },
+          { id: "briefing", label: "Dictamen IA & Reportes", icon: Sparkles },
+        ].map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as any)}
+              className={`flex items-center gap-2 px-4 py-3 border-b-2 text-xs font-bold transition-all shrink-0 ${
+                isActive
+                  ? "border-violet-500 text-violet-400 bg-violet-500/5"
+                  : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/20"
+              }`}
+            >
+              <Icon className={`h-4 w-4 ${isActive ? "text-violet-400" : "text-muted-foreground"}`} />
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ── CUERPO PRINCIPAL CON SCROLL ── */}
+      <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        {/* PESTAÑA 1: EN VIVO & RESUMEN */}
+        {activeTab === "live" && (
+          <div className="space-y-6">
+            <ActivityLivePulse
+              agents={liveAgents}
+              selectedAgent={selectedAgent}
+              onSelectAgent={(email) => setSelectedAgent(email)}
+              loading={loading}
+            />
+
+            {/* Heatmap de Intensidad */}
+            <ActivityHeatmap timeline={timeline} date={selectedDate} />
+
+            {/* Top Apps y Resumen en 2 Columnas */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <ActivityAppsRanking timeline={timeline} />
+
+              {/* Vista rápida de últimos eventos */}
+              <div className="p-5 rounded-2xl bg-card border border-border/70 shadow-sm space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-violet-500" />
+                    <h3 className="font-bold text-sm text-foreground">Últimos Eventos en Tiempo Real</h3>
+                  </div>
+                  <button
+                    onClick={() => setActiveTab("timeline")}
+                    className="text-xs font-bold text-violet-400 hover:text-violet-300 flex items-center gap-1"
+                  >
+                    Ver todos <ChevronRight className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+
+                <div className="space-y-2 max-h-[350px] overflow-y-auto pr-1">
+                  {timeline.slice(0, 7).map((item) => {
+                    const Icon = CATEGORY_ICONS[item.category] || Activity;
+                    const colorClass = CATEGORY_COLORS[item.category] || "text-zinc-400 bg-zinc-500/10 border-zinc-500/20";
+                    return (
+                      <div
+                        key={item.id}
+                        className="p-3 rounded-xl bg-muted/20 border border-border/40 flex items-start gap-3 text-xs"
+                      >
+                        <div className={`p-1.5 rounded-lg border shrink-0 ${colorClass}`}>
+                          <Icon className="h-3.5 w-3.5" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-foreground truncate">{item.action}</p>
+                          <div className="flex items-center gap-2 mt-1 text-[11px] text-muted-foreground">
+                            <span>{formatTime(item.created_at)}</span>
+                            {item.duration_ms && (
+                              <>
+                                <span>•</span>
+                                <span className="font-mono">{formatDuration(item.duration_ms)}</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Tabs */}
-      <div className="border-b border-border flex">
-        <button
-          onClick={() => setActiveTab("timeline")}
-          className={`px-6 py-2.5 text-xs font-semibold border-b-2 transition-colors ${
-            activeTab === "timeline"
-              ? "text-foreground border-violet-500"
-              : "text-muted-foreground border-transparent hover:text-foreground"
-          }`}
-        >
-          Timeline
-        </button>
-        <button
-          onClick={() => setActiveTab("summary")}
-          className={`px-6 py-2.5 text-xs font-semibold border-b-2 transition-colors ${
-            activeTab === "summary"
-              ? "text-foreground border-violet-500"
-              : "text-muted-foreground border-transparent hover:text-foreground"
-          }`}
-        >
-          Day Summary
-        </button>
-      </div>
+        {/* PESTAÑA 2: LÍNEA DE TIEMPO PROFUNDA */}
+        {activeTab === "timeline" && (
+          <div className="space-y-4">
+            {/* Barra de Filtros y Búsqueda */}
+            <div className="p-4 rounded-2xl bg-card border border-border/70 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <div className="relative flex-1 sm:w-64">
+                  <Search className="h-3.5 w-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    type="text"
+                    placeholder="Buscar evento, app o caso..."
+                    value={searchFilter}
+                    onChange={(e) => setSearchFilter(e.target.value)}
+                    className="w-full pl-9 pr-3 py-1.5 rounded-xl border border-border bg-background text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-violet-500"
+                  />
+                </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto p-6">
-        {loading && timeline.length === 0 ? (
-          <div className="flex items-center justify-center h-32">
-            <div className="h-5 w-5 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+                <select
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                  className="px-3 py-1.5 rounded-xl border border-border bg-background text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-violet-500"
+                >
+                  <option value="all">Todas las categorías ({timeline.length})</option>
+                  {categoriesAvailable.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <span className="text-xs text-muted-foreground font-semibold">
+                Mostrando {filteredTimeline.length} de {timeline.length} eventos
+              </span>
+            </div>
+
+            {/* Lista Cronológica Enriquecida */}
+            <div className="space-y-2.5">
+              {filteredTimeline.length === 0 ? (
+                <div className="p-12 text-center rounded-2xl bg-card border border-border/70 text-muted-foreground text-xs">
+                  No hay eventos que coincidan con los filtros seleccionados.
+                </div>
+              ) : (
+                filteredTimeline.map((item) => {
+                  const Icon = CATEGORY_ICONS[item.category] || Activity;
+                  const colorClass = CATEGORY_COLORS[item.category] || "text-zinc-400 bg-zinc-500/10 border-zinc-500/20";
+                  const meta = item.metadata || {};
+                  const appName = meta.app_name || meta.label || meta.page || "";
+
+                  return (
+                    <div
+                      key={item.id}
+                      className="p-4 rounded-2xl bg-card border border-border/70 hover:border-violet-500/40 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                    >
+                      <div className="flex items-start gap-3 min-w-0">
+                        <div className={`p-2 rounded-xl border shrink-0 ${colorClass}`}>
+                          <Icon className="h-4 w-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-bold text-foreground text-sm">{item.action}</p>
+                          <div className="flex flex-wrap items-center gap-2 mt-1.5 text-[11px] text-muted-foreground">
+                            <span className="font-semibold text-foreground/80">{item.category}</span>
+                            {appName && (
+                              <>
+                                <span>•</span>
+                                <span className="font-medium px-2 py-0.5 rounded-lg bg-muted/60 border border-border/50 text-foreground">
+                                  {appName}
+                                </span>
+                              </>
+                            )}
+                            {item.case_id && (
+                              <>
+                                <span>•</span>
+                                <span className="text-blue-400 font-bold">Caso #{item.case_id}</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3 shrink-0 self-end sm:self-center font-mono text-[11px]">
+                        {item.duration_ms && (
+                          <span className="px-2.5 py-1 rounded-lg bg-muted/40 border border-border/50 font-bold text-foreground">
+                            {formatDuration(item.duration_ms)}
+                          </span>
+                        )}
+                        <span className="text-muted-foreground font-semibold">{formatTime(item.created_at)}</span>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
-        ) : activeTab === "timeline" ? (
-          <TimelineView timeline={timeline} />
-        ) : (
-          <SummaryView summaries={summaries} categories={metrics?.categories || {}} metrics={metrics} />
+        )}
+
+        {/* PESTAÑA 3: CAPTURAS DE PANTALLA */}
+        {activeTab === "screenshots" && (
+          <ActivityScreenGallery
+            agentEmail={selectedAgent}
+            agentName={currentAgentObj?.name || selectedAgent}
+            date={selectedDate}
+          />
+        )}
+
+        {/* PESTAÑA 4: APPS Y SITIOS WEB */}
+        {activeTab === "apps" && (
+          <div className="space-y-6">
+            <ActivityAppsRanking timeline={timeline} />
+            <ActivityHeatmap timeline={timeline} date={selectedDate} />
+          </div>
+        )}
+
+        {/* PESTAÑA 5: DICTAMEN IA & REPORTES */}
+        {activeTab === "briefing" && (
+          <ActivityAiBriefing
+            agentEmail={selectedAgent}
+            agentName={currentAgentObj?.name || selectedAgent}
+            date={selectedDate}
+            timeline={timeline}
+          />
         )}
       </div>
-    </div>
-  );
-}
-
-function TimelineView({ timeline }: { timeline: TimelineEntry[] }) {
-  if (timeline.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center h-32 text-muted-foreground">
-        <Activity className="h-8 w-8 mb-2 opacity-40" />
-        <p className="text-sm">No hay actividad registrada</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-2">
-      {timeline.map((entry, idx) => {
-        const Icon = CATEGORY_ICONS[entry.category] || Activity;
-        const colorClass = CATEGORY_COLORS[entry.category] || CATEGORY_COLORS["Otros"];
-        return (
-          <div
-            key={entry.id}
-            className="flex items-start gap-3 p-3 rounded-lg border border-border hover:bg-muted/30 transition-colors"
-          >
-            <div className={`p-2 rounded-lg ${colorClass}`}>
-              <Icon className="h-4 w-4" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-sm font-medium truncate">{entry.action}</p>
-                <span className="text-xs text-muted-foreground shrink-0">
-                  {formatTime(entry.created_at || "")}
-                </span>
-              </div>
-              <div className="flex items-center gap-2 mt-0.5">
-                <span className="text-xs text-muted-foreground">{entry.agent_name}</span>
-                {entry.case_id && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
-                    Caso: {entry.case_id.substring(0, 12)}
-                  </span>
-                )}
-                {entry.duration_ms && (
-                  <span className="text-[10px] text-muted-foreground">
-                    ({Math.round(entry.duration_ms / 1000)}s)
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function SummaryView({
-  summaries,
-  categories,
-  metrics,
-}: {
-  summaries: Summary[];
-  categories: Record<string, number>;
-  metrics?: Metrics | null;
-}) {
-  // Usar tiempo por categoría si está disponible, sino contar eventos
-  const catTimeMs = (metrics as any)?.categoryTimeMs as Record<string, number> | undefined;
-  const hasTimeData = catTimeMs && Object.keys(catTimeMs).length > 0;
-
-  // Para donut y barras: usar tiempo si hay, sino eventos
-  const dataMap = hasTimeData ? catTimeMs! : categories;
-  const totalData = Object.values(dataMap).reduce((s, v) => s + v, 0) || 1;
-  const sortedCats = Object.entries(dataMap)
-    .filter(([c]) => c !== "Inactividad")
-    .sort((a, b) => b[1] - a[1]);
-  const topCat = sortedCats[0]?.[0] || "Sin datos";
-  const activeData = sortedCats.reduce((s, [, v]) => s + v, 0);
-  const idleData = hasTimeData ? ((metrics as any)?.totalIdleMs || 0) : (categories["Inactividad"] || 0);
-
-  // Formatear tiempo
-  const fmtTime = (ms: number) => {
-    if (!hasTimeData) return `${ms}`;
-    const min = Math.floor(ms / 60000);
-    const h = Math.floor(min / 60);
-    const m = min % 60;
-    if (h > 0) return `${h}h ${m}m`;
-    return `${m}m`;
-  };
-
-  // Colores para gráficas (hex)
-  const CAT_HEX: Record<string, string> = {
-    "Atención telefónica": "#f97316",
-    "Mensajería": "#22c55e",
-    "Atención de tickets": "#3b82f6",
-    "Trámites de garantías": "#a855f7",
-    "Investigación y desarrollo": "#06b6d4",
-    "Labores manuales": "#f59e0b",
-    "Gestión de correos": "#eab308",
-    "Gestión de casos": "#10b981",
-    "Escalado": "#ef4444",
-    "Asistente IA": "#06b6d4",
-    "Inactividad": "#71717a",
-    "Navegación": "#0ea5e9",
-    "Soporte técnico remoto": "#6366f1",
-    "Actividad general": "#6366f1",
-    "Soporte técnico": "#f59e0b",
-    "Otros": "#8b5cf6",
-  };
-
-  // Donut chart segments
-  let cumulativePercent = 0;
-  const donutSegments = sortedCats.map(([cat, val]) => {
-    const percent = (val / totalData) * 100;
-    const startAngle = (cumulativePercent / 100) * 360;
-    cumulativePercent += percent;
-    const endAngle = (cumulativePercent / 100) * 360;
-    return { cat, val, percent, startAngle, endAngle, color: CAT_HEX[cat] || "#8b5cf6" };
-  });
-
-  if (summaries.length === 0 && Object.keys(categories).length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center h-32 text-muted-foreground">
-        <TrendingUp className="h-8 w-8 mb-2 opacity-40" />
-        <p className="text-sm">No hay resúmenes disponibles</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-6">
-      {/* Stats cards premium */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div className="rounded-xl border border-border bg-gradient-to-br from-violet-500/10 to-transparent p-3">
-          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Tiempo activo</p>
-          <p className="text-2xl font-bold mt-1">{metrics?.totalActiveTime || fmtTime(activeData)}</p>
-        </div>
-        <div className="rounded-xl border border-border bg-gradient-to-br from-emerald-500/10 to-transparent p-3">
-          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Sesiones activas</p>
-          <p className="text-2xl font-bold text-emerald-400 mt-1">{metrics?.activeEvents || sortedCats.length}</p>
-        </div>
-        <div className="rounded-xl border border-border bg-gradient-to-br from-zinc-500/10 to-transparent p-3">
-          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Tiempo inactivo</p>
-          <p className="text-2xl font-bold text-zinc-400 mt-1">{metrics?.totalIdleTime || fmtTime(idleData)}</p>
-        </div>
-        <div className="rounded-xl border border-border bg-gradient-to-br from-amber-500/10 to-transparent p-3">
-          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Productividad</p>
-          <div className="flex items-center gap-2 mt-1">
-            <p className="text-2xl font-bold">{metrics?.productivityScore || 0}%</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Gráficas: donut + barras */}
-      {sortedCats.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Donut chart SVG */}
-          <div className="rounded-xl border border-border p-4">
-            <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-3">Distribución de tiempo</h3>
-            <div className="flex items-center justify-center">
-              <svg viewBox="0 0 200 200" className="w-48 h-48">
-                {donutSegments.map((seg, i) => {
-                  const radius = 70;
-                  const cx = 100, cy = 100;
-                  const startRad = (seg.startAngle - 90) * Math.PI / 180;
-                  const endRad = (seg.endAngle - 90) * Math.PI / 180;
-                  const x1 = cx + radius * Math.cos(startRad);
-                  const y1 = cy + radius * Math.sin(startRad);
-                  const x2 = cx + radius * Math.cos(endRad);
-                  const y2 = cy + radius * Math.sin(endRad);
-                  const largeArc = seg.endAngle - seg.startAngle > 180 ? 1 : 0;
-                  return (
-                    <path
-                      key={i}
-                      d={`M ${cx} ${cy} L ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2} Z`}
-                      fill={seg.color}
-                      opacity={0.85}
-                      className="hover:opacity-100 transition-opacity"
-                    />
-                  );
-                })}
-                <circle cx="100" cy="100" r="45" fill="var(--background, #0a0a0a)" />
-                <text x="100" y="95" textAnchor="middle" className="fill-foreground text-[14px] font-bold">
-                  {metrics?.totalActiveTime || fmtTime(activeData)}
-                </text>
-                <text x="100" y="112" textAnchor="middle" className="fill-muted-foreground text-[8px]">
-                  tiempo activo
-                </text>
-              </svg>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2 justify-center">
-              {donutSegments.slice(0, 6).map((seg) => (
-                <div key={seg.cat} className="flex items-center gap-1.5">
-                  <span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: seg.color }} />
-                  <span className="text-[10px] text-muted-foreground">{seg.cat}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Barras horizontales con tiempo y porcentajes */}
-          <div className="rounded-xl border border-border p-4">
-            <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-3">Tiempo por categoría</h3>
-            <div className="space-y-2.5">
-              {sortedCats.map(([cat, val]) => {
-                const percent = Math.round((val / totalData) * 100);
-                const color = CAT_HEX[cat] || "#8b5cf6";
-                return (
-                  <div key={cat}>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-[11px] font-medium truncate">{cat}</span>
-                      <span className="text-[10px] text-muted-foreground tabular-nums shrink-0 ml-2">{fmtTime(val)} · {percent}%</span>
-                    </div>
-                    <div className="h-2 rounded-full bg-muted overflow-hidden">
-                      <div
-                        className="h-full rounded-full transition-all duration-500"
-                        style={{ width: `${percent}%`, backgroundColor: color }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* AI Summary principal */}
-      {summaries.filter(s => s.time_block === "Día completo").length > 0 && (
-        <div className="rounded-xl border border-violet-500/20 bg-gradient-to-br from-violet-500/5 to-transparent p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="p-1.5 rounded-lg bg-violet-500/10">
-              <Bot className="h-4 w-4 text-violet-400" />
-            </div>
-            <h3 className="text-sm font-bold">Reporte IA del día</h3>
-            <span className="text-[10px] text-muted-foreground ml-auto">{topCat}</span>
-          </div>
-          <div className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">
-            {summaries.find(s => s.time_block === "Día completo")?.summary}
-          </div>
-        </div>
-      )}
-
-      {/* Resúmenes por bloque */}
-      {summaries.filter(s => s.time_block !== "Día completo").length > 0 && (
-        <div>
-          <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2">Resúmenes por bloque</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-            {summaries.filter(s => s.time_block !== "Día completo").map((s) => {
-              const Icon = CATEGORY_ICONS[s.category] || Activity;
-              const colorClass = CATEGORY_COLORS[s.category] || CATEGORY_COLORS["Otros"];
-              return (
-                <div key={s.id} className="p-3 rounded-lg border border-border hover:border-border/60 transition-colors">
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <div className={`p-1 rounded ${colorClass}`}>
-                      <Icon className="h-3 w-3" />
-                    </div>
-                    <span className="text-[11px] font-medium">{s.time_block}</span>
-                    <span className="text-[10px] text-muted-foreground ml-auto">{s.category}</span>
-                  </div>
-                  <p className="text-[11px] text-muted-foreground leading-relaxed line-clamp-3">{s.summary}</p>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
