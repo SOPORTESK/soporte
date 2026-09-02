@@ -1597,7 +1597,7 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
         let welcomeMsg = "";
         if (hasClientInfo) {
           // Cliente ya registrado / conocido: pedir marca, modelo y motivo
-          welcomeMsg = `Buen día. Gracias por contactarnos.\n\nMi nombre es ${agentName} y con gusto le asistiré con su caso.\n\nPara el registro, por favor indiquenos:\n\n-Marca y modelo del equipo a consultar\n-Motivo de la consulta o solicitud\n\nCon esta información podremos brindarle una atención más precisa.`;
+          welcomeMsg = `Buen día. Gracias por contactarnos.\n\nMi nombre es ${agentName} y con gusto le asistiré con su caso.\n\nPara el registro, por favor indiquenos:\n\n-Marca y modelo del equipo a consultar\n-Motivo de la consulta o solicitud\n-Nombre del vendedor encargado de su cuenta\n\nCon esta información podremos brindarle una atención más precisa.`;
         } else {
           // Cliente nuevo / sin datos personales: pedir ficha de registro
           welcomeMsg = `Buen día. Gracias por contactarnos.\n\nMi nombre es ${agentName} y con gusto le asistiré con su caso.\n\nPara el registro, por favor facilítenos su:\n\nNombre completo\nCorreo electrónico\nNombre de la cuenta afiliada a Sekunet.\nNombre del vendedor encargado de su cuenta\n\nQuedamos atentos. Gracias.`;
