@@ -47,6 +47,8 @@ export async function POST(req: NextRequest) {
       .upsert({
         key: "permission_groups",
         value: JSON.stringify(groups),
+        iv: "none",
+        tag: "none",
         updated_at: new Date().toISOString(),
       }, { onConflict: "key" });
 
