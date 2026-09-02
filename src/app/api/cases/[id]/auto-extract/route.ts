@@ -178,45 +178,46 @@ Responde SOLO en formato JSON:
 
     // El proveedor puede ser Gemini (formato propio) u OpenAI-compatible
     let rawContent = "";
-    try {
-      if (aiModel.provider === "google") {
-        const res = await fetch(`${aiModel.baseUrl}/models/${aiModel.modelo}:generateContent?key=${aiModel.apiKey}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { temperature: 0.1, maxOutputTokens: 500 },
-          }),
-          signal: AbortSignal.timeout(25000),
-        });
-        if (!res.ok) {
-          console.error("[auto-extract] error de IA:", (await res.text()).slice(0, 300));
-          return NextResponse.json({ error: "AI extraction failed" }, { status: 500 });
+    if (aiModel?.apiKey) {
+      try {
+        if (aiModel.provider === "google") {
+          const res = await fetch(`${aiModel.baseUrl || "https://generativelanguage.googleapis.com/v1beta"}/models/${aiModel.modelo || "gemini-3.5-flash-lite"}:generateContent?key=${aiModel.apiKey}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: { temperature: 0.1, maxOutputTokens: 500 },
+            }),
+            signal: AbortSignal.timeout(25000),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            rawContent = data.candidates?.[0]?.content?.parts?.map((p: any) => p.text).filter(Boolean).join("") || "";
+          } else {
+            console.warn("[auto-extract] AI request failed, will use fallback");
+          }
+        } else {
+          const res = await fetch(`${aiModel.baseUrl}/chat/completions`, {
+            method: "POST",
+            headers: { "Authorization": `Bearer ${aiModel.apiKey}`, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              model: aiModel.modelo,
+              messages: [{ role: "user", content: prompt }],
+              temperature: 0.1,
+              max_tokens: 500,
+            }),
+            signal: AbortSignal.timeout(25000),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            rawContent = data.choices?.[0]?.message?.content || "";
+          } else {
+            console.warn("[auto-extract] AI request failed, will use fallback");
+          }
         }
-        const data = await res.json();
-        rawContent = data.candidates?.[0]?.content?.parts?.map((p: any) => p.text).filter(Boolean).join("") || "";
-      } else {
-        const res = await fetch(`${aiModel.baseUrl}/chat/completions`, {
-          method: "POST",
-          headers: { "Authorization": `Bearer ${aiModel.apiKey}`, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: aiModel.modelo,
-            messages: [{ role: "user", content: prompt }],
-            temperature: 0.1,
-            max_tokens: 500,
-          }),
-          signal: AbortSignal.timeout(25000),
-        });
-        if (!res.ok) {
-          console.error("[auto-extract] error de IA:", (await res.text()).slice(0, 300));
-          return NextResponse.json({ error: "AI extraction failed" }, { status: 500 });
-        }
-        const data = await res.json();
-        rawContent = data.choices?.[0]?.message?.content || "";
+      } catch (e: any) {
+        console.warn("[auto-extract] fetch error:", e?.message);
       }
-    } catch (e: any) {
-      console.error("[auto-extract] fetch error:", e?.message);
-      return NextResponse.json({ error: "AI extraction failed" }, { status: 500 });
     }
 
     // Parsear la respuesta JSON

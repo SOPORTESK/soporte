@@ -1439,6 +1439,12 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
         setShowRatingModal(false);
         fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online" }) });
 
+        // Auto-extract IA: analizar chat en segundo plano y extraer cliente/marca/modelo/problema
+        fetch(`/api/cases/${targetId}/auto-extract`, { method: "POST" })
+          .then(r => r.json())
+          .then(d => { if (d?.ok) console.log("[confirmClose] Auto-extract WhatsApp OK:", d); })
+          .catch(e => console.warn("[confirmClose] Auto-extract failed:", e));
+
         if (clientRating < 2) {
           const cedula = (sekCase.cliente as any)?.cedula;
           if (cedula) {
