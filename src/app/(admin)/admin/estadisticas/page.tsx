@@ -4,6 +4,7 @@ import Link from "next/link";
 import { StatsExportButton } from "@/components/admin/stats-export-button";
 import { ClientProfilePanel } from "@/components/admin/client-profile-panel";
 import { EquiposTable } from "@/components/admin/equipos-table";
+import { ProblemasFrecuentesInteractive } from "@/components/admin/problemas-frecuentes-interactive";
 import type { PerfilClienteDTO } from "@/components/admin/client-profile-panel";
 
 export const dynamic = "force-dynamic";
@@ -250,36 +251,87 @@ export default async function EstadisticasClientePage() {
   // Tags que NO son problemas (deben ignorarse)
   const tagsNoProblema = new Set(["saliente", "entrante", "urgente", "vip"]);
 
-  // ── Derivar clave de problema: exclusivamente entre las 7 categorías oficiales
-  const deriveProblema = (c: any): { key: string; label: string } => {
-    const manualTipo = (c.cliente && typeof c.cliente === "object") ? (c.cliente as any).tipo_consulta : null;
-    if (manualTipo) return canonicalCategory(manualTipo);
-    if (c.problema) return canonicalCategory(c.problema);
+  // ── Derivar clave de problema con motivo detallado y origen
+  const deriveProblema = (c: any): { key: string; label: string; razon: string; tipoOrigen: "ia" | "manual" | "tag" | "titulo" | "general" } => {
+    const cli = (c.cliente && typeof c.cliente === "object") ? (c.cliente as any) : {};
+    const manualTipo = cli.tipo_consulta;
+    if (manualTipo) {
+      const cat = canonicalCategory(manualTipo);
+      return { ...cat, razon: `Técnico seleccionó "${manualTipo}" en la ficha del cliente`, tipoOrigen: "manual" };
+    }
+    if (c.problema) {
+      const cat = canonicalCategory(c.problema);
+      return { ...cat, razon: `Clasificado por IA / sistema como "${c.problema}"`, tipoOrigen: "ia" };
+    }
     const tags: string[] = Array.isArray(c.tags) ? c.tags : [];
     for (const t of tags) {
       const tl = String(t).toLowerCase().trim();
       if (tagsNoProblema.has(tl)) continue;
       const mapped = canonicalCategory(tl);
-      if (mapped.key !== "otro") return mapped;
+      if (mapped.key !== "otro") {
+        return { ...mapped, razon: `Detectado por etiqueta de flujo "${t}"`, tipoOrigen: "tag" };
+      }
     }
     const title = String(c.title || "").trim();
     if (title.includes("—")) {
       const tema = title.split("—")[0].trim();
       const mapped = canonicalCategory(tema);
-      if (mapped.key !== "otro") return mapped;
+      if (mapped.key !== "otro") {
+        return { ...mapped, razon: `Extraído del título de la consulta "${tema}"`, tipoOrigen: "titulo" };
+      }
     }
-    return { key: "otro", label: "Otro" };
+    return { key: "otro", label: "Otro", razon: "Consulta general / Sin categoría específica asignada", tipoOrigen: "general" };
   };
 
-  const problemaMap: Record<string, { label: string; total: number; resueltos: number; ultimoCasoId: string | number }> = {};
+  const problemaMap: Record<string, {
+    key: string;
+    label: string;
+    total: number;
+    resueltos: number;
+    ultimoCasoId: string | number;
+    casos: {
+      id: string;
+      title: string;
+      clienteNombre: string;
+      clienteCuenta: string;
+      clienteTelefono: string;
+      marca?: string | null;
+      modelo?: string | null;
+      estado: string;
+      createdAt: string;
+      razonClasificacion: string;
+      tipoOrigen: "ia" | "manual" | "tag" | "titulo" | "general";
+      descripcion?: string | null;
+    }[];
+  }> = {};
+
   (casos || []).forEach(c => {
     const p = deriveProblema(c);
     if (!p) return;
     if (!problemaMap[p.key]) {
-      problemaMap[p.key] = { label: p.label, total: 0, resueltos: 0, ultimoCasoId: c.id };
+      problemaMap[p.key] = { key: p.key, label: p.label, total: 0, resueltos: 0, ultimoCasoId: c.id, casos: [] };
     }
-    problemaMap[p.key].total++;
-    if (c.estado === "resuelto" || c.estado === "cerrado" || (c as any).closed_at) problemaMap[p.key].resueltos++;
+    const entry = problemaMap[p.key];
+    entry.total++;
+    if (c.estado === "resuelto" || c.estado === "cerrado" || (c as any).closed_at) entry.resueltos++;
+
+    const { nombre, cuenta, telefono } = parseCliente(c.cliente);
+    const cli = (c.cliente && typeof c.cliente === "object") ? (c.cliente as any) : {};
+
+    entry.casos.push({
+      id: String(c.id),
+      title: String(c.title || "Consulta de Soporte"),
+      clienteNombre: nombre !== "—" ? nombre : (cli.whatsapp_name || "Cliente"),
+      clienteCuenta: cuenta !== "—" ? cuenta : (cli.cuenta || ""),
+      clienteTelefono: telefono !== "—" ? telefono : "",
+      marca: c.marca || cli.marca || null,
+      modelo: c.modelo || cli.modelo || null,
+      estado: c.estado || "abierto",
+      createdAt: c.created_at || "",
+      razonClasificacion: p.razon,
+      tipoOrigen: p.tipoOrigen,
+      descripcion: cli.descripcion || null,
+    });
   });
   const topProblemas = Object.values(problemaMap).sort((a, b) => b.total - a.total);
   const maxProblema = topProblemas[0]?.total || 1;
@@ -832,42 +884,8 @@ export default async function EstadisticasClientePage() {
 
         <EquiposTable equipos={topEquipos} />
 
-        {/* Solicitudes más frecuentes */}
-        <div className="rounded-2xl border border-border/60 bg-card overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-border/50">
-            <h3 className="font-black text-sm">Problemas Frecuentes</h3>
-            <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-violet-500/10 text-violet-500">{topProblemas.length}</span>
-          </div>
-          <div className="p-5 space-y-3">
-            {topProblemas.length === 0 && (
-              <p className="py-8 text-center text-xs text-muted-foreground">Sin clasificaciones aún. Se clasifican automáticamente.</p>
-            )}
-            {topProblemas.slice(0, 8).map((p, i) => {
-              const pct = Math.round((p.total / maxProblema) * 100);
-              const resPct = p.total > 0 ? Math.floor((p.resueltos / p.total) * 100) : 0;
-              return (
-                <div key={i} className="group/p">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="text-[9px] font-black text-muted-foreground/40 w-4 tabular-nums shrink-0">{i+1}</span>
-                      <span className="text-xs font-bold truncate">{p.label}</span>
-                    </div>
-                    <div className="flex items-center gap-2.5 shrink-0 ml-2">
-                      <span className="text-[9px] text-emerald-500 font-bold">{resPct}%</span>
-                      <span className="text-xs font-black tabular-nums text-violet-500">{p.total}</span>
-                      <Link href={`/inbox?case=${p.ultimoCasoId}`} className="text-brand-500 hover:text-brand-600 opacity-0 group-hover/p:opacity-100 transition-opacity">
-                        <ExternalLink className="h-3 w-3" />
-                      </Link>
-                    </div>
-                  </div>
-                  <div className="h-1.5 w-full bg-muted/40 rounded-full overflow-hidden">
-                    <div className="h-full bg-violet-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+        {/* Solicitudes más frecuentes interactivas con desplegable de casos */}
+        <ProblemasFrecuentesInteractive problemas={topProblemas} maxProblema={maxProblema} />
       </section>
 
       {/* ══════════════════════════════════════════════════════════════════
