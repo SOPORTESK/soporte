@@ -120,8 +120,13 @@ export default async function EstadisticasClientePage() {
       }
     }
 
-    // 2. cliente.equipo_match "Marca Modelo (codigo)" o cliente.equipo "Marca Modelo"
+    // 2. cliente.marca / cliente.modelo (editados manualmente en modal) o cliente.equipo_match
     const cli = typeof c.cliente === "string" ? (() => { try { return JSON.parse(c.cliente); } catch { return {}; } })() : (c.cliente || {});
+    if (cli.marca && String(cli.marca).trim()) {
+      const marca = String(cli.marca).trim();
+      const modelo = cli.modelo ? String(cli.modelo).trim() : null;
+      return { marca, modelo };
+    }
     const raw = String(cli.equipo_match || cli.equipo || "").trim();
     if (raw && raw.length > 3) {
       const sinCodigo = raw.split("(")[0].trim();
@@ -235,8 +240,13 @@ export default async function EstadisticasClientePage() {
     firmware: "Actualización firmware",
   };
 
-  // ── Derivar clave de problema: columna, tags, o tema del title
+  // ── Derivar clave de problema: tipo_consulta manual, columna, tags, o tema del title
   const deriveProblema = (c: any): { key: string; label: string } | null => {
+    const manualTipo = (c.cliente && typeof c.cliente === "object") ? (c.cliente as any).tipo_consulta : null;
+    if (manualTipo && String(manualTipo).trim()) {
+      const mt = String(manualTipo).trim();
+      return { key: normalizeKey(mt), label: mt };
+    }
     if (c.problema) return { key: c.problema, label: labels[c.problema] || c.problema };
     const tags: string[] = Array.isArray(c.tags) ? c.tags : [];
     for (const t of tags) {
