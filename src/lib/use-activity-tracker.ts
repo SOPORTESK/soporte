@@ -4,8 +4,8 @@ import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { logActivity } from "@/lib/activity-client";
 
-const HEARTBEAT_INTERVAL = 5 * 60 * 1000; // 5 minutos
-const IDLE_THRESHOLD = 5 * 60 * 1000; // 5 minutos
+const HEARTBEAT_INTERVAL = 2 * 60 * 1000; // 2 minutos para mantener telemetría activa continua
+const IDLE_THRESHOLD = 15 * 60 * 1000; // 15 minutos (tolerancia real de lectura/taller antes de marcar pausa)
 
 // Flags globales para evitar duplicar entre layouts
 let sessionLogged = false;
@@ -242,7 +242,7 @@ export function useActivityTracker(agentEmail: string, agentName: string, enable
         logActivity({
           agent_email: agentEmail,
           agent_name: agentName,
-          action: `Pausa de 5 minutos sin interacción en "${pageLabel}"`,
+          action: `Pausa prolongada de 15 minutos sin interacción en "${pageLabel}"`,
           category: "Inactividad",
           duration_ms: IDLE_THRESHOLD,
           metadata: { page: lastPathRef.current },

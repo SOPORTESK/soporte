@@ -31,7 +31,7 @@ export function ActivityHeatmap({ timeline, date }: Props) {
     .filter((t) => Boolean(t.created_at))
     .sort((a, b) => new Date(a.created_at!).getTime() - new Date(b.created_at!).getTime());
 
-  const IDLE_GAP_MS = 5 * 60 * 1000;
+  const IDLE_GAP_MS = 15 * 60 * 1000;
 
   for (let i = 0; i < sorted.length; i++) {
     const item = sorted[i];

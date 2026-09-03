@@ -33,7 +33,7 @@ const STATUS_LABELS: Record<string, { label: string; color: string; icon?: strin
   offline: { label: "Desconectado",  color: "bg-gray-400" },
 };
 
-const IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutos
+const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutos (tolerancia de taller)
 
 const TAREAS_FISICAS = [
   { label: "Ir a Bodega", category: "Labores manuales" },

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { useState, useEffect } from "react";
 import {
@@ -83,7 +83,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
   const categoryMap: Record<string, { durationMs: number; count: number }> = {};
   let totalActiveMs = 0;
   let totalIdleMs = 0;
-  const IDLE_GAP_MS = 5 * 60 * 1000;
+  const IDLE_GAP_MS = 15 * 60 * 1000; // 15 minutos
 
   for (let i = 0; i < sorted.length; i++) {
     const item = sorted[i];
@@ -93,7 +93,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
     const cat = item.category || "Navegación";
 
     if (cat === "Inactividad") {
-      totalIdleMs += gap;
+      totalIdleMs += Math.min(gap, 15 * 60 * 1000);
       continue;
     }
 

@@ -125,7 +125,7 @@ export async function POST(req: NextRequest) {
     const userStats: Record<string, { name: string; activeMs: number; idleMs: number; events: number; apps: Set<string>; cases: Set<string> }> = {};
     const appUsageMs: Record<string, number> = {};
 
-    const IDLE_GAP_MS = 5 * 60 * 1000;
+    const IDLE_GAP_MS = 15 * 60 * 1000;
 
     for (let i = 0; i < logs.length; i++) {
       const l = logs[i];
