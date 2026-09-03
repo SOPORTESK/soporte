@@ -1,6 +1,6 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
-import { getModel } from "@/lib/ai/config";
+import { generateText } from "@/lib/ai/config";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +14,7 @@ interface BriefingStructure {
   recomendacion_gerencial: string;
 }
 
-// ─── GENERADOR DETERMINISTA DE RESPALDO (TIER 4 FALLBACK) ──────────────────────
+// ─── GENERADOR DETERMINISTA DE RESPALDO (SI TODOS LOS PROVEEDORES ESTÁN CAÍDOS) ───
 function generateDeterministicBriefing(
   isTeamScope: boolean,
   targetName: string,
@@ -172,20 +172,8 @@ export async function POST(req: NextRequest) {
 
     const targetDisplayName = isTeamScope ? "Equipo General" : agent_name || agent_email;
 
-    // 4. Intentar llamada a IA con Gemini y Fallbacks en cascada
-    let briefing: BriefingStructure | null = null;
-    let fallbackUsed = false;
-
-    try {
-      const aiModel = await getModel("extract");
-      const apiKey = aiModel?.apiKey || process.env.GEMINI_API_KEY;
-
-      if (!apiKey) {
-        throw new Error("No hay API Key de Gemini configurada.");
-      }
-
-      const systemAuditorPrompt = isTeamScope
-        ? `Eres el Auditor Sénior de Operaciones y Productividad de Sekunet (Costa Rica).
+    const systemPrompt = isTeamScope
+      ? `Eres el Auditor Sénior de Operaciones y Productividad de Sekunet (Costa Rica).
 Genera un INFORME EJECUTIVO GENERAL DEL EQUIPO para la Dirección General, correspondiente a la jornada del ${selectedDate}.
 
 DATOS CONSOLIDADOS DEL EQUIPO:
@@ -200,9 +188,8 @@ ${teamTableSummary}
 TOP SOFTWARE Y APLICACIONES USADAS POR EL EQUIPO:
 ${topAppsStr}
 
-INSTRUCCIONES DE REDACCIÓN:
-1. Redacta de forma formal, ejecutiva, elegante, clara y puntual.
-2. Proporciona un dictamen estructurado en formato JSON con la siguiente estructura exacta:
+INSTRUCCIONES DE FORMATO:
+Responde ÚNICAMENTE un objeto JSON válido (sin markdown ni texto antes o después) con la siguiente estructura:
 {
   "resumen_ejecutivo": "Párrafo conciso y formal evaluando el desempeño operativo global de la empresa hoy.",
   "score_productividad": ${overallScore},
@@ -212,7 +199,7 @@ INSTRUCCIONES DE REDACCIÓN:
   "alertas_observaciones": ["Observación 1", "Observación 2"],
   "recomendacion_gerencial": "Directriz puntual y estratégica para la supervisión y gerencia."
 }`
-        : `Eres el Auditor Sénior de Operaciones de Sekunet (Costa Rica).
+      : `Eres el Auditor Sénior de Operaciones de Sekunet (Costa Rica).
 Genera un DICTAMEN DE AUDITORÍA INDIVIDUAL para el colaborador "${agent_name || agent_email}" en la fecha ${selectedDate}.
 
 DATOS CONSOLIDADOS:
@@ -224,9 +211,8 @@ DATOS CONSOLIDADOS:
 TOP APLICACIONES / TAREAS:
 ${topAppsStr}
 
-INSTRUCCIONES DE REDACCIÓN:
-1. Redacta de forma profesional, clara, precisa y directa al punto.
-2. Proporciona un dictamen estructurado en formato JSON con la siguiente estructura exacta:
+INSTRUCCIONES DE FORMATO:
+Responde ÚNICAMENTE un objeto JSON válido (sin markdown ni texto antes o después) con la siguiente estructura:
 {
   "resumen_ejecutivo": "Evaluación profesional y detallada de la jornada laboral del técnico.",
   "score_productividad": ${overallScore},
@@ -237,45 +223,35 @@ INSTRUCCIONES DE REDACCIÓN:
   "recomendacion_gerencial": "Recomendación constructiva y puntual para mejorar la eficiencia del colaborador."
 }`;
 
-      // Intentar primero con Gemini 2.0 Flash
-      let geminiRes = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ role: "user", parts: [{ text: systemAuditorPrompt }] }],
-            generationConfig: { temperature: 0.2, responseMimeType: "application/json" },
-          }),
-        }
-      );
+    // 4. Llamar a la cadena de modelos configurada en el Panel de Agente IA
+    let briefing: BriefingStructure | null = null;
+    let usedProvider = "deterministic";
+    let usedModel = "internal-engine";
 
-      // Si falla 2.0 Flash, intentar fallback a Gemini 1.5 Flash
-      if (!geminiRes.ok) {
-        console.warn("[ai-briefing] Gemini 2.0 falló, intentando Gemini 1.5 Flash como fallback...");
-        geminiRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [{ role: "user", parts: [{ text: systemAuditorPrompt }] }],
-              generationConfig: { temperature: 0.2, responseMimeType: "application/json" },
-            }),
-          }
-        );
-      }
+    try {
+      const aiResult = await generateText("activity", {
+        system: systemPrompt,
+        messages: [{ role: "user", content: "Genera el informe ejecutivo de auditoría en JSON." }],
+        temperature: 0.2,
+        maxTokens: 2048,
+        timeoutMs: 25000,
+      });
 
-      if (geminiRes.ok) {
-        const aiJson = await geminiRes.json();
-        const rawText = aiJson.candidates?.[0]?.content?.parts?.[0]?.text;
-        briefing = JSON.parse(rawText || "{}");
-      } else {
-        throw new Error("Respuesta inválida de Gemini");
+      if (aiResult && aiResult.text) {
+        usedProvider = aiResult.provider;
+        usedModel = aiResult.modelo;
+        // Limpiar backticks si el modelo los devuelve
+        let cleanJson = aiResult.text.trim();
+        if (cleanJson.startsWith("```json")) cleanJson = cleanJson.replace(/^```json/, "").replace(/```$/, "").trim();
+        else if (cleanJson.startsWith("```")) cleanJson = cleanJson.replace(/^```/, "").replace(/```$/, "").trim();
+        briefing = JSON.parse(cleanJson);
       }
-    } catch (aiErr: any) {
-      console.warn("[ai-briefing] AI API no disponible. Activando motor determinista de respaldo:", aiErr?.message);
-      fallbackUsed = true;
+    } catch (err: any) {
+      console.warn("[ai-briefing] Cadena de IA configurada falló, recurriendo al motor de respaldo:", err?.message);
+    }
+
+    // Si la IA no respondió o devolvió JSON inválido, activar motor determinista
+    if (!briefing || !briefing.resumen_ejecutivo) {
       briefing = generateDeterministicBriefing(
         isTeamScope,
         targetDisplayName,
@@ -292,7 +268,8 @@ INSTRUCCIONES DE REDACCIÓN:
     return NextResponse.json({
       ok: true,
       briefing,
-      fallbackUsed,
+      provider: usedProvider,
+      model: usedModel,
       stats: {
         totalActiveMinutes: activeMin,
         totalIdleMinutes: idleMin,

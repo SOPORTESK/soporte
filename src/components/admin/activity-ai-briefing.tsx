@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { useState, useEffect } from "react";
 import {
@@ -189,8 +189,8 @@ export function ActivityAiBriefing({
             <h3 className="font-extrabold text-sm text-foreground">
               Generador de Informes & Dictamen con IA
             </h3>
-            <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-              Gemini 2.0
+            <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/30">
+              Panel Agente IA
             </span>
           </div>
           <p className="text-xs text-muted-foreground">
