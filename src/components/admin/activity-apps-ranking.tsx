@@ -143,19 +143,20 @@ export function ActivityAppsRanking({ timeline }: Props) {
       .filter((t) => Boolean(t.created_at))
       .sort((a, b) => new Date(a.created_at!).getTime() - new Date(b.created_at!).getTime());
 
-    const IDLE_GAP_MS = 15 * 60 * 1000; // 15 minutos máximo por bloque (tolerancia de taller)
+    const LUNCH_GAP_MS = 30 * 60 * 1000;
 
     for (let i = 0; i < sorted.length; i++) {
       const curr = sorted[i];
-      if (curr.category === "Inactividad") continue;
+      const meta = (curr.metadata || {}) as Record<string, any>;
+      const isExplicitPause = meta.reason === "lock_screen" || meta.reason === "suspend" || curr.category === "Pausa personal";
+      if (isExplicitPause) continue;
 
       const currTime = new Date(curr.created_at!).getTime();
       const nextTime = i < sorted.length - 1 ? new Date(sorted[i + 1].created_at!).getTime() : currTime + 60000;
       const gap = Math.max(0, nextTime - currTime);
-      const effectiveDuration = Math.min(gap, IDLE_GAP_MS);
+      const effectiveDuration = Math.min(gap, LUNCH_GAP_MS);
 
-      const meta = (curr.metadata || {}) as Record<string, any>;
-      const rawApp = meta.app_name || meta.label || (curr.category === "Navegación" ? (meta.page || "Seka Chat") : curr.category) || "Seka Chat";
+      const rawApp = meta.app_name || meta.label || (curr.category === "Navegación" || curr.category === "Inactividad" ? (meta.page || "Seka Chat") : curr.category) || "Seka Chat";
       const appName = cleanAppName(rawApp);
 
       if (!appMap[appName]) {

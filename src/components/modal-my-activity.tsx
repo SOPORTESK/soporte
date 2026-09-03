@@ -83,18 +83,25 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
   const categoryMap: Record<string, { durationMs: number; count: number }> = {};
   let totalActiveMs = 0;
   let totalIdleMs = 0;
-  const IDLE_GAP_MS = 15 * 60 * 1000; // 15 minutos
+  const LUNCH_GAP_MS = 30 * 60 * 1000; // Solo ausencias mayores a 30 minutos continuos se consideran pausa/almuerzo
 
   for (let i = 0; i < sorted.length; i++) {
     const item = sorted[i];
     const currTime = new Date(item.created_at).getTime();
     const nextTime = i < sorted.length - 1 ? new Date(sorted[i + 1].created_at).getTime() : currTime + 60000;
     const gap = Math.max(0, nextTime - currTime);
-
     const meta = (item.metadata || {}) as Record<string, any>;
-    let cat = item.category || "Operación Sekunet";
 
-    if (cat === "Navegación") {
+    // Es pausa real SOLO SI: fue bloqueo de pantalla explícito, suspensión o pausa personal
+    const isExplicitPause = meta.reason === "lock_screen" || meta.reason === "suspend" || item.category === "Pausa personal";
+
+    if (isExplicitPause) {
+      totalIdleMs += Math.min(gap, 60 * 60 * 1000);
+      continue;
+    }
+
+    let cat = item.category || "Operación Sekunet";
+    if (cat === "Navegación" || cat === "Inactividad") {
       const page = meta.page || "";
       if (page.includes("soporte-avanzado")) cat = "Soporte Avanzado (N2)";
       else if (page.includes("smart-inbox")) cat = "Smart Inbox & Casos";
@@ -104,20 +111,17 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
       else cat = "Operación Sekunet";
     }
 
-    if (cat === "Inactividad") {
-      totalIdleMs += Math.min(gap, 15 * 60 * 1000);
-      continue;
-    }
-
-    const effectiveDur = Math.min(gap, IDLE_GAP_MS);
-    totalActiveMs += effectiveDur;
-
-    if (!categoryMap[cat]) categoryMap[cat] = { durationMs: 0, count: 0 };
-    categoryMap[cat].durationMs += effectiveDur;
-    categoryMap[cat].count++;
-
-    if (gap > IDLE_GAP_MS) {
-      totalIdleMs += (gap - IDLE_GAP_MS);
+    if (gap <= LUNCH_GAP_MS) {
+      if (!categoryMap[cat]) categoryMap[cat] = { durationMs: 0, count: 0 };
+      categoryMap[cat].durationMs += gap;
+      categoryMap[cat].count++;
+      totalActiveMs += gap;
+    } else {
+      if (!categoryMap[cat]) categoryMap[cat] = { durationMs: 0, count: 0 };
+      categoryMap[cat].durationMs += LUNCH_GAP_MS;
+      categoryMap[cat].count++;
+      totalActiveMs += LUNCH_GAP_MS;
+      totalIdleMs += (gap - LUNCH_GAP_MS);
     }
   }
 
