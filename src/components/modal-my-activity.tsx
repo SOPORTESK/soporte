@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { logActivity } from "@/lib/activity-client";
+import { extractSmartAppName } from "@/components/admin/activity-apps-ranking";
 
 interface Props {
   isOpen: boolean;
@@ -100,16 +101,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
       continue;
     }
 
-    let cat = item.category || "Operación Sekunet";
-    if (cat === "Navegación" || cat === "Inactividad") {
-      const page = meta.page || "";
-      if (page.includes("soporte-avanzado")) cat = "Soporte Avanzado (N2)";
-      else if (page.includes("smart-inbox")) cat = "Smart Inbox & Casos";
-      else if (page.includes("mi-gestion")) cat = "Mi Bandeja de Gestión";
-      else if (page.includes("admin")) cat = "Panel de Administración";
-      else if (page.includes("inbox")) cat = "Seka Chat (Bandeja)";
-      else cat = "Operación Sekunet";
-    }
+    let cat = extractSmartAppName(item);
 
     if (gap <= LUNCH_GAP_MS) {
       if (!categoryMap[cat]) categoryMap[cat] = { durationMs: 0, count: 0 };

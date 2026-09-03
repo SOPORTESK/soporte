@@ -44,35 +44,45 @@ function getAppIcon(appName: string) {
   return <Globe className="h-4 w-4 text-muted-foreground" />;
 }
 
-function cleanAppName(rawName: string): string {
-  if (!rawName) return "Seka Chat - Plataforma";
-  const name = rawName.trim();
+export function extractSmartAppName(item: TimelineItem): string {
+  const meta = (item.metadata || {}) as Record<string, any>;
+  const action = (item.action || "").toLowerCase();
+  const rawPath = (meta.path || meta.page || "").toLowerCase();
 
-  const routeMap: Record<string, string> = {
-    "/inbox": "Seka Chat - Bandeja",
-    "/smart-inbox": "Seka Chat - Smart Inbox",
-    "/soporte-avanzado": "Soporte Avanzado (N2)",
-    "/mi-gestion": "Mi Bandeja de Gestión",
-    "/admin": "Panel de Administración",
-    "/admin/actividad": "Auditoría y Actividad",
-    "/admin/inventario": "Gestión de Inventario",
-    "/admin/equipo": "Gestión de Equipo",
-    "/admin/agente-ia": "Configuración Agente IA",
-    "/admin/manuales": "Manuales de Procedimiento",
-    "/admin/estadisticas": "Estadísticas y Reportes",
-    "/admin/configuracion": "Configuración General",
-    "/login": "Inicio de Sesión",
-  };
+  // 1. Apps de escritorio / externas explícitas
+  if (meta.app_name) return meta.app_name;
+  if (meta.label) return meta.label;
 
-  if (routeMap[name]) return routeMap[name];
-  if (name.startsWith("/")) {
-    const clean = name.replace(/^\//, "").replace(/-/g, " ");
-    return clean.charAt(0).toUpperCase() + clean.slice(1);
-  }
-  return name;
+  // 2. Por contenido textual de la acción
+  if (action.includes("whatsapp")) return "WhatsApp Desktop";
+  if (action.includes("linkus") || action.includes("llamada")) return "Linkus (Softphone)";
+  if (action.includes("odoo")) return "Odoo ERP";
+  if (action.includes("outlook") || action.includes("correo")) return "Correo / Outlook";
+  if (action.includes("excel")) return "Microsoft Excel";
+  if (action.includes("word")) return "Microsoft Word";
+  if (action.includes("atendió caso") || action.includes("atendiendo caso")) return "Atención de Casos / Chats";
+  if (action.includes("tomó el caso") || action.includes("gestión de casos")) return "Gestión y Asignación de Casos";
+
+  // 3. Por páginas y módulos del sistema
+  if (rawPath.includes("soporte-avanzado") || action.includes("soporte avanzado")) return "Soporte Avanzado (N2)";
+  if (rawPath.includes("smart-inbox") || action.includes("smart inbox")) return "Smart Inbox (IA & Casos)";
+  if (rawPath.includes("mi-gestion") || action.includes("mi bandeja de gestión")) return "Mi Bandeja de Gestión";
+  if (rawPath.includes("inventario") || action.includes("inventario")) return "Gestión de Inventario";
+  if (rawPath.includes("equipo") || action.includes("equipo")) return "Gestión de Equipo";
+  if (rawPath.includes("agente-ia") || action.includes("agente ia")) return "Configuración Agente IA";
+  if (rawPath.includes("actividad") || action.includes("activity tracker") || action.includes("auditoría")) return "Suite de Auditoría y Actividad";
+  if (rawPath.includes("estadisticas") || action.includes("estadística")) return "Estadísticas de Atención";
+  if (rawPath === "/admin" || action.includes("panel admin - resumen")) return "Panel de Administración";
+  if (rawPath.includes("inbox") || action.includes("bandeja de entrada")) return "Seka Chat (Bandeja)";
+
+  // 4. Labores físicas
+  if (action.includes("bodega")) return "Labores de Bodega";
+  if (action.includes("ventanilla") || action.includes("mostrador")) return "Atención en Mostrador";
+  if (action.includes("diagnóstico") || action.includes("diagnostico")) return "Diagnóstico Físico de Taller";
+  return "Seka Chat - Plataforma";
 }
 
-function getProductivityType(appName: string): { label: string; color: string } {
+export function getProductivityType(appName: string): { label: string; color: string } {
   const name = appName.toLowerCase();
 
   // 1. Distracción / No Laboral
@@ -156,8 +166,7 @@ export function ActivityAppsRanking({ timeline }: Props) {
       const gap = Math.max(0, nextTime - currTime);
       const effectiveDuration = Math.min(gap, LUNCH_GAP_MS);
 
-      const rawApp = meta.app_name || meta.label || (curr.category === "Navegación" || curr.category === "Inactividad" ? (meta.page || "Seka Chat") : curr.category) || "Seka Chat";
-      const appName = cleanAppName(rawApp);
+      const appName = extractSmartAppName(curr);
 
       if (!appMap[appName]) {
         appMap[appName] = { durationMs: 0, count: 0 };
