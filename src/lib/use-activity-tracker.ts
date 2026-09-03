@@ -166,7 +166,11 @@ export function useActivityTracker(agentEmail: string, agentName: string, enable
       });
     }
 
+    const isElectron = typeof window !== "undefined" && Boolean((window as any).electronAPI?.isElectron);
+
     const logHeartbeat = () => {
+      // Si está en Electron, el tracker de escritorio nativo ya envía la telemetría del sistema operativo
+      if (isElectron) return;
       if (isIdleRef.current || !hasFocusRef.current) return;
       const now = Date.now();
       const elapsed = now - lastHeartbeatRef.current;
