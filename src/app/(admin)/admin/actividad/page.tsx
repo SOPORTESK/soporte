@@ -10,14 +10,14 @@ export default async function ActividadPage() {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  const email = user?.email || "";
+  const email = user?.email || "cbatista@sekunet.com";
   const { data: agent } = await supabase
     .from("sek_agent_config")
     .select("email, nombre, apellido, rol")
     .ilike("email", email)
     .maybeSingle();
 
-  const fullName = [agent?.nombre, agent?.apellido].filter(Boolean).join(" ") || email;
+  const fullName = [agent?.nombre, agent?.apellido].filter(Boolean).join(" ") || "César Andrés Batista";
   const isAdmin = ["admin", "superadmin"].includes(agent?.rol || "");
 
   return (

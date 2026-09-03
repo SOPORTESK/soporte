@@ -111,8 +111,8 @@ function formatDuration(ms: number | null): string {
 }
 
 export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Props) {
-  const [liveAgents, setLiveAgents] = useState<LiveAgent[]>([]);
-  const [selectedAgent, setSelectedAgent] = useState<string | undefined>(agentEmail);
+  const defaultEmail = agentEmail || "cbatista@sekunet.com";
+  const [selectedAgent, setSelectedAgent] = useState<string | undefined>(defaultEmail);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
   const [activeTab, setActiveTab] = useState<"live" | "timeline" | "screenshots" | "apps" | "briefing">("live");
 
@@ -130,14 +130,16 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
       const data = await res.json();
       if (data.ok && data.agents) {
         setLiveAgents(data.agents);
-        if (!selectedAgent && data.agents.length > 0) {
-          setSelectedAgent(data.agents[0].email);
-        }
+        setSelectedAgent((prev) => {
+          if (prev) return prev;
+          const found = data.agents.find((a: LiveAgent) => a.email.toLowerCase() === defaultEmail.toLowerCase());
+          return found ? found.email : data.agents[0]?.email;
+        });
       }
     } catch (e) {
       console.error("[tracker] error fetching live:", e);
     }
-  }, [selectedAgent]);
+  }, [defaultEmail]);
 
   // Cargar timeline del agente y fecha seleccionados
   const fetchTimeline = useCallback(async () => {
