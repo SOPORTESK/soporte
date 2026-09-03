@@ -8,13 +8,30 @@ const fs = require('fs');
 const os = require('os');
 
 // Lazy load native modules — el tracker funciona parcialmente si alguno falla
-let activeWin = null;
+let _activeWinFn = null;
+async function getActiveWindow() {
+  if (!_activeWinFn) {
+    try {
+      const mod = await import('active-win');
+      _activeWinFn = mod.default || mod;
+    } catch (e) {
+      _activeWinFn = null;
+    }
+  }
+  if (typeof _activeWinFn === 'function') {
+    try {
+      const w = await _activeWinFn();
+      if (w && (w.owner?.name || w.title)) return w;
+    } catch (e) {}
+  }
+  return null;
+}
+
 let uIOhook = null;
 let UiohookKey = null;
 let screenshot = null;
 let Database = null;
 
-try { activeWin = require('active-win'); } catch (e) { console.log('[tracker] active-win no disponible:', e.message); }
 try {
   const uio = require('uiohook-napi');
   uIOhook = uio.uIOhook;
@@ -217,7 +234,7 @@ async function syncDB() {
 
 // ─── ACTIVE WINDOW POLLING ────────────────────────────────────────────────────
 async function pollActivity() {
-  if (!activeWin || !_agentEmail) return;
+  if (!_agentEmail) return;
   try {
     // Idle detection via powerMonitor
     const idleSec = powerMonitor.getSystemIdleTime ? powerMonitor.getSystemIdleTime() : 0;
@@ -226,12 +243,12 @@ async function pollActivity() {
       if (_lastApp) {
         const dwellSec = Math.round((Date.now() - _appEnterTime) / 1000);
         const { category, label } = categorizeApp(_lastApp, _lastTitle);
-        await sendLog(`Sin actividad por 5 minutos mientras "${label}" estaba abierta`, 'Inactividad', { app: _lastApp, title: (_lastTitle || '').substring(0, 100), dwell_seconds: dwellSec });
+        await sendLog(`Sin actividad por 15 minutos mientras "${label}" estaba abierta`, 'Inactividad', { app: _lastApp, title: (_lastTitle || '').substring(0, 100), dwell_seconds: dwellSec });
       }
       return;
     }
 
-    const win = await activeWin();
+    const win = await getActiveWindow();
     if (!win) {
       if (!_isIdle && _lastApp) {
         const dwellSec = Math.round((Date.now() - _appEnterTime) / 1000);
