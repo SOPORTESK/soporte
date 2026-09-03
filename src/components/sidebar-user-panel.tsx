@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Camera, Lock, Eye, EyeOff, Check, X, ChevronUp, Circle, LogOut, Activity as ActivityIcon, FileText, ChevronRight, X as XIcon, RefreshCw, Wrench, Coffee, Timer } from "lucide-react";
+import { Camera, Lock, Eye, EyeOff, Check, X, ChevronUp, Circle, LogOut, Activity as ActivityIcon, FileText, ChevronRight, X as XIcon, RefreshCw, Wrench, Coffee, Timer, BarChart3 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { logActivity } from "@/lib/activity-client";
+import { ModalMyActivity } from "@/components/modal-my-activity";
 
 interface Agent {
   email: string;
@@ -28,9 +29,8 @@ interface OnlineAgent {
 const STATUS_LABELS: Record<string, { label: string; color: string; icon?: string }> = {
   online:  { label: "En línea",      color: "bg-emerald-500" },
   away:    { label: "Ausente",       color: "bg-amber-400" },
-  busy:    { label: "Ocupado",       color: "bg-red-500" },
-  lunch:   { label: "Almorzando",    color: "bg-orange-400" },
-  offline: { label: "Desconectado",  color: "bg-zinc-400" },
+  busy:    { label: "Ocupado",       color: "bg-rose-500" },
+  offline: { label: "Desconectado",  color: "bg-gray-400" },
 };
 
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutos
@@ -82,9 +82,7 @@ export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; online
   const supabase = createClient();
   const fullName = [agent.nombre, agent.apellido].filter(Boolean).join(" ") || agent.email;
   const [myMetrics, setMyMetrics] = useState<any>(null);
-  const [showReportModal, setShowReportModal] = useState(false);
-  const [myReport, setMyReport] = useState<string>("");
-  const [loadingReport, setLoadingReport] = useState(false);
+  const [showActivityModal, setShowActivityModal] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [elapsed, setElapsed] = useState("");
@@ -189,30 +187,6 @@ export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; online
       .then(r => r.json())
       .then(d => setMyMetrics(d))
       .catch(() => {});
-  };
-
-  const handleMyReport = async () => {
-    setLoadingReport(true);
-    setShowReportModal(true);
-    setMyReport("");
-    try {
-      const res = await fetch("/api/activity/process", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ agent_email: agent.email, agent_name: fullName, date: new Date().toISOString().split("T")[0] }),
-      });
-      const data = await res.json();
-      if (data.report) {
-        const r = data.report;
-        setMyReport(`${r.resumen_ejecutivo || ""}\n\n--- Línea de tiempo ---\n${r.linea_tiempo || ""}\n\n--- Métricas ---\n${r.metricas || ""}\n\n--- Interpretación ---\n${r.interpretacion || ""}`);
-      } else {
-        setMyReport("No hay suficientes datos para generar un reporte.");
-      }
-    } catch (e) {
-      setMyReport("Error al generar el reporte.");
-    } finally {
-      setLoadingReport(false);
-    }
   };
 
   // Marcar online al montar + auto-away por inactividad + heartbeat
@@ -527,12 +501,12 @@ export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; online
                   {syncing ? "Sincronizando..." : "Sincronizar"}
                 </button>
                 <button
-                  onClick={handleMyReport}
+                  onClick={() => setShowActivityModal(true)}
                   className="flex items-center justify-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl border border-border bg-card hover:bg-muted text-foreground transition-colors"
-                  title="Mi reporte del día"
+                  title="Ver mi actividad diaria y justificar tiempos"
                 >
-                  <FileText className="h-3.5 w-3.5 text-violet-500" />
-                  Mi reporte IA
+                  <BarChart3 className="h-3.5 w-3.5 text-violet-500" />
+                  Mi Actividad
                 </button>
               </div>
             </div>
@@ -540,27 +514,13 @@ export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; online
         </div>
       )}
 
-      {/* Modal: Mi reporte IA */}
-      {showReportModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowReportModal(false)}>
-          <div className="bg-card border border-border rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-              <h3 className="text-sm font-bold">Mi reporte de actividad</h3>
-              <button onClick={() => setShowReportModal(false)} className="p-1 rounded-lg hover:bg-muted/50"><XIcon className="h-4 w-4" /></button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4">
-              {loadingReport ? (
-                <div className="flex flex-col items-center justify-center py-12">
-                  <div className="h-6 w-6 border-2 border-violet-500 border-t-transparent rounded-full animate-spin mb-3" />
-                  <p className="text-sm text-muted-foreground">Generando reporte con IA...</p>
-                </div>
-              ) : (
-                <div className="text-sm whitespace-pre-wrap leading-relaxed">{myReport}</div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Modal: Mi Actividad Diaria & Justificación */}
+      <ModalMyActivity
+        isOpen={showActivityModal}
+        onClose={() => setShowActivityModal(false)}
+        agentEmail={agent.email}
+        agentName={fullName}
+      />
 
       {/* Barra inferior siempre visible */}
       <div className="p-3 space-y-2">
