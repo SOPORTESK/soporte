@@ -14,11 +14,17 @@ function get(obj: any, path: string) {
   return path.split(".").reduce((o, k) => (o && o[k] !== undefined ? o[k] : undefined), obj);
 }
 
-function jidToPhone(jid: string | null | undefined): string | null {
+function jidToPhone(jid: string | null | undefined, rawMsg?: any): string | null {
+  if (rawMsg) {
+    const pn = rawMsg.key?.senderPn || rawMsg.senderPn;
+    if (pn && String(pn).endsWith("@s.whatsapp.net")) {
+      return String(pn).replace("@s.whatsapp.net", "").replace(/[^0-9]/g, "");
+    }
+  }
   if (!jid) return null;
   const s = String(jid);
   if (s.endsWith("@s.whatsapp.net")) return s.replace("@s.whatsapp.net", "");
-  if (s.endsWith("@lid")) return null; // LID opaco, no se puede resolver aquí
+  if (s.endsWith("@lid")) return null;
   const m = s.match(/^(\d+)@/);
   return m ? m[1] : null;
 }

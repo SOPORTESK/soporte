@@ -623,11 +623,12 @@ async function extractJid(payload: any, evoUrl: string, evoKey: string, evoInsta
 
   if (!rawJid) return null;
 
-  // Si es un LID (Linked Identity), intentamos resolverlo al JID real (@s.whatsapp.net)
+  // Si es un LID (Linked Identity), resolverlo de inmediato con senderPn
   if (String(rawJid).endsWith("@lid")) {
-    if (possiblePnJid && String(possiblePnJid).endsWith("@s.whatsapp.net")) {
-      console.log("[evo-webhook] LID resuelto por payload alternativo a JID real:", possiblePnJid);
-      return possiblePnJid;
+    const directPn = get(msg, "key.senderPn") || get(msg, "senderPn") || get(payload, "data.key.senderPn") || get(payload, "data.senderPn") || get(payload, "senderPn") || possiblePnJid;
+    if (directPn && String(directPn).endsWith("@s.whatsapp.net")) {
+      console.log("[evo-webhook] LID resuelto instantáneamente con senderPn:", directPn);
+      return String(directPn);
     }
     
     try {
