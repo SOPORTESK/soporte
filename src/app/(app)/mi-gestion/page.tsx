@@ -45,7 +45,7 @@ export default async function MiGestionPage({ searchParams }: { searchParams: { 
         .eq("assigned_to", agentEmail)
         .order("last_message_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false })
-        .limit(1000);
+        .limit(60);
       return { data, error };
     },
     []

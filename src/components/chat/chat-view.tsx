@@ -666,13 +666,14 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
             const merged = { ...prev, ...update };
             return hashOf(prev) === hashOf(merged) ? prev : merged;
           });
-          // Marcar mensajes del cliente sin read_at como leídos (agente tiene el chat abierto).
-          // Se usa RPC atómica para evitar race conditions: si llega un mensaje nuevo durante
-          // la lectura/escritura, la función lo conserva al bloquear la fila y re-leer el array.
-          try {
-            await supabase.rpc("mark_histcliente_read", { p_case_id: String(targetId), p_reader_email: agentEmail || undefined });
-          } catch (err: any) {
-            console.error("[chat-view] mark_histcliente_read error:", err?.message || err);
+          // Marcar mensajes del cliente sin read_at como leídos (solo si hay mensajes sin leer)
+          const hasUnread = Array.isArray(data.histcliente) && data.histcliente.some((m: any) => !m.read_at);
+          if (hasUnread) {
+            try {
+              await supabase.rpc("mark_histcliente_read", { p_case_id: String(targetId), p_reader_email: agentEmail || undefined });
+            } catch (err: any) {
+              console.error("[chat-view] mark_histcliente_read error:", err?.message || err);
+            }
           }
         }
       } catch (e) {
@@ -682,8 +683,8 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       }
     };
 
-    /* Polling de respaldo cada 10s con campos mínimos */
-    const poll = setInterval(doPoll, 15000);
+    /* Polling de respaldo cada 25s con campos mínimos */
+    const poll = setInterval(doPoll, 25000);
 
     /* Refetch inmediato al volver a la pestaña/ventana. Cubre el caso donde el
        navegador o el sistema operativo pausó los timers en segundo plano (pestaña

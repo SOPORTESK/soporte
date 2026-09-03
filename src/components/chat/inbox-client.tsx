@@ -545,19 +545,14 @@ export function InboxClient({
           prevMergedRef.current = newMerged;
         })
       .subscribe();
-    /* Polling de respaldo cada 30s con metadatos ligeros */
+    /* Polling de respaldo cada 45s con metadatos ligeros */
     const poll = setInterval(async () => {
       try {
         // Guard: no sobrescribir casos si agentEmail no está listo (Mi Gestión)
         if (containerType === "mi-gestion" && !agentEmail) return;
-        // Para Mi Gestión, fetchar solo casos del agente
         const fetchEmail = containerType === "mi-gestion" ? (agentEmail || undefined) : undefined;
-        const newCases = await fetchCasesMeta(supabase, 200, fetchEmail);
-        if (!fetchEmail) setAllCases(newCases);
-        else {
-          const allNew = await fetchCasesMeta(supabase, 200);
-          setAllCases(allNew);
-        }
+        const newCases = await fetchCasesMeta(supabase, 100, fetchEmail);
+        setAllCases(newCases);
         const filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail, agentName);
         // Preservar caso seleccionado aunque no pase el filtro (ej: caso outbound nuevo sin assigned_to aún)
         const currentSelected = selectedId ? (
@@ -585,7 +580,7 @@ export function InboxClient({
       } catch (e) {
         console.error("[inbox] fetchCasesMeta error:", e);
       }
-    }, 30000);
+    }, 45000);
 
     return () => { clearInterval(poll); supabase.removeChannel(channel); };
   }, [supabase, selectedId, containerType, agentEmail, agentName, selectCase]);
