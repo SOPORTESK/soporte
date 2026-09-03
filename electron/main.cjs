@@ -1,8 +1,13 @@
-// ─── ELECTRON MAIN — Shell que carga sekachat.vercel.app ───────────────────────
+﻿// ─── ELECTRON MAIN — Shell robusto para Sekunet Chat ───────────────────────────
 const { app, BrowserWindow, Notification, ipcMain, shell, Menu, session, dialog } = require('electron');
 const path = require('path');
 const fs   = require('fs');
 const { autoUpdater } = require('electron-updater');
+
+// Desactivar aceleración por hardware en Windows para evitar pantallas negras/azules por GPU
+app.disableHardwareAcceleration();
+app.commandLine.appendSwitch('disable-gpu');
+app.commandLine.appendSwitch('disable-software-rasterizer');
 
 // ─── ACTIVITY TRACKER (global desktop-level) ──────────────────────────────────
 const { startDesktopTracking, stopDesktopTracking } = require('./tracker.cjs');
@@ -13,6 +18,8 @@ ipcMain.on('activity-stop', () => stopDesktopTracking());
 
 const PROD_URL = 'https://sekachat.vercel.app';
 const DEV_URL  = 'http://localhost:3100';
+
+const isDev = !app.isPackaged && process.env.NODE_ENV === 'development';
 
 const APP_ICON = fs.existsSync(path.join(__dirname, '../public/logo.ico'))
   ? path.join(__dirname, '../public/logo.ico')
@@ -26,6 +33,51 @@ process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true';
 
 let win = null;
 
+function getErrorHTML(url, errorDesc) {
+  return `data:text/html;charset=utf-8,` + encodeURIComponent(`
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>Soporte Sekunet - Reconectando</title>
+        <style>
+          * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+          body { background: #090d16; color: #f1f5f9; display: flex; align-items: center; justify-content: center; height: 100vh; padding: 20px; }
+          .card { background: #131b2e; border: 1px solid #233152; border-radius: 20px; padding: 40px 32px; max-width: 480px; text-align: center; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); }
+          .icon { width: 56px; height: 56px; background: rgba(124, 58, 237, 0.15); border: 1px solid rgba(124, 58, 237, 0.3); border-radius: 16px; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 20px; color: #a78bfa; font-size: 24px; }
+          h2 { font-size: 18px; font-weight: 800; margin-bottom: 8px; color: #fff; }
+          p { font-size: 13px; color: #94a3b8; line-height: 1.5; margin-bottom: 24px; }
+          .btn-group { display: flex; gap: 10px; justify-content: center; }
+          button { background: #7c3aed; color: #fff; border: none; padding: 12px 24px; border-radius: 12px; font-size: 13px; font-weight: 700; cursor: pointer; transition: 0.2s; }
+          button:hover { background: #6d28d9; }
+          .btn-sec { background: #1e293b; color: #cbd5e1; border: 1px solid #334155; }
+          .btn-sec:hover { background: #334155; color: #fff; }
+          .timer { font-size: 11px; color: #64748b; margin-top: 16px; }
+        </style>
+      </head>
+      <body>
+        <div class="card">
+          <div class="icon">⚡</div>
+          <h2>Conectando con Soporte Sekunet</h2>
+          <p>No se pudo conectar inmediatamente con el servidor (${errorDesc}). Reintentando automáticamente...</p>
+          <div class="btn-group">
+            <button onclick="window.location.href='${PROD_URL}'">Ir a Producción (Vercel)</button>
+            <button class="btn-sec" onclick="window.location.href='${DEV_URL}'">Reintentar Local</button>
+          </div>
+          <div class="timer" id="count">Reintentando en <span id="sec">5</span> segundos...</div>
+        </div>
+        <script>
+          let s = 5;
+          setInterval(() => {
+            s--;
+            if (s > 0) document.getElementById('sec').innerText = s;
+            else window.location.href = '${PROD_URL}';
+          }, 1000);
+        </script>
+      </body>
+    </html>
+  `);
+}
+
 function createWindow() {
   win = new BrowserWindow({
     width          : 1400,
@@ -34,25 +86,30 @@ function createWindow() {
     minHeight      : 600,
     title          : 'Soporte Sekunet',
     icon           : APP_ICON,
-    backgroundColor: '#0f172a',
+    backgroundColor: '#090d16',
+    show           : false, // Esperar a ready-to-show para evitar flash
     webPreferences : {
       preload         : path.join(__dirname, 'preload.cjs'),
       nodeIntegration : false,
       contextIsolation: true,
       partition       : 'persist:sekunet',
+      backgroundThrottling: false, // No suspender procesos en segundo plano
     },
   });
 
-  // Limpiar cache HTTP al iniciar para que siempre cargue la versión más
-  // reciente de sekachat.vercel.app. Sin esto, Chromium cachea los JS
-  // bundles y el usuario ve código viejo incluso después de un deploy.
+  win.once('ready-to-show', () => {
+    win.show();
+  });
+
+  const targetURL = isDev ? DEV_URL : PROD_URL;
+
+  // Cargar URL
   const ses = win.webContents.session;
   ses.clearCache().then(() => {
-    console.log('[electron] Cache HTTP limpiado, cargando URL...');
-    win.loadURL(isDev ? DEV_URL : PROD_URL);
-  }).catch((err) => {
-    console.error('[electron] Error limpiando cache:', err);
-    win.loadURL(isDev ? DEV_URL : PROD_URL);
+    console.log(`[electron] Cargando ${targetURL}...`);
+    win.loadURL(targetURL);
+  }).catch(() => {
+    win.loadURL(targetURL);
   });
 
   // Hard reload con Ctrl+Shift+R (ignora cache)
@@ -60,6 +117,10 @@ function createWindow() {
     if (input.key === 'R' && (input.control || input.meta) && input.shift) {
       console.log('[electron] Hard reload (Ctrl+Shift+R)');
       win.webContents.reloadIgnoringCache();
+      event.preventDefault();
+    }
+    if (input.key === 'F5' || (input.key === 'r' && (input.control || input.meta))) {
+      win.webContents.reload();
       event.preventDefault();
     }
   });
@@ -72,106 +133,59 @@ function createWindow() {
 
   // Links externos se abren en el navegador del sistema
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (!url.startsWith('https://sekachat.vercel.app')) {
+    if (!url.startsWith('https://sekachat.vercel.app') && !url.startsWith('http://localhost')) {
       shell.openExternal(url);
       return { action: 'deny' };
     }
     return { action: 'allow' };
   });
 
-  // ─── MANEJO DE ERRORES Y AUTO-RECARGA ──────────────────────────────────────
+  // ─── MANEJO DE ERRORES Y AUTO-RECUPERACIÓN ─────────────────────────────────
   let reloadAttempts = 0;
   const MAX_RELOAD_ATTEMPTS = 5;
-  const RELOAD_COOLDOWN = 10000; // 10s entre intentos
 
-  // La pagina fallo al cargar (timeout, red caida, DNS, etc)
   win.webContents.on('did-fail-load', (_, errorCode, errorDescription, validatedURL) => {
-    if (errorCode === -3) return; // ERR_ABORTED — recarga normal, ignorar
+    if (errorCode === -3) return; // ERR_ABORTED — navegación normal
     console.error(`[did-fail-load] ${errorCode}: ${errorDescription} | URL: ${validatedURL}`);
-    if (reloadAttempts < MAX_RELOAD_ATTEMPTS) {
+    
+    // Si falló el localhost, cambiar a producción automáticamente
+    if (validatedURL.includes('localhost') && reloadAttempts < 2) {
       reloadAttempts++;
-      console.log(`[auto-reload] intento ${reloadAttempts}/${MAX_RELOAD_ATTEMPTS} en ${RELOAD_COOLDOWN/1000}s...`);
+      console.log('[electron] Localhost no disponible, cambiando a producción (Vercel)...');
       setTimeout(() => {
-        if (win && !win.isDestroyed()) {
-          win.loadURL(isDev ? DEV_URL : PROD_URL);
-        }
-      }, RELOAD_COOLDOWN);
+        if (win && !win.isDestroyed()) win.loadURL(PROD_URL);
+      }, 1000);
+      return;
+    }
+
+    // Inyectar pantalla visual de reconexión
+    if (win && !win.isDestroyed()) {
+      win.loadURL(getErrorHTML(validatedURL, errorDescription));
     }
   });
 
-  // La pagina termino de cargar — resetear contador
   win.webContents.on('did-finish-load', () => {
-    if (reloadAttempts > 0) {
-      console.log(`[auto-reload] pagina cargada OK despues de ${reloadAttempts} intento(s)`);
-    }
     reloadAttempts = 0;
   });
 
-  // El proceso de renderizado se cerro o crasheo (pantalla negra)
+  // Si el proceso de renderizado crashea
   win.webContents.on('render-process-gone', (_, details) => {
     console.error(`[render-process-gone] reason: ${details.reason} | exitCode: ${details.exitCode}`);
-    if (reloadAttempts < MAX_RELOAD_ATTEMPTS) {
-      reloadAttempts++;
-      console.log(`[auto-reload] render-process-gone, recargando en ${RELOAD_COOLDOWN/1000}s (intento ${reloadAttempts})...`);
-      setTimeout(() => {
-        if (win && !win.isDestroyed()) {
-          win.loadURL(isDev ? DEV_URL : PROD_URL);
-        }
-      }, RELOAD_COOLDOWN);
-    } else {
-      console.error('[auto-reload] maximo de intentos alcanzado, no se recarga mas');
-      dialog.showErrorBox(
-        'Soporte Sekunet - Error',
-        'La aplicacion crasheo multiples veces y no se pudo recuperar.\n\nPor favor cierre y vuelva a abrir la aplicacion.'
-      );
-    }
+    setTimeout(() => {
+      if (win && !win.isDestroyed()) {
+        win.loadURL(PROD_URL);
+      }
+    }, 2000);
   });
 
-  // La pagina no responde (congelada)
+  // Si la pagina se congela
   win.webContents.on('unresponsive', () => {
-    console.error('[unresponsive] la pagina dejo de responder');
-    if (Notification.isSupported()) {
-      new Notification({
-        title: 'Soporte Sekunet',
-        body: 'La aplicacion no responde. Recargando automaticamente...',
-        icon: APP_ICON,
-      }).show();
-    }
+    console.error('[unresponsive] la pagina dejo de responder, recargando...');
     setTimeout(() => {
       if (win && !win.isDestroyed()) {
         win.webContents.reload();
       }
     }, 3000);
-  });
-
-  // El proceso GPU crasheo (causa comum de pantalla negra en Electron)
-  app.on('gpu-process-crashed', (_, killed) => {
-    console.error(`[gpu-process-crashed] killed: ${killed}`);
-  });
-
-  // Detectar si la pagina se queda en blanco despues de cargar
-  // (pasa cuando React crashea y no renderiza nada)
-  let blankCheckTimer = null;
-  win.webContents.on('did-finish-load', () => {
-    if (blankCheckTimer) clearTimeout(blankCheckTimer);
-    blankCheckTimer = setTimeout(async () => {
-      if (!win || win.isDestroyed()) return;
-      try {
-        // Verificar si el body esta vacio o solo tiene el background
-        const result = await win.webContents.executeJavaScript(`
-          document.body && document.body.innerHTML
-            ? document.body.innerHTML.length
-            : 0
-        `);
-        if (result < 100) {
-          console.error(`[blank-check] body casi vacio (${result} chars), recargando...`);
-          win.webContents.reload();
-        }
-      } catch (e) {
-        // executeJavaScript puede fallar si el renderer ya no existe
-        console.error('[blank-check] no se pudo inspeccionar:', e.message);
-      }
-    }, 5000);
   });
 }
 
@@ -179,32 +193,36 @@ function createWindow() {
 function setupAutoUpdater() {
   if (isDev) return;
 
-  autoUpdater.checkForUpdatesAndNotify();
+  try {
+    autoUpdater.checkForUpdatesAndNotify();
 
-  autoUpdater.on('update-available', () => {
-    if (Notification.isSupported()) {
-      new Notification({
-        title: '🔄 Actualización disponible',
-        body : 'Descargando la nueva versión de Soporte Sekunet...',
-        icon : APP_ICON,
-      }).show();
-    }
-  });
-
-  autoUpdater.on('update-downloaded', () => {
-    dialog.showMessageBox(win, {
-      type   : 'info',
-      title  : 'Actualización lista',
-      message: 'Se descargó una nueva versión. ¿Instalar y reiniciar ahora?',
-      buttons: ['Instalar ahora', 'Más tarde'],
-    }).then(({ response }) => {
-      if (response === 0) autoUpdater.quitAndInstall();
+    autoUpdater.on('update-available', () => {
+      if (Notification.isSupported()) {
+        new Notification({
+          title: '🔄 Actualización disponible',
+          body : 'Descargando la nueva versión de Soporte Sekunet...',
+          icon : APP_ICON,
+        }).show();
+      }
     });
-  });
 
-  autoUpdater.on('error', (err) => {
-    console.error('[updater] Error:', err.message);
-  });
+    autoUpdater.on('update-downloaded', () => {
+      dialog.showMessageBox(win, {
+        type   : 'info',
+        title  : 'Actualización lista',
+        message: 'Se descargó una nueva versión. ¿Instalar y reiniciar ahora?',
+        buttons: ['Instalar ahora', 'Más tarde'],
+      }).then(({ response }) => {
+        if (response === 0) autoUpdater.quitAndInstall();
+      });
+    });
+
+    autoUpdater.on('error', (err) => {
+      console.error('[updater] Error:', err.message);
+    });
+  } catch (e) {
+    console.error('[updater] init error:', e);
+  }
 }
 
 // ─── IPC ──────────────────────────────────────────────────────────────────────
@@ -215,7 +233,7 @@ ipcMain.on('abrir-impersonar', (_, { url, nombre }) => {
     width: 1400, height: 900, minWidth: 900, minHeight: 600,
     title: `Vista: ${nombre}`,
     icon: APP_ICON,
-    backgroundColor: '#0f172a',
+    backgroundColor: '#090d16',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       nodeIntegration: false,
@@ -225,23 +243,11 @@ ipcMain.on('abrir-impersonar', (_, { url, nombre }) => {
   });
   impWin.loadURL(url);
   impWin.webContents.setWindowOpenHandler(({ url: u }) => {
-    if (!u.startsWith('https://sekachat.vercel.app')) { shell.openExternal(u); return { action: 'deny' }; }
+    if (!u.startsWith('https://sekachat.vercel.app') && !u.startsWith('http://localhost')) { 
+      shell.openExternal(u); 
+      return { action: 'deny' }; 
+    }
     return { action: 'allow' };
-  });
-
-  // Auto-recargar si crashea
-  impWin.webContents.on('render-process-gone', (_, details) => {
-    console.error(`[imp-render-process-gone] reason: ${details.reason}`);
-    setTimeout(() => {
-      if (impWin && !impWin.isDestroyed()) impWin.loadURL(url);
-    }, 5000);
-  });
-  impWin.webContents.on('did-fail-load', (_, errorCode, errorDescription) => {
-    if (errorCode === -3) return;
-    console.error(`[imp-did-fail-load] ${errorCode}: ${errorDescription}`);
-    setTimeout(() => {
-      if (impWin && !impWin.isDestroyed()) impWin.loadURL(url);
-    }, 5000);
   });
 });
 
@@ -304,7 +310,8 @@ app.whenReady().then(() => {
         { role: 'zoomIn',    label: 'Acercar',     accelerator: 'CmdOrCtrl+=' },
         { role: 'zoomOut',   label: 'Alejar',      accelerator: 'CmdOrCtrl+-' },
         { role: 'resetZoom', label: 'Zoom normal', accelerator: 'CmdOrCtrl+0' },
-        ...(isDev ? [{ type: 'separator' }, { role: 'toggleDevTools', label: 'DevTools' }] : [{ type: 'separator' }, { role: 'toggleDevTools', label: 'Consola (DevTools)', accelerator: 'F12' }]),
+        { type: 'separator' },
+        { role: 'toggleDevTools', label: 'Consola (DevTools)', accelerator: 'F12' },
       ],
     },
     {
