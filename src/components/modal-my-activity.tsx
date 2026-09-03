@@ -90,7 +90,19 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
     const currTime = new Date(item.created_at).getTime();
     const nextTime = i < sorted.length - 1 ? new Date(sorted[i + 1].created_at).getTime() : currTime + 60000;
     const gap = Math.max(0, nextTime - currTime);
-    const cat = item.category || "Navegación";
+
+    const meta = (item.metadata || {}) as Record<string, any>;
+    let cat = item.category || "Operación Sekunet";
+
+    if (cat === "Navegación") {
+      const page = meta.page || "";
+      if (page.includes("soporte-avanzado")) cat = "Soporte Avanzado (N2)";
+      else if (page.includes("smart-inbox")) cat = "Smart Inbox & Casos";
+      else if (page.includes("mi-gestion")) cat = "Mi Bandeja de Gestión";
+      else if (page.includes("admin")) cat = "Panel de Administración";
+      else if (page.includes("inbox")) cat = "Seka Chat (Bandeja)";
+      else cat = "Operación Sekunet";
+    }
 
     if (cat === "Inactividad") {
       totalIdleMs += Math.min(gap, 15 * 60 * 1000);

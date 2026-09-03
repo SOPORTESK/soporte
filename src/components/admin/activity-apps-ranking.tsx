@@ -44,15 +44,83 @@ function getAppIcon(appName: string) {
   return <Globe className="h-4 w-4 text-muted-foreground" />;
 }
 
+function cleanAppName(rawName: string): string {
+  if (!rawName) return "Seka Chat - Plataforma";
+  const name = rawName.trim();
+
+  const routeMap: Record<string, string> = {
+    "/inbox": "Seka Chat - Bandeja",
+    "/smart-inbox": "Seka Chat - Smart Inbox",
+    "/soporte-avanzado": "Soporte Avanzado (N2)",
+    "/mi-gestion": "Mi Bandeja de Gestión",
+    "/admin": "Panel de Administración",
+    "/admin/actividad": "Auditoría y Actividad",
+    "/admin/inventario": "Gestión de Inventario",
+    "/admin/equipo": "Gestión de Equipo",
+    "/admin/agente-ia": "Configuración Agente IA",
+    "/admin/manuales": "Manuales de Procedimiento",
+    "/admin/estadisticas": "Estadísticas y Reportes",
+    "/admin/configuracion": "Configuración General",
+    "/login": "Inicio de Sesión",
+  };
+
+  if (routeMap[name]) return routeMap[name];
+  if (name.startsWith("/")) {
+    const clean = name.replace(/^\//, "").replace(/-/g, " ");
+    return clean.charAt(0).toUpperCase() + clean.slice(1);
+  }
+  return name;
+}
+
 function getProductivityType(appName: string): { label: string; color: string } {
   const name = appName.toLowerCase();
-  if (name.includes("youtube") || name.includes("spotify") || name.includes("facebook") || name.includes("instagram") || name.includes("tiktok") || name.includes("juegos") || name.includes("steam")) {
-    return { label: "Distracción", color: "bg-rose-500/15 text-rose-400 border-rose-500/30" };
+
+  // 1. Distracción / No Laboral
+  if (
+    name.includes("youtube") ||
+    name.includes("spotify") ||
+    name.includes("facebook") ||
+    name.includes("instagram") ||
+    name.includes("tiktok") ||
+    name.includes("juegos") ||
+    name.includes("steam") ||
+    name.includes("netflix")
+  ) {
+    return { label: "No Laboral", color: "bg-rose-500/15 text-rose-400 border-rose-500/30" };
   }
-  if (name.includes("whatsapp") || name.includes("linkus") || name.includes("odoo") || name.includes("seka") || name.includes("sekunet") || name.includes("outlook") || name.includes("excel") || name.includes("word") || name.includes("garant")) {
-    return { label: "Productiva", color: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" };
+
+  // 2. Taller / Soporte Presencial
+  if (
+    name.includes("bodega") ||
+    name.includes("diagnóstico") ||
+    name.includes("diagnostico") ||
+    name.includes("ventanilla") ||
+    name.includes("mostrador") ||
+    name.includes("taller") ||
+    name.includes("limpieza") ||
+    name.includes("física") ||
+    name.includes("fisica") ||
+    name.includes("justificación") ||
+    name.includes("justificacion")
+  ) {
+    return { label: "Taller Físico", color: "bg-amber-500/15 text-amber-400 border-amber-500/30" };
   }
-  return { label: "Neutra", color: "bg-amber-500/15 text-amber-400 border-amber-500/30" };
+
+  // 3. Administrativa
+  if (
+    name.includes("administra") ||
+    name.includes("admin") ||
+    name.includes("inventario") ||
+    name.includes("equipo") ||
+    name.includes("manuales") ||
+    name.includes("configura") ||
+    name.includes("auditor")
+  ) {
+    return { label: "Administrativa", color: "bg-violet-500/15 text-violet-400 border-violet-500/30" };
+  }
+
+  // 4. Operativa / Productiva
+  return { label: "Operativa", color: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" };
 }
 
 function formatDuration(ms: number): string {
@@ -87,7 +155,8 @@ export function ActivityAppsRanking({ timeline }: Props) {
       const effectiveDuration = Math.min(gap, IDLE_GAP_MS);
 
       const meta = (curr.metadata || {}) as Record<string, any>;
-      const appName = meta.app_name || meta.label || (curr.category === "Navegación" ? (meta.page || "Seka Chat") : curr.category) || "Plataforma Sekunet";
+      const rawApp = meta.app_name || meta.label || (curr.category === "Navegación" ? (meta.page || "Seka Chat") : curr.category) || "Seka Chat";
+      const appName = cleanAppName(rawApp);
 
       if (!appMap[appName]) {
         appMap[appName] = { durationMs: 0, count: 0 };
