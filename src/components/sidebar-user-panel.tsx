@@ -195,13 +195,10 @@ export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; online
     const handleUnload = () => navigator.sendBeacon("/api/profile/status", JSON.stringify({ status: "offline" }));
     window.addEventListener("beforeunload", handleUnload);
 
-    // Heartbeat cada 30s para mantener last_seen_at actualizado
+    // Heartbeat cada 2 minutos (era 30s — causaba acumulación de queries bloqueadas)
     const heartbeat = setInterval(() => {
-      fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online" }) }).catch(() => {});
-    }, 30000);
-
-    // Refrescar lista de agentes online cada 60s
-    const refreshAgents = setInterval(() => router.refresh(), 60000);
+      fetch("/api/profile/status", { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online" }) }).catch(() => {});
+    }, 120000);
 
     // Idle timer — auto switch to "away" after inactivity
     let idleTimer: ReturnType<typeof setTimeout>;
@@ -240,7 +237,6 @@ export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; online
       events.forEach(e => window.removeEventListener(e, resetIdle));
       clearTimeout(idleTimer);
       clearInterval(heartbeat);
-      clearInterval(refreshAgents);
     };
   }, []);
 

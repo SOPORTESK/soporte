@@ -41,23 +41,8 @@ export function ActivityTrackerProvider({
         if (typeof electronAPI.activityStop === "function") electronAPI.activityStop();
       };
     } else {
-      // Web/local: intentar desktop-agent via API (solo funciona en local)
-      const startDesktopAgent = async () => {
-        try {
-          await fetch("/api/activity/desktop-agent", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              action: "start",
-              agent_email: agentEmail,
-              agent_name: agentName,
-            }),
-          });
-        } catch (e) {
-          // Silencioso - no romper si no está disponible
-        }
-      };
-      startDesktopAgent();
+      // Desktop-agent desactivado desde navegador para evitar sobrecarga de procesos.
+      // Se puede iniciar manualmente con: node scripts/windows-activity-agent.cjs
     }
   }, [agentEmail, agentName]);
 
