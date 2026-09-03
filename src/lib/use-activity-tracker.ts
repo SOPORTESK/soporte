@@ -213,15 +213,17 @@ export function useActivityTracker(agentEmail: string, agentName: string, enable
       const now = Date.now();
       if (isIdleRef.current) {
         isIdleRef.current = false;
-        const idleDuration = now - lastHeartbeatRef.current;
+        const idleDurationSec = (now - lastHeartbeatRef.current) / 1000;
         const pageLabel = pathnameToLabel(lastPathRef.current);
-        logActivity({
-          agent_email: agentEmail,
-          agent_name: agentName,
-          action: `Reactivó actividad después de ${Math.round(idleDuration / 1000)}s de inactividad en "${pageLabel}"`,
-          category: "Navegación",
-          metadata: { idle_seconds: Math.round(idleDuration / 1000), page: lastPathRef.current },
-        });
+        if (idleDurationSec >= 30) {
+          logActivity({
+            agent_email: agentEmail,
+            agent_name: agentName,
+            action: `Reanudó labores tras ${formatDwell(idleDurationSec)} de pausa en "${pageLabel}"`,
+            category: "Navegación",
+            metadata: { idle_seconds: Math.round(idleDurationSec), page: lastPathRef.current },
+          });
+        }
       }
       lastHeartbeatRef.current = now;
 
@@ -233,14 +235,13 @@ export function useActivityTracker(agentEmail: string, agentName: string, enable
       idleTimer = setTimeout(() => {
         isIdleRef.current = true;
         const pageLabel = pathnameToLabel(lastPathRef.current);
-        const dwellSec = Math.round((Date.now() - pageEnterRef.current) / 1000);
         logActivity({
           agent_email: agentEmail,
           agent_name: agentName,
-          action: `Sin actividad por 5 minutos en "${pageLabel}" (llevaba ${formatDwell(dwellSec)} en la página)`,
+          action: `Pausa de 5 minutos sin interacción en "${pageLabel}"`,
           category: "Inactividad",
           duration_ms: IDLE_THRESHOLD,
-          metadata: { page: lastPathRef.current, dwell_seconds: dwellSec },
+          metadata: { page: lastPathRef.current },
         });
       }, IDLE_THRESHOLD);
     };

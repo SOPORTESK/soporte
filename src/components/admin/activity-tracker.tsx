@@ -456,7 +456,20 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                           <Icon className="h-4 w-4" />
                         </div>
                         <div className="min-w-0">
-                          <p className="font-bold text-foreground text-sm">{item.action}</p>
+                          <p className="font-bold text-foreground text-sm">
+                            {(() => {
+                              let text = item.action || "";
+                              text = text.replace(/(\d+)s de inactividad/g, (_, s) => {
+                                const sec = parseInt(s, 10);
+                                const m = Math.floor(sec / 60);
+                                const remSec = sec % 60;
+                                return m > 0 ? `${m}min ${remSec > 0 ? remSec + "s" : ""} de pausa` : `${sec}s de pausa`;
+                              });
+                              text = text.replace(/Reactivó actividad después de/g, "Reanudó labores tras");
+                              text = text.replace(/Sin actividad por 5 minutos en/g, "Pausa de 5 minutos en");
+                              return text;
+                            })()}
+                          </p>
                           <div className="flex flex-wrap items-center gap-2 mt-1.5 text-[11px] text-muted-foreground">
                             <span className="font-semibold text-foreground/80">{item.category}</span>
                             {appName && (
