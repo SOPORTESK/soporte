@@ -7,8 +7,8 @@
 
 import { cacheGet, cacheSet } from "./cache";
 
-const AUTH_TIMEOUT_MS = 8000;
-const DATA_TIMEOUT_MS = 15000;
+const AUTH_TIMEOUT_MS = 15000;
+const DATA_TIMEOUT_MS = 20000;
 
 export async function getUserWithTimeout(supabase: any): Promise<{ user: any; timedOut: boolean }> {
   try {
