@@ -40,6 +40,43 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="es" suppressHydrationWarning className={inter.variable}>
       <head>
         <link rel="apple-touch-icon" href="/icon-app-512.png" />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+(function() {
+  function handleStale() {
+    try {
+      var k = 'sek_last_stale_reload';
+      var last = parseInt(sessionStorage.getItem(k) || '0', 10);
+      var now = Date.now();
+      if (now - last > 5000) {
+        sessionStorage.setItem(k, now.toString());
+        window.location.reload();
+      }
+    } catch(e) { window.location.reload(); }
+  }
+  window.addEventListener('error', function(e) {
+    if (!e) return;
+    var msg = (e.message || '') + ' ' + (e.filename || '');
+    if (msg.indexOf('Loading chunk') !== -1 ||
+        msg.indexOf('ChunkLoadError') !== -1 ||
+        msg.indexOf('Failed to fetch dynamically imported module') !== -1 ||
+        msg.indexOf('Cannot read properties of null (reading') !== -1) {
+      handleStale();
+    }
+  });
+  window.addEventListener('unhandledrejection', function(e) {
+    if (!e || !e.reason) return;
+    var msg = (e.reason.message || '') + ' ' + (e.reason.stack || '');
+    if (msg.indexOf('Loading chunk') !== -1 ||
+        msg.indexOf('ChunkLoadError') !== -1 ||
+        msg.indexOf('Failed to fetch dynamically imported module') !== -1) {
+      handleStale();
+    }
+  });
+})();`,
+          }}
+        />
       </head>
       <body className="font-sans">
         <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:bg-brand-700 focus:text-white focus:px-4 focus:py-2 focus:rounded-md">
