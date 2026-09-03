@@ -6,6 +6,7 @@ import { createServiceClient } from "@/lib/supabase/service";
 // un SELECT 1 (lo mas ligero posible) para mantenerla despierta.
 // Lo llama un cron de GitHub Actions cada 5 minutos.
 
+export const dynamic = "force-dynamic";
 export const maxDuration = 10;
 
 export async function GET() {

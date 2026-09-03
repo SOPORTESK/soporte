@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { refreshAccessToken } from "@/lib/google-drive";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
 // Devuelve un access token de corta duración para que el navegador
