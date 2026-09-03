@@ -112,7 +112,6 @@ function formatDuration(ms: number | null): string {
 
 export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Props) {
   const defaultEmail = agentEmail || "cbatista@sekunet.com";
-  const [liveAgents, setLiveAgents] = useState<LiveAgent[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<string | undefined>(defaultEmail);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
   const [activeTab, setActiveTab] = useState<"live" | "timeline" | "screenshots" | "apps" | "briefing">("live");

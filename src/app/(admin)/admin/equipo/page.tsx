@@ -28,22 +28,18 @@ export default async function AdminEquipoPage() {
   const sekaAgent = agents?.find(a => a.email === "system_prompt@sekunet.com");
   const humanAgents = agents?.filter(a => a.email !== "system_prompt@sekunet.com") || [];
 
-  // ── Fetch performance data (optimizado: sin histcliente pesado y limitado a los 500 más recientes) ──
+  // ── Fetch performance data ──
   const { data: casos } = await supabase
     .from("sek_cases")
-    .select("id, assigned_to, created_at, updated_at, closed_at, estado, cliente, canal, accepted_at, escalado_at")
+    .select("id, assigned_to, created_at, updated_at, closed_at, estado, cliente, canal, accepted_at, escalado_at, histtecnico")
     .not("assigned_to", "is", null)
-    .neq("canal", "simulator")
-    .order("created_at", { ascending: false })
-    .limit(500);
+    .neq("canal", "simulator");
 
   // Todos los casos (IA + humanos) para stats globales
   const { data: todosCasos } = await supabase
     .from("sek_cases")
-    .select("id, assigned_to, created_at, updated_at, closed_at, estado, cliente, accepted_at, escalado_at")
-    .neq("canal", "simulator")
-    .order("created_at", { ascending: false })
-    .limit(500);
+    .select("id, assigned_to, created_at, updated_at, closed_at, estado, cliente, accepted_at, escalado_at, histtecnico, histcliente")
+    .neq("canal", "simulator");
 
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
@@ -81,8 +77,8 @@ export default async function AdminEquipoPage() {
           endTimestamp = c.escalado_at || (c as any).closed_at;
         } else {
           startTimestamp = c.accepted_at;
-          if (!startTimestamp && Array.isArray((c as any).histtecnico)) {
-            const firstMsg = (c as any).histtecnico.find((h: any) => h.role === "tecnico");
+          if (!startTimestamp && Array.isArray(c.histtecnico)) {
+            const firstMsg = c.histtecnico.find((h: any) => h.role === "tecnico");
             if (firstMsg) startTimestamp = firstMsg.time;
           }
         }
@@ -148,7 +144,7 @@ export default async function AdminEquipoPage() {
     .filter(c => (c as any).closed_at)
     .map(c => {
       let st = c.accepted_at;
-      if (!st && Array.isArray((c as any).histtecnico)) { const fm = (c as any).histtecnico.find((h: any) => h.role === "tecnico"); if (fm) st = fm.time; }
+      if (!st && Array.isArray(c.histtecnico)) { const fm = c.histtecnico.find((h: any) => h.role === "tecnico"); if (fm) st = fm.time; }
       const start = st ? new Date(st as string) : new Date(c.created_at);
       const end = new Date((c as any).closed_at);
       if (isNaN(start.getTime()) || isNaN(end.getTime())) return 0;
