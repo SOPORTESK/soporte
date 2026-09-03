@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getActivityTimeline, getActivityMetrics } from "@/lib/activity-db";
 
-export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export async function GET(req: NextRequest) {
   try {
@@ -14,7 +15,7 @@ export async function GET(req: NextRequest) {
     if (metrics && agent) {
       const m = await getActivityMetrics(agent, date);
       const res = NextResponse.json(m);
-      res.headers.set("Cache-Control", "s-maxage=60, stale-while-revalidate=300");
+      res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
       return res;
     }
 
@@ -33,7 +34,7 @@ export async function GET(req: NextRequest) {
     }
 
     const res = NextResponse.json({ timeline });
-    res.headers.set("Cache-Control", "s-maxage=60, stale-while-revalidate=300");
+    res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
     return res;
   } catch (error: any) {
     console.error("[activity/timeline] Error:", error);

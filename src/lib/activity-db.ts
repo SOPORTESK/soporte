@@ -84,55 +84,53 @@ export async function getActivitySummaries(
 
 export async function getActivityMetrics(agentEmail: string, date: string) {
   const timeline = await getActivityTimeline(agentEmail, date);
-  const activeEntries = timeline.filter((e) => e.category !== "Inactividad");
-  const idleEntries = timeline.filter((e) => e.category === "Inactividad");
+  const sorted = [...timeline]
+    .filter((t) => Boolean(t.created_at))
+    .sort((a, b) => new Date(a.created_at!).getTime() - new Date(b.created_at!).getTime());
 
-  const totalActiveMs = activeEntries.reduce((sum, e) => sum + (e.duration_ms || 0), 0);
-  const totalIdleMs = idleEntries.reduce((sum, e) => sum + (e.duration_ms || 0), 0);
-
-  // Tiempo por categoría (sumar duration_ms)
+  let totalActiveMs = 0;
+  let totalIdleMs = 0;
   const categoryTimeMs: Record<string, number> = {};
-  // Eventos únicos por categoría (deduplicar consecutivos)
   const categoryEvents: Record<string, number> = {};
-  let lastCat = "";
+  const LUNCH_GAP_MS = 30 * 60 * 1000;
 
-  // Timeline viene ordenado descendente (más nuevo primero), invertir para cronológico
-  const chrono = [...timeline].reverse();
+  for (let i = 0; i < sorted.length; i++) {
+    const item = sorted[i];
+    const currTime = new Date(item.created_at!).getTime();
+    const nextTime = i < sorted.length - 1 ? new Date(sorted[i + 1].created_at!).getTime() : currTime + 60000;
+    const gap = Math.max(0, nextTime - currTime);
+    const meta = (item.metadata || {}) as Record<string, any>;
 
-  for (const e of chrono) {
-    if (e.category === "Inactividad") continue;
-    // Sumar tiempo
-    const dur = e.duration_ms || 0;
-    if (dur > 0) {
-      categoryTimeMs[e.category] = (categoryTimeMs[e.category] || 0) + dur;
+    const isExplicitPause = meta.reason === "lock_screen" || meta.reason === "suspend" || item.category === "Pausa personal";
+
+    if (isExplicitPause) {
+      totalIdleMs += Math.min(gap, 60 * 60 * 1000);
+      continue;
     }
-    // Contar evento único solo si cambió la categoría respecto al anterior
-    if (e.category !== lastCat) {
-      categoryEvents[e.category] = (categoryEvents[e.category] || 0) + 1;
-      lastCat = e.category;
+
+    let cat = item.category || "Operación Sekunet";
+    if (cat === "Navegación" || cat === "Inactividad") {
+      const page = meta.page || "";
+      if (page.includes("soporte-avanzado")) cat = "Soporte Avanzado (N2)";
+      else if (page.includes("smart-inbox")) cat = "Smart Inbox & Casos";
+      else if (page.includes("mi-gestion")) cat = "Mi Bandeja de Gestión";
+      else if (page.includes("admin")) cat = "Panel de Administración";
+      else if (page.includes("inbox")) cat = "Seka Chat (Bandeja)";
+      else cat = "Operación Sekunet";
+    }
+
+    const effectiveDuration = Math.min(gap, LUNCH_GAP_MS);
+    categoryTimeMs[cat] = (categoryTimeMs[cat] || 0) + effectiveDuration;
+    categoryEvents[cat] = (categoryEvents[cat] || 0) + 1;
+    totalActiveMs += effectiveDuration;
+
+    if (gap > LUNCH_GAP_MS) {
+      totalIdleMs += (gap - LUNCH_GAP_MS);
     }
   }
 
-  // Si no hay duration_ms, estimar por diferencia de timestamps
-  for (let i = 0; i < chrono.length; i++) {
-    const e = chrono[i];
-    if (e.category === "Inactividad") continue;
-    const dur = e.duration_ms || 0;
-    if (dur === 0 && i < chrono.length - 1) {
-      const next = chrono[i + 1];
-      if (next && e.created_at && next.created_at) {
-        const diff = new Date(e.created_at).getTime() - new Date(next.created_at).getTime();
-        if (diff > 0 && diff < 30 * 60 * 1000) { // max 30 min entre logs
-          categoryTimeMs[e.category] = (categoryTimeMs[e.category] || 0) + diff;
-        }
-      }
-    }
-  }
-
-  const productivityScore =
-    timeline.length > 0
-      ? Math.round((activeEntries.length / timeline.length) * 100)
-      : 0;
+  const totalDayMs = totalActiveMs + totalIdleMs;
+  const productivityScore = totalDayMs > 0 ? Math.round((totalActiveMs / totalDayMs) * 100) : 100;
 
   return {
     totalActiveMs,
@@ -141,11 +139,11 @@ export async function getActivityMetrics(agentEmail: string, date: string) {
     totalIdleTime: formatDuration(totalIdleMs),
     productivityScore,
     totalEvents: timeline.length,
-    activeEvents: activeEntries.length,
-    idleEvents: idleEntries.length,
+    activeEvents: sorted.length,
+    idleEvents: 0,
     categories: categoryEvents,
     categoryTimeMs,
-    trackingStatus: activeEntries.length > 0 ? "ACTIVE" : "IDLE",
+    trackingStatus: totalActiveMs > 0 ? "ACTIVE" : "IDLE",
   };
 }
 
