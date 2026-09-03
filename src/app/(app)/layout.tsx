@@ -22,7 +22,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { user } = await getUserWithTimeout(supabase);
 
   if (!user) {
     redirect("/login");
@@ -31,16 +31,58 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const email = user.email!;
   const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
 
+  // Paralelizar todas las queries del layout con cache de alta velocidad
   const [
     agentResult,
     onlineAgentsResult,
     n2CountResult,
     smartCountResult,
   ] = await Promise.all([
-    supabase.from("sek_agent_config").select("*").ilike("email", email).maybeSingle(),
-    supabase.from("sek_agent_config").select("email, nombre, apellido, avatar_url, status, last_seen_at").neq("status", "offline").gte("last_seen_at", twoMinutesAgo),
-    supabase.from("sek_cases").select("*", { count: "exact", head: true }).eq("estado", "escalado").is("assigned_to", null),
-    supabase.from("sek_cases").select("*", { count: "exact", head: true }).eq("estado", "ia_atendiendo").neq("canal", "simulator"),
+    queryWithFallback(
+      `agent_config_${email}`,
+      async () => {
+        const { data, error } = await supabase
+          .from("sek_agent_config").select("*").ilike("email", email).maybeSingle();
+        return { data, error };
+      },
+      null
+    ),
+    queryWithFallback(
+      "online_agents",
+      async () => {
+        const { data, error } = await supabase
+          .from("sek_agent_config")
+          .select("email, nombre, apellido, avatar_url, status, last_seen_at")
+          .neq("status", "offline")
+          .gte("last_seen_at", twoMinutesAgo);
+        return { data, error };
+      },
+      []
+    ),
+    queryWithFallback(
+      "n2_count",
+      async () => {
+        const { count, error } = await supabase
+          .from("sek_cases")
+          .select("*", { count: "exact", head: true })
+          .eq("estado", "escalado")
+          .is("assigned_to", null);
+        return { data: count as any, error };
+      },
+      0
+    ),
+    queryWithFallback(
+      "smart_count",
+      async () => {
+        const { count, error } = await supabase
+          .from("sek_cases")
+          .select("*", { count: "exact", head: true })
+          .eq("estado", "ia_atendiendo")
+          .neq("canal", "simulator");
+        return { data: count as any, error };
+      },
+      0
+    ),
   ]);
 
   let a = agentResult.data as SekAgent | null;
@@ -59,8 +101,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   }
 
   const onlineAgents = (onlineAgentsResult.data || []) as any[];
-  const n2Count = n2CountResult.count ?? 0;
-  const smartCount = smartCountResult.count ?? 0;
+  const n2Count = (n2CountResult.data as number) ?? 0;
+  const smartCount = (smartCountResult.data as number) ?? 0;
 
   const currentAgent = a as SekAgent;
   const isAdmin = ["admin","superadmin"].includes(currentAgent.rol);
