@@ -255,12 +255,12 @@ async function pollActivity() {
       if (_lastApp && dwellMs >= 10000) {
         const dwellSec = Math.round(dwellMs / 1000);
         const { category, label } = categorizeApp(_lastApp, _lastTitle);
-        await sendLog(`Usó "${label}" durante ${formatDwell(dwellSec)}${_lastTitle ? ` (${_lastTitle.substring(0, 60)})` : ''}`, category, { app: _lastApp, title: _lastTitle, dwell_seconds: dwellSec, duration_ms: dwellMs });
+        await sendLog(`Usó "${label}" durante ${formatDwell(dwellSec)}${_lastTitle ? ` (${_lastTitle.substring(0, 60)})` : ''}`, category, { app: _lastApp, app_name: label, label: label, title: _lastTitle, dwell_seconds: dwellSec, duration_ms: dwellMs, source: 'desktop' });
       }
       const { category, label } = categorizeApp(appName, title);
       const isNew = !_loggedApps.has(appName);
       _loggedApps.add(appName);
-      await sendLog(isNew ? `Abrió "${label}"${title ? ` — ${title.substring(0, 60)}` : ''}` : `Cambió a "${label}"${title ? ` — ${title.substring(0, 60)}` : ''}`, category, { app: appName, title: title.substring(0, 100), first_use: isNew });
+      await sendLog(isNew ? `Abrió "${label}"${title ? ` — ${title.substring(0, 60)}` : ''}` : `Cambió a "${label}"${title ? ` — ${title.substring(0, 60)}` : ''}`, category, { app: appName, app_name: label, label: label, title: title.substring(0, 100), first_use: isNew, source: 'desktop' });
       _lastApp = appName; _lastTitle = title;
       _appEnterTime = now; _lastActivityTime = now; _lastHeartbeatSec = 0;
     } else if (title !== _lastTitle) {
@@ -273,7 +273,7 @@ async function pollActivity() {
       if (heartbeatBucket > _lastHeartbeatSec && dwellSec >= HEARTBEAT_EVERY) {
         _lastHeartbeatSec = heartbeatBucket;
         const { category, label } = categorizeApp(appName, title);
-        await sendLog(`Sigue usando "${label}" (lleva ${formatDwell(dwellSec)})${title ? ` — ${title.substring(0, 60)}` : ''}`, category, { app: appName, title: title.substring(0, 100), dwell_seconds: dwellSec, duration_ms: 60000 });
+        await sendLog(`Sigue usando "${label}" (lleva ${formatDwell(dwellSec)})${title ? ` — ${title.substring(0, 60)}` : ''}`, category, { app: appName, app_name: label, label: label, title: title.substring(0, 100), dwell_seconds: dwellSec, duration_ms: 60000, source: 'desktop' });
       }
     }
   } catch (e) { /* silencioso */ }
