@@ -208,10 +208,12 @@ export function useActivityTracker(agentEmail: string, agentName: string, enable
       }
     };
 
+    let lastResetTime = 0;
     const resetIdle = () => {
+      const now = Date.now();
       if (isIdleRef.current) {
         isIdleRef.current = false;
-        const idleDuration = Date.now() - lastHeartbeatRef.current;
+        const idleDuration = now - lastHeartbeatRef.current;
         const pageLabel = pathnameToLabel(lastPathRef.current);
         logActivity({
           agent_email: agentEmail,
@@ -221,7 +223,12 @@ export function useActivityTracker(agentEmail: string, agentName: string, enable
           metadata: { idle_seconds: Math.round(idleDuration / 1000), page: lastPathRef.current },
         });
       }
-      lastHeartbeatRef.current = Date.now();
+      lastHeartbeatRef.current = now;
+
+      // Throttlear recreación de timers a máximo 1 vez cada 10 segundos para mantener la UI al 100% de agilidad
+      if (now - lastResetTime < 10000) return;
+      lastResetTime = now;
+
       clearTimeout(idleTimer);
       idleTimer = setTimeout(() => {
         isIdleRef.current = true;

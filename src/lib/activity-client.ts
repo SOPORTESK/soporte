@@ -8,14 +8,22 @@ interface LogActivityParams {
   duration_ms?: number | null;
 }
 
-export async function logActivity(params: LogActivityParams): Promise<void> {
+export function logActivity(params: LogActivityParams): void {
+  if (typeof window === "undefined") return;
   try {
-    await fetch("/api/activity/log", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(params),
-    });
+    const payload = JSON.stringify(params);
+    if (typeof navigator !== "undefined" && navigator.sendBeacon) {
+      const blob = new Blob([payload], { type: "application/json" });
+      navigator.sendBeacon("/api/activity/log", blob);
+    } else {
+      fetch("/api/activity/log", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: payload,
+        keepalive: true,
+      }).catch(() => {});
+    }
   } catch (e) {
-    console.error("[logActivity] Failed:", e);
+    // Silencioso para no degradar el rendimiento de la UI
   }
 }
