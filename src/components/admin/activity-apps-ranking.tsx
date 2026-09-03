@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React from "react";
 import {
@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 interface TimelineItem {
+  created_at?: string;
   action: string;
   category: string;
   duration_ms?: number | null;
@@ -65,23 +66,37 @@ function formatDuration(ms: number): string {
 }
 
 export function ActivityAppsRanking({ timeline }: Props) {
-  // Consolidar tiempo por app
+  // Consolidar tiempo por app usando intervalos cronológicos reales (calibrados con reloj)
   const appMap: Record<string, { durationMs: number; count: number }> = {};
   let totalActiveTime = 0;
 
-  timeline.forEach((item) => {
-    if (item.category === "Inactividad") return;
-    const dur = item.duration_ms || 60000;
-    const meta = (item.metadata || {}) as Record<string, any>;
-    const appName = meta.app_name || meta.label || item.category || "Plataforma Sekunet";
+  if (timeline && timeline.length > 0) {
+    const sorted = [...timeline]
+      .filter((t) => Boolean(t.created_at))
+      .sort((a, b) => new Date(a.created_at!).getTime() - new Date(b.created_at!).getTime());
 
-    if (!appMap[appName]) {
-      appMap[appName] = { durationMs: 0, count: 0 };
+    const IDLE_GAP_MS = 5 * 60 * 1000; // 5 minutos máximo por bloque
+
+    for (let i = 0; i < sorted.length; i++) {
+      const curr = sorted[i];
+      if (curr.category === "Inactividad") continue;
+
+      const currTime = new Date(curr.created_at!).getTime();
+      const nextTime = i < sorted.length - 1 ? new Date(sorted[i + 1].created_at!).getTime() : currTime + 60000;
+      const gap = Math.max(0, nextTime - currTime);
+      const effectiveDuration = Math.min(gap, IDLE_GAP_MS);
+
+      const meta = (curr.metadata || {}) as Record<string, any>;
+      const appName = meta.app_name || meta.label || (curr.category === "Navegación" ? (meta.page || "Seka Chat") : curr.category) || "Plataforma Sekunet";
+
+      if (!appMap[appName]) {
+        appMap[appName] = { durationMs: 0, count: 0 };
+      }
+      appMap[appName].durationMs += effectiveDuration;
+      appMap[appName].count++;
+      totalActiveTime += effectiveDuration;
     }
-    appMap[appName].durationMs += dur;
-    appMap[appName].count++;
-    totalActiveTime += dur;
-  });
+  }
 
   const sortedApps = Object.entries(appMap)
     .sort((a, b) => b[1].durationMs - a[1].durationMs)

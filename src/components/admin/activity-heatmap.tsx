@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React from "react";
 import { Clock, Flame, Info } from "lucide-react";
@@ -27,22 +27,35 @@ export function ActivityHeatmap({ timeline, date }: Props) {
     hourBuckets[h] = { activeMs: 0, idleMs: 0, count: 0, apps: new Set() };
   });
 
-  timeline.forEach((item) => {
-    if (!item.created_at) return;
-    const d = new Date(item.created_at);
+  const sorted = [...timeline]
+    .filter((t) => Boolean(t.created_at))
+    .sort((a, b) => new Date(a.created_at!).getTime() - new Date(b.created_at!).getTime());
+
+  const IDLE_GAP_MS = 5 * 60 * 1000;
+
+  for (let i = 0; i < sorted.length; i++) {
+    const item = sorted[i];
+    const currTime = new Date(item.created_at!).getTime();
+    const nextTime = i < sorted.length - 1 ? new Date(sorted[i + 1].created_at!).getTime() : currTime + 60000;
+    const gap = Math.max(0, nextTime - currTime);
+    const d = new Date(item.created_at!);
     const h = d.getHours();
+
     if (hourBuckets[h]) {
-      const dur = item.duration_ms || 60000;
       if (item.category === "Inactividad") {
-        hourBuckets[h].idleMs += dur;
+        hourBuckets[h].idleMs += Math.min(gap, 60 * 60 * 1000);
       } else {
-        hourBuckets[h].activeMs += dur;
+        const effectiveDuration = Math.min(gap, IDLE_GAP_MS);
+        hourBuckets[h].activeMs += effectiveDuration;
         hourBuckets[h].count++;
         const meta = item.metadata || {};
         if (meta.app_name) hourBuckets[h].apps.add(meta.app_name);
+        if (gap > IDLE_GAP_MS) {
+          hourBuckets[h].idleMs += (gap - IDLE_GAP_MS);
+        }
       }
     }
-  });
+  }
 
   return (
     <div className="p-4 sm:p-5 rounded-2xl bg-card border border-border/70 shadow-sm space-y-4">
