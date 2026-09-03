@@ -517,6 +517,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
             agentName={currentAgentObj?.name || selectedAgent}
             date={selectedDate}
             timeline={timeline}
+            allAgents={liveAgents}
           />
         )}
       </div>
