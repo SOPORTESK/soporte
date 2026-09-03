@@ -4,6 +4,73 @@ import { getModel } from "@/lib/ai/config";
 
 export const dynamic = "force-dynamic";
 
+interface BriefingStructure {
+  resumen_ejecutivo: string;
+  score_productividad: number;
+  horas_efectivas: string;
+  horas_inactivas: string;
+  principales_logros: string[];
+  alertas_observaciones: string[];
+  recomendacion_gerencial: string;
+}
+
+// ─── GENERADOR DETERMINISTA DE RESPALDO (TIER 4 FALLBACK) ──────────────────────
+function generateDeterministicBriefing(
+  isTeamScope: boolean,
+  targetName: string,
+  selectedDate: string,
+  activeMin: number,
+  idleMin: number,
+  score: number,
+  topApps: [string, number][],
+  userCount: number,
+  eventsCount: number
+): BriefingStructure {
+  const activeHoursStr = `${Math.floor(activeMin / 60)}h ${activeMin % 60}m`;
+  const idleHoursStr = `${Math.floor(idleMin / 60)}h ${idleMin % 60}m`;
+  const primaryApp = topApps[0] ? topApps[0][0] : "Plataforma Central Sekunet";
+  const secondaryApp = topApps[1] ? topApps[1][0] : "Mensajería & Canales";
+
+  if (isTeamScope) {
+    const statusLabel = score >= 80 ? "Óptimo y altamente productivo" : score >= 60 ? "Estable y regular" : "Bajo rendimiento / Baches de atención";
+    return {
+      resumen_ejecutivo: `Durante la jornada del ${selectedDate}, el equipo operativo registró un total de ${activeHoursStr} de labor efectiva en un consolidado de ${userCount} colaboradores auditados. El índice global de productividad se situó en ${score}% (${statusLabel}), focalizando la mayor carga de trabajo en "${primaryApp}" y "${secondaryApp}".`,
+      score_productividad: score,
+      horas_efectivas: activeHoursStr,
+      horas_inactivas: idleHoursStr,
+      principales_logros: [
+        `Consolidación de ${eventsCount} eventos de atención y soporte técnico durante el día.`,
+        `Alta concentración operativa en "${primaryApp}" (${Math.round((topApps[0]?.[1] || 0) / 60000)} minutos acumulados).`,
+        `Despliegue de cobertura en canales de soporte y herramientas administrativas.`,
+      ],
+      alertas_observaciones: [
+        `Se acumularon ${idleHoursStr} de pausas o inactividad general en el conjunto de la plantilla.`,
+        score < 70 ? `El índice global de productividad (${score}%) está por debajo del estándar óptimo del 80%.` : `Monitoreo continuo en transiciones y cambios de guardia.`,
+      ],
+      recomendacion_gerencial: `Optimizar la distribución de carga en horas pico, coordinar las pausas de descanso escalonadas para evitar ventanas descubiertas en los canales de atención y mantener el foco en la resolución de casos de primer contacto.`,
+    };
+  }
+
+  // Individual
+  const indStatus = score >= 85 ? "Desempeño sobresaliente" : score >= 70 ? "Desempeño satisfactorio" : "Atención requerida por inactividad";
+  return {
+    resumen_ejecutivo: `El colaborador ${targetName} completó una jornada laboral de ${activeHoursStr} de actividad efectiva frente a ${idleHoursStr} de pausas acumuladas, alcanzando un índice de productividad del ${score}% (${indStatus}). Sus principales actividades se concentraron en "${primaryApp}".`,
+    score_productividad: score,
+    horas_efectivas: activeHoursStr,
+    horas_inactivas: idleHoursStr,
+    principales_logros: [
+      `Dedicación principal a "${primaryApp}" con ${Math.round((topApps[0]?.[1] || 0) / 60000)} minutos de interacción efectiva.`,
+      `Registro continuo de ${eventsCount} acciones registradas en el espacio de trabajo.`,
+      `Seguimiento activo a tareas operativas y consultas asignadas.`,
+    ],
+    alertas_observaciones: [
+      `Se registraron ${idleHoursStr} acumuladas en pausas o períodos sin actividad en la estación.`,
+      idleMin > 120 ? `El tiempo de inactividad (${idleHoursStr}) excede el promedio regular de la jornada.` : `Tiempos de pausa dentro de rangos normales de descanso y traslados.`,
+    ],
+    recomendacion_gerencial: `Mantener el ritmo de atención y enfocar los períodos de mayor concentración en la resolución expedita de casos pendientes y soporte técnico directo.`,
+  };
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { agent_email, agent_name, date, scope = "user" } = await req.json();
@@ -40,7 +107,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 2. Obtener lista de agentes para cruzar nombres
+    // 2. Obtener lista de agentes para nombres reales
     const { data: agents } = await supabase
       .from("sek_agent_config")
       .select("email, nombre, apellido, rol")
@@ -87,32 +154,38 @@ export async function POST(req: NextRequest) {
     const totalMin = activeMin + idleMin;
     const overallScore = totalMin > 0 ? Math.round((activeMin / totalMin) * 100) : 100;
 
+    const sortedApps = Object.entries(appUsageMs).sort((a, b) => b[1] - a[1]);
+    const topAppsStr = sortedApps
+      .slice(0, 8)
+      .map(([app, ms]) => `- ${app}: ${Math.round(ms / 60000)} minutos`)
+      .join("\n");
+
     const teamTableSummary = Object.entries(userStats)
       .map(([em, s]) => {
         const uActiveMin = Math.round(s.activeMs / 60000);
         const uIdleMin = Math.round(s.idleMs / 60000);
         const uTotal = uActiveMin + uIdleMin;
         const uScore = uTotal > 0 ? Math.round((uActiveMin / uTotal) * 100) : 100;
-        return `- ${s.name} (${em}): ${Math.floor(uActiveMin / 60)}h ${uActiveMin % 60}m activo | ${Math.floor(uIdleMin / 60)}h ${uIdleMin % 60}m inactivo | Score: ${uScore}% | Casos: ${s.cases.size} | Apps: ${Array.from(s.apps).slice(0, 4).join(", ")}`;
+        return `- ${s.name} (${em}): ${Math.floor(uActiveMin / 60)}h ${uActiveMin % 60}m activo | ${Math.floor(uIdleMin / 60)}h ${uIdleMin % 60}m inactivo | Score: ${uScore}% | Casos: ${s.cases.size}`;
       })
       .join("\n");
 
-    const topAppsStr = Object.entries(appUsageMs)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 8)
-      .map(([app, ms]) => `- ${app}: ${Math.round(ms / 60000)} minutos`)
-      .join("\n");
+    const targetDisplayName = isTeamScope ? "Equipo General" : agent_name || agent_email;
 
-    // 4. Consultar IA (Gemini)
-    const aiModel = await getModel("extract");
-    const apiKey = aiModel?.apiKey || process.env.GEMINI_API_KEY;
+    // 4. Intentar llamada a IA con Gemini y Fallbacks en cascada
+    let briefing: BriefingStructure | null = null;
+    let fallbackUsed = false;
 
-    if (!apiKey) {
-      return NextResponse.json({ error: "Sin API key de IA configurada" }, { status: 500 });
-    }
+    try {
+      const aiModel = await getModel("extract");
+      const apiKey = aiModel?.apiKey || process.env.GEMINI_API_KEY;
 
-    const systemAuditorPrompt = isTeamScope
-      ? `Eres el Auditor Sénior de Operaciones y Productividad de Sekunet (Costa Rica).
+      if (!apiKey) {
+        throw new Error("No hay API Key de Gemini configurada.");
+      }
+
+      const systemAuditorPrompt = isTeamScope
+        ? `Eres el Auditor Sénior de Operaciones y Productividad de Sekunet (Costa Rica).
 Genera un INFORME EJECUTIVO GENERAL DEL EQUIPO para la Dirección General, correspondiente a la jornada del ${selectedDate}.
 
 DATOS CONSOLIDADOS DEL EQUIPO:
@@ -139,7 +212,7 @@ INSTRUCCIONES DE REDACCIÓN:
   "alertas_observaciones": ["Observación 1", "Observación 2"],
   "recomendacion_gerencial": "Directriz puntual y estratégica para la supervisión y gerencia."
 }`
-      : `Eres el Auditor Sénior de Operaciones de Sekunet (Costa Rica).
+        : `Eres el Auditor Sénior de Operaciones de Sekunet (Costa Rica).
 Genera un DICTAMEN DE AUDITORÍA INDIVIDUAL para el colaborador "${agent_name || agent_email}" en la fecha ${selectedDate}.
 
 DATOS CONSOLIDADOS:
@@ -164,33 +237,62 @@ INSTRUCCIONES DE REDACCIÓN:
   "recomendacion_gerencial": "Recomendación constructiva y puntual para mejorar la eficiencia del colaborador."
 }`;
 
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+      // Intentar primero con Gemini 2.0 Flash
+      let geminiRes = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ role: "user", parts: [{ text: systemAuditorPrompt }] }],
+            generationConfig: { temperature: 0.2, responseMimeType: "application/json" },
+          }),
+        }
+      );
 
-    const aiRes = await fetch(geminiUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: systemAuditorPrompt }] }],
-        generationConfig: {
-          temperature: 0.2,
-          responseMimeType: "application/json",
-        },
-      }),
-    });
+      // Si falla 2.0 Flash, intentar fallback a Gemini 1.5 Flash
+      if (!geminiRes.ok) {
+        console.warn("[ai-briefing] Gemini 2.0 falló, intentando Gemini 1.5 Flash como fallback...");
+        geminiRes = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ role: "user", parts: [{ text: systemAuditorPrompt }] }],
+              generationConfig: { temperature: 0.2, responseMimeType: "application/json" },
+            }),
+          }
+        );
+      }
 
-    if (!aiRes.ok) {
-      const errTxt = await aiRes.text();
-      console.error("[ai-briefing] Gemini error:", errTxt);
-      return NextResponse.json({ error: "Fallo al generar análisis de IA" }, { status: 500 });
+      if (geminiRes.ok) {
+        const aiJson = await geminiRes.json();
+        const rawText = aiJson.candidates?.[0]?.content?.parts?.[0]?.text;
+        briefing = JSON.parse(rawText || "{}");
+      } else {
+        throw new Error("Respuesta inválida de Gemini");
+      }
+    } catch (aiErr: any) {
+      console.warn("[ai-briefing] AI API no disponible. Activando motor determinista de respaldo:", aiErr?.message);
+      fallbackUsed = true;
+      briefing = generateDeterministicBriefing(
+        isTeamScope,
+        targetDisplayName,
+        selectedDate,
+        activeMin,
+        idleMin,
+        overallScore,
+        sortedApps,
+        Object.keys(userStats).length,
+        logs.length
+      );
     }
-
-    const aiJson = await aiRes.json();
-    const rawText = aiJson.candidates?.[0]?.content?.parts?.[0]?.text;
-    const briefing = JSON.parse(rawText || "{}");
 
     return NextResponse.json({
       ok: true,
       briefing,
+      fallbackUsed,
       stats: {
         totalActiveMinutes: activeMin,
         totalIdleMinutes: idleMin,
@@ -207,7 +309,7 @@ INSTRUCCIONES DE REDACCIÓN:
       },
     });
   } catch (error: any) {
-    console.error("[ai-briefing] Error:", error);
+    console.error("[ai-briefing] Error crítico:", error);
     return NextResponse.json({ error: error.message || "Error interno del servidor" }, { status: 500 });
   }
 }
