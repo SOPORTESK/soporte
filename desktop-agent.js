@@ -7,8 +7,34 @@
  * Uso: node desktop-agent.js --agent=cbatista@sekunet.com --name="César Batista"
  */
 
-const activeWin = require("active-win");
 const path = require("path");
+const fs = require("fs");
+const { execFileSync } = require("child_process");
+
+async function getActiveWindow() {
+  try {
+    const exePath = path.join(__dirname, "scripts", "get-active-win.exe");
+    if (fs.existsSync(exePath)) {
+      const out = execFileSync(exePath, { encoding: "utf8", timeout: 1500, windowsHide: true });
+      if (out && out.trim().startsWith("{")) {
+        const parsed = JSON.parse(out.trim());
+        if (parsed.app && parsed.app !== "Unknown" && parsed.app !== "") {
+          return {
+            title: parsed.title || "",
+            owner: { name: parsed.app.replace(/\.exe$/i, ""), path: parsed.path, processId: parsed.pid }
+          };
+        }
+      }
+    }
+  } catch (e) {}
+
+  try {
+    const activeWin = require("active-win");
+    const w = await activeWin();
+    if (w && (w.owner?.name || w.title)) return w;
+  } catch (e) {}
+  return null;
+}
 
 // Parse args
 const args = process.argv.slice(2);
@@ -21,7 +47,7 @@ const AGENT_EMAIL = getArg("agent") || "unknown@sekunet.com";
 const AGENT_NAME = getArg("name") || AGENT_EMAIL;
 const API_URL = getArg("api") || "http://localhost:3100/api/activity/log";
 const POLL_INTERVAL = 5000; // 5 segundos
-const MIN_DWELL = 30000; // mínimo 30s para registrar
+const MIN_DWELL = 10000; // mínimo 10s para registrar
 const IDLE_THRESHOLD = 5 * 60 * 1000; // 5 min
 const HEARTBEAT_EVERY = 300; // 5 minutos en segundos
 
@@ -146,7 +172,7 @@ async function sendLog(action, category, metadata) {
 
 async function poll() {
   try {
-    const win = await activeWin();
+    const win = await getActiveWindow();
 
     if (!win) {
       // Sin ventana activa - posible bloqueo de pantalla

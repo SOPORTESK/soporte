@@ -7,9 +7,26 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 
-// Lazy load native modules — el tracker funciona parcialmente si alguno falla
+// Native Win32 active window detector — 100% reliable on Windows 10/11
 let _activeWinFn = null;
 async function getActiveWindow() {
+  try {
+    const { execFileSync } = require('child_process');
+    const exePath = path.join(__dirname, '../scripts/get-active-win.exe');
+    if (fs.existsSync(exePath)) {
+      const out = execFileSync(exePath, { encoding: 'utf8', timeout: 1500, windowsHide: true });
+      if (out && out.trim().startsWith('{')) {
+        const parsed = JSON.parse(out.trim());
+        if (parsed.app && parsed.app !== 'Unknown' && parsed.app !== '') {
+          return {
+            title: parsed.title || '',
+            owner: { name: parsed.app.replace(/\.exe$/i, ''), path: parsed.path, processId: parsed.pid }
+          };
+        }
+      }
+    }
+  } catch (e) {}
+
   if (!_activeWinFn) {
     try {
       const mod = await import('active-win');
