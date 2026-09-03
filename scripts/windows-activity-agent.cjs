@@ -1,4 +1,4 @@
-﻿const { createClient } = require('@supabase/supabase-js');
+const { createClient } = require('@supabase/supabase-js');
 const { execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -45,8 +45,8 @@ function categorizeWindow(processName, title) {
   if (p.includes('excel')) return { category: 'Gestión de documentos', label: `Excel - ${title.substring(0, 40)}` };
   if (p.includes('winword') || p.includes('word')) return { category: 'Gestión de documentos', label: `Word - ${title.substring(0, 40)}` };
   if (p.includes('powerpnt')) return { category: 'Gestión de documentos', label: `PowerPoint - ${title.substring(0, 40)}` };
-  if (p.includes('code') || p.includes('cursor') || p.includes('windsurf') || p.includes('devenv')) {
-    return { category: 'Investigación y desarrollo', label: `Editor de Código (${p})` };
+  if (p.includes('code') || p.includes('cursor') || p.includes('windsurf') || p.includes('devenv') || p.includes('antigravity')) {
+    return { category: 'Investigación y desarrollo', label: `Editor de Código (${p.includes('antigravity') ? 'Antigravity' : p})` };
   }
   if (p.includes('powershell') || p.includes('cmd') || p.includes('windowsterminal')) {
     return { category: 'Investigación y desarrollo', label: 'Terminal de Comandos' };
@@ -60,9 +60,11 @@ function categorizeWindow(processName, title) {
   return { category: 'Operativa', label: title ? `${p} - ${title.substring(0, 35)}` : (processName || 'Aplicación de Windows') };
 }
 
+const exePath = path.join(__dirname, 'get-active-win.exe');
+
 function getActiveWindow() {
   return new Promise((resolve) => {
-    execFile('powershell', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', ps1Path], { timeout: 3000 }, (err, stdout) => {
+    execFile(exePath, { timeout: 2000, windowsHide: true }, (err, stdout) => {
       if (err || !stdout) return resolve(null);
       try {
         const data = JSON.parse(stdout.trim());

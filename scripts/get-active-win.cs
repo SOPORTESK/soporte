@@ -2,9 +2,17 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Threading;
 
 class Program {
+    [DllImport("user32.dll", SetLastError = true)]
+    static extern IntPtr OpenInputDesktop(uint dwFlags, bool fInherit, uint dwDesiredAccess);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    static extern bool SetThreadDesktop(IntPtr hDesktop);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    static extern bool CloseDesktop(IntPtr hDesktop);
+
     [DllImport("user32.dll")]
     static extern IntPtr GetForegroundWindow();
 
@@ -28,9 +36,18 @@ class Program {
         return s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\r", " ").Replace("\n", " ");
     }
 
-    static string GetCurrentWindowJson() {
+    static void Main(string[] args) {
+        IntPtr hDesk = OpenInputDesktop(0, false, 0x01FF);
+        if (hDesk != IntPtr.Zero) {
+            SetThreadDesktop(hDesk);
+        }
+
         IntPtr hwnd = GetForegroundWindow();
-        if (hwnd == IntPtr.Zero) return null;
+        if (hwnd == IntPtr.Zero) {
+            Console.WriteLine("{\"Process\":\"Idle\",\"Title\":\"\",\"Time\":\"" + DateTime.Now.ToString("HH:mm:ss") + "\"}");
+            if (hDesk != IntPtr.Zero) CloseDesktop(hDesk);
+            return;
+        }
 
         StringBuilder titleSb = new StringBuilder(512);
         GetWindowText(hwnd, titleSb, 512);
@@ -39,51 +56,29 @@ class Program {
         uint pid = 0;
         GetWindowThreadProcessId(hwnd, out pid);
 
-        string appName = "Unknown";
+        string procName = "Unknown";
         string exePath = "";
 
         if (pid > 0) {
+            try {
+                Process p = Process.GetProcessById((int)pid);
+                procName = p.ProcessName;
+            } catch {}
+
             IntPtr hProc = OpenProcess(0x1000 /* PROCESS_QUERY_LIMITED_INFORMATION */, false, pid);
             if (hProc != IntPtr.Zero) {
                 StringBuilder pathSb = new StringBuilder(1024);
                 int size = 1024;
                 if (QueryFullProcessImageName(hProc, 0, pathSb, ref size)) {
                     exePath = pathSb.ToString();
-                    appName = System.IO.Path.GetFileName(exePath);
                 }
                 CloseHandle(hProc);
             }
-            if (string.IsNullOrEmpty(exePath)) {
-                try {
-                    Process p = Process.GetProcessById((int)pid);
-                    appName = p.ProcessName + ".exe";
-                } catch {}
-            }
         }
 
-        return string.Format("{{\"title\":\"{0}\",\"app\":\"{1}\",\"path\":\"{2}\",\"pid\":{3}}}",
-            Escape(title), Escape(appName), Escape(exePath), pid);
-    }
+        if (hDesk != IntPtr.Zero) CloseDesktop(hDesk);
 
-    static void Main(string[] args) {
-        bool watch = args.Length > 0 && args[0] == "--watch";
-        
-        if (!watch) {
-            string json = GetCurrentWindowJson();
-            Console.WriteLine(json ?? "{}");
-            return;
-        }
-
-        string lastOutput = "";
-        while (true) {
-            try {
-                string json = GetCurrentWindowJson();
-                if (!string.IsNullOrEmpty(json) && json != lastOutput) {
-                    lastOutput = json;
-                    Console.WriteLine(json);
-                }
-            } catch {}
-            Thread.Sleep(1000);
-        }
+        Console.WriteLine(string.Format("{{\"Process\":\"{0}\",\"Title\":\"{1}\",\"Path\":\"{2}\",\"Id\":{3},\"Time\":\"{4}\"}}",
+            Escape(procName), Escape(title), Escape(exePath), pid, DateTime.Now.ToString("HH:mm:ss")));
     }
 }
