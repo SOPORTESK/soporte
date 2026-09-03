@@ -3,7 +3,7 @@ const nextConfig = {
   reactStrictMode: true,
   experimental: {
     instrumentationHook: true,
-    serverComponentsExternalPackages: ["pdf-parse", "tesseract.js", "ffmpeg-static", "fluent-ffmpeg"],
+    serverComponentsExternalPackages: ["pdf-parse", "tesseract.js", "ffmpeg-static", "fluent-ffmpeg", "active-win", "screenshot-desktop"],
   },
   images: {
     unoptimized: true,
