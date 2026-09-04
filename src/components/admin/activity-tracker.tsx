@@ -110,6 +110,91 @@ function formatDuration(ms: number | null): string {
   return `${h}h ${remM}m`;
 }
 
+function cleanExecutiveTitle(title: string): string {
+  if (!title) return "";
+  return title
+    .replace(/\s*[-–—]\s*(Brave|Google Chrome|Microsoft Edge|Firefox|Opera|Outlook|Visual Studio Code).*$/i, "")
+    .replace(/^\(\d+\)\s*/, "")
+    .replace(/\.exe/gi, "")
+    .replace(/Atenci.n/g, "Atención")
+    .replace(/Garant.a/g, "Garantía")
+    .replace(/Gesti.n/g, "Gestión")
+    .replace(/Operaci.n/g, "Operación")
+    .trim();
+}
+
+function formatExecutiveDisplay(rawAction: string, category: string, meta: Record<string, any> = {}): { title: string; subtitle?: string } {
+  let action = rawAction || "";
+  const rawTitle = meta.title || meta.context || "";
+  const cleanTitle = cleanExecutiveTitle(rawTitle);
+
+  if (
+    action.startsWith("Gestión de Correo:") ||
+    action.startsWith("Atención Telefónica:") ||
+    action.startsWith("Atención por Chat:") ||
+    action.startsWith("Atención de Tickets:") ||
+    action.startsWith("Gestión de Garantías:") ||
+    action.startsWith("Optimización / Desarrollo:") ||
+    action.startsWith("Control Administrativo:") ||
+    action.startsWith("Soporte Técnico:") ||
+    action.startsWith("Pausa / Inactividad")
+  ) {
+    return { title: action };
+  }
+
+  const dwellMatch = action.match(/^Us[oó] "?([^"–—]+)"? durante (\d+)s(?:\s*\((.*)\))?/i);
+  if (dwellMatch) {
+    const app = dwellMatch[1].trim();
+    const sec = parseInt(dwellMatch[2], 10);
+    const m = Math.round(sec / 60);
+    const timeStr = m > 0 ? `${m} min` : `${sec}s`;
+    const sub = cleanExecutiveTitle(dwellMatch[3] || cleanTitle);
+
+    if (app.toLowerCase().includes("whatsapp")) {
+      return { title: `Atención por Chat: WhatsApp (${timeStr})`, subtitle: sub ? `Chat: ${sub}` : undefined };
+    }
+    if (app.toLowerCase().includes("seka") || app.toLowerCase().includes("sekunet")) {
+      return { title: `Operativa: Seka Chat (${timeStr})`, subtitle: sub || "Atención al cliente" };
+    }
+    if (app.toLowerCase().includes("outlook") || app.toLowerCase().includes("correo")) {
+      return { title: `Gestión de Correo: Outlook (${timeStr})`, subtitle: sub ? `Asunto: ${sub}` : undefined };
+    }
+    if (app.toLowerCase().includes("linkus") || app.toLowerCase().includes("phone")) {
+      return { title: `Atención Telefónica: Linkus (${timeStr})`, subtitle: sub };
+    }
+    if (app.toLowerCase().includes("odoo")) {
+      return { title: `Atención de Tickets: Odoo ERP (${timeStr})`, subtitle: sub };
+    }
+    if (app.toLowerCase().includes("excel") || app.toLowerCase().includes("word")) {
+      return { title: `Control Administrativo: ${app} (${timeStr})`, subtitle: sub ? `Documento: ${sub}` : undefined };
+    }
+    return { title: `${app} (${timeStr})`, subtitle: sub || undefined };
+  }
+
+  const openMatch = action.match(/^Abri[oó] \/ Cambi[oó] a "?([^"–—]+)"?(?:\s*[-–—]\s*(.*))?/i);
+  if (openMatch) {
+    const app = openMatch[1].trim();
+    const sub = cleanExecutiveTitle(openMatch[2] || cleanTitle);
+    if (app.toLowerCase().includes("seka") || app.toLowerCase().includes("sekunet")) {
+      return { title: `Operativa: Seka Chat`, subtitle: sub || "Atención al cliente" };
+    }
+    if (app.toLowerCase().includes("whatsapp")) {
+      return { title: `Atención por Chat: WhatsApp`, subtitle: sub ? `Chat: ${sub}` : undefined };
+    }
+    return { title: `Inicio de tarea: ${app}`, subtitle: sub || undefined };
+  }
+
+  action = action.replace(/(\d+)s de inactividad/g, (_, s) => {
+    const sec = parseInt(s, 10);
+    const m = Math.floor(sec / 60);
+    return m > 0 ? `${m} min de pausa` : `${sec}s de pausa`;
+  });
+  action = action.replace(/Reactivó actividad después de/g, "Reanudó labores tras");
+  action = action.replace(/Sin actividad por 5 minutos en/g, "Pausa de 5 min en");
+
+  return { title: action, subtitle: cleanTitle && cleanTitle !== action ? cleanTitle : undefined };
+}
+
 export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Props) {
   const defaultEmail = agentEmail || "cbatista@sekunet.com";
   const [liveAgents, setLiveAgents] = useState<LiveAgent[]>([]);
@@ -371,6 +456,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                   {timeline.slice(0, 7).map((item) => {
                     const Icon = CATEGORY_ICONS[item.category] || Activity;
                     const colorClass = CATEGORY_COLORS[item.category] || "text-zinc-400 bg-zinc-500/10 border-zinc-500/20";
+                    const display = formatExecutiveDisplay(item.action, item.category, (item.metadata || {}) as Record<string, any>);
                     return (
                       <div
                         key={item.id}
@@ -380,15 +466,18 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                           <Icon className="h-3.5 w-3.5" />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-foreground truncate">{item.action}</p>
+                          <p className="font-bold text-foreground truncate">{display.title}</p>
+                          {display.subtitle && (
+                            <p className="text-[11px] text-muted-foreground truncate mt-0.5">{display.subtitle}</p>
+                          )}
                           <div className="flex items-center gap-2 mt-1 text-[11px] text-muted-foreground">
                             <span>{formatTime(item.created_at)}</span>
-                            {item.duration_ms && (
+                            {item.duration_ms ? (
                               <>
                                 <span>•</span>
                                 <span className="font-mono">{formatDuration(item.duration_ms)}</span>
                               </>
-                            )}
+                            ) : null}
                           </div>
                         </div>
                       </div>
@@ -446,8 +535,9 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                 filteredTimeline.map((item) => {
                   const Icon = CATEGORY_ICONS[item.category] || Activity;
                   const colorClass = CATEGORY_COLORS[item.category] || "text-zinc-400 bg-zinc-500/10 border-zinc-500/20";
-                  const meta = item.metadata || {};
+                  const meta = (item.metadata || {}) as Record<string, any>;
                   const appName = meta.app_name || meta.label || meta.page || "";
+                  const display = formatExecutiveDisplay(item.action, item.category, meta);
 
                   return (
                     <div
@@ -459,28 +549,10 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                           <Icon className="h-4 w-4" />
                         </div>
                         <div className="min-w-0">
-                          <p className="font-bold text-foreground text-sm">
-                            {(() => {
-                              let text = item.action || "";
-                              text = text.replace(/^Abri[oó] \/ Cambi[oó] a\s*"?([^"–—]+)"?.*$/i, "Inicio de tarea en $1");
-                              text = text.replace(/^Us[oó] "?([^"–—]+)"? durante (\d+)s(?:\s*\((.*)\))?/i, (_, app, s, title) => {
-                                const sec = parseInt(s, 10);
-                                const m = Math.round(sec / 60);
-                                const timeStr = m > 0 ? `${m} min` : `${sec}s`;
-                                const cleanTitle = title ? ` — "${title.replace(/\.exe/gi, '')}"` : '';
-                                return `${app}${cleanTitle} (${timeStr})`;
-                              });
-                              text = text.replace(/^Sigue usando "?([^"–—]+)"? \(lleva (\d+)m\).*/i, "En curso • $1 ($2 min)");
-                              text = text.replace(/(\d+)s de inactividad/g, (_, s) => {
-                                const sec = parseInt(s, 10);
-                                const m = Math.floor(sec / 60);
-                                return m > 0 ? `${m} min de pausa` : `${sec}s de pausa`;
-                              });
-                              text = text.replace(/Reactivó actividad después de/g, "Reanudó labores tras");
-                              text = text.replace(/Sin actividad por 5 minutos en/g, "Pausa de 5 min en");
-                              return text;
-                            })()}
-                          </p>
+                          <p className="font-bold text-foreground text-sm">{display.title}</p>
+                          {display.subtitle && (
+                            <p className="text-xs text-muted-foreground/90 mt-0.5">{display.subtitle}</p>
+                          )}
                           <div className="flex flex-wrap items-center gap-2 mt-1.5 text-[11px] text-muted-foreground">
                             <span className="font-semibold text-foreground/80">{item.category}</span>
                             {appName && (
@@ -502,11 +574,11 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                       </div>
 
                       <div className="flex items-center gap-3 shrink-0 self-end sm:self-center font-mono text-[11px]">
-                        {item.duration_ms && (
+                        {item.duration_ms ? (
                           <span className="px-2.5 py-1 rounded-lg bg-muted/40 border border-border/50 font-bold text-foreground">
                             {formatDuration(item.duration_ms)}
                           </span>
-                        )}
+                        ) : null}
                         <span className="text-muted-foreground font-semibold">{formatTime(item.created_at)}</span>
                       </div>
                     </div>
