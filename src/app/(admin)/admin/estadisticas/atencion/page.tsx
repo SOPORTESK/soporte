@@ -59,7 +59,8 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
     .neq("canal", "simulator")
     .neq("es_test", true);
 
-  const casos = todosLosCasos || [];
+  // Filtrar casos reales atendidos por agentes humanos (eliminar falsos positivos / abandoned)
+  const casos = (todosLosCasos || []).filter(c => c.assigned_to && !c.assigned_to.includes("system_prompt"));
 
   // ── Filtrar por mes si viene en searchParams (formato: YYYY-MM)
   const mesSeleccionado = searchParams.mes || "all";
