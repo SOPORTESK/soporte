@@ -184,6 +184,25 @@ function formatExecutiveDisplay(rawAction: string, category: string, meta: Recor
     return { title: `Inicio de tarea: ${app}`, subtitle: sub || undefined };
   }
 
+  // Handle web in-app logs
+  if (action.includes("Permaneció en")) {
+    const pageMatch = action.match(/Permaneció en "([^"]+)" durante ([^.]+)(?:\.\s*Interacciones:.*)?/i);
+    if (pageMatch) {
+      const page = cleanExecutiveTitle(pageMatch[1]);
+      const timeStr = pageMatch[2].trim();
+      return { title: `Operativa Sekunet: ${page} (${timeStr})` };
+    }
+  }
+
+  if (action.startsWith("Abrió la página:") || action.startsWith("Navegó de")) {
+    const page = action.replace(/^Abrió la página:\s*/i, "").replace(/^Navegó de.*a\s*"([^"]+)"/i, "$1").trim();
+    return { title: `Navegación: ${cleanExecutiveTitle(page)}` };
+  }
+
+  if (action.includes("Inició sesión")) {
+    return { title: `Acceso: Inicio de sesión en Sekunet` };
+  }
+
   action = action.replace(/(\d+)s de inactividad/g, (_, s) => {
     const sec = parseInt(s, 10);
     const m = Math.floor(sec / 60);

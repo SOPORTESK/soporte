@@ -90,51 +90,34 @@ export function useActivityTracker(agentEmail: string, agentName: string, enable
         const totalInteractions = clicks + keys + scrolls;
 
         const prevLabel = pathnameToLabel(lastPathRef.current);
-        let detail = `Permaneció en "${prevLabel}" durante ${formatDwell(dwellSec)}`;
+        
+        // Solo registrar si pasó al menos 20 segundos o hubo trabajo real
+        if (dwellSec >= 20 || totalInteractions >= 3) {
+          const detail = `Operativa Sekunet: ${prevLabel} (${formatDwell(dwellSec)})`;
 
-        if (totalInteractions > 0) {
-          const parts: string[] = [];
-          if (clicks > 0) parts.push(`${clicks} clicks`);
-          if (keys > 0) parts.push(`${keys} pulsaciones de teclado`);
-          if (scrolls > 0) parts.push(`${scrolls} scrolls`);
-          detail += `. Interacciones: ${parts.join(", ")}`;
+          logActivity({
+            agent_email: agentEmail,
+            agent_name: agentName,
+            action: detail,
+            category: "Operativa",
+            duration_ms: now - pageEnterRef.current,
+            metadata: {
+              page: lastPathRef.current,
+              dwell_seconds: dwellSec,
+              clicks,
+              key_presses: keys,
+              scrolls,
+              total_interactions: totalInteractions,
+              executive_report: true
+            },
+          });
         }
-
-        logActivity({
-          agent_email: agentEmail,
-          agent_name: agentName,
-          action: detail,
-          category: "Navegación",
-          duration_ms: now - pageEnterRef.current,
-          metadata: {
-            page: lastPathRef.current,
-            dwell_seconds: dwellSec,
-            clicks,
-            key_presses: keys,
-            scrolls,
-            total_interactions: totalInteractions,
-          },
-        });
 
         clickCountRef.current = 0;
         keyCountRef.current = 0;
         scrollCountRef.current = 0;
         interactionLoggedRef.current = new Set();
       }
-
-      // Registrar navegación (solo el cambio, sin esperar)
-      const pageLabel = pathnameToLabel(pathname);
-      const navDetail = lastPathRef.current
-        ? `Navegó de "${pathnameToLabel(lastPathRef.current)}" a "${pageLabel}"`
-        : `Abrió la página: ${pageLabel}`;
-
-      logActivity({
-        agent_email: agentEmail,
-        agent_name: agentName,
-        action: navDetail,
-        category: "Navegación",
-        metadata: { path: pathname, from: lastPathRef.current || null },
-      });
 
       lastPathRef.current = pathname;
       pageEnterRef.current = now;
