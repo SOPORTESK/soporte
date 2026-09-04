@@ -463,7 +463,7 @@ export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; online
                   </p>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2">
+                <div className="flex flex-wrap gap-1.5 mt-2">
                   {TAREAS_FISICAS.map((task) => {
                     const isCurrent = manualTask?.label === task.label;
                     return (
@@ -473,12 +473,13 @@ export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; online
                           if (isCurrent) stopManualTask();
                           else startManualTask(task.category, task.label);
                         }}
-                        className={`w-full p-2.5 rounded-xl font-bold text-[11px] leading-tight text-center transition-all shadow-sm ${
+                        className={`px-3 py-1.5 rounded-full font-semibold text-[10px] transition-all flex items-center gap-1.5 ${
                           isCurrent
-                            ? "bg-amber-500 text-white ring-2 ring-amber-500/50 scale-[1.02]"
-                            : "bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white hover:scale-[1.02] active:scale-[0.98] shadow-blue-600/20"
+                            ? "bg-amber-500 text-white shadow-sm shadow-amber-500/20 scale-105"
+                            : "bg-muted/40 border border-border/50 text-muted-foreground hover:bg-muted hover:text-foreground hover:border-border"
                         }`}
                       >
+                        {isCurrent && <Timer className="h-3 w-3 animate-pulse" />}
                         {task.label}
                       </button>
                     );
