@@ -143,6 +143,7 @@ export function AgentRankingTable({ agentes }: { agentes: AgentRankingItem[] }) 
           <tr className="border-b border-border bg-muted/10">
             <th className="px-2 py-3 text-left text-[10px] font-black uppercase tracking-wider text-muted-foreground w-10">#</th>
             <th className="px-2 py-3 text-left text-[10px] font-black uppercase tracking-wider text-muted-foreground">Agente</th>
+            <th className="px-2 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground">Score</th>
             <th className="px-2 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground">Total</th>
             <th className="px-2 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground whitespace-nowrap">Tasa Res.</th>
             <th className="px-2 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground">AHT</th>
@@ -156,10 +157,12 @@ export function AgentRankingTable({ agentes }: { agentes: AgentRankingItem[] }) 
         </thead>
         <tbody className="divide-y divide-border/50">
           {agentesFiltrados.length === 0 ? (
-            <tr><td colSpan={11} className="py-16 text-center text-sm text-muted-foreground">Sin datos de atención registrados.</td></tr>
+            <tr><td colSpan={12} className="py-16 text-center text-sm text-muted-foreground">Sin datos de atención registrados.</td></tr>
           ) : agentesFiltrados.map((a, i) => {
             const isTop = i === 0 && agentes.length > 1;
             const initials = a.nombre.split(" ").filter(Boolean).map(n => n[0]).join("").substring(0, 2).toUpperCase();
+            const scoreColor = a.score >= 75 ? "text-emerald-500" : a.score >= 50 ? "text-amber-400" : "text-rose-500";
+            const scoreBg = a.score >= 75 ? "bg-emerald-500/10" : a.score >= 50 ? "bg-amber-400/10" : "bg-rose-500/10";
             const isOpen = expanded === a.email;
             return (
               <React.Fragment key={a.email}>
@@ -181,6 +184,19 @@ export function AgentRankingTable({ agentes }: { agentes: AgentRankingItem[] }) 
                         <p className="font-black text-sm leading-tight">{a.nombre}</p>
                       </div>
                     </div>
+                  </td>
+                  <td className="px-3 py-3 text-center">
+                    {a.scoreValido ? (
+                      <div className={`inline-flex flex-col items-center justify-center h-11 w-11 rounded-xl ${scoreBg} mx-auto`}>
+                        <span className={`text-base font-black tabular-nums ${scoreColor}`}>{a.score}</span>
+                        <span className="text-[8px] font-bold text-muted-foreground uppercase">pts</span>
+                      </div>
+                    ) : (
+                      <div className="inline-flex flex-col items-center justify-center h-11 w-11 rounded-xl bg-muted mx-auto">
+                        <span className="text-[10px] font-black tabular-nums text-muted-foreground">N/A</span>
+                        <span className="text-[8px] font-bold text-muted-foreground uppercase">{a.totalAtendidos} casos</span>
+                      </div>
+                    )}
                   </td>
                   <td className="px-2 py-3 text-center">
                     <p className="font-black text-sky-500 tabular-nums text-base">{a.totalAtendidos}</p>
@@ -236,7 +252,7 @@ export function AgentRankingTable({ agentes }: { agentes: AgentRankingItem[] }) 
                 </tr>
                 {isOpen && (
                   <tr className="bg-muted/10">
-                    <td colSpan={11} className="p-0">
+                    <td colSpan={12} className="p-0">
                       <div className="border-l-2 border-brand-500/50 mx-3 my-2 rounded-r-lg bg-card/50">
                         <div className="flex items-center justify-between px-4 pt-3">
                           <p className="text-[11px] font-black uppercase tracking-widest text-brand-500">

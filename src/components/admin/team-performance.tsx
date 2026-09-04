@@ -366,7 +366,6 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
           <div className="w-24 text-center"><p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Handle time</p></div>
           <div className="w-24 text-center"><p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Calif. cliente</p></div>
           <div className="w-14 text-center"><p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Trend</p></div>
-          <div className="w-20 text-center"><p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Score</p></div>
           <div className="w-28 shrink-0" />
         </div>
 
@@ -455,12 +454,6 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
                     </div>
                     <div className="w-14 flex items-center justify-center">
                       {getTrendIcon(agent.tendencia)}
-                    </div>
-                    <div className="w-20 flex items-center justify-center">
-                      <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border ${getPerformanceBg(score)}`}>
-                        <span className={`text-base font-black tabular-nums ${getPerformanceColor(score)}`}>{score}</span>
-                        <span className="text-[9px] font-bold text-muted-foreground">pts</span>
-                      </div>
                     </div>
                   </div>
 
