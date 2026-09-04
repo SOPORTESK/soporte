@@ -54,21 +54,21 @@ export function useActivityTracker(agentEmail: string, agentName: string, enable
       const clicks = clickCountRef.current;
       const totalInteractions = clicks + keys + scrollCountRef.current;
 
-      if (caseDuration > 3000) {
+      if (caseDuration >= 15000 || keys > 0) {
+        const cleanCase = String(lastCaseIdRef.current).replace(/^tel:/i, "+");
+        const dwellStr = formatExecutiveDuration(caseDuration);
         logActivity({
           agent_email: agentEmail,
           agent_name: agentName,
-          action: `Atendió caso ${lastCaseIdRef.current} durante ${formatDwell(caseDuration / 1000)} (${totalInteractions} interacciones)`,
-          category: "Mensajería",
+          action: `Atención por Chat: Caso ${cleanCase} (${dwellStr})`,
+          category: "Atención chat",
           case_id: lastCaseIdRef.current,
           duration_ms: caseDuration,
           metadata: {
             case_id: lastCaseIdRef.current,
             duration_seconds: Math.round(caseDuration / 1000),
-            clicks,
-            key_presses: keys,
-            total_interactions: totalInteractions,
             page: lastPathRef.current,
+            executive_report: true
           },
         });
       }

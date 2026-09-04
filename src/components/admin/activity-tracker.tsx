@@ -171,6 +171,15 @@ function formatExecutiveDisplay(rawAction: string, category: string, meta: Recor
     return { title: `${app} (${timeStr})`, subtitle: sub || undefined };
   }
 
+  if (action.includes("Atendió caso")) {
+    const caseMatch = action.match(/Atendió caso (?:tel:)?([^\s]+) durante ([^.]+)(?:\s*\(.*?\))?/i);
+    if (caseMatch) {
+      const caseNum = caseMatch[1].replace(/^tel:/i, "+");
+      const timeStr = caseMatch[2].trim();
+      return { title: `Atención por Chat: Caso ${caseNum} (${timeStr})` };
+    }
+  }
+
   const openMatch = action.match(/^Abri[oó] \/ Cambi[oó] a "?([^"–—]+)"?(?:\s*[-–—]\s*(.*))?/i);
   if (openMatch) {
     const app = openMatch[1].trim();
