@@ -22,6 +22,18 @@ function getCaseIdFromURL(): string {
   }
 }
 
+function formatExecutiveDuration(ms: number): string {
+  const min = Math.round(ms / 60000);
+  if (min < 1) {
+    const sec = Math.round(ms / 1000);
+    return `${sec}s`;
+  }
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60);
+  const remM = min % 60;
+  return remM > 0 ? `${h}h ${remM}min` : `${h}h`;
+}
+
 export function useActivityTracker(agentEmail: string, agentName: string, enabled: boolean = true) {
   const pathname = usePathname();
   const lastPathRef = useRef<string>("");
