@@ -19,7 +19,7 @@ export default async function SoporteAvanzadoPage({ searchParams }: { searchPara
         .neq("es_test", true)
         .order("last_message_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false })
-        .limit(500);
+        .limit(5000);
       return { data, error };
     },
     []
