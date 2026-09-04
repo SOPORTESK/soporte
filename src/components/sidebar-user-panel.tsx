@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Camera, Lock, Eye, EyeOff, Check, X, ChevronUp, Circle, LogOut, Activity as ActivityIcon, FileText, ChevronRight, X as XIcon, RefreshCw, Wrench, Coffee, Timer, BarChart3 } from "lucide-react";
+import { Camera, Lock, Eye, EyeOff, Check, X, ChevronUp, Circle, LogOut, Activity as ActivityIcon, FileText, ChevronRight, X as XIcon, RefreshCw, Wrench, Coffee, Timer, BarChart3, Package, LayoutDashboard, ClipboardList, Sparkles, UserPlus, Briefcase, GraduationCap, Users } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -35,18 +35,33 @@ const STATUS_LABELS: Record<string, { label: string; color: string; icon?: strin
 
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutos (tolerancia de taller)
 
-const TAREAS_FISICAS = [
-  { label: "Ir a Bodega", category: "Labores manuales" },
-  { label: "Ir a Ventanilla", category: "Atención presencial" },
-  { label: "Ir al Baño", category: "Pausa personal" },
-  { label: "Iniciar Diagnóstico Físico", category: "Soporte técnico" },
-  { label: "Reunión", category: "Reunión interna" },
-  { label: "Exhibidores", category: "Labores manuales" },
-  { label: "Soporte a Ventas", category: "Soporte comercial" },
-  { label: "Capacitacion de clientes", category: "Capacitación" },
-  { label: "Inventario y Actualización de Bodega GAR", category: "Inventario" },
-  { label: "Limpieza de taller", category: "Mantenimiento" },
-  { label: "Capacitacion de Personal", category: "Capacitación" },
+const TAREAS_GROUPED = [
+  {
+    group: "Operativa",
+    items: [
+      { label: "Ir a Bodega", short: "Bodega", category: "Labores manuales", icon: Package },
+      { label: "Exhibidores", short: "Exhibidores", category: "Labores manuales", icon: LayoutDashboard },
+      { label: "Inventario y Actualización de Bodega GAR", short: "Inventario GAR", category: "Inventario", icon: ClipboardList },
+      { label: "Limpieza de taller", short: "Limpieza", category: "Mantenimiento", icon: Sparkles },
+    ]
+  },
+  {
+    group: "Soporte",
+    items: [
+      { label: "Ir a Ventanilla", short: "Ventanilla", category: "Atención presencial", icon: UserPlus },
+      { label: "Iniciar Diagnóstico Físico", short: "Diagnóstico", category: "Soporte técnico", icon: Wrench },
+      { label: "Soporte a Ventas", short: "Soporte Ventas", category: "Soporte comercial", icon: Briefcase },
+      { label: "Capacitacion de clientes", short: "Capacitar Cliente", category: "Capacitación", icon: GraduationCap },
+    ]
+  },
+  {
+    group: "Personal",
+    items: [
+      { label: "Ir al Baño", short: "Pausa (Baño)", category: "Pausa personal", icon: Coffee },
+      { label: "Reunión", short: "Reunión", category: "Reunión interna", icon: Users },
+      { label: "Capacitacion de Personal", short: "Capacitar (Interno)", category: "Capacitación", icon: GraduationCap },
+    ]
+  }
 ];
 
 function AvatarImg({ url, name, size = 36 }: { url?: string | null; name: string; size?: number }) {
@@ -455,35 +470,44 @@ export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; online
               )}
 
               {/* Tareas Físicas / Fuera de Estación Directas */}
-              <div className="flex-1 overflow-y-auto px-3 py-2.5 space-y-2.5">
+              <div className="flex-1 overflow-y-auto px-3 py-2.5 space-y-3">
                 <div>
                   <h4 className="text-xs font-black text-foreground tracking-tight">Tareas Físicas / Fuera de Estación</h4>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                  <p className="text-[10px] text-muted-foreground mt-0.5 mb-2">
                     Selecciona una labor para pausar la recolección automática:
                   </p>
                 </div>
 
-                <div className="flex flex-wrap gap-1.5 mt-2">
-                  {TAREAS_FISICAS.map((task) => {
-                    const isCurrent = manualTask?.label === task.label;
-                    return (
-                      <button
-                        key={task.label}
-                        onClick={() => {
-                          if (isCurrent) stopManualTask();
-                          else startManualTask(task.category, task.label);
-                        }}
-                        className={`px-3 py-1.5 rounded-full font-semibold text-[10px] transition-all flex items-center gap-1.5 ${
-                          isCurrent
-                            ? "bg-amber-500 text-white shadow-sm shadow-amber-500/20 scale-105"
-                            : "bg-muted/40 border border-border/50 text-muted-foreground hover:bg-muted hover:text-foreground hover:border-border"
-                        }`}
-                      >
-                        {isCurrent && <Timer className="h-3 w-3 animate-pulse" />}
-                        {task.label}
-                      </button>
-                    );
-                  })}
+                <div className="space-y-3 mt-1">
+                  {TAREAS_GROUPED.map((group) => (
+                    <div key={group.group}>
+                      <h5 className="text-[10px] font-bold text-muted-foreground/70 uppercase tracking-wider mb-1.5 pl-1">{group.group}</h5>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        {group.items.map((task) => {
+                          const isCurrent = manualTask?.label === task.label;
+                          const Icon = task.icon;
+                          return (
+                            <button
+                              key={task.label}
+                              title={task.label}
+                              onClick={() => {
+                                if (isCurrent) stopManualTask();
+                                else startManualTask(task.category, task.label);
+                              }}
+                              className={`px-2.5 py-2 rounded-xl font-medium text-[10px] transition-all flex items-center gap-1.5 text-left border ${
+                                isCurrent
+                                  ? "bg-amber-500/10 border-amber-500/50 text-amber-500 shadow-sm"
+                                  : "bg-card border-border hover:bg-muted hover:border-muted-foreground/30 text-muted-foreground"
+                              }`}
+                            >
+                              {isCurrent ? <Timer className="h-3.5 w-3.5 animate-pulse shrink-0" /> : <Icon className="h-3.5 w-3.5 shrink-0 opacity-70" />}
+                              <span className="truncate leading-tight">{task.short}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
 
