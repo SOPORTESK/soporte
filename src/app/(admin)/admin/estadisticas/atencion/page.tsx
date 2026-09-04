@@ -10,6 +10,29 @@ import { MessageVolumeTabs, MessageStatsData } from "@/components/admin/message-
 
 export const dynamic = "force-dynamic";
 
+function calculateBusinessMinutes(start: Date, end: Date): number {
+  if (end < start) return 0;
+  let totalMinutes = 0;
+  let current = new Date(start);
+  while (current < end) {
+    const day = current.getDay();
+    if (day !== 0 && day !== 6) { // Lunes a Viernes
+      const startOfDay = new Date(current);
+      startOfDay.setHours(8, 0, 0, 0);
+      const endOfDay = new Date(current);
+      endOfDay.setHours(17, 30, 0, 0);
+      const overlapStart = current > startOfDay ? current : startOfDay;
+      const overlapEnd = end < endOfDay ? end : endOfDay;
+      if (overlapEnd > overlapStart) {
+        totalMinutes += (overlapEnd.getTime() - overlapStart.getTime()) / 60000;
+      }
+    }
+    current.setDate(current.getDate() + 1);
+    current.setHours(0, 0, 0, 0);
+  }
+  return Math.round(totalMinutes);
+}
+
 export default async function EstadisticasAtencionPage({ searchParams }: { searchParams: { mes?: string; periodo?: string } }) {
   const supabase = createClient();
 
@@ -99,7 +122,7 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
       const start = new Date(c.accepted_at!);
       const end = new Date((c as any).closed_at!);
       if (isNaN(start.getTime()) || isNaN(end.getTime())) return null;
-      const min = Math.round((end.getTime() - start.getTime()) / 60000);
+      const min = calculateBusinessMinutes(start, end);
       if (min < 0) return null;
       return {
         id: c.id, title: c.title || "Caso sin título", agente: agenteMap[c.assigned_to!.toLowerCase()] || c.assigned_to!,
@@ -254,7 +277,7 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
         const start = startTimestamp ? new Date(startTimestamp) : new Date(caso.created_at);
         const end = new Date(closedAt);
         if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
-          const diff = Math.round((end.getTime() - start.getTime()) / 60000);
+          const diff = calculateBusinessMinutes(start, end);
           if (diff > 0 && diff < 10080) s.tiemposResolucion.push(diff);
         }
       }
