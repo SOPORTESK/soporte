@@ -10,27 +10,33 @@ import { MessageVolumeTabs, MessageStatsData } from "@/components/admin/message-
 
 export const dynamic = "force-dynamic";
 
-function calculateBusinessMinutes(start: Date, end: Date): number {
-  if (end < start) return 0;
-  let totalMinutes = 0;
-  let current = new Date(start);
-  while (current < end) {
-    const day = current.getDay();
-    if (day !== 0 && day !== 6) { // Lunes a Viernes
-      const startOfDay = new Date(current);
-      startOfDay.setHours(8, 0, 0, 0);
-      const endOfDay = new Date(current);
-      endOfDay.setHours(17, 30, 0, 0);
-      const overlapStart = current > startOfDay ? current : startOfDay;
-      const overlapEnd = end < endOfDay ? end : endOfDay;
-      if (overlapEnd > overlapStart) {
-        totalMinutes += (overlapEnd.getTime() - overlapStart.getTime()) / 60000;
+/** Calcula minutos de resolución REALES basados en actividad de mensajes.
+ *  Extrae todos los timestamps de histcliente + histtecnico y mide
+ *  desde el primer mensaje hasta el último. Si no hay mensajes, usa accepted_at → closed_at.
+ *  Esto evita que casos olvidados abiertos por días/semanas inflen los tiempos. */
+function calculateRealMinutes(c: any): number {
+  const times: number[] = [];
+  for (const arr of [c.histcliente, c.histtecnico]) {
+    if (!Array.isArray(arr)) continue;
+    for (const msg of arr) {
+      const t = msg?.time || msg?.timestamp || msg?.created_at;
+      if (t) {
+        const d = new Date(t).getTime();
+        if (!isNaN(d)) times.push(d);
       }
     }
-    current.setDate(current.getDate() + 1);
-    current.setHours(0, 0, 0, 0);
   }
-  return Math.round(totalMinutes);
+  if (times.length >= 2) {
+    times.sort((a, b) => a - b);
+    const firstMsg = times[0];
+    const lastMsg = times[times.length - 1];
+    return Math.round((lastMsg - firstMsg) / 60000);
+  }
+  // Fallback: accepted_at → closed_at
+  const start = new Date(c.accepted_at);
+  const end = new Date(c.closed_at);
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) return 0;
+  return Math.round((end.getTime() - start.getTime()) / 60000);
 }
 
 export default async function EstadisticasAtencionPage({ searchParams }: { searchParams: { mes?: string; periodo?: string } }) {
@@ -115,14 +121,11 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
   const slaGt4h = tiemposTodos.filter(t => t > 240).length;
   const avgSlaGlobal = tiemposTodos.length > 0 ? Math.round(tiemposTodos.reduce((a, b) => a + b, 0) / tiemposTodos.length) : 0;
 
-  // ── Distribución de tiempo de resolución humana (aceptación → cierre, solo humanos)
+  // ── Distribución de tiempo de resolución humana (actividad real de mensajes, solo humanos)
   const casosResolucion = casosConAsig
     .filter(c => c.accepted_at && (c as any).closed_at && (c.estado === "resuelto" || c.estado === "cerrado" || (c as any).closed_at))
     .map(c => {
-      const start = new Date(c.accepted_at!);
-      const end = new Date((c as any).closed_at!);
-      if (isNaN(start.getTime()) || isNaN(end.getTime())) return null;
-      const min = calculateBusinessMinutes(start, end);
+      const min = calculateRealMinutes(c);
       if (min < 0) return null;
       return {
         id: c.id, title: c.title || "Caso sin título", agente: agenteMap[c.assigned_to!.toLowerCase()] || c.assigned_to!,
@@ -269,17 +272,8 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
       s.resueltos++;
       const closedAt = (caso as any).closed_at;
       if (closedAt) {
-        let startTimestamp = caso.accepted_at;
-        if (!startTimestamp && Array.isArray(caso.histtecnico)) {
-          const firstMsg = caso.histtecnico.find((h: any) => h.role === "tecnico");
-          if (firstMsg) startTimestamp = firstMsg.time;
-        }
-        const start = startTimestamp ? new Date(startTimestamp) : new Date(caso.created_at);
-        const end = new Date(closedAt);
-        if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
-          const diff = calculateBusinessMinutes(start, end);
-          if (diff > 0 && diff < 10080) s.tiemposResolucion.push(diff);
-        }
+        const diff = calculateRealMinutes(caso);
+        if (diff > 0 && diff < 10080) s.tiemposResolucion.push(diff);
       }
       const te = tiempoEfectivo((caso as any).histtecnico, (caso as any).histcliente, (caso as any).accepted_at);
       if (te > 0) s.tiemposEfectivos.push(te);
