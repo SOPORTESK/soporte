@@ -18,7 +18,7 @@ export default async function InboxPage({ searchParams }: { searchParams: { c?: 
         .in("estado", ["cerrado", "resuelto"])
         .order("last_message_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false })
-        .limit(50);
+        .limit(500);
       return { data, error };
     },
     []
