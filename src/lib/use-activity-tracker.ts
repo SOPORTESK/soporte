@@ -82,43 +82,10 @@ export function useActivityTracker(agentEmail: string, agentName: string, enable
 
     // Si cambió de ruta, loguear tiempo en página anterior como Navegación
     if (pathname !== lastPathRef.current) {
-      if (lastPathRef.current) {
-        const dwellSec = Math.round((now - pageEnterRef.current) / 1000);
-        const clicks = clickCountRef.current;
-        const keys = keyCountRef.current;
-        const scrolls = scrollCountRef.current;
-        const totalInteractions = clicks + keys + scrolls;
-
-        const prevLabel = pathnameToLabel(lastPathRef.current);
-        
-        // Solo registrar si pasó al menos 20 segundos o hubo trabajo real
-        if (dwellSec >= 20 || totalInteractions >= 3) {
-          const detail = `Operativa Sekunet: ${prevLabel} (${formatDwell(dwellSec)})`;
-
-          logActivity({
-            agent_email: agentEmail,
-            agent_name: agentName,
-            action: detail,
-            category: "Operativa",
-            duration_ms: now - pageEnterRef.current,
-            metadata: {
-              page: lastPathRef.current,
-              dwell_seconds: dwellSec,
-              clicks,
-              key_presses: keys,
-              scrolls,
-              total_interactions: totalInteractions,
-              executive_report: true
-            },
-          });
-        }
-
-        clickCountRef.current = 0;
-        keyCountRef.current = 0;
-        scrollCountRef.current = 0;
-        interactionLoggedRef.current = new Set();
-      }
-
+      // Reset tracking on path change without spamming the log
+      clickCountRef.current = 0;
+      keyCountRef.current = 0;
+      scrollCountRef.current = 0;
       lastPathRef.current = pathname;
       pageEnterRef.current = now;
       caseEnterRef.current = now;
@@ -135,19 +102,6 @@ export function useActivityTracker(agentEmail: string, agentName: string, enable
 
     let idleTimer: ReturnType<typeof setTimeout>;
     let scrollTimer: ReturnType<typeof setTimeout>;
-
-    // Log de inicio de sesión solo una vez
-    if (!sessionLogged) {
-      sessionLogged = true;
-      sessionStart = Date.now();
-      logActivity({
-        agent_email: agentEmail,
-        agent_name: agentName,
-        action: `Inició sesión en el sistema`,
-        category: "Navegación",
-        metadata: { session_start: new Date().toISOString() },
-      });
-    }
 
     const isElectron = typeof window !== "undefined" && Boolean((window as any).electronAPI?.isElectron);
 
