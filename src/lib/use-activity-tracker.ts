@@ -247,31 +247,25 @@ export function useActivityTracker(agentEmail: string, agentName: string, enable
       // Loguear caso activo como Mensajería al cerrar
       if (isOnCase) {
         const caseDuration = Date.now() - caseEnterRef.current;
-        if (caseDuration > 3000) {
+        if (caseDuration >= 15000) {
+          const cleanCase = String(activeCaseId).replace(/^tel:/i, "+");
+          const dwellStr = formatExecutiveDuration(caseDuration);
           logActivity({
             agent_email: agentEmail,
             agent_name: agentName,
-            action: `Atendió caso ${activeCaseId} durante ${formatDwell(caseDuration / 1000)} (al cerrar sesión)`,
-            category: "Mensajería",
+            action: `Atención por Chat: Caso ${cleanCase} (${dwellStr})`,
+            category: "Atención chat",
             case_id: activeCaseId,
             duration_ms: caseDuration,
             metadata: {
               case_id: activeCaseId,
               duration_seconds: Math.round(caseDuration / 1000),
               page: lastPathRef.current,
+              executive_report: true
             },
           });
         }
       }
-
-      logActivity({
-        agent_email: agentEmail,
-        agent_name: agentName,
-        action: `Cerró sesión. Tiempo total: ${formatDwell(sessionDuration / 1000)}. Última página: "${pageLabel}" (${formatDwell(dwellSec)})`,
-        category: "Navegación",
-        duration_ms: sessionDuration,
-        metadata: { session_duration_s: Math.round(sessionDuration / 1000), last_page: lastPathRef.current },
-      });
     };
 
     // Registrar listeners
