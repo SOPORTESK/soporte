@@ -8,19 +8,35 @@ const fs = require('fs');
 const os = require('os');
 
 // Native Win32 active window detector — 100% reliable on Windows 10/11
+function findActiveWinExe() {
+  const candidates = [
+    path.join(__dirname, '../scripts/get-active-win.exe'),
+    path.join(__dirname, '../scripts/get-active-win.exe').replace('app.asar', 'app.asar.unpacked'),
+    path.join(process.resourcesPath || '', 'app.asar.unpacked/scripts/get-active-win.exe'),
+  ];
+  for (const c of candidates) {
+    try { if (fs.existsSync(c)) return c; } catch {}
+  }
+  return null;
+}
+
 let _activeWinFn = null;
 async function getActiveWindow() {
   try {
     const { execFileSync } = require('child_process');
-    const exePath = path.join(__dirname, '../scripts/get-active-win.exe');
-    if (fs.existsSync(exePath)) {
+    const exePath = findActiveWinExe();
+    if (exePath) {
       const out = execFileSync(exePath, { encoding: 'utf8', timeout: 1500, windowsHide: true });
       if (out && out.trim().startsWith('{')) {
         const parsed = JSON.parse(out.trim());
-        if (parsed.app && parsed.app !== 'Unknown' && parsed.app !== '') {
+        const procName = parsed.Process || parsed.app || '';
+        const procTitle = parsed.Title || parsed.title || '';
+        const procPath = parsed.Path || parsed.path || '';
+        const procPid = parsed.Id || parsed.pid || 0;
+        if (procName && procName !== 'Unknown' && procName !== 'Idle' && procName !== '') {
           return {
-            title: parsed.title || '',
-            owner: { name: parsed.app.replace(/\.exe$/i, ''), path: parsed.path, processId: parsed.pid }
+            title: procTitle,
+            owner: { name: procName.replace(/\.exe$/i, ''), path: procPath, processId: procPid }
           };
         }
       }
@@ -94,46 +110,58 @@ function categorizeApp(appName, title) {
   const app = (appName || '').toLowerCase();
   const t = (title || '').toLowerCase();
 
-  if (app.includes('outlook') || app.includes('thunderbird') || app.includes('mail') || t.includes('correo') || t.includes('- outlook'))
-    return { category: 'Gestión de correos', label: 'Correo electrónico' };
-  if (app.includes('whatsapp') || t.includes('whatsapp'))
-    return { category: 'Mensajería', label: 'WhatsApp' };
+  let context = t;
+  let context_type = 'app';
+
+  if (app.includes('outlook') || app.includes('thunderbird') || app.includes('mail') || t.includes('correo') || t.includes('- outlook')) {
+    const match = t.match(/^(.+?)\s*[-–]\s*.*outlook/i);
+    context = match ? match[1].trim() : t;
+    context_type = 'email';
+    return { category: 'Gestión de correos', label: 'Correo electrónico', context, context_type };
+  }
+  if (app.includes('whatsapp') || t.includes('whatsapp')) {
+    context = t.replace(/\s*[-–]\s*WhatsApp.*$/i, '').trim();
+    context_type = 'chat';
+    return { category: 'Mensajería', label: 'WhatsApp', context, context_type };
+  }
   if (app.includes('linkus') || t.includes('linkus') || app.includes('grandstream')) {
     let label = 'Linkus (Softphone)', category = 'Atención telefónica';
     if (t.includes('calling') || t.includes('llamando') || t.includes('dialing')) label = 'Linkus - Llamada saliente';
     else if (t.includes('incoming') || t.includes('entrante') || t.includes('ringing') || t.includes('timbrando')) label = 'Linkus - Llamada entrante';
     else if (t.includes('connected') || t.includes('conectado') || t.includes('talking') || t.includes('hablando') || t.includes('in call') || t.includes('en llamada')) label = 'Linkus - En llamada';
     else if (t.includes('missed') || t.includes('perdida')) { label = 'Linkus - Llamada perdida'; category = 'Escalado'; }
-    return { category, label };
+    return { category, label, context, context_type: 'call' };
   }
   if (app.includes('chrome') || app.includes('firefox') || app.includes('edge') || app.includes('brave') || app.includes('opera') || app.includes('browser')) {
-    if (t.includes('odoo')) return { category: 'Atención de tickets', label: 'Odoo' };
+    context = t.replace(/\s*[-–]\s*(Brave|Google Chrome|Microsoft Edge|Firefox|Opera).*$/i, '').trim();
+    context_type = 'web';
+    if (t.includes('odoo')) return { category: 'Atención de tickets', label: 'Odoo', context, context_type };
     if (t.includes('tienda 3d') || t.includes('tienda3d') || t.includes('rma') || t.includes('garantía') || t.includes('garantia') || t.includes('warranty'))
-      return { category: 'Trámites de garantías', label: `Garantías - ${title.split(' - ').slice(-2)[0] || title.substring(0, 40)}` };
+      return { category: 'Trámites de garantías', label: `Garantías - ${title.split(' - ').slice(-2)[0] || title.substring(0, 40)}`, context, context_type };
     if (t.includes('sekunet') || t.includes('seka chat') || t.includes('localhost:3100'))
-      return { category: 'Navegación', label: 'Seka Chat' };
+      return { category: 'Navegación', label: 'Seka Chat', context, context_type };
     if (t.includes('github') || t.includes('stackoverflow') || t.includes('docs.') || t.includes('developer') || t.includes('npmjs') || t.includes('vercel') || t.includes('supabase'))
-      return { category: 'Investigación y desarrollo', label: `Investigación - ${title.split(' - ').slice(-2)[0] || title.substring(0, 40)}` };
-    if (t.includes('linkedin')) return { category: 'Navegación', label: 'LinkedIn' };
-    if (t.includes('youtube')) return { category: 'Navegación', label: 'YouTube' };
+      return { category: 'Investigación y desarrollo', label: `Investigación - ${title.split(' - ').slice(-2)[0] || title.substring(0, 40)}`, context, context_type };
+    if (t.includes('linkedin')) return { category: 'Navegación', label: 'LinkedIn', context, context_type };
+    if (t.includes('youtube')) return { category: 'Navegación', label: 'YouTube', context, context_type };
     const parts = title.split(' - ');
     const site = parts.length >= 2 ? parts[parts.length - 2] : title.substring(0, 40);
-    return { category: 'Navegación', label: `Navegador: ${site}` };
+    return { category: 'Navegación', label: `Navegador: ${site}`, context, context_type };
   }
   if (t.includes('sekunet') || t.includes('seka chat') || t.includes('localhost:3100'))
-    return { category: 'Navegación', label: 'Seka Chat' };
-  if (t.includes('odoo')) return { category: 'Atención de tickets', label: 'Odoo' };
+    return { category: 'Navegación', label: 'Seka Chat', context, context_type };
+  if (t.includes('odoo')) return { category: 'Atención de tickets', label: 'Odoo', context, context_type };
   if (app.includes('windsurf') || app.includes('cursor') || app.includes('code') || app.includes('devenv') || app.includes('webstorm') || app.includes('devin') || app.includes('intellij') || app.includes('eclipse') || app.includes('netbeans') || app.includes('vim') || app.includes('neovim') || app.includes('emacs'))
-    return { category: 'Investigación y desarrollo', label: `Desarrollo - ${appName}` };
+    return { category: 'Investigación y desarrollo', label: `Desarrollo - ${appName}`, context, context_type: 'code' };
   if (app.includes('terminal') || app.includes('cmd') || app.includes('powershell') || app.includes('windowsterminal'))
-    return { category: 'Investigación y desarrollo', label: 'Terminal' };
+    return { category: 'Investigación y desarrollo', label: 'Terminal', context, context_type: 'terminal' };
   if (app.includes('teams') || app.includes('slack') || app.includes('discord') || app.includes('zoom') || app.includes('meet'))
-    return { category: 'Navegación', label: `Comunicación (${appName})` };
+    return { category: 'Navegación', label: `Comunicación (${appName})`, context, context_type };
   if (app.includes('excel') || app.includes('word') || app.includes('powerpoint') || app.includes('office'))
-    return { category: 'Gestión de correos', label: `Office (${appName})` };
+    return { category: 'Gestión de correos', label: `Office (${appName})`, context, context_type: 'document' };
   if (app.includes('spotify') || app.includes('vlc') || app.includes('media'))
-    return { category: 'Inactividad', label: `Media (${appName})` };
-  return { category: 'Otros', label: appName || 'Aplicación desconocida' };
+    return { category: 'Inactividad', label: `Media (${appName})`, context, context_type };
+  return { category: 'Otros', label: appName || 'Aplicación desconocida', context, context_type };
 }
 
 function formatDwell(seconds) {

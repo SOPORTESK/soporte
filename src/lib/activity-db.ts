@@ -50,7 +50,7 @@ export async function getActivityTimeline(
     .from("activity_log")
     .select("*")
     .order("created_at", { ascending: false })
-    .limit(200);
+    .limit(2000);
 
   if (agentEmail) query = query.eq("agent_email", agentEmail);
   if (date) {

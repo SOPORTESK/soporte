@@ -18,10 +18,14 @@ async function getActiveWindow() {
       const out = execFileSync(exePath, { encoding: "utf8", timeout: 1500, windowsHide: true });
       if (out && out.trim().startsWith("{")) {
         const parsed = JSON.parse(out.trim());
-        if (parsed.app && parsed.app !== "Unknown" && parsed.app !== "") {
+        const procName = parsed.Process || parsed.app || '';
+        const procTitle = parsed.Title || parsed.title || '';
+        const procPath = parsed.Path || parsed.path || '';
+        const procPid = parsed.Id || parsed.pid || 0;
+        if (procName && procName !== "Unknown" && procName !== "Idle" && procName !== "") {
           return {
-            title: parsed.title || "",
-            owner: { name: parsed.app.replace(/\.exe$/i, ""), path: parsed.path, processId: parsed.pid }
+            title: procTitle,
+            owner: { name: procName.replace(/\.exe$/i, ""), path: procPath, processId: procPid }
           };
         }
       }

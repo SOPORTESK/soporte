@@ -15,16 +15,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Insertar en segundo plano de forma no bloqueante para máxima velocidad de navegación
-    insertActivityLog({
-      agent_email,
-      agent_name: agent_name || agent_email,
-      action,
-      category,
-      case_id: case_id || null,
-      metadata: metadata || null,
-      duration_ms: duration_ms || null,
-    }).catch((e) => console.error("[activity/log] Async insert error:", e.message));
+    try {
+      await insertActivityLog({
+        agent_email,
+        agent_name: agent_name || agent_email,
+        action,
+        category,
+        case_id: case_id || null,
+        metadata: metadata || null,
+        duration_ms: duration_ms || null,
+      });
+    } catch (e: any) {
+      console.error("[activity/log] Async insert error:", e.message);
+    }
 
     return NextResponse.json({ success: true });
   } catch (error: any) {

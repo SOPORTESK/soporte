@@ -41,12 +41,25 @@ export async function GET(_req: NextRequest) {
       const latestLog = agLogs[0] || null;
 
       const todayLogs = agLogs.filter((l) => l.created_at && l.created_at.startsWith(todayStr));
-      const activeMs = todayLogs
-        .filter((l) => l.category !== "Inactividad")
-        .reduce((acc, l) => acc + (l.duration_ms || 0), 0);
-      const idleMs = todayLogs
-        .filter((l) => l.category === "Inactividad")
-        .reduce((acc, l) => acc + (l.duration_ms || 0), 0);
+      const sortedLogs = [...todayLogs].sort((a, b) => new Date(a.created_at!).getTime() - new Date(b.created_at!).getTime());
+
+      let activeMs = 0;
+      let idleMs = 0;
+      const MAX_GAP = 10 * 60 * 1000; // 10 min max gap
+
+      for (let i = 0; i < sortedLogs.length - 1; i++) {
+        const curr = new Date(sortedLogs[i].created_at!).getTime();
+        const next = new Date(sortedLogs[i + 1].created_at!).getTime();
+        const gap = next - curr;
+        if (gap > 0 && gap <= MAX_GAP) {
+          const cat = sortedLogs[i].category || "";
+          if (cat === "Inactividad" || cat === "Pausa personal") {
+            idleMs += gap;
+          } else {
+            activeMs += gap;
+          }
+        }
+      }
 
       const totalMs = activeMs + idleMs;
       const productivityScore = totalMs > 0 ? Math.round((activeMs / totalMs) * 100) : 100;
