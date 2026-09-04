@@ -174,20 +174,79 @@ async function sendLog(action, category, metadata) {
   }
 }
 
+function formatExecutiveDuration(ms) {
+  const min = Math.round(ms / 60000);
+  if (min < 1) {
+    const sec = Math.round(ms / 1000);
+    return `${sec}s`;
+  }
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60);
+  const remM = min % 60;
+  return remM > 0 ? `${h}h ${remM}min` : `${h}h`;
+}
+
+function formatExecutiveAction(category, label, context, durationMs) {
+  const durStr = durationMs > 0 ? ` (${formatExecutiveDuration(durationMs)})` : '';
+  const cleanContext = (context || '').replace(/\s+/g, ' ').trim();
+  
+  if (category === 'Gestión de correos' || category === 'Gestión de Correos') {
+    return cleanContext && !cleanContext.toLowerCase().includes('outlook') 
+      ? `Gestión de Correo: "${cleanContext}"${durStr}`
+      : `Gestión de Correos / Outlook${durStr}`;
+  }
+  if (category === 'Atención telefónica' || category === 'Atención por llamada') {
+    return `Atención Telefónica: ${label}${cleanContext ? ` — ${cleanContext}` : ''}${durStr}`;
+  }
+  if (category === 'Mensajería' || category === 'Atención chat') {
+    return cleanContext 
+      ? `Atención por Chat: WhatsApp — ${cleanContext}${durStr}`
+      : `Atención por Chat: WhatsApp${durStr}`;
+  }
+  if (category === 'Atención de tickets' || category === 'Atención de Tickets') {
+    return cleanContext 
+      ? `Atención de Tickets: ${cleanContext}${durStr}`
+      : `Atención de Tickets: Odoo ERP${durStr}`;
+  }
+  if (category === 'Trámites de garantías' || category === 'Gestión de Garantías') {
+    return cleanContext 
+      ? `Gestión de Garantías: ${cleanContext}${durStr}`
+      : `Gestión de Garantías: Tienda 3D${durStr}`;
+  }
+  if (category === 'Investigación y desarrollo' || category === 'Optimización de procesos') {
+    return cleanContext 
+      ? `Optimización / Desarrollo: ${label} — ${cleanContext}${durStr}`
+      : `Optimización de Procesos: ${label}${durStr}`;
+  }
+  if (category === 'Gestión de documentos' || category === 'Control administrativo') {
+    return cleanContext 
+      ? `Control Administrativo: ${label} — ${cleanContext}${durStr}`
+      : `Control Administrativo: ${label}${durStr}`;
+  }
+  if (category === 'Soporte remoto' || category === 'Soporte técnico') {
+    return `Soporte Técnico: ${label}${cleanContext ? ` — ${cleanContext}` : ''}${durStr}`;
+  }
+  if (category === 'Inactividad') {
+    return `Pausa / Inactividad del sistema${durStr}`;
+  }
+  return cleanContext 
+    ? `${label}: ${cleanContext}${durStr}`
+    : `${label}${durStr}`;
+}
+
 async function poll() {
   try {
     const win = await getActiveWindow();
 
     if (!win) {
-      // Sin ventana activa - posible bloqueo de pantalla
       if (!isIdle) {
         isIdle = true;
         const dwellSec = Math.round((Date.now() - appEnterTime) / 1000);
         if (Date.now() - appEnterTime >= MIN_DWELL && lastApp) {
           const { category, label } = categorizeApp(lastApp, lastTitle);
           await sendLog(
-            `Dejó de usar "${label}" (pantalla bloqueada o sin ventana activa) después de ${formatDwell(dwellSec)}`,
-            category,
+            `Pausa / Inactividad del sistema (${formatDwell(dwellSec)})`,
+            "Inactividad",
             { app: lastApp, title: lastTitle, dwell_seconds: dwellSec, reason: "no_window" }
           );
         }
@@ -201,33 +260,18 @@ async function poll() {
     const title = win.title || "";
     const now = Date.now();
 
-    // Detectar cambio de aplicación (solo por app, no por título)
     if (appName !== lastApp) {
       const dwellMs = now - appEnterTime;
 
-      // Registrar tiempo en la app anterior si fue significativo
       if (lastApp && dwellMs >= MIN_DWELL) {
-        const dwellSec = Math.round(dwellMs / 1000);
-        const { category, label } = categorizeApp(lastApp, lastTitle);
+        const lastCatInfo = categorizeApp(lastApp, lastTitle);
+        const execAction = formatExecutiveAction(lastCatInfo.category, lastCatInfo.label, lastTitle, dwellMs);
         await sendLog(
-          `Usó "${label}" durante ${formatDwell(dwellSec)}${lastTitle ? ` (${lastTitle.substring(0, 60)})` : ""}`,
-          category,
-          { app: lastApp, title: lastTitle, dwell_seconds: dwellSec, duration_ms: dwellMs }
+          execAction,
+          lastCatInfo.category,
+          { app: lastApp, label: lastCatInfo.label, title: lastTitle, dwell_seconds: Math.round(dwellMs / 1000), duration_ms: dwellMs, executive_report: true }
         );
       }
-
-      // Registrar nueva app
-      const { category, label } = categorizeApp(appName, title);
-      const isNewApp = !loggedApps.has(appName);
-      loggedApps.add(appName);
-
-      await sendLog(
-        isNewApp
-          ? `Abrió "${label}"${title ? ` — ${title.substring(0, 60)}` : ""}`
-          : `Cambió a "${label}"${title ? ` — ${title.substring(0, 60)}` : ""}`,
-        category,
-        { app: appName, title: title.substring(0, 100), first_use: isNewApp }
-      );
 
       lastApp = appName;
       lastTitle = title;
@@ -236,23 +280,21 @@ async function poll() {
       isIdle = false;
       lastHeartbeatBucket = 0;
     } else if (title !== lastTitle) {
-      // Solo cambió el título, no loguear evento
       lastTitle = title;
       lastActivityTime = now;
     } else {
-      // Misma app - actualizar tiempo de actividad
       lastActivityTime = now;
-
-      // Heartbeat cada ~5min en la misma app (sin duplicados)
       const dwellSec = Math.round((now - appEnterTime) / 1000);
       const bucket = Math.floor(dwellSec / HEARTBEAT_EVERY);
       if (bucket > lastHeartbeatBucket && dwellSec >= HEARTBEAT_EVERY) {
         lastHeartbeatBucket = bucket;
-        const { category, label } = categorizeApp(appName, title);
+        const catInfo = categorizeApp(appName, title);
+        const dwellMs = now - appEnterTime;
+        const execAction = `En curso • ${formatExecutiveAction(catInfo.category, catInfo.label, title, dwellMs)}`;
         await sendLog(
-          `Sigue usando "${label}" (lleva ${formatDwell(dwellSec)})${title ? ` — ${title.substring(0, 60)}` : ""}`,
-          category,
-          { app: appName, title: title.substring(0, 100), dwell_seconds: dwellSec, duration_ms: 60000 }
+          execAction,
+          catInfo.category,
+          { app: appName, label: catInfo.label, title: title.substring(0, 100), dwell_seconds: dwellSec, duration_ms: HEARTBEAT_EVERY * 1000, checkpoint_5min: true }
         );
       }
     }

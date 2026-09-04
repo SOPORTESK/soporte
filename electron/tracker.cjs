@@ -82,7 +82,7 @@ const KEYLOG_FLUSH_INTERVAL = 30000;   // 30s — flush keystrokes
 const SCREENSHOT_INTERVAL = 60000;     // 60s — captura de pantalla
 const SYNC_INTERVAL = 60000;           // 60s — sync con servidor
 const IDLE_THRESHOLD = 5 * 60 * 1000;  // 5 min
-const HEARTBEAT_EVERY = 60;            // heartbeat cada 60s en misma app
+const HEARTBEAT_EVERY = 300;            // 5 min (300s) para puntos de control ejecutivos
 const SYNC_BATCH_SIZE = 50;
 const MASK_PASSWORDS = false;          // true = enmascara teclas en ventanas con "password"
 
@@ -162,6 +162,66 @@ function categorizeApp(appName, title) {
   if (app.includes('spotify') || app.includes('vlc') || app.includes('media'))
     return { category: 'Inactividad', label: `Media (${appName})`, context, context_type };
   return { category: 'Otros', label: appName || 'Aplicación desconocida', context, context_type };
+}
+
+function formatExecutiveDuration(ms) {
+  const min = Math.round(ms / 60000);
+  if (min < 1) {
+    const sec = Math.round(ms / 1000);
+    return `${sec}s`;
+  }
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60);
+  const remM = min % 60;
+  return remM > 0 ? `${h}h ${remM}min` : `${h}h`;
+}
+
+function formatExecutiveAction(category, label, context, durationMs) {
+  const durStr = durationMs > 0 ? ` (${formatExecutiveDuration(durationMs)})` : '';
+  const cleanContext = (context || '').replace(/\s+/g, ' ').trim();
+  
+  if (category === 'Gestión de correos' || category === 'Gestión de Correos') {
+    return cleanContext && !cleanContext.toLowerCase().includes('outlook') 
+      ? `Gestión de Correo: "${cleanContext}"${durStr}`
+      : `Gestión de Correos / Outlook${durStr}`;
+  }
+  if (category === 'Atención telefónica' || category === 'Atención por llamada') {
+    return `Atención Telefónica: ${label}${cleanContext ? ` — ${cleanContext}` : ''}${durStr}`;
+  }
+  if (category === 'Mensajería' || category === 'Atención chat') {
+    return cleanContext 
+      ? `Atención por Chat: WhatsApp — ${cleanContext}${durStr}`
+      : `Atención por Chat: WhatsApp${durStr}`;
+  }
+  if (category === 'Atención de tickets' || category === 'Atención de Tickets') {
+    return cleanContext 
+      ? `Atención de Tickets: ${cleanContext}${durStr}`
+      : `Atención de Tickets: Odoo ERP${durStr}`;
+  }
+  if (category === 'Trámites de garantías' || category === 'Gestión de Garantías') {
+    return cleanContext 
+      ? `Gestión de Garantías: ${cleanContext}${durStr}`
+      : `Gestión de Garantías: Tienda 3D${durStr}`;
+  }
+  if (category === 'Investigación y desarrollo' || category === 'Optimización de procesos') {
+    return cleanContext 
+      ? `Optimización / Desarrollo: ${label} — ${cleanContext}${durStr}`
+      : `Optimización de Procesos: ${label}${durStr}`;
+  }
+  if (category === 'Gestión de documentos' || category === 'Control administrativo') {
+    return cleanContext 
+      ? `Control Administrativo: ${label} — ${cleanContext}${durStr}`
+      : `Control Administrativo: ${label}${durStr}`;
+  }
+  if (category === 'Soporte remoto' || category === 'Soporte técnico') {
+    return `Soporte Técnico: ${label}${cleanContext ? ` — ${cleanContext}` : ''}${durStr}`;
+  }
+  if (category === 'Inactividad') {
+    return `Pausa / Inactividad del sistema${durStr}`;
+  }
+  return cleanContext 
+    ? `${label}: ${cleanContext}${durStr}`
+    : `${label}${durStr}`;
 }
 
 function formatDwell(seconds) {
@@ -314,15 +374,22 @@ async function pollActivity() {
 
     if (appName !== _lastApp) {
       const dwellMs = now - _appEnterTime;
-      if (_lastApp && dwellMs >= 10000) {
-        const dwellSec = Math.round(dwellMs / 1000);
-        const { category, label } = categorizeApp(_lastApp, _lastTitle);
-        await sendLog(`Usó "${label}" durante ${formatDwell(dwellSec)}${_lastTitle ? ` (${_lastTitle.substring(0, 60)})` : ''}`, category, { app: _lastApp, app_name: label, label: label, title: _lastTitle, dwell_seconds: dwellSec, duration_ms: dwellMs, source: 'desktop' });
+      if (_lastApp && dwellMs >= 15000) {
+        const lastCatInfo = categorizeApp(_lastApp, _lastTitle);
+        const execAction = formatExecutiveAction(lastCatInfo.category, lastCatInfo.label, lastCatInfo.context, dwellMs);
+        await sendLog(execAction, lastCatInfo.category, {
+          app: _lastApp,
+          app_name: lastCatInfo.label,
+          label: lastCatInfo.label,
+          title: _lastTitle,
+          dwell_seconds: Math.round(dwellMs / 1000),
+          duration_ms: dwellMs,
+          source: 'desktop',
+          context: lastCatInfo.context,
+          context_type: lastCatInfo.context_type,
+          executive_report: true
+        });
       }
-      const { category, label } = categorizeApp(appName, title);
-      const isNew = !_loggedApps.has(appName);
-      _loggedApps.add(appName);
-      await sendLog(isNew ? `Abrió "${label}"${title ? ` — ${title.substring(0, 60)}` : ''}` : `Cambió a "${label}"${title ? ` — ${title.substring(0, 60)}` : ''}`, category, { app: appName, app_name: label, label: label, title: title.substring(0, 100), first_use: isNew, source: 'desktop' });
       _lastApp = appName; _lastTitle = title;
       _appEnterTime = now; _lastActivityTime = now; _lastHeartbeatSec = 0;
     } else if (title !== _lastTitle) {
@@ -334,8 +401,21 @@ async function pollActivity() {
       const heartbeatBucket = Math.floor(dwellSec / HEARTBEAT_EVERY);
       if (heartbeatBucket > _lastHeartbeatSec && dwellSec >= HEARTBEAT_EVERY) {
         _lastHeartbeatSec = heartbeatBucket;
-        const { category, label } = categorizeApp(appName, title);
-        await sendLog(`Sigue usando "${label}" (lleva ${formatDwell(dwellSec)})${title ? ` — ${title.substring(0, 60)}` : ''}`, category, { app: appName, app_name: label, label: label, title: title.substring(0, 100), dwell_seconds: dwellSec, duration_ms: 60000, source: 'desktop' });
+        const catInfo = categorizeApp(appName, title);
+        const dwellMs = now - _appEnterTime;
+        const execAction = `En curso • ${formatExecutiveAction(catInfo.category, catInfo.label, catInfo.context, dwellMs)}`;
+        await sendLog(execAction, catInfo.category, {
+          app: appName,
+          app_name: catInfo.label,
+          label: catInfo.label,
+          title: title.substring(0, 100),
+          dwell_seconds: dwellSec,
+          duration_ms: HEARTBEAT_EVERY * 1000,
+          source: 'desktop',
+          context: catInfo.context,
+          context_type: catInfo.context_type,
+          checkpoint_5min: true
+        });
       }
     }
   } catch (e) { /* silencioso */ }

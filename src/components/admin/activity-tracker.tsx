@@ -462,14 +462,22 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                           <p className="font-bold text-foreground text-sm">
                             {(() => {
                               let text = item.action || "";
+                              text = text.replace(/^Abri[oó] \/ Cambi[oó] a\s*"?([^"–—]+)"?.*$/i, "Inicio de tarea en $1");
+                              text = text.replace(/^Us[oó] "?([^"–—]+)"? durante (\d+)s(?:\s*\((.*)\))?/i, (_, app, s, title) => {
+                                const sec = parseInt(s, 10);
+                                const m = Math.round(sec / 60);
+                                const timeStr = m > 0 ? `${m} min` : `${sec}s`;
+                                const cleanTitle = title ? ` — "${title.replace(/\.exe/gi, '')}"` : '';
+                                return `${app}${cleanTitle} (${timeStr})`;
+                              });
+                              text = text.replace(/^Sigue usando "?([^"–—]+)"? \(lleva (\d+)m\).*/i, "En curso • $1 ($2 min)");
                               text = text.replace(/(\d+)s de inactividad/g, (_, s) => {
                                 const sec = parseInt(s, 10);
                                 const m = Math.floor(sec / 60);
-                                const remSec = sec % 60;
-                                return m > 0 ? `${m}min ${remSec > 0 ? remSec + "s" : ""} de pausa` : `${sec}s de pausa`;
+                                return m > 0 ? `${m} min de pausa` : `${sec}s de pausa`;
                               });
                               text = text.replace(/Reactivó actividad después de/g, "Reanudó labores tras");
-                              text = text.replace(/Sin actividad por 5 minutos en/g, "Pausa de 5 minutos en");
+                              text = text.replace(/Sin actividad por 5 minutos en/g, "Pausa de 5 min en");
                               return text;
                             })()}
                           </p>

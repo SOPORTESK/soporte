@@ -78,6 +78,69 @@ function categorizeWindow(processName, title) {
   return { category: 'Operativa', label: title ? `${p} - ${title.substring(0, 35)}` : (processName || 'Aplicación de Windows'), context, context_type };
 }
 
+function formatExecutiveDuration(ms) {
+  const min = Math.round(ms / 60000);
+  if (min < 1) {
+    const sec = Math.round(ms / 1000);
+    return `${sec}s`;
+  }
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60);
+  const remM = min % 60;
+  return remM > 0 ? `${h}h ${remM}min` : `${h}h`;
+}
+
+function formatExecutiveAction(category, label, context, durationMs) {
+  const durStr = durationMs > 0 ? ` (${formatExecutiveDuration(durationMs)})` : '';
+  const cleanContext = (context || '').replace(/\s+/g, ' ').trim();
+  
+  if (category === 'Gestión de Correos') {
+    return cleanContext && !cleanContext.toLowerCase().includes('outlook') 
+      ? `Gestión de Correo: "${cleanContext}"${durStr}`
+      : `Gestión de Correos / Outlook${durStr}`;
+  }
+  if (category === 'Atención por llamada') {
+    return `Atención Telefónica: ${label}${cleanContext ? ` — ${cleanContext}` : ''}${durStr}`;
+  }
+  if (category === 'Atención chat' || category === 'Mensajería') {
+    return cleanContext 
+      ? `Atención por Chat: WhatsApp — ${cleanContext}${durStr}`
+      : `Atención por Chat: WhatsApp${durStr}`;
+  }
+  if (category === 'Atención de Tickets') {
+    return cleanContext 
+      ? `Atención de Tickets: ${cleanContext}${durStr}`
+      : `Atención de Tickets: Odoo ERP${durStr}`;
+  }
+  if (category === 'Gestión de Garantías' || category === 'Trámites de garantías') {
+    return cleanContext 
+      ? `Gestión de Garantías: ${cleanContext}${durStr}`
+      : `Gestión de Garantías: Tienda 3D${durStr}`;
+  }
+  if (category === 'Optimización de procesos' || category === 'Investigación y desarrollo') {
+    return cleanContext 
+      ? `Optimización / Desarrollo: ${label} — ${cleanContext}${durStr}`
+      : `Optimización de Procesos: ${label}${durStr}`;
+  }
+  if (category === 'Control administrativo' || category === 'Gestión de documentos') {
+    return cleanContext 
+      ? `Control Administrativo: ${label} — ${cleanContext}${durStr}`
+      : `Control Administrativo: ${label}${durStr}`;
+  }
+  if (category === 'Soporte técnico' || category === 'Soporte remoto') {
+    return `Soporte Técnico: ${label}${cleanContext ? ` — ${cleanContext}` : ''}${durStr}`;
+  }
+  if (category === 'Entretenimiento' || category === 'No Laboral') {
+    return `Pausa / Entretenimiento: ${label}${cleanContext ? ` — ${cleanContext}` : ''}${durStr}`;
+  }
+  if (category === 'Inactividad') {
+    return `Pausa / Inactividad del sistema${durStr}`;
+  }
+  return cleanContext 
+    ? `${label}: ${cleanContext}${durStr}`
+    : `${label}${durStr}`;
+}
+
 const exePath = path.join(__dirname, 'get-active-win.exe');
 
 function getActiveWindow() {
@@ -97,6 +160,9 @@ function getActiveWindow() {
 let _lastProcess = '';
 let _lastTitle = '';
 let _lastLabel = '';
+let _lastCategory = '';
+let _lastContext = '';
+let _lastContextType = '';
 let _enterTime = Date.now();
 let _lastHeartbeat = Date.now();
 
@@ -108,7 +174,10 @@ const getArg = (name) => {
 const AGENT_EMAIL = getArg('agent') || process.env.ADMIN_DEFAULT_EMAIL || 'cbatista@sekunet.com';
 const AGENT_NAME = getArg('name') || process.env.ADMIN_DEFAULT_NAME || 'César Andrés Batista';
 
-console.log(`[Windows Agent] Corriendo para ${AGENT_EMAIL} (${AGENT_NAME})`);
+console.log(`[Windows Agent] Corriendo para ${AGENT_EMAIL} (${AGENT_NAME}) - Modo Informe Ejecutivo (5 min)`);
+
+const MIN_SESSION_MS = 15000;       // Mínimo 15s para consolidar tarea completada
+const HEARTBEAT_INTERVAL = 300000;  // 5 minutos (300s) para puntos de control
 
 async function poll() {
   try {
@@ -125,15 +194,17 @@ async function poll() {
 
     const { category, label, context, context_type } = categorizeWindow(procName, title);
 
-    if (label !== _lastLabel || (title !== _lastTitle && Math.abs(now - _enterTime) > 10000)) {
+    if (label !== _lastLabel || (title !== _lastTitle && Math.abs(now - _enterTime) > 30000)) {
       const dwellMs = now - _enterTime;
-      if (_lastLabel && dwellMs >= 5000) {
-        const lastCatInfo = categorizeWindow(_lastProcess, _lastTitle);
+      
+      // Registrar la sesión concluida si superó el mínimo (15s)
+      if (_lastLabel && dwellMs >= MIN_SESSION_MS) {
+        const execAction = formatExecutiveAction(_lastCategory, _lastLabel, _lastContext, dwellMs);
         await supabase.from('activity_log').insert({
           agent_email: AGENT_EMAIL,
           agent_name: AGENT_NAME,
-          action: `Usó "${_lastLabel}" durante ${Math.round(dwellMs/1000)}s${_lastTitle ? ` (${_lastTitle.substring(0, 50)})` : ''}`,
-          category: lastCatInfo.category,
+          action: execAction,
+          category: _lastCategory,
           duration_ms: dwellMs,
           metadata: {
             app_name: _lastLabel,
@@ -141,57 +212,48 @@ async function poll() {
             process: _lastProcess,
             title: _lastTitle,
             source: 'desktop',
-            duration_seconds: Math.round(dwellMs/1000),
-            context: lastCatInfo.context,
-            context_type: lastCatInfo.context_type
+            duration_seconds: Math.round(dwellMs / 1000),
+            context: _lastContext,
+            context_type: _lastContextType,
+            executive_report: true
           }
         });
-        console.log(`[Windows Agent] [Dwell] ${_lastLabel} (${Math.round(dwellMs/1000)}s)`);
+        console.log(`[Windows Agent] [Informe] ${execAction}`);
       }
-
-      await supabase.from('activity_log').insert({
-        agent_email: AGENT_EMAIL,
-        agent_name: AGENT_NAME,
-        action: `Abrió / Cambió a "${label}"${title ? ` — ${title.substring(0, 50)}` : ''}`,
-        category,
-        duration_ms: 0,
-        metadata: {
-          app_name: label,
-          label,
-          process: procName,
-          title,
-          source: 'desktop',
-          context,
-          context_type
-        }
-      });
-      console.log(`[Windows Agent] [Entrada] ${label} (${category}) — ${title.substring(0, 40)}`);
 
       _lastProcess = procName;
       _lastTitle = title;
       _lastLabel = label;
+      _lastCategory = category;
+      _lastContext = context;
+      _lastContextType = context_type;
       _enterTime = now;
       _lastHeartbeat = now;
     } else {
-      if (now - _lastHeartbeat >= 60000) {
+      // Punto de control cada 5 minutos continuos
+      if (now - _lastHeartbeat >= HEARTBEAT_INTERVAL) {
         _lastHeartbeat = now;
-        const dwellSec = Math.round((now - _enterTime) / 1000);
+        const dwellMs = now - _enterTime;
+        const execAction = `En curso • ${formatExecutiveAction(category, label, context, dwellMs)}`;
         await supabase.from('activity_log').insert({
           agent_email: AGENT_EMAIL,
           agent_name: AGENT_NAME,
-          action: `Sigue usando "${label}" (lleva ${Math.round(dwellSec/60)}m)${title ? ` — ${title.substring(0, 50)}` : ''}`,
+          action: execAction,
           category,
-          duration_ms: 60000,
+          duration_ms: HEARTBEAT_INTERVAL,
           metadata: {
             app_name: label,
             label,
             process: procName,
             title,
             source: 'desktop',
-            dwell_seconds: dwellSec
+            dwell_seconds: Math.round(dwellMs / 1000),
+            context,
+            context_type,
+            checkpoint_5min: true
           }
         });
-        console.log(`[Windows Agent] [Heartbeat] ${label}`);
+        console.log(`[Windows Agent] [Control 5min] ${execAction}`);
       }
     }
   } catch (e) {

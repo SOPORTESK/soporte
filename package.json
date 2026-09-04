@@ -25,19 +25,11 @@
       "scripts/get-active-win.exe",
       "public/logo.png",
       "public/iSoTienda3D.png",
-      "public/logo.ico",
-      "node_modules/active-win/**/*",
-      "node_modules/better-sqlite3/**/*",
-      "node_modules/screenshot-desktop/**/*",
-      "node_modules/uiohook-napi/**/*"
+      "public/logo.ico"
     ],
     "asarUnpack": [
       "**/*.{node,dll}",
-      "**/scripts/get-active-win.exe",
-      "**/node_modules/active-win/**",
-      "**/node_modules/better-sqlite3/**",
-      "**/node_modules/screenshot-desktop/**",
-      "**/node_modules/uiohook-napi/**"
+      "**/scripts/get-active-win.exe"
     ],
     "directories": {
       "output": "release"
@@ -88,11 +80,6 @@
     "tailwind-merge": "^2.5.4",
     "tesseract.js": "^7.0.0",
     "xlsx": "^0.18.5"
-  },
-  "optionalDependencies": {
-    "better-sqlite3": "^13.0.3",
-    "screenshot-desktop": "^1.15.6",
-    "uiohook-napi": "^1.5.5"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
