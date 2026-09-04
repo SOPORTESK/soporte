@@ -10,10 +10,9 @@ import { MessageVolumeTabs, MessageStatsData } from "@/components/admin/message-
 
 export const dynamic = "force-dynamic";
 
-/** Calcula minutos de resolución REALES basados en actividad de mensajes.
- *  Extrae todos los timestamps de histcliente + histtecnico y mide
- *  desde el primer mensaje hasta el último. Si no hay mensajes, usa accepted_at → closed_at.
- *  Esto evita que casos olvidados abiertos por días/semanas inflen los tiempos. */
+/** Calcula minutos de resolución REALES basados en sesiones activas de chat.
+ *  Agrupa los mensajes en sesiones separadas por gaps de más de 2 horas.
+ *  Solo suma la duración de cada sesión activa, ignorando el tiempo muerto. */
 function calculateRealMinutes(c: any): number {
   const times: number[] = [];
   for (const arr of [c.histcliente, c.histtecnico]) {
@@ -26,17 +25,29 @@ function calculateRealMinutes(c: any): number {
       }
     }
   }
-  if (times.length >= 2) {
-    times.sort((a, b) => a - b);
-    const firstMsg = times[0];
-    const lastMsg = times[times.length - 1];
-    return Math.round((lastMsg - firstMsg) / 60000);
+  if (times.length < 2) {
+    // Solo 1 mensaje o ninguno: fallback a accepted_at → closed_at con tope de 60 min
+    const start = new Date(c.accepted_at);
+    const end = new Date(c.closed_at);
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) return 0;
+    return Math.min(60, Math.round((end.getTime() - start.getTime()) / 60000));
   }
-  // Fallback: accepted_at → closed_at
-  const start = new Date(c.accepted_at);
-  const end = new Date(c.closed_at);
-  if (isNaN(start.getTime()) || isNaN(end.getTime())) return 0;
-  return Math.round((end.getTime() - start.getTime()) / 60000);
+  times.sort((a, b) => a - b);
+  const GAP_MS = 2 * 60 * 60 * 1000; // 2 horas = nueva sesión
+  let totalMs = 0;
+  let sessionStart = times[0];
+  let prev = times[0];
+  for (let i = 1; i < times.length; i++) {
+    if (times[i] - prev > GAP_MS) {
+      // Cerrar sesión anterior y abrir una nueva
+      totalMs += prev - sessionStart;
+      sessionStart = times[i];
+    }
+    prev = times[i];
+  }
+  // Cerrar última sesión
+  totalMs += prev - sessionStart;
+  return Math.round(totalMs / 60000);
 }
 
 export default async function EstadisticasAtencionPage({ searchParams }: { searchParams: { mes?: string; periodo?: string } }) {
