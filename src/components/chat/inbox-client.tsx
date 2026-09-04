@@ -159,7 +159,7 @@ const BASE_TITLE = "Sekunet Chat";
 // Las notificaciones de mensajes nuevos usan unread_count y last_message_at.
 const CASE_LIST_FIELDS = "id,estado,canal,cliente,assigned_to,last_message_at,last_message_preview,unread_count,created_at,updated_at,title,prioridad,tags,customer_phone,es_test";
 
-async function fetchCasesMeta(supabase: any, limit = 500, agentEmail?: string) {
+async function fetchCasesMeta(supabase: any, limit = 5000, agentEmail?: string) {
   let query = supabase
     .from("sek_cases")
     .select(CASE_LIST_FIELDS)
@@ -404,13 +404,13 @@ export function InboxClient({
           try {
             // Para Mi Gestión, fetchar solo casos del agente (no todos los 200)
             const fetchEmail = containerType === "mi-gestion" ? (agentEmail || undefined) : undefined;
-            const newCases = await fetchCasesMeta(supabase, 500, fetchEmail);
+            const newCases = await fetchCasesMeta(supabase, 5000, fetchEmail);
             if (!newCases) return;
             // allCases siempre sin filtrar para el banner de escalados
             if (!fetchEmail) setAllCases(newCases);
             else {
               // Si fetcheamos por agente, actualizar allCases por separado
-              const allNew = await fetchCasesMeta(supabase, 500);
+              const allNew = await fetchCasesMeta(supabase, 5000);
               setAllCases(allNew);
             }
             filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail, agentName);
@@ -551,7 +551,7 @@ export function InboxClient({
         // Guard: no sobrescribir casos si agentEmail no está listo (Mi Gestión)
         if (containerType === "mi-gestion" && !agentEmail) return;
         const fetchEmail = containerType === "mi-gestion" ? (agentEmail || undefined) : undefined;
-        const newCases = await fetchCasesMeta(supabase, 500, fetchEmail);
+        const newCases = await fetchCasesMeta(supabase, 5000, fetchEmail);
         setAllCases(newCases);
         const filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail, agentName);
         // Preservar caso seleccionado aunque no pase el filtro (ej: caso outbound nuevo sin assigned_to aún)
