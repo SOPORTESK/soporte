@@ -33,11 +33,12 @@ function formatDate(d: string): string {
   return new Date(d).toLocaleString("es-CR", { dateStyle: "short", timeStyle: "short" });
 }
 
-export function ResolucionHumanaChart({ grupos, totalValidos, excluidos, sinDatos, totalCasos }: {
+export function ResolucionHumanaChart({ grupos, totalValidos, excluidos, sinDatos, sinAsignar, totalCasos }: {
   grupos: Grupo[];
   totalValidos: number;
   excluidos: { count: number; casos: CasoResolucion[] };
   sinDatos: { count: number; casos: CasoResolucion[] };
+  sinAsignar?: { count: number; casos: CasoResolucion[] };
   totalCasos: number;
 }) {
   const [expanded, setExpanded] = React.useState<string | null>(null);
@@ -159,6 +160,47 @@ export function ResolucionHumanaChart({ grupos, totalValidos, excluidos, sinDato
               {expanded === "Sin datos de cierre" && (
                 <div className="mt-2 space-y-1.5 max-h-48 overflow-y-auto pr-1">
                   {sinDatos.casos.map(c => (
+                    <a
+                      key={c.id}
+                      href={`/inbox?c=${c.id}`}
+                      className="block rounded-lg border border-border bg-muted/30 px-3 py-2 hover:bg-muted/60 transition-colors"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[11px] font-bold truncate">{c.title}</span>
+                        <span className="text-[10px] font-black tabular-nums shrink-0 text-muted-foreground">—</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2 mt-0.5">
+                        <span className="text-[9px] text-muted-foreground truncate">{c.agente} · {c.cliente}</span>
+                        <span className="text-[9px] text-muted-foreground shrink-0">{formatDate(c.created_at)}</span>
+                      </div>
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {sinAsignar && sinAsignar.count > 0 && (
+            <div className="pt-2 border-t border-border">
+              <button
+                onClick={() => toggle("Sin asignar / no atendidos")}
+                className="w-full space-y-1.5 cursor-pointer hover:opacity-80"
+              >
+                <div className="flex justify-between items-center">
+                  <span className="text-xs font-black text-muted-foreground flex items-center gap-1">
+                    Sin asignar / no atendidos
+                    <ChevronDown className={`h-3 w-3 transition-transform ${expanded === "Sin asignar / no atendidos" ? "rotate-180" : ""}`} />
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-muted-foreground">—</span>
+                    <span className="text-xs font-black tabular-nums text-muted-foreground">{sinAsignar.count}</span>
+                  </div>
+                </div>
+                <p className="text-[9px] text-muted-foreground/60">Casos cerrados o abandonados que no fueron asignados a ningún agente</p>
+              </button>
+              {expanded === "Sin asignar / no atendidos" && (
+                <div className="mt-2 space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                  {sinAsignar.casos.map(c => (
                     <a
                       key={c.id}
                       href={`/inbox?c=${c.id}`}

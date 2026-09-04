@@ -59,8 +59,7 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
     .neq("canal", "simulator")
     .neq("es_test", true);
 
-  // Filtrar casos reales atendidos por agentes humanos (eliminar falsos positivos / abandoned)
-  const casos = (todosLosCasos || []).filter(c => c.assigned_to && !c.assigned_to.includes("system_prompt"));
+  const casos = todosLosCasos || [];
 
   // ── Filtrar por mes si viene en searchParams (formato: YYYY-MM)
   const mesSeleccionado = searchParams.mes || "all";
@@ -795,7 +794,20 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
           ]}
           excluidos={{ count: casosExcluidosRes.length, casos: casosExcluidosRes }}
           sinDatos={{ count: casosSinDatosRes.length, casos: casosSinDatosRes }}
-          totalCasos={casosConAsig.length}
+          sinAsignar={{
+            count: casosSinAsig.length,
+            casos: casosSinAsig.map(c => ({
+              id: c.id,
+              title: c.title || "Caso sin título",
+              agente: "Sin asignar",
+              cliente: getClienteNombre(c),
+              created_at: c.created_at,
+              closed_at: (c as any).closed_at || "",
+              accepted_at: "",
+              minutos: 0
+            }))
+          }}
+          totalCasos={casosFiltrados.length}
         />
 
           {/* Canales */}
