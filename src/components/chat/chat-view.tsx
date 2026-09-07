@@ -8,7 +8,7 @@ import {
   XCircle, Image as ImageIcon, FileText, Music, Video,
   Download, X, ChevronDown, History, HandMetal, Star, Tag, AlertTriangle,
   Mic, Play, Pause, Square, Smile, Trash2, UserCheck,
-  Info, Copy, Forward, Pin, Edit, Clock, RotateCcw
+  Info, Copy, Forward, Pin, Edit, Clock, RotateCcw, Search, Globe
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { logActivity } from "@/lib/activity-client";
@@ -251,6 +251,28 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   const [showTemplateManager, setShowTemplateManager] = React.useState(false);
   const [plantillas, setPlantillas] = React.useState<any[]>([]);
   const [personalPlantillas, setPersonalPlantillas] = React.useState<any[]>([]);
+  const [plantillaTab, setPlantillaTab] = React.useState<"all" | "personal" | "global">("all");
+  const [plantillaSearch, setPlantillaSearch] = React.useState("");
+
+  const filteredPlantillas = React.useMemo(() => {
+    let list: any[] = [];
+    if (plantillaTab === "all") {
+      list = [...personalPlantillas, ...plantillas];
+    } else if (plantillaTab === "personal") {
+      list = personalPlantillas;
+    } else {
+      list = plantillas;
+    }
+
+    if (plantillaSearch.trim()) {
+      const q = plantillaSearch.toLowerCase().trim();
+      list = list.filter((p: any) =>
+        (p.nombre || "").toLowerCase().includes(q) ||
+        (p.texto || "").toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [plantillaTab, plantillaSearch, personalPlantillas, plantillas]);
   const [uploadingFile, setUploadingFile] = React.useState(false);
   const [isRecording, setIsRecording] = React.useState(false);
   const [recordingTime, setRecordingTime] = React.useState(0);
@@ -2364,55 +2386,141 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
         )}
       </div>
 
-      {/* ── Plantillas popup ── */}
+      {/* ── Plantillas popup rediseñado ── */}
       {showPlantillas && (
-        <div className="border-t border-border bg-card max-h-56 overflow-y-auto flex-shrink-0 px-safe relative">
-          <div className="sticky top-0 bg-card/95 backdrop-blur-sm flex items-center justify-between px-4 py-2 border-b border-border z-10">
-            <span className="text-xs font-semibold text-muted-foreground">Respuestas rápidas</span>
-            <div className="flex items-center gap-2">
-              <button onClick={() => setShowTemplateManager(true)} className="text-[10px] font-bold text-brand-500 hover:text-brand-600 transition-colors uppercase tracking-wider">
-                Gestionar
-              </button>
-              <button onClick={() => setShowPlantillas(false)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+        <div className="border-t border-border bg-card max-h-72 overflow-hidden flex flex-col flex-shrink-0 px-safe relative shadow-xl">
+          {/* Header con título, buscador y acciones */}
+          <div className="bg-card/95 backdrop-blur-sm p-2.5 border-b border-border space-y-2 z-10 shrink-0">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="h-6 w-6 rounded-md bg-brand-500/10 text-brand-500 grid place-items-center">
+                  <Zap className="h-3.5 w-3.5" />
+                </div>
+                <span className="text-xs font-bold text-foreground">Respuestas rápidas</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowTemplateManager(true)}
+                  className="text-[10px] font-bold text-brand-500 hover:text-brand-600 transition-colors uppercase tracking-wider bg-brand-500/10 hover:bg-brand-500/20 px-2 py-1 rounded-md"
+                >
+                  Gestionar
+                </button>
+                <button
+                  onClick={() => { setShowPlantillas(false); setPlantillaSearch(""); }}
+                  className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Fila 2: Buscador rápido + Pestañas (Tabs) */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              {/* Buscador */}
+              <div className="relative flex-1">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder="Buscar plantilla por nombre o contenido…"
+                  value={plantillaSearch}
+                  onChange={(e) => setPlantillaSearch(e.target.value)}
+                  className="w-full bg-background border border-border rounded-lg pl-8 pr-7 py-1 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand-500"
+                  autoFocus
+                />
+                {plantillaSearch && (
+                  <button
+                    onClick={() => setPlantillaSearch("")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-0.5"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+
+              {/* Pestañas (Tabs) */}
+              <div className="flex items-center bg-muted/60 p-0.5 rounded-lg border border-border shrink-0 overflow-x-auto">
+                <button
+                  onClick={() => setPlantillaTab("all")}
+                  className={`px-2.5 py-1 rounded-md text-[10px] font-bold transition-all whitespace-nowrap ${
+                    plantillaTab === "all"
+                      ? "bg-card text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Todas ({personalPlantillas.length + plantillas.length})
+                </button>
+                <button
+                  onClick={() => setPlantillaTab("personal")}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-bold transition-all whitespace-nowrap ${
+                    plantillaTab === "personal"
+                      ? "bg-violet-500/20 text-violet-400 border border-violet-500/30 shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <User className="h-3 w-3" /> Mis plantillas ({personalPlantillas.length})
+                </button>
+                <button
+                  onClick={() => setPlantillaTab("global")}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-bold transition-all whitespace-nowrap ${
+                    plantillaTab === "global"
+                      ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <Globe className="h-3 w-3" /> Globales ({plantillas.length})
+                </button>
+              </div>
             </div>
           </div>
           
-          {personalPlantillas.length === 0 && plantillas.length === 0 && (
-            <p className="text-xs text-center text-muted-foreground py-4">No hay plantillas disponibles.</p>
-          )}
-
-          {[...personalPlantillas, ...plantillas].map((p: any) => (
-            <button
-              key={p.id}
-              onClick={() => {
-                setDraft(p.texto);
-                setShowPlantillas(false);
-                setTimeout(() => {
-                  const ta = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Mensaje"]');
-                  if (ta) {
-                    ta.style.height = "auto";
-                    ta.style.height = Math.min(ta.scrollHeight, 160) + "px";
-                    ta.focus();
-                    const match = /\[[^\]]+\]/.exec(ta.value);
-                    if (match) {
-                      ta.setSelectionRange(match.index, match.index + match[0].length);
-                    } else {
-                      ta.setSelectionRange(ta.value.length, ta.value.length);
-                    }
-                  }
-                }, 0);
-              }}
-              className="w-full text-left px-4 py-2.5 hover:bg-muted transition-colors border-b border-border/50 last:border-0 relative group"
-            >
-              <div className="flex justify-between items-start gap-2">
-                <p className="text-xs font-semibold">{p.nombre}</p>
-                <span className="text-[9px] font-bold tracking-wider uppercase text-muted-foreground opacity-50 shrink-0">
-                  {p.isGlobal ? "Global" : "Personal"}
-                </span>
-              </div>
-              <p className="text-xs text-muted-foreground truncate mt-0.5">{p.texto}</p>
-            </button>
-          ))}
+          {/* Lista de plantillas con scroll */}
+          <div className="overflow-y-auto max-h-52 divide-y divide-border/40 p-1 space-y-1">
+            {filteredPlantillas.length === 0 ? (
+              <p className="text-xs text-center text-muted-foreground py-6">
+                {plantillaSearch ? "No se encontraron plantillas con esa búsqueda." : "No hay plantillas en esta categoría."}
+              </p>
+            ) : (
+              filteredPlantillas.map((p: any) => (
+                <button
+                  key={p.id}
+                  onClick={() => {
+                    setDraft(p.texto);
+                    setShowPlantillas(false);
+                    setPlantillaSearch("");
+                    setTimeout(() => {
+                      const ta = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Mensaje"]');
+                      if (ta) {
+                        ta.style.height = "auto";
+                        ta.style.height = Math.min(ta.scrollHeight, 160) + "px";
+                        ta.focus();
+                        const match = /\[[^\]]+\]/.exec(ta.value);
+                        if (match) {
+                          ta.setSelectionRange(match.index, match.index + match[0].length);
+                        } else {
+                          ta.setSelectionRange(ta.value.length, ta.value.length);
+                        }
+                      }
+                    }, 0);
+                  }}
+                  className="w-full text-left px-3.5 py-2.5 hover:bg-muted/60 transition-all rounded-lg relative group border border-transparent hover:border-border/60"
+                >
+                  <div className="flex justify-between items-center gap-2">
+                    <p className="text-xs font-bold text-foreground group-hover:text-brand-400 transition-colors">{p.nombre}</p>
+                    {p.isGlobal ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0">
+                        <Globe className="h-2.5 w-2.5" /> Global
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-violet-500/10 text-violet-400 border border-violet-500/20 shrink-0">
+                        <User className="h-2.5 w-2.5" /> Personal
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground line-clamp-2 mt-1 leading-relaxed">{p.texto}</p>
+                </button>
+              ))
+            )}
+          </div>
         </div>
       )}
 
