@@ -1073,54 +1073,24 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
         description: `"${file.name}" pesa ${(file.size / 1024 / 1024).toFixed(1)} MB. Esto puede tardar unos minutos.`,
       });
       try {
-        // 1. Obtener access token de corta duración desde Vercel (sin subir el archivo)
-        let tokenRes = await fetch("/api/drive-token");
-        if (!tokenRes.ok) throw new Error("No se pudo obtener token de Drive");
-        let { accessToken, folderId } = await tokenRes.json();
-
-        // 2. Iniciar resumable upload directo a Google Drive desde el navegador
-        let initRes = await fetch(
-          "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id",
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              "Content-Type": "application/json; charset=UTF-8",
-              "X-Upload-Content-Type": file.type || "application/octet-stream",
-              "X-Upload-Content-Length": String(file.size),
-            },
-            body: JSON.stringify({ name: file.name, parents: [folderId] }),
-          }
-        );
-
-        // Si dio 401 (token expirado), forzar renovación y reintentar inmediatamente
-        if (initRes.status === 401) {
-          tokenRes = await fetch("/api/drive-token?force=true");
-          if (tokenRes.ok) {
-            const freshData = await tokenRes.json();
-            accessToken = freshData.accessToken;
-            folderId = freshData.folderId || folderId;
-            initRes = await fetch(
-              "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id",
-              {
-                method: "POST",
-                headers: {
-                  Authorization: `Bearer ${accessToken}`,
-                  "Content-Type": "application/json; charset=UTF-8",
-                  "X-Upload-Content-Type": file.type || "application/octet-stream",
-                  "X-Upload-Content-Length": String(file.size),
-                },
-                body: JSON.stringify({ name: file.name, parents: [folderId] }),
-              }
-            );
-          }
+        // 1. Inicializar sesión de subida en el servidor (el servidor gestiona OAuth y permisos de forma 100% segura)
+        const initRes = await fetch("/api/drive-init", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fileName: file.name,
+            fileSize: file.size,
+            mimeType: file.type || "application/octet-stream",
+          }),
+        });
+        if (!initRes.ok) {
+          const d = await initRes.json().catch(() => ({}));
+          throw new Error(d.error || `Error iniciando subida a Drive (${initRes.status})`);
         }
+        const { uploadUrl } = await initRes.json();
+        if (!uploadUrl) throw new Error("No se obtuvo URL de subida de Google Drive");
 
-        if (!initRes.ok) throw new Error(`Drive init failed: ${await initRes.text()}`);
-        const uploadUrl = initRes.headers.get("Location") || initRes.headers.get("location");
-        if (!uploadUrl) throw new Error("No se obtuvo URL de subida");
-
-        // 3. Subir el archivo en chunks de 8MB
+        // 2. Subir el archivo en chunks de 8MB directamente a Google (sin necesidad de tokens en el navegador)
         const chunkSize = 8 * 1024 * 1024;
         let start = 0;
         let fileId = "";
@@ -1152,25 +1122,13 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
             fileId = data.id;
             break;
           }
-          if (!uploadRes.ok) throw new Error(`Chunk failed: ${await uploadRes.text()}`);
+          if (!uploadRes.ok) throw new Error(`Error en subida: ${await uploadRes.text()}`);
           start = end + 1;
         }
         if (!fileId) throw new Error("Subida completada sin fileId");
 
-        // 4. Hacer público el archivo
-        await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ role: "reader", type: "anyone" }),
-        });
-
-        const shareableLink = `https://drive.google.com/file/d/${fileId}/view?usp=sharing`;
-
-        // 5. Registrar en BD (sin subir el archivo, solo metadatos)
-        await fetch("/api/drive-register", {
+        // 3. Registrar en BD y asignar permisos públicos desde el servidor
+        const regRes = await fetch("/api/drive-register", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1178,13 +1136,14 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
             fileName: file.name,
             mimeType: file.type || "application/octet-stream",
             fileSize: file.size,
-            shareableLink,
             caseId: String(targetId),
             agentEmail,
           }),
         });
+        const regData = await regRes.json().catch(() => ({}));
+        const shareableLink = regData.shareableLink || `https://drive.google.com/file/d/${fileId}/view?usp=sharing`;
 
-        const driveMsg = `Estimado cliente:\n\nA continuación, le compartimos el enlace para la descarga directa del archivo solicitito:\n\n${shareableLink}\n\nPor favor, tenga en cuenta que el enlace permanecerá activo durante las próximas 2 horas.\n\nSi requiere cualquier otra asistencia, con gusto estaremos para ayudarle.`;
+        const driveMsg = `Estimado cliente:\n\nA continuación, le compartimos el enlace para la descarga directa del archivo solicitado:\n\n${shareableLink}\n\nPor favor, tenga en cuenta que el enlace permanecerá activo durante las próximas 2 horas.\n\nSi requiere cualquier otra asistencia, con gusto estaremos para ayudarle.`;
 
         // Registrar en histtecnico PRIMERO (para que persistMessageId lo encuentre)
         await send(driveMsg, undefined, undefined, undefined, true);
