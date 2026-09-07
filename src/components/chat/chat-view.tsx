@@ -1056,9 +1056,9 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
 
     const isWhatsApp = String(sekCase.canal || "").toLowerCase() === "whatsapp";
     const MAX_MB = isWhatsApp ? 100 : 50;
-    const DRIVE_THRESHOLD = 99 * 1024 * 1024; // 99 MB → subir a Google Drive
+    const DRIVE_THRESHOLD = 15 * 1024 * 1024; // 15 MB → subir a Google Drive (evita límites de WhatsApp y Supabase)
 
-    // Archivos ≥99MB: subir a Google Drive y enviar enlace por WhatsApp
+    // Archivos ≥15MB: subir a Google Drive y enviar enlace por WhatsApp
     if (file.size >= DRIVE_THRESHOLD) {
       if (!isWhatsApp) {
         toast.error(`El archivo excede el límite de ${MAX_MB} MB`, {
