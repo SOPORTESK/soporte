@@ -168,6 +168,12 @@ function debugLogMessages(msgs: UnifiedMessage[], caseId: string | number) {
   console.groupEnd();
 }
 
+let cachedGlobalPlantillas: any[] | null = null;
+let cachedPersonalPlantillasMap: Record<string, any[]> = {};
+let cachedAgentsList: any[] | null = null;
+let cachedAgentUser: { email: string; name: string; role: string } | null = null;
+let cachedModoNoAtendido: boolean | null = null;
+
 export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; onBack: () => void }) {
   const router = useRouter();
   const supabase = React.useMemo(() => createClient(), []);
@@ -176,19 +182,21 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   const [draft, setDraft] = React.useState("");
   const [sending, setSending] = React.useState(false);
   const sendingRef = React.useRef(false);
-  const [agentEmail, setAgentEmail] = React.useState<string | null>(null);
-  const [agentName, setAgentName] = React.useState<string | null>(null);
-  const [agentRole, setAgentRole] = React.useState<string>("tecnico");
-  const [modoNoAtendido, setModoNoAtendido] = React.useState(false);
-  const modoNoAtendidoRef = React.useRef(false);
-  const [modoNoAtendidoLoaded, setModoNoAtendidoLoaded] = React.useState(false);
+  const [agentEmail, setAgentEmail] = React.useState<string | null>(() => cachedAgentUser?.email || null);
+  const [agentName, setAgentName] = React.useState<string | null>(() => cachedAgentUser?.name || null);
+  const [agentRole, setAgentRole] = React.useState<string>(() => cachedAgentUser?.role || "tecnico");
+  const [modoNoAtendido, setModoNoAtendido] = React.useState(() => cachedModoNoAtendido ?? false);
+  const modoNoAtendidoRef = React.useRef(cachedModoNoAtendido ?? false);
+  const [modoNoAtendidoLoaded, setModoNoAtendidoLoaded] = React.useState(() => cachedModoNoAtendido !== null);
   const [replyTo, setReplyTo] = React.useState<UnifiedMessage | null>(null);
 
   React.useEffect(() => {
+    if (cachedModoNoAtendido !== null) return;
     fetch("/api/admin/unattended-mode")
       .then(r => r.json())
       .then(d => {
         const val = d.modo_no_atendido ?? false;
+        cachedModoNoAtendido = val;
         setModoNoAtendido(val);
         modoNoAtendidoRef.current = val;
         setModoNoAtendidoLoaded(true);
@@ -475,64 +483,87 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
 
   /* Cargar plantillas */
   React.useEffect(() => {
+    if (cachedGlobalPlantillas) {
+      setPlantillas(cachedGlobalPlantillas);
+      return;
+    }
     supabase.from("sek_plantillas").select("id,nombre,texto,cat").order("orden", { ascending: true }).limit(30)
-      .then(({ data }) => { if (data) setPlantillas(data.map(d => ({ ...d, isGlobal: true }))); });
+      .then(({ data }) => {
+        if (data) {
+          const list = data.map(d => ({ ...d, isGlobal: true }));
+          cachedGlobalPlantillas = list;
+          setPlantillas(list);
+        }
+      });
   }, [supabase]);
 
   React.useEffect(() => {
-    if (agentEmail) {
-      supabase.from("sek_plantillas_personal")
-        .select("id,nombre,texto,cat,orden")
-        .eq("agent_email", agentEmail)
-        .order("orden", { ascending: true })
-        .then(async ({ data, error }) => {
-          if (error) {
-            console.error("Error loading personal templates from Supabase:", error);
-            try {
-              const stored = localStorage.getItem(`sek_plantillas_${agentEmail}`);
-              if (stored) setPersonalPlantillas(JSON.parse(stored));
-            } catch (e) {
-              console.error("Error loading personal templates from localStorage", e);
+    if (!agentEmail) return;
+    if (cachedPersonalPlantillasMap[agentEmail]) {
+      setPersonalPlantillas(cachedPersonalPlantillasMap[agentEmail]);
+      return;
+    }
+    supabase.from("sek_plantillas_personal")
+      .select("id,nombre,texto,cat,orden")
+      .eq("agent_email", agentEmail)
+      .order("orden", { ascending: true })
+      .then(async ({ data, error }) => {
+        if (error) {
+          console.error("Error loading personal templates from Supabase:", error);
+          try {
+            const stored = localStorage.getItem(`sek_plantillas_${agentEmail}`);
+            if (stored) {
+              const list = JSON.parse(stored);
+              cachedPersonalPlantillasMap[agentEmail] = list;
+              setPersonalPlantillas(list);
             }
-            return;
+          } catch (e) {
+            console.error("Error loading personal templates from localStorage", e);
           }
-          if (data && data.length > 0) {
-            setPersonalPlantillas(data.map(d => ({ ...d, isGlobal: false })));
-          } else {
-            // Supabase vacío: migrar desde localStorage si hay datos
-            try {
-              const stored = localStorage.getItem(`sek_plantillas_${agentEmail}`);
-              if (stored) {
-                const localTemplates: any[] = JSON.parse(stored);
-                if (localTemplates.length > 0) {
-                  // Insertar en Supabase
-                  const inserts = localTemplates.map((t, i) => ({
-                    agent_email: agentEmail,
-                    nombre: t.nombre,
-                    texto: t.texto,
-                    cat: t.cat || "general",
-                    orden: i,
-                  }));
-                  const { data: inserted, error: insErr } = await supabase
-                    .from("sek_plantillas_personal")
-                    .insert(inserts)
-                    .select("id,nombre,texto,cat,orden");
-                  if (insErr) {
-                    console.error("Error migrating personal templates:", insErr);
-                    setPersonalPlantillas(localTemplates.map(t => ({ ...t, isGlobal: false })));
-                  } else if (inserted) {
-                    setPersonalPlantillas(inserted.map(d => ({ ...d, isGlobal: false })));
-                    localStorage.removeItem(`sek_plantillas_${agentEmail}`);
-                    console.log("[chat-view] Plantillas personales migradas de localStorage a Supabase");
-                  }
+          return;
+        }
+        if (data && data.length > 0) {
+          const list = data.map(d => ({ ...d, isGlobal: false }));
+          cachedPersonalPlantillasMap[agentEmail] = list;
+          setPersonalPlantillas(list);
+        } else {
+          // Supabase vacío: migrar desde localStorage si hay datos
+          try {
+            const stored = localStorage.getItem(`sek_plantillas_${agentEmail}`);
+            if (stored) {
+              const localTemplates: any[] = JSON.parse(stored);
+              if (localTemplates.length > 0) {
+                // Insertar en Supabase
+                const inserts = localTemplates.map((t, i) => ({
+                  agent_email: agentEmail,
+                  nombre: t.nombre,
+                  texto: t.texto,
+                  cat: t.cat || "general",
+                  orden: i,
+                }));
+                const { data: inserted, error: insErr } = await supabase
+                  .from("sek_plantillas_personal")
+                  .insert(inserts)
+                  .select("id,nombre,texto,cat,orden");
+                if (insErr) {
+                  console.error("Error migrating personal templates:", insErr);
+                  const list = localTemplates.map(t => ({ ...t, isGlobal: false }));
+                  cachedPersonalPlantillasMap[agentEmail] = list;
+                  setPersonalPlantillas(list);
+                } else if (inserted) {
+                  const list = inserted.map(d => ({ ...d, isGlobal: false }));
+                  cachedPersonalPlantillasMap[agentEmail] = list;
+                  setPersonalPlantillas(list);
+                  localStorage.removeItem(`sek_plantillas_${agentEmail}`);
+                  console.log("[chat-view] Plantillas personales migradas de localStorage a Supabase");
                 }
               }
-            } catch (e) {
-              console.error("Error migrating personal templates from localStorage", e);
             }
+          } catch (e) {
+            console.error("Error migrating personal templates from localStorage", e);
           }
-        });
-    }
+        }
+      });
   }, [agentEmail, supabase]);
 
   const isGrouped = !!initialCase._group;
@@ -547,6 +578,10 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
 
   /* Cargar agentes disponibles para reasignación */
   React.useEffect(() => {
+    if (cachedAgentsList) {
+      setAgents(cachedAgentsList);
+      return;
+    }
     let mounted = true;
     (async () => {
       const { data, error } = await supabase
@@ -558,12 +593,16 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
         console.error("[chat-view] Error cargando agentes:", error.message);
         return;
       }
-      if (mounted && data) setAgents(data);
+      if (mounted && data) {
+        cachedAgentsList = data;
+        setAgents(data);
+      }
     })();
     return () => { mounted = false; };
   }, [supabase]);
 
   React.useEffect(() => {
+    if (cachedAgentUser) return;
     let mounted = true;
     (async () => {
       try {
@@ -574,11 +613,18 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
           .from("sek_agent_config").select("nombre,apellido,rol").ilike("email", user.email).maybeSingle();
         if (!mounted) return;
         const a: any = agent;
-        setAgentName([a?.nombre, a?.apellido].filter(Boolean).join(" ") || user.email);
-        setAgentRole(a?.rol || "tecnico");
+        const name = [a?.nombre, a?.apellido].filter(Boolean).join(" ") || user.email;
+        const role = a?.rol || "tecnico";
+        cachedAgentUser = { email: user.email, name, role };
+        setAgentName(name);
+        setAgentRole(role);
       } catch { /* lock timeout en dev - ignorar */ }
     })();
+    return () => { mounted = false; };
+  }, [supabase]);
 
+  React.useEffect(() => {
+    let mounted = true;
     const channel = supabase
       .channel(`case-${targetId}`)
       .on("postgres_changes", {

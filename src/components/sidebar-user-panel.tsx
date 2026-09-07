@@ -206,13 +206,13 @@ export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; online
 
   // Marcar online al montar + auto-away por inactividad + heartbeat
   useEffect(() => {
-    fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online" }) }).catch(() => {});
-    const handleUnload = () => navigator.sendBeacon("/api/profile/status", JSON.stringify({ status: "offline" }));
+    fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online", email: agent.email }) }).catch(() => {});
+    const handleUnload = () => navigator.sendBeacon("/api/profile/status", JSON.stringify({ status: "offline", email: agent.email }));
     window.addEventListener("beforeunload", handleUnload);
 
-    // Heartbeat cada 2 minutos (era 30s — causaba acumulación de queries bloqueadas)
+    // Heartbeat cada 2 minutos
     const heartbeat = setInterval(() => {
-      fetch("/api/profile/status", { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online" }) }).catch(() => {});
+      fetch("/api/profile/status", { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online", email: agent.email }) }).catch(() => {});
     }, 120000);
 
     // Idle timer — auto switch to "away" after inactivity
@@ -224,7 +224,7 @@ export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; online
         // Only restore to online if we were auto-set to away
         setStatus(prev => {
           if (prev === "away") {
-            fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online" }) }).catch(() => {});
+            fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online", email: agent.email }) }).catch(() => {});
             return "online";
           }
           return prev;
@@ -235,7 +235,7 @@ export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; online
         setStatus(prev => {
           if (prev === "online") {
             isIdle = true;
-            fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "away" }) }).catch(() => {});
+            fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "away", email: agent.email }) }).catch(() => {});
             logActivity({ agent_email: agent.email, agent_name: fullName, action: `Sin actividad detectada por 5 minutos, estado cambiado automáticamente a "Ausente"`, category: "Inactividad", duration_ms: IDLE_TIMEOUT_MS });
             return "away";
           }
@@ -257,7 +257,7 @@ export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; online
 
   const handleStatusChange = async (s: string) => {
     setStatus(s);
-    await fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: s }) }).catch(() => {});
+    await fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: s, email: agent.email }) }).catch(() => {});
     logActivity({ agent_email: agent.email, agent_name: fullName, action: `Cambió su estado de conexión de "${status}" a "${s}"`, category: "Actividad general", metadata: { from: status, to: s } });
     router.refresh();
   };
