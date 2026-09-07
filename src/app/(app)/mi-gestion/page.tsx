@@ -34,18 +34,19 @@ export default async function MiGestionPage({ searchParams }: { searchParams: { 
     );
   }
 
+  const CASE_LIST_FIELDS = "id,estado,canal,cliente,assigned_to,last_message_at,last_message_preview,unread_count,created_at,updated_at,title,prioridad,tags,customer_phone,es_test";
   const { data: myCases, error: casesError } = await queryWithFallback(
     "sek_cases",
     async () => {
       const { data, error } = await supabase
         .from("sek_cases")
-        .select("*")
+        .select(CASE_LIST_FIELDS)
         .neq("canal", "simulator")
         .neq("es_test", true)
         .eq("assigned_to", agentEmail)
         .order("last_message_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false })
-        .limit(5000);
+        .limit(200);
       return { data, error };
     },
     []

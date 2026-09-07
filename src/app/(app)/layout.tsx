@@ -45,7 +45,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           .from("sek_agent_config").select("*").ilike("email", email).maybeSingle();
         return { data, error };
       },
-      null
+      null,
+      60000 // 1 min TTL
     ),
     queryWithFallback(
       "online_agents",
@@ -57,7 +58,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           .gte("last_seen_at", twoMinutesAgo);
         return { data, error };
       },
-      []
+      [],
+      10000 // 10s TTL
     ),
     queryWithFallback(
       "n2_count",
@@ -69,7 +71,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           .is("assigned_to", null);
         return { data: count as any, error };
       },
-      0
+      0,
+      5000 // 5s TTL
     ),
     queryWithFallback(
       "smart_count",
@@ -81,7 +84,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           .neq("canal", "simulator");
         return { data: count as any, error };
       },
-      0
+      0,
+      5000 // 5s TTL
     ),
   ]);
 

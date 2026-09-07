@@ -27,6 +27,15 @@ export function cacheGet(key: string): any | undefined {
   return entry.data;
 }
 
+export function cacheGetFresh(key: string, maxAgeMs: number): any | undefined {
+  const entry = store.get(key);
+  if (!entry) return undefined;
+  if (Date.now() - entry.ts > maxAgeMs) {
+    return undefined;
+  }
+  return entry.data;
+}
+
 export function cacheSet(key: string, data: any): void {
   pruneOldest();
   store.set(key, { data, ts: Date.now() });

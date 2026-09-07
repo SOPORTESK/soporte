@@ -1,29 +1,6 @@
-import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function updateSession(request: NextRequest) {
-  let response = NextResponse.next({ request: { headers: request.headers } });
-
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get: (name: string) => request.cookies.get(name)?.value,
-        set: (name: string, value: string, options: CookieOptions) => {
-          request.cookies.set({ name, value, ...options });
-          response = NextResponse.next({ request: { headers: request.headers } });
-          response.cookies.set({ name, value, ...options });
-        },
-        remove: (name: string, options: CookieOptions) => {
-          request.cookies.set({ name, value: "", ...options });
-          response = NextResponse.next({ request: { headers: request.headers } });
-          response.cookies.set({ name, value: "", ...options });
-        }
-      }
-    }
-  );
-
   const { pathname } = request.nextUrl;
 
   const isAuthPage = pathname.startsWith("/login");
@@ -40,37 +17,29 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith("/api/admin/impersonate/go") ||
     pathname.startsWith("/api/");
 
-  // Timeout protection: si getUser() tarda más de 8s, dejar pasar
-  // (las páginas/API hacen su propia verificación de auth)
-  let user: any = null;
-  let timedOut = false;
-  try {
-    const result = await Promise.race([
-      supabase.auth.getUser(),
-      new Promise<{ data: { user: null } }>((_, reject) =>
-        setTimeout(() => reject(new Error("auth_timeout")), 8000)
-      ),
-    ]);
-    user = result.data.user;
-  } catch (e) {
-    timedOut = true;
-    console.warn("[middleware] getUser timeout/error, letting request through:", (e as Error).message);
-    return response;
+  if (isPublic) {
+    return NextResponse.next();
   }
 
-  // Solo redirigir a login si sabemos con certeza que no hay sesión.
-  // Si fue timeout, dejar pasar — el layout maneja la reconexión.
-  if (!user && !timedOut && !isAuthPage && !isPublic) {
+  // Comprobar presencia de cookie de sesión de Supabase de forma instantánea (0ms)
+  const allCookies = request.cookies.getAll();
+  const hasAuthCookie = allCookies.some(
+    (c) => c.name.includes("auth-token") && c.value && c.value !== "[]" && c.value !== '""'
+  );
+
+  if (!hasAuthCookie && !isAuthPage) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("next", pathname);
     return NextResponse.redirect(url);
   }
-  if (user && isAuthPage) {
+
+  if (hasAuthCookie && isAuthPage) {
     const url = request.nextUrl.clone();
     url.pathname = "/inbox";
     url.searchParams.delete("next");
     return NextResponse.redirect(url);
   }
-  return response;
+
+  return NextResponse.next();
 }

@@ -5,7 +5,7 @@
  * - Si no hay cache → devuelve fallback vacío.
  */
 
-import { cacheGet, cacheSet } from "./cache";
+import { cacheGet, cacheGetFresh, cacheSet } from "./cache";
 
 const AUTH_TIMEOUT_MS = 15000;
 const DATA_TIMEOUT_MS = 20000;
@@ -29,8 +29,17 @@ export async function getUserWithTimeout(supabase: any): Promise<{ user: any; ti
 export async function queryWithFallback<T>(
   cacheKey: string,
   queryFn: () => PromiseLike<{ data: T | null; error: any }>,
-  fallback: T
+  fallback: T,
+  freshTtlMs?: number
 ): Promise<{ data: T; error: string | null; fromCache: boolean }> {
+  // 0. Si hay caché reciente y aún dentro de su TTL, devolver de inmediato (0ms)
+  if (freshTtlMs && freshTtlMs > 0) {
+    const fresh = cacheGetFresh(cacheKey, freshTtlMs);
+    if (fresh !== undefined) {
+      return { data: fresh as T, error: null, fromCache: true };
+    }
+  }
+
   // 1. Intentar Supabase con timeout
   try {
     const result = await Promise.race([
