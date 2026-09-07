@@ -1074,12 +1074,12 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       });
       try {
         // 1. Obtener access token de corta duración desde Vercel (sin subir el archivo)
-        const tokenRes = await fetch("/api/drive-token");
+        let tokenRes = await fetch("/api/drive-token");
         if (!tokenRes.ok) throw new Error("No se pudo obtener token de Drive");
-        const { accessToken, folderId } = await tokenRes.json();
+        let { accessToken, folderId } = await tokenRes.json();
 
         // 2. Iniciar resumable upload directo a Google Drive desde el navegador
-        const initRes = await fetch(
+        let initRes = await fetch(
           "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id",
           {
             method: "POST",
@@ -1092,6 +1092,30 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
             body: JSON.stringify({ name: file.name, parents: [folderId] }),
           }
         );
+
+        // Si dio 401 (token expirado), forzar renovación y reintentar inmediatamente
+        if (initRes.status === 401) {
+          tokenRes = await fetch("/api/drive-token?force=true");
+          if (tokenRes.ok) {
+            const freshData = await tokenRes.json();
+            accessToken = freshData.accessToken;
+            folderId = freshData.folderId || folderId;
+            initRes = await fetch(
+              "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id",
+              {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${accessToken}`,
+                  "Content-Type": "application/json; charset=UTF-8",
+                  "X-Upload-Content-Type": file.type || "application/octet-stream",
+                  "X-Upload-Content-Length": String(file.size),
+                },
+                body: JSON.stringify({ name: file.name, parents: [folderId] }),
+              }
+            );
+          }
+        }
+
         if (!initRes.ok) throw new Error(`Drive init failed: ${await initRes.text()}`);
         const uploadUrl = initRes.headers.get("Location") || initRes.headers.get("location");
         if (!uploadUrl) throw new Error("No se obtuvo URL de subida");
