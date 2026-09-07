@@ -159,7 +159,7 @@ const BASE_TITLE = "Sekunet Chat";
 // Las notificaciones de mensajes nuevos usan unread_count y last_message_at.
 const CASE_LIST_FIELDS = "id,estado,canal,cliente,assigned_to,last_message_at,last_message_preview,unread_count,created_at,updated_at,title,prioridad,tags,customer_phone,es_test";
 
-async function fetchCasesMeta(supabase: any, limit = 5000, agentEmail?: string) {
+async function fetchCasesMeta(supabase: any, limit = 400, agentEmail?: string) {
   let query = supabase
     .from("sek_cases")
     .select(CASE_LIST_FIELDS)
@@ -395,29 +395,32 @@ export function InboxClient({
   }, [escaladosPendientes.length]);
 
   React.useEffect(() => {
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     const channel = supabase
       .channel("cases-list")
       .on("postgres_changes", { event: "*", schema: "public", table: "sek_cases" },
-        async (payload) => {
-          let filteredNewCases: SekCase[] = [];
-          let newMerged: SekCase[] = [];
-          try {
-            // Para Mi Gestión, fetchar solo casos del agente (no todos los 200)
-            const fetchEmail = containerType === "mi-gestion" ? (agentEmail || undefined) : undefined;
-            const newCases = await fetchCasesMeta(supabase, 5000, fetchEmail);
-            if (!newCases) return;
-            // allCases siempre sin filtrar para el banner de escalados
-            if (!fetchEmail) setAllCases(newCases);
-            else {
-              // Si fetcheamos por agente, actualizar allCases por separado
-              const allNew = await fetchCasesMeta(supabase, 5000);
-              setAllCases(allNew);
-            }
-            filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail, agentName);
-            // Si es Mi Gestion y aún no tenemos agentEmail, no sobrescribir los casos del servidor
-            if (containerType === "mi-gestion" && !agentEmail) {
-              return;
-            }
+        (payload) => {
+          if (debounceTimer) clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(async () => {
+            let filteredNewCases: SekCase[] = [];
+            let newMerged: SekCase[] = [];
+            try {
+              // Para Mi Gestión, fetchar solo casos del agente
+              const fetchEmail = containerType === "mi-gestion" ? (agentEmail || undefined) : undefined;
+              const newCases = await fetchCasesMeta(supabase, 400, fetchEmail);
+              if (!newCases) return;
+              // allCases siempre sin filtrar para el banner de escalados
+              if (!fetchEmail) setAllCases(newCases);
+              else {
+                // Si fetcheamos por agente, actualizar allCases por separado
+                const allNew = await fetchCasesMeta(supabase, 400);
+                setAllCases(allNew);
+              }
+              filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail, agentName);
+              // Si es Mi Gestion y aún no tenemos agentEmail, no sobrescribir los casos del servidor
+              if (containerType === "mi-gestion" && !agentEmail) {
+                return;
+              }
             // Si el caso seleccionado ya no está en el filtro (ej: soporte-avanzado y el estado cambió),
             // preservarlo en la lista para que el chat no desaparezca mientras el agente lo tiene abierto
             const currentSelected = selectedId ? (
@@ -543,15 +546,16 @@ export function InboxClient({
 
           prevCasesRef.current = filteredNewCases;
           prevMergedRef.current = newMerged;
-        })
+        }, 300);
+      })
       .subscribe();
-    /* Polling de respaldo cada 45s con metadatos ligeros */
+    /* Polling de respaldo cada 60s con metadatos ligeros */
     const poll = setInterval(async () => {
       try {
         // Guard: no sobrescribir casos si agentEmail no está listo (Mi Gestión)
         if (containerType === "mi-gestion" && !agentEmail) return;
         const fetchEmail = containerType === "mi-gestion" ? (agentEmail || undefined) : undefined;
-        const newCases = await fetchCasesMeta(supabase, 5000, fetchEmail);
+        const newCases = await fetchCasesMeta(supabase, 400, fetchEmail);
         setAllCases(newCases);
         const filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail, agentName);
         // Preservar caso seleccionado aunque no pase el filtro (ej: caso outbound nuevo sin assigned_to aún)
@@ -580,9 +584,13 @@ export function InboxClient({
       } catch (e) {
         console.error("[inbox] fetchCasesMeta error:", e);
       }
-    }, 45000);
+    }, 60000);
 
-    return () => { clearInterval(poll); supabase.removeChannel(channel); };
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      clearInterval(poll);
+      supabase.removeChannel(channel);
+    };
   }, [supabase, selectedId, containerType, agentEmail, agentName, selectCase]);
 
   const selected =
