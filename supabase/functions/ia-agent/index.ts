@@ -970,9 +970,11 @@ const TOPICS_MENU_TEXT = `¿En relación a qué tema sería su consulta? Por fav
 4. Firmware
 5. Software
 6. Licencias
-7. Otro`;
+7. Reparación / Diagnóstico
+8. Consulta
+9. Otro`;
 
-const TOPICS_LIST = ["Configuraciones", "Reset", "Desvinculación", "Firmware", "Software", "Licencias", "Otro"];
+const TOPICS_LIST = ["Configuraciones", "Reset", "Desvinculación", "Firmware", "Software", "Licencias", "Reparación / Diagnóstico", "Consulta", "Otro"];
 
 function extractEmailFromText(text: string): string {
   const match = (text || "").match(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/);

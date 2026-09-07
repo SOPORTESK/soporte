@@ -227,6 +227,12 @@ export default async function EstadisticasClientePage() {
     // Ignorar si es únicamente la palabra del canal (ej: "WhatsApp")
     if (s === "whatsapp" || s.startsWith("whatsapp")) return { key: "otro", label: "Otro" };
 
+    if (s.includes("reparac") || s.includes("taller") || s.includes("diagnost")) {
+      return { key: "reparacion_diagnostico", label: "Reparación / Diagnóstico" };
+    }
+    if (s.includes("consult")) {
+      return { key: "consulta", label: "Consulta" };
+    }
     if (s.includes("reset") || s.includes("clave") || s.includes("contrase") || s.includes("xml") || s.includes("guid") || s.includes("desbloque")) {
       return { key: "reset", label: "Reset" };
     }

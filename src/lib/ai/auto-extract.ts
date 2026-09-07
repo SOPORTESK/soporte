@@ -3,7 +3,7 @@ import { getModel } from "@/lib/ai/config";
 
 const TEMAS_VALIDOS = [
   "Configuraciones", "Reset", "Desvinculación", "Firmware",
-  "Software", "Licencias", "Otro"
+  "Software", "Licencias", "Reparación / Diagnóstico", "Consulta", "Otro"
 ];
 
 const temaToProblema: Record<string, string> = {
@@ -13,6 +13,8 @@ const temaToProblema: Record<string, string> = {
   "Firmware": "actualizacion_firmware",
   "Software": "software",
   "Licencias": "licencias",
+  "Reparación / Diagnóstico": "reparacion_diagnostico",
+  "Consulta": "consulta",
   "Otro": "otro",
 };
 

@@ -304,7 +304,9 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     { value: "Firmware", label: "4. Firmware" },
     { value: "Software", label: "5. Software" },
     { value: "Licencias", label: "6. Licencias" },
-    { value: "Otro", label: "7. Otro" },
+    { value: "Reparación / Diagnóstico", label: "7. Reparación / Diagnóstico" },
+    { value: "Consulta", label: "8. Consulta" },
+    { value: "Otro", label: "9. Otro" },
   ];
 
   const CATEGORIAS = [
@@ -317,6 +319,8 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     { value: "reset_contrasena", label: "Reset contraseña" },
     { value: "desvinculacion_cuenta", label: "Desvinculación cuenta" },
     { value: "dano_fisico", label: "Daño físico" },
+    { value: "reparacion_diagnostico", label: "Reparación / Diagnóstico" },
+    { value: "consulta", label: "Consulta" },
     { value: "actualizacion_firmware", label: "Actualización firmware" },
     { value: "instalacion_nueva", label: "Instalación nueva" },
     { value: "deteccion_incendio", label: "Detección incendio" },

@@ -410,7 +410,7 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
     sin_imagen: "Sin imagen", sin_grabacion: "Sin grabación", sin_acceso_remoto: "Sin acceso remoto",
     sin_energia: "Sin energía", error_configuracion: "Error de configuración", conectividad_red: "Conectividad / red",
     reset_contrasena: "Reset contraseña", desvinculacion_cuenta: "Desvinculación cuenta",
-    dano_fisico: "Daño físico", actualizacion_firmware: "Actualización firmware",
+    dano_fisico: "Daño físico", reparacion_diagnostico: "Reparación / Diagnóstico", consulta: "Consulta", actualizacion_firmware: "Actualización firmware",
     instalacion_nueva: "Instalación nueva", deteccion_incendio: "Detección incendio",
     control_acceso: "Control de acceso", intrusion_alarma: "Intrusión / alarma", otro: "Otro",
     configuraciones: "Configuraciones", software: "Software", soporte: "Soporte general", licencias: "Licencias",
@@ -423,7 +423,7 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
     modelo_no_validado: "Reset contraseña", desvinculacion: "Desvinculación cuenta", desvinculacion_cuenta: "Desvinculación cuenta",
     sin_imagen: "Sin imagen", sin_grabacion: "Sin grabación", sin_acceso_remoto: "Sin acceso remoto",
     sin_energia: "Sin energía", error_configuracion: "Error de configuración", conectividad_red: "Conectividad / red",
-    dano_fisico: "Daño físico", actualizacion_firmware: "Actualización firmware", instalacion_nueva: "Instalación nueva",
+    dano_fisico: "Daño físico", reparacion_diagnostico: "Reparación / Diagnóstico", consulta: "Consulta", actualizacion_firmware: "Actualización firmware", instalacion_nueva: "Instalación nueva",
     deteccion_incendio: "Detección incendio", control_acceso: "Control de acceso", intrusion_alarma: "Intrusión / alarma", otro: "Otro",
     configuraciones: "Configuraciones", software: "Software", licencias: "Licencias", firmware: "Actualización firmware",
   };
@@ -432,7 +432,7 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
     reset: "Reset contraseña", desvinculacion: "Desvinculación cuenta", configuraciones: "Configuraciones",
     software: "Software", soporte: "Soporte general", licencias: "Licencias", acceso: "Control de acceso", camara: "Cámaras",
     nvr: "NVR / Grabador", dvr: "DVR / Grabador", alarma: "Alarma / Intrusión", incendio: "Detección incendio",
-    red: "Conectividad / red", firmware: "Actualización firmware", otro: "Otro",
+    red: "Conectividad / red", firmware: "Actualización firmware", reparacion_diagnostico: "Reparación / Diagnóstico", consulta: "Consulta", otro: "Otro",
   };
 
   const deriveProblema = (c: any): string | null => {

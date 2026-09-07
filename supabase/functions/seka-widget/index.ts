@@ -420,7 +420,7 @@ const WELCOME_TEXTS = [
   "¿En relación a qué tema sería su consulta?",
 ];
 
-const TOPICS = ["Configuraciones","Reset","Desvinculación","Firmware","Software","Licencias","Otro"];
+const TOPICS = ["Configuraciones","Reset","Desvinculación","Firmware","Software","Licencias","Reparación / Diagnóstico","Consulta","Otro"];
 
 // ─── CONSTRUIR MENSAJES PARA LLAMA ───────────────────────────────────────────
 function buildMessages(hist: HistMsg[], invContext: string | null): NimMessage[] {
@@ -543,7 +543,7 @@ Deno.serve(async (req: Request) => {
       "Mi nombre es Seka, asistente virtual de Sekunet. Para brindarle una mejor asistencia, requerimos algunos datos importantes sobre su consulta.",
       "¿En relación a qué tema sería su consulta?",
     ];
-    const TOPICS_CHECK = ["Configuraciones","Reset","Desvinculación","Firmware","Software","Licencias","Otro"];
+    const TOPICS_CHECK = ["Configuraciones","Reset","Desvinculación","Firmware","Software","Licencias","Reparación / Diagnóstico","Consulta","Otro"];
     const realMsgs = histcliente.filter(m => !WELCOME_TEXTS_CHECK.includes(m.content?.trim() ?? ""));
     const userRealMsgs = realMsgs.filter(m => m.role === "user");
 

@@ -632,7 +632,7 @@ const WELCOME_TEXTS = [
   "Para comenzar, ¿me podría indicar su nombre completo?",
   "Le informamos que, si no recibimos respuesta en los próximos 10 minutos, la conversación se cerrará automáticamente. Si requiere asistencia posteriormente, con gusto podrá escribirnos nuevamente.",
   "¿En relación con qué tema sería su consulta?",
-  `¿En relación con qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Licencias\n7. Otro\n\nResponda con el número o el nombre del tema.`
+   `¿En relación con qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Licencias\n7. Reparación / Diagnóstico\n8. Consulta\n9. Otro\n\nResponda con el número o el nombre del tema.`
 ];
 
 const MSG_HORARIO = "Gracias por contactarnos.\n\nEn este momento nos encontramos fuera de nuestro horario de atención.\n\nLe invitamos a comunicarse con nosotros en nuestro horario de servicio, de lunes a viernes, de 7:30 a. m. a 5:00 p. m.";
@@ -652,7 +652,7 @@ function isOpenNowCR(): boolean {
   return crMin >= 450 && crMin < 1020; // 7:30 = 450, 17:00 = 1020
 }
 
-const TOPICS = ["Configuraciones","Reset","Desvinculación","Firmware","Software","Licencias","Otro"];
+const TOPICS = ["Configuraciones","Reset","Desvinculación","Firmware","Software","Licencias","Reparación / Diagnóstico","Consulta","Otro"];
 
 // Mapa de respuesta numérica → tema (para el menú de texto)
 const TOPIC_NUMBER_MAP: Record<string, string> = {
@@ -662,7 +662,9 @@ const TOPIC_NUMBER_MAP: Record<string, string> = {
   "4": "Firmware",
   "5": "Software",
   "6": "Licencias",
-  "7": "Otro",
+  "7": "Reparación / Diagnóstico",
+  "8": "Consulta",
+  "9": "Otro",
 };
 
 // Normaliza respuesta del usuario al nombre oficial del tema (acepta número o texto parcial)
