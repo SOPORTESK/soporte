@@ -15,6 +15,8 @@ export async function POST(req: NextRequest) {
     const accessToken = await refreshAccessToken(true);
     const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID || "1GpDjU1Tu3n_FRF-BwwRJuMISOIjhsVht";
 
+    const origin = req.headers.get("origin") || req.headers.get("referer")?.replace(/\/$/, "") || "https://sekachat.vercel.app";
+
     const initRes = await fetch(
       "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id",
       {
@@ -24,6 +26,7 @@ export async function POST(req: NextRequest) {
           "Content-Type": "application/json; charset=UTF-8",
           "X-Upload-Content-Type": mimeType || "application/octet-stream",
           "X-Upload-Content-Length": String(fileSize),
+          Origin: origin,
         },
         body: JSON.stringify({ name: fileName, parents: [folderId] }),
       }

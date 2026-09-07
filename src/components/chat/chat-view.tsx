@@ -1058,16 +1058,8 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     const MAX_MB = isWhatsApp ? 100 : 50;
     const DRIVE_THRESHOLD = 15 * 1024 * 1024; // 15 MB → subir a Google Drive (evita límites de WhatsApp y Supabase)
 
-    // Archivos ≥15MB: subir a Google Drive y enviar enlace por WhatsApp
+    // Archivos ≥15MB: subir a Google Drive y enviar enlace
     if (file.size >= DRIVE_THRESHOLD) {
-      if (!isWhatsApp) {
-        toast.error(`El archivo excede el límite de ${MAX_MB} MB`, {
-          description: `"${file.name}" pesa ${(file.size / 1024 / 1024).toFixed(1)} MB. Comprímaló o compártalo por otro medio.`,
-        });
-        if (fileInputRef.current) fileInputRef.current.value = "";
-        return;
-      }
-
       setUploadingFile(true);
       toast.info("Subiendo archivo a Google Drive...", {
         description: `"${file.name}" pesa ${(file.size / 1024 / 1024).toFixed(1)} MB. Esto puede tardar unos minutos.`,
@@ -1148,21 +1140,23 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
         // Registrar en histtecnico PRIMERO (para que persistMessageId lo encuentre)
         await send(driveMsg, undefined, undefined, undefined, true);
 
-        // Enviar el mensaje con el enlace por WhatsApp
-        const sendRes = await fetch("/api/evolution/send", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            case_id: String(targetId),
-            text: driveMsg,
-          }),
-        });
-        if (!sendRes.ok) {
-          const d = await sendRes.json().catch(() => ({}));
-          throw new Error(d.error || `Error enviando a WhatsApp ${sendRes.status}`);
+        if (isWhatsApp) {
+          // Enviar el mensaje con el enlace por WhatsApp
+          const sendRes = await fetch("/api/evolution/send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              case_id: String(targetId),
+              text: driveMsg,
+            }),
+          });
+          if (!sendRes.ok) {
+            const d = await sendRes.json().catch(() => ({}));
+            throw new Error(d.error || `Error enviando a WhatsApp ${sendRes.status}`);
+          }
         }
 
-        toast.success("Archivo subido a Google Drive y enlace enviado por WhatsApp");
+        toast.success("Archivo subido a Google Drive y enlace compartido");
       } catch (err: any) {
         toast.error("Error al subir archivo grande", { description: err?.message });
       } finally {
