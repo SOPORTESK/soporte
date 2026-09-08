@@ -6,7 +6,7 @@ import {
   ArrowLeft, MoreVertical, Phone, Send, Paperclip, Bot,
   Mail, Building2, User, Users, UserPlus, StickyNote, Zap, CheckCircle2,
   XCircle, Image as ImageIcon, FileText, Music, Video,
-  Download, X, ChevronDown, History, HandMetal, Star, Tag, AlertTriangle,
+  Download, X, ChevronDown, ChevronUp, History, HandMetal, Star, Tag, AlertTriangle,
   Mic, Play, Pause, Square, Smile, Trash2, UserCheck,
   Info, Copy, Forward, Pin, Edit, Clock, RotateCcw, Search, Globe
 } from "lucide-react";
@@ -254,6 +254,50 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
       return { ...prev, [historyType]: updatedHistory };
     });
   };
+
+  const [pinnedIndex, setPinnedIndex] = React.useState(0);
+  const [pinnedCollapsed, setPinnedCollapsed] = React.useState(false);
+
+  const pinnedMessages = React.useMemo(() => {
+    return messages.filter(m => m.pinned);
+  }, [messages]);
+
+  React.useEffect(() => {
+    if (pinnedIndex >= pinnedMessages.length) {
+      setPinnedIndex(Math.max(0, pinnedMessages.length - 1));
+    }
+  }, [pinnedMessages.length, pinnedIndex]);
+
+  const scrollToMessage = (m?: UnifiedMessage) => {
+    if (!m) return;
+    const el = document.getElementById(`msg-${m.id}`);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.classList.add("ring-4", "ring-amber-400", "scale-[1.02]");
+      setTimeout(() => {
+        el.classList.remove("ring-4", "ring-amber-400", "scale-[1.02]");
+      }, 1800);
+    }
+  };
+
+  const handleUnpinFromBanner = async (m: UnifiedMessage) => {
+    if (!targetId || !m.historyType || m.originalIndex === undefined) return;
+    try {
+      const res = await fetch(`/api/messages/${targetId}/${m.originalIndex}/pin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ historyType: m.historyType }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        handleMessageUpdate(m.historyType, m.originalIndex, { pinned: data.pinned });
+        toast.success(data.pinned ? "Mensaje fijado" : "Mensaje desfijado");
+      }
+    } catch (e) {
+      console.error("[ChatView] Error unpinning:", e);
+    }
+  };
+
   const [mode, setMode] = React.useState<"reply" | "nota">("reply");
   const [showPlantillas, setShowPlantillas] = React.useState(false);
   const [showTemplateManager, setShowTemplateManager] = React.useState(false);
@@ -1956,6 +2000,22 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
               )}
             </div>
           </div>
+          {/* Indicador Alerta Recordatorio Fijado */}
+          {pinnedMessages.length > 0 && (
+            <button
+              onClick={() => {
+                setPinnedCollapsed(false);
+                scrollToMessage(pinnedMessages[pinnedIndex]);
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-900 dark:text-amber-300 text-xs font-bold transition-all shadow-xs animate-pulse"
+              title="Ver mensajes fijados"
+            >
+              <Pin className="h-3.5 w-3.5 fill-amber-500 text-amber-500 shrink-0" />
+              <span className="hidden sm:inline">{pinnedMessages.length} fijado{pinnedMessages.length > 1 ? "s" : ""}</span>
+              <span className="sm:hidden">{pinnedMessages.length}</span>
+            </button>
+          )}
+
           {/* Historial */}
           <button
             onClick={() => setShowHistory(true)}
@@ -2356,6 +2416,94 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
           </div>
         </div>
       </header>
+
+      {/* ── Barra / Banner de Mensajes Fijados con Alerta Visual ── */}
+      {pinnedMessages.length > 0 && !pinnedCollapsed && (
+        <div className="flex-shrink-0 bg-gradient-to-r from-amber-500/20 via-amber-500/10 to-amber-500/5 dark:from-amber-950/50 dark:via-amber-900/25 dark:to-transparent border-b border-amber-500/30 px-3 sm:px-4 py-2 flex items-center justify-between gap-3 shadow-xs animate-in fade-in slide-in-from-top-2 duration-200 z-10">
+          <div
+            onClick={() => scrollToMessage(pinnedMessages[pinnedIndex])}
+            className="flex items-center gap-2.5 flex-1 min-w-0 cursor-pointer group"
+          >
+            <div className="h-7 w-7 rounded-lg bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition-transform animate-pulse">
+              <Pin className="h-3.5 w-3.5 fill-white" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] font-bold text-amber-900 dark:text-amber-300 uppercase tracking-wide flex items-center gap-1">
+                  Recordatorio Fijado
+                  {pinnedMessages.length > 1 && (
+                    <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-400">
+                      ({pinnedIndex + 1}/{pinnedMessages.length})
+                    </span>
+                  )}
+                </span>
+                <span className="text-[10px] text-amber-800/70 dark:text-amber-400/70 truncate">
+                  · {pinnedMessages[pinnedIndex]?.authorName || (pinnedMessages[pinnedIndex]?.source === "user" ? (ci.nombre || "Cliente") : "Agente")}
+                </span>
+              </div>
+              <p className="text-xs text-foreground/90 font-medium truncate group-hover:text-amber-600 dark:group-hover:text-amber-400 transition-colors">
+                {pinnedMessages[pinnedIndex]?.content || (pinnedMessages[pinnedIndex]?.mediaUrl ? "📎 Archivo adjunto" : "Mensaje fijado")}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {pinnedMessages.length > 1 && (
+              <div className="flex items-center bg-background/80 dark:bg-card/80 rounded-lg p-0.5 border border-amber-500/20 shadow-xs">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const newIdx = pinnedIndex > 0 ? pinnedIndex - 1 : pinnedMessages.length - 1;
+                    setPinnedIndex(newIdx);
+                    scrollToMessage(pinnedMessages[newIdx]);
+                  }}
+                  className="p-1 hover:bg-amber-500/20 rounded text-amber-800 dark:text-amber-200 transition-colors"
+                  title="Anterior recordatorio"
+                >
+                  <ChevronUp className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const newIdx = pinnedIndex < pinnedMessages.length - 1 ? pinnedIndex + 1 : 0;
+                    setPinnedIndex(newIdx);
+                    scrollToMessage(pinnedMessages[newIdx]);
+                  }}
+                  className="p-1 hover:bg-amber-500/20 rounded text-amber-800 dark:text-amber-200 transition-colors"
+                  title="Siguiente recordatorio"
+                >
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
+            <button
+              onClick={() => scrollToMessage(pinnedMessages[pinnedIndex])}
+              className="hidden sm:inline-flex px-2.5 py-1 text-[11px] font-bold bg-amber-500/20 hover:bg-amber-500/30 text-amber-900 dark:text-amber-200 rounded-lg transition-colors"
+              title="Ver en el chat"
+            >
+              Ir al mensaje
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                if (pinnedMessages[pinnedIndex]) {
+                  handleUnpinFromBanner(pinnedMessages[pinnedIndex]);
+                }
+              }}
+              className="p-1 text-amber-800/70 dark:text-amber-300/70 hover:text-red-500 dark:hover:text-red-400 hover:bg-amber-500/15 rounded-lg transition-colors"
+              title="Desfijar este mensaje"
+            >
+              <Pin className="h-3.5 w-3.5 fill-amber-600 text-amber-600" />
+            </button>
+            <button
+              onClick={() => setPinnedCollapsed(true)}
+              className="p-1 text-amber-800/60 dark:text-amber-300/60 hover:text-amber-900 dark:hover:text-amber-100 hover:bg-amber-500/10 rounded-lg transition-colors"
+              title="Minimizar barra"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Mensajes ── */}
       <div ref={scrollerRef} className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-2 bg-muted/20 px-safe scrollbar-none">
@@ -3469,10 +3617,27 @@ function Bubble({ m, prev, next, clienteName, onImageClick, agentEmail, onMessag
 
   if (isNota) {
     return (
-      <div className="flex justify-center animate-fade-in">
-        <div className="max-w-[85%] rounded-xl px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200">
-          <div className="flex items-center gap-1.5 text-[10px] font-semibold mb-0.5 opacity-75">
-            <StickyNote className="h-3 w-3" /> Nota interna · {m.authorName || "Agente"}
+      <div id={`msg-${m.id}`} className="flex justify-center animate-fade-in group relative transition-all duration-300">
+        <div className={cn(
+          "max-w-[85%] rounded-xl px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border text-amber-800 dark:text-amber-200 relative transition-all",
+          m.pinned ? "border-amber-400 ring-2 ring-amber-400/80 shadow-md shadow-amber-500/10" : "border-amber-200 dark:border-amber-800"
+        )}>
+          {m.pinned && (
+            <div className="absolute -top-2.5 right-3 flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full shadow-md z-10 bg-amber-500 text-white border border-amber-400 animate-pulse">
+              <Pin className="h-2.5 w-2.5 fill-white" /> Fijado
+            </div>
+          )}
+          <div className="flex items-center justify-between gap-1.5 text-[10px] font-semibold mb-0.5 opacity-75">
+            <span className="flex items-center gap-1.5">
+              <StickyNote className="h-3 w-3" /> Nota interna · {m.authorName || "Agente"}
+            </span>
+            <button
+              onClick={handleTogglePin}
+              className={cn("p-1 rounded-full hover:bg-black/10 transition-colors opacity-0 group-hover:opacity-100", m.pinned && "opacity-100 text-amber-600")}
+              title={m.pinned ? "Desfijar nota" : "Fijar nota"}
+            >
+              <Pin className={cn("h-3 w-3", m.pinned && "fill-amber-600")} />
+            </button>
           </div>
           <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{m.content}</p>
           <p className="text-[10px] mt-1 opacity-60 text-right" suppressHydrationWarning>{formatTime(m.time)}</p>
@@ -3482,19 +3647,20 @@ function Bubble({ m, prev, next, clienteName, onImageClick, agentEmail, onMessag
   }
 
   return (
-    <div className={cn("flex flex-wrap animate-fade-in group relative", isCliente ? "justify-start" : "justify-end")}>
+    <div id={`msg-${m.id}`} className={cn("flex flex-wrap animate-fade-in group relative transition-all duration-300", isCliente ? "justify-start" : "justify-end")}>
       <div className={cn(
-        "max-w-[85%] sm:max-w-[78%] rounded-2xl px-3.5 sm:px-4 py-2 shadow-sm relative",
+        "max-w-[85%] sm:max-w-[78%] rounded-2xl px-3.5 sm:px-4 py-2 shadow-sm relative transition-all",
         isCliente && "bg-card border border-border rounded-bl-sm",
         isIA && "bg-gradient-to-br from-violet-500/95 to-violet-600/95 text-white rounded-br-sm",
-        isTecnico && "bg-brand-700 text-white rounded-br-sm"
+        isTecnico && "bg-brand-700 text-white rounded-br-sm",
+        m.pinned && (isCliente ? "ring-2 ring-amber-400 border-amber-400 dark:border-amber-500 shadow-md shadow-amber-500/15" : "ring-2 ring-amber-300 shadow-md shadow-amber-500/25")
       )}>
         {m.pinned && (
           <div className={cn(
-            "absolute -top-2 flex items-center gap-0.5 text-[9px] font-medium px-1.5 py-0.5 rounded-full shadow-sm",
-            isCliente ? "bg-card border border-border text-muted-foreground" : "bg-white/20 text-white"
+            "absolute -top-2.5 right-3 flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full shadow-md z-10 animate-pulse",
+            "bg-amber-500 text-white border border-amber-400"
           )}>
-            <Pin className="h-2.5 w-2.5" /> Fijado
+            <Pin className="h-2.5 w-2.5 fill-white" /> Fijado
           </div>
         )}
         {m.starred && (
@@ -3635,6 +3801,16 @@ function Bubble({ m, prev, next, clienteName, onImageClick, agentEmail, onMessag
             "flex items-center gap-0.5 transition-opacity",
             (showActionMenu || showEmojiPicker || showDeleteMenu) ? "opacity-100" : "opacity-0 group-hover:opacity-100"
           )}>
+            <button
+              onClick={handleTogglePin}
+              className={cn(
+                "p-1 rounded-full hover:bg-black/10 dark:hover:bg-white/10 transition-colors",
+                m.pinned ? "text-amber-500 font-bold opacity-100" : "opacity-80 hover:opacity-100"
+              )}
+              title={m.pinned ? "Desfijar mensaje" : "Fijar mensaje"}
+            >
+              <Pin className={cn("h-3.5 w-3.5", m.pinned && "fill-amber-500 text-amber-500")} />
+            </button>
             <button
               onClick={() => {
                 if (!showEmojiPicker && menuBtnRef.current) {

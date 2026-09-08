@@ -1,7 +1,7 @@
 "use client";
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Search, MessageSquarePlus, Star, Clock, Trash2, Smartphone, Globe, Loader2, X, Send } from "lucide-react";
+import { Search, MessageSquarePlus, Star, Clock, Trash2, Smartphone, Globe, Loader2, X, Send, Pin } from "lucide-react";
 import { toast } from "sonner";
 import { Avatar, Badge } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
@@ -271,6 +271,8 @@ export function ConversationList({
             : minutosEsperando < 2 ? { color: "bg-emerald-500", text: "text-emerald-600 dark:text-emerald-400", label: `${minutosEsperando}m` }
             : minutosEsperando < 5 ? { color: "bg-amber-400", text: "text-amber-600 dark:text-amber-400", label: `${minutosEsperando}m` }
             : { color: "bg-red-500", text: "text-red-600 dark:text-red-400", label: `${minutosEsperando}m` };
+          const hasPinned = (Array.isArray(c.histcliente) && c.histcliente.some((m: any) => m?.pinned)) ||
+                            (Array.isArray(c.histtecnico) && c.histtecnico.some((m: any) => m?.pinned));
           return (
             <li key={id} role="option" aria-selected={active} className="group relative flex items-stretch border-b border-border/50 min-w-0">
               {/* Botón principal de selección - con overflow hidden para truncar texto */}
@@ -286,6 +288,11 @@ export function ConversationList({
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
                       <p className="font-semibold truncate">{display}</p>
+                      {hasPinned && (
+                        <span title="Mensaje fijado">
+                          <Pin className="h-3 w-3 fill-amber-500 text-amber-500 shrink-0" />
+                        </span>
+                      )}
                       {c._group?.avgRating && (
                         <div className="flex items-center gap-0.5 text-amber-500 font-bold text-[10px] shrink-0">
                           <Star className="h-2.5 w-2.5 fill-amber-500" />
