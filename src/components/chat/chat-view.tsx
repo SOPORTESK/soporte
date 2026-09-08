@@ -298,6 +298,23 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
     }
   };
 
+  const isChatPinned = React.useMemo(() => {
+    return Array.isArray(sekCase.tags) && sekCase.tags.some(t => String(t).toLowerCase() === "fijado" || String(t).toLowerCase() === "pinned");
+  }, [sekCase.tags]);
+
+  const handleTogglePinChat = async () => {
+    if (!targetId) return;
+    try {
+      const res = await fetch(`/api/cases/${targetId}/pin`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Error al fijar");
+      toast.success(data.pinned ? "Conversación fijada arriba" : "Conversación desfijada");
+      setSekCase(prev => ({ ...prev, tags: data.tags }));
+    } catch (err: any) {
+      toast.error("No se pudo fijar el chat: " + (err?.message || "error"));
+    }
+  };
+
   const [mode, setMode] = React.useState<"reply" | "nota">("reply");
   const [showPlantillas, setShowPlantillas] = React.useState(false);
   const [showTemplateManager, setShowTemplateManager] = React.useState(false);
@@ -2015,6 +2032,22 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
               <span className="sm:hidden">{pinnedMessages.length}</span>
             </button>
           )}
+
+          {/* Botón Fijar Chat completo */}
+          <button
+            onClick={handleTogglePinChat}
+            className={cn(
+              "p-2 rounded-xl transition-all touch-target flex items-center gap-1 text-xs font-bold",
+              isChatPinned
+                ? "bg-amber-500/20 text-amber-500 hover:bg-amber-500/30 border border-amber-500/40"
+                : "hover:bg-muted text-muted-foreground hover:text-foreground"
+            )}
+            aria-label={isChatPinned ? "Desfijar chat" : "Fijar chat arriba"}
+            title={isChatPinned ? "Desfijar este chat de arriba de la lista" : "Fijar este chat arriba de la lista"}
+          >
+            <Pin className={cn("h-4 w-4", isChatPinned && "fill-amber-500 text-amber-500")} />
+            <span className="hidden xl:inline">{isChatPinned ? "Fijado" : "Fijar chat"}</span>
+          </button>
 
           {/* Historial */}
           <button

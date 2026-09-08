@@ -51,6 +51,28 @@ export function ConversationList({
     return () => clearInterval(t);
   }, []);
 
+  const [pinningId, setPinningId] = React.useState<string | null>(null);
+
+  const handleTogglePinCase = async (e: React.MouseEvent, caseId: string) => {
+    e.stopPropagation();
+    setPinningId(caseId);
+    try {
+      const res = await fetch(`/api/cases/${caseId}/pin`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Error al fijar");
+      toast.success(data.pinned ? "Chat fijado arriba" : "Chat desfijado");
+      const targetCase = cases.find(c => String(c.id) === String(caseId));
+      if (targetCase) {
+        targetCase.tags = data.tags;
+      }
+      setTick(t => t + 1);
+    } catch (err: any) {
+      toast.error("No se pudo fijar el chat: " + (err?.message || "error"));
+    } finally {
+      setPinningId(null);
+    }
+  };
+
   const handleDelete = async (caseId: string) => {
     setDeletingId(caseId);
     try {
@@ -121,8 +143,13 @@ export function ConversationList({
       return true;
     });
     
-    /* Ordenar: escalado primero, luego el más reciente primero */
+    /* Ordenar: CHATS FIJADOS (pinned) PRIMERO, luego escalado, luego más reciente */
     return list.sort((a, b) => {
+      const isPinnedA = Array.isArray(a.tags) && a.tags.some(t => String(t).toLowerCase() === "fijado" || String(t).toLowerCase() === "pinned");
+      const isPinnedB = Array.isArray(b.tags) && b.tags.some(t => String(t).toLowerCase() === "fijado" || String(t).toLowerCase() === "pinned");
+      if (isPinnedA && !isPinnedB) return -1;
+      if (!isPinnedA && isPinnedB) return 1;
+
       const eA = String(a.estado || "").toLowerCase();
       const eB = String(b.estado || "").toLowerCase();
       if (eA === "escalado" && eB !== "escalado") return -1;
@@ -271,10 +298,19 @@ export function ConversationList({
             : minutosEsperando < 2 ? { color: "bg-emerald-500", text: "text-emerald-600 dark:text-emerald-400", label: `${minutosEsperando}m` }
             : minutosEsperando < 5 ? { color: "bg-amber-400", text: "text-amber-600 dark:text-amber-400", label: `${minutosEsperando}m` }
             : { color: "bg-red-500", text: "text-red-600 dark:text-red-400", label: `${minutosEsperando}m` };
+          const isCasePinned = Array.isArray(c.tags) && c.tags.some(t => String(t).toLowerCase() === "fijado" || String(t).toLowerCase() === "pinned");
           const hasPinned = (Array.isArray(c.histcliente) && c.histcliente.some((m: any) => m?.pinned)) ||
                             (Array.isArray(c.histtecnico) && c.histtecnico.some((m: any) => m?.pinned));
           return (
-            <li key={id} role="option" aria-selected={active} className="group relative flex items-stretch border-b border-border/50 min-w-0">
+            <li
+              key={id}
+              role="option"
+              aria-selected={active}
+              className={cn(
+                "group relative flex items-stretch border-b border-border/50 min-w-0 transition-colors",
+                isCasePinned && "bg-amber-500/[0.04] border-l-4 border-l-amber-500"
+              )}
+            >
               {/* Botón principal de selección - con overflow hidden para truncar texto */}
               <button
                 onClick={() => onSelect(id)}
@@ -288,8 +324,13 @@ export function ConversationList({
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
                       <p className="font-semibold truncate">{display}</p>
-                      {hasPinned && (
-                        <span title="Mensaje fijado">
+                      {isCasePinned && (
+                        <span className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 shrink-0" title="Chat fijado arriba">
+                          <Pin className="h-2.5 w-2.5 fill-amber-500 text-amber-500" /> Fijado
+                        </span>
+                      )}
+                      {!isCasePinned && hasPinned && (
+                        <span title="Tiene mensajes fijados">
                           <Pin className="h-3 w-3 fill-amber-500 text-amber-500 shrink-0" />
                         </span>
                       )}
@@ -351,36 +392,52 @@ export function ConversationList({
                 </div>
               </button>
 
-              {/* Botón de eliminar - SOLO PARA ADMIN/SUPERADMIN - shrink-0 para nunca empujarse */}
-              {isAdmin && (
-                <div className="shrink-0 flex items-center px-2 border-l border-border/30 bg-transparent">
-                  {confirmId === id ? (
-                    <div className="flex items-center gap-1 shrink-0">
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); handleDelete(id); }} 
-                        disabled={deletingId === id}
-                        className="text-[10px] px-2 py-1 rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 whitespace-nowrap shrink-0"
-                      >
-                        {deletingId === id ? "..." : "Eliminar"}
-                      </button>
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); setConfirmId(null); }}
-                        className="text-[10px] px-2 py-1 rounded bg-muted hover:bg-border whitespace-nowrap shrink-0"
-                      >
-                        Cancelar
-                      </button>
-                    </div>
-                  ) : (
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); setConfirmId(id); }}
-                      className="shrink-0 p-2 rounded-md text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-                      title="Eliminar conversación"
-                    >
-                      <Trash2 className="h-4 w-4 shrink-0" />
-                    </button>
+              {/* Acciones de la conversación: Fijar Chat + Eliminar */}
+              <div className="shrink-0 flex items-center px-1.5 border-l border-border/30 bg-transparent gap-0.5">
+                <button
+                  onClick={(e) => handleTogglePinCase(e, id)}
+                  disabled={pinningId === id}
+                  className={cn(
+                    "p-1.5 rounded-lg transition-all touch-target",
+                    isCasePinned
+                      ? "text-amber-500 hover:bg-amber-500/20 opacity-100"
+                      : "text-muted-foreground hover:text-amber-500 hover:bg-muted/80 opacity-40 hover:opacity-100 group-hover:opacity-100"
                   )}
-                </div>
-              )}
+                  title={isCasePinned ? "Desfijar chat" : "Fijar chat arriba"}
+                >
+                  <Pin className={cn("h-4 w-4", isCasePinned && "fill-amber-500 text-amber-500")} />
+                </button>
+
+                {isAdmin && (
+                  <>
+                    {confirmId === id ? (
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); handleDelete(id); }} 
+                          disabled={deletingId === id}
+                          className="text-[10px] px-2 py-1 rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 whitespace-nowrap shrink-0"
+                        >
+                          {deletingId === id ? "..." : "Eliminar"}
+                        </button>
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); setConfirmId(null); }}
+                          className="text-[10px] px-2 py-1 rounded bg-muted hover:bg-border whitespace-nowrap shrink-0"
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setConfirmId(id); }}
+                        className="p-1.5 text-muted-foreground/40 hover:text-red-500 hover:bg-muted/80 rounded-lg transition-colors group-hover:text-muted-foreground touch-target"
+                        aria-label="Eliminar conversación" title="Eliminar conversación"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
             </li>
           );
         })}
