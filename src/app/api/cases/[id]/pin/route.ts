@@ -7,17 +7,25 @@ export async function POST(
 ) {
   try {
     const supabase = createServiceClient();
-    const id = params.id;
+    const rawId = decodeURIComponent(params.id || "").trim();
 
-    if (!id) {
+    if (!rawId) {
       return NextResponse.json({ error: "Missing case id" }, { status: 400 });
     }
 
-    const { data: caseData, error: fetchError } = await supabase
-      .from("sek_cases")
-      .select("id, tags, customer_phone")
-      .eq("id", id)
-      .maybeSingle();
+    let query = supabase.from("sek_cases").select("id, tags, customer_phone");
+    if (rawId.startsWith("tel:")) {
+      const phone = rawId.replace("tel:", "").trim();
+      query = query.eq("customer_phone", phone);
+    } else if (rawId.startsWith("case:")) {
+      const caseId = rawId.replace("case:", "").trim();
+      query = query.eq("id", caseId);
+    } else {
+      query = query.eq("id", rawId);
+    }
+
+    const { data: casesList, error: fetchError } = await query.order("created_at", { ascending: false }).limit(1);
+    const caseData = casesList?.[0];
 
     if (fetchError || !caseData) {
       return NextResponse.json({ error: "Case not found" }, { status: 404 });
@@ -40,7 +48,7 @@ export async function POST(
     const { error: updateError } = await supabase
       .from("sek_cases")
       .update({ tags: nextTags })
-      .eq("id", id);
+      .eq("id", caseData.id);
 
     if (updateError) {
       console.error("[PIN CASE API] Error:", updateError);
@@ -54,7 +62,7 @@ export async function POST(
           .from("sek_cases")
           .select("id, tags")
           .eq("customer_phone", cleanPhone)
-          .neq("id", id);
+          .neq("id", caseData.id);
 
         if (relatedCases && relatedCases.length > 0) {
           for (const rc of relatedCases) {

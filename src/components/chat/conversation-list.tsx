@@ -57,11 +57,14 @@ export function ConversationList({
     e.stopPropagation();
     setPinningId(caseId);
     try {
-      const res = await fetch(`/api/cases/${caseId}/pin`, { method: "POST" });
+      const res = await fetch(`/api/cases/${encodeURIComponent(caseId)}/pin`, { method: "POST" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Error al fijar");
       toast.success(data.pinned ? "Chat fijado arriba" : "Chat desfijado");
-      const targetCase = cases.find(c => String(c.id) === String(caseId));
+      const targetCase = cases.find(c => 
+        String(c.id) === String(caseId) || 
+        (c as any)._group?.caseIds?.some((cid: any) => String(cid) === String(caseId))
+      );
       if (targetCase) {
         targetCase.tags = data.tags;
       }
