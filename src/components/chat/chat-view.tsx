@@ -1990,7 +1990,13 @@ export function ChatView({
         throw new Error(err.error || "Error al guardar");
       }
       const data = await res.json();
-      setSekCase(prev => ({ ...prev, cliente: data.cliente }));
+      setSekCase(prev => ({
+        ...prev,
+        cliente: data.cliente,
+        marca: clienteDraft.marca || null,
+        modelo: clienteDraft.modelo || null,
+        problema: clienteDraft.descripcion || null,
+      }));
       toast.success("Datos del cliente actualizados");
       setEditingCliente(false);
     } catch (e: any) {
