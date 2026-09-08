@@ -147,7 +147,6 @@ export function AgentRankingTable({ agentes }: { agentes: AgentRankingItem[] }) 
             <th className="px-2 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground">Total</th>
             <th className="px-2 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground whitespace-nowrap">Tasa Res.</th>
             <th className="px-2 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground">AHT</th>
-            <th className="px-2 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground whitespace-nowrap">T. Resol.</th>
             <th className="px-2 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground">SLA</th>
             <th className="px-2 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground">Calif.</th>
             <th className="px-2 py-3 text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground whitespace-nowrap">Vol 7d</th>
@@ -157,7 +156,7 @@ export function AgentRankingTable({ agentes }: { agentes: AgentRankingItem[] }) 
         </thead>
         <tbody className="divide-y divide-border/50">
           {agentesFiltrados.length === 0 ? (
-            <tr><td colSpan={12} className="py-16 text-center text-sm text-muted-foreground">Sin datos de atención registrados.</td></tr>
+            <tr><td colSpan={11} className="py-16 text-center text-sm text-muted-foreground">Sin datos de atención registrados.</td></tr>
           ) : agentesFiltrados.map((a, i) => {
             const isTop = i === 0 && agentes.length > 1;
             const initials = a.nombre.split(" ").filter(Boolean).map(n => n[0]).join("").substring(0, 2).toUpperCase();
@@ -213,21 +212,14 @@ export function AgentRankingTable({ agentes }: { agentes: AgentRankingItem[] }) 
                         <span className="font-black tabular-nums text-violet-500 text-sm">{formatSLA(a.avgEfectivo)}</span>
                       </div>
                     ) : <span className="text-muted-foreground/40 text-sm">—</span>}
-                    <p className="text-[9px] text-muted-foreground">activo/caso</p>
-                  </td>
-                  <td className="px-2 py-3 text-center">
-                    <div className="flex items-center justify-center gap-1">
-                      <Clock className="h-3 w-3 text-emerald-500" />
-                      <span className="font-black tabular-nums text-emerald-500 text-sm">{a.avgResolucion > 0 ? formatSLA(a.avgResolucion) : "—"}</span>
-                    </div>
-                    <p className="text-[9px] text-muted-foreground">acept. → cierre</p>
+                    <p className="text-[9px] text-muted-foreground">escrito por el agente</p>
                   </td>
                   <td className="px-2 py-3 text-center">
                     <div className="flex items-center justify-center gap-1">
                       <Clock className="h-3 w-3 text-sky-500" />
                       <span className="font-black tabular-nums text-sky-500 text-sm">{formatSLA(a.avgSLA)}</span>
                     </div>
-                    <p className="text-[9px] text-muted-foreground">espera IA → humano</p>
+                    <p className="text-[9px] text-muted-foreground">espera en horario hábil</p>
                   </td>
                   <td className="px-2 py-3 text-center">
                     {a.avgCalificacionCliente !== "N/A" ? (
@@ -252,7 +244,7 @@ export function AgentRankingTable({ agentes }: { agentes: AgentRankingItem[] }) 
                 </tr>
                 {isOpen && (
                   <tr className="bg-muted/10">
-                    <td colSpan={12} className="p-0">
+                    <td colSpan={11} className="p-0">
                       <div className="border-l-2 border-brand-500/50 mx-3 my-2 rounded-r-lg bg-card/50">
                         <div className="flex items-center justify-between px-4 pt-3">
                           <p className="text-[11px] font-black uppercase tracking-widest text-brand-500">

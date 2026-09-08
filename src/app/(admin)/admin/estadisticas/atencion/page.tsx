@@ -10,6 +10,38 @@ import { MessageVolumeTabs, MessageStatsData } from "@/components/admin/message-
 
 export const dynamic = "force-dynamic";
 
+/* ── Horario de atención: lunes a viernes, 7:30 a.m. – 5:00 p.m., Costa Rica (UTC-6).
+ *    Mismos valores que isOpenNowCR() del webhook y isWithinBusinessHours() de ia-agent. */
+const CR_OFFSET_MS = 6 * 60 * 60 * 1000;
+const BH_INICIO_MIN = 7 * 60 + 30;  // 7:30 → 450
+const BH_FIN_MIN = 17 * 60;         // 17:00 → 1020
+/** Una jornada laboral completa en minutos (9.5 h). Tope de espera imputable. */
+const JORNADA_MIN = BH_FIN_MIN - BH_INICIO_MIN; // 570
+
+/** Minutos de HORARIO LABORAL transcurridos entre dos instantes.
+ *  Descuenta noches, sábados y domingos: un caso que entra viernes 6 p.m. y se
+ *  toma lunes 8 a.m. cuenta 30 minutos, no 62 horas. Sin esto, el SLA castigaba
+ *  al agente por el reloj en vez de por su rapidez. */
+function minutosLaborales(startMs: number, endMs: number): number {
+  if (isNaN(startMs) || isNaN(endMs) || endMs <= startMs) return 0;
+  const diaDe = (ms: number) => Math.floor((ms - CR_OFFSET_MS) / 86400000);
+  const d0 = diaDe(startMs);
+  const d1 = diaDe(endMs);
+  let total = 0;
+  // Tope de iteración: evita recorrer años si una fecha viene corrupta.
+  for (let d = d0; d <= d1 && d - d0 <= 400; d++) {
+    const dow = new Date(d * 86400000).getUTCDay();
+    if (dow === 0 || dow === 6) continue; // domingo / sábado
+    const medianocheCR = d * 86400000 + CR_OFFSET_MS;
+    const abre = medianocheCR + BH_INICIO_MIN * 60000;
+    const cierra = medianocheCR + BH_FIN_MIN * 60000;
+    const desde = Math.max(startMs, abre);
+    const hasta = Math.min(endMs, cierra);
+    if (hasta > desde) total += Math.round((hasta - desde) / 60000);
+  }
+  return total;
+}
+
 /** Calcula minutos de resolución REALES basados en sesiones activas de chat.
  *  Agrupa los mensajes en sesiones separadas por gaps de más de 2 horas.
  *  Solo suma la duración de cada sesión activa, ignorando el tiempo muerto. */
@@ -91,6 +123,31 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
     .from("sek_agent_config")
     .select("email, nombre, apellido, rol");
 
+  // ── Plantillas del sistema (saludos, cierres, encuestas). Se excluyen del AHT
+  //    porque no las escribe el agente: las inserta el flujo automáticamente.
+  const { data: flowRow } = await supabase
+    .from("sek_flow_configs")
+    .select("flow_data")
+    .limit(1)
+    .maybeSingle();
+  const plantillas: string[] = [
+    ...(((flowRow?.flow_data as any)?.nodes || []) as any[])
+      .map(n => String(n?.data?.message || ""))
+      .filter(m => m.length > 15),
+    "Buen día. Gracias por contactarnos. Mi nombre",
+    "Al no haber recibido respuesta, procederemos",
+    "Ha sido un placer atenderle",
+    "Ha sido un gusto atenderle",
+    "¿Cómo calificaría la atención",
+    "¿Tiene alguna otra consulta o requiere asiste",
+  ].map(m => m.slice(0, 30).toLowerCase()).filter(Boolean);
+
+  const esPlantilla = (txt: any): boolean => {
+    const t = String(txt || "").toLowerCase().trim();
+    if (!t) return true;
+    return plantillas.some(p => t.startsWith(p) || t.includes(p));
+  };
+
   const agenteMap: Record<string, string> = {};
   agentes?.forEach(a => {
     agenteMap[a.email.toLowerCase()] = `${a.nombre || ""} ${a.apellido || ""}`.trim() || a.email;
@@ -117,16 +174,18 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
   const casosAntes7d = casos.filter(c => new Date(c.created_at) >= hace14dias && new Date(c.created_at) < hace7dias).length;
   const tendencia7d = casosAntes7d > 0 ? Math.round(((casos7d - casosAntes7d) / casosAntes7d) * 100) : null;
 
-  // ── SLA (solo humanos): tiempo desde que la IA escala el caso hasta que un humano lo acepta
+  // ── SLA (solo humanos): espera desde que la IA escala el caso hasta que un
+  //    humano lo acepta, contada SOLO en horario de atención y topada a una
+  //    jornada. Así mide qué tan rápido se toma el caso cuando de verdad había
+  //    alguien en turno, y no penaliza a quien limpia el rezago acumulado.
   const tiemposTodos = casosConAsig
     .filter(c => c.escalado_at && c.accepted_at)
     .map(c => {
-      const start = new Date(c.escalado_at!);
-      const end = new Date(c.accepted_at!);
-      if (isNaN(start.getTime()) || isNaN(end.getTime())) return 0;
-      return Math.round((end.getTime() - start.getTime()) / 60000);
+      const start = new Date(c.escalado_at!).getTime();
+      const end = new Date(c.accepted_at!).getTime();
+      return Math.min(JORNADA_MIN, minutosLaborales(start, end));
     })
-    .filter(t => t > 0 && t < 10080);
+    .filter(t => t > 0);
   const slaLt1h = tiemposTodos.filter(t => t <= 60).length;
   const sla1_4h = tiemposTodos.filter(t => t > 60 && t <= 240).length;
   const slaGt4h = tiemposTodos.filter(t => t > 240).length;
@@ -217,8 +276,11 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
   const UMBRAL_GAP_MIN = 15;
   const isAgentRole = (r: any) => r === "agente" || r === "agent" || r === "tecnico";
   function tiempoEfectivo(histtecnico: any[], histcliente: any[], accepted_at?: string | null): number {
+    // Solo mensajes escritos por el humano: rol de agente, sin notas internas y
+    // sin plantillas del sistema (el saludo de bienvenida y los cierres los
+    // inserta el flujo, no el agente, y falseaban el tiempo hacia abajo).
     const tech = (Array.isArray(histtecnico) ? histtecnico : [])
-      .filter((m: any) => m && m.time && isAgentRole(m.role) && m.role !== "nota")
+      .filter((m: any) => m && m.time && isAgentRole(m.role) && m.role !== "nota" && !esPlantilla(m.content))
       .map((m: any) => ({ t: new Date(m.time).getTime(), agent: true }));
     const cli = (Array.isArray(histcliente) ? histcliente : [])
       .filter((m: any) => m && m.time)
@@ -305,7 +367,8 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
         });
       }
       
-      const espera = Math.round((tAccepted - lastMsgTime) / 60000);
+      // Solo minutos de horario laboral, topados a una jornada.
+      const espera = Math.min(JORNADA_MIN, minutosLaborales(lastMsgTime, tAccepted));
       if (espera >= 0) s.tiemposEspera.push(espera);
     }
     const cal = getCal(caso); if (cal !== null) s.calificaciones.push(cal);
@@ -316,6 +379,19 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
 
   const MIN_CASOS_SCORE = 5;
   const maxTotalAtendidos = Math.max(1, ...Object.values(statsPorAgente).map(s => s.totalAtendidos));
+
+  // ── Mediana de AHT del equipo. El AHT se puntúa RELATIVO a esta mediana en vez
+  //    de contra un tope fijo, para que la escala se autocalibre con el equipo.
+  const ahtsPorAgente = Object.values(statsPorAgente)
+    .map(s => s.tiemposEfectivos.length > 0
+      ? Math.round(s.tiemposEfectivos.reduce((a, b) => a + b, 0) / s.tiemposEfectivos.length) : 0)
+    .filter(v => v > 0)
+    .sort((a, b) => a - b);
+  const ahtMediana = ahtsPorAgente.length > 0
+    ? (ahtsPorAgente.length % 2
+        ? ahtsPorAgente[(ahtsPorAgente.length - 1) / 2]
+        : (ahtsPorAgente[ahtsPorAgente.length / 2 - 1] + ahtsPorAgente[ahtsPorAgente.length / 2]) / 2)
+    : 0;
 
   const rankingAgentes = Object.values(statsPorAgente).map(s => {
     const MIN_CALS_AGENTE = 4;
@@ -331,17 +407,23 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
     const volumenDiario = s.casos30d > 0 ? (s.casos30d / 30) : 0;
 
     // Score compuesto con redistribución de pesos cuando no hay datos
-    const maxResolucionMin = 480; // 8 horas como tope penalizable
     const scoreRes = Math.round(tasa);
-    const scoreTiempoResolucion = avgResolucion > 0 ? Math.max(0, 100 - Math.round((avgResolucion / maxResolucionMin) * 100)) : null;
-    const scoreSLA = avgSLA > 0 ? Math.max(0, 100 - Math.round((avgSLA / 480) * 100)) : null;
+    // AHT relativo a la mediana del equipo: ratio 0.5 → 100 pts, 1.0 → 70, 2.0 → 10.
+    // Reemplaza al antiguo "tiempo de resolución", que medía casi lo mismo pero
+    // incluía el tiempo que tardaba el cliente en contestar.
+    const ahtRatio = avgEfectivo > 0 && ahtMediana > 0 ? avgEfectivo / ahtMediana : null;
+    const scoreAHT = ahtRatio !== null
+      ? Math.max(0, Math.min(100, Math.round(100 - 60 * (ahtRatio - 0.5)))) : null;
+    // La vara es una jornada laboral: tomar el caso de inmediato = 100 pts,
+    // dejarlo esperando una jornada entera de horario hábil = 0 pts.
+    const scoreSLA = avgSLA > 0 ? Math.max(0, 100 - Math.round((avgSLA / JORNADA_MIN) * 100)) : null;
     const scoreSat = avgCal > 0 && s.calificaciones.length >= MIN_CALS_AGENTE ? Math.round((avgCal / 5) * 100) : null;
     const scoreVolumen = Math.round((s.totalAtendidos / maxTotalAtendidos) * 100);
 
-    // Pesos base: 30% resolución, 25% tiempo, 20% sat, 15% SLA, 10% volumen
+    // Pesos base: 30% resolución, 25% AHT, 20% sat, 15% SLA, 10% volumen
     // Redistribuir el peso de componentes sin datos entre los que sí tienen
-    const pesos: Record<string, number> = { res: 0.30, tiempo: 0.25, sat: 0.20, sla: 0.15, vol: 0.10 };
-    const componentes: Record<string, number | null> = { res: scoreRes, tiempo: scoreTiempoResolucion, sat: scoreSat, sla: scoreSLA, vol: scoreVolumen };
+    const pesos: Record<string, number> = { res: 0.30, aht: 0.25, sat: 0.20, sla: 0.15, vol: 0.10 };
+    const componentes: Record<string, number | null> = { res: scoreRes, aht: scoreAHT, sat: scoreSat, sla: scoreSLA, vol: scoreVolumen };
     const pesosActivos = Object.entries(pesos).filter(([k]) => componentes[k] !== null);
     const pesoTotal = pesosActivos.reduce((sum, [, p]) => sum + p, 0);
     const score = Math.round(pesosActivos.reduce((sum, [k, p]) => sum + (componentes[k] as number) * (p / pesoTotal), 0));
@@ -743,7 +825,7 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
               <div className="h-8 w-8 rounded-lg bg-brand-500/10 text-brand-500 grid place-items-center"><BarChart3 className="h-4 w-4" /></div>
               <div>
                 <h2 className="font-black text-sm">Desempeño Individual</h2>
-                <p className="text-[11px] text-muted-foreground">Score compuesto: 30% resolución · 25% tiempo resolución · 20% calif. cliente · 15% SLA · 10% volumen · pesos redistribuidos si falta dato (mín. 5 casos, mín. 4 calif.)</p>
+                <p className="text-[11px] text-muted-foreground">Score compuesto: 30% resolución · 25% AHT (vs. mediana del equipo) · 20% calif. cliente · 15% SLA · 10% volumen · pesos redistribuidos si falta dato (mín. 5 casos, mín. 4 calif.)</p>
               </div>
             </div>
             <StatsExportButton
