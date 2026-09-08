@@ -2,7 +2,7 @@ const { createServer } = require('http');
 const { parse } = require('url');
 const next = require('next');
 
-const dev = process.env.NODE_ENV === 'development';
+const dev = process.env.NODE_ENV === 'development' && process.env.NEXT_DEV === '1';
 const app = next({ dev, port: 3100, hostname: '0.0.0.0' });
 const handle = app.getRequestHandler();
 
