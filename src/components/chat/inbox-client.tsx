@@ -664,7 +664,15 @@ export function InboxClient({
         className={`${selected ? "hidden md:flex" : "flex"} md:flex flex-col shrink-0 overflow-hidden w-full md:w-auto`}
         style={{ width: mounted && typeof window !== "undefined" && window.innerWidth >= 768 ? listWidth : undefined }}
       >
-        <ConversationList cases={mergedCases} selectedId={selectedId} onSelect={selectCase} agentRole={agentRole || undefined} onDeleteSuccess={handleCaseDeleted} />
+        <ConversationList
+          cases={mergedCases}
+          selectedId={selectedId}
+          onSelect={selectCase}
+          agentRole={agentRole || undefined}
+          onDeleteSuccess={handleCaseDeleted}
+          containerType={containerType}
+          currentAgentEmail={agentEmail}
+        />
       </div>
       {/* Divisor arrastrable — solo visible en md+ */}
       <div
@@ -677,7 +685,13 @@ export function InboxClient({
       {/* Panel de chat */}
       <div className={`min-h-0 min-w-0 ${selected ? "flex" : "hidden md:flex"} flex-1 flex-col bg-background`}>
         {selected ? (
-          <ChatView key={selected.id} sekCase={selected} onBack={() => setSelectedId(null)} />
+          <ChatView
+            key={selected.id}
+            sekCase={selected}
+            onBack={() => setSelectedId(null)}
+            containerType={containerType}
+            currentAgentEmail={agentEmail}
+          />
         ) : (
           <div className="flex-1 grid place-items-center text-center p-8">
             <div className="max-w-sm">

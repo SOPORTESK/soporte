@@ -30,8 +30,16 @@ function lastMessage(c: SekCase): { content: string; time: string } | null {
 }
 
 export function ConversationList({
-  cases, selectedId, onSelect, agentRole, onDeleteSuccess
-}: { cases: SekCase[]; selectedId: string | null; onSelect: (id: string) => void; agentRole?: string; onDeleteSuccess?: (id: string) => void }) {
+  cases, selectedId, onSelect, agentRole, onDeleteSuccess, containerType, currentAgentEmail
+}: {
+  cases: SekCase[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  agentRole?: string;
+  onDeleteSuccess?: (id: string) => void;
+  containerType?: string;
+  currentAgentEmail?: string | null;
+}) {
   const router = useRouter();
   const [query, setQuery] = React.useState("");
   const [channelFilter, setChannelFilter] = React.useState<ChannelFilter>("all");
@@ -53,11 +61,45 @@ export function ConversationList({
 
   const [pinningId, setPinningId] = React.useState<string | null>(null);
 
+  const isCasePinnedInScope = React.useCallback((c: SekCase) => {
+    const tags: string[] = Array.isArray(c.tags) ? c.tags.map(t => String(t).toLowerCase()) : [];
+    const cType = String(containerType || "").toLowerCase();
+    
+    if (cType === "mi-gestion") {
+      const userTag = currentAgentEmail ? `fijado:${currentAgentEmail.toLowerCase().trim()}` : null;
+      if (userTag && tags.includes(userTag)) return true;
+      if (tags.includes("fijado_gestion")) return true;
+      return false;
+    }
+    
+    if (cType === "soporte-avanzado") {
+      return tags.includes("fijado:soporte-avanzado") || tags.includes("fijado_publico");
+    }
+    
+    if (cType === "inbox") {
+      return tags.includes("fijado:inbox") || tags.includes("fijado_inbox");
+    }
+    
+    if (cType === "smart-inbox") {
+      return tags.includes("fijado:smart-inbox");
+    }
+
+    // General / fallback
+    return tags.includes("fijado") || tags.includes("pinned");
+  }, [containerType, currentAgentEmail]);
+
   const handleTogglePinCase = async (e: React.MouseEvent, caseId: string) => {
     e.stopPropagation();
     setPinningId(caseId);
     try {
-      const res = await fetch(`/api/cases/${encodeURIComponent(caseId)}/pin`, { method: "POST" });
+      const res = await fetch(`/api/cases/${encodeURIComponent(caseId)}/pin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          containerType,
+          agentEmail: currentAgentEmail
+        })
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Error al fijar");
       toast.success(data.pinned ? "Chat fijado arriba" : "Chat desfijado");
@@ -146,10 +188,10 @@ export function ConversationList({
       return true;
     });
     
-    /* Ordenar: CHATS FIJADOS (pinned) PRIMERO, luego escalado, luego más reciente */
+    /* Ordenar: CHATS FIJADOS (pinned en este ámbito) PRIMERO, luego escalado, luego más reciente */
     return list.sort((a, b) => {
-      const isPinnedA = Array.isArray(a.tags) && a.tags.some(t => String(t).toLowerCase() === "fijado" || String(t).toLowerCase() === "pinned");
-      const isPinnedB = Array.isArray(b.tags) && b.tags.some(t => String(t).toLowerCase() === "fijado" || String(t).toLowerCase() === "pinned");
+      const isPinnedA = isCasePinnedInScope(a);
+      const isPinnedB = isCasePinnedInScope(b);
       if (isPinnedA && !isPinnedB) return -1;
       if (!isPinnedA && isPinnedB) return 1;
 
@@ -162,7 +204,8 @@ export function ConversationList({
       return new Date(tb).getTime() - new Date(ta).getTime();
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cases, query, channelFilter, tick]);
+  }, [cases, query, channelFilter, tick, isCasePinnedInScope]);
+
 
   const emptyMsg = React.useMemo(() => {
     if (cases.length === 0) return "Aún no hay casos. Cuando un cliente escriba, aparecerá aquí.";
@@ -301,7 +344,7 @@ export function ConversationList({
             : minutosEsperando < 2 ? { color: "bg-emerald-500", text: "text-emerald-600 dark:text-emerald-400", label: `${minutosEsperando}m` }
             : minutosEsperando < 5 ? { color: "bg-amber-400", text: "text-amber-600 dark:text-amber-400", label: `${minutosEsperando}m` }
             : { color: "bg-red-500", text: "text-red-600 dark:text-red-400", label: `${minutosEsperando}m` };
-          const isCasePinned = Array.isArray(c.tags) && c.tags.some(t => String(t).toLowerCase() === "fijado" || String(t).toLowerCase() === "pinned");
+          const isCasePinned = isCasePinnedInScope(c);
           const hasPinned = (Array.isArray(c.histcliente) && c.histcliente.some((m: any) => m?.pinned)) ||
                             (Array.isArray(c.histtecnico) && c.histtecnico.some((m: any) => m?.pinned));
           return (

@@ -174,7 +174,17 @@ let cachedAgentsList: any[] | null = null;
 let cachedAgentUser: { email: string; name: string; role: string } | null = null;
 let cachedModoNoAtendido: boolean | null = null;
 
-export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; onBack: () => void }) {
+export function ChatView({
+  sekCase: initialCase,
+  onBack,
+  containerType,
+  currentAgentEmail
+}: {
+  sekCase: SekCase;
+  onBack: () => void;
+  containerType?: string;
+  currentAgentEmail?: string | null;
+}) {
   const router = useRouter();
   const supabase = React.useMemo(() => createClient(), []);
   const [sekCase, setSekCase] = React.useState<SekCase>(initialCase);
@@ -299,13 +309,42 @@ export function ChatView({ sekCase: initialCase, onBack }: { sekCase: SekCase; o
   };
 
   const isChatPinned = React.useMemo(() => {
-    return Array.isArray(sekCase.tags) && sekCase.tags.some(t => String(t).toLowerCase() === "fijado" || String(t).toLowerCase() === "pinned");
-  }, [sekCase.tags]);
+    const tags = Array.isArray(sekCase.tags) ? sekCase.tags.map(t => String(t).toLowerCase()) : [];
+    const cType = String(containerType || "").toLowerCase();
+    
+    if (cType === "mi-gestion") {
+      const userTag = currentAgentEmail ? `fijado:${currentAgentEmail.toLowerCase().trim()}` : null;
+      if (userTag && tags.includes(userTag)) return true;
+      if (tags.includes("fijado_gestion")) return true;
+      return false;
+    }
+    
+    if (cType === "soporte-avanzado") {
+      return tags.includes("fijado:soporte-avanzado") || tags.includes("fijado_publico");
+    }
+    
+    if (cType === "inbox") {
+      return tags.includes("fijado:inbox") || tags.includes("fijado_inbox");
+    }
+    
+    if (cType === "smart-inbox") {
+      return tags.includes("fijado:smart-inbox");
+    }
+
+    return tags.includes("fijado") || tags.includes("pinned");
+  }, [sekCase.tags, containerType, currentAgentEmail]);
 
   const handleTogglePinChat = async () => {
     if (!targetId) return;
     try {
-      const res = await fetch(`/api/cases/${targetId}/pin`, { method: "POST" });
+      const res = await fetch(`/api/cases/${targetId}/pin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          containerType,
+          agentEmail: currentAgentEmail
+        })
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Error al fijar");
       toast.success(data.pinned ? "Conversación fijada arriba" : "Conversación desfijada");
