@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { MessageSquare, BarChart3, Bot, ArrowDownLeft, ArrowUpRight, Download, FileText, ExternalLink, Clock } from "lucide-react";
+import { MessageSquare, BarChart3, Bot, ArrowDownLeft, ArrowUpRight, Download, FileText, ExternalLink, Clock, Activity, TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { exportToExcel, exportToCSV } from "@/lib/export-utils";
 import { toast } from "sonner";
@@ -27,6 +27,14 @@ export interface MessageStatsData {
   }[];
   distribucionHoras?: number[];
   filtroActual?: string;
+  mensajes7d?: number;
+  mensajesAntes7d?: number;
+  tendencia7dMsgs?: number | null;
+  mensajesMesActual?: number;
+  mensajesMesAnterior?: number;
+  tendenciaMesMsgs?: number | null;
+  mensajes30d?: number;
+  promedioDiarioMsgs?: number;
 }
 
 function formatClientDisplayName(nombre: string, telefono: string) {
@@ -65,6 +73,7 @@ export function MessageVolumeTabs({
 }) {
   const [activeTab, setActiveTab] = React.useState<"rendimiento" | "mensajeria">("rendimiento");
   const [searchClient, setSearchClient] = React.useState("");
+  const [periodoModoMsgs, setPeriodoModoMsgs] = React.useState<"semana" | "mes">("semana");
 
   const filteredClients = React.useMemo(() => {
     if (!searchClient.trim()) return stats.topClientes.slice(0, 15);
@@ -284,6 +293,140 @@ export function MessageVolumeTabs({
               </div>
               <p className="text-2xl font-black mt-2 text-foreground">{stats.totalGlobal.toLocaleString()}</p>
               <p className="text-[10px] text-muted-foreground mt-1">Volumen total procesado</p>
+            </div>
+          </div>
+
+          {/* Tarjetas Estratégicas de Mensajería: Volumen Temporal y Promedio Diario */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Card 1: Volumen con toggle 7 días / Mes */}
+            <div className="relative rounded-2xl border border-border bg-card p-5 overflow-hidden ring-1 ring-border/50 hover:shadow-lg transition-all">
+              <div className="absolute -top-8 -right-8 h-28 w-28 rounded-full bg-violet-500/10 blur-2xl pointer-events-none" />
+              <div className="relative">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="inline-flex items-center justify-center h-10 w-10 rounded-xl bg-violet-500/10 text-violet-400">
+                    <Activity className="h-5 w-5" />
+                  </div>
+                  <div className="inline-flex rounded-lg border border-border bg-muted/30 p-0.5">
+                    <button
+                      onClick={() => setPeriodoModoMsgs("semana")}
+                      className={cn(
+                        "px-2.5 py-1 text-[10px] font-black uppercase rounded-md transition-colors",
+                        periodoModoMsgs === "semana" ? "bg-brand-600 text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      7 Días
+                    </button>
+                    <button
+                      onClick={() => setPeriodoModoMsgs("mes")}
+                      className={cn(
+                        "px-2.5 py-1 text-[10px] font-black uppercase rounded-md transition-colors",
+                        periodoModoMsgs === "mes" ? "bg-brand-600 text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      Mes
+                    </button>
+                  </div>
+                </div>
+
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                  {periodoModoMsgs === "mes" ? "Volumen del Mes" : "Volumen 7 Días"}
+                </p>
+
+                <div className="flex items-baseline gap-2 mt-1">
+                  <p className="text-4xl font-black tracking-tight tabular-nums text-violet-400">
+                    {periodoModoMsgs === "mes"
+                      ? (stats.mensajesMesActual || 0).toLocaleString()
+                      : (stats.mensajes7d || 0).toLocaleString()}
+                  </p>
+                  {(() => {
+                    const tend = periodoModoMsgs === "mes" ? stats.tendenciaMesMsgs : stats.tendencia7dMsgs;
+                    return (
+                      <span className={cn(
+                        "text-xs font-black flex items-center gap-0.5",
+                        tend === null || tend === undefined ? "text-muted-foreground" :
+                        tend > 0 ? "text-rose-400" :
+                        tend < 0 ? "text-emerald-400" :
+                        "text-muted-foreground"
+                      )}>
+                        {tend === null || tend === undefined ? (
+                          <Minus className="h-3 w-3" />
+                        ) : tend > 0 ? (
+                          <TrendingUp className="h-3 w-3" />
+                        ) : tend < 0 ? (
+                          <TrendingDown className="h-3 w-3" />
+                        ) : (
+                          <Minus className="h-3 w-3" />
+                        )}
+                        {tend === null || tend === undefined ? "N/A" : `${tend > 0 ? "+" : ""}${tend}%`}
+                      </span>
+                    );
+                  })()}
+                </div>
+
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  {periodoModoMsgs === "mes" ? "este mes vs mes anterior" : "últimos 7 días vs semana anterior"}
+                </p>
+
+                {/* Barra comparativa: actual vs anterior */}
+                <div className="flex items-end gap-3 mt-3 h-10">
+                  {(() => {
+                    const actual = periodoModoMsgs === "mes" ? (stats.mensajesMesActual || 0) : (stats.mensajes7d || 0);
+                    const anterior = periodoModoMsgs === "mes" ? (stats.mensajesMesAnterior || 0) : (stats.mensajesAntes7d || 0);
+                    const max = Math.max(actual, anterior, 1);
+                    const labelActual = periodoModoMsgs === "mes" ? "Este mes" : "7 días";
+                    const labelAnterior = periodoModoMsgs === "mes" ? "Mes ant." : "Sem. ant.";
+
+                    return (
+                      <>
+                        <div className="flex-1 flex flex-col items-center gap-1">
+                          <span className="text-[10px] font-black tabular-nums text-violet-400">
+                            {actual.toLocaleString()}
+                          </span>
+                          <div
+                            className="w-full bg-violet-500 rounded-sm transition-all"
+                            style={{ height: `${Math.max(8, Math.round((actual / max) * 100))}%` }}
+                          />
+                          <span className="text-[9px] text-muted-foreground font-bold">{labelActual}</span>
+                        </div>
+                        <div className="flex-1 flex flex-col items-center gap-1">
+                          <span className="text-[10px] font-black tabular-nums text-muted-foreground">
+                            {anterior.toLocaleString()}
+                          </span>
+                          <div
+                            className="w-full bg-muted-foreground/30 rounded-sm transition-all"
+                            style={{ height: `${Math.max(8, Math.round((anterior / max) * 100))}%` }}
+                          />
+                          <span className="text-[9px] text-muted-foreground font-bold">{labelAnterior}</span>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
+            </div>
+
+            {/* Card 2: Volumen promedio de mensajes */}
+            <div className="relative rounded-2xl border border-border bg-card p-5 overflow-hidden ring-1 ring-border/50 hover:shadow-lg transition-all">
+              <div className="absolute -top-8 -right-8 h-28 w-28 rounded-full bg-cyan-500/10 blur-2xl pointer-events-none" />
+              <div className="relative">
+                <div className="inline-flex items-center justify-center h-10 w-10 rounded-xl bg-cyan-500/10 text-cyan-400 mb-3">
+                  <BarChart3 className="h-5 w-5" />
+                </div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Volumen Promedio</p>
+                <p className="text-4xl font-black mt-1 tracking-tight tabular-nums text-cyan-400">
+                  {stats.promedioDiarioMsgs && stats.promedioDiarioMsgs > 0
+                    ? `${stats.promedioDiarioMsgs.toFixed(1)}/día`
+                    : "—"}
+                </p>
+                <p className="text-[11px] text-muted-foreground mt-1.5">
+                  {(stats.mensajes7d || 0).toLocaleString()} esta semana · {(stats.mensajesMesActual || 0).toLocaleString()} este mes
+                </p>
+
+                <div className="mt-3 pt-2.5 border-t border-border/40 flex items-center justify-between text-[10px] text-muted-foreground font-medium">
+                  <span>Ritmo diario de mensajería (30 días)</span>
+                  <span className="font-bold text-foreground">{(stats.mensajes30d || 0).toLocaleString()} msgs en 30d</span>
+                </div>
+              </div>
             </div>
           </div>
 

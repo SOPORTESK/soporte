@@ -791,6 +791,46 @@ export default async function EstadisticasAtencionPage({
     }
   });
 
+  // ── Métricas temporales de mensajes (7d vs 7d anterior, mes vs mes anterior, promedio diario)
+  const msgs7dCount = { actual: 0, anterior: 0 };
+  const msgsMesCount = { actual: 0, anterior: 0 };
+  let msgs30dTotal = 0;
+
+  casos.forEach(c => {
+    const todosMsgs = [
+      ...(Array.isArray(c.histcliente) ? c.histcliente : []),
+      ...(Array.isArray(c.histtecnico) ? c.histtecnico : []),
+    ].filter((m: any) => m && !m.deleted && m.role !== "nota");
+
+    todosMsgs.forEach((m: any) => {
+      const t = m.time || m.timestamp || m.created_at || c.created_at;
+      if (!t) return;
+      const d = new Date(t);
+      if (isNaN(d.getTime())) return;
+
+      // 7 días vs 7 días anteriores
+      if (d >= hace7dias) msgs7dCount.actual++;
+      else if (d >= hace14dias && d < hace7dias) msgs7dCount.anterior++;
+
+      // Mes actual vs Mes anterior
+      if (d >= mesActualDate && d < mesActualEnd) msgsMesCount.actual++;
+      else if (d >= mesAnteriorDate && d < mesActualDate) msgsMesCount.anterior++;
+
+      // 30 días
+      if (d >= hace30dias) msgs30dTotal++;
+    });
+  });
+
+  const tendencia7dMsgs = msgs7dCount.anterior > 0
+    ? Math.round(((msgs7dCount.actual - msgs7dCount.anterior) / msgs7dCount.anterior) * 100)
+    : null;
+
+  const tendenciaMesMsgs = msgsMesCount.anterior > 0
+    ? Math.round(((msgsMesCount.actual - msgsMesCount.anterior) / msgsMesCount.anterior) * 100)
+    : null;
+
+  const promedioDiarioMsgs = msgs30dTotal > 0 ? (msgs30dTotal / 30) : 0;
+
   const msgStatsData: MessageStatsData = {
     totalClientes: totalMensajesClientes,
     totalTecnicos: totalMensajesTecnicos,
@@ -800,6 +840,14 @@ export default async function EstadisticasAtencionPage({
     topClientes: Object.values(clientMessageStats).sort((a, b) => b.total - a.total),
     distribucionHoras,
     filtroActual: filtroLabel,
+    mensajes7d: msgs7dCount.actual,
+    mensajesAntes7d: msgs7dCount.anterior,
+    tendencia7dMsgs,
+    mensajesMesActual: msgsMesCount.actual,
+    mensajesMesAnterior: msgsMesCount.anterior,
+    tendenciaMesMsgs,
+    mensajes30d: msgs30dTotal,
+    promedioDiarioMsgs,
   };
 
   const nowStr = new Date().toLocaleString("es-CR", { timeZone: "America/Costa_Rica", dateStyle: "long", timeStyle: "short" });
