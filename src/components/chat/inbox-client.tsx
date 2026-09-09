@@ -178,7 +178,11 @@ async function fetchCasesMeta(supabase: any, limit = 1500, agentEmail?: string) 
   return (data || []) as SekCase[];
 }
 
+let lastNotifAudio = 0;
 function playNotif() {
+  const now = Date.now();
+  if (now - lastNotifAudio < 1500) return;
+  lastNotifAudio = now;
   try {
     const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
     const osc = ctx.createOscillator();
@@ -192,7 +196,11 @@ function playNotif() {
   } catch {}
 }
 
+let lastN2Audio = 0;
 function playN2Alert() {
+  const now = Date.now();
+  if (now - lastN2Audio < 1500) return;
+  lastN2Audio = now;
   try {
     const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
     // Tres tonos ascendentes para alerta importante
@@ -209,7 +217,11 @@ function playN2Alert() {
   } catch {}
 }
 
+let lastEscaladoAudio = 0;
 function playEscaladoAlert() {
+  const now = Date.now();
+  if (now - lastEscaladoAudio < 2000) return;
+  lastEscaladoAudio = now;
   try {
     const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
     // Cinco tonos urgentes y repetitivos a mayor volumen
@@ -244,6 +256,14 @@ export function InboxClient({
   const supabase = React.useMemo(() => createClient(), []);
   const prevCasesRef = React.useRef<SekCase[]>(initialCases);
   const casesRef = React.useRef<SekCase[]>(initialCases);
+  const alertedCasesRef = React.useRef<Map<string, number>>(new Map());
+  const selectedIdRef = React.useRef<string | null>(initialSelectedId);
+  const agentEmailRef = React.useRef<string | null>(null);
+  const agentNameRef = React.useRef<string | null>(null);
+
+  React.useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
+  React.useEffect(() => { agentEmailRef.current = agentEmail; }, [agentEmail]);
+  React.useEffect(() => { agentNameRef.current = agentName; }, [agentName]);
 
   /* Detectar MODO DIOS desde localStorage */
   React.useEffect(() => {
@@ -445,8 +465,9 @@ export function InboxClient({
           }
           /* IGNORAR: eventos DELETE (eliminación de casos) y eventos que no agregan mensajes del cliente */
           if (payload.eventType !== "DELETE") {
+            const currentSelId = selectedIdRef.current;
             const changed = newMerged.find(ng => {
-              if (String(ng.id) === selectedId) return false;
+              if (String(ng.id) === currentSelId) return false;
               const prev = prevMergedRef.current.find(p => String(p.id) === String(ng.id));
               const prevUnread = prev?.unread_count || 0;
               const newUnread = ng.unread_count || 0;
@@ -457,16 +478,21 @@ export function InboxClient({
             });
 
             if (changed) {
-              playNotif();
-              const ci = clienteInfo(changed.cliente);
-              const name = ci.nombre || ci.telefono || asText(changed.title) || "Cliente";
-              // No notificar si el mensaje es muy antiguo (más de 5 minutos) - evita notificaciones fantasma
               const msgTime = changed.last_message_at ? new Date(changed.last_message_at).getTime() : 0;
               const isRecent = (Date.now() - msgTime) < 5 * 60 * 1000;
-              if (isRecent) {
+              const alertKey = `msg-${changed.id}-${changed.last_message_at}`;
+              const now = Date.now();
+              const lastAlert = alertedCasesRef.current.get(alertKey) || 0;
+
+              if (isRecent && (now - lastAlert > 5000)) {
+                alertedCasesRef.current.set(alertKey, now);
+                playNotif();
+                const ci = clienteInfo(changed.cliente);
+                const name = ci.nombre || ci.telefono || asText(changed.title) || "Cliente";
                 const estadoC = String(changed.estado || "").toLowerCase();
                 const esIa = estadoC === "ia_atendiendo";
                 toast.info(esIa ? `🤖 Nuevo caso en Smart Inbox: ${name}` : `💬 Nuevo mensaje de ${name}`, {
+                  id: `toast-msg-${changed.id}`,
                   description: asText(changed.last_message_preview).slice(0, 80),
                   duration: 10000,
                   action: { label: "Ver", onClick: () => {
@@ -483,36 +509,53 @@ export function InboxClient({
           if (payload.eventType === "INSERT") {
             const insCase = payload.new as SekCase;
             const insEstado = String(insCase?.estado || "").toLowerCase();
-            if (insEstado === "ia_atendiendo") {
-              const ci = clienteInfo(insCase.cliente);
-              const name = ci.nombre || ci.telefono || asText(insCase.title) || "Cliente";
-              playNotif();
-              toast.info(`🤖 Nuevo caso en Smart Inbox: ${name}`, {
-                description: "La IA está recopilando la información del cliente.",
-                duration: 10000,
-                action: { label: "Ver", onClick: () => router.push("/smart-inbox") }
-              });
+            if (insEstado === "ia_atendiendo" && insCase?.id) {
+              const insertKey = `insert-${insCase.id}`;
+              const now = Date.now();
+              const lastAlert = alertedCasesRef.current.get(insertKey) || 0;
+              if (now - lastAlert > 10000) {
+                alertedCasesRef.current.set(insertKey, now);
+                const ci = clienteInfo(insCase.cliente);
+                const name = ci.nombre || ci.telefono || asText(insCase.title) || "Cliente";
+                playNotif();
+                toast.info(`🤖 Nuevo caso en Smart Inbox: ${name}`, {
+                  id: `toast-insert-${insCase.id}`,
+                  description: "La IA está recopilando la información del cliente.",
+                  duration: 10000,
+                  action: { label: "Ver", onClick: () => router.push("/smart-inbox") }
+                });
+              }
             }
           }
 
           /* 🔔 Alerta para caso escalado por IA */
           if (payload.eventType === "UPDATE") {
             const updCase = payload.new as SekCase;
-            const oldCase2 = payload.old as SekCase;
-            const nuevoEstado = String(updCase?.estado).toLowerCase();
-            const viejoEstado = String(oldCase2?.estado).toLowerCase();
+            const nuevoEstado = String(updCase?.estado || "").toLowerCase();
 
-            if (nuevoEstado === "escalado" && viejoEstado !== "escalado") {
-              const ci3 = clienteInfo(updCase.cliente);
-              const name3 = ci3.nombre || ci3.telefono || asText(updCase.title) || "Cliente";
-              const equipo3 = (updCase.cliente as any)?.equipo || "";
-              
-              playEscaladoAlert();
-              toast.warning(`Nueva conversación: ${name3}`, {
-                description: equipo3 ? `Equipo: ${equipo3} · Requiere atención` : "Requiere atención de un agente",
-                duration: 30000,
-                action: { label: "Atender", onClick: () => selectCase(String(updCase.id)) }
-              });
+            // Comprobar contra el estado que teníamos previamente en memoria (prevCasesRef)
+            const prevInList = prevCasesRef.current.find(c => String(c.id) === String(updCase?.id));
+            const prevEstadoInList = String(prevInList?.estado || "").toLowerCase();
+            const wasAlreadyEscalated = prevEstadoInList === "escalado";
+
+            if (nuevoEstado === "escalado" && !wasAlreadyEscalated && updCase?.id) {
+              const escKey = `escalado-${updCase.id}`;
+              const now = Date.now();
+              const lastAlert = alertedCasesRef.current.get(escKey) || 0;
+              if (now - lastAlert > 15000) {
+                alertedCasesRef.current.set(escKey, now);
+                const ci3 = clienteInfo(updCase.cliente);
+                const name3 = ci3.nombre || ci3.telefono || asText(updCase.title) || "Cliente";
+                const equipo3 = (updCase.cliente as any)?.equipo || "";
+                
+                playEscaladoAlert();
+                toast.warning(`Nueva conversación: ${name3}`, {
+                  id: `toast-escalado-${updCase.id}`,
+                  description: equipo3 ? `Equipo: ${equipo3} · Requiere atención` : "Requiere atención de un agente",
+                  duration: 30000,
+                  action: { label: "Atender", onClick: () => selectCase(String(updCase.id)) }
+                });
+              }
             }
           }
 
@@ -527,20 +570,27 @@ export function InboxClient({
             const hasN2Now = newTags.some((t: string) => t.toLowerCase() === "n2" || t.toLowerCase() === "soporte-n2");
             const hadN2Before = oldTags.some((t: string) => t.toLowerCase() === "n2" || t.toLowerCase() === "soporte-n2");
             
-            if (hasN2Now && !hadN2Before) {
-              // Alerta visual y sonora especial
-              playN2Alert();
-              const ci2 = clienteInfo(newCase.cliente);
-              const name2 = ci2.nombre || ci2.telefono || asText(newCase.title) || "Cliente";
-              
-              toast.success("🔧 Nueva solicitud de soporte avanzado", {
-                description: `${name2} ha sido etiquetado como N2`,
-                duration: 8000,
-                action: { 
-                  label: "Ver caso", 
-                  onClick: () => selectCase(String(newCase.id)) 
-                }
-              });
+            if (hasN2Now && !hadN2Before && newCase?.id) {
+              const n2Key = `n2-${newCase.id}`;
+              const now = Date.now();
+              const lastAlert = alertedCasesRef.current.get(n2Key) || 0;
+              if (now - lastAlert > 10000) {
+                alertedCasesRef.current.set(n2Key, now);
+                // Alerta visual y sonora especial
+                playN2Alert();
+                const ci2 = clienteInfo(newCase.cliente);
+                const name2 = ci2.nombre || ci2.telefono || asText(newCase.title) || "Cliente";
+                
+                toast.success("🔧 Nueva solicitud de soporte avanzado", {
+                  id: `toast-n2-${newCase.id}`,
+                  description: `${name2} ha sido etiquetado como N2`,
+                  duration: 8000,
+                  action: { 
+                    label: "Ver caso", 
+                    onClick: () => selectCase(String(newCase.id)) 
+                  }
+                });
+              }
             }
           }
 

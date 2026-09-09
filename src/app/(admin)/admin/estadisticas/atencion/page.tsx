@@ -18,6 +18,31 @@ const BH_FIN_MIN = 17 * 60;         // 17:00 → 1020
 /** Una jornada laboral completa en minutos (9.5 h). Tope de espera imputable. */
 const JORNADA_MIN = BH_FIN_MIN - BH_INICIO_MIN; // 570
 
+/** Meta de casos tomados por día hábil. El volumen se puntúa contra esta meta
+ *  FIJA y no contra el agente que más tiene: si se compara contra el líder, un
+ *  compañero que toma más casos le baja el puntaje a todos los demás sin que
+ *  nadie haya trabajado peor. Calibrada con el ritmo real del equipo
+ *  (mediana 2.22, promedio 2.42 casos/día hábil). Subir o bajar aquí. */
+const META_CASOS_DIA_HABIL = 2.5;
+
+/** Compuerta del CSAT: mientras no haya muestra suficiente, la calificación del
+ *  cliente NO entra al score y su peso se reparte. Se activa sola al cumplirse
+ *  las dos condiciones, sin que nadie tenga que recordar prenderla. */
+const CSAT_MIN_CALIFICACIONES = 30;
+const CSAT_MIN_COBERTURA_PCT = 15;
+
+/** Cantidad de días de lunes a viernes entre dos instantes (inclusive). */
+function diasHabiles(desdeMs: number, hastaMs: number): number {
+  if (isNaN(desdeMs) || isNaN(hastaMs) || hastaMs < desdeMs) return 0;
+  const diaDe = (ms: number) => Math.floor((ms - CR_OFFSET_MS) / 86400000);
+  let n = 0;
+  for (let d = diaDe(desdeMs), fin = diaDe(hastaMs); d <= fin && d - diaDe(desdeMs) <= 4000; d++) {
+    const dow = new Date(d * 86400000).getUTCDay();
+    if (dow !== 0 && dow !== 6) n++;
+  }
+  return n;
+}
+
 /** Minutos de HORARIO LABORAL transcurridos entre dos instantes.
  *  Descuenta noches, sábados y domingos: un caso que entra viernes 6 p.m. y se
  *  toma lunes 8 a.m. cuenta 30 minutos, no 62 horas. Sin esto, el SLA castigaba
@@ -328,16 +353,21 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
     email: string; nombre: string; totalAtendidos: number; resueltos: number; activos: number;
     escalados: number; calificaciones: number[]; tiemposResolucion: number[]; ultimoCaso: string;
     urgentes: number; casos7d: number; casos30d: number; tiemposEfectivos: number[]; tiemposEspera: number[];
+    primerCasoMs: number;
     casos: Array<{ id: string | number; title: string; estado: string; created_at: string; cliente: string; canal: string }>;
   }> = {};
 
   casosConAsig.forEach(caso => {
     const email = caso.assigned_to!.toLowerCase();
     if (!statsPorAgente[email]) {
-      statsPorAgente[email] = { email, nombre: agenteMap[email] || caso.assigned_to!, totalAtendidos: 0, resueltos: 0, activos: 0, escalados: 0, calificaciones: [], tiemposResolucion: [], ultimoCaso: caso.title || "Caso sin título", urgentes: 0, casos7d: 0, casos30d: 0, tiemposEfectivos: [], tiemposEspera: [], casos: [] };
+      statsPorAgente[email] = { email, nombre: agenteMap[email] || caso.assigned_to!, totalAtendidos: 0, resueltos: 0, activos: 0, escalados: 0, calificaciones: [], tiemposResolucion: [], ultimoCaso: caso.title || "Caso sin título", urgentes: 0, casos7d: 0, casos30d: 0, tiemposEfectivos: [], tiemposEspera: [], casos: [], primerCasoMs: Infinity };
     }
     const s = statsPorAgente[email];
     s.totalAtendidos++;
+    // Fecha de su primer caso: el ritmo se mide desde que empezó a atender, no
+    // desde el inicio de la ventana, para no castigar a quien entró después.
+    const tCreado = new Date(caso.created_at).getTime();
+    if (!isNaN(tCreado) && tCreado < s.primerCasoMs) s.primerCasoMs = tCreado;
     s.casos.push({ id: caso.id, title: caso.title || "Caso sin título", estado: caso.estado || "—", created_at: caso.created_at, cliente: getClienteNombre(caso), canal: caso.canal || "—" });
     if (["abierto","asignado","pendiente"].includes(caso.estado || "")) s.activos++;
     if (caso.estado === "escalado") s.escalados++;
@@ -378,7 +408,28 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
   });
 
   const MIN_CASOS_SCORE = 5;
-  const maxTotalAtendidos = Math.max(1, ...Object.values(statsPorAgente).map(s => s.totalAtendidos));
+  const MIN_CALS_AGENTE = 4;
+
+  // ── Compuerta del CSAT. Se evalúa UNA vez para todo el equipo: si la encuesta
+  //    no está recogiendo respuestas, la calificación del cliente no entra al
+  //    score de nadie y se avisa en pantalla cuánto falta.
+  const casosCerradosVentana = casosConAsig.filter(
+    c => c.estado === "resuelto" || c.estado === "cerrado" || (c as any).closed_at
+  ).length;
+  const csatCoberturaPct = casosCerradosVentana > 0
+    ? (todasCals.length / casosCerradosVentana) * 100 : 0;
+  const csatActivo = todasCals.length >= CSAT_MIN_CALIFICACIONES
+    && csatCoberturaPct >= CSAT_MIN_COBERTURA_PCT;
+
+  // ── Ventana de medición, para convertir volumen en ritmo por día hábil.
+  const mesInicioMs = mesSeleccionado !== "all"
+    ? new Date(mesSeleccionado + "-01T00:00:00-06:00").getTime() : 0;
+  const mesFinMs = mesSeleccionado !== "all"
+    ? new Date(new Date(mesInicioMs).getUTCFullYear(), new Date(mesInicioMs).getUTCMonth() + 1, 1).getTime() : 0;
+  const ventanaFin = mesSeleccionado !== "all" ? Math.min(now.getTime(), mesFinMs) : now.getTime();
+  const ventanaInicio = mesSeleccionado !== "all"
+    ? mesInicioMs
+    : Math.min(...casosConAsig.map(c => new Date(c.created_at).getTime()).filter(t => !isNaN(t)), now.getTime());
 
   // ── Mediana de AHT del equipo. El AHT se puntúa RELATIVO a esta mediana en vez
   //    de contra un tope fijo, para que la escala se autocalibre con el equipo.
@@ -394,7 +445,6 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
     : 0;
 
   const rankingAgentes = Object.values(statsPorAgente).map(s => {
-    const MIN_CALS_AGENTE = 4;
     const avgCal = s.calificaciones.length > 0 ? (s.calificaciones.reduce((a, b) => a + b, 0) / s.calificaciones.length) : 0;
     const avgSLA = s.tiemposEspera.length > 0 ? Math.round(s.tiemposEspera.reduce((a, b) => a + b, 0) / s.tiemposEspera.length) : 0;
     const tasa = s.totalAtendidos > 0 ? Math.floor((s.resueltos / s.totalAtendidos) * 100) : 0;
@@ -406,24 +456,42 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
       ? Math.round(s.tiemposResolucion.reduce((a, b) => a + b, 0) / s.tiemposResolucion.length) : 0;
     const volumenDiario = s.casos30d > 0 ? (s.casos30d / 30) : 0;
 
-    // Score compuesto con redistribución de pesos cuando no hay datos
-    const scoreRes = Math.round(tasa);
+    /* ── SCORE ─────────────────────────────────────────────────────────────
+     * Tres componentes, cada uno una pregunta distinta:
+     *   vol → ¿toma casos, o espera que le lleguen?
+     *   aht → ¿cuánto le cuesta resolver cada uno?
+     *   sla → ¿deja gente esperando en la fila?
+     * El CSAT es el cuarto y entra SOLO cuando la encuesta junte muestra.
+     * La tasa de resolución queda fuera a propósito: da ~100% a todo el mundo
+     * porque cuenta cierres que hizo el sistema, así que no distingue a nadie.
+     */
+    // Volumen contra META FIJA, medido en casos por día hábil desde que el
+    // agente empezó a atender. Al no compararse contra el líder, el puntaje de
+    // uno ya no baja porque otro tomó más casos.
+    const inicioAgente = Math.max(ventanaInicio, isFinite(s.primerCasoMs) ? s.primerCasoMs : ventanaInicio);
+    const habiles = Math.max(1, diasHabiles(inicioAgente, ventanaFin));
+    const ritmoDiario = s.totalAtendidos / habiles;
+    const scoreVolumen = Math.max(0, Math.min(100, Math.round((ritmoDiario / META_CASOS_DIA_HABIL) * 100)));
+
     // AHT relativo a la mediana del equipo: ratio 0.5 → 100 pts, 1.0 → 70, 2.0 → 10.
-    // Reemplaza al antiguo "tiempo de resolución", que medía casi lo mismo pero
-    // incluía el tiempo que tardaba el cliente en contestar.
     const ahtRatio = avgEfectivo > 0 && ahtMediana > 0 ? avgEfectivo / ahtMediana : null;
     const scoreAHT = ahtRatio !== null
       ? Math.max(0, Math.min(100, Math.round(100 - 60 * (ahtRatio - 0.5)))) : null;
+
     // La vara es una jornada laboral: tomar el caso de inmediato = 100 pts,
     // dejarlo esperando una jornada entera de horario hábil = 0 pts.
     const scoreSLA = avgSLA > 0 ? Math.max(0, 100 - Math.round((avgSLA / JORNADA_MIN) * 100)) : null;
-    const scoreSat = avgCal > 0 && s.calificaciones.length >= MIN_CALS_AGENTE ? Math.round((avgCal / 5) * 100) : null;
-    const scoreVolumen = Math.round((s.totalAtendidos / maxTotalAtendidos) * 100);
 
-    // Pesos base: 30% resolución, 25% AHT, 20% sat, 15% SLA, 10% volumen
-    // Redistribuir el peso de componentes sin datos entre los que sí tienen
-    const pesos: Record<string, number> = { res: 0.30, aht: 0.25, sat: 0.20, sla: 0.15, vol: 0.10 };
-    const componentes: Record<string, number | null> = { res: scoreRes, aht: scoreAHT, sat: scoreSat, sla: scoreSLA, vol: scoreVolumen };
+    // Solo si la compuerta global está abierta Y este agente tiene muestra.
+    const scoreSat = csatActivo && avgCal > 0 && s.calificaciones.length >= MIN_CALS_AGENTE
+      ? Math.round((avgCal / 5) * 100) : null;
+
+    // Pesos: 30% volumen, 40% AHT, 30% SLA. Si el CSAT despierta, toma 25% y
+    // los otros tres se reducen en proporción (quedan en 22.5/30/22.5).
+    const pesos: Record<string, number> = csatActivo
+      ? { vol: 0.225, aht: 0.30, sla: 0.225, sat: 0.25 }
+      : { vol: 0.30, aht: 0.40, sla: 0.30 };
+    const componentes: Record<string, number | null> = { vol: scoreVolumen, aht: scoreAHT, sla: scoreSLA, sat: scoreSat };
     const pesosActivos = Object.entries(pesos).filter(([k]) => componentes[k] !== null);
     const pesoTotal = pesosActivos.reduce((sum, [, p]) => sum + p, 0);
     const score = Math.round(pesosActivos.reduce((sum, [k, p]) => sum + (componentes[k] as number) * (p / pesoTotal), 0));
@@ -824,8 +892,17 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
             <div className="flex items-center gap-3">
               <div className="h-8 w-8 rounded-lg bg-brand-500/10 text-brand-500 grid place-items-center"><BarChart3 className="h-4 w-4" /></div>
               <div>
-                <h2 className="font-black text-sm">Desempeño Individual</h2>
-                <p className="text-[11px] text-muted-foreground">Score compuesto: 30% resolución · 25% AHT (vs. mediana del equipo) · 20% calif. cliente · 15% SLA · 10% volumen · pesos redistribuidos si falta dato (mín. 5 casos, mín. 4 calif.)</p>
+                <h2 className="font-black text-sm">{csatActivo ? "Desempeño Individual" : "Productividad Individual"}</h2>
+                <p className="text-[11px] text-muted-foreground">
+                  {csatActivo
+                    ? "Score: 25% calificación del cliente · 30% eficiencia (AHT vs. mediana del equipo) · 22.5% casos tomados (meta 2.5/día hábil) · 22.5% rapidez al tomar (horario hábil)"
+                    : `Score: 40% eficiencia (AHT vs. mediana del equipo) · 30% casos tomados (meta ${META_CASOS_DIA_HABIL}/día hábil) · 30% rapidez al tomar (horario hábil) · mín. ${MIN_CASOS_SCORE} casos`}
+                </p>
+                {!csatActivo && (
+                  <p className="text-[11px] font-bold text-amber-500 mt-0.5">
+                    Mide esfuerzo y velocidad, no calidad del resultado. La calificación del cliente está inactiva: {todasCals.length} de {CSAT_MIN_CALIFICACIONES} respuestas y {csatCoberturaPct.toFixed(1)}% de {CSAT_MIN_COBERTURA_PCT}% de cobertura. Se activa sola al cumplirse ambas.
+                  </p>
+                )}
               </div>
             </div>
             <StatsExportButton
