@@ -112,7 +112,16 @@ function calculateRealMinutes(c: any): number {
   return Math.round(totalMs / 60000);
 }
 
-export default async function EstadisticasAtencionPage({ searchParams }: { searchParams: { mes?: string; periodo?: string } }) {
+const MESES_NOMBRES = [
+  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+];
+
+export default async function EstadisticasAtencionPage({ 
+  searchParams 
+}: { 
+  searchParams: { mes?: string; periodo?: string; rango?: string; dia?: string } 
+}) {
   const supabase = createClient();
 
   const { data: todosLosCasos } = await supabase
@@ -123,15 +132,70 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
 
   const casos = todosLosCasos || [];
 
-  // ── Filtrar por mes si viene en searchParams (formato: YYYY-MM)
-  const mesSeleccionado = searchParams.mes || "all";
-  const casosFiltrados = mesSeleccionado !== "all"
-    ? casos.filter(c => {
-        const d = new Date(c.created_at);
-        const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-        return ym === mesSeleccionado;
-      })
-    : casos;
+  // Helper para convertir timestamp a fecha local de Costa Rica (YYYY-MM-DD)
+  const toCRDate = (dateVal: string | Date | number) => {
+    const d = new Date(dateVal);
+    if (isNaN(d.getTime())) return "";
+    return d.toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
+  };
+
+  const nowCRStr = toCRDate(new Date());
+  const ayerCRStr = toCRDate(new Date(Date.now() - 86400000));
+
+  // ── Filtros de fecha / período
+  const mesSeleccionado = searchParams.mes || "";
+  const rangoSeleccionado = searchParams.rango || "";
+  const diaSeleccionado = searchParams.dia || "";
+
+  let filtroLabel = "Todo el historial";
+
+  if (diaSeleccionado) {
+    filtroLabel = `Día ${diaSeleccionado}`;
+  } else if (rangoSeleccionado === "hoy") {
+    filtroLabel = "Hoy";
+  } else if (rangoSeleccionado === "ayer") {
+    filtroLabel = "Ayer";
+  } else if (rangoSeleccionado === "7d") {
+    filtroLabel = "Últimos 7 días";
+  } else if (rangoSeleccionado === "30d") {
+    filtroLabel = "Últimos 30 días";
+  } else if (mesSeleccionado && mesSeleccionado !== "all") {
+    const [y, m] = mesSeleccionado.split("-");
+    filtroLabel = `${MESES_NOMBRES[parseInt(m, 10) - 1] || m} ${y}`;
+  }
+
+  const casosFiltrados = casos.filter(c => {
+    if (!c.created_at) return false;
+    const crDate = toCRDate(c.created_at);
+    const cTime = new Date(c.created_at).getTime();
+    const ym = crDate.slice(0, 7); // YYYY-MM
+
+    if (diaSeleccionado) {
+      return crDate === diaSeleccionado;
+    }
+
+    if (rangoSeleccionado === "hoy") {
+      return crDate === nowCRStr;
+    }
+
+    if (rangoSeleccionado === "ayer") {
+      return crDate === ayerCRStr;
+    }
+
+    if (rangoSeleccionado === "7d") {
+      return cTime >= Date.now() - 7 * 86400000;
+    }
+
+    if (rangoSeleccionado === "30d") {
+      return cTime >= Date.now() - 30 * 86400000;
+    }
+
+    if (mesSeleccionado && mesSeleccionado !== "all") {
+      return ym === mesSeleccionado;
+    }
+
+    return true;
+  });
 
   // ── Meses disponibles para el selector (basado en todos los casos)
   const mesesSet = new Set<string>();
@@ -643,14 +707,30 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
   let totalMensajesTecnicos = 0;
   let totalMensajesIA = 0;
 
+  const distribucionHoras: number[] = new Array(24).fill(0);
+
+  const getCRHour = (tStr?: string) => {
+    if (!tStr) return -1;
+    const d = new Date(tStr);
+    if (isNaN(d.getTime())) return -1;
+    const h = parseInt(d.toLocaleTimeString("en-US", { timeZone: "America/Costa_Rica", hour12: false, hour: "numeric" }), 10);
+    return isNaN(h) ? -1 : h;
+  };
+
   const agentMessageStats: Record<string, { email: string; nombre: string; enviados: number; recibidos: number; casos: number }> = {};
-  const clientMessageStats: Record<string, { nombre: string; telefono: string; total: number }> = {};
+  const clientMessageStats: Record<string, { nombre: string; telefono: string; total: number; lastCaseId: string }> = {};
 
   casosFiltrados.forEach(c => {
     const clienteMsgs = (c.histcliente || []).filter((m: any) => !m.deleted);
     const tecnicoMsgs = (c.histtecnico || []).filter((m: any) => !m.deleted && m.role !== "nota");
 
     totalMensajesClientes += clienteMsgs.length;
+
+    // Distribuir mensajes de clientes por hora
+    clienteMsgs.forEach((m: any) => {
+      const h = getCRHour(m.time || m.timestamp || m.created_at || c.created_at);
+      if (h >= 0 && h < 24) distribucionHoras[h]++;
+    });
 
     const clienteNombre = getClienteNombre(c);
     const tel = typeof c.cliente === "object" ? (c.cliente?.telefono || c.cliente?.phone || "") : "";
@@ -660,11 +740,18 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
         nombre: clienteNombre,
         telefono: tel,
         total: 0,
+        lastCaseId: String(c.id),
       };
     }
     clientMessageStats[clientKey].total += clienteMsgs.length;
+    if (c.id) {
+      clientMessageStats[clientKey].lastCaseId = String(c.id);
+    }
 
     tecnicoMsgs.forEach((m: any) => {
+      const h = getCRHour(m.time || m.timestamp || m.created_at || c.created_at);
+      if (h >= 0 && h < 24) distribucionHoras[h]++;
+
       const isIA = m.role === "assistant" || m.author === "Asistente Sekunet" || m.author === "Soporte Sekunet";
       if (isIA) {
         totalMensajesIA++;
@@ -711,6 +798,8 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
     totalGlobal: totalMensajesClientes + totalMensajesTecnicos + totalMensajesIA,
     agentStats: Object.values(agentMessageStats).sort((a, b) => b.enviados - a.enviados),
     topClientes: Object.values(clientMessageStats).sort((a, b) => b.total - a.total),
+    distribucionHoras,
+    filtroActual: filtroLabel,
   };
 
   const nowStr = new Date().toLocaleString("es-CR", { timeZone: "America/Costa_Rica", dateStyle: "long", timeStyle: "short" });
@@ -730,7 +819,9 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
               <p className="text-[10px] font-black uppercase tracking-[0.25em] text-brand-600 dark:text-brand-400">Rendimiento · Estadísticas de Atención</p>
             </div>
             <h1 className="text-4xl lg:text-5xl font-black tracking-tight">Estadísticas de Atención</h1>
-            <p className="text-muted-foreground mt-2 text-sm">{nowStr} · {totalCasos} casos · {rankingAgentes.length} agentes{mesSeleccionado !== "all" ? ` · ${mesSeleccionado}` : ""}</p>
+            <p className="text-muted-foreground mt-2 text-sm">
+              {nowStr} · {casosFiltrados.length} casos · {rankingAgentes.length} agentes · <span className="font-bold text-foreground">{filtroLabel}</span>
+            </p>
           </div>
           <div className="flex items-center gap-3 shrink-0 flex-wrap">
             <MonthSelector availableMonths={mesesDisponibles} />

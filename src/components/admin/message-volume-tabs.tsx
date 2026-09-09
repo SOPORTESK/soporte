@@ -1,8 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { MessageSquare, BarChart3, Users, Bot, ArrowDownLeft, ArrowUpRight } from "lucide-react";
+import Link from "next/link";
+import { MessageSquare, BarChart3, Bot, ArrowDownLeft, ArrowUpRight, Download, FileText, ExternalLink, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { exportToExcel, exportToCSV } from "@/lib/export-utils";
+import { toast } from "sonner";
 
 export interface MessageStatsData {
   totalClientes: number;
@@ -20,7 +23,37 @@ export interface MessageStatsData {
     nombre: string;
     telefono: string;
     total: number;
+    lastCaseId?: string;
   }[];
+  distribucionHoras?: number[];
+  filtroActual?: string;
+}
+
+function formatClientDisplayName(nombre: string, telefono: string) {
+  const cleanName = (nombre || "").trim();
+  // Comprobar si es un nombre vacío, genérico o únicamente símbolos/emojis
+  const isOnlyEmojiOrSymbols = !cleanName || cleanName === "Anónimo" || /^[\p{Emoji}\p{Symbol}\p{Punctuation}\s]+$/u.test(cleanName);
+  
+  if (isOnlyEmojiOrSymbols) {
+    if (telefono) {
+      const digits = telefono.replace(/\D/g, "");
+      if (digits.startsWith("506") && digits.length === 11) {
+        return `Cliente (+506 ${digits.slice(3, 7)}-${digits.slice(7)})`;
+      }
+      return `Cliente (${telefono})`;
+    }
+    return cleanName || "Cliente sin nombre";
+  }
+  return cleanName;
+}
+
+function formatPhone(telefono: string) {
+  if (!telefono) return "";
+  const digits = telefono.replace(/\D/g, "");
+  if (digits.startsWith("506") && digits.length === 11) {
+    return `+506 ${digits.slice(3, 7)}-${digits.slice(7)}`;
+  }
+  return telefono;
 }
 
 export function MessageVolumeTabs({
@@ -36,15 +69,89 @@ export function MessageVolumeTabs({
   const filteredClients = React.useMemo(() => {
     if (!searchClient.trim()) return stats.topClientes.slice(0, 15);
     const q = searchClient.toLowerCase();
-    return stats.topClientes.filter(c => c.nombre.toLowerCase().includes(q) || c.telefono.includes(q)).slice(0, 15);
+    return stats.topClientes.filter(c => 
+      c.nombre.toLowerCase().includes(q) || 
+      c.telefono.includes(q) ||
+      formatClientDisplayName(c.nombre, c.telefono).toLowerCase().includes(q)
+    ).slice(0, 15);
   }, [stats.topClientes, searchClient]);
 
   const maxAgentMsgs = Math.max(...stats.agentStats.map(a => Math.max(a.enviados, a.recibidos)), 1);
 
+  // Cálculo de hora pico (si hay datos)
+  const horas = stats.distribucionHoras || [];
+  const maxHoraMsgs = Math.max(...horas, 0);
+  const horaPicoIndex = horas.indexOf(maxHoraMsgs);
+  const formatHoraLabel = (h: number) => {
+    if (h === 0) return "12 AM";
+    if (h === 12) return "12 PM";
+    return h > 12 ? `${h - 12} PM` : `${h} AM`;
+  };
+
+  const handleExportExcel = () => {
+    try {
+      const tecnicosData = stats.agentStats.map(a => ({
+        "Sección": "TÉCNICOS",
+        "Nombre": a.nombre,
+        "Identificador / Email": a.email,
+        "Casos Atendidos": a.casos,
+        "Msgs Enviados": a.enviados,
+        "Msgs Recibidos de Clientes": a.recibidos,
+        "Promedio Msgs por Caso": a.casos > 0 ? (a.enviados / a.casos).toFixed(1) : "0"
+      }));
+
+      const clientesData = stats.topClientes.map((c, i) => ({
+        "Sección": "TOP CLIENTES",
+        "Ranking": i + 1,
+        "Nombre": formatClientDisplayName(c.nombre, c.telefono),
+        "Identificador / Teléfono": formatPhone(c.telefono),
+        "Total Mensajes": c.total
+      }));
+
+      const resumenData = [
+        { "Métrica": "Mensajes Entrantes de Clientes", "Valor": stats.totalClientes },
+        { "Métrica": "Respuestas Humanas de Técnicos", "Valor": stats.totalTecnicos },
+        { "Métrica": "Interacciones Automáticas IA / Bot", "Valor": stats.totalIA },
+        { "Métrica": "Volumen Total Procesado", "Valor": stats.totalGlobal },
+        { "Métrica": "Filtro Aplicado", "Valor": stats.filtroActual || "Todo el historial" }
+      ];
+
+      exportToExcel(
+        [
+          ...resumenData.map(r => ({ "Sección": "RESUMEN", "Nombre": r["Métrica"], "Identificador / Teléfono": "", "Total": r["Valor"] })),
+          ...tecnicosData.map(t => ({ "Sección": "TÉCNICOS", "Nombre": t["Nombre"], "Identificador / Teléfono": t["Identificador / Email"], "Total": t["Msgs Enviados"], "Casos": t["Casos Atendidos"], "Promedio": t["Promedio Msgs por Caso"] })),
+          ...clientesData.map(c => ({ "Sección": "TOP CLIENTES", "Nombre": c["Nombre"], "Identificador / Teléfono": c["Identificador / Teléfono"], "Total": c["Total Mensajes"], "Ranking": c["Ranking"] }))
+        ],
+        `Volumen_Mensajes_Sekunet_${(stats.filtroActual || "global").replace(/[^a-zA-Z0-9]/g, "_")}`
+      );
+      toast.success("Reporte Excel descargado exitosamente");
+    } catch (err: any) {
+      console.error(err);
+      toast.error("Error al exportar Excel: " + (err?.message || "error"));
+    }
+  };
+
+  const handleExportCSV = () => {
+    try {
+      const csvData = stats.agentStats.map(a => ({
+        "Técnico": a.nombre,
+        "Email": a.email,
+        "Casos": a.casos,
+        "Enviados": a.enviados,
+        "Recibidos": a.recibidos,
+        "Ratio_Msgs_Caso": a.casos > 0 ? (a.enviados / a.casos).toFixed(1) : "0"
+      }));
+      exportToCSV(csvData, `Volumen_Tecnicos_${(stats.filtroActual || "global").replace(/[^a-zA-Z0-9]/g, "_")}`);
+      toast.success("Archivo CSV descargado con éxito");
+    } catch (err) {
+      toast.error("Error al exportar CSV");
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Selector de Pestañas Superior */}
-      <div className="flex items-center justify-between border-b border-border/60 pb-3">
+      <div className="flex items-center justify-between border-b border-border/60 pb-3 flex-wrap gap-3">
         <div className="inline-flex p-1 rounded-2xl bg-muted/50 border border-border/60 gap-1">
           <button
             onClick={() => setActiveTab("rendimiento")}
@@ -76,10 +183,34 @@ export function MessageVolumeTabs({
           </button>
         </div>
 
-        <div className="text-right hidden sm:block">
-          <p className="text-[11px] font-medium text-muted-foreground">
-            {activeTab === "rendimiento" ? "Métricas de resolución y tiempos de atención" : "Conteo exacto mensaje por mensaje"}
-          </p>
+        {/* Acciones y detalle según pestaña */}
+        <div className="flex items-center gap-2.5">
+          {activeTab === "mensajeria" ? (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleExportExcel}
+                title="Descargar reporte en archivo Excel (.xlsx)"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors text-xs font-bold shadow-sm"
+              >
+                <Download className="h-3.5 w-3.5" />
+                <span>Exportar Excel</span>
+              </button>
+              <button
+                onClick={handleExportCSV}
+                title="Descargar datos en formato CSV"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-border bg-card text-foreground hover:bg-muted transition-colors text-xs font-bold"
+              >
+                <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="hidden sm:inline">CSV</span>
+              </button>
+            </div>
+          ) : (
+            <div className="text-right hidden sm:block">
+              <p className="text-[11px] font-medium text-muted-foreground">
+                Métricas de resolución y tiempos de atención
+              </p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -90,9 +221,21 @@ export function MessageVolumeTabs({
         </div>
       )}
 
-      {/* Pestaña 2: Volumen de Mensajes (Nueva Pestaña Separada) */}
+      {/* Pestaña 2: Volumen de Mensajes (Separada) */}
       {activeTab === "mensajeria" && (
         <div className="space-y-6 animate-in fade-in-50 duration-200">
+          {/* Indicador de Filtro Activo */}
+          {stats.filtroActual && (
+            <div className="flex items-center justify-between px-4 py-2.5 rounded-2xl bg-muted/30 border border-border/60 text-xs">
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-brand-500 animate-pulse" />
+                <span className="text-muted-foreground font-medium">Mostrando datos para:</span>
+                <span className="font-black text-foreground">{stats.filtroActual}</span>
+              </div>
+              <span className="text-[11px] text-muted-foreground">Conteo exacto mensaje por mensaje</span>
+            </div>
+          )}
+
           {/* Tarjetas KPI de Mensajería */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {/* Mensajes Clientes */}
@@ -214,14 +357,16 @@ export function MessageVolumeTabs({
 
             {/* Top Clientes con Más Mensajes (5 columnas en desktop) */}
             <div className="lg:col-span-5 rounded-2xl border border-border/60 bg-card p-5 space-y-4">
-              <div>
-                <h3 className="text-sm font-black text-foreground">Top Clientes por Mensajes</h3>
-                <p className="text-[11px] text-muted-foreground">Clientes con mayor cantidad de mensajes enviados</p>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-black text-foreground">Top Clientes por Mensajes</h3>
+                  <p className="text-[11px] text-muted-foreground">Toque un cliente para auditar su chat directo</p>
+                </div>
               </div>
 
               <input
                 type="text"
-                placeholder="Buscar cliente..."
+                placeholder="Buscar por nombre o teléfono..."
                 value={searchClient}
                 onChange={(e) => setSearchClient(e.target.value)}
                 className="w-full px-3 py-1.5 text-xs rounded-xl border border-border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-brand-500"
@@ -231,25 +376,96 @@ export function MessageVolumeTabs({
                 {filteredClients.length === 0 ? (
                   <p className="text-xs text-muted-foreground py-6 text-center">No se encontraron clientes.</p>
                 ) : (
-                  filteredClients.map((client, idx) => (
-                    <div key={idx} className="flex items-center justify-between p-2.5 rounded-xl bg-background/50 border border-border/40 hover:bg-muted/40 transition-colors">
-                      <div className="min-w-0 flex-1 pr-2">
-                        <p className="text-xs font-bold text-foreground truncate">{client.nombre}</p>
-                        {client.telefono && (
-                          <p className="text-[10px] text-muted-foreground truncate">{client.telefono}</p>
-                        )}
-                      </div>
-                      <div className="text-right shrink-0">
-                        <span className="px-2.5 py-1 rounded-lg text-xs font-black bg-sky-500/10 text-sky-400 border border-sky-500/20">
-                          {client.total.toLocaleString()} msgs
-                        </span>
-                      </div>
-                    </div>
-                  ))
+                  filteredClients.map((client, idx) => {
+                    const chatTargetUrl = `/inbox?c=${client.lastCaseId || (client.telefono ? 'tel:' + client.telefono : '')}`;
+                    const displayName = formatClientDisplayName(client.nombre, client.telefono);
+                    const formattedPhone = formatPhone(client.telefono);
+
+                    return (
+                      <Link
+                        key={idx}
+                        href={chatTargetUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Abrir conversación en el Inbox"
+                        className="group flex items-center justify-between p-2.5 rounded-xl bg-background/50 border border-border/40 hover:border-brand-500/50 hover:bg-brand-500/5 transition-all cursor-pointer"
+                      >
+                        <div className="min-w-0 flex-1 pr-2">
+                          <div className="flex items-center gap-1.5">
+                            <p className="text-xs font-bold text-foreground group-hover:text-brand-400 transition-colors truncate">
+                              {displayName}
+                            </p>
+                            <ExternalLink className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                          </div>
+                          {formattedPhone && (
+                            <p className="text-[10px] text-muted-foreground truncate">{formattedPhone}</p>
+                          )}
+                        </div>
+                        <div className="text-right shrink-0">
+                          <span className="px-2.5 py-1 rounded-lg text-xs font-black bg-sky-500/10 text-sky-400 border border-sky-500/20 group-hover:border-sky-500/40 group-hover:bg-sky-500/20 transition-colors">
+                            {client.total.toLocaleString()} msgs
+                          </span>
+                        </div>
+                      </Link>
+                    );
+                  })
                 )}
               </div>
             </div>
           </div>
+
+          {/* Distribución Horaria y Horas Pico (si hay mensajes) */}
+          {maxHoraMsgs > 0 && (
+            <div className="rounded-2xl border border-border/60 bg-card p-5 space-y-4">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <div className="h-7 w-7 rounded-lg bg-amber-500/10 text-amber-400 grid place-items-center">
+                    <Clock className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black text-foreground">Horas Pico y Distribución de Tráfico</h3>
+                    <p className="text-[11px] text-muted-foreground">Horarios de mayor volumen de mensajes (hora de Costa Rica)</p>
+                  </div>
+                </div>
+
+                <div className="px-3 py-1 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-bold flex items-center gap-1.5">
+                  <span>🔥 Hora pico:</span>
+                  <span className="font-black text-foreground">{formatHoraLabel(horaPicoIndex)}</span>
+                  <span>({maxHoraMsgs.toLocaleString()} msgs)</span>
+                </div>
+              </div>
+
+              {/* Barras de horas activas (7h a 20h) */}
+              <div className="grid grid-cols-7 sm:grid-cols-14 gap-2 pt-2">
+                {Array.from({ length: 14 }).map((_, i) => {
+                  const h = i + 7; // 7 a 20 horas
+                  const count = horas[h] || 0;
+                  const pct = maxHoraMsgs > 0 ? Math.round((count / maxHoraMsgs) * 100) : 0;
+                  const isPeak = h === horaPicoIndex && count > 0;
+
+                  return (
+                    <div key={h} className="flex flex-col items-center gap-1.5 group">
+                      <span className="text-[10px] font-semibold text-muted-foreground">{count > 0 ? count : ""}</span>
+                      <div className="w-full h-20 bg-muted/40 rounded-lg flex items-end p-1 overflow-hidden relative border border-border/40">
+                        <div
+                          className={cn(
+                            "w-full rounded transition-all duration-500",
+                            isPeak
+                              ? "bg-amber-500 shadow-md shadow-amber-500/30"
+                              : count > 0 ? "bg-brand-500/80 group-hover:bg-brand-500" : "bg-transparent"
+                          )}
+                          style={{ height: `${Math.max(pct, count > 0 ? 8 : 0)}%` }}
+                        />
+                      </div>
+                      <span className={cn("text-[10px] font-bold", isPeak ? "text-amber-400" : "text-muted-foreground")}>
+                        {formatHoraLabel(h)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
