@@ -18,6 +18,11 @@ const BH_FIN_MIN = 17 * 60;         // 17:00 → 1020
 /** Una jornada laboral completa en minutos (9.5 h). Tope de espera imputable. */
 const JORNADA_MIN = BH_FIN_MIN - BH_INICIO_MIN; // 570
 
+/** Objetivo de SLA en minutos: responder al instante = 100 pts, tardar 2 h = 0.
+ *  Antes se medía contra la jornada completa (570 min) y 31m vs 42m daban casi
+ *  lo mismo. Con 120 min como vara, esa diferencia sí se nota. */
+const SLA_OBJETIVO_MIN = 120;
+
 /** Meta de casos tomados por día hábil. El volumen se puntúa contra esta meta
  *  FIJA y no contra el agente que más tiene: si se compara contra el líder, un
  *  compañero que toma más casos le baja el puntaje a todos los demás sin que
@@ -471,16 +476,21 @@ export default async function EstadisticasAtencionPage({ searchParams }: { searc
     const inicioAgente = Math.max(ventanaInicio, isFinite(s.primerCasoMs) ? s.primerCasoMs : ventanaInicio);
     const habiles = Math.max(1, diasHabiles(inicioAgente, ventanaFin));
     const ritmoDiario = s.totalAtendidos / habiles;
-    const scoreVolumen = Math.max(0, Math.min(100, Math.round((ritmoDiario / META_CASOS_DIA_HABIL) * 100)));
+    // Volumen: llegar a la meta = 70 pts (bien), duplicarla = 100 (excelente).
+    // Así el que hace 4/día no empata con el que hace 2.5/día.
+    const scoreVolumen = ritmoDiario >= META_CASOS_DIA_HABIL
+      ? Math.max(0, Math.min(100, Math.round(70 + 30 * (ritmoDiario - META_CASOS_DIA_HABIL) / META_CASOS_DIA_HABIL)))
+      : Math.max(0, Math.round((ritmoDiario / META_CASOS_DIA_HABIL) * 70));
 
     // AHT relativo a la mediana del equipo: ratio 0.5 → 100 pts, 1.0 → 70, 2.0 → 10.
     const ahtRatio = avgEfectivo > 0 && ahtMediana > 0 ? avgEfectivo / ahtMediana : null;
     const scoreAHT = ahtRatio !== null
       ? Math.max(0, Math.min(100, Math.round(100 - 60 * (ahtRatio - 0.5)))) : null;
 
-    // La vara es una jornada laboral: tomar el caso de inmediato = 100 pts,
-    // dejarlo esperando una jornada entera de horario hábil = 0 pts.
-    const scoreSLA = avgSLA > 0 ? Math.max(0, 100 - Math.round((avgSLA / JORNADA_MIN) * 100)) : null;
+    // SLA contra objetivo real (120 min), no contra la jornada completa (570).
+    // Responder al instante = 100 pts, tardar 2 h = 0. Antes 31m vs 42m daban
+    // casi lo mismo porque se dividía entre 570; ahora la diferencia sí cuenta.
+    const scoreSLA = avgSLA > 0 ? Math.max(0, Math.min(100, 100 - Math.round((avgSLA / SLA_OBJETIVO_MIN) * 100))) : null;
 
     // Solo si la compuerta global está abierta Y este agente tiene muestra.
     const scoreSat = csatActivo && avgCal > 0 && s.calificaciones.length >= MIN_CALS_AGENTE
