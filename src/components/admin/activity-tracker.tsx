@@ -128,6 +128,126 @@ function formatExecutiveDisplay(rawAction: string, category: string, meta: Recor
   const rawTitle = meta.title || meta.context || "";
   const cleanTitle = cleanExecutiveTitle(rawTitle);
 
+  // 1. Extraer duración si existe
+  let durStr = "";
+  const durMatch = action.match(/\((\d+(?:\s*(?:s|min|m|h|segundos|minutos))?)\)/i);
+  if (durMatch) durStr = ` (${durMatch[1]})`;
+  else if (meta.duration_ms) durStr = ` (${formatDuration(meta.duration_ms)})`;
+
+  const lower = action.toLowerCase();
+  const titleLower = cleanTitle.toLowerCase();
+  const appLower = (meta.app || meta.app_name || "").toLowerCase();
+
+  // 2. Videovigilancia y CCTV (iVMS-4200, SADP, Hik-Partner)
+  if (lower.includes("ivms") || titleLower.includes("ivms") || appLower.includes("ivms") || lower.includes("sadp") || lower.includes("hik-partner")) {
+    return {
+      title: `Monitoreo de sistemas de videovigilancia y gestión de cámaras mediante iVMS-4200 / SADP${durStr}`,
+      subtitle: cleanTitle || "Configuración y verificación de dispositivos CCTV",
+    };
+  }
+
+  // 3. Captura de evidencia (Herramienta de Recortes / SnippingTool)
+  if (lower.includes("snipping") || lower.includes("recorte") || titleLower.includes("recorte") || appLower.includes("snipping")) {
+    return {
+      title: `Uso de la herramienta de recortes para captura y documentación de evidencia técnica${durStr}`,
+      subtitle: cleanTitle || "Documentación visual para caso de soporte",
+    };
+  }
+
+  // 4. Control de asistencia y marcas (Nextime, BioTime, ZKTime)
+  if (lower.includes("nextime") || lower.includes("biotime") || lower.includes("zktime") || titleLower.includes("nextime") || titleLower.includes("biotime") || lower.includes("bitacora-automatica")) {
+    return {
+      title: `Consulta y gestión de registros de asistencia de personal en plataforma de control horario${durStr}`,
+      subtitle: cleanTitle || "Sistema de marcas y control horario",
+    };
+  }
+
+  // 5. Atención y tickets en Odoo ERP
+  if (lower.includes("odoo") || titleLower.includes("odoo") || appLower.includes("odoo")) {
+    const caseMatch = action.match(/#(\d+)/) || cleanTitle.match(/#(\d+)/);
+    const num = caseMatch ? ` #${caseMatch[1]}` : "";
+    return {
+      title: `Atención, seguimiento y resolución de tickets en portal Odoo ERP${num}${durStr}`,
+      subtitle: cleanTitle ? `Detalle: ${cleanTitle}` : "Gestión de soporte técnico y órdenes",
+    };
+  }
+
+  // 6. Mensajería y Chat (WhatsApp, Sekunet Chat)
+  if (lower.includes("whatsapp") || titleLower.includes("whatsapp") || appLower.includes("whatsapp")) {
+    return {
+      title: `Atención y comunicación con usuarios o equipo de trabajo a través de WhatsApp${durStr}`,
+      subtitle: cleanTitle ? `Contacto / Chat: ${cleanTitle}` : "Canal de mensajería externa",
+    };
+  }
+  if (lower.includes("seka chat") || lower.includes("chat sekunet") || appLower.includes("seka") || lower.includes("evolution")) {
+    return {
+      title: `Atención al cliente y soporte técnico mediante plataforma Sekunet Chat${durStr}`,
+      subtitle: cleanTitle || "Gestión de mensajería omnicanal de soporte",
+    };
+  }
+
+  // 7. Redes y Equipos (MikroTik, Winbox, UniFi, GNS3)
+  if (lower.includes("winbox") || lower.includes("mikrotik") || lower.includes("unifi") || lower.includes("gns3")) {
+    return {
+      title: `Administración, diagnóstico y configuración de infraestructura de red y telecomunicaciones${durStr}`,
+      subtitle: cleanTitle || "Gestión de equipos de red y enlaces",
+    };
+  }
+
+  // 8. Trámites de Garantías y RMA (Tienda 3D)
+  if (lower.includes("tienda 3d") || lower.includes("tienda3d") || lower.includes("garant") || lower.includes("rma")) {
+    return {
+      title: `Gestión y tramitación de garantías técnicas y recepción de equipos RMA en Tienda 3D${durStr}`,
+      subtitle: cleanTitle || "Servicio técnico y trámite de garantías",
+    };
+  }
+
+  // 9. Correo electrónico (Outlook)
+  if (lower.includes("outlook") || lower.includes("correo") || appLower.includes("outlook")) {
+    return {
+      title: `Gestión de mensajería electrónica y correspondencia corporativa en Outlook${durStr}`,
+      subtitle: cleanTitle ? `Asunto: ${cleanTitle}` : "Bandeja de entrada corporativa",
+    };
+  }
+
+  // 10. Documentos de oficina (Word, Excel, PDF)
+  if (lower.includes("excel") || appLower.includes("excel") || lower.includes("antenas.xlsx")) {
+    return {
+      title: `Control administrativo, análisis y elaboración de hojas de cálculo en Microsoft Excel${durStr}`,
+      subtitle: cleanTitle ? `Archivo: ${cleanTitle}` : "Registro de datos y control administrativo",
+    };
+  }
+  if (lower.includes("word") || appLower.includes("word") || lower.includes(".docx")) {
+    return {
+      title: `Redacción, revisión y edición de informes técnicos y documentación en Microsoft Word${durStr}`,
+      subtitle: cleanTitle ? `Documento: ${cleanTitle}` : "Elaboración de informe técnico",
+    };
+  }
+
+  // 11. Páginas internas de la plataforma
+  if (action.includes("Permaneció en") || action.includes("Reanudó labores tras")) {
+    const isResume = action.includes("Reanudó labores");
+    const prefix = isResume ? "Reanudó labores en" : "Sesión activa en";
+    if (lower.includes("mi-gestion") || lower.includes("mi bandeja de gestión")) {
+      return { title: `${prefix} portal de atención técnica y bandeja de gestión de casos${durStr}` };
+    }
+    if (lower.includes("admin") || lower.includes("panel admin") || lower.includes("activity tracker")) {
+      return { title: `${prefix} suite de supervisión, auditoría y control de actividades${durStr}` };
+    }
+    if (lower.includes("soporte-avanzado") || lower.includes("soporte avanzado")) {
+      return { title: `${prefix} panel de soporte avanzado (Nivel 2) y resolución especializada${durStr}` };
+    }
+  }
+
+  // 12. Pausas e Inactividad
+  if (category === "Inactividad" || lower.includes("sin actividad") || lower.includes("pausa prolongada") || lower.includes("bloqueada")) {
+    return {
+      title: `Pausa del sistema / Período sin interacción activa en la estación${durStr}`,
+      subtitle: cleanTitle ? `Última aplicación en pantalla: ${cleanTitle}` : "Pausa operativa",
+    };
+  }
+
+  // 13. Formato estructurado ejecutivo preexistente
   if (
     action.startsWith("Gestión de Correo:") ||
     action.startsWith("Atención Telefónica:") ||
@@ -139,86 +259,8 @@ function formatExecutiveDisplay(rawAction: string, category: string, meta: Recor
     action.startsWith("Soporte Técnico:") ||
     action.startsWith("Pausa / Inactividad")
   ) {
-    return { title: action };
+    return { title: action, subtitle: cleanTitle && cleanTitle !== action ? cleanTitle : undefined };
   }
-
-  const dwellMatch = action.match(/^Us[oó] "?([^"–—]+)"? durante (\d+)s(?:\s*\((.*)\))?/i);
-  if (dwellMatch) {
-    const app = dwellMatch[1].trim();
-    const sec = parseInt(dwellMatch[2], 10);
-    const m = Math.round(sec / 60);
-    const timeStr = m > 0 ? `${m} min` : `${sec}s`;
-    const sub = cleanExecutiveTitle(dwellMatch[3] || cleanTitle);
-
-    if (app.toLowerCase().includes("whatsapp")) {
-      return { title: `Atención por Chat: WhatsApp (${timeStr})`, subtitle: sub ? `Chat: ${sub}` : undefined };
-    }
-    if (app.toLowerCase().includes("seka") || app.toLowerCase().includes("sekunet")) {
-      return { title: `Operativa: Seka Chat (${timeStr})`, subtitle: sub || "Atención al cliente" };
-    }
-    if (app.toLowerCase().includes("outlook") || app.toLowerCase().includes("correo")) {
-      return { title: `Gestión de Correo: Outlook (${timeStr})`, subtitle: sub ? `Asunto: ${sub}` : undefined };
-    }
-    if (app.toLowerCase().includes("linkus") || app.toLowerCase().includes("phone")) {
-      return { title: `Atención Telefónica: Linkus (${timeStr})`, subtitle: sub };
-    }
-    if (app.toLowerCase().includes("odoo")) {
-      return { title: `Atención de Tickets: Odoo ERP (${timeStr})`, subtitle: sub };
-    }
-    if (app.toLowerCase().includes("excel") || app.toLowerCase().includes("word")) {
-      return { title: `Control Administrativo: ${app} (${timeStr})`, subtitle: sub ? `Documento: ${sub}` : undefined };
-    }
-    return { title: `${app} (${timeStr})`, subtitle: sub || undefined };
-  }
-
-  if (action.includes("Atendió caso")) {
-    const caseMatch = action.match(/Atendió caso (?:tel:)?([^\s]+) durante ([^.]+)(?:\s*\(.*?\))?/i);
-    if (caseMatch) {
-      const caseNum = caseMatch[1].replace(/^tel:/i, "+");
-      const timeStr = caseMatch[2].trim();
-      return { title: `Atención por Chat: Caso ${caseNum} (${timeStr})` };
-    }
-  }
-
-  const openMatch = action.match(/^Abri[oó] \/ Cambi[oó] a "?([^"–—]+)"?(?:\s*[-–—]\s*(.*))?/i);
-  if (openMatch) {
-    const app = openMatch[1].trim();
-    const sub = cleanExecutiveTitle(openMatch[2] || cleanTitle);
-    if (app.toLowerCase().includes("seka") || app.toLowerCase().includes("sekunet")) {
-      return { title: `Operativa: Seka Chat`, subtitle: sub || "Atención al cliente" };
-    }
-    if (app.toLowerCase().includes("whatsapp")) {
-      return { title: `Atención por Chat: WhatsApp`, subtitle: sub ? `Chat: ${sub}` : undefined };
-    }
-    return { title: `Inicio de tarea: ${app}`, subtitle: sub || undefined };
-  }
-
-  // Handle web in-app logs
-  if (action.includes("Permaneció en")) {
-    const pageMatch = action.match(/Permaneció en "([^"]+)" durante ([^.]+)(?:\.\s*Interacciones:.*)?/i);
-    if (pageMatch) {
-      const page = cleanExecutiveTitle(pageMatch[1]);
-      const timeStr = pageMatch[2].trim();
-      return { title: `Operativa Sekunet: ${page} (${timeStr})` };
-    }
-  }
-
-  if (action.startsWith("Abrió la página:") || action.startsWith("Navegó de")) {
-    const page = action.replace(/^Abrió la página:\s*/i, "").replace(/^Navegó de.*a\s*"([^"]+)"/i, "$1").trim();
-    return { title: `Navegación: ${cleanExecutiveTitle(page)}` };
-  }
-
-  if (action.includes("Inició sesión")) {
-    return { title: `Acceso: Inicio de sesión en Sekunet` };
-  }
-
-  action = action.replace(/(\d+)s de inactividad/g, (_, s) => {
-    const sec = parseInt(s, 10);
-    const m = Math.floor(sec / 60);
-    return m > 0 ? `${m} min de pausa` : `${sec}s de pausa`;
-  });
-  action = action.replace(/Reactivó actividad después de/g, "Reanudó labores tras");
-  action = action.replace(/Sin actividad por 5 minutos en/g, "Pausa de 5 min en");
 
   return { title: action, subtitle: cleanTitle && cleanTitle !== action ? cleanTitle : undefined };
 }

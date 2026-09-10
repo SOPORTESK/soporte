@@ -132,10 +132,31 @@ function categorizeApp(appName, title) {
     else if (t.includes('missed') || t.includes('perdida')) { label = 'Linkus - Llamada perdida'; category = 'Escalado'; }
     return { category, label, context, context_type: 'call' };
   }
+
+  // CCTV & Videovigilancia (iVMS-4200, SADP, Hik-Partner)
+  if (app.includes('ivms') || t.includes('ivms') || app.includes('sadp') || t.includes('sadp') || app.includes('hik') || t.includes('hik-partner')) {
+    return { category: 'Soporte técnico', label: 'iVMS-4200 / Videovigilancia', context: t, context_type: 'cctv' };
+  }
+
+  // Captura de evidencia (Herramienta de Recortes / SnippingTool)
+  if (app.includes('snipping') || app.includes('recorte') || t.includes('recorte')) {
+    return { category: 'Soporte técnico', label: 'Herramienta de Recortes', context: t, context_type: 'tool' };
+  }
+
+  // Control horario y marcas (Nextime, BioTime, ZKTime)
+  if (app.includes('nextime') || app.includes('biotime') || app.includes('zktime') || t.includes('nextime') || t.includes('biotime') || app.includes('bitacora-automatica')) {
+    return { category: 'Control administrativo', label: 'Nextime PRO / Asistencia', context: t, context_type: 'attendance' };
+  }
+
+  // Redes y Telecomunicaciones (Winbox, MikroTik, UniFi, GNS3)
+  if (app.includes('winbox') || app.includes('mikrotik') || app.includes('unifi') || app.includes('gns3') || t.includes('winbox') || t.includes('mikrotik') || t.includes('unifi')) {
+    return { category: 'Soporte técnico', label: 'Winbox / MikroTik', context: t, context_type: 'network' };
+  }
+
   if (app.includes('chrome') || app.includes('firefox') || app.includes('edge') || app.includes('brave') || app.includes('opera') || app.includes('browser')) {
     context = t.replace(/\s*[-–]\s*(Brave|Google Chrome|Microsoft Edge|Firefox|Opera).*$/i, '').trim();
     context_type = 'web';
-    if (t.includes('odoo')) return { category: 'Atención de tickets', label: 'Odoo', context, context_type };
+    if (t.includes('odoo')) return { category: 'Atención de tickets', label: 'Odoo ERP', context, context_type };
     if (t.includes('tienda 3d') || t.includes('tienda3d') || t.includes('rma') || t.includes('garantía') || t.includes('garantia') || t.includes('warranty'))
       return { category: 'Trámites de garantías', label: `Garantías - ${title.split(' - ').slice(-2)[0] || title.substring(0, 40)}`, context, context_type };
     if (t.includes('sekunet') || t.includes('seka chat') || t.includes('localhost:3100'))
@@ -150,7 +171,7 @@ function categorizeApp(appName, title) {
   }
   if (t.includes('sekunet') || t.includes('seka chat') || t.includes('localhost:3100'))
     return { category: 'Navegación', label: 'Seka Chat', context, context_type };
-  if (t.includes('odoo')) return { category: 'Atención de tickets', label: 'Odoo', context, context_type };
+  if (t.includes('odoo')) return { category: 'Atención de tickets', label: 'Odoo ERP', context, context_type };
   if (app.includes('windsurf') || app.includes('cursor') || app.includes('code') || app.includes('devenv') || app.includes('webstorm') || app.includes('devin') || app.includes('intellij') || app.includes('eclipse') || app.includes('netbeans') || app.includes('vim') || app.includes('neovim') || app.includes('emacs'))
     return { category: 'Investigación y desarrollo', label: `Desarrollo - ${appName}`, context, context_type: 'code' };
   if (app.includes('terminal') || app.includes('cmd') || app.includes('powershell') || app.includes('windowsterminal'))
@@ -158,7 +179,7 @@ function categorizeApp(appName, title) {
   if (app.includes('teams') || app.includes('slack') || app.includes('discord') || app.includes('zoom') || app.includes('meet'))
     return { category: 'Navegación', label: `Comunicación (${appName})`, context, context_type };
   if (app.includes('excel') || app.includes('word') || app.includes('powerpoint') || app.includes('office'))
-    return { category: 'Gestión de correos', label: `Office (${appName})`, context, context_type: 'document' };
+    return { category: 'Gestión de documentos', label: `Office (${appName})`, context, context_type: 'document' };
   if (app.includes('spotify') || app.includes('vlc') || app.includes('media'))
     return { category: 'Inactividad', label: `Media (${appName})`, context, context_type };
   return { category: 'Otros', label: appName || 'Aplicación desconocida', context, context_type };
@@ -179,45 +200,81 @@ function formatExecutiveDuration(ms) {
 function formatExecutiveAction(category, label, context, durationMs) {
   const durStr = durationMs > 0 ? ` (${formatExecutiveDuration(durationMs)})` : '';
   const cleanContext = (context || '').replace(/\s+/g, ' ').trim();
+  const lower = (label || '').toLowerCase();
+  const ctxLower = cleanContext.toLowerCase();
   
+  // 1. Videovigilancia y CCTV
+  if (lower.includes('ivms') || ctxLower.includes('ivms') || lower.includes('sadp') || ctxLower.includes('sadp') || lower.includes('videovigilancia')) {
+    return `Monitoreo de sistemas de videovigilancia y gestión de cámaras mediante iVMS-4200 / SADP${durStr}`;
+  }
+
+  // 2. Captura de evidencia (Herramienta de Recortes)
+  if (lower.includes('recorte') || ctxLower.includes('recorte') || lower.includes('snipping')) {
+    return `Uso de la herramienta de recortes para captura y documentación de evidencia técnica${durStr}`;
+  }
+
+  // 3. Asistencia y marcas (Nextime, BioTime)
+  if (lower.includes('nextime') || ctxLower.includes('nextime') || lower.includes('biotime') || ctxLower.includes('biotime') || lower.includes('asistencia')) {
+    return `Consulta y gestión de registros de asistencia de personal en plataforma de control horario${durStr}`;
+  }
+
+  // 4. Redes y Telecomunicaciones (Winbox, MikroTik)
+  if (lower.includes('winbox') || ctxLower.includes('winbox') || lower.includes('mikrotik') || ctxLower.includes('mikrotik')) {
+    return `Administración, diagnóstico y configuración de infraestructura de red y telecomunicaciones${durStr}`;
+  }
+
+  // 5. Correo
   if (category === 'Gestión de correos' || category === 'Gestión de Correos') {
     return cleanContext && !cleanContext.toLowerCase().includes('outlook') 
       ? `Gestión de Correo: "${cleanContext}"${durStr}`
-      : `Gestión de Correos / Outlook${durStr}`;
+      : `Gestión de mensajería electrónica y correspondencia corporativa en Outlook${durStr}`;
   }
+
+  // 6. Teléfono
   if (category === 'Atención telefónica' || category === 'Atención por llamada') {
-    return `Atención Telefónica: ${label}${cleanContext ? ` — ${cleanContext}` : ''}${durStr}`;
+    return `Atención y soporte telefónico al cliente vía ${label}${cleanContext ? ` — ${cleanContext}` : ''}${durStr}`;
   }
+
+  // 7. Chat y mensajería
   if (category === 'Mensajería' || category === 'Atención chat') {
     return cleanContext 
-      ? `Atención por Chat: WhatsApp — ${cleanContext}${durStr}`
-      : `Atención por Chat: WhatsApp${durStr}`;
+      ? `Atención y comunicación con usuarios o equipo de trabajo a través de WhatsApp — ${cleanContext}${durStr}`
+      : `Atención y comunicación con usuarios o equipo de trabajo a través de WhatsApp${durStr}`;
   }
+
+  // 8. Odoo ERP
   if (category === 'Atención de tickets' || category === 'Atención de Tickets') {
     return cleanContext 
-      ? `Atención de Tickets: ${cleanContext}${durStr}`
-      : `Atención de Tickets: Odoo ERP${durStr}`;
+      ? `Atención, seguimiento y resolución de tickets en portal Odoo ERP: ${cleanContext}${durStr}`
+      : `Atención y gestión de tickets y solicitudes en Odoo ERP${durStr}`;
   }
+
+  // 9. Garantías
   if (category === 'Trámites de garantías' || category === 'Gestión de Garantías') {
     return cleanContext 
-      ? `Gestión de Garantías: ${cleanContext}${durStr}`
-      : `Gestión de Garantías: Tienda 3D${durStr}`;
+      ? `Gestión y tramitación de garantías técnicas y recepción de equipos RMA en Tienda 3D: ${cleanContext}${durStr}`
+      : `Gestión y tramitación de garantías técnicas y recepción de equipos RMA en Tienda 3D${durStr}`;
   }
+
+  // 10. Desarrollo y sistemas
   if (category === 'Investigación y desarrollo' || category === 'Optimización de procesos') {
     return cleanContext 
-      ? `Optimización / Desarrollo: ${label} — ${cleanContext}${durStr}`
-      : `Optimización de Procesos: ${label}${durStr}`;
+      ? `Optimización y desarrollo de sistemas: ${label} — ${cleanContext}${durStr}`
+      : `Optimización y desarrollo de procesos y software: ${label}${durStr}`;
   }
+
+  // 11. Documentos
   if (category === 'Gestión de documentos' || category === 'Control administrativo') {
     return cleanContext 
-      ? `Control Administrativo: ${label} — ${cleanContext}${durStr}`
-      : `Control Administrativo: ${label}${durStr}`;
+      ? `Control administrativo y elaboración de documentos: ${label} — ${cleanContext}${durStr}`
+      : `Control administrativo y gestión de documentos: ${label}${durStr}`;
   }
+
   if (category === 'Soporte remoto' || category === 'Soporte técnico') {
-    return `Soporte Técnico: ${label}${cleanContext ? ` — ${cleanContext}` : ''}${durStr}`;
+    return `Soporte Técnico Especializado: ${label}${cleanContext ? ` — ${cleanContext}` : ''}${durStr}`;
   }
   if (category === 'Inactividad') {
-    return `Pausa / Inactividad del sistema${durStr}`;
+    return `Pausa del sistema / Período sin interacción activa en la estación${durStr}`;
   }
   return cleanContext 
     ? `${label}: ${cleanContext}${durStr}`
