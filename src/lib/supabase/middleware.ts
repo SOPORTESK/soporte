@@ -34,12 +34,5 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (hasAuthCookie && isAuthPage) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/inbox";
-    url.searchParams.delete("next");
-    return NextResponse.redirect(url);
-  }
-
   return NextResponse.next();
 }
