@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Camera, Lock, Eye, EyeOff, Check, X, ChevronUp, Circle, LogOut, Activity as ActivityIcon, FileText, ChevronRight, X as XIcon, RefreshCw, Wrench, Coffee, Timer, BarChart3, Package, LayoutDashboard, ClipboardList, Sparkles, UserPlus, Briefcase, GraduationCap, Users } from "lucide-react";
+import { Camera, Lock, Eye, EyeOff, Check, X, ChevronUp, Circle, LogOut, Activity as ActivityIcon, FileText, ChevronRight, X as XIcon, RefreshCw, Wrench, Coffee, Timer, BarChart3, Package, LayoutDashboard, ClipboardList, Sparkles, UserPlus, Briefcase, GraduationCap, Users, Utensils } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -57,6 +57,7 @@ const TAREAS_GROUPED = [
   {
     group: "Personal",
     items: [
+      { label: "Tiempo de Descanso", short: "Descanso", category: "Tiempo de descanso", icon: Coffee },
       { label: "Ir al Baño", short: "Pausa (Baño)", category: "Pausa personal", icon: Coffee },
       { label: "Reunión", short: "Reunión", category: "Reunión interna", icon: Users },
       { label: "Capacitacion de Personal", short: "Capacitar (Interno)", category: "Capacitación", icon: GraduationCap },
