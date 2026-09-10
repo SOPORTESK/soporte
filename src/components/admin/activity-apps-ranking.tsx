@@ -26,6 +26,17 @@ import {
   Sparkles,
   Layers,
   Cpu,
+  Package,
+  LayoutDashboard,
+  ClipboardList,
+  UserPlus,
+  Briefcase,
+  GraduationCap,
+  Users,
+  Utensils,
+  Sandwich,
+  Bath,
+  Hammer,
 } from "lucide-react";
 
 interface TimelineItem {
@@ -125,8 +136,40 @@ export function getCategoryUI(catName: string) {
   return DEFAULT_CATEGORIES[DEFAULT_CATEGORIES.length - 1];
 }
 
+export const DEFAULT_KNOWN_MANUAL_TASKS = [
+  "Ir a Bodega",
+  "Exhibidores",
+  "Inventario y Actualización de Bodega GAR",
+  "Limpieza de taller",
+  "Ir a Ventanilla",
+  "Iniciar Diagnóstico Físico",
+  "Soporte a Ventas",
+  "Capacitacion de clientes",
+  "Tiempo de Descanso",
+  "Ir al Baño",
+  "Reunión",
+  "Capacitacion de Personal",
+];
+
 function getAppIcon(appName: string) {
   const name = appName.toLowerCase();
+  // Labores manuales y físicas
+  if (name.includes("bodega")) return <Package className="h-4 w-4 text-amber-400" />;
+  if (name.includes("exhibidor")) return <LayoutDashboard className="h-4 w-4 text-emerald-400" />;
+  if (name.includes("inventario gar") || name.includes("inventario y actualización") || name.includes("inventario bodega"))
+    return <ClipboardList className="h-4 w-4 text-indigo-400" />;
+  if (name.includes("limpieza")) return <Sparkles className="h-4 w-4 text-cyan-400" />;
+  if (name.includes("ventanilla") || name.includes("mostrador")) return <UserPlus className="h-4 w-4 text-sky-400" />;
+  if (name.includes("diagnóstico") || name.includes("diagnostico")) return <Wrench className="h-4 w-4 text-amber-500" />;
+  if (name.includes("soporte a ventas") || name.includes("soporte ventas")) return <Briefcase className="h-4 w-4 text-blue-400" />;
+  if (name.includes("capacita")) return <GraduationCap className="h-4 w-4 text-violet-400" />;
+  if (name.includes("descanso") || name.includes("almuerzo") || name.includes("café") || name.includes("cafe"))
+    return <Sandwich className="h-4 w-4 text-amber-400" />;
+  if (name.includes("baño") || name.includes("bano")) return <Bath className="h-4 w-4 text-sky-400" />;
+  if (name.includes("reunión") || name.includes("reunion")) return <Users className="h-4 w-4 text-indigo-400" />;
+  if (name.includes("justificaci")) return <ClipboardList className="h-4 w-4 text-pink-400" />;
+
+  // Aplicaciones de software
   if (name.includes("whatsapp")) return <MessageSquare className="h-4 w-4 text-emerald-400" />;
   if (name.includes("linkus") || name.includes("phone") || name.includes("llamada"))
     return <Phone className="h-4 w-4 text-orange-400" />;
@@ -145,14 +188,50 @@ function getAppIcon(appName: string) {
 
 export function extractSmartAppName(item: TimelineItem): string {
   const meta = (item.metadata || {}) as Record<string, any>;
-  const action = (item.action || "").toLowerCase();
+  const rawAction = item.action || "";
+  const action = rawAction.toLowerCase();
   const rawPath = (meta.path || meta.page || "").toLowerCase();
 
-  // 1. Apps de escritorio / externas explícitas
+  // 1. Tareas manuales y justificaciones explícitas
+  if (meta.task) return meta.task;
+  if (meta.manual && meta.label) return meta.label;
+  if (meta.justification && meta.reason) return `Justificación: ${meta.reason}`;
+
+  // 2. Extracción de acciones manuales iniciadas / terminadas en taller
+  if (action.startsWith("inició:") || action.startsWith("inicio:")) {
+    const extracted = rawAction.replace(/^inici[oó]:\s*/i, "").trim();
+    if (extracted) return extracted;
+  }
+  if (action.startsWith("terminó:") || action.startsWith("termino:")) {
+    const withoutPrefix = rawAction.replace(/^termin[oó]:\s*/i, "").trim();
+    const taskName = withoutPrefix.split("(")[0].trim();
+    if (taskName) return taskName;
+  }
+  if (action.startsWith("justificación:") || action.startsWith("justificacion:")) {
+    const withoutPrefix = rawAction.replace(/^justificaci[oó]n:\s*/i, "").trim();
+    const taskName = withoutPrefix.split("(")[0].trim();
+    if (taskName) return `Justificación: ${taskName}`;
+  }
+
+  // 3. Apps de escritorio / externas explícitas
   if (meta.app_name) return meta.app_name;
   if (meta.label) return meta.label;
 
-  // 2. Por contenido textual de la acción
+  // 4. Labores físicas por contenido
+  if (action.includes("bodega")) return "Ir a Bodega";
+  if (action.includes("exhibidor")) return "Exhibidores";
+  if (action.includes("inventario gar") || action.includes("inventario y actualización"))
+    return "Inventario y Actualización de Bodega GAR";
+  if (action.includes("limpieza")) return "Limpieza de taller";
+  if (action.includes("ventanilla") || action.includes("mostrador")) return "Ir a Ventanilla";
+  if (action.includes("diagnóstico") || action.includes("diagnostico")) return "Iniciar Diagnóstico Físico";
+  if (action.includes("soporte a ventas") || action.includes("soporte ventas")) return "Soporte a Ventas";
+  if (action.includes("descanso") || action.includes("almuerzo")) return "Tiempo de Descanso";
+  if (action.includes("baño") || action.includes("bano")) return "Ir al Baño";
+  if (action.includes("reunión") || action.includes("reunion")) return "Reunión";
+  if (action.includes("capacita")) return "Capacitacion de Personal";
+
+  // 5. Por contenido textual de la acción (Software)
   if (action.includes("whatsapp")) return "WhatsApp";
   if (action.includes("linkus") || action.includes("llamada")) return "Linkus (Softphone)";
   if (action.includes("odoo")) return "Odoo ERP";
@@ -162,7 +241,7 @@ export function extractSmartAppName(item: TimelineItem): string {
   if (action.includes("atendió caso") || action.includes("atendiendo caso")) return "Atención de Casos / Chats";
   if (action.includes("tomó el caso") || action.includes("gestión de casos")) return "Gestión y Asignación de Casos";
 
-  // 3. Por páginas y módulos del sistema
+  // 6. Por páginas y módulos del sistema
   if (rawPath.includes("soporte-avanzado") || action.includes("soporte avanzado")) return "Soporte Avanzado (N2)";
   if (rawPath.includes("smart-inbox") || action.includes("smart inbox")) return "Smart Inbox (IA & Casos)";
   if (rawPath.includes("mi-gestion") || action.includes("mi bandeja de gestión")) return "Mi Bandeja de Gestión";
@@ -174,10 +253,6 @@ export function extractSmartAppName(item: TimelineItem): string {
   if (rawPath === "/admin" || action.includes("panel admin - resumen")) return "Panel de Administración";
   if (rawPath.includes("inbox") || action.includes("bandeja de entrada")) return "Seka Chat (Bandeja)";
 
-  // 4. Labores físicas
-  if (action.includes("bodega")) return "Labores de Bodega";
-  if (action.includes("ventanilla") || action.includes("mostrador")) return "Atención en Mostrador";
-  if (action.includes("diagnóstico") || action.includes("diagnostico")) return "Diagnóstico Físico de Taller";
   return "Seka Chat - Plataforma";
 }
 
@@ -186,7 +261,7 @@ export function getDefaultCategoryForApp(appName: string, action: string = "", c
   const act = (action || "").toLowerCase();
   const cat = (category || "").toLowerCase();
 
-  // 1. Optimización de procesos (Programación, IDEs, Terminales, código)
+  // 1. Optimización de procesos (Programación, IDEs, Terminales, código, Capacitaciones, Reuniones)
   if (
     name.includes("antigravity") ||
     name.includes("code") ||
@@ -198,8 +273,14 @@ export function getDefaultCategoryForApp(appName: string, action: string = "", c
     name.includes("cmd") ||
     name.includes("gemini") ||
     name.includes("github") ||
+    name.includes("reunión") ||
+    name.includes("reunion") ||
+    name.includes("capacita") ||
     cat.includes("desarrollo") ||
-    cat.includes("proceso")
+    cat.includes("proceso") ||
+    cat.includes("capacita") ||
+    cat.includes("reunión") ||
+    cat.includes("reunion")
   ) {
     return "Optimización de procesos";
   }
@@ -242,7 +323,7 @@ export function getDefaultCategoryForApp(appName: string, action: string = "", c
     return "Atención por llamada";
   }
 
-  // 7. Control administrativo (Suite Auditoría, Excel, Word, Inventario, Admin)
+  // 7. Control administrativo (Suite Auditoría, Excel, Word, Inventario, Admin, Inventario GAR)
   if (
     name.includes("auditor") ||
     name.includes("excel") ||
@@ -251,12 +332,13 @@ export function getDefaultCategoryForApp(appName: string, action: string = "", c
     name.includes("inventario") ||
     name.includes("admin") ||
     cat.includes("admin") ||
+    cat.includes("inventario") ||
     act.includes("informe")
   ) {
     return "Control administrativo";
   }
 
-  // 8. Soporte técnico (CCTV, iVMS, Winbox, MikroTik, Taller)
+  // 8. Soporte técnico (CCTV, iVMS, Winbox, MikroTik, Taller, Bodega, Exhibidores, Limpieza, Diagnóstico, Ventanilla)
   if (
     name.includes("ivms") ||
     name.includes("sadp") ||
@@ -267,11 +349,19 @@ export function getDefaultCategoryForApp(appName: string, action: string = "", c
     name.includes("snipping") ||
     name.includes("taller") ||
     name.includes("bodega") ||
+    name.includes("exhibidor") ||
+    name.includes("limpieza") ||
+    name.includes("ventanilla") ||
     name.includes("mostrador") ||
     name.includes("diagnóstico") ||
     name.includes("diagnostico") ||
+    name.includes("soporte a ventas") ||
+    name.includes("soporte ventas") ||
+    name.includes("justificación") ||
     cat.includes("soporte") ||
-    cat.includes("manual")
+    cat.includes("manual") ||
+    cat.includes("mantenimiento") ||
+    cat.includes("atención presencial")
   ) {
     return "Soporte técnico";
   }
@@ -501,14 +591,22 @@ export function ActivityAppsRanking({ timeline }: Props) {
       for (let i = 0; i < sorted.length; i++) {
         const curr = sorted[i];
         const meta = (curr.metadata || {}) as Record<string, any>;
-        const isExplicitPause =
-          meta.reason === "lock_screen" || meta.reason === "suspend" || curr.category === "Pausa personal";
-        if (isExplicitPause) continue;
+        const act = (curr.action || "").toLowerCase();
+        const isManual = Boolean(
+          meta.manual ||
+          meta.task ||
+          meta.justification ||
+          act.startsWith("inició:") ||
+          act.startsWith("inicio:") ||
+          act.startsWith("terminó:") ||
+          act.startsWith("termino:") ||
+          act.startsWith("justificación:") ||
+          act.startsWith("justificacion:")
+        );
 
-        const currTime = new Date(curr.created_at!).getTime();
-        const nextTime = i < sorted.length - 1 ? new Date(sorted[i + 1].created_at!).getTime() : currTime + 60000;
-        const gap = Math.max(0, nextTime - currTime);
-        const effectiveDuration = Math.min(gap, LUNCH_GAP_MS);
+        // Bloqueo o suspensión del sistema solo se descarta si NO es una labor manual registrada por el usuario
+        const isSystemLock = (meta.reason === "lock_screen" || meta.reason === "suspend") && !isManual;
+        if (isSystemLock) continue;
 
         const appName = extractSmartAppName(curr);
         allAppsSet.add(appName);
@@ -516,15 +614,51 @@ export function ActivityAppsRanking({ timeline }: Props) {
         // La categoría respeta la elección manual del usuario o el predeterminado
         const effectiveCat = customCategories[appName] || getDefaultCategoryForApp(appName, curr.action, curr.category);
 
-        if (!appM[appName]) appM[appName] = { durationMs: 0, count: 0 };
-        appM[appName].durationMs += effectiveDuration;
-        appM[appName].count++;
+        const discreteDuration = Number(
+          curr.duration_ms ||
+          (meta.duration_seconds ? meta.duration_seconds * 1000 : 0) ||
+          (meta.minutes ? meta.minutes * 60000 : 0)
+        ) || 0;
 
-        if (!catM[effectiveCat]) catM[effectiveCat] = { durationMs: 0, count: 0 };
-        catM[effectiveCat].durationMs += effectiveDuration;
-        catM[effectiveCat].count++;
+        const isManualStart = act.startsWith("inició:") || act.startsWith("inicio:");
+        let effectiveDuration = 0;
 
-        totalTime += effectiveDuration;
+        if (discreteDuration > 0) {
+          // Evento con duración exacta registrada (Terminó labor manual, Justificación de tiempo, etc.)
+          effectiveDuration = discreteDuration;
+        } else if (isManualStart) {
+          // Si más adelante hay un "Terminó:" correspondiente, ese evento computará la duración exacta
+          const hasMatchingEnd = sorted.slice(i + 1).some((item) => {
+            const nextAct = (item.action || "").toLowerCase();
+            return (nextAct.startsWith("terminó:") || nextAct.startsWith("termino:")) && extractSmartAppName(item) === appName;
+          });
+          if (hasMatchingEnd) {
+            effectiveDuration = 0;
+          } else {
+            const currTime = new Date(curr.created_at!).getTime();
+            const nextTime = i < sorted.length - 1 ? new Date(sorted[i + 1].created_at!).getTime() : Math.min(currTime + LUNCH_GAP_MS, Date.now());
+            const gap = Math.max(0, nextTime - currTime);
+            effectiveDuration = Math.min(gap, LUNCH_GAP_MS);
+          }
+        } else {
+          // Eventos de aplicaciones de software activas o latidos de ventana
+          const currTime = new Date(curr.created_at!).getTime();
+          const nextTime = i < sorted.length - 1 ? new Date(sorted[i + 1].created_at!).getTime() : currTime + 60000;
+          const gap = Math.max(0, nextTime - currTime);
+          effectiveDuration = Math.min(gap, LUNCH_GAP_MS);
+        }
+
+        if (effectiveDuration > 0) {
+          if (!appM[appName]) appM[appName] = { durationMs: 0, count: 0 };
+          appM[appName].durationMs += effectiveDuration;
+          appM[appName].count++;
+
+          if (!catM[effectiveCat]) catM[effectiveCat] = { durationMs: 0, count: 0 };
+          catM[effectiveCat].durationMs += effectiveDuration;
+          catM[effectiveCat].count++;
+
+          totalTime += effectiveDuration;
+        }
       }
     }
 
@@ -541,9 +675,11 @@ export function ActivityAppsRanking({ timeline }: Props) {
     .sort((a, b) => b[1].durationMs - a[1].durationMs)
     .slice(0, 10);
 
-  // Lista de apps para el modal de gestión
+  // Lista de apps y labores para el modal de gestión
   const filteredModalApps = useMemo(() => {
-    const combined = Array.from(new Set([...allDetectedApps, ...Object.keys(customCategories)])).sort();
+    const combined = Array.from(
+      new Set([...allDetectedApps, ...Object.keys(customCategories), ...DEFAULT_KNOWN_MANUAL_TASKS])
+    ).sort();
     if (!searchQuery.trim()) return combined;
     return combined.filter((app) => app.toLowerCase().includes(searchQuery.toLowerCase()));
   }, [allDetectedApps, customCategories, searchQuery]);
@@ -600,7 +736,7 @@ export function ActivityAppsRanking({ timeline }: Props) {
                 viewMode === "apps" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              Por Software
+              Por Software / Labor
             </button>
           </div>
 
@@ -780,7 +916,7 @@ export function ActivityAppsRanking({ timeline }: Props) {
                 }`}
               >
                 <Layers className="h-3.5 w-3.5" />
-                <span>Mapeo de Software ({filteredModalApps.length})</span>
+                <span>Mapeo de Software y Labores ({filteredModalApps.length})</span>
               </button>
               <button
                 onClick={() => { setActiveModalTab("categories"); }}
@@ -795,7 +931,7 @@ export function ActivityAppsRanking({ timeline }: Props) {
               </button>
             </div>
 
-            {/* CONTENIDO PESTAÑA 1: MAPEO DE SOFTWARE */}
+            {/* CONTENIDO PESTAÑA 1: MAPEO DE SOFTWARE Y LABORES */}
             {activeModalTab === "apps" && (
               <div className="flex-1 flex flex-col min-h-0 space-y-3">
                 <div className="relative">
@@ -804,7 +940,7 @@ export function ActivityAppsRanking({ timeline }: Props) {
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Buscar aplicación o software..."
+                    placeholder="Buscar software o labor manual (ej: Bodega, WhatsApp, Odoo)..."
                     className="w-full pl-9 pr-4 py-2 text-xs rounded-xl bg-muted/40 border border-border focus:outline-none focus:ring-2 focus:ring-violet-500 text-foreground placeholder:text-muted-foreground"
                   />
                 </div>

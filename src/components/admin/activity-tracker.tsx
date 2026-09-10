@@ -29,6 +29,14 @@ import {
   CheckCircle2,
   ChevronRight,
   Laptop,
+  Package,
+  LayoutDashboard,
+  ClipboardList,
+  UserPlus,
+  Briefcase,
+  GraduationCap,
+  Sandwich,
+  Bath,
 } from "lucide-react";
 import { Avatar } from "@/components/ui/avatar";
 import { ActivityLivePulse, type LiveAgent } from "./activity-live-pulse";
@@ -57,12 +65,18 @@ interface Props {
 
 const CATEGORY_ICONS: Record<string, any> = {
   "Atención telefónica": Phone,
+  "Atención por llamada": Phone,
   "Mensajería": MessageSquare,
+  "Atención chat": MessageSquare,
   "Atención de tickets": FolderOpen,
+  "Atención de Tickets": FolderOpen,
   "Trámites de garantías": ShieldCheck,
+  "Gestión de Garantías": ShieldCheck,
   "Investigación y desarrollo": Code,
-  "Labores manuales": Wrench,
+  "Optimización de procesos": Code,
+  "Control administrativo": TrendingUp,
   "Gestión de correos": Mail,
+  "Gestión de Correos": Mail,
   "Gestión de casos": FolderOpen,
   "Escalado": AlertCircle,
   "Asistente IA": Bot,
@@ -70,24 +84,50 @@ const CATEGORY_ICONS: Record<string, any> = {
   "Navegación": Eye,
   "Actividad general": Activity,
   "Soporte técnico": Wrench,
+  "Labores manuales": Package,
+  "Tiempo de descanso": Sandwich,
+  "Pausa personal": Bath,
+  "Atención presencial": UserPlus,
+  "Inventario": ClipboardList,
+  "Mantenimiento": Sparkles,
+  "Soporte comercial": Briefcase,
+  "Capacitación": GraduationCap,
+  "Reunión interna": Users,
+  "Justificación": ClipboardList,
   "Otros": Activity,
 };
 
 const CATEGORY_COLORS: Record<string, string> = {
   "Atención telefónica": "text-orange-400 bg-orange-500/10 border-orange-500/20",
+  "Atención por llamada": "text-orange-400 bg-orange-500/10 border-orange-500/20",
   "Mensajería": "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
+  "Atención chat": "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
   "Atención de tickets": "text-blue-400 bg-blue-500/10 border-blue-500/20",
+  "Atención de Tickets": "text-indigo-400 bg-indigo-500/10 border-indigo-500/20",
   "Trámites de garantías": "text-purple-400 bg-purple-500/10 border-purple-500/20",
+  "Gestión de Garantías": "text-amber-400 bg-amber-500/10 border-amber-500/20",
   "Investigación y desarrollo": "text-cyan-400 bg-cyan-500/10 border-cyan-500/20",
-  "Labores manuales": "text-amber-400 bg-amber-500/10 border-amber-500/20",
+  "Optimización de procesos": "text-violet-400 bg-violet-500/10 border-violet-500/20",
+  "Control administrativo": "text-fuchsia-400 bg-fuchsia-500/10 border-fuchsia-500/20",
   "Gestión de correos": "text-yellow-400 bg-yellow-500/10 border-yellow-500/20",
+  "Gestión de Correos": "text-blue-400 bg-blue-500/10 border-blue-500/20",
   "Gestión de casos": "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
   "Escalado": "text-red-400 bg-red-500/10 border-red-500/20",
   "Asistente IA": "text-cyan-400 bg-cyan-500/10 border-cyan-500/20",
   "Inactividad": "text-zinc-400 bg-zinc-500/10 border-zinc-500/20",
   "Navegación": "text-sky-400 bg-sky-500/10 border-sky-500/20",
-  "Actividad general": "text-indigo-400 bg-indigo-500/10 border-indigo-500/20",
-  "Soporte técnico": "text-amber-400 bg-amber-500/10 border-amber-500/20",
+  "Actividad general": "text-slate-400 bg-slate-500/10 border-slate-500/20",
+  "Soporte técnico": "text-cyan-400 bg-cyan-500/10 border-cyan-500/20",
+  "Labores manuales": "text-amber-400 bg-amber-500/10 border-amber-500/20",
+  "Tiempo de descanso": "text-amber-400 bg-amber-500/10 border-amber-500/20",
+  "Pausa personal": "text-sky-400 bg-sky-500/10 border-sky-500/20",
+  "Atención presencial": "text-sky-400 bg-sky-500/10 border-sky-500/20",
+  "Inventario": "text-indigo-400 bg-indigo-500/10 border-indigo-500/20",
+  "Mantenimiento": "text-cyan-400 bg-cyan-500/10 border-cyan-500/20",
+  "Soporte comercial": "text-blue-400 bg-blue-500/10 border-blue-500/20",
+  "Capacitación": "text-violet-400 bg-violet-500/10 border-violet-500/20",
+  "Reunión interna": "text-indigo-400 bg-indigo-500/10 border-indigo-500/20",
+  "Justificación": "text-pink-400 bg-pink-500/10 border-pink-500/20",
   "Otros": "text-slate-400 bg-slate-500/10 border-slate-500/20",
 };
 
@@ -256,7 +296,35 @@ function formatExecutiveDisplay(rawAction: string, category: string, meta: Recor
     }
   }
 
-  // 13. Pausas e Inactividad
+  // 13. Labores manuales y físicas en taller
+  if (
+    meta.manual ||
+    meta.task ||
+    lower.startsWith("inició:") ||
+    lower.startsWith("inicio:") ||
+    lower.startsWith("terminó:") ||
+    lower.startsWith("termino:")
+  ) {
+    const taskName = meta.task || meta.label || action.replace(/^inici[oó]:\s*|^termin[oó]:\s*/i, "").split("(")[0].trim();
+    const isStart = lower.startsWith("inició:") || lower.startsWith("inicio:");
+    return {
+      title: isStart ? `Inicio de labor física: ${taskName}` : `Labor física en taller: ${taskName}`,
+      subtitle: meta.duration_seconds
+        ? `Duración registrada: ${Math.round(meta.duration_seconds / 60)} min`
+        : "Registro de actividad manual en taller",
+    };
+  }
+
+  // 14. Justificaciones de tiempo presencial
+  if (meta.justification || lower.startsWith("justificación:") || lower.startsWith("justificacion:")) {
+    const reason = meta.reason || action.replace(/^justificaci[oó]n:\s*/i, "").split("(")[0].trim();
+    return {
+      title: `Justificación de tiempo: ${reason}`,
+      subtitle: meta.minutes ? `Tiempo justificado: ${meta.minutes} min` : "Justificación de labor presencial",
+    };
+  }
+
+  // 15. Pausas e Inactividad
   if (category === "Inactividad" || lower.includes("sin actividad") || lower.includes("pausa prolongada") || lower.includes("bloqueada")) {
     return {
       title: "Pausa operativa / Período sin interacción activa en la estación",
@@ -264,7 +332,7 @@ function formatExecutiveDisplay(rawAction: string, category: string, meta: Recor
     };
   }
 
-  // 14. Formato estructurado preexistente o títulos sueltos (limpieza narrativa final)
+  // 16. Formato estructurado preexistente o títulos sueltos (limpieza narrativa final)
   if (action.includes(":")) {
     const parts = action.split(":");
     const prefix = parts[0].trim();
@@ -305,6 +373,17 @@ function buildConsolidatedNarrative(items: TimelineEntry[]): string {
   let hasDev = false;
   let hasOffice = false;
   let hasPause = false;
+  let hasBodega = false;
+  let hasExhibidores = false;
+  let hasInventarioGAR = false;
+  let hasLimpieza = false;
+  let hasVentanilla = false;
+  let hasDiagnostico = false;
+  let hasSoporteVentas = false;
+  let hasDescanso = false;
+  let hasReunion = false;
+  let hasCapacitacion = false;
+  let hasJustificacion = false;
 
   for (const item of items) {
     const meta = (item.metadata || {}) as Record<string, any>;
@@ -312,6 +391,53 @@ function buildConsolidatedNarrative(items: TimelineEntry[]): string {
     const action = (item.action || "").toLowerCase();
     const title = (meta.title || meta.context || "").toLowerCase();
     const raw = `${action} ${title} ${app}`;
+    const taskLower = (meta.task || "").toLowerCase();
+
+    // Labores físicas de taller
+    if (raw.includes("bodega") || taskLower.includes("bodega")) {
+      hasBodega = true;
+      continue;
+    }
+    if (raw.includes("exhibidor") || taskLower.includes("exhibidor")) {
+      hasExhibidores = true;
+      continue;
+    }
+    if (raw.includes("inventario gar") || raw.includes("inventario y actualización") || taskLower.includes("inventario")) {
+      hasInventarioGAR = true;
+      continue;
+    }
+    if (raw.includes("limpieza") || taskLower.includes("limpieza")) {
+      hasLimpieza = true;
+      continue;
+    }
+    if (raw.includes("ventanilla") || raw.includes("mostrador") || taskLower.includes("ventanilla")) {
+      hasVentanilla = true;
+      continue;
+    }
+    if (raw.includes("diagnóstico") || raw.includes("diagnostico") || taskLower.includes("diagnóstic")) {
+      hasDiagnostico = true;
+      continue;
+    }
+    if (raw.includes("soporte a ventas") || raw.includes("soporte ventas") || taskLower.includes("soporte a ventas")) {
+      hasSoporteVentas = true;
+      continue;
+    }
+    if (raw.includes("descanso") || raw.includes("almuerzo") || taskLower.includes("descanso")) {
+      hasDescanso = true;
+      continue;
+    }
+    if (raw.includes("reunión") || raw.includes("reunion") || taskLower.includes("reunión")) {
+      hasReunion = true;
+      continue;
+    }
+    if (raw.includes("capacita") || taskLower.includes("capacita")) {
+      hasCapacitacion = true;
+      continue;
+    }
+    if (meta.justification || raw.includes("justificación") || raw.includes("justificacion")) {
+      hasJustificacion = true;
+      continue;
+    }
 
     // Entornos de desarrollo y programación tienen máxima prioridad
     const isDevItem =
@@ -377,6 +503,18 @@ function buildConsolidatedNarrative(items: TimelineEntry[]): string {
     phrases.add("control administrativo, elaboración de informes técnicos y gestión documental");
   }
 
+  if (hasBodega) phrases.add("labores manuales en bodega y despacho de repuestos o equipos");
+  if (hasExhibidores) phrases.add("revisión y organización de productos en exhibidores de tienda");
+  if (hasInventarioGAR) phrases.add("inventario físico y actualización de existencias en bodega GAR");
+  if (hasLimpieza) phrases.add("mantenimiento, orden y limpieza en áreas de taller");
+  if (hasVentanilla) phrases.add("atención presencial a clientes en mostrador y ventanilla");
+  if (hasDiagnostico) phrases.add("diagnóstico físico, inspección técnica y banco de pruebas de taller");
+  if (hasSoporteVentas) phrases.add("soporte técnico y asesoramiento comercial al equipo de ventas");
+  if (hasCapacitacion) phrases.add("sesión de capacitación e inducción técnica");
+  if (hasReunion) phrases.add("reunión de coordinación y seguimiento de equipo");
+  if (hasDescanso) phrases.add("tiempo de descanso y receso laboral");
+  if (hasJustificacion) phrases.add("actividad presencial justificada en taller");
+
   if (hasPause && phrases.size === 0) {
     return "Pausa operativa / Período sin interacción activa en la estación de trabajo.";
   }
@@ -437,7 +575,17 @@ function consolidateTimelineByBlocks(entries: TimelineEntry[], intervalMinutes: 
 
     for (const it of items) {
       const meta = (it.metadata || {}) as Record<string, any>;
-      const app = meta.app_name || meta.label || meta.app || "";
+      let app = meta.task || meta.app_name || meta.label || meta.app || "";
+      if (!app) {
+        const act = it.action || "";
+        if (act.toLowerCase().startsWith("inició:") || act.toLowerCase().startsWith("inicio:")) {
+          app = act.replace(/^inici[oó]:\s*/i, "").trim();
+        } else if (act.toLowerCase().startsWith("terminó:") || act.toLowerCase().startsWith("termino:")) {
+          app = act.replace(/^termin[oó]:\s*/i, "").split("(")[0].trim();
+        } else if (act.toLowerCase().startsWith("justificación:") || act.toLowerCase().startsWith("justificacion:")) {
+          app = act.replace(/^justificaci[oó]n:\s*/i, "").split("(")[0].trim();
+        }
+      }
       if (app && app !== "Unknown") apps.add(app);
       if (it.duration_ms) totalDur += it.duration_ms;
 
