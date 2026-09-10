@@ -116,10 +116,11 @@ function cleanExecutiveTitle(title: string): string {
     .replace(/\s*[-–—]\s*(Brave|Google Chrome|Microsoft Edge|Firefox|Opera|Outlook|Visual Studio Code).*$/i, "")
     .replace(/^\(\d+\)\s*/, "")
     .replace(/\.exe/gi, "")
-    .replace(/Atenci.n/g, "Atención")
-    .replace(/Garant.a/g, "Garantía")
-    .replace(/Gesti.n/g, "Gestión")
-    .replace(/Operaci.n/g, "Operación")
+    .replace(/atenci[óo]n/gi, "atención")
+    .replace(/garant[íi]a/gi, "garantía")
+    .replace(/gesti[óo]n/gi, "gestión")
+    .replace(/operaci[óo]n/gi, "operación")
+    .replace(/\uFFFD/g, "ó")
     .trim();
 }
 
@@ -224,7 +225,25 @@ function formatExecutiveDisplay(rawAction: string, category: string, meta: Recor
     };
   }
 
-  // 11. Páginas internas de la plataforma
+  // 11. Entornos de desarrollo, programación y herramientas técnicas (Antigravity, Cursor, VS Code, Terminal, Devin)
+  if (
+    lower.includes("antigravity") ||
+    lower.includes("code") ||
+    lower.includes("cursor") ||
+    lower.includes("windsurf") ||
+    lower.includes("devin") ||
+    lower.includes("visual studio") ||
+    appLower.includes("antigravity") ||
+    appLower.includes("code") ||
+    category === "Investigación y desarrollo"
+  ) {
+    return {
+      title: `Optimización, programación y desarrollo de software y sistemas técnicos${durStr}`,
+      subtitle: cleanTitle || "Herramientas de ingeniería y desarrollo",
+    };
+  }
+
+  // 12. Páginas internas de la plataforma
   if (action.includes("Permaneció en") || action.includes("Reanudó labores tras")) {
     const isResume = action.includes("Reanudó labores");
     const prefix = isResume ? "Reanudó labores en" : "Sesión activa en";
@@ -239,7 +258,7 @@ function formatExecutiveDisplay(rawAction: string, category: string, meta: Recor
     }
   }
 
-  // 12. Pausas e Inactividad
+  // 13. Pausas e Inactividad
   if (category === "Inactividad" || lower.includes("sin actividad") || lower.includes("pausa prolongada") || lower.includes("bloqueada")) {
     return {
       title: `Pausa del sistema / Período sin interacción activa en la estación${durStr}`,
@@ -247,19 +266,15 @@ function formatExecutiveDisplay(rawAction: string, category: string, meta: Recor
     };
   }
 
-  // 13. Formato estructurado ejecutivo preexistente
-  if (
-    action.startsWith("Gestión de Correo:") ||
-    action.startsWith("Atención Telefónica:") ||
-    action.startsWith("Atención por Chat:") ||
-    action.startsWith("Atención de Tickets:") ||
-    action.startsWith("Gestión de Garantías:") ||
-    action.startsWith("Optimización / Desarrollo:") ||
-    action.startsWith("Control Administrativo:") ||
-    action.startsWith("Soporte Técnico:") ||
-    action.startsWith("Pausa / Inactividad")
-  ) {
-    return { title: action, subtitle: cleanTitle && cleanTitle !== action ? cleanTitle : undefined };
+  // 14. Formato estructurado preexistente o títulos sueltos (limpieza narrativa final)
+  if (action.includes(":")) {
+    const parts = action.split(":");
+    const prefix = parts[0].trim();
+    const detail = parts.slice(1).join(":").trim();
+    return {
+      title: `${prefix}: ${cleanExecutiveTitle(detail)}${durStr}`,
+      subtitle: cleanTitle && cleanTitle !== action ? cleanTitle : undefined,
+    };
   }
 
   return { title: action, subtitle: cleanTitle && cleanTitle !== action ? cleanTitle : undefined };
