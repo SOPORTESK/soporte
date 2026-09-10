@@ -11,16 +11,13 @@ import {
   Globe,
   Youtube,
   ShieldCheck,
-  FolderOpen,
-  Wrench,
-  Clock,
+  TrendingUp,
   SlidersHorizontal,
   Check,
   RotateCcw,
   Search,
   X,
   ChevronDown,
-  Sparkles,
 } from "lucide-react";
 
 interface TimelineItem {
@@ -35,23 +32,33 @@ interface Props {
   timeline: TimelineItem[];
 }
 
+// Las 7-8 categorías oficiales del taller exactamente como se muestran en "Por Categoría"
 export const WORKSHOP_CATEGORIES = [
-  { id: "Investigación y desarrollo", label: "Investigación y desarrollo", icon: Code, color: "text-cyan-400 border-cyan-500/30 bg-cyan-500/15", bgBar: "bg-cyan-500" },
-  { id: "Mensajería", label: "Mensajería", icon: MessageSquare, color: "text-emerald-400 border-emerald-500/30 bg-emerald-500/15", bgBar: "bg-emerald-500" },
-  { id: "Atención de tickets", label: "Atención de tickets", icon: FolderOpen, color: "text-blue-400 border-blue-500/30 bg-blue-500/15", bgBar: "bg-blue-500" },
-  { id: "Trámites de garantías", label: "Trámites de garantías", icon: ShieldCheck, color: "text-purple-400 border-purple-500/30 bg-purple-500/15", bgBar: "bg-purple-500" },
-  { id: "Gestión de correos", label: "Gestión de correos", icon: Mail, color: "text-yellow-400 border-yellow-500/30 bg-yellow-500/15", bgBar: "bg-yellow-500" },
-  { id: "Atención telefónica", label: "Atención telefónica", icon: Phone, color: "text-orange-400 border-orange-500/30 bg-orange-500/15", bgBar: "bg-orange-500" },
-  { id: "Soporte técnico", label: "Soporte técnico", icon: Wrench, color: "text-amber-400 border-amber-500/30 bg-amber-500/15", bgBar: "bg-amber-500" },
-  { id: "Navegación", label: "Navegación", icon: Globe, color: "text-sky-400 border-sky-500/30 bg-sky-500/15", bgBar: "bg-sky-500" },
-  { id: "Inactividad", label: "Inactividad", icon: Clock, color: "text-zinc-400 border-zinc-500/30 bg-zinc-500/15", bgBar: "bg-zinc-500" },
+  { id: "Atención chat", label: "Atención chat", icon: MessageSquare, color: "text-emerald-400 border-emerald-500/30 bg-emerald-500/15", bgBar: "bg-emerald-500" },
+  { id: "Atención de Tickets", label: "Atención de Tickets", icon: FileText, color: "text-indigo-400 border-indigo-500/30 bg-indigo-500/15", bgBar: "bg-indigo-500" },
+  { id: "Optimización de procesos", label: "Optimización de procesos", icon: Code, color: "text-violet-400 border-violet-500/30 bg-violet-500/15", bgBar: "bg-violet-500" },
+  { id: "Control administrativo", label: "Control administrativo", icon: TrendingUp, color: "text-fuchsia-400 border-fuchsia-500/30 bg-fuchsia-500/15", bgBar: "bg-fuchsia-500" },
+  { id: "Gestión de Correos", label: "Gestión de Correos", icon: Mail, color: "text-blue-400 border-blue-500/30 bg-blue-500/15", bgBar: "bg-blue-500" },
+  { id: "Atención por llamada", label: "Atención por llamada", icon: Phone, color: "text-orange-400 border-orange-500/30 bg-orange-500/15", bgBar: "bg-orange-500" },
+  { id: "Soporte técnico", label: "Soporte técnico", icon: Monitor, color: "text-cyan-400 border-cyan-500/30 bg-cyan-500/15", bgBar: "bg-cyan-500" },
+  { id: "Gestión de Garantías", label: "Gestión de Garantías", icon: ShieldCheck, color: "text-amber-400 border-amber-500/30 bg-amber-500/15", bgBar: "bg-amber-500" },
   { id: "Actividad general", label: "Actividad general", icon: Monitor, color: "text-slate-400 border-slate-500/30 bg-slate-500/15", bgBar: "bg-slate-500" },
 ];
 
 export function getCategoryUI(catName: string) {
   const found = WORKSHOP_CATEGORIES.find((c) => c.id === catName);
   if (found) return found;
-  return WORKSHOP_CATEGORIES[WORKSHOP_CATEGORIES.length - 1];
+  // Búsqueda aproximada si difiere ligeramente
+  const lower = (catName || "").toLowerCase();
+  if (lower.includes("chat") || lower.includes("mensajería")) return WORKSHOP_CATEGORIES[0];
+  if (lower.includes("ticket")) return WORKSHOP_CATEGORIES[1];
+  if (lower.includes("proceso") || lower.includes("desarrollo") || lower.includes("investiga")) return WORKSHOP_CATEGORIES[2];
+  if (lower.includes("admin") || lower.includes("control")) return WORKSHOP_CATEGORIES[3];
+  if (lower.includes("correo") || lower.includes("mail")) return WORKSHOP_CATEGORIES[4];
+  if (lower.includes("llamada") || lower.includes("telefón") || lower.includes("phone")) return WORKSHOP_CATEGORIES[5];
+  if (lower.includes("soporte") || lower.includes("redes") || lower.includes("taller")) return WORKSHOP_CATEGORIES[6];
+  if (lower.includes("garant") || lower.includes("rma")) return WORKSHOP_CATEGORIES[7];
+  return WORKSHOP_CATEGORIES[WORKSHOP_CATEGORIES.length - 1]; // Actividad general
 }
 
 function getAppIcon(appName: string) {
@@ -82,7 +89,7 @@ export function extractSmartAppName(item: TimelineItem): string {
   if (meta.label) return meta.label;
 
   // 2. Por contenido textual de la acción
-  if (action.includes("whatsapp")) return "WhatsApp Desktop";
+  if (action.includes("whatsapp")) return "WhatsApp";
   if (action.includes("linkus") || action.includes("llamada")) return "Linkus (Softphone)";
   if (action.includes("odoo")) return "Odoo ERP";
   if (action.includes("outlook") || action.includes("correo")) return "Correo / Outlook";
@@ -115,6 +122,7 @@ export function getDefaultCategoryForApp(appName: string, action: string = "", c
   const act = (action || "").toLowerCase();
   const cat = (category || "").toLowerCase();
 
+  // 1. Optimización de procesos (Programación, IDEs, Terminales, código)
   if (
     name.includes("antigravity") ||
     name.includes("code") ||
@@ -126,22 +134,30 @@ export function getDefaultCategoryForApp(appName: string, action: string = "", c
     name.includes("cmd") ||
     name.includes("gemini") ||
     name.includes("github") ||
-    cat.includes("desarrollo")
+    cat.includes("desarrollo") ||
+    cat.includes("proceso")
   ) {
-    return "Investigación y desarrollo";
+    return "Optimización de procesos";
   }
+
+  // 2. Atención chat (Seka Chat, WhatsApp)
   if (
     name.includes("whatsapp") ||
     name.includes("seka chat") ||
     name.includes("chat") ||
-    cat.includes("mensajería") ||
-    cat.includes("chat")
+    name.includes("inbox") ||
+    cat.includes("chat") ||
+    cat.includes("mensajería")
   ) {
-    return "Mensajería";
+    return "Atención chat";
   }
+
+  // 3. Atención de Tickets (Odoo ERP)
   if (name.includes("odoo") || name.includes("ticket") || cat.includes("ticket")) {
-    return "Atención de tickets";
+    return "Atención de Tickets";
   }
+
+  // 4. Gestión de Garantías (Tienda 3D, RMA)
   if (
     name.includes("tienda 3d") ||
     name.includes("tienda3d") ||
@@ -149,14 +165,34 @@ export function getDefaultCategoryForApp(appName: string, action: string = "", c
     name.includes("rma") ||
     cat.includes("garant")
   ) {
-    return "Trámites de garantías";
+    return "Gestión de Garantías";
   }
+
+  // 5. Gestión de Correos (Outlook)
   if (name.includes("outlook") || name.includes("mail") || name.includes("correo") || cat.includes("correo")) {
-    return "Gestión de correos";
+    return "Gestión de Correos";
   }
+
+  // 6. Atención por llamada (Linkus, Softphone)
   if (name.includes("linkus") || name.includes("phone") || name.includes("llamada") || cat.includes("llamada") || cat.includes("telefón")) {
-    return "Atención telefónica";
+    return "Atención por llamada";
   }
+
+  // 7. Control administrativo (Suite Auditoría, Excel, Word, Inventario, Admin)
+  if (
+    name.includes("auditor") ||
+    name.includes("excel") ||
+    name.includes("word") ||
+    name.includes("office") ||
+    name.includes("inventario") ||
+    name.includes("admin") ||
+    cat.includes("admin") ||
+    act.includes("informe")
+  ) {
+    return "Control administrativo";
+  }
+
+  // 8. Soporte técnico (CCTV, iVMS, Winbox, MikroTik, Taller)
   if (
     name.includes("ivms") ||
     name.includes("sadp") ||
@@ -170,23 +206,16 @@ export function getDefaultCategoryForApp(appName: string, action: string = "", c
     name.includes("mostrador") ||
     name.includes("diagnóstico") ||
     name.includes("diagnostico") ||
-    name.includes("excel") ||
-    name.includes("word") ||
-    name.includes("office") ||
-    name.includes("auditor") ||
-    name.includes("inventario") ||
     cat.includes("soporte") ||
     cat.includes("manual")
   ) {
     return "Soporte técnico";
   }
-  if (name.includes("inactiv") || name.includes("bloque") || name.includes("pausa") || cat.includes("inactiv") || cat.includes("pausa")) {
-    return "Inactividad";
-  }
-  return "Navegación";
+
+  return "Actividad general";
 }
 
-// Compatibilidad hacia atrás si otros archivos lo llaman
+// Compatibilidad hacia atrás
 export function getProductivityType(appName: string): { label: string; color: string } {
   const cat = getDefaultCategoryForApp(appName);
   const ui = getCategoryUI(cat);
@@ -295,7 +324,7 @@ export function ActivityAppsRanking({ timeline }: Props) {
         const appName = extractSmartAppName(curr);
         allAppsSet.add(appName);
 
-        // La categoría oficial respeta la elección manual del usuario o usa el predeterminado
+        // La categoría respeta la elección manual del usuario o el predeterminado
         const effectiveCat = customCategories[appName] || getDefaultCategoryForApp(appName, curr.action, curr.category);
 
         if (!appM[appName]) appM[appName] = { durationMs: 0, count: 0 };
@@ -351,7 +380,7 @@ export function ActivityAppsRanking({ timeline }: Props) {
           <button
             onClick={() => setShowManageModal(true)}
             className="px-2.5 py-1 text-[11px] font-bold rounded-lg border border-border/60 bg-muted/30 hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-all flex items-center gap-1.5 shadow-sm"
-            title="Administrar categorías de software preconfiguradas"
+            title="Administrar qué categoría tiene asignada cada aplicación"
           >
             <SlidersHorizontal className="h-3.5 w-3.5 text-violet-400" />
             <span>Gestionar</span>
@@ -403,7 +432,7 @@ export function ActivityAppsRanking({ timeline }: Props) {
             icon = <div className={ui.color.split(" ")[0]}><IconComp className="h-4 w-4" /></div>;
             labelNode = (
               <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${ui.color}`}>
-                {ui.label}
+                Categoría Oficial
               </span>
             );
             barClass = ui.bgBar;
@@ -423,24 +452,24 @@ export function ActivityAppsRanking({ timeline }: Props) {
                     e.stopPropagation();
                     setActiveDropdownApp(activeDropdownApp === itemName ? null : itemName);
                   }}
-                  className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border flex items-center gap-1 transition-all hover:scale-105 ${ui.color} ${
-                    isManual ? "ring-1 ring-violet-500/40" : ""
+                  className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border flex items-center gap-1 transition-all hover:scale-105 cursor-pointer ${ui.color} ${
+                    isManual ? "ring-1 ring-violet-500/50" : ""
                   }`}
-                  title={isManual ? "Categoría personalizada manualmente (clic para cambiar)" : "Categoría preconfigurada (clic para cambiar)"}
+                  title={isManual ? "Categoría personalizada manualmente (clic para cambiar)" : "Categoría asignada (clic para cambiar)"}
                 >
                   {isManual && <span className="text-[9px] font-black mr-0.5">●</span>}
                   <span>{ui.label}</span>
                   <ChevronDown className="h-2.5 w-2.5 opacity-60 ml-0.5" />
                 </button>
 
-                {/* Dropdown flotante para escoger categoría con 1 clic */}
+                {/* Dropdown flotante con las categorías de la pantalla */}
                 {activeDropdownApp === itemName && (
                   <div
-                    className="absolute right-0 top-full mt-1.5 w-56 rounded-xl bg-card border border-border shadow-2xl p-1.5 z-50 space-y-0.5 animate-in fade-in zoom-in-95 duration-100"
+                    className="absolute right-0 top-full mt-1.5 w-60 rounded-xl bg-card border border-border shadow-2xl p-1.5 z-50 space-y-0.5 animate-in fade-in zoom-in-95 duration-100"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <div className="px-2 py-1 text-[9px] font-black uppercase tracking-wider text-muted-foreground border-b border-border/50 mb-1 flex items-center justify-between">
-                      <span>Categorías del Taller</span>
+                      <span>Categoría para {itemName}</span>
                       {savingApp === itemName && <span className="text-violet-400 font-bold">Guardando...</span>}
                     </div>
 
@@ -536,7 +565,7 @@ export function ActivityAppsRanking({ timeline }: Props) {
                 <div>
                   <h3 className="font-bold text-base text-foreground">Gestión de Categorías de Software</h3>
                   <p className="text-xs text-muted-foreground">
-                    Asigne las aplicaciones detectadas a las categorías preconfiguradas del taller
+                    Asigne a qué categoría oficial del taller pertenece cada software o herramienta
                   </p>
                 </div>
               </div>
