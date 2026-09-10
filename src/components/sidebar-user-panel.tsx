@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Camera, Lock, Eye, EyeOff, Check, X, ChevronUp, Circle, LogOut, Activity as ActivityIcon, FileText, ChevronRight, X as XIcon, RefreshCw, Wrench, Coffee, Timer, BarChart3, Package, LayoutDashboard, ClipboardList, Sparkles, UserPlus, Briefcase, GraduationCap, Users, Utensils } from "lucide-react";
+import { Camera, Lock, Eye, EyeOff, Check, X, ChevronUp, Circle, LogOut, Activity as ActivityIcon, FileText, ChevronRight, X as XIcon, RefreshCw, Wrench, Coffee, Timer, BarChart3, Package, LayoutDashboard, ClipboardList, Sparkles, UserPlus, Briefcase, GraduationCap, Users, Utensils, Sandwich, Bath } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -57,8 +57,8 @@ const TAREAS_GROUPED = [
   {
     group: "Personal",
     items: [
-      { label: "Tiempo de Descanso", short: "Descanso", category: "Tiempo de descanso", icon: Coffee },
-      { label: "Ir al Baño", short: "Pausa (Baño)", category: "Pausa personal", icon: Coffee },
+      { label: "Tiempo de Descanso", short: "Descanso", category: "Tiempo de descanso", icon: Sandwich },
+      { label: "Ir al Baño", short: "Pausa (Baño)", category: "Pausa personal", icon: Bath },
       { label: "Reunión", short: "Reunión", category: "Reunión interna", icon: Users },
       { label: "Capacitacion de Personal", short: "Capacitar (Interno)", category: "Capacitación", icon: GraduationCap },
     ]
@@ -102,7 +102,15 @@ export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; online
   const [syncing, setSyncing] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [elapsed, setElapsed] = useState("");
-  const [manualTask, setManualTask] = useState<{ type: string; label: string; start: number } | null>(null);
+  const [manualTask, setManualTask] = useState<{ type: string; label: string; start: number } | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const saved = localStorage.getItem("sekunet_manual_task");
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
   const [manualElapsed, setManualElapsed] = useState("");
 
   useEffect(() => {
@@ -122,13 +130,10 @@ export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; online
     return () => { clearInterval(interval); };
   }, [tab, open, agent.email]);
 
-  // Ticker separado: solo actualiza los textos "hace Xs". Va aparte del fetch
-  // porque antes compartían efecto y setLastUpdate se re-disparaba a sí mismo,
-  // provocando un bucle infinito de llamadas a /api/activity/timeline.
+  // Ticker separado: actualiza los textos "hace Xs" y el contador de la tarea manual activa
   useEffect(() => {
-    if (tab !== "activity" || !open) return;
     const ticker = setInterval(() => {
-      if (lastUpdate) {
+      if (lastUpdate && (tab === "activity" && open)) {
         const sec = Math.floor((Date.now() - lastUpdate.getTime()) / 1000);
         if (sec < 60) setElapsed(`hace ${sec}s`);
         else if (sec < 3600) setElapsed(`hace ${Math.floor(sec / 60)}m`);
@@ -148,7 +153,11 @@ export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; online
 
   const startManualTask = (type: string, label: string) => {
     if (manualTask) return;
-    setManualTask({ type, label, start: Date.now() });
+    const taskObj = { type, label, start: Date.now() };
+    setManualTask(taskObj);
+    try {
+      localStorage.setItem("sekunet_manual_task", JSON.stringify(taskObj));
+    } catch {}
     logActivity({
       agent_email: agent.email,
       agent_name: fullName,
@@ -173,6 +182,9 @@ export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; online
     });
     setManualTask(null);
     setManualElapsed("");
+    try {
+      localStorage.removeItem("sekunet_manual_task");
+    } catch {}
     fetchActivity();
   };
 
