@@ -1,6 +1,6 @@
-"use client";
+﻿"use client";
 
-import React from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   Monitor,
   Phone,
@@ -11,7 +11,16 @@ import {
   Globe,
   Youtube,
   ShieldCheck,
-  TrendingUp,
+  FolderOpen,
+  Wrench,
+  Clock,
+  SlidersHorizontal,
+  Check,
+  RotateCcw,
+  Search,
+  X,
+  ChevronDown,
+  Sparkles,
 } from "lucide-react";
 
 interface TimelineItem {
@@ -26,6 +35,25 @@ interface Props {
   timeline: TimelineItem[];
 }
 
+export const WORKSHOP_CATEGORIES = [
+  { id: "Investigación y desarrollo", label: "Investigación y desarrollo", icon: Code, color: "text-cyan-400 border-cyan-500/30 bg-cyan-500/15", bgBar: "bg-cyan-500" },
+  { id: "Mensajería", label: "Mensajería", icon: MessageSquare, color: "text-emerald-400 border-emerald-500/30 bg-emerald-500/15", bgBar: "bg-emerald-500" },
+  { id: "Atención de tickets", label: "Atención de tickets", icon: FolderOpen, color: "text-blue-400 border-blue-500/30 bg-blue-500/15", bgBar: "bg-blue-500" },
+  { id: "Trámites de garantías", label: "Trámites de garantías", icon: ShieldCheck, color: "text-purple-400 border-purple-500/30 bg-purple-500/15", bgBar: "bg-purple-500" },
+  { id: "Gestión de correos", label: "Gestión de correos", icon: Mail, color: "text-yellow-400 border-yellow-500/30 bg-yellow-500/15", bgBar: "bg-yellow-500" },
+  { id: "Atención telefónica", label: "Atención telefónica", icon: Phone, color: "text-orange-400 border-orange-500/30 bg-orange-500/15", bgBar: "bg-orange-500" },
+  { id: "Soporte técnico", label: "Soporte técnico", icon: Wrench, color: "text-amber-400 border-amber-500/30 bg-amber-500/15", bgBar: "bg-amber-500" },
+  { id: "Navegación", label: "Navegación", icon: Globe, color: "text-sky-400 border-sky-500/30 bg-sky-500/15", bgBar: "bg-sky-500" },
+  { id: "Inactividad", label: "Inactividad", icon: Clock, color: "text-zinc-400 border-zinc-500/30 bg-zinc-500/15", bgBar: "bg-zinc-500" },
+  { id: "Actividad general", label: "Actividad general", icon: Monitor, color: "text-slate-400 border-slate-500/30 bg-slate-500/15", bgBar: "bg-slate-500" },
+];
+
+export function getCategoryUI(catName: string) {
+  const found = WORKSHOP_CATEGORIES.find((c) => c.id === catName);
+  if (found) return found;
+  return WORKSHOP_CATEGORIES[WORKSHOP_CATEGORIES.length - 1];
+}
+
 function getAppIcon(appName: string) {
   const name = appName.toLowerCase();
   if (name.includes("whatsapp")) return <MessageSquare className="h-4 w-4 text-emerald-400" />;
@@ -35,7 +63,7 @@ function getAppIcon(appName: string) {
     return <Mail className="h-4 w-4 text-blue-400" />;
   if (name.includes("excel") || name.includes("word") || name.includes("office"))
     return <FileText className="h-4 w-4 text-indigo-400" />;
-  if (name.includes("code") || name.includes("terminal") || name.includes("powershell"))
+  if (name.includes("antigravity") || name.includes("code") || name.includes("terminal") || name.includes("powershell") || name.includes("cursor"))
     return <Code className="h-4 w-4 text-cyan-400" />;
   if (name.includes("youtube") || name.includes("spotify") || name.includes("netflix"))
     return <Youtube className="h-4 w-4 text-rose-400" />;
@@ -82,55 +110,91 @@ export function extractSmartAppName(item: TimelineItem): string {
   return "Seka Chat - Plataforma";
 }
 
-export function getProductivityType(appName: string): { label: string; color: string } {
-  const name = appName.toLowerCase();
+export function getDefaultCategoryForApp(appName: string, action: string = "", category: string = ""): string {
+  const name = (appName || "").toLowerCase();
+  const act = (action || "").toLowerCase();
+  const cat = (category || "").toLowerCase();
 
-  // 1. Distracción / No Laboral
   if (
-    name.includes("youtube") ||
-    name.includes("spotify") ||
-    name.includes("facebook") ||
-    name.includes("instagram") ||
-    name.includes("tiktok") ||
-    name.includes("juegos") ||
-    name.includes("steam") ||
-    name.includes("netflix")
+    name.includes("antigravity") ||
+    name.includes("code") ||
+    name.includes("cursor") ||
+    name.includes("terminal") ||
+    name.includes("windsurf") ||
+    name.includes("devin") ||
+    name.includes("powershell") ||
+    name.includes("cmd") ||
+    name.includes("gemini") ||
+    name.includes("github") ||
+    cat.includes("desarrollo")
   ) {
-    return { label: "No Laboral", color: "bg-rose-500/15 text-rose-400 border-rose-500/30" };
+    return "Investigación y desarrollo";
   }
-
-  // 2. Taller / Soporte Presencial
   if (
+    name.includes("whatsapp") ||
+    name.includes("seka chat") ||
+    name.includes("chat") ||
+    cat.includes("mensajería") ||
+    cat.includes("chat")
+  ) {
+    return "Mensajería";
+  }
+  if (name.includes("odoo") || name.includes("ticket") || cat.includes("ticket")) {
+    return "Atención de tickets";
+  }
+  if (
+    name.includes("tienda 3d") ||
+    name.includes("tienda3d") ||
+    name.includes("garant") ||
+    name.includes("rma") ||
+    cat.includes("garant")
+  ) {
+    return "Trámites de garantías";
+  }
+  if (name.includes("outlook") || name.includes("mail") || name.includes("correo") || cat.includes("correo")) {
+    return "Gestión de correos";
+  }
+  if (name.includes("linkus") || name.includes("phone") || name.includes("llamada") || cat.includes("llamada") || cat.includes("telefón")) {
+    return "Atención telefónica";
+  }
+  if (
+    name.includes("ivms") ||
+    name.includes("sadp") ||
+    name.includes("winbox") ||
+    name.includes("mikrotik") ||
+    name.includes("unifi") ||
+    name.includes("recorte") ||
+    name.includes("snipping") ||
+    name.includes("taller") ||
     name.includes("bodega") ||
+    name.includes("mostrador") ||
     name.includes("diagnóstico") ||
     name.includes("diagnostico") ||
-    name.includes("ventanilla") ||
-    name.includes("mostrador") ||
-    name.includes("taller") ||
-    name.includes("limpieza") ||
-    name.includes("física") ||
-    name.includes("fisica") ||
-    name.includes("justificación") ||
-    name.includes("justificacion")
-  ) {
-    return { label: "Taller Físico", color: "bg-amber-500/15 text-amber-400 border-amber-500/30" };
-  }
-
-  // 3. Administrativa
-  if (
-    name.includes("administra") ||
-    name.includes("admin") ||
+    name.includes("excel") ||
+    name.includes("word") ||
+    name.includes("office") ||
+    name.includes("auditor") ||
     name.includes("inventario") ||
-    name.includes("equipo") ||
-    name.includes("manuales") ||
-    name.includes("configura") ||
-    name.includes("auditor")
+    cat.includes("soporte") ||
+    cat.includes("manual")
   ) {
-    return { label: "Administrativa", color: "bg-violet-500/15 text-violet-400 border-violet-500/30" };
+    return "Soporte técnico";
   }
+  if (name.includes("inactiv") || name.includes("bloque") || name.includes("pausa") || cat.includes("inactiv") || cat.includes("pausa")) {
+    return "Inactividad";
+  }
+  return "Navegación";
+}
 
-  // 4. Operativa / Productiva
-  return { label: "Operativa", color: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" };
+// Compatibilidad hacia atrás si otros archivos lo llaman
+export function getProductivityType(appName: string): { label: string; color: string } {
+  const cat = getDefaultCategoryForApp(appName);
+  const ui = getCategoryUI(cat);
+  return { label: ui.label, color: ui.color };
+}
+
+export function normalizeOfficialCategory(category: string, action: string, appName: string): string {
+  return getDefaultCategoryForApp(appName, action, category);
 }
 
 function formatDuration(ms: number): string {
@@ -143,89 +207,128 @@ function formatDuration(ms: number): string {
   return `${minutes}m`;
 }
 
-export function normalizeOfficialCategory(category: string, action: string, appName: string): string {
-  const cat = (category || "").toLowerCase();
-  const act = (action || "").toLowerCase();
-  const app = (appName || "").toLowerCase();
-
-  if (app.includes("youtube") || app.includes("spotify") || cat.includes("entreteni") || act.includes("youtube")) return "Entretenimiento";
-  if (app.includes("linkus") || app.includes("phone") || cat.includes("llamada") || act.includes("llamada")) return "Atención por llamada";
-  if (app.includes("outlook") || app.includes("mail") || app.includes("correo") || cat.includes("correo")) return "Gestión de Correos";
-  if (cat.includes("ticket") || act.includes("ticket")) return "Atención de Tickets";
-  if (cat.includes("garant") || act.includes("garant") || app.includes("garant")) return "Gestión de Garantías";
-  if (cat.includes("devolucion") || act.includes("devolucion") || app.includes("devolucion")) return "Devoluciones";
-  if (cat.includes("chat") || act.includes("chat") || app.includes("whatsapp")) return "Atención chat";
-  if (cat.includes("soporte") || act.includes("soporte") || app.includes("anydesk") || app.includes("teamviewer")) return "Soporte técnico";
-  if (cat.includes("redes") || act.includes("mantenimiento")) return "Mantenimiento de redes";
-  if (cat.includes("proceso") || act.includes("desarrollo") || app.includes("code") || app.includes("cursor")) return "Optimización de procesos";
-  if (cat.includes("admin") || act.includes("admin") || app.includes("excel") || app.includes("inventario")) return "Control administrativo";
-  if (cat.includes("capacita") || act.includes("capacita")) return "Capacitación personal";
-  
-  // Fallback
-  return "Actividad general";
-}
-
-const CATEGORY_UI: Record<string, { icon: React.ReactNode; color: string; bgBar: string }> = {
-  "Entretenimiento": { icon: <Youtube className="h-4 w-4" />, color: "text-rose-400 border-rose-500/30 bg-rose-500/15", bgBar: "bg-rose-500" },
-  "Atención por llamada": { icon: <Phone className="h-4 w-4" />, color: "text-orange-400 border-orange-500/30 bg-orange-500/15", bgBar: "bg-orange-500" },
-  "Gestión de Correos": { icon: <Mail className="h-4 w-4" />, color: "text-blue-400 border-blue-500/30 bg-blue-500/15", bgBar: "bg-blue-500" },
-  "Atención de Tickets": { icon: <FileText className="h-4 w-4" />, color: "text-indigo-400 border-indigo-500/30 bg-indigo-500/15", bgBar: "bg-indigo-500" },
-  "Gestión de Garantías": { icon: <ShieldCheck className="h-4 w-4" />, color: "text-amber-400 border-amber-500/30 bg-amber-500/15", bgBar: "bg-amber-500" },
-  "Devoluciones": { icon: <ShieldCheck className="h-4 w-4" />, color: "text-yellow-400 border-yellow-500/30 bg-yellow-500/15", bgBar: "bg-yellow-500" },
-  "Atención chat": { icon: <MessageSquare className="h-4 w-4" />, color: "text-emerald-400 border-emerald-500/30 bg-emerald-500/15", bgBar: "bg-emerald-500" },
-  "Soporte técnico": { icon: <Monitor className="h-4 w-4" />, color: "text-cyan-400 border-cyan-500/30 bg-cyan-500/15", bgBar: "bg-cyan-500" },
-  "Mantenimiento de redes": { icon: <Globe className="h-4 w-4" />, color: "text-sky-400 border-sky-500/30 bg-sky-500/15", bgBar: "bg-sky-500" },
-  "Optimización de procesos": { icon: <Code className="h-4 w-4" />, color: "text-violet-400 border-violet-500/30 bg-violet-500/15", bgBar: "bg-violet-500" },
-  "Control administrativo": { icon: <TrendingUp className="h-4 w-4" />, color: "text-fuchsia-400 border-fuchsia-500/30 bg-fuchsia-500/15", bgBar: "bg-fuchsia-500" },
-  "Capacitación personal": { icon: <Monitor className="h-4 w-4" />, color: "text-teal-400 border-teal-500/30 bg-teal-500/15", bgBar: "bg-teal-500" },
-  "Actividad general": { icon: <Monitor className="h-4 w-4" />, color: "text-slate-400 border-slate-500/30 bg-slate-500/15", bgBar: "bg-slate-500" }
-};
-
 export function ActivityAppsRanking({ timeline }: Props) {
-  const [viewMode, setViewMode] = React.useState<"categories" | "apps">("categories");
+  const [viewMode, setViewMode] = useState<"categories" | "apps">("categories");
+  const [customCategories, setCustomCategories] = useState<Record<string, string>>({});
+  const [activeDropdownApp, setActiveDropdownApp] = useState<string | null>(null);
+  const [showManageModal, setShowManageModal] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [savingApp, setSavingApp] = useState<string | null>(null);
+
+  // Cargar categorías guardadas en localStorage y en el servidor
+  useEffect(() => {
+    try {
+      const local = localStorage.getItem("sek_app_categories");
+      if (local) {
+        setCustomCategories(JSON.parse(local));
+      }
+    } catch {}
+
+    fetch("/api/activity/app-categories")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.categories) {
+          setCustomCategories(data.categories);
+          try {
+            localStorage.setItem("sek_app_categories", JSON.stringify(data.categories));
+          } catch {}
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Función para asignar categoría a una aplicación
+  const handleSetCategory = async (appName: string, category: string | null) => {
+    setSavingApp(appName);
+    const newMap = { ...customCategories };
+    if (!category || category === "auto") {
+      delete newMap[appName];
+    } else {
+      newMap[appName] = category;
+    }
+
+    setCustomCategories(newMap);
+    try {
+      localStorage.setItem("sek_app_categories", JSON.stringify(newMap));
+    } catch {}
+    setActiveDropdownApp(null);
+
+    try {
+      await fetch("/api/activity/app-categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ appName, category: category || "auto" }),
+      });
+    } catch (err) {
+      console.error("Error al guardar categoría de app:", err);
+    } finally {
+      setSavingApp(null);
+    }
+  };
 
   // Consolidar tiempo por app/categoría usando intervalos cronológicos reales
-  const appMap: Record<string, { durationMs: number; count: number }> = {};
-  const catMap: Record<string, { durationMs: number; count: number }> = {};
-  let totalActiveTime = 0;
+  const { appMap, catMap, totalActiveTime, allDetectedApps } = useMemo(() => {
+    const appM: Record<string, { durationMs: number; count: number }> = {};
+    const catM: Record<string, { durationMs: number; count: number }> = {};
+    const allAppsSet = new Set<string>();
+    let totalTime = 0;
 
-  if (timeline && timeline.length > 0) {
-    const sorted = [...timeline]
-      .filter((t) => Boolean(t.created_at))
-      .sort((a, b) => new Date(a.created_at!).getTime() - new Date(b.created_at!).getTime());
+    if (timeline && timeline.length > 0) {
+      const sorted = [...timeline]
+        .filter((t) => Boolean(t.created_at))
+        .sort((a, b) => new Date(a.created_at!).getTime() - new Date(b.created_at!).getTime());
 
-    const LUNCH_GAP_MS = 30 * 60 * 1000;
+      const LUNCH_GAP_MS = 30 * 60 * 1000;
 
-    for (let i = 0; i < sorted.length; i++) {
-      const curr = sorted[i];
-      const meta = (curr.metadata || {}) as Record<string, any>;
-      const isExplicitPause = meta.reason === "lock_screen" || meta.reason === "suspend" || curr.category === "Pausa personal";
-      if (isExplicitPause) continue;
+      for (let i = 0; i < sorted.length; i++) {
+        const curr = sorted[i];
+        const meta = (curr.metadata || {}) as Record<string, any>;
+        const isExplicitPause =
+          meta.reason === "lock_screen" || meta.reason === "suspend" || curr.category === "Pausa personal";
+        if (isExplicitPause) continue;
 
-      const currTime = new Date(curr.created_at!).getTime();
-      const nextTime = i < sorted.length - 1 ? new Date(sorted[i + 1].created_at!).getTime() : currTime + 60000;
-      const gap = Math.max(0, nextTime - currTime);
-      const effectiveDuration = Math.min(gap, LUNCH_GAP_MS);
+        const currTime = new Date(curr.created_at!).getTime();
+        const nextTime = i < sorted.length - 1 ? new Date(sorted[i + 1].created_at!).getTime() : currTime + 60000;
+        const gap = Math.max(0, nextTime - currTime);
+        const effectiveDuration = Math.min(gap, LUNCH_GAP_MS);
 
-      const appName = extractSmartAppName(curr);
-      const officialCat = normalizeOfficialCategory(curr.category, curr.action, appName);
+        const appName = extractSmartAppName(curr);
+        allAppsSet.add(appName);
 
-      if (!appMap[appName]) appMap[appName] = { durationMs: 0, count: 0 };
-      appMap[appName].durationMs += effectiveDuration;
-      appMap[appName].count++;
+        // La categoría oficial respeta la elección manual del usuario o usa el predeterminado
+        const effectiveCat = customCategories[appName] || getDefaultCategoryForApp(appName, curr.action, curr.category);
 
-      if (!catMap[officialCat]) catMap[officialCat] = { durationMs: 0, count: 0 };
-      catMap[officialCat].durationMs += effectiveDuration;
-      catMap[officialCat].count++;
+        if (!appM[appName]) appM[appName] = { durationMs: 0, count: 0 };
+        appM[appName].durationMs += effectiveDuration;
+        appM[appName].count++;
 
-      totalActiveTime += effectiveDuration;
+        if (!catM[effectiveCat]) catM[effectiveCat] = { durationMs: 0, count: 0 };
+        catM[effectiveCat].durationMs += effectiveDuration;
+        catM[effectiveCat].count++;
+
+        totalTime += effectiveDuration;
+      }
     }
-  }
+
+    return {
+      appMap: appM,
+      catMap: catM,
+      totalActiveTime: totalTime,
+      allDetectedApps: Array.from(allAppsSet),
+    };
+  }, [timeline, customCategories]);
 
   const activeMap = viewMode === "categories" ? catMap : appMap;
   const sortedItems = Object.entries(activeMap)
     .sort((a, b) => b[1].durationMs - a[1].durationMs)
     .slice(0, 10);
+
+  // Lista de apps para el modal de gestión
+  const filteredModalApps = useMemo(() => {
+    const combined = Array.from(new Set([...allDetectedApps, ...Object.keys(customCategories)])).sort();
+    if (!searchQuery.trim()) return combined;
+    return combined.filter((app) => app.toLowerCase().includes(searchQuery.toLowerCase()));
+  }, [allDetectedApps, customCategories, searchQuery]);
 
   if (sortedItems.length === 0) {
     return (
@@ -236,16 +339,34 @@ export function ActivityAppsRanking({ timeline }: Props) {
   }
 
   return (
-    <div className="p-5 rounded-2xl bg-card border border-border/70 shadow-sm space-y-4">
-      <div className="flex items-center justify-between">
+    <div className="p-5 rounded-2xl bg-card border border-border/70 shadow-sm space-y-4 relative">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Monitor className="h-4 w-4 text-violet-500" />
           <h3 className="font-bold text-sm text-foreground">Distribución de Tiempo</h3>
         </div>
-        <div className="flex items-center gap-3">
+
+        <div className="flex items-center gap-2">
+          {/* Botón Gestionar Categorías */}
+          <button
+            onClick={() => setShowManageModal(true)}
+            className="px-2.5 py-1 text-[11px] font-bold rounded-lg border border-border/60 bg-muted/30 hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-all flex items-center gap-1.5 shadow-sm"
+            title="Administrar categorías de software preconfiguradas"
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5 text-violet-400" />
+            <span>Gestionar</span>
+            {Object.keys(customCategories).length > 0 && (
+              <span className="h-1.5 w-1.5 rounded-full bg-violet-400" />
+            )}
+          </button>
+
+          {/* Selector de Vista: Por Categoría / Por Software */}
           <div className="flex bg-muted/50 p-1 rounded-lg border border-border/50">
             <button
-              onClick={() => setViewMode("categories")}
+              onClick={() => {
+                setViewMode("categories");
+                setActiveDropdownApp(null);
+              }}
               className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${
                 viewMode === "categories" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
               }`}
@@ -253,7 +374,10 @@ export function ActivityAppsRanking({ timeline }: Props) {
               Por Categoría
             </button>
             <button
-              onClick={() => setViewMode("apps")}
+              onClick={() => {
+                setViewMode("apps");
+                setActiveDropdownApp(null);
+              }}
               className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${
                 viewMode === "apps" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
               }`}
@@ -261,6 +385,7 @@ export function ActivityAppsRanking({ timeline }: Props) {
               Por Software
             </button>
           </div>
+
           <span className="text-xs text-muted-foreground font-medium hidden sm:inline-block">
             Total: {formatDuration(totalActiveTime)}
           </span>
@@ -270,32 +395,94 @@ export function ActivityAppsRanking({ timeline }: Props) {
       <div className="space-y-2.5">
         {sortedItems.map(([itemName, stats], index) => {
           const percentage = totalActiveTime > 0 ? Math.round((stats.durationMs / totalActiveTime) * 100) : 0;
-          
+
           let icon, labelNode, barClass;
           if (viewMode === "categories") {
-            const ui = CATEGORY_UI[itemName] || CATEGORY_UI["Actividad general"];
-            icon = <div className={ui.color.split(" ")[0]}>{ui.icon}</div>;
+            const ui = getCategoryUI(itemName);
+            const IconComp = ui.icon;
+            icon = <div className={ui.color.split(" ")[0]}><IconComp className="h-4 w-4" /></div>;
             labelNode = (
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${ui.color}`}>
-                Categoría Oficial
+              <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${ui.color}`}>
+                {ui.label}
               </span>
             );
             barClass = ui.bgBar;
           } else {
-            const prod = getProductivityType(itemName);
+            // Modo Por Software: muestra la categoría asignada
+            const isManual = Boolean(customCategories[itemName]);
+            const currentCat = customCategories[itemName] || getDefaultCategoryForApp(itemName);
+            const ui = getCategoryUI(currentCat);
             icon = getAppIcon(itemName);
+            barClass = ui.bgBar;
+
             labelNode = (
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${prod.color}`}>
-                {prod.label}
-              </span>
+              <div className="relative inline-block">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setActiveDropdownApp(activeDropdownApp === itemName ? null : itemName);
+                  }}
+                  className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border flex items-center gap-1 transition-all hover:scale-105 ${ui.color} ${
+                    isManual ? "ring-1 ring-violet-500/40" : ""
+                  }`}
+                  title={isManual ? "Categoría personalizada manualmente (clic para cambiar)" : "Categoría preconfigurada (clic para cambiar)"}
+                >
+                  {isManual && <span className="text-[9px] font-black mr-0.5">●</span>}
+                  <span>{ui.label}</span>
+                  <ChevronDown className="h-2.5 w-2.5 opacity-60 ml-0.5" />
+                </button>
+
+                {/* Dropdown flotante para escoger categoría con 1 clic */}
+                {activeDropdownApp === itemName && (
+                  <div
+                    className="absolute right-0 top-full mt-1.5 w-56 rounded-xl bg-card border border-border shadow-2xl p-1.5 z-50 space-y-0.5 animate-in fade-in zoom-in-95 duration-100"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="px-2 py-1 text-[9px] font-black uppercase tracking-wider text-muted-foreground border-b border-border/50 mb-1 flex items-center justify-between">
+                      <span>Categorías del Taller</span>
+                      {savingApp === itemName && <span className="text-violet-400 font-bold">Guardando...</span>}
+                    </div>
+
+                    {WORKSHOP_CATEGORIES.map((cat) => {
+                      const isSelected = currentCat === cat.id;
+                      const CatIcon = cat.icon;
+                      return (
+                        <button
+                          key={cat.id}
+                          type="button"
+                          onClick={() => handleSetCategory(itemName, cat.id)}
+                          className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center justify-between transition-colors ${
+                            isSelected
+                              ? "bg-violet-500/15 text-violet-300 font-bold"
+                              : "hover:bg-muted/60 text-foreground"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <CatIcon className="h-3.5 w-3.5 opacity-80" />
+                            <span className="text-[11px]">{cat.label}</span>
+                          </div>
+                          {isSelected && <Check className="h-3.5 w-3.5 text-violet-400" />}
+                        </button>
+                      );
+                    })}
+
+                    {isManual && (
+                      <div className="pt-1 mt-1 border-t border-border/50">
+                        <button
+                          type="button"
+                          onClick={() => handleSetCategory(itemName, null)}
+                          className="w-full text-left px-2.5 py-1.5 rounded-lg text-[11px] font-medium text-amber-400 hover:bg-amber-500/10 flex items-center gap-2 transition-colors"
+                        >
+                          <RotateCcw className="h-3 w-3" />
+                          <span>Restablecer a Automático</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             );
-            barClass = prod.label === "No Laboral"
-              ? "bg-rose-500"
-              : prod.label === "Operativa"
-              ? "bg-emerald-500"
-              : prod.label === "Taller Físico"
-              ? "bg-amber-500"
-              : "bg-violet-500";
           }
 
           return (
@@ -324,7 +511,7 @@ export function ActivityAppsRanking({ timeline }: Props) {
                 </div>
               </div>
 
-              {/* Progress bar */}
+              {/* Barra de progreso */}
               <div className="h-1.5 w-full rounded-full bg-muted/60 overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all ${barClass}`}
@@ -335,6 +522,142 @@ export function ActivityAppsRanking({ timeline }: Props) {
           );
         })}
       </div>
+
+      {/* MODAL DE GESTIÓN GLOBAL DE CATEGORÍAS */}
+      {showManageModal && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div
+            className="w-full max-w-xl rounded-2xl bg-card border border-border shadow-2xl p-6 space-y-4 max-h-[85vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-border/50 pb-3">
+              <div className="flex items-center gap-2">
+                <SlidersHorizontal className="h-5 w-5 text-violet-400" />
+                <div>
+                  <h3 className="font-bold text-base text-foreground">Gestión de Categorías de Software</h3>
+                  <p className="text-xs text-muted-foreground">
+                    Asigne las aplicaciones detectadas a las categorías preconfiguradas del taller
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowManageModal(false)}
+                className="p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Buscador */}
+            <div className="relative">
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Buscar software o aplicación..."
+                className="w-full pl-9 pr-4 py-2 text-xs rounded-xl bg-muted/40 border border-border focus:outline-none focus:ring-2 focus:ring-violet-500 text-foreground placeholder:text-muted-foreground"
+              />
+            </div>
+
+            {/* Lista de Software */}
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1 min-h-[250px]">
+              {filteredModalApps.length === 0 ? (
+                <div className="p-8 text-center text-xs text-muted-foreground">
+                  No se encontraron aplicaciones que coincidan con la búsqueda.
+                </div>
+              ) : (
+                filteredModalApps.map((appName) => {
+                  const isManual = Boolean(customCategories[appName]);
+                  const currentCat = customCategories[appName] || getDefaultCategoryForApp(appName);
+                  const icon = getAppIcon(appName);
+
+                  return (
+                    <div
+                      key={appName}
+                      className="p-2.5 rounded-xl bg-muted/20 border border-border/50 flex items-center justify-between gap-3 hover:bg-muted/30 transition-colors"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        {icon}
+                        <div className="min-w-0">
+                          <p className="font-bold text-xs text-foreground truncate" title={appName}>
+                            {appName}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground">
+                            {isManual ? (
+                              <span className="text-violet-400 font-semibold">● Personalizada manualmente</span>
+                            ) : (
+                              "Asignación automática"
+                            )}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        <select
+                          value={currentCat}
+                          onChange={(e) => handleSetCategory(appName, e.target.value)}
+                          className="text-xs font-bold px-2.5 py-1.5 rounded-lg bg-card border border-border focus:outline-none focus:ring-2 focus:ring-violet-500 text-foreground cursor-pointer"
+                        >
+                          {WORKSHOP_CATEGORIES.map((cat) => (
+                            <option key={cat.id} value={cat.id}>
+                              {cat.label}
+                            </option>
+                          ))}
+                        </select>
+
+                        {isManual && (
+                          <button
+                            onClick={() => handleSetCategory(appName, null)}
+                            title="Restablecer a automático"
+                            className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-amber-400 transition-colors"
+                          >
+                            <RotateCcw className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Footer con resumen y acciones */}
+            <div className="border-t border-border/50 pt-3 flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">
+                {Object.keys(customCategories).length} aplicación(es) con categoría personalizada
+              </span>
+
+              <div className="flex items-center gap-2">
+                {Object.keys(customCategories).length > 0 && (
+                  <button
+                    onClick={() => {
+                      setCustomCategories({});
+                      try {
+                        localStorage.removeItem("sek_app_categories");
+                      } catch {}
+                      fetch("/api/activity/app-categories", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ fullMap: {} }),
+                      });
+                    }}
+                    className="px-3 py-1.5 text-xs font-semibold rounded-lg text-amber-400 hover:bg-amber-500/10 transition-colors"
+                  >
+                    Restablecer todas
+                  </button>
+                )}
+                <button
+                  onClick={() => setShowManageModal(false)}
+                  className="px-4 py-1.5 text-xs font-bold rounded-lg bg-violet-600 hover:bg-violet-700 text-white transition-colors"
+                >
+                  Listo
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
