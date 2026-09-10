@@ -136,6 +136,25 @@ function formatExecutiveDisplay(rawAction: string, category: string, meta: Recor
   const titleLower = cleanTitle.toLowerCase();
   const appLower = (meta.app || meta.app_name || "").toLowerCase();
 
+  // 1. Entornos de desarrollo, programación y herramientas técnicas (Antigravity, Cursor, VS Code, Terminal, Devin)
+  const isDevTool =
+    appLower.includes("antigravity") ||
+    appLower.includes("cursor") ||
+    appLower.includes("windsurf") ||
+    appLower.includes("code") ||
+    appLower.includes("devin") ||
+    appLower.includes("visual studio") ||
+    appLower.includes("terminal") ||
+    category === "Investigación y desarrollo" ||
+    lower.includes("antigravity");
+
+  if (isDevTool) {
+    return {
+      title: "Optimización, programación y desarrollo de software y sistemas técnicos",
+      subtitle: cleanTitle ? `${meta.app || "Entorno de desarrollo"}: ${cleanTitle}` : "Herramientas de ingeniería y desarrollo",
+    };
+  }
+
   // 2. Videovigilancia y CCTV (iVMS-4200, SADP, Hik-Partner)
   if (lower.includes("ivms") || titleLower.includes("ivms") || appLower.includes("ivms") || lower.includes("sadp") || lower.includes("hik-partner")) {
     return {
@@ -177,7 +196,7 @@ function formatExecutiveDisplay(rawAction: string, category: string, meta: Recor
       subtitle: cleanTitle ? `Contacto / Chat: ${cleanTitle}` : "Canal de mensajería",
     };
   }
-  if (lower.includes("seka chat") || lower.includes("chat sekunet") || appLower.includes("seka") || lower.includes("evolution")) {
+  if (lower.includes("seka chat") || lower.includes("chat sekunet") || appLower.includes("seka") || lower.includes("evolution api") || lower.includes("evolution-api")) {
     return {
       title: "Atención al cliente y soporte técnico mediante plataforma Sekunet Chat",
       subtitle: cleanTitle || "Gestión de mensajería omnicanal de soporte",
@@ -219,24 +238,6 @@ function formatExecutiveDisplay(rawAction: string, category: string, meta: Recor
     return {
       title: "Redacción, revisión y edición de informes técnicos y documentación en Microsoft Word",
       subtitle: cleanTitle ? `Documento: ${cleanTitle}` : "Elaboración de informe técnico",
-    };
-  }
-
-  // 11. Entornos de desarrollo, programación y herramientas técnicas (Antigravity, Cursor, VS Code, Terminal, Devin)
-  if (
-    lower.includes("antigravity") ||
-    lower.includes("code") ||
-    lower.includes("cursor") ||
-    lower.includes("windsurf") ||
-    lower.includes("devin") ||
-    lower.includes("visual studio") ||
-    appLower.includes("antigravity") ||
-    appLower.includes("code") ||
-    category === "Investigación y desarrollo"
-  ) {
-    return {
-      title: "Optimización, programación y desarrollo de software y sistemas técnicos",
-      subtitle: cleanTitle || "Herramientas de ingeniería y desarrollo",
     };
   }
 
@@ -307,16 +308,34 @@ function buildConsolidatedNarrative(items: TimelineEntry[]): string {
 
   for (const item of items) {
     const meta = (item.metadata || {}) as Record<string, any>;
-    const raw = `${item.action || ""} ${meta.title || ""} ${meta.app || ""}`.toLowerCase();
+    const app = (meta.app || meta.app_name || "").toLowerCase();
+    const action = (item.action || "").toLowerCase();
+    const title = (meta.title || meta.context || "").toLowerCase();
+    const raw = `${action} ${title} ${app}`;
+
+    // Entornos de desarrollo y programación tienen máxima prioridad
+    const isDevItem =
+      app.includes("antigravity") ||
+      app.includes("cursor") ||
+      app.includes("windsurf") ||
+      app.includes("code") ||
+      app.includes("devin") ||
+      app.includes("visual studio") ||
+      raw.includes("antigravity") ||
+      item.category === "Investigación y desarrollo";
+
+    if (isDevItem) {
+      hasDev = true;
+      continue;
+    }
 
     if (raw.includes("ivms") || raw.includes("sadp") || raw.includes("hik") || raw.includes("cctv")) hasCctv = true;
     else if (raw.includes("recorte") || raw.includes("snipping")) hasRecortes = true;
     else if (raw.includes("whatsapp")) hasWhatsapp = true;
-    else if (raw.includes("seka chat") || raw.includes("chat sekunet") || raw.includes("evolution")) hasSekaChat = true;
+    else if (raw.includes("seka chat") || raw.includes("chat sekunet") || raw.includes("evolution api") || raw.includes("evolution-api")) hasSekaChat = true;
     else if (raw.includes("odoo")) hasOdoo = true;
     else if (raw.includes("nextime") || raw.includes("biotime") || raw.includes("asistencia")) hasAttendance = true;
     else if (raw.includes("winbox") || raw.includes("mikrotik") || raw.includes("unifi")) hasNetworks = true;
-    else if (raw.includes("antigravity") || raw.includes("cursor") || raw.includes("code") || raw.includes("devin")) hasDev = true;
     else if (raw.includes("excel") || raw.includes("word") || raw.includes(".docx") || raw.includes(".xlsx")) hasOffice = true;
     else if (item.category === "Inactividad" || raw.includes("sin actividad") || raw.includes("bloqueada") || raw.includes("pausa")) hasPause = true;
   }
@@ -417,12 +436,23 @@ function consolidateTimelineByBlocks(entries: TimelineEntry[], intervalMinutes: 
     let totalDur = 0;
 
     for (const it of items) {
-      const cat = it.category || "Operación Sekunet";
-      catCounts[cat] = (catCounts[cat] || 0) + 1;
       const meta = (it.metadata || {}) as Record<string, any>;
       const app = meta.app_name || meta.label || meta.app || "";
       if (app && app !== "Unknown") apps.add(app);
       if (it.duration_ms) totalDur += it.duration_ms;
+
+      let cat = it.category || "Operación Sekunet";
+      const appLower = app.toLowerCase();
+      if (
+        appLower.includes("antigravity") ||
+        appLower.includes("cursor") ||
+        appLower.includes("code") ||
+        appLower.includes("windsurf") ||
+        appLower.includes("devin")
+      ) {
+        cat = "Investigación y desarrollo";
+      }
+      catCounts[cat] = (catCounts[cat] || 0) + 1;
     }
 
     const topCategory = Object.entries(catCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || "Operación Sekunet";

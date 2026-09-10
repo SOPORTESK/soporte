@@ -153,6 +153,25 @@ function categorizeApp(appName, title) {
     return { category: 'Soporte técnico', label: 'Winbox / MikroTik', context: t, context_type: 'network' };
   }
 
+  // Entornos de desarrollo y programación (Antigravity, Cursor, Windsurf, VS Code, Devin, etc.)
+  if (
+    app.includes('antigravity') ||
+    app.includes('cursor') ||
+    app.includes('windsurf') ||
+    app.includes('code') ||
+    app.includes('devenv') ||
+    app.includes('webstorm') ||
+    app.includes('devin') ||
+    app.includes('intellij') ||
+    app.includes('eclipse') ||
+    app.includes('netbeans') ||
+    app.includes('vim') ||
+    app.includes('neovim') ||
+    app.includes('emacs')
+  ) {
+    return { category: 'Investigación y desarrollo', label: appName || 'Antigravity (IDE)', context: t, context_type: 'code' };
+  }
+
   if (app.includes('chrome') || app.includes('firefox') || app.includes('edge') || app.includes('brave') || app.includes('opera') || app.includes('browser')) {
     context = t.replace(/\s*[-–]\s*(Brave|Google Chrome|Microsoft Edge|Firefox|Opera).*$/i, '').trim();
     context_type = 'web';
@@ -172,8 +191,6 @@ function categorizeApp(appName, title) {
   if (t.includes('sekunet') || t.includes('seka chat') || t.includes('localhost:3100'))
     return { category: 'Navegación', label: 'Seka Chat', context, context_type };
   if (t.includes('odoo')) return { category: 'Atención de tickets', label: 'Odoo ERP', context, context_type };
-  if (app.includes('windsurf') || app.includes('cursor') || app.includes('code') || app.includes('devenv') || app.includes('webstorm') || app.includes('devin') || app.includes('intellij') || app.includes('eclipse') || app.includes('netbeans') || app.includes('vim') || app.includes('neovim') || app.includes('emacs'))
-    return { category: 'Investigación y desarrollo', label: `Desarrollo - ${appName}`, context, context_type: 'code' };
   if (app.includes('terminal') || app.includes('cmd') || app.includes('powershell') || app.includes('windowsterminal'))
     return { category: 'Investigación y desarrollo', label: 'Terminal', context, context_type: 'terminal' };
   if (app.includes('teams') || app.includes('slack') || app.includes('discord') || app.includes('zoom') || app.includes('meet'))
