@@ -129,11 +129,8 @@ function formatExecutiveDisplay(rawAction: string, category: string, meta: Recor
   const rawTitle = meta.title || meta.context || "";
   const cleanTitle = cleanExecutiveTitle(rawTitle);
 
-  // 1. Extraer duración si existe
-  let durStr = "";
-  const durMatch = action.match(/\((\d+(?:\s*(?:s|min|m|h|segundos|minutos))?)\)/i);
-  if (durMatch) durStr = ` (${durMatch[1]})`;
-  else if (meta.duration_ms) durStr = ` (${formatDuration(meta.duration_ms)})`;
+  // Limpiar cualquier residuo de duración en paréntesis del título original (ej: (5 min), (21min 8s), (1h 10m))
+  action = action.replace(/\s*\(\d+(?:\s*(?:s|seg|segundos|m|min|minutos|h|horas))?(?:\s*\d+(?:\s*(?:s|seg|segundos))?)?\)/gi, "").trim();
 
   const lower = action.toLowerCase();
   const titleLower = cleanTitle.toLowerCase();
@@ -142,7 +139,7 @@ function formatExecutiveDisplay(rawAction: string, category: string, meta: Recor
   // 2. Videovigilancia y CCTV (iVMS-4200, SADP, Hik-Partner)
   if (lower.includes("ivms") || titleLower.includes("ivms") || appLower.includes("ivms") || lower.includes("sadp") || lower.includes("hik-partner")) {
     return {
-      title: `Monitoreo de sistemas de videovigilancia y gestión de cámaras mediante iVMS-4200 / SADP${durStr}`,
+      title: "Monitoreo de sistemas de videovigilancia y gestión de cámaras mediante iVMS-4200 / SADP",
       subtitle: cleanTitle || "Configuración y verificación de dispositivos CCTV",
     };
   }
@@ -150,7 +147,7 @@ function formatExecutiveDisplay(rawAction: string, category: string, meta: Recor
   // 3. Captura de evidencia (Herramienta de Recortes / SnippingTool)
   if (lower.includes("snipping") || lower.includes("recorte") || titleLower.includes("recorte") || appLower.includes("snipping")) {
     return {
-      title: `Uso de la herramienta de recortes para captura y documentación de evidencia técnica${durStr}`,
+      title: "Uso de la herramienta de recortes para captura y documentación de evidencia técnica",
       subtitle: cleanTitle || "Documentación visual para caso de soporte",
     };
   }
@@ -158,7 +155,7 @@ function formatExecutiveDisplay(rawAction: string, category: string, meta: Recor
   // 4. Control de asistencia y marcas (Nextime, BioTime, ZKTime)
   if (lower.includes("nextime") || lower.includes("biotime") || lower.includes("zktime") || titleLower.includes("nextime") || titleLower.includes("biotime") || lower.includes("bitacora-automatica")) {
     return {
-      title: `Consulta y gestión de registros de asistencia de personal en plataforma de control horario${durStr}`,
+      title: "Consulta y gestión de registros de asistencia de personal en plataforma de control horario",
       subtitle: cleanTitle || "Sistema de marcas y control horario",
     };
   }
@@ -168,7 +165,7 @@ function formatExecutiveDisplay(rawAction: string, category: string, meta: Recor
     const caseMatch = action.match(/#(\d+)/) || cleanTitle.match(/#(\d+)/);
     const num = caseMatch ? ` #${caseMatch[1]}` : "";
     return {
-      title: `Atención, seguimiento y resolución de tickets en portal Odoo ERP${num}${durStr}`,
+      title: `Atención, seguimiento y resolución de tickets en portal Odoo ERP${num}`,
       subtitle: cleanTitle ? `Detalle: ${cleanTitle}` : "Gestión de soporte técnico y órdenes",
     };
   }
@@ -176,13 +173,13 @@ function formatExecutiveDisplay(rawAction: string, category: string, meta: Recor
   // 6. Mensajería y Chat (WhatsApp, Sekunet Chat)
   if (lower.includes("whatsapp") || titleLower.includes("whatsapp") || appLower.includes("whatsapp")) {
     return {
-      title: `Atención y comunicación con usuarios o equipo de trabajo a través de WhatsApp${durStr}`,
-      subtitle: cleanTitle ? `Contacto / Chat: ${cleanTitle}` : "Canal de mensajería externa",
+      title: "Atención y comunicación con usuarios o equipo de trabajo a través de la aplicación de mensajería WhatsApp",
+      subtitle: cleanTitle ? `Contacto / Chat: ${cleanTitle}` : "Canal de mensajería",
     };
   }
   if (lower.includes("seka chat") || lower.includes("chat sekunet") || appLower.includes("seka") || lower.includes("evolution")) {
     return {
-      title: `Atención al cliente y soporte técnico mediante plataforma Sekunet Chat${durStr}`,
+      title: "Atención al cliente y soporte técnico mediante plataforma Sekunet Chat",
       subtitle: cleanTitle || "Gestión de mensajería omnicanal de soporte",
     };
   }
@@ -190,7 +187,7 @@ function formatExecutiveDisplay(rawAction: string, category: string, meta: Recor
   // 7. Redes y Equipos (MikroTik, Winbox, UniFi, GNS3)
   if (lower.includes("winbox") || lower.includes("mikrotik") || lower.includes("unifi") || lower.includes("gns3")) {
     return {
-      title: `Administración, diagnóstico y configuración de infraestructura de red y telecomunicaciones${durStr}`,
+      title: "Administración, diagnóstico y configuración de infraestructura de red y telecomunicaciones",
       subtitle: cleanTitle || "Gestión de equipos de red y enlaces",
     };
   }
@@ -198,7 +195,7 @@ function formatExecutiveDisplay(rawAction: string, category: string, meta: Recor
   // 8. Trámites de Garantías y RMA (Tienda 3D)
   if (lower.includes("tienda 3d") || lower.includes("tienda3d") || lower.includes("garant") || lower.includes("rma")) {
     return {
-      title: `Gestión y tramitación de garantías técnicas y recepción de equipos RMA en Tienda 3D${durStr}`,
+      title: "Gestión y tramitación de garantías técnicas y recepción de equipos RMA en Tienda 3D",
       subtitle: cleanTitle || "Servicio técnico y trámite de garantías",
     };
   }
@@ -206,7 +203,7 @@ function formatExecutiveDisplay(rawAction: string, category: string, meta: Recor
   // 9. Correo electrónico (Outlook)
   if (lower.includes("outlook") || lower.includes("correo") || appLower.includes("outlook")) {
     return {
-      title: `Gestión de mensajería electrónica y correspondencia corporativa en Outlook${durStr}`,
+      title: "Gestión de mensajería electrónica y correspondencia corporativa en Outlook",
       subtitle: cleanTitle ? `Asunto: ${cleanTitle}` : "Bandeja de entrada corporativa",
     };
   }
@@ -214,13 +211,13 @@ function formatExecutiveDisplay(rawAction: string, category: string, meta: Recor
   // 10. Documentos de oficina (Word, Excel, PDF)
   if (lower.includes("excel") || appLower.includes("excel") || lower.includes("antenas.xlsx")) {
     return {
-      title: `Control administrativo, análisis y elaboración de hojas de cálculo en Microsoft Excel${durStr}`,
+      title: "Control administrativo, análisis y elaboración de hojas de cálculo en Microsoft Excel",
       subtitle: cleanTitle ? `Archivo: ${cleanTitle}` : "Registro de datos y control administrativo",
     };
   }
   if (lower.includes("word") || appLower.includes("word") || lower.includes(".docx")) {
     return {
-      title: `Redacción, revisión y edición de informes técnicos y documentación en Microsoft Word${durStr}`,
+      title: "Redacción, revisión y edición de informes técnicos y documentación en Microsoft Word",
       subtitle: cleanTitle ? `Documento: ${cleanTitle}` : "Elaboración de informe técnico",
     };
   }
@@ -238,7 +235,7 @@ function formatExecutiveDisplay(rawAction: string, category: string, meta: Recor
     category === "Investigación y desarrollo"
   ) {
     return {
-      title: `Optimización, programación y desarrollo de software y sistemas técnicos${durStr}`,
+      title: "Optimización, programación y desarrollo de software y sistemas técnicos",
       subtitle: cleanTitle || "Herramientas de ingeniería y desarrollo",
     };
   }
@@ -248,21 +245,21 @@ function formatExecutiveDisplay(rawAction: string, category: string, meta: Recor
     const isResume = action.includes("Reanudó labores");
     const prefix = isResume ? "Reanudó labores en" : "Sesión activa en";
     if (lower.includes("mi-gestion") || lower.includes("mi bandeja de gestión")) {
-      return { title: `${prefix} portal de atención técnica y bandeja de gestión de casos${durStr}` };
+      return { title: `${prefix} portal de atención técnica y bandeja de gestión de casos` };
     }
     if (lower.includes("admin") || lower.includes("panel admin") || lower.includes("activity tracker")) {
-      return { title: `${prefix} suite de supervisión, auditoría y control de actividades${durStr}` };
+      return { title: `${prefix} suite de supervisión, auditoría y control de actividades` };
     }
     if (lower.includes("soporte-avanzado") || lower.includes("soporte avanzado")) {
-      return { title: `${prefix} panel de soporte avanzado (Nivel 2) y resolución especializada${durStr}` };
+      return { title: `${prefix} panel de soporte avanzado (Nivel 2) y resolución especializada` };
     }
   }
 
   // 13. Pausas e Inactividad
   if (category === "Inactividad" || lower.includes("sin actividad") || lower.includes("pausa prolongada") || lower.includes("bloqueada")) {
     return {
-      title: `Pausa del sistema / Período sin interacción activa en la estación${durStr}`,
-      subtitle: cleanTitle ? `Última aplicación en pantalla: ${cleanTitle}` : "Pausa operativa",
+      title: "Pausa operativa / Período sin interacción activa en la estación",
+      subtitle: cleanTitle ? `Última aplicación en pantalla: ${cleanTitle}` : "Pausa del sistema",
     };
   }
 
@@ -272,12 +269,176 @@ function formatExecutiveDisplay(rawAction: string, category: string, meta: Recor
     const prefix = parts[0].trim();
     const detail = parts.slice(1).join(":").trim();
     return {
-      title: `${prefix}: ${cleanExecutiveTitle(detail)}${durStr}`,
+      title: `${prefix}: ${cleanExecutiveTitle(detail)}`,
       subtitle: cleanTitle && cleanTitle !== action ? cleanTitle : undefined,
     };
   }
 
   return { title: action, subtitle: cleanTitle && cleanTitle !== action ? cleanTitle : undefined };
+}
+
+// ─── CONSOLIDADOR NARRATIVO CADA 5 MINUTOS ──────────────────────────────────────
+interface ConsolidatedBlock {
+  id: string;
+  startTime: string; // ej: 09:15 a. m.
+  endTime: string;   // ej: 09:20 a. m.
+  narrative: string;
+  category: string;
+  totalDurationMs: number;
+  apps: string[];
+  eventCount: number;
+}
+
+function buildConsolidatedNarrative(items: TimelineEntry[]): string {
+  if (!items.length) return "";
+
+  // Agrupar actividades por tema único
+  const phrases = new Set<string>();
+  let hasCctv = false;
+  let hasRecortes = false;
+  let hasWhatsapp = false;
+  let hasSekaChat = false;
+  let hasOdoo = false;
+  let hasAttendance = false;
+  let hasNetworks = false;
+  let hasDev = false;
+  let hasOffice = false;
+  let hasPause = false;
+
+  for (const item of items) {
+    const meta = (item.metadata || {}) as Record<string, any>;
+    const raw = `${item.action || ""} ${meta.title || ""} ${meta.app || ""}`.toLowerCase();
+
+    if (raw.includes("ivms") || raw.includes("sadp") || raw.includes("hik") || raw.includes("cctv")) hasCctv = true;
+    else if (raw.includes("recorte") || raw.includes("snipping")) hasRecortes = true;
+    else if (raw.includes("whatsapp")) hasWhatsapp = true;
+    else if (raw.includes("seka chat") || raw.includes("chat sekunet") || raw.includes("evolution")) hasSekaChat = true;
+    else if (raw.includes("odoo")) hasOdoo = true;
+    else if (raw.includes("nextime") || raw.includes("biotime") || raw.includes("asistencia")) hasAttendance = true;
+    else if (raw.includes("winbox") || raw.includes("mikrotik") || raw.includes("unifi")) hasNetworks = true;
+    else if (raw.includes("antigravity") || raw.includes("cursor") || raw.includes("code") || raw.includes("devin")) hasDev = true;
+    else if (raw.includes("excel") || raw.includes("word") || raw.includes(".docx") || raw.includes(".xlsx")) hasOffice = true;
+    else if (item.category === "Inactividad" || raw.includes("sin actividad") || raw.includes("bloqueada") || raw.includes("pausa")) hasPause = true;
+  }
+
+  // Redactar narrativa fluida combinada
+  if (hasWhatsapp && hasSekaChat) {
+    phrases.add("Atención y soporte al cliente a través de canales de mensajería como Chat Sekunet y WhatsApp");
+  } else if (hasWhatsapp) {
+    phrases.add("Atención y comunicación con usuarios o equipo de trabajo a través de la aplicación de mensajería WhatsApp");
+  } else if (hasSekaChat) {
+    phrases.add("Atención al cliente y soporte técnico mediante plataforma Sekunet Chat");
+  }
+
+  if (hasOdoo) {
+    phrases.add("atención, seguimiento y resolución de tickets en portal Odoo ERP");
+  }
+
+  if (hasCctv) {
+    phrases.add("monitoreo de sistemas de videovigilancia y gestión de cámaras mediante iVMS-4200");
+  }
+
+  if (hasRecortes) {
+    phrases.add("uso de la herramienta de recortes para captura y documentación de evidencia técnica");
+  }
+
+  if (hasAttendance) {
+    phrases.add("consulta y gestión de registros de asistencia de personal en plataforma de control horario");
+  }
+
+  if (hasNetworks) {
+    phrases.add("administración y configuración de infraestructura de red y telecomunicaciones en MikroTik");
+  }
+
+  if (hasDev) {
+    phrases.add("optimización, programación y desarrollo de software y sistemas técnicos");
+  }
+
+  if (hasOffice) {
+    phrases.add("control administrativo, elaboración de informes técnicos y gestión documental");
+  }
+
+  if (hasPause && phrases.size === 0) {
+    return "Pausa operativa / Período sin interacción activa en la estación de trabajo.";
+  }
+
+  if (phrases.size === 0) {
+    // Tomar el título formateado del primer evento representativo
+    const firstDisp = formatExecutiveDisplay(items[0].action, items[0].category, items[0].metadata || {});
+    return firstDisp.title + ".";
+  }
+
+  const phraseArr = Array.from(phrases);
+  if (phraseArr.length === 1) {
+    return phraseArr[0].charAt(0).toUpperCase() + phraseArr[0].slice(1) + ".";
+  }
+
+  // Concatenar coherentemente: A, B y C
+  const lastPhrase = phraseArr.pop()!;
+  const combined = phraseArr.join(", ") + " y " + lastPhrase;
+  return combined.charAt(0).toUpperCase() + combined.slice(1) + ".";
+}
+
+function consolidateTimelineByBlocks(entries: TimelineEntry[], intervalMinutes: number = 5): ConsolidatedBlock[] {
+  if (!entries || entries.length === 0) return [];
+
+  // Ordenar cronológicamente ascendente para agrupar
+  const sorted = [...entries]
+    .filter((e) => Boolean(e.created_at))
+    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+  const blocksMap = new Map<number, TimelineEntry[]>();
+  const intervalMs = intervalMinutes * 60 * 1000;
+
+  for (const entry of sorted) {
+    const time = new Date(entry.created_at).getTime();
+    if (isNaN(time)) continue;
+    // Bucket al inicio del intervalo de 5 min
+    const bucketKey = Math.floor(time / intervalMs) * intervalMs;
+    const list = blocksMap.get(bucketKey) || [];
+    list.push(entry);
+    blocksMap.set(bucketKey, list);
+  }
+
+  // Convertir cada bucket en un bloque consolidado (de más reciente a más antiguo para lectura ejecutiva)
+  const sortedKeys = Array.from(blocksMap.keys()).sort((a, b) => b - a);
+
+  return sortedKeys.map((bucketKey) => {
+    const items = blocksMap.get(bucketKey)!;
+    const bucketDate = new Date(bucketKey);
+    const bucketEndDate = new Date(bucketKey + intervalMs);
+
+    const startTime = bucketDate.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit" });
+    const endTime = bucketEndDate.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit" });
+
+    // Determinar categoría primaria
+    const catCounts: Record<string, number> = {};
+    const apps = new Set<string>();
+    let totalDur = 0;
+
+    for (const it of items) {
+      const cat = it.category || "Operación Sekunet";
+      catCounts[cat] = (catCounts[cat] || 0) + 1;
+      const meta = (it.metadata || {}) as Record<string, any>;
+      const app = meta.app_name || meta.label || meta.app || "";
+      if (app && app !== "Unknown") apps.add(app);
+      if (it.duration_ms) totalDur += it.duration_ms;
+    }
+
+    const topCategory = Object.entries(catCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || "Operación Sekunet";
+    const narrative = buildConsolidatedNarrative(items);
+
+    return {
+      id: `block-${bucketKey}`,
+      startTime,
+      endTime,
+      narrative,
+      category: topCategory,
+      totalDurationMs: totalDur || intervalMs,
+      apps: Array.from(apps),
+      eventCount: items.length,
+    };
+  });
 }
 
 export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Props) {
@@ -522,47 +683,43 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <ActivityAppsRanking timeline={timeline} />
 
-              {/* Vista rápida de últimos eventos */}
+              {/* Vista rápida de informes narrados de 5 minutos */}
               <div className="p-5 rounded-2xl bg-card border border-border/70 shadow-sm space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <Clock className="h-4 w-4 text-violet-500" />
-                    <h3 className="font-bold text-sm text-foreground">Últimos Eventos en Tiempo Real</h3>
+                    <Sparkles className="h-4 w-4 text-violet-500" />
+                    <h3 className="font-bold text-sm text-foreground">Informes de Actividad (Bloques de 5 Minutos)</h3>
                   </div>
                   <button
                     onClick={() => setActiveTab("timeline")}
                     className="text-xs font-bold text-violet-400 hover:text-violet-300 flex items-center gap-1"
                   >
-                    Ver todos <ChevronRight className="h-3.5 w-3.5" />
+                    Ver historial completo <ChevronRight className="h-3.5 w-3.5" />
                   </button>
                 </div>
 
-                <div className="space-y-2 max-h-[350px] overflow-y-auto pr-1">
-                  {timeline.slice(0, 7).map((item) => {
-                    const Icon = CATEGORY_ICONS[item.category] || Activity;
-                    const colorClass = CATEGORY_COLORS[item.category] || "text-zinc-400 bg-zinc-500/10 border-zinc-500/20";
-                    const display = formatExecutiveDisplay(item.action, item.category, (item.metadata || {}) as Record<string, any>);
+                <div className="space-y-2.5 max-h-[350px] overflow-y-auto pr-1">
+                  {consolidateTimelineByBlocks(timeline, 5).slice(0, 6).map((block) => {
+                    const Icon = CATEGORY_ICONS[block.category] || Activity;
+                    const colorClass = CATEGORY_COLORS[block.category] || "text-zinc-400 bg-zinc-500/10 border-zinc-500/20";
                     return (
                       <div
-                        key={item.id}
-                        className="p-3 rounded-xl bg-muted/20 border border-border/40 flex items-start gap-3 text-xs"
+                        key={block.id}
+                        className="p-3.5 rounded-xl bg-muted/20 border border-border/50 hover:border-violet-500/30 transition-all flex items-start gap-3 text-xs"
                       >
-                        <div className={`p-1.5 rounded-lg border shrink-0 ${colorClass}`}>
-                          <Icon className="h-3.5 w-3.5" />
+                        <div className={`p-2 rounded-xl border shrink-0 ${colorClass}`}>
+                          <Icon className="h-4 w-4" />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="font-bold text-foreground truncate">{display.title}</p>
-                          {display.subtitle && (
-                            <p className="text-[11px] text-muted-foreground truncate mt-0.5">{display.subtitle}</p>
-                          )}
-                          <div className="flex items-center gap-2 mt-1 text-[11px] text-muted-foreground">
-                            <span>{formatTime(item.created_at)}</span>
-                            {item.duration_ms ? (
+                          <p className="font-semibold text-foreground leading-relaxed text-justify">{block.narrative}</p>
+                          <div className="flex items-center gap-2 mt-2 text-[11px] text-muted-foreground font-mono">
+                            <span className="font-bold text-foreground/80">{block.startTime} – {block.endTime}</span>
+                            {block.apps.length > 0 && (
                               <>
                                 <span>•</span>
-                                <span className="font-mono">{formatDuration(item.duration_ms)}</span>
+                                <span className="font-sans text-muted-foreground truncate">{block.apps.join(", ")}</span>
                               </>
-                            ) : null}
+                            )}
                           </div>
                         </div>
                       </div>
@@ -584,7 +741,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                   <Search className="h-3.5 w-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                   <input
                     type="text"
-                    placeholder="Buscar evento, app o caso..."
+                    placeholder="Buscar en informes narrados..."
                     value={searchFilter}
                     onChange={(e) => setSearchFilter(e.target.value)}
                     className="w-full pl-9 pr-3 py-1.5 rounded-xl border border-border bg-background text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-violet-500"
@@ -596,7 +753,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                   onChange={(e) => setCategoryFilter(e.target.value)}
                   className="px-3 py-1.5 rounded-xl border border-border bg-background text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-violet-500"
                 >
-                  <option value="all">Todas las categorías ({timeline.length})</option>
+                  <option value="all">Todas las categorías</option>
                   {categoriesAvailable.map((c) => (
                     <option key={c} value={c}>
                       {c}
@@ -605,71 +762,75 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                 </select>
               </div>
 
-              <span className="text-xs text-muted-foreground font-semibold">
-                Mostrando {filteredTimeline.length} de {timeline.length} eventos
-              </span>
+              {(() => {
+                const blocks = consolidateTimelineByBlocks(filteredTimeline, 5);
+                return (
+                  <span className="text-xs text-muted-foreground font-semibold">
+                    Mostrando {blocks.length} informes narrados (bloques de 5 min)
+                  </span>
+                );
+              })()}
             </div>
 
-            {/* Lista Cronológica Enriquecida */}
-            <div className="space-y-2.5">
-              {filteredTimeline.length === 0 ? (
-                <div className="p-12 text-center rounded-2xl bg-card border border-border/70 text-muted-foreground text-xs">
-                  No hay eventos que coincidan con los filtros seleccionados.
-                </div>
-              ) : (
-                filteredTimeline.map((item) => {
-                  const Icon = CATEGORY_ICONS[item.category] || Activity;
-                  const colorClass = CATEGORY_COLORS[item.category] || "text-zinc-400 bg-zinc-500/10 border-zinc-500/20";
-                  const meta = (item.metadata || {}) as Record<string, any>;
-                  const appName = meta.app_name || meta.label || meta.page || "";
-                  const display = formatExecutiveDisplay(item.action, item.category, meta);
+            {/* Lista Cronológica Consolidada en Bloques de 5 Minutos */}
+            <div className="space-y-3">
+              {(() => {
+                const blocks = consolidateTimelineByBlocks(filteredTimeline, 5);
+                if (blocks.length === 0) {
+                  return (
+                    <div className="p-12 text-center rounded-2xl bg-card border border-border/70 text-muted-foreground text-xs">
+                      No hay informes registrados para esta fecha o filtros.
+                    </div>
+                  );
+                }
+
+                return blocks.map((block) => {
+                  const Icon = CATEGORY_ICONS[block.category] || Activity;
+                  const colorClass = CATEGORY_COLORS[block.category] || "text-zinc-400 bg-zinc-500/10 border-zinc-500/20";
 
                   return (
                     <div
-                      key={item.id}
-                      className="p-4 rounded-2xl bg-card border border-border/70 hover:border-violet-500/40 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                      key={block.id}
+                      className="p-5 rounded-2xl bg-card border border-border/70 hover:border-violet-500/40 transition-all flex flex-col sm:flex-row sm:items-start justify-between gap-4 text-xs"
                     >
-                      <div className="flex items-start gap-3 min-w-0">
-                        <div className={`p-2 rounded-xl border shrink-0 ${colorClass}`}>
+                      <div className="flex items-start gap-3.5 min-w-0 flex-1">
+                        <div className={`p-2.5 rounded-xl border shrink-0 mt-0.5 ${colorClass}`}>
                           <Icon className="h-4 w-4" />
                         </div>
-                        <div className="min-w-0">
-                          <p className="font-bold text-foreground text-sm">{display.title}</p>
-                          {display.subtitle && (
-                            <p className="text-xs text-muted-foreground/90 mt-0.5">{display.subtitle}</p>
-                          )}
-                          <div className="flex flex-wrap items-center gap-2 mt-1.5 text-[11px] text-muted-foreground">
-                            <span className="font-semibold text-foreground/80">{item.category}</span>
-                            {appName && (
-                              <>
-                                <span>•</span>
-                                <span className="font-medium px-2 py-0.5 rounded-lg bg-muted/60 border border-border/50 text-foreground">
-                                  {appName}
-                                </span>
-                              </>
-                            )}
-                            {item.case_id && (
-                              <>
-                                <span>•</span>
-                                <span className="text-blue-400 font-bold">Caso #{item.case_id}</span>
-                              </>
-                            )}
+                        <div className="min-w-0 flex-1 space-y-2">
+                          <p className="font-medium text-foreground text-sm leading-relaxed text-justify">
+                            {block.narrative}
+                          </p>
+
+                          <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                            <span className="font-semibold px-2 py-0.5 rounded-lg bg-muted/60 border border-border/40 text-foreground/80">
+                              {block.category}
+                            </span>
+                            {block.apps.map((app) => (
+                              <span
+                                key={app}
+                                className="px-2 py-0.5 rounded-lg bg-muted/40 border border-border/40 text-muted-foreground font-medium"
+                              >
+                                {app}
+                              </span>
+                            ))}
                           </div>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-3 shrink-0 self-end sm:self-center font-mono text-[11px]">
-                        {item.duration_ms ? (
-                          <span className="px-2.5 py-1 rounded-lg bg-muted/40 border border-border/50 font-bold text-foreground">
-                            {formatDuration(item.duration_ms)}
-                          </span>
-                        ) : null}
-                        <span className="text-muted-foreground font-semibold">{formatTime(item.created_at)}</span>
+                      {/* Columna Horaria Lateral */}
+                      <div className="flex sm:flex-col items-end justify-between sm:justify-start gap-1 shrink-0 font-mono text-[11px] self-stretch sm:self-auto border-t sm:border-t-0 pt-2 sm:pt-0 border-border/40">
+                        <span className="font-bold text-foreground text-xs">
+                          {block.startTime} – {block.endTime}
+                        </span>
+                        <span className="text-muted-foreground text-[10px]">
+                          Bloque 5 min
+                        </span>
                       </div>
                     </div>
                   );
-                })
-              )}
+                });
+              })()}
             </div>
           </div>
         )}

@@ -72,7 +72,7 @@ export function useActivityTracker(agentEmail: string, agentName: string, enable
         logActivity({
           agent_email: agentEmail,
           agent_name: agentName,
-          action: `Atención por Chat: Caso ${cleanCase} (${dwellStr})`,
+          action: `Atención por Chat: Caso ${cleanCase}`,
           category: "Atención chat",
           case_id: lastCaseIdRef.current,
           duration_ms: caseDuration,

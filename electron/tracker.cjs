@@ -198,87 +198,86 @@ function formatExecutiveDuration(ms) {
 }
 
 function formatExecutiveAction(category, label, context, durationMs) {
-  const durStr = durationMs > 0 ? ` (${formatExecutiveDuration(durationMs)})` : '';
   const cleanContext = (context || '').replace(/\s+/g, ' ').trim();
   const lower = (label || '').toLowerCase();
   const ctxLower = cleanContext.toLowerCase();
   
   // 1. Videovigilancia y CCTV
   if (lower.includes('ivms') || ctxLower.includes('ivms') || lower.includes('sadp') || ctxLower.includes('sadp') || lower.includes('videovigilancia')) {
-    return `Monitoreo de sistemas de videovigilancia y gestión de cámaras mediante iVMS-4200 / SADP${durStr}`;
+    return 'Monitoreo de sistemas de videovigilancia y gestión de cámaras mediante iVMS-4200 / SADP';
   }
 
   // 2. Captura de evidencia (Herramienta de Recortes)
   if (lower.includes('recorte') || ctxLower.includes('recorte') || lower.includes('snipping')) {
-    return `Uso de la herramienta de recortes para captura y documentación de evidencia técnica${durStr}`;
+    return 'Uso de la herramienta de recortes para captura y documentación de evidencia técnica';
   }
 
   // 3. Asistencia y marcas (Nextime, BioTime)
   if (lower.includes('nextime') || ctxLower.includes('nextime') || lower.includes('biotime') || ctxLower.includes('biotime') || lower.includes('asistencia')) {
-    return `Consulta y gestión de registros de asistencia de personal en plataforma de control horario${durStr}`;
+    return 'Consulta y gestión de registros de asistencia de personal en plataforma de control horario';
   }
 
   // 4. Redes y Telecomunicaciones (Winbox, MikroTik)
   if (lower.includes('winbox') || ctxLower.includes('winbox') || lower.includes('mikrotik') || ctxLower.includes('mikrotik')) {
-    return `Administración, diagnóstico y configuración de infraestructura de red y telecomunicaciones${durStr}`;
+    return 'Administración, diagnóstico y configuración de infraestructura de red y telecomunicaciones';
   }
 
   // 5. Correo
   if (category === 'Gestión de correos' || category === 'Gestión de Correos') {
     return cleanContext && !cleanContext.toLowerCase().includes('outlook') 
-      ? `Gestión de Correo: "${cleanContext}"${durStr}`
-      : `Gestión de mensajería electrónica y correspondencia corporativa en Outlook${durStr}`;
+      ? `Gestión de Correo: "${cleanContext}"`
+      : 'Gestión de mensajería electrónica y correspondencia corporativa en Outlook';
   }
 
   // 6. Teléfono
   if (category === 'Atención telefónica' || category === 'Atención por llamada') {
-    return `Atención y soporte telefónico al cliente vía ${label}${cleanContext ? ` — ${cleanContext}` : ''}${durStr}`;
+    return `Atención y soporte telefónico al cliente vía ${label}${cleanContext ? ` — ${cleanContext}` : ''}`;
   }
 
   // 7. Chat y mensajería
   if (category === 'Mensajería' || category === 'Atención chat') {
     return cleanContext 
-      ? `Atención y comunicación con usuarios o equipo de trabajo a través de WhatsApp — ${cleanContext}${durStr}`
-      : `Atención y comunicación con usuarios o equipo de trabajo a través de WhatsApp${durStr}`;
+      ? `Atención y comunicación con usuarios o equipo de trabajo a través de WhatsApp — ${cleanContext}`
+      : 'Atención y comunicación con usuarios o equipo de trabajo a través de la aplicación de mensajería WhatsApp';
   }
 
   // 8. Odoo ERP
   if (category === 'Atención de tickets' || category === 'Atención de Tickets') {
     return cleanContext 
-      ? `Atención, seguimiento y resolución de tickets en portal Odoo ERP: ${cleanContext}${durStr}`
-      : `Atención y gestión de tickets y solicitudes en Odoo ERP${durStr}`;
+      ? `Atención, seguimiento y resolución de tickets en portal Odoo ERP: ${cleanContext}`
+      : 'Atención y gestión de tickets y solicitudes en Odoo ERP';
   }
 
   // 9. Garantías
   if (category === 'Trámites de garantías' || category === 'Gestión de Garantías') {
     return cleanContext 
-      ? `Gestión y tramitación de garantías técnicas y recepción de equipos RMA en Tienda 3D: ${cleanContext}${durStr}`
-      : `Gestión y tramitación de garantías técnicas y recepción de equipos RMA en Tienda 3D${durStr}`;
+      ? `Gestión y tramitación de garantías técnicas y recepción de equipos RMA en Tienda 3D: ${cleanContext}`
+      : 'Gestión y tramitación de garantías técnicas y recepción de equipos RMA en Tienda 3D';
   }
 
   // 10. Desarrollo y sistemas
   if (category === 'Investigación y desarrollo' || category === 'Optimización de procesos') {
     return cleanContext 
-      ? `Optimización y desarrollo de sistemas: ${label} — ${cleanContext}${durStr}`
-      : `Optimización y desarrollo de procesos y software: ${label}${durStr}`;
+      ? `Optimización y desarrollo de sistemas: ${label} — ${cleanContext}`
+      : `Optimización y desarrollo de procesos y software: ${label}`;
   }
 
   // 11. Documentos
   if (category === 'Gestión de documentos' || category === 'Control administrativo') {
     return cleanContext 
-      ? `Control administrativo y elaboración de documentos: ${label} — ${cleanContext}${durStr}`
-      : `Control administrativo y gestión de documentos: ${label}${durStr}`;
+      ? `Control administrativo y elaboración de documentos: ${label} — ${cleanContext}`
+      : `Control administrativo y gestión de documentos: ${label}`;
   }
 
   if (category === 'Soporte remoto' || category === 'Soporte técnico') {
-    return `Soporte Técnico Especializado: ${label}${cleanContext ? ` — ${cleanContext}` : ''}${durStr}`;
+    return `Soporte Técnico Especializado: ${label}${cleanContext ? ` — ${cleanContext}` : ''}`;
   }
   if (category === 'Inactividad') {
-    return `Pausa del sistema / Período sin interacción activa en la estación${durStr}`;
+    return 'Pausa operativa / Período sin interacción activa en la estación';
   }
   return cleanContext 
-    ? `${label}: ${cleanContext}${durStr}`
-    : `${label}${durStr}`;
+    ? `${label}: ${cleanContext}`
+    : label;
 }
 
 function formatDwell(seconds) {
@@ -460,7 +459,7 @@ async function pollActivity() {
         _lastHeartbeatSec = heartbeatBucket;
         const catInfo = categorizeApp(appName, title);
         const dwellMs = now - _appEnterTime;
-        const execAction = `En curso • ${formatExecutiveAction(catInfo.category, catInfo.label, catInfo.context, dwellMs)}`;
+        const execAction = formatExecutiveAction(catInfo.category, catInfo.label, catInfo.context, dwellMs);
         await sendLog(execAction, catInfo.category, {
           app: appName,
           app_name: catInfo.label,
