@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { useState, useEffect, useMemo } from "react";
 import {
@@ -18,6 +18,14 @@ import {
   Search,
   X,
   ChevronDown,
+  Plus,
+  Trash2,
+  Edit2,
+  Wrench,
+  Clock,
+  Sparkles,
+  Layers,
+  Cpu,
 } from "lucide-react";
 
 interface TimelineItem {
@@ -32,33 +40,89 @@ interface Props {
   timeline: TimelineItem[];
 }
 
-// Las 7-8 categorías oficiales del taller exactamente como se muestran en "Por Categoría"
-export const WORKSHOP_CATEGORIES = [
-  { id: "Atención chat", label: "Atención chat", icon: MessageSquare, color: "text-emerald-400 border-emerald-500/30 bg-emerald-500/15", bgBar: "bg-emerald-500" },
-  { id: "Atención de Tickets", label: "Atención de Tickets", icon: FileText, color: "text-indigo-400 border-indigo-500/30 bg-indigo-500/15", bgBar: "bg-indigo-500" },
-  { id: "Optimización de procesos", label: "Optimización de procesos", icon: Code, color: "text-violet-400 border-violet-500/30 bg-violet-500/15", bgBar: "bg-violet-500" },
-  { id: "Control administrativo", label: "Control administrativo", icon: TrendingUp, color: "text-fuchsia-400 border-fuchsia-500/30 bg-fuchsia-500/15", bgBar: "bg-fuchsia-500" },
-  { id: "Gestión de Correos", label: "Gestión de Correos", icon: Mail, color: "text-blue-400 border-blue-500/30 bg-blue-500/15", bgBar: "bg-blue-500" },
-  { id: "Atención por llamada", label: "Atención por llamada", icon: Phone, color: "text-orange-400 border-orange-500/30 bg-orange-500/15", bgBar: "bg-orange-500" },
-  { id: "Soporte técnico", label: "Soporte técnico", icon: Monitor, color: "text-cyan-400 border-cyan-500/30 bg-cyan-500/15", bgBar: "bg-cyan-500" },
-  { id: "Gestión de Garantías", label: "Gestión de Garantías", icon: ShieldCheck, color: "text-amber-400 border-amber-500/30 bg-amber-500/15", bgBar: "bg-amber-500" },
-  { id: "Actividad general", label: "Actividad general", icon: Monitor, color: "text-slate-400 border-slate-500/30 bg-slate-500/15", bgBar: "bg-slate-500" },
+export interface CategoryItem {
+  id: string;
+  label: string;
+  color: string;
+  bgBar: string;
+  iconName: string;
+}
+
+export const DEFAULT_CATEGORIES: CategoryItem[] = [
+  { id: "Atención chat", label: "Atención chat", color: "text-emerald-400 border-emerald-500/30 bg-emerald-500/15", bgBar: "bg-emerald-500", iconName: "MessageSquare" },
+  { id: "Atención de Tickets", label: "Atención de Tickets", color: "text-indigo-400 border-indigo-500/30 bg-indigo-500/15", bgBar: "bg-indigo-500", iconName: "FileText" },
+  { id: "Optimización de procesos", label: "Optimización de procesos", color: "text-violet-400 border-violet-500/30 bg-violet-500/15", bgBar: "bg-violet-500", iconName: "Code" },
+  { id: "Control administrativo", label: "Control administrativo", color: "text-fuchsia-400 border-fuchsia-500/30 bg-fuchsia-500/15", bgBar: "bg-fuchsia-500", iconName: "TrendingUp" },
+  { id: "Gestión de Correos", label: "Gestión de Correos", color: "text-blue-400 border-blue-500/30 bg-blue-500/15", bgBar: "bg-blue-500", iconName: "Mail" },
+  { id: "Atención por llamada", label: "Atención por llamada", color: "text-orange-400 border-orange-500/30 bg-orange-500/15", bgBar: "bg-orange-500", iconName: "Phone" },
+  { id: "Soporte técnico", label: "Soporte técnico", color: "text-cyan-400 border-cyan-500/30 bg-cyan-500/15", bgBar: "bg-cyan-500", iconName: "Monitor" },
+  { id: "Gestión de Garantías", label: "Gestión de Garantías", color: "text-amber-400 border-amber-500/30 bg-amber-500/15", bgBar: "bg-amber-500", iconName: "ShieldCheck" },
+  { id: "Actividad general", label: "Actividad general", color: "text-slate-400 border-slate-500/30 bg-slate-500/15", bgBar: "bg-slate-500", iconName: "Monitor" },
 ];
 
+export const COLOR_PRESETS = [
+  { name: "Verde", color: "text-emerald-400 border-emerald-500/30 bg-emerald-500/15", bgBar: "bg-emerald-500" },
+  { name: "Índigo", color: "text-indigo-400 border-indigo-500/30 bg-indigo-500/15", bgBar: "bg-indigo-500" },
+  { name: "Violeta", color: "text-violet-400 border-violet-500/30 bg-violet-500/15", bgBar: "bg-violet-500" },
+  { name: "Fucsia", color: "text-fuchsia-400 border-fuchsia-500/30 bg-fuchsia-500/15", bgBar: "bg-fuchsia-500" },
+  { name: "Azul", color: "text-blue-400 border-blue-500/30 bg-blue-500/15", bgBar: "bg-blue-500" },
+  { name: "Naranja", color: "text-orange-400 border-orange-500/30 bg-orange-500/15", bgBar: "bg-orange-500" },
+  { name: "Cyan", color: "text-cyan-400 border-cyan-500/30 bg-cyan-500/15", bgBar: "bg-cyan-500" },
+  { name: "Ámbar", color: "text-amber-400 border-amber-500/30 bg-amber-500/15", bgBar: "bg-amber-500" },
+  { name: "Rojo", color: "text-rose-400 border-rose-500/30 bg-rose-500/15", bgBar: "bg-rose-500" },
+  { name: "Pizarra", color: "text-slate-400 border-slate-500/30 bg-slate-500/15", bgBar: "bg-slate-500" },
+];
+
+export const ICON_PRESETS = [
+  "MessageSquare",
+  "FileText",
+  "Code",
+  "TrendingUp",
+  "Mail",
+  "Phone",
+  "Monitor",
+  "ShieldCheck",
+  "Wrench",
+  "Globe",
+  "Cpu",
+  "Clock",
+];
+
+function renderCategoryIcon(iconName?: string, className: string = "h-4 w-4") {
+  switch (iconName) {
+    case "MessageSquare": return <MessageSquare className={className} />;
+    case "FileText": return <FileText className={className} />;
+    case "Code": return <Code className={className} />;
+    case "TrendingUp": return <TrendingUp className={className} />;
+    case "Mail": return <Mail className={className} />;
+    case "Phone": return <Phone className={className} />;
+    case "ShieldCheck": return <ShieldCheck className={className} />;
+    case "Wrench": return <Wrench className={className} />;
+    case "Globe": return <Globe className={className} />;
+    case "Clock": return <Clock className={className} />;
+    case "Sparkles": return <Sparkles className={className} />;
+    case "Cpu": return <Cpu className={className} />;
+    case "Monitor":
+    default:
+      return <Monitor className={className} />;
+  }
+}
+
+export const WORKSHOP_CATEGORIES = DEFAULT_CATEGORIES;
+
 export function getCategoryUI(catName: string) {
-  const found = WORKSHOP_CATEGORIES.find((c) => c.id === catName);
+  const found = DEFAULT_CATEGORIES.find((c) => c.id === catName);
   if (found) return found;
-  // Búsqueda aproximada si difiere ligeramente
   const lower = (catName || "").toLowerCase();
-  if (lower.includes("chat") || lower.includes("mensajería")) return WORKSHOP_CATEGORIES[0];
-  if (lower.includes("ticket")) return WORKSHOP_CATEGORIES[1];
-  if (lower.includes("proceso") || lower.includes("desarrollo") || lower.includes("investiga")) return WORKSHOP_CATEGORIES[2];
-  if (lower.includes("admin") || lower.includes("control")) return WORKSHOP_CATEGORIES[3];
-  if (lower.includes("correo") || lower.includes("mail")) return WORKSHOP_CATEGORIES[4];
-  if (lower.includes("llamada") || lower.includes("telefón") || lower.includes("phone")) return WORKSHOP_CATEGORIES[5];
-  if (lower.includes("soporte") || lower.includes("redes") || lower.includes("taller")) return WORKSHOP_CATEGORIES[6];
-  if (lower.includes("garant") || lower.includes("rma")) return WORKSHOP_CATEGORIES[7];
-  return WORKSHOP_CATEGORIES[WORKSHOP_CATEGORIES.length - 1]; // Actividad general
+  if (lower.includes("chat") || lower.includes("mensajería")) return DEFAULT_CATEGORIES[0];
+  if (lower.includes("ticket")) return DEFAULT_CATEGORIES[1];
+  if (lower.includes("proceso") || lower.includes("desarrollo") || lower.includes("investiga")) return DEFAULT_CATEGORIES[2];
+  if (lower.includes("admin") || lower.includes("control")) return DEFAULT_CATEGORIES[3];
+  if (lower.includes("correo") || lower.includes("mail")) return DEFAULT_CATEGORIES[4];
+  if (lower.includes("llamada") || lower.includes("telefón") || lower.includes("phone")) return DEFAULT_CATEGORIES[5];
+  if (lower.includes("soporte") || lower.includes("redes") || lower.includes("taller")) return DEFAULT_CATEGORIES[6];
+  if (lower.includes("garant") || lower.includes("rma")) return DEFAULT_CATEGORIES[7];
+  return DEFAULT_CATEGORIES[DEFAULT_CATEGORIES.length - 1];
 }
 
 function getAppIcon(appName: string) {
@@ -238,35 +302,51 @@ function formatDuration(ms: number): string {
 
 export function ActivityAppsRanking({ timeline }: Props) {
   const [viewMode, setViewMode] = useState<"categories" | "apps">("categories");
+  const [categories, setCategories] = useState<CategoryItem[]>(DEFAULT_CATEGORIES);
   const [customCategories, setCustomCategories] = useState<Record<string, string>>({});
   const [activeDropdownApp, setActiveDropdownApp] = useState<string | null>(null);
   const [showManageModal, setShowManageModal] = useState(false);
+  const [activeModalTab, setActiveModalTab] = useState<"apps" | "categories">("apps");
   const [searchQuery, setSearchQuery] = useState("");
   const [savingApp, setSavingApp] = useState<string | null>(null);
 
-  // Cargar categorías guardadas en localStorage y en el servidor
+  const [editingCategory, setEditingCategory] = useState<CategoryItem | null>(null);
+  const [isCreatingNew, setIsCreatingNew] = useState(false);
+  const [formCatName, setFormCatName] = useState("");
+  const [formCatColorIdx, setFormCatColorIdx] = useState(0);
+  const [formCatIcon, setFormCatIcon] = useState("Monitor");
+
+  // Cargar categorías y mapeos de localStorage y API
   useEffect(() => {
     try {
-      const local = localStorage.getItem("sek_app_categories");
-      if (local) {
-        setCustomCategories(JSON.parse(local));
-      }
+      const localMaps = localStorage.getItem("sek_app_categories");
+      if (localMaps) setCustomCategories(JSON.parse(localMaps));
+      const localCats = localStorage.getItem("sek_categories_list");
+      if (localCats) setCategories(JSON.parse(localCats));
     } catch {}
 
     fetch("/api/activity/app-categories")
       .then((res) => res.json())
       .then((data) => {
-        if (data?.categories) {
-          setCustomCategories(data.categories);
-          try {
-            localStorage.setItem("sek_app_categories", JSON.stringify(data.categories));
-          } catch {}
+        if (data?.appMappings) {
+          setCustomCategories(data.appMappings);
+          try { localStorage.setItem("sek_app_categories", JSON.stringify(data.appMappings)); } catch {}
+        }
+        if (data?.categories && Array.isArray(data.categories) && data.categories.length > 0) {
+          setCategories(data.categories);
+          try { localStorage.setItem("sek_categories_list", JSON.stringify(data.categories)); } catch {}
         }
       })
       .catch(() => {});
   }, []);
 
-  // Función para asignar categoría a una aplicación
+  const getCategoryDef = (catName: string): CategoryItem => {
+    const found = categories.find((c) => c.id === catName || c.label === catName);
+    if (found) return found;
+    return categories[categories.length - 1] || DEFAULT_CATEGORIES[DEFAULT_CATEGORIES.length - 1];
+  };
+
+  // Asignar categoría a una aplicación
   const handleSetCategory = async (appName: string, category: string | null) => {
     setSavingApp(appName);
     const newMap = { ...customCategories };
@@ -277,9 +357,7 @@ export function ActivityAppsRanking({ timeline }: Props) {
     }
 
     setCustomCategories(newMap);
-    try {
-      localStorage.setItem("sek_app_categories", JSON.stringify(newMap));
-    } catch {}
+    try { localStorage.setItem("sek_app_categories", JSON.stringify(newMap)); } catch {}
     setActiveDropdownApp(null);
 
     try {
@@ -289,10 +367,121 @@ export function ActivityAppsRanking({ timeline }: Props) {
         body: JSON.stringify({ appName, category: category || "auto" }),
       });
     } catch (err) {
-      console.error("Error al guardar categoría de app:", err);
+      console.error("Error al guardar categoría:", err);
     } finally {
       setSavingApp(null);
     }
+  };
+
+  const saveCategoriesList = async (updatedList: CategoryItem[]) => {
+    setCategories(updatedList);
+    try { localStorage.setItem("sek_categories_list", JSON.stringify(updatedList)); } catch {}
+    try {
+      await fetch("/api/activity/app-categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ categories: updatedList }),
+      });
+    } catch (err) {
+      console.error("Error al guardar categorías:", err);
+    }
+  };
+
+  const handleSaveCategoryForm = () => {
+    const name = formCatName.trim();
+    if (!name) return;
+
+    const preset = COLOR_PRESETS[formCatColorIdx] || COLOR_PRESETS[0];
+
+    if (editingCategory) {
+      const updated = categories.map((c) => {
+        if (c.id === editingCategory.id) {
+          return {
+            ...c,
+            label: name,
+            color: preset.color,
+            bgBar: preset.bgBar,
+            iconName: formCatIcon,
+          };
+        }
+        return c;
+      });
+
+      if (editingCategory.id !== name) {
+        const newMaps = { ...customCategories };
+        let changed = false;
+        for (const [app, cat] of Object.entries(newMaps)) {
+          if (cat === editingCategory.id) {
+            newMaps[app] = name;
+            changed = true;
+          }
+        }
+        if (changed) {
+          setCustomCategories(newMaps);
+          fetch("/api/activity/app-categories", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ appMappings: newMaps }),
+          });
+        }
+      }
+
+      saveCategoriesList(updated);
+      setEditingCategory(null);
+    } else {
+      const newCat: CategoryItem = {
+        id: name,
+        label: name,
+        color: preset.color,
+        bgBar: preset.bgBar,
+        iconName: formCatIcon,
+      };
+      saveCategoriesList([...categories, newCat]);
+      setIsCreatingNew(false);
+    }
+
+    setFormCatName("");
+  };
+
+  const handleDeleteCategory = (catId: string) => {
+    if (categories.length <= 1) {
+      alert("Debe existir al menos una categoría en el sistema.");
+      return;
+    }
+    if (!confirm(`¿Eliminar la categoría "${catId}"? Las aplicaciones que la usaban volverán a automático.`)) {
+      return;
+    }
+
+    const updated = categories.filter((c) => c.id !== catId);
+    saveCategoriesList(updated);
+
+    const newMaps = { ...customCategories };
+    let changed = false;
+    for (const [app, cat] of Object.entries(newMaps)) {
+      if (cat === catId) {
+        delete newMaps[app];
+        changed = true;
+      }
+    }
+    if (changed) {
+      setCustomCategories(newMaps);
+      fetch("/api/activity/app-categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ appMappings: newMaps }),
+      });
+    }
+  };
+
+  const handleResetCategoriesToDefault = async () => {
+    if (!confirm("¿Restablecer todas las categorías a las 9 preconfiguradas originales?")) return;
+    setCategories(DEFAULT_CATEGORIES);
+    try { localStorage.setItem("sek_categories_list", JSON.stringify(DEFAULT_CATEGORIES)); } catch {}
+    await fetch("/api/activity/app-categories", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resetCategories: true }),
+    });
   };
 
   // Consolidar tiempo por app/categoría usando intervalos cronológicos reales
@@ -428,8 +617,7 @@ export function ActivityAppsRanking({ timeline }: Props) {
           let icon, labelNode, barClass;
           if (viewMode === "categories") {
             const ui = getCategoryUI(itemName);
-            const IconComp = ui.icon;
-            icon = <div className={ui.color.split(" ")[0]}><IconComp className="h-4 w-4" /></div>;
+            icon = <div className={ui.color.split(" ")[0]}>{renderCategoryIcon(ui.iconName, "h-4 w-4")}</div>;
             labelNode = (
               <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${ui.color}`}>
                 Categoría Oficial
@@ -473,9 +661,8 @@ export function ActivityAppsRanking({ timeline }: Props) {
                       {savingApp === itemName && <span className="text-violet-400 font-bold">Guardando...</span>}
                     </div>
 
-                    {WORKSHOP_CATEGORIES.map((cat) => {
+                    {categories.map((cat) => {
                       const isSelected = currentCat === cat.id;
-                      const CatIcon = cat.icon;
                       return (
                         <button
                           key={cat.id}
@@ -487,11 +674,11 @@ export function ActivityAppsRanking({ timeline }: Props) {
                               : "hover:bg-muted/60 text-foreground"
                           }`}
                         >
-                          <div className="flex items-center gap-2">
-                            <CatIcon className="h-3.5 w-3.5 opacity-80" />
-                            <span className="text-[11px]">{cat.label}</span>
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="opacity-80">{renderCategoryIcon(cat.iconName, "h-3.5 w-3.5")}</span>
+                            <span className="text-[11px] truncate">{cat.label}</span>
                           </div>
-                          {isSelected && <Check className="h-3.5 w-3.5 text-violet-400" />}
+                          {isSelected && <Check className="h-3.5 w-3.5 text-violet-400 shrink-0 ml-1" />}
                         </button>
                       );
                     })}
@@ -552,115 +739,318 @@ export function ActivityAppsRanking({ timeline }: Props) {
         })}
       </div>
 
-      {/* MODAL DE GESTIÓN GLOBAL DE CATEGORÍAS */}
+      {/* MODAL COMPLETO DE GESTIÓN (Mapeo de Apps + CRUD de Categorías) */}
       {showManageModal && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div
-            className="w-full max-w-xl rounded-2xl bg-card border border-border shadow-2xl p-6 space-y-4 max-h-[85vh] flex flex-col"
+            className="w-full max-w-2xl rounded-2xl bg-card border border-border shadow-2xl p-6 space-y-4 max-h-[90vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
+            {/* Header del Modal con Tabs */}
             <div className="flex items-center justify-between border-b border-border/50 pb-3">
               <div className="flex items-center gap-2">
                 <SlidersHorizontal className="h-5 w-5 text-violet-400" />
                 <div>
-                  <h3 className="font-bold text-base text-foreground">Gestión de Categorías de Software</h3>
+                  <h3 className="font-bold text-base text-foreground">Gestión de Categorías y Software</h3>
                   <p className="text-xs text-muted-foreground">
-                    Asigne a qué categoría oficial del taller pertenece cada software o herramienta
+                    Asigne aplicaciones o cree, edite y elimine categorías del taller
                   </p>
                 </div>
               </div>
               <button
-                onClick={() => setShowManageModal(false)}
+                onClick={() => {
+                  setShowManageModal(false);
+                  setIsCreatingNew(false);
+                  setEditingCategory(null);
+                }}
                 className="p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
-            {/* Buscador */}
-            <div className="relative">
-              <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Buscar software o aplicación..."
-                className="w-full pl-9 pr-4 py-2 text-xs rounded-xl bg-muted/40 border border-border focus:outline-none focus:ring-2 focus:ring-violet-500 text-foreground placeholder:text-muted-foreground"
-              />
+            {/* Pestañas del Modal */}
+            <div className="flex border-b border-border/50 gap-4">
+              <button
+                onClick={() => { setActiveModalTab("apps"); setIsCreatingNew(false); setEditingCategory(null); }}
+                className={`pb-2 text-xs font-bold transition-all border-b-2 flex items-center gap-1.5 ${
+                  activeModalTab === "apps"
+                    ? "border-violet-500 text-violet-400"
+                    : "border-transparent text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Layers className="h-3.5 w-3.5" />
+                <span>Mapeo de Software ({filteredModalApps.length})</span>
+              </button>
+              <button
+                onClick={() => { setActiveModalTab("categories"); }}
+                className={`pb-2 text-xs font-bold transition-all border-b-2 flex items-center gap-1.5 ${
+                  activeModalTab === "categories"
+                    ? "border-violet-500 text-violet-400"
+                    : "border-transparent text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <SlidersHorizontal className="h-3.5 w-3.5" />
+                <span>Categorías del Taller ({categories.length})</span>
+              </button>
             </div>
 
-            {/* Lista de Software */}
-            <div className="flex-1 overflow-y-auto space-y-2 pr-1 min-h-[250px]">
-              {filteredModalApps.length === 0 ? (
-                <div className="p-8 text-center text-xs text-muted-foreground">
-                  No se encontraron aplicaciones que coincidan con la búsqueda.
+            {/* CONTENIDO PESTAÑA 1: MAPEO DE SOFTWARE */}
+            {activeModalTab === "apps" && (
+              <div className="flex-1 flex flex-col min-h-0 space-y-3">
+                <div className="relative">
+                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Buscar aplicación o software..."
+                    className="w-full pl-9 pr-4 py-2 text-xs rounded-xl bg-muted/40 border border-border focus:outline-none focus:ring-2 focus:ring-violet-500 text-foreground placeholder:text-muted-foreground"
+                  />
                 </div>
-              ) : (
-                filteredModalApps.map((appName) => {
-                  const isManual = Boolean(customCategories[appName]);
-                  const currentCat = customCategories[appName] || getDefaultCategoryForApp(appName);
-                  const icon = getAppIcon(appName);
 
-                  return (
+                <div className="flex-1 overflow-y-auto space-y-2 pr-1 min-h-[260px] max-h-[350px]">
+                  {filteredModalApps.length === 0 ? (
+                    <div className="p-8 text-center text-xs text-muted-foreground">
+                      No se encontraron aplicaciones con ese nombre.
+                    </div>
+                  ) : (
+                    filteredModalApps.map((appName) => {
+                      const isManual = Boolean(customCategories[appName]);
+                      const currentCat = customCategories[appName] || getDefaultCategoryForApp(appName);
+                      const icon = getAppIcon(appName);
+
+                      return (
+                        <div
+                          key={appName}
+                          className="p-2.5 rounded-xl bg-muted/20 border border-border/50 flex items-center justify-between gap-3 hover:bg-muted/30 transition-colors"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            {icon}
+                            <div className="min-w-0">
+                              <p className="font-bold text-xs text-foreground truncate" title={appName}>
+                                {appName}
+                              </p>
+                              <p className="text-[10px] text-muted-foreground">
+                                {isManual ? (
+                                  <span className="text-violet-400 font-semibold">● Asignación manual</span>
+                                ) : (
+                                  "Asignación automática"
+                                )}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            <select
+                              value={currentCat}
+                              onChange={(e) => handleSetCategory(appName, e.target.value)}
+                              className="text-xs font-bold px-2.5 py-1.5 rounded-lg bg-card border border-border focus:outline-none focus:ring-2 focus:ring-violet-500 text-foreground cursor-pointer max-w-[180px]"
+                            >
+                              {categories.map((cat) => (
+                                <option key={cat.id} value={cat.id}>
+                                  {cat.label}
+                                </option>
+                              ))}
+                            </select>
+
+                            {isManual && (
+                              <button
+                                onClick={() => handleSetCategory(appName, null)}
+                                title="Restablecer a automático"
+                                className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-amber-400 transition-colors"
+                              >
+                                <RotateCcw className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* CONTENIDO PESTAÑA 2: CRUD DE CATEGORÍAS (AGREGAR / EDITAR / ELIMINAR) */}
+            {activeModalTab === "categories" && (
+              <div className="flex-1 flex flex-col min-h-0 space-y-3">
+                {/* Formulario de Creación / Edición */}
+                {(isCreatingNew || editingCategory) ? (
+                  <div className="p-4 rounded-xl bg-muted/30 border border-violet-500/40 space-y-3 animate-in fade-in duration-150">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold text-violet-300">
+                        {editingCategory ? `Editar Categoría: ${editingCategory.label}` : "Nueva Categoría"}
+                      </h4>
+                      <button
+                        onClick={() => { setIsCreatingNew(false); setEditingCategory(null); }}
+                        className="text-xs text-muted-foreground hover:text-foreground"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-[11px] font-semibold text-muted-foreground block">
+                        Nombre de la Categoría
+                      </label>
+                      <input
+                        type="text"
+                        value={formCatName}
+                        onChange={(e) => setFormCatName(e.target.value)}
+                        placeholder="Ej: Logística, Calidad, etc."
+                        className="w-full px-3 py-1.5 text-xs rounded-lg bg-card border border-border focus:outline-none focus:ring-2 focus:ring-violet-500 text-foreground"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      {/* Color */}
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-semibold text-muted-foreground block">Color</label>
+                        <div className="flex flex-wrap gap-1.5">
+                          {COLOR_PRESETS.map((p, idx) => (
+                            <button
+                              key={p.name}
+                              type="button"
+                              onClick={() => setFormCatColorIdx(idx)}
+                              className={`h-6 w-6 rounded-full ${p.bgBar} transition-all ${
+                                formCatColorIdx === idx ? "ring-2 ring-white scale-110 shadow-md" : "opacity-70 hover:opacity-100"
+                              }`}
+                              title={p.name}
+                            />
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Icono */}
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-semibold text-muted-foreground block">Icono</label>
+                        <div className="flex flex-wrap gap-1.5 max-h-16 overflow-y-auto">
+                          {ICON_PRESETS.map((ico) => (
+                            <button
+                              key={ico}
+                              type="button"
+                              onClick={() => setFormCatIcon(ico)}
+                              className={`p-1.5 rounded-lg border transition-all ${
+                                formCatIcon === ico
+                                  ? "border-violet-500 bg-violet-500/20 text-violet-300"
+                                  : "border-border/60 bg-card text-muted-foreground hover:text-foreground"
+                              }`}
+                            >
+                              {renderCategoryIcon(ico, "h-3.5 w-3.5")}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 flex justify-end gap-2">
+                      <button
+                        onClick={() => { setIsCreatingNew(false); setEditingCategory(null); }}
+                        className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-muted text-muted-foreground hover:text-foreground"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        onClick={handleSaveCategoryForm}
+                        disabled={!formCatName.trim()}
+                        className="px-4 py-1.5 text-xs font-bold rounded-lg bg-violet-600 hover:bg-violet-700 text-white disabled:opacity-50 cursor-pointer"
+                      >
+                        {editingCategory ? "Guardar Cambios" : "Crear Categoría"}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex justify-between items-center">
+                    <p className="text-xs text-muted-foreground">
+                      Administre las categorías en las que se clasifica el tiempo laboral
+                    </p>
+                    <button
+                      onClick={() => {
+                        setIsCreatingNew(true);
+                        setEditingCategory(null);
+                        setFormCatName("");
+                        setFormCatColorIdx(0);
+                        setFormCatIcon("Monitor");
+                      }}
+                      className="px-3 py-1.5 text-xs font-bold rounded-lg bg-violet-600 hover:bg-violet-700 text-white flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      <span>Nueva Categoría</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* Lista de Categorías Existentes */}
+                <div className="flex-1 overflow-y-auto space-y-2 pr-1 min-h-[220px] max-h-[320px]">
+                  {categories.map((cat) => (
                     <div
-                      key={appName}
+                      key={cat.id}
                       className="p-2.5 rounded-xl bg-muted/20 border border-border/50 flex items-center justify-between gap-3 hover:bg-muted/30 transition-colors"
                     >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        {icon}
-                        <div className="min-w-0">
-                          <p className="font-bold text-xs text-foreground truncate" title={appName}>
-                            {appName}
-                          </p>
+                      <div className="flex items-center gap-2.5">
+                        <div className={`p-1.5 rounded-lg border ${cat.color}`}>
+                          {renderCategoryIcon(cat.iconName, "h-4 w-4")}
+                        </div>
+                        <div>
+                          <span className="font-bold text-xs text-foreground">{cat.label}</span>
                           <p className="text-[10px] text-muted-foreground">
-                            {isManual ? (
-                              <span className="text-violet-400 font-semibold">● Personalizada manualmente</span>
-                            ) : (
-                              "Asignación automática"
-                            )}
+                            {cat.id === "Actividad general" ? "Categoría por defecto" : "Categoría activa"}
                           </p>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2 shrink-0">
-                        <select
-                          value={currentCat}
-                          onChange={(e) => handleSetCategory(appName, e.target.value)}
-                          className="text-xs font-bold px-2.5 py-1.5 rounded-lg bg-card border border-border focus:outline-none focus:ring-2 focus:ring-violet-500 text-foreground cursor-pointer"
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => {
+                            setEditingCategory(cat);
+                            setIsCreatingNew(false);
+                            setFormCatName(cat.label);
+                            const foundIdx = COLOR_PRESETS.findIndex((p) => p.bgBar === cat.bgBar);
+                            setFormCatColorIdx(foundIdx >= 0 ? foundIdx : 0);
+                            setFormCatIcon(cat.iconName || "Monitor");
+                          }}
+                          className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-violet-300 transition-colors cursor-pointer"
+                          title="Editar nombre, color o icono"
                         >
-                          {WORKSHOP_CATEGORIES.map((cat) => (
-                            <option key={cat.id} value={cat.id}>
-                              {cat.label}
-                            </option>
-                          ))}
-                        </select>
+                          <Edit2 className="h-3.5 w-3.5" />
+                        </button>
 
-                        {isManual && (
-                          <button
-                            onClick={() => handleSetCategory(appName, null)}
-                            title="Restablecer a automático"
-                            className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-amber-400 transition-colors"
-                          >
-                            <RotateCcw className="h-3.5 w-3.5" />
-                          </button>
-                        )}
+                        <button
+                          onClick={() => handleDeleteCategory(cat.id)}
+                          className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-rose-400 transition-colors cursor-pointer"
+                          title="Eliminar categoría"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
                       </div>
                     </div>
-                  );
-                })
-              )}
-            </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
-            {/* Footer con resumen y acciones */}
+            {/* Footer */}
             <div className="border-t border-border/50 pt-3 flex items-center justify-between text-xs">
-              <span className="text-muted-foreground">
-                {Object.keys(customCategories).length} aplicación(es) con categoría personalizada
-              </span>
+              {activeModalTab === "apps" ? (
+                <span className="text-muted-foreground">
+                  {Object.keys(customCategories).length} aplicación(es) con categoría personalizada
+                </span>
+              ) : (
+                <button
+                  onClick={handleResetCategoriesToDefault}
+                  className="text-amber-400 hover:text-amber-300 font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  <span>Restablecer categorías predeterminadas</span>
+                </button>
+              )}
 
               <div className="flex items-center gap-2">
-                {Object.keys(customCategories).length > 0 && (
+                {activeModalTab === "apps" && Object.keys(customCategories).length > 0 && (
                   <button
                     onClick={() => {
+                      if (!confirm("¿Restablecer todas las aplicaciones a su categorización automática?")) return;
                       setCustomCategories({});
                       try {
                         localStorage.removeItem("sek_app_categories");
@@ -671,14 +1061,14 @@ export function ActivityAppsRanking({ timeline }: Props) {
                         body: JSON.stringify({ fullMap: {} }),
                       });
                     }}
-                    className="px-3 py-1.5 text-xs font-semibold rounded-lg text-amber-400 hover:bg-amber-500/10 transition-colors"
+                    className="px-3 py-1.5 text-xs font-semibold rounded-lg text-amber-400 hover:bg-amber-500/10 transition-colors cursor-pointer"
                   >
                     Restablecer todas
                   </button>
                 )}
                 <button
                   onClick={() => setShowManageModal(false)}
-                  className="px-4 py-1.5 text-xs font-bold rounded-lg bg-violet-600 hover:bg-violet-700 text-white transition-colors"
+                  className="px-4 py-1.5 text-xs font-bold rounded-lg bg-violet-600 hover:bg-violet-700 text-white transition-colors cursor-pointer"
                 >
                   Listo
                 </button>
