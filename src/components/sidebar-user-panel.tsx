@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Camera, Lock, Eye, EyeOff, Check, X, ChevronUp, Circle, LogOut, Activity as ActivityIcon, FileText, ChevronRight, X as XIcon, RefreshCw, Wrench, Coffee, Timer, BarChart3, Package, LayoutDashboard, ClipboardList, Sparkles, UserPlus, Briefcase, GraduationCap, Users, Utensils, Sandwich, Bath } from "lucide-react";
+import { Camera, Lock, Eye, EyeOff, Check, X, ChevronUp, Circle, LogOut, Activity as ActivityIcon, FileText, ChevronRight, X as XIcon, RefreshCw, Wrench, Coffee, Timer, BarChart3, Package, LayoutDashboard, ClipboardList, Sparkles, UserPlus, Briefcase, GraduationCap, Users, Utensils, Sandwich, Bath, Square } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -459,28 +459,42 @@ export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; online
               </div>
 
               {/* Timer manual activo si hay labor en curso */}
-              {manualTask && (
-                <div className="m-3 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between shadow-sm animate-in fade-in">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Timer className="h-4 w-4 text-amber-500 shrink-0 animate-pulse" />
-                    <div>
-                      <p className="text-[11px] font-bold text-amber-500 truncate leading-tight">{manualTask.label}</p>
-                      <p className="text-[10px] text-amber-600/80 font-medium">Recolección automática en pausa</p>
+              {manualTask && (() => {
+                const ActiveIcon = TAREAS_GROUPED.flatMap(g => g.items).find(i => i.label === manualTask.label)?.icon || Timer;
+                return (
+                  <div className="mx-3 mt-3 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 shadow-sm space-y-2.5 animate-in fade-in slide-in-from-top-1">
+                    {/* Fila superior: Ícono, Título y Cronómetro */}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="h-7 w-7 rounded-lg bg-amber-500/20 text-amber-400 grid place-items-center shrink-0 border border-amber-500/30">
+                          <ActiveIcon className="h-4 w-4 animate-pulse" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs font-black text-amber-400 truncate leading-tight" title={manualTask.label}>
+                            {manualTask.label}
+                          </p>
+                          <p className="text-[10px] text-amber-500/80 font-medium leading-tight mt-0.5 truncate">
+                            Auto-tracking en pausa
+                          </p>
+                        </div>
+                      </div>
+                      <span className="text-xs font-mono font-black text-amber-300 tabular-nums px-2 py-0.5 rounded-lg bg-amber-500/20 border border-amber-500/30 shrink-0">
+                        {manualElapsed}
+                      </span>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-xs font-mono font-black text-amber-500 tabular-nums px-2 py-0.5 rounded-lg bg-amber-500/15 border border-amber-500/20">
-                      {manualElapsed}
-                    </span>
+
+                    {/* Fila inferior: Botón Detener a ancho completo */}
                     <button
+                      type="button"
                       onClick={stopManualTask}
-                      className="text-xs font-bold text-white px-2.5 py-1 rounded-xl bg-amber-600 hover:bg-amber-700 transition-colors shadow-sm"
+                      className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs shadow-sm shadow-amber-600/30 transition-all active:scale-[0.98]"
                     >
-                      Detener
+                      <Square className="h-3 w-3 fill-current" />
+                      <span>Detener labor</span>
                     </button>
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               {/* Tareas Físicas / Fuera de Estación Directas */}
               <div className="flex-1 overflow-y-auto px-3 py-2.5 space-y-3">
