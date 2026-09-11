@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useState } from "react";
 import { RefreshCw, ShieldAlert } from "lucide-react";
@@ -15,21 +15,31 @@ export default function GlobalError({
   useEffect(() => {
     // Si es un error de chunk o versión tras un deploy, forzar recarga dura
     const msg = error?.message || "";
-    if (
+    const name = error?.name || "";
+    const isChunkError =
+      name === "ChunkLoadError" ||
       msg.includes("Loading chunk") ||
       msg.includes("ChunkLoadError") ||
       msg.includes("Failed to fetch dynamically imported module") ||
-      msg.includes("useContext")
-    ) {
-      window.location.reload();
-      return;
+      msg.includes("useContext");
+
+    const STORAGE_KEY = "sekunet_autorecover_ts";
+    const lastRecover = Number(sessionStorage.getItem(STORAGE_KEY) || 0);
+    const now = Date.now();
+
+    if (isChunkError) {
+      if (!lastRecover || now - lastRecover > 8000) {
+        sessionStorage.setItem(STORAGE_KEY, String(now));
+        window.location.href = window.location.pathname + (window.location.search || "");
+        return;
+      }
     }
 
     const timer = setInterval(() => {
       setCountdown((prev) => {
         if (prev <= 1) {
           clearInterval(timer);
-          window.location.reload();
+          window.location.href = window.location.pathname + (window.location.search || "");
           return 0;
         }
         return prev - 1;
@@ -55,7 +65,7 @@ export default function GlobalError({
 
           <div className="flex flex-col gap-2 pt-2">
             <button
-              onClick={() => window.location.reload()}
+              onClick={() => { window.location.href = window.location.pathname + (window.location.search || ""); }}
               className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-xs shadow-lg shadow-violet-600/25 transition-all"
             >
               <RefreshCw className="h-4 w-4 animate-spin" />
