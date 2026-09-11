@@ -943,7 +943,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                 type="time"
                 value={scheduleStart}
                 onChange={(e) => handleScheduleChange(e.target.value, scheduleEnd, true)}
-                className="bg-transparent text-foreground focus:outline-none cursor-pointer font-mono text-xs w-[68px]"
+                className="bg-transparent text-foreground focus:outline-none cursor-pointer font-mono text-xs w-[46px] text-center [&::-webkit-calendar-picker-indicator]:hidden p-0"
                 title="Hora de inicio de jornada"
               />
               <span className="text-muted-foreground text-[10px]">a</span>
@@ -951,7 +951,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                 type="time"
                 value={scheduleEnd}
                 onChange={(e) => handleScheduleChange(scheduleStart, e.target.value, true)}
-                className="bg-transparent text-foreground focus:outline-none cursor-pointer font-mono text-xs w-[68px]"
+                className="bg-transparent text-foreground focus:outline-none cursor-pointer font-mono text-xs w-[46px] text-center [&::-webkit-calendar-picker-indicator]:hidden p-0"
                 title="Hora de fin de jornada"
               />
             </div>
