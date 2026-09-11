@@ -362,7 +362,52 @@ interface ConsolidatedBlock {
 function buildConsolidatedNarrative(items: TimelineEntry[]): string {
   if (!items.length) return "";
 
-  // Agrupar actividades por tema único
+  // 1. PRIORIDAD ABSOLUTA: Si hay una labor manual/física, se pausan e ignoran los demás logs en el informe
+  for (const item of items) {
+    const meta = (item.metadata || {}) as Record<string, any>;
+    const action = (item.action || "").toLowerCase();
+    const taskName = meta.task || meta.label || item.action.replace(/^inici[oó]:\s*|^termin[oó]:\s*|^justificaci[oó]n:\s*/i, "").split("(")[0].trim();
+    const raw = `${action} ${taskName.toLowerCase()} ${(meta.app || "").toLowerCase()}`;
+
+    if (raw.includes("capacita") || item.category === "Capacitación") {
+      return `Sesión de capacitación e inducción técnica: ${taskName || "Capacitación de Personal"}.`;
+    }
+    if (raw.includes("bodega")) {
+      return `Labores manuales en bodega y despacho de repuestos o equipos.`;
+    }
+    if (raw.includes("ventanilla") || raw.includes("mostrador")) {
+      return `Atención presencial a clientes en mostrador y ventanilla.`;
+    }
+    if (raw.includes("diagnóstic") || raw.includes("diagnostico")) {
+      return `Diagnóstico físico, inspección técnica y banco de pruebas de taller.`;
+    }
+    if (raw.includes("soporte a ventas") || raw.includes("soporte ventas")) {
+      return `Soporte técnico y asesoramiento comercial al equipo de ventas.`;
+    }
+    if (raw.includes("descanso") || raw.includes("almuerzo") || item.category === "Tiempo de descanso") {
+      return `Tiempo de descanso y receso laboral.`;
+    }
+    if (raw.includes("baño") || item.category === "Pausa personal") {
+      return `Pausa personal operativa.`;
+    }
+    if (raw.includes("reunión") || raw.includes("reunion") || item.category === "Reunión interna") {
+      return `Reunión de coordinación y seguimiento de equipo: ${taskName || "Reunión"}.`;
+    }
+    if (raw.includes("inventario")) {
+      return `Inventario físico y actualización de existencias en bodega GAR.`;
+    }
+    if (raw.includes("limpieza")) {
+      return `Mantenimiento, orden y limpieza en áreas de taller.`;
+    }
+    if (raw.includes("exhibidor")) {
+      return `Revisión y organización de productos en exhibidores de tienda.`;
+    }
+    if (meta.manual || meta.task || meta.justification || action.startsWith("inició:") || action.startsWith("terminó:") || action.startsWith("justificación:")) {
+      return `Labor manual en taller: ${taskName}.`;
+    }
+  }
+
+  // Agrupar actividades de software y navegación
   const phrases = new Set<string>();
   let hasCctv = false;
   let hasRecortes = false;
@@ -374,17 +419,6 @@ function buildConsolidatedNarrative(items: TimelineEntry[]): string {
   let hasDev = false;
   let hasOffice = false;
   let hasPause = false;
-  let hasBodega = false;
-  let hasExhibidores = false;
-  let hasInventarioGAR = false;
-  let hasLimpieza = false;
-  let hasVentanilla = false;
-  let hasDiagnostico = false;
-  let hasSoporteVentas = false;
-  let hasDescanso = false;
-  let hasReunion = false;
-  let hasCapacitacion = false;
-  let hasJustificacion = false;
 
   for (const item of items) {
     const meta = (item.metadata || {}) as Record<string, any>;
@@ -392,55 +426,6 @@ function buildConsolidatedNarrative(items: TimelineEntry[]): string {
     const action = (item.action || "").toLowerCase();
     const title = (meta.title || meta.context || "").toLowerCase();
     const raw = `${action} ${title} ${app}`;
-    const taskLower = (meta.task || "").toLowerCase();
-
-    // Labores físicas de taller
-    if (raw.includes("bodega") || taskLower.includes("bodega")) {
-      hasBodega = true;
-      continue;
-    }
-    if (raw.includes("exhibidor") || taskLower.includes("exhibidor")) {
-      hasExhibidores = true;
-      continue;
-    }
-    if (raw.includes("inventario gar") || raw.includes("inventario y actualización") || taskLower.includes("inventario")) {
-      hasInventarioGAR = true;
-      continue;
-    }
-    if (raw.includes("limpieza") || taskLower.includes("limpieza")) {
-      hasLimpieza = true;
-      continue;
-    }
-    if (raw.includes("ventanilla") || raw.includes("mostrador") || taskLower.includes("ventanilla")) {
-      hasVentanilla = true;
-      continue;
-    }
-    if (raw.includes("diagnóstico") || raw.includes("diagnostico") || taskLower.includes("diagnóstic")) {
-      hasDiagnostico = true;
-      continue;
-    }
-    if (raw.includes("soporte a ventas") || raw.includes("soporte ventas") || taskLower.includes("soporte a ventas")) {
-      hasSoporteVentas = true;
-      continue;
-    }
-    if (raw.includes("descanso") || raw.includes("almuerzo") || taskLower.includes("descanso")) {
-      hasDescanso = true;
-      continue;
-    }
-    if (raw.includes("reunión") || raw.includes("reunion") || taskLower.includes("reunión")) {
-      hasReunion = true;
-      continue;
-    }
-    if (raw.includes("capacita") || taskLower.includes("capacita")) {
-      hasCapacitacion = true;
-      continue;
-    }
-    if (meta.justification || raw.includes("justificación") || raw.includes("justificacion")) {
-      hasJustificacion = true;
-      continue;
-    }
-
-    // Entornos de desarrollo y programación tienen máxima prioridad
     const isDevItem =
       app.includes("antigravity") ||
       app.includes("cursor") ||
@@ -504,17 +489,6 @@ function buildConsolidatedNarrative(items: TimelineEntry[]): string {
     phrases.add("control administrativo, elaboración de informes técnicos y gestión documental");
   }
 
-  if (hasBodega) phrases.add("labores manuales en bodega y despacho de repuestos o equipos");
-  if (hasExhibidores) phrases.add("revisión y organización de productos en exhibidores de tienda");
-  if (hasInventarioGAR) phrases.add("inventario físico y actualización de existencias en bodega GAR");
-  if (hasLimpieza) phrases.add("mantenimiento, orden y limpieza en áreas de taller");
-  if (hasVentanilla) phrases.add("atención presencial a clientes en mostrador y ventanilla");
-  if (hasDiagnostico) phrases.add("diagnóstico físico, inspección técnica y banco de pruebas de taller");
-  if (hasSoporteVentas) phrases.add("soporte técnico y asesoramiento comercial al equipo de ventas");
-  if (hasCapacitacion) phrases.add("sesión de capacitación e inducción técnica");
-  if (hasReunion) phrases.add("reunión de coordinación y seguimiento de equipo");
-  if (hasDescanso) phrases.add("tiempo de descanso y receso laboral");
-  if (hasJustificacion) phrases.add("actividad presencial justificada en taller");
 
   if (hasPause && phrases.size === 0) {
     return "Pausa operativa / Período sin interacción activa en la estación de trabajo.";
@@ -653,6 +627,8 @@ function consolidateTimelineByBlocks(
     // SI HAY UNA LABOR MANUAL EN ESTE BLOQUE, SE LE OTORGA PRIORIDAD MÁXIMA
     const topCategory = manualCategory || Object.entries(catCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || "Operación Sekunet";
     const narrative = buildConsolidatedNarrative(items);
+    // Si hubo una labor manual, silenciar las demás apps de fondo y reportar exclusivamente la labor manual
+    const displayApps = manualTaskName ? [manualTaskName] : Array.from(apps);
 
     return {
       id: `block-${bucketKey}`,
@@ -661,7 +637,7 @@ function consolidateTimelineByBlocks(
       narrative,
       category: topCategory,
       totalDurationMs: totalDur || intervalMs,
-      apps: Array.from(apps),
+      apps: displayApps,
       eventCount: items.length,
       manualTask: manualTaskName,
     };
@@ -786,23 +762,98 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
 
   const currentAgentObj = liveAgents.find((a) => a.email.toLowerCase() === selectedAgent?.toLowerCase());
 
-  // Filtrar timeline dentro del horario laboral
+  // Filtrar timeline dentro del horario laboral y con jerarquía absoluta de labores manuales
   const timelineWithinSchedule = React.useMemo(() => {
-    if (!scheduleEnabled) return timeline;
-    const parseTimeToMinutes = (t: string) => {
-      if (!t) return 0;
-      const parts = t.split(":");
-      return (parseInt(parts[0], 10) || 0) * 60 + (parseInt(parts[1], 10) || 0);
-    };
-    const startMin = parseTimeToMinutes(scheduleStart || "08:00");
-    const endMin = parseTimeToMinutes(scheduleEnd || "17:00");
+    // 1. Filtrar por horario laboral si está habilitado
+    let list = timeline;
+    if (scheduleEnabled) {
+      const parseTimeToMinutes = (t: string) => {
+        if (!t) return 0;
+        const parts = t.split(":");
+        return (parseInt(parts[0], 10) || 0) * 60 + (parseInt(parts[1], 10) || 0);
+      };
+      const startMin = parseTimeToMinutes(scheduleStart || "08:00");
+      const endMin = parseTimeToMinutes(scheduleEnd || "17:00");
 
-    return timeline.filter((entry) => {
-      if (!entry.created_at) return false;
-      const d = new Date(entry.created_at);
-      if (isNaN(d.getTime())) return false;
-      const minOfDay = d.getHours() * 60 + d.getMinutes();
-      return minOfDay >= startMin && minOfDay < endMin;
+      list = list.filter((entry) => {
+        if (!entry.created_at) return false;
+        const d = new Date(entry.created_at);
+        if (isNaN(d.getTime())) return false;
+        const minOfDay = d.getHours() * 60 + d.getMinutes();
+        return minOfDay >= startMin && minOfDay < endMin;
+      });
+    }
+
+    // 2. Extraer todos los intervalos de labores manuales (Capacitación, Bodega, Ventanilla, Diagnóstico, etc.)
+    // La actividad manual tiene JERARQUÍA ABSOLUTA: dentro de su intervalo, todos los demás logs de fondo se pausan y se silencian
+    interface ManualRange {
+      startMs: number;
+      endMs: number;
+    }
+    const manualRanges: ManualRange[] = [];
+
+    for (const it of list) {
+      const meta = (it.metadata || {}) as Record<string, any>;
+      const act = (it.action || "").toLowerCase();
+      const isEnd = act.startsWith("terminó:") || act.startsWith("termino:");
+      const isJust = act.startsWith("justificación:") || act.startsWith("justificacion:") || meta.justification;
+
+      if (isEnd || isJust) {
+        const endMs = new Date(it.created_at).getTime();
+        const discreteMs = Number(
+          it.duration_ms ||
+          (meta.duration_seconds ? meta.duration_seconds * 1000 : 0) ||
+          (meta.minutes ? meta.minutes * 60000 : 0)
+        ) || 0;
+        const durMs = Math.min(discreteMs, 4 * 3600 * 1000);
+        if (durMs > 0) {
+          manualRanges.push({ startMs: endMs - durMs, endMs });
+        }
+      }
+    }
+
+    // Detectar labor manual activa actualmente (Inició sin Terminó posterior)
+    const sorted = [...list].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    for (let i = sorted.length - 1; i >= 0; i--) {
+      const it = sorted[i];
+      const meta = (it.metadata || {}) as Record<string, any>;
+      const act = (it.action || "").toLowerCase();
+      const isStart = (act.startsWith("inició:") || act.startsWith("inicio:")) && (meta.manual || meta.task);
+      if (isStart) {
+        const startMs = new Date(it.created_at).getTime();
+        const hasEndLater = sorted.slice(i + 1).some((after) => {
+          const afterAct = (after.action || "").toLowerCase();
+          return (afterAct.startsWith("terminó:") || afterAct.startsWith("termino:")) && new Date(after.created_at).getTime() > startMs;
+        });
+        if (!hasEndLater) {
+          manualRanges.push({ startMs, endMs: Date.now() });
+        }
+        break;
+      }
+    }
+
+    if (manualRanges.length === 0) return list;
+
+    // 3. Suprimir cualquier log de software/fondo que caiga dentro de un rango de actividad manual
+    return list.filter((item) => {
+      const meta = (item.metadata || {}) as Record<string, any>;
+      const act = (item.action || "").toLowerCase();
+      const isManual = Boolean(
+        meta.manual ||
+        meta.task ||
+        meta.justification ||
+        act.startsWith("inició:") ||
+        act.startsWith("inicio:") ||
+        act.startsWith("terminó:") ||
+        act.startsWith("termino:") ||
+        act.startsWith("justificación:") ||
+        act.startsWith("justificacion:")
+      );
+      if (isManual) return true;
+
+      const itemMs = new Date(item.created_at).getTime();
+      const inManual = manualRanges.some((r) => itemMs >= r.startMs && itemMs <= r.endMs);
+      return !inManual;
     });
   }, [timeline, scheduleEnabled, scheduleStart, scheduleEnd]);
 

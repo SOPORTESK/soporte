@@ -27,6 +27,33 @@ function getClient(): SupabaseClient {
   return createServiceClient();
 }
 
+export async function hasActiveManualTask(agentEmail: string): Promise<boolean> {
+  const supabase = getClient();
+  const today = new Date().toISOString().split("T")[0];
+  const { data, error } = await supabase
+    .from("activity_log")
+    .select("id, action, category, metadata, created_at")
+    .eq("agent_email", agentEmail)
+    .gte("created_at", `${today}T00:00:00`)
+    .order("created_at", { ascending: false })
+    .limit(20);
+
+  if (error || !data || data.length === 0) return false;
+
+  for (const it of data) {
+    const act = (it.action || "").toLowerCase();
+    const meta = (it.metadata || {}) as Record<string, any>;
+    const isEnd = act.startsWith("terminó:") || act.startsWith("termino:");
+    const isStart = (act.startsWith("inició:") || act.startsWith("inicio:")) && (meta.manual || meta.task);
+    if (isEnd) return false;
+    if (isStart) {
+      const startMs = new Date(it.created_at).getTime();
+      return Date.now() - startMs < 10 * 60 * 60 * 1000;
+    }
+  }
+  return false;
+}
+
 export async function insertActivityLog(entry: ActivityLog): Promise<void> {
   const supabase = getClient();
   const { error } = await supabase.from("activity_log").insert({

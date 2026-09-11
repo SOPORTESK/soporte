@@ -11,6 +11,34 @@ interface LogActivityParams {
 export function logActivity(params: LogActivityParams): void {
   if (typeof window === "undefined") return;
   try {
+    const act = (params.action || "").toLowerCase();
+    const meta = params.metadata || {};
+    const isManualAction = Boolean(
+      meta.manual ||
+      meta.task ||
+      meta.justification ||
+      act.startsWith("inició:") ||
+      act.startsWith("inicio:") ||
+      act.startsWith("terminó:") ||
+      act.startsWith("termino:") ||
+      act.startsWith("justificación:") ||
+      act.startsWith("justificacion:")
+    );
+
+    // Si hay una labor manual activa, SE PAUSAN TODOS LOS DEMÁS LOGS
+    if (!isManualAction) {
+      try {
+        const saved = localStorage.getItem("sekunet_manual_task");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed?.start && Date.now() - parsed.start < 12 * 60 * 60 * 1000) {
+            // Labor manual activa: no emitir logs de navegación, casos ni inactividad
+            return;
+          }
+        }
+      } catch {}
+    }
+
     const payload = JSON.stringify(params);
     if (typeof navigator !== "undefined" && navigator.sendBeacon) {
       const blob = new Blob([payload], { type: "application/json" });

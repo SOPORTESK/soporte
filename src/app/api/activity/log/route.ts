@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { insertActivityLog } from "@/lib/activity-db";
+import { insertActivityLog, hasActiveManualTask } from "@/lib/activity-db";
 
 export const runtime = "nodejs";
 
@@ -13,6 +13,31 @@ export async function POST(req: NextRequest) {
         { error: "agent_email, action and category are required" },
         { status: 400 }
       );
+    }
+
+    const actLower = String(action).toLowerCase();
+    const isManualAction = Boolean(
+      metadata?.manual ||
+      metadata?.task ||
+      metadata?.justification ||
+      actLower.startsWith("inició:") ||
+      actLower.startsWith("inicio:") ||
+      actLower.startsWith("terminó:") ||
+      actLower.startsWith("termino:") ||
+      actLower.startsWith("justificación:") ||
+      actLower.startsWith("justificacion:")
+    );
+
+    // Si el usuario tiene una labor manual activa en curso, SE PAUSAN TODOS LOS DEMÁS LOGS
+    if (!isManualAction) {
+      const activeManual = await hasActiveManualTask(agent_email);
+      if (activeManual) {
+        return NextResponse.json({
+          success: true,
+          paused: true,
+          message: "Logs automáticos pausados debido a una labor manual activa en curso."
+        });
+      }
     }
 
     try {
