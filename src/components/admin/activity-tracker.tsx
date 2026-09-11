@@ -938,43 +938,22 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
               <span className="text-[11px] font-bold">Horario:</span>
             </button>
 
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1.5">
               <input
                 type="time"
                 value={scheduleStart}
                 onChange={(e) => handleScheduleChange(e.target.value, scheduleEnd, true)}
-                className="bg-transparent text-foreground focus:outline-none cursor-pointer font-mono text-xs w-[46px] text-center [&::-webkit-calendar-picker-indicator]:hidden p-0"
+                className="bg-transparent text-foreground focus:outline-none cursor-pointer font-mono text-xs w-[48px] text-center [&::-webkit-calendar-picker-indicator]:hidden p-0 border-b border-border/60 hover:border-violet-500 transition-colors"
                 title="Hora de inicio de jornada"
               />
-              <span className="text-muted-foreground text-[10px]">a</span>
+              <span className="text-muted-foreground text-xs font-normal">a</span>
               <input
                 type="time"
                 value={scheduleEnd}
                 onChange={(e) => handleScheduleChange(scheduleStart, e.target.value, true)}
-                className="bg-transparent text-foreground focus:outline-none cursor-pointer font-mono text-xs w-[46px] text-center [&::-webkit-calendar-picker-indicator]:hidden p-0"
+                className="bg-transparent text-foreground focus:outline-none cursor-pointer font-mono text-xs w-[48px] text-center [&::-webkit-calendar-picker-indicator]:hidden p-0 border-b border-border/60 hover:border-violet-500 transition-colors"
                 title="Hora de fin de jornada"
               />
-            </div>
-
-            {/* Presets rápidos */}
-            <div className="hidden xl:flex items-center gap-1 border-l border-border/60 pl-2">
-              {[
-                { label: "8a-5p", s: "08:00", e: "17:00" },
-                { label: "7:30a-4:30p", s: "07:30", e: "16:30" },
-                { label: "8a-6p", s: "08:00", e: "18:00" },
-              ].map((p) => (
-                <button
-                  key={p.label}
-                  onClick={() => handleScheduleChange(p.s, p.e, true)}
-                  className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors ${
-                    scheduleStart === p.s && scheduleEnd === p.e && scheduleEnabled
-                      ? "bg-violet-600 text-white font-bold"
-                      : "hover:bg-muted text-muted-foreground"
-                  }`}
-                >
-                  {p.label}
-                </button>
-              ))}
             </div>
           </div>
 
