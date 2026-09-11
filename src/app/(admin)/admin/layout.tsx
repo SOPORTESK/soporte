@@ -18,6 +18,7 @@ import { FloatingTechAssistant } from "@/components/floating-tech-assistant";
 import { ActivityTrackerProvider } from "@/components/activity-tracker-provider";
 import { getUserWithTimeout, queryWithFallback } from "@/lib/supabase/resilient";
 import { getAgentGroupPermissions } from "@/lib/permissions";
+import { SidebarUserPanel } from "@/components/sidebar-user-panel";
 
 export const dynamic = 'force-dynamic';
 
@@ -97,6 +98,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
   const fullName = [a.nombre, a.apellido].filter(Boolean).join(" ") || user.email!;
 
+  const { data: onlineAgents } = await supabase
+    .from("sek_agent_config")
+    .select("email, nombre, apellido, avatar_url, status")
+    .eq("activo", true);
+
   return (
     <GodModeGuard>
       <GodModeAdminWrapper originalAgent={a}>
@@ -157,21 +163,10 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               )}
             </nav>
 
-            <div className="p-3 border-t border-border space-y-3">
-              <div className="flex items-center gap-3 px-2">
-                <Avatar name={fullName} size={36} />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium truncate">{fullName}</p>
-                  <div className="flex items-center gap-1">
-                    <Badge variant="danger" className="text-[10px]">{a.rol}</Badge>
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <ThemeToggle />
-                <LogoutButton />
-              </div>
+            <div className="flex items-center gap-1 px-4 pb-2 pt-2">
+              <ThemeToggle />
             </div>
+            <SidebarUserPanel agent={a as any} onlineAgents={onlineAgents || []} />
           </aside>
 
           <header className="lg:hidden flex items-center justify-between p-4 border-b border-border bg-card">

@@ -49,6 +49,9 @@ interface TimelineItem {
 
 interface Props {
   timeline: TimelineItem[];
+  scheduleStart?: string;
+  scheduleEnd?: string;
+  scheduleEnabled?: boolean;
 }
 
 export interface CategoryItem {
@@ -390,7 +393,12 @@ function formatDuration(ms: number): string {
   return `${minutes}m`;
 }
 
-export function ActivityAppsRanking({ timeline }: Props) {
+export function ActivityAppsRanking({
+  timeline,
+  scheduleStart = "08:00",
+  scheduleEnd = "17:00",
+  scheduleEnabled = true,
+}: Props) {
   const [viewMode, setViewMode] = useState<"categories" | "apps">("categories");
   const [categories, setCategories] = useState<CategoryItem[]>(DEFAULT_CATEGORIES);
   const [customCategories, setCustomCategories] = useState<Record<string, string>>({});
@@ -574,7 +582,7 @@ export function ActivityAppsRanking({ timeline }: Props) {
     });
   };
 
-  // Consolidar tiempo por app/categoría usando intervalos cronológicos reales
+  // Consolidar tiempo por app/categoría usando intervalos cronológicos reales y rangos de horario
   const { appMap, catMap, totalActiveTime, allDetectedApps } = useMemo(() => {
     const appM: Record<string, { durationMs: number; count: number }> = {};
     const catM: Record<string, { durationMs: number; count: number }> = {};
@@ -587,66 +595,167 @@ export function ActivityAppsRanking({ timeline }: Props) {
         .sort((a, b) => new Date(a.created_at!).getTime() - new Date(b.created_at!).getTime());
 
       const LUNCH_GAP_MS = 30 * 60 * 1000;
+      const parseTimeToMinutes = (t: string) => {
+        if (!t) return 0;
+        const parts = t.split(":");
+        return (parseInt(parts[0], 10) || 0) * 60 + (parseInt(parts[1], 10) || 0);
+      };
 
+      const startMin = parseTimeToMinutes(scheduleStart || "08:00");
+      const endMin = parseTimeToMinutes(scheduleEnd || "17:00");
+
+      // 1. Identificar intervalos manuales discretos (inicio/fin) acotados al horario laboral
+      interface ManualInterval {
+        startMs: number;
+        endMs: number;
+        appName: string;
+        effectiveCat: string;
+      }
+      const manualIntervals: ManualInterval[] = [];
+
+      for (let i = 0; i < sorted.length; i++) {
+        const it = sorted[i];
+        const meta = (it.metadata || {}) as Record<string, any>;
+        const act = (it.action || "").toLowerCase();
+        const isEnd = act.startsWith("terminó:") || act.startsWith("termino:");
+        const isJust = act.startsWith("justificación:") || act.startsWith("justificacion:") || meta.justification;
+
+        if (isEnd || isJust) {
+          const endMs = new Date(it.created_at!).getTime();
+          const discreteMs = Number(
+            it.duration_ms ||
+            (meta.duration_seconds ? meta.duration_seconds * 1000 : 0) ||
+            (meta.minutes ? meta.minutes * 60000 : 0)
+          ) || 0;
+          // Máximo 4 horas por olvido
+          const durMs = Math.min(discreteMs, 4 * 3600 * 1000);
+          const startMs = endMs - durMs;
+
+          const appName = extractSmartAppName(it);
+          allAppsSet.add(appName);
+          const effectiveCat = customCategories[appName] || getDefaultCategoryForApp(appName, it.action, it.category);
+
+          let clampedStart = startMs;
+          let clampedEnd = endMs;
+
+          if (scheduleEnabled) {
+            const endDate = new Date(endMs);
+            const dayStartMs = new Date(endDate).setHours(Math.floor(startMin / 60), startMin % 60, 0, 0);
+            const dayEndMs = new Date(endDate).setHours(Math.floor(endMin / 60), endMin % 60, 0, 0);
+            clampedStart = Math.max(startMs, dayStartMs);
+            clampedEnd = Math.min(endMs, dayEndMs);
+          }
+
+          if (clampedEnd > clampedStart) {
+            manualIntervals.push({
+              startMs: clampedStart,
+              endMs: clampedEnd,
+              appName,
+              effectiveCat,
+            });
+          }
+        }
+      }
+
+      // Detectar labor manual actualmente abierta/en curso (Inició sin Terminó)
+      for (let i = sorted.length - 1; i >= 0; i--) {
+        const it = sorted[i];
+        const meta = (it.metadata || {}) as Record<string, any>;
+        const act = (it.action || "").toLowerCase();
+        const isStart = (act.startsWith("inició:") || act.startsWith("inicio:")) && (meta.manual || meta.task);
+        if (isStart) {
+          const startMs = new Date(it.created_at!).getTime();
+          const hasEndLater = sorted.slice(i + 1).some((after) => {
+            const afterAct = (after.action || "").toLowerCase();
+            return (afterAct.startsWith("terminó:") || afterAct.startsWith("termino:")) && new Date(after.created_at!).getTime() > startMs;
+          });
+
+          if (!hasEndLater) {
+            const appName = extractSmartAppName(it);
+            allAppsSet.add(appName);
+            const effectiveCat = customCategories[appName] || getDefaultCategoryForApp(appName, it.action, it.category);
+
+            let clampedStart = startMs;
+            let clampedEnd = Date.now();
+
+            if (scheduleEnabled) {
+              const startDate = new Date(startMs);
+              const dayStartMs = new Date(startDate).setHours(Math.floor(startMin / 60), startMin % 60, 0, 0);
+              const dayEndMs = new Date(startDate).setHours(Math.floor(endMin / 60), endMin % 60, 0, 0);
+              clampedStart = Math.max(startMs, dayStartMs);
+              clampedEnd = Math.min(Date.now(), dayEndMs);
+            }
+
+            if (clampedEnd > clampedStart) {
+              manualIntervals.push({
+                startMs: clampedStart,
+                endMs: clampedEnd,
+                appName,
+                effectiveCat,
+              });
+            }
+          }
+          break;
+        }
+      }
+
+      // Sumar los intervalos manuales
+      for (const m of manualIntervals) {
+        const dur = m.endMs - m.startMs;
+        if (dur > 0) {
+          if (!appM[m.appName]) appM[m.appName] = { durationMs: 0, count: 0 };
+          appM[m.appName].durationMs += dur;
+          appM[m.appName].count++;
+
+          if (!catM[m.effectiveCat]) catM[m.effectiveCat] = { durationMs: 0, count: 0 };
+          catM[m.effectiveCat].durationMs += dur;
+          catM[m.effectiveCat].count++;
+
+          totalTime += dur;
+        }
+      }
+
+      // 2. Procesar eventos de software secuenciales no solapados
       for (let i = 0; i < sorted.length; i++) {
         const curr = sorted[i];
         const meta = (curr.metadata || {}) as Record<string, any>;
-        const act = (curr.action || "").toLowerCase();
-        const isManual = Boolean(
-          meta.manual ||
-          meta.task ||
-          meta.justification ||
-          act.startsWith("inició:") ||
-          act.startsWith("inicio:") ||
-          act.startsWith("terminó:") ||
-          act.startsWith("termino:") ||
-          act.startsWith("justificación:") ||
-          act.startsWith("justificacion:")
-        );
 
-        // Bloqueo o suspensión del sistema solo se descarta si NO es una labor manual registrada por el usuario
-        const isSystemLock = (meta.reason === "lock_screen" || meta.reason === "suspend") && !isManual;
-        if (isSystemLock) continue;
-
+        // Si es salvapantallas de Windows o suspensión de pantalla, descartar de software productivo
         const appName = extractSmartAppName(curr);
-        allAppsSet.add(appName);
+        const appLower = appName.toLowerCase();
+        if (appLower.includes(".scr") || appLower.includes("mystify") || meta.reason === "lock_screen" || meta.reason === "suspend") {
+          continue;
+        }
 
-        // La categoría respeta la elección manual del usuario o el predeterminado
+        const currTime = new Date(curr.created_at!).getTime();
+        const currDate = new Date(currTime);
+
+        // Si el horario laboral está activo, verificar si está dentro del horario
+        if (scheduleEnabled) {
+          const currMinOfDay = currDate.getHours() * 60 + currDate.getMinutes();
+          if (currMinOfDay < startMin || currMinOfDay >= endMin) {
+            continue; // Fuera de horario laboral: NADA se mide
+          }
+        }
+
+        // Si este instante de tiempo cae dentro de un intervalo de labor manual, la labor manual ya lo midió
+        const inManual = manualIntervals.some((m) => currTime >= m.startMs && currTime <= m.endMs);
+        if (inManual) continue;
+
+        // Software regular (Brave, Antigravity, Odoo, etc.)
+        allAppsSet.add(appName);
         const effectiveCat = customCategories[appName] || getDefaultCategoryForApp(appName, curr.action, curr.category);
 
-        const discreteDuration = Number(
-          curr.duration_ms ||
-          (meta.duration_seconds ? meta.duration_seconds * 1000 : 0) ||
-          (meta.minutes ? meta.minutes * 60000 : 0)
-        ) || 0;
+        const nextTime = i < sorted.length - 1 ? new Date(sorted[i + 1].created_at!).getTime() : currTime + 60000;
+        let clampedNext = nextTime;
 
-        const isManualStart = act.startsWith("inició:") || act.startsWith("inicio:");
-        let effectiveDuration = 0;
-
-        if (discreteDuration > 0) {
-          // Evento con duración exacta registrada (Terminó labor manual, Justificación de tiempo, etc.)
-          effectiveDuration = discreteDuration;
-        } else if (isManualStart) {
-          // Si más adelante hay un "Terminó:" correspondiente, ese evento computará la duración exacta
-          const hasMatchingEnd = sorted.slice(i + 1).some((item) => {
-            const nextAct = (item.action || "").toLowerCase();
-            return (nextAct.startsWith("terminó:") || nextAct.startsWith("termino:")) && extractSmartAppName(item) === appName;
-          });
-          if (hasMatchingEnd) {
-            effectiveDuration = 0;
-          } else {
-            const currTime = new Date(curr.created_at!).getTime();
-            const nextTime = i < sorted.length - 1 ? new Date(sorted[i + 1].created_at!).getTime() : Math.min(currTime + LUNCH_GAP_MS, Date.now());
-            const gap = Math.max(0, nextTime - currTime);
-            effectiveDuration = Math.min(gap, LUNCH_GAP_MS);
-          }
-        } else {
-          // Eventos de aplicaciones de software activas o latidos de ventana
-          const currTime = new Date(curr.created_at!).getTime();
-          const nextTime = i < sorted.length - 1 ? new Date(sorted[i + 1].created_at!).getTime() : currTime + 60000;
-          const gap = Math.max(0, nextTime - currTime);
-          effectiveDuration = Math.min(gap, LUNCH_GAP_MS);
+        if (scheduleEnabled) {
+          const dayEndMs = new Date(currDate).setHours(Math.floor(endMin / 60), endMin % 60, 0, 0);
+          clampedNext = Math.min(nextTime, dayEndMs);
         }
+
+        const gap = Math.max(0, clampedNext - currTime);
+        const effectiveDuration = Math.min(gap, LUNCH_GAP_MS);
 
         if (effectiveDuration > 0) {
           if (!appM[appName]) appM[appName] = { durationMs: 0, count: 0 };
@@ -668,7 +777,7 @@ export function ActivityAppsRanking({ timeline }: Props) {
       totalActiveTime: totalTime,
       allDetectedApps: Array.from(allAppsSet),
     };
-  }, [timeline, customCategories]);
+  }, [timeline, customCategories, scheduleStart, scheduleEnd, scheduleEnabled]);
 
   const activeMap = viewMode === "categories" ? catMap : appMap;
   const sortedItems = Object.entries(activeMap)

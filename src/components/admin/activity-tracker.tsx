@@ -356,6 +356,7 @@ interface ConsolidatedBlock {
   totalDurationMs: number;
   apps: string[];
   eventCount: number;
+  manualTask?: string | null;
 }
 
 function buildConsolidatedNarrative(items: TimelineEntry[]): string {
@@ -536,8 +537,22 @@ function buildConsolidatedNarrative(items: TimelineEntry[]): string {
   return combined.charAt(0).toUpperCase() + combined.slice(1) + ".";
 }
 
-function consolidateTimelineByBlocks(entries: TimelineEntry[], intervalMinutes: number = 5): ConsolidatedBlock[] {
+function consolidateTimelineByBlocks(
+  entries: TimelineEntry[],
+  intervalMinutes: number = 5,
+  scheduleStart?: string,
+  scheduleEnd?: string,
+  scheduleEnabled?: boolean
+): ConsolidatedBlock[] {
   if (!entries || entries.length === 0) return [];
+
+  const parseTimeToMinutes = (t: string) => {
+    if (!t) return 0;
+    const parts = t.split(":");
+    return (parseInt(parts[0], 10) || 0) * 60 + (parseInt(parts[1], 10) || 0);
+  };
+  const startMin = parseTimeToMinutes(scheduleStart || "08:00");
+  const endMin = parseTimeToMinutes(scheduleEnd || "17:00");
 
   // Ordenar cronológicamente ascendente para agrupar
   const sorted = [...entries]
@@ -550,6 +565,16 @@ function consolidateTimelineByBlocks(entries: TimelineEntry[], intervalMinutes: 
   for (const entry of sorted) {
     const time = new Date(entry.created_at).getTime();
     if (isNaN(time)) continue;
+
+    // Si el horario laboral está activo, omitir eventos fuera de rango
+    if (scheduleEnabled) {
+      const d = new Date(time);
+      const minOfDay = d.getHours() * 60 + d.getMinutes();
+      if (minOfDay < startMin || minOfDay >= endMin) {
+        continue;
+      }
+    }
+
     // Bucket al inicio del intervalo de 5 min
     const bucketKey = Math.floor(time / intervalMs) * intervalMs;
     const list = blocksMap.get(bucketKey) || [];
@@ -568,22 +593,44 @@ function consolidateTimelineByBlocks(entries: TimelineEntry[], intervalMinutes: 
     const startTime = bucketDate.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit" });
     const endTime = bucketEndDate.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit" });
 
-    // Determinar categoría primaria
+    // Determinar categoría primaria con prioridad a labores manuales
     const catCounts: Record<string, number> = {};
     const apps = new Set<string>();
     let totalDur = 0;
+    let manualCategory: string | null = null;
+    let manualTaskName: string | null = null;
 
     for (const it of items) {
       const meta = (it.metadata || {}) as Record<string, any>;
+      const act = (it.action || "").toLowerCase();
+      const isManual = Boolean(
+        meta.manual ||
+        meta.task ||
+        meta.justification ||
+        act.startsWith("inició:") ||
+        act.startsWith("inicio:") ||
+        act.startsWith("terminó:") ||
+        act.startsWith("termino:") ||
+        act.startsWith("justificación:") ||
+        act.startsWith("justificacion:")
+      );
+
+      if (isManual) {
+        manualCategory = it.category || "Labores manuales";
+        manualTaskName =
+          meta.task ||
+          meta.label ||
+          it.action.replace(/^inici[oó]:\s*|^termin[oó]:\s*|^justificaci[oó]n:\s*/i, "").split("(")[0].trim();
+      }
+
       let app = meta.task || meta.app_name || meta.label || meta.app || "";
       if (!app) {
-        const act = it.action || "";
-        if (act.toLowerCase().startsWith("inició:") || act.toLowerCase().startsWith("inicio:")) {
-          app = act.replace(/^inici[oó]:\s*/i, "").trim();
-        } else if (act.toLowerCase().startsWith("terminó:") || act.toLowerCase().startsWith("termino:")) {
-          app = act.replace(/^termin[oó]:\s*/i, "").split("(")[0].trim();
-        } else if (act.toLowerCase().startsWith("justificación:") || act.toLowerCase().startsWith("justificacion:")) {
-          app = act.replace(/^justificaci[oó]n:\s*/i, "").split("(")[0].trim();
+        if (act.startsWith("inició:") || act.startsWith("inicio:")) {
+          app = it.action.replace(/^inici[oó]:\s*/i, "").trim();
+        } else if (act.startsWith("terminó:") || act.startsWith("termino:")) {
+          app = it.action.replace(/^termin[oó]:\s*/i, "").split("(")[0].trim();
+        } else if (act.startsWith("justificación:") || act.startsWith("justificacion:")) {
+          app = it.action.replace(/^justificaci[oó]n:\s*/i, "").split("(")[0].trim();
         }
       }
       if (app && app !== "Unknown") apps.add(app);
@@ -603,7 +650,8 @@ function consolidateTimelineByBlocks(entries: TimelineEntry[], intervalMinutes: 
       catCounts[cat] = (catCounts[cat] || 0) + 1;
     }
 
-    const topCategory = Object.entries(catCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || "Operación Sekunet";
+    // SI HAY UNA LABOR MANUAL EN ESTE BLOQUE, SE LE OTORGA PRIORIDAD MÁXIMA
+    const topCategory = manualCategory || Object.entries(catCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || "Operación Sekunet";
     const narrative = buildConsolidatedNarrative(items);
 
     return {
@@ -615,6 +663,7 @@ function consolidateTimelineByBlocks(entries: TimelineEntry[], intervalMinutes: 
       totalDurationMs: totalDur || intervalMs,
       apps: Array.from(apps),
       eventCount: items.length,
+      manualTask: manualTaskName,
     };
   });
 }
@@ -632,6 +681,56 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [autoRefreshSec, setAutoRefreshSec] = useState<number>(30);
+
+  // Estados para rangos de horarios laborales manuales
+  const [scheduleEnabled, setScheduleEnabled] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    try {
+      const saved = localStorage.getItem("sekunet_activity_schedule_enabled");
+      return saved !== null ? saved === "true" : true;
+    } catch {
+      return true;
+    }
+  });
+
+  const [scheduleStart, setScheduleStart] = useState<string>(() => {
+    if (typeof window === "undefined") return "08:00";
+    try {
+      return localStorage.getItem("sekunet_activity_schedule_start") || "08:00";
+    } catch {
+      return "08:00";
+    }
+  });
+
+  const [scheduleEnd, setScheduleEnd] = useState<string>(() => {
+    if (typeof window === "undefined") return "17:00";
+    try {
+      return localStorage.getItem("sekunet_activity_schedule_end") || "17:00";
+    } catch {
+      return "17:00";
+    }
+  });
+
+  const [timelineViewMode, setTimelineViewMode] = useState<"consolidated" | "logs">("consolidated");
+  const [onlyManualFilter, setOnlyManualFilter] = useState<boolean>(false);
+
+  const handleScheduleChange = (start: string, end: string, enabled = true) => {
+    setScheduleStart(start);
+    setScheduleEnd(end);
+    setScheduleEnabled(enabled);
+    try {
+      localStorage.setItem("sekunet_activity_schedule_start", start);
+      localStorage.setItem("sekunet_activity_schedule_end", end);
+      localStorage.setItem("sekunet_activity_schedule_enabled", enabled ? "true" : "false");
+    } catch {}
+  };
+
+  const handleToggleSchedule = (enabled: boolean) => {
+    setScheduleEnabled(enabled);
+    try {
+      localStorage.setItem("sekunet_activity_schedule_enabled", enabled ? "true" : "false");
+    } catch {}
+  };
 
   // Cargar estado en vivo de agentes
   const fetchLive = useCallback(async () => {
@@ -687,18 +786,68 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
 
   const currentAgentObj = liveAgents.find((a) => a.email.toLowerCase() === selectedAgent?.toLowerCase());
 
-  // Filtrado de timeline
-  const filteredTimeline = timeline.filter((item) => {
-    if (categoryFilter !== "all" && item.category !== categoryFilter) return false;
-    if (searchFilter) {
-      const term = searchFilter.toLowerCase();
-      const actionMatch = (item.action || "").toLowerCase().includes(term);
-      const catMatch = (item.category || "").toLowerCase().includes(term);
-      const appMatch = JSON.stringify(item.metadata || {}).toLowerCase().includes(term);
-      return actionMatch || catMatch || appMatch;
+  // Filtrar timeline dentro del horario laboral
+  const timelineWithinSchedule = React.useMemo(() => {
+    if (!scheduleEnabled) return timeline;
+    const parseTimeToMinutes = (t: string) => {
+      if (!t) return 0;
+      const parts = t.split(":");
+      return (parseInt(parts[0], 10) || 0) * 60 + (parseInt(parts[1], 10) || 0);
+    };
+    const startMin = parseTimeToMinutes(scheduleStart || "08:00");
+    const endMin = parseTimeToMinutes(scheduleEnd || "17:00");
+
+    return timeline.filter((entry) => {
+      if (!entry.created_at) return false;
+      const d = new Date(entry.created_at);
+      if (isNaN(d.getTime())) return false;
+      const minOfDay = d.getHours() * 60 + d.getMinutes();
+      return minOfDay >= startMin && minOfDay < endMin;
+    });
+  }, [timeline, scheduleEnabled, scheduleStart, scheduleEnd]);
+
+  // Filtrado final de timeline según filtros de UI
+  const filteredTimeline = React.useMemo(() => {
+    let list = timelineWithinSchedule;
+
+    if (onlyManualFilter) {
+      list = list.filter((item) => {
+        const meta = (item.metadata || {}) as Record<string, any>;
+        const act = (item.action || "").toLowerCase();
+        return Boolean(
+          meta.manual ||
+          meta.task ||
+          meta.justification ||
+          act.startsWith("inició:") ||
+          act.startsWith("inicio:") ||
+          act.startsWith("terminó:") ||
+          act.startsWith("termino:") ||
+          act.startsWith("justificación:") ||
+          act.startsWith("justificacion:") ||
+          item.category === "Labores manuales" ||
+          item.category === "Capacitación" ||
+          item.category === "Tiempo de descanso" ||
+          item.category === "Pausa personal"
+        );
+      });
     }
-    return true;
-  });
+
+    if (categoryFilter !== "all") {
+      list = list.filter((item) => item.category === categoryFilter);
+    }
+
+    if (searchFilter.trim()) {
+      const term = searchFilter.toLowerCase();
+      list = list.filter((item) => {
+        const actionMatch = (item.action || "").toLowerCase().includes(term);
+        const catMatch = (item.category || "").toLowerCase().includes(term);
+        const appMatch = JSON.stringify(item.metadata || {}).toLowerCase().includes(term);
+        return actionMatch || catMatch || appMatch;
+      });
+    }
+
+    return list;
+  }, [timelineWithinSchedule, onlyManualFilter, categoryFilter, searchFilter]);
 
   const categoriesAvailable = Array.from(new Set(timeline.map((t) => t.category).filter(Boolean)));
 
@@ -723,8 +872,61 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
           </div>
         </div>
 
-        {/* Controles de fecha y refresco */}
+        {/* Controles de horario laboral, fecha y refresco */}
         <div className="flex flex-wrap items-center gap-2.5">
+          {/* Selector de Horario Laboral Manual (Fuera de rango NADA se mide) */}
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-border bg-background shadow-sm text-xs font-semibold">
+            <button
+              onClick={() => handleToggleSchedule(!scheduleEnabled)}
+              className={`flex items-center gap-1.5 transition-colors ${
+                scheduleEnabled ? "text-violet-400" : "text-muted-foreground line-through opacity-70"
+              }`}
+              title={scheduleEnabled ? "Horario manual activo (clic para desactivar filtro)" : "Horario desactivado (24h)"}
+            >
+              <Clock className="h-3.5 w-3.5 text-violet-500" />
+              <span className="text-[11px] font-bold">Horario:</span>
+            </button>
+
+            <div className="flex items-center gap-1">
+              <input
+                type="time"
+                value={scheduleStart}
+                onChange={(e) => handleScheduleChange(e.target.value, scheduleEnd, true)}
+                className="bg-transparent text-foreground focus:outline-none cursor-pointer font-mono text-xs w-[68px]"
+                title="Hora de inicio de jornada"
+              />
+              <span className="text-muted-foreground text-[10px]">a</span>
+              <input
+                type="time"
+                value={scheduleEnd}
+                onChange={(e) => handleScheduleChange(scheduleStart, e.target.value, true)}
+                className="bg-transparent text-foreground focus:outline-none cursor-pointer font-mono text-xs w-[68px]"
+                title="Hora de fin de jornada"
+              />
+            </div>
+
+            {/* Presets rápidos */}
+            <div className="hidden xl:flex items-center gap-1 border-l border-border/60 pl-2">
+              {[
+                { label: "8a-5p", s: "08:00", e: "17:00" },
+                { label: "7:30a-4:30p", s: "07:30", e: "16:30" },
+                { label: "8a-6p", s: "08:00", e: "18:00" },
+              ].map((p) => (
+                <button
+                  key={p.label}
+                  onClick={() => handleScheduleChange(p.s, p.e, true)}
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors ${
+                    scheduleStart === p.s && scheduleEnd === p.e && scheduleEnabled
+                      ? "bg-violet-600 text-white font-bold"
+                      : "hover:bg-muted text-muted-foreground"
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Selector de fecha */}
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-border bg-background shadow-sm text-xs font-semibold">
             <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
@@ -855,11 +1057,16 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
             />
 
             {/* Heatmap de Intensidad */}
-            <ActivityHeatmap timeline={timeline} date={selectedDate} />
+            <ActivityHeatmap timeline={timelineWithinSchedule} date={selectedDate} />
 
             {/* Top Apps y Resumen en 2 Columnas */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <ActivityAppsRanking timeline={timeline} />
+              <ActivityAppsRanking
+                timeline={timeline}
+                scheduleStart={scheduleStart}
+                scheduleEnd={scheduleEnd}
+                scheduleEnabled={scheduleEnabled}
+              />
 
               {/* Vista rápida de informes narrados de 5 minutos */}
               <div className="p-5 rounded-2xl bg-card border border-border/70 shadow-sm space-y-3">
@@ -877,7 +1084,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                 </div>
 
                 <div className="space-y-2.5 max-h-[350px] overflow-y-auto pr-1">
-                  {consolidateTimelineByBlocks(timeline, 5).slice(0, 6).map((block) => {
+                  {consolidateTimelineByBlocks(timelineWithinSchedule, 5, scheduleStart, scheduleEnd, scheduleEnabled).slice(0, 6).map((block) => {
                     const Icon = CATEGORY_ICONS[block.category] || Activity;
                     const colorClass = CATEGORY_COLORS[block.category] || "text-zinc-400 bg-zinc-500/10 border-zinc-500/20";
                     return (
@@ -890,8 +1097,13 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="font-semibold text-foreground leading-relaxed text-justify">{block.narrative}</p>
-                          <div className="flex items-center gap-2 mt-2 text-[11px] text-muted-foreground font-mono">
+                          <div className="flex items-center gap-2 mt-2 text-[11px] text-muted-foreground font-mono flex-wrap">
                             <span className="font-bold text-foreground/80">{block.startTime} – {block.endTime}</span>
+                            {block.manualTask && (
+                              <span className="px-1.5 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold flex items-center gap-1">
+                                <Wrench className="h-2.5 w-2.5" /> {block.manualTask}
+                              </span>
+                            )}
                             {block.apps.length > 0 && (
                               <>
                                 <span>•</span>
@@ -912,6 +1124,46 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
         {/* PESTAÑA 2: LÍNEA DE TIEMPO PROFUNDA */}
         {activeTab === "timeline" && (
           <div className="space-y-4">
+            {/* Selector de modo de vista: Bloques Consolidados vs Registro Detallado de Logs */}
+            <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-2xl bg-card border border-border/70 shadow-sm">
+              <div className="flex items-center gap-1 bg-muted/40 p-1 rounded-xl border border-border/40">
+                <button
+                  onClick={() => setTimelineViewMode("consolidated")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    timelineViewMode === "consolidated"
+                      ? "bg-violet-600 text-white shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Informes Narrados (Bloques 5 min)
+                </button>
+                <button
+                  onClick={() => setTimelineViewMode("logs")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    timelineViewMode === "logs"
+                      ? "bg-violet-600 text-white shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Registro Detallado de Eventos (Logs)
+                </button>
+              </div>
+
+              {/* Filtro rápido: Solo Labores Manuales */}
+              <button
+                onClick={() => setOnlyManualFilter(!onlyManualFilter)}
+                className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  onlyManualFilter
+                    ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-400 shadow-sm"
+                    : "bg-background border-border/60 hover:bg-muted text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Wrench className="h-3.5 w-3.5 text-emerald-400" />
+                <span>Solo Labores Manuales & Físicas</span>
+                {onlyManualFilter && <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />}
+              </button>
+            </div>
+
             {/* Barra de Filtros y Búsqueda */}
             <div className="p-4 rounded-2xl bg-card border border-border/70 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3">
               <div className="flex items-center gap-2 w-full sm:w-auto">
@@ -919,7 +1171,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                   <Search className="h-3.5 w-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                   <input
                     type="text"
-                    placeholder="Buscar en informes narrados..."
+                    placeholder="Buscar en eventos y reportes..."
                     value={searchFilter}
                     onChange={(e) => setSearchFilter(e.target.value)}
                     className="w-full pl-9 pr-3 py-1.5 rounded-xl border border-border bg-background text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-violet-500"
@@ -940,76 +1192,188 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                 </select>
               </div>
 
-              {(() => {
-                const blocks = consolidateTimelineByBlocks(filteredTimeline, 5);
-                return (
-                  <span className="text-xs text-muted-foreground font-semibold">
-                    Mostrando {blocks.length} informes narrados (bloques de 5 min)
-                  </span>
-                );
-              })()}
+              {timelineViewMode === "consolidated" ? (
+                (() => {
+                  const blocks = consolidateTimelineByBlocks(filteredTimeline, 5, scheduleStart, scheduleEnd, scheduleEnabled);
+                  return (
+                    <span className="text-xs text-muted-foreground font-semibold">
+                      Mostrando {blocks.length} informes narrados {scheduleEnabled && `(${scheduleStart} – ${scheduleEnd})`}
+                    </span>
+                  );
+                })()
+              ) : (
+                <span className="text-xs text-muted-foreground font-semibold">
+                  Mostrando {filteredTimeline.length} eventos registrados {scheduleEnabled && `(${scheduleStart} – ${scheduleEnd})`}
+                </span>
+              )}
             </div>
 
-            {/* Lista Cronológica Consolidada en Bloques de 5 Minutos */}
-            <div className="space-y-3">
-              {(() => {
-                const blocks = consolidateTimelineByBlocks(filteredTimeline, 5);
-                if (blocks.length === 0) {
-                  return (
-                    <div className="p-12 text-center rounded-2xl bg-card border border-border/70 text-muted-foreground text-xs">
-                      No hay informes registrados para esta fecha o filtros.
-                    </div>
-                  );
-                }
+            {/* MODO 1: Lista Cronológica Consolidada en Bloques de 5 Minutos */}
+            {timelineViewMode === "consolidated" && (
+              <div className="space-y-3">
+                {(() => {
+                  const blocks = consolidateTimelineByBlocks(filteredTimeline, 5, scheduleStart, scheduleEnd, scheduleEnabled);
+                  if (blocks.length === 0) {
+                    return (
+                      <div className="p-12 text-center rounded-2xl bg-card border border-border/70 text-muted-foreground text-xs">
+                        No hay informes registrados para esta fecha, horario o filtros.
+                      </div>
+                    );
+                  }
 
-                return blocks.map((block) => {
-                  const Icon = CATEGORY_ICONS[block.category] || Activity;
-                  const colorClass = CATEGORY_COLORS[block.category] || "text-zinc-400 bg-zinc-500/10 border-zinc-500/20";
+                  return blocks.map((block) => {
+                    const Icon = CATEGORY_ICONS[block.category] || Activity;
+                    const colorClass = CATEGORY_COLORS[block.category] || "text-zinc-400 bg-zinc-500/10 border-zinc-500/20";
 
-                  return (
-                    <div
-                      key={block.id}
-                      className="p-5 rounded-2xl bg-card border border-border/70 hover:border-violet-500/40 transition-all flex flex-col sm:flex-row sm:items-start justify-between gap-4 text-xs"
-                    >
-                      <div className="flex items-start gap-3.5 min-w-0 flex-1">
-                        <div className={`p-2.5 rounded-xl border shrink-0 mt-0.5 ${colorClass}`}>
-                          <Icon className="h-4 w-4" />
-                        </div>
-                        <div className="min-w-0 flex-1 space-y-2">
-                          <p className="font-medium text-foreground text-sm leading-relaxed text-justify">
-                            {block.narrative}
-                          </p>
+                    return (
+                      <div
+                        key={block.id}
+                        className="p-5 rounded-2xl bg-card border border-border/70 hover:border-violet-500/40 transition-all flex flex-col sm:flex-row sm:items-start justify-between gap-4 text-xs"
+                      >
+                        <div className="flex items-start gap-3.5 min-w-0 flex-1">
+                          <div className={`p-2.5 rounded-xl border shrink-0 mt-0.5 ${colorClass}`}>
+                            <Icon className="h-4 w-4" />
+                          </div>
+                          <div className="min-w-0 flex-1 space-y-2">
+                            <p className="font-medium text-foreground text-sm leading-relaxed text-justify">
+                              {block.narrative}
+                            </p>
 
-                          <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-                            <span className="font-semibold px-2 py-0.5 rounded-lg bg-muted/60 border border-border/40 text-foreground/80">
-                              {block.category}
-                            </span>
-                            {block.apps.map((app) => (
-                              <span
-                                key={app}
-                                className="px-2 py-0.5 rounded-lg bg-muted/40 border border-border/40 text-muted-foreground font-medium"
-                              >
-                                {app}
+                            <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                              <span className="font-semibold px-2 py-0.5 rounded-lg bg-muted/60 border border-border/40 text-foreground/80">
+                                {block.category}
                               </span>
-                            ))}
+                              {block.manualTask && (
+                                <span className="px-2 py-0.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-bold flex items-center gap-1">
+                                  <Wrench className="h-3 w-3" /> Labor: {block.manualTask}
+                                </span>
+                              )}
+                              {block.apps.map((app) => (
+                                <span
+                                  key={app}
+                                  className="px-2 py-0.5 rounded-lg bg-muted/40 border border-border/40 text-muted-foreground font-medium"
+                                >
+                                  {app}
+                                </span>
+                              ))}
+                            </div>
                           </div>
                         </div>
-                      </div>
 
-                      {/* Columna Horaria Lateral */}
-                      <div className="flex sm:flex-col items-end justify-between sm:justify-start gap-1 shrink-0 font-mono text-[11px] self-stretch sm:self-auto border-t sm:border-t-0 pt-2 sm:pt-0 border-border/40">
-                        <span className="font-bold text-foreground text-xs">
-                          {block.startTime} – {block.endTime}
-                        </span>
-                        <span className="text-muted-foreground text-[10px]">
-                          Bloque 5 min
-                        </span>
+                        {/* Columna Horaria Lateral */}
+                        <div className="flex sm:flex-col items-end justify-between sm:justify-start gap-1 shrink-0 font-mono text-[11px] self-stretch sm:self-auto border-t sm:border-t-0 pt-2 sm:pt-0 border-border/40">
+                          <span className="font-bold text-foreground text-xs">
+                            {block.startTime} – {block.endTime}
+                          </span>
+                          <span className="text-muted-foreground text-[10px]">
+                            Bloque 5 min
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                  );
-                });
-              })()}
-            </div>
+                    );
+                  });
+                })()}
+              </div>
+            )}
+
+            {/* MODO 2: Registro Detallado de Eventos (Logs) */}
+            {timelineViewMode === "logs" && (
+              <div className="space-y-2">
+                {filteredTimeline.length === 0 ? (
+                  <div className="p-12 text-center rounded-2xl bg-card border border-border/70 text-muted-foreground text-xs">
+                    No hay eventos registrados para los filtros u horario seleccionados.
+                  </div>
+                ) : (
+                  [...filteredTimeline].reverse().map((item, idx) => {
+                    const itemDate = item.created_at ? new Date(item.created_at) : null;
+                    const timeStr = itemDate
+                      ? itemDate.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+                      : "--:--";
+                    const meta = (item.metadata || {}) as Record<string, any>;
+                    const act = (item.action || "").toLowerCase();
+                    const isManual = Boolean(
+                      meta.manual ||
+                      meta.task ||
+                      meta.justification ||
+                      act.startsWith("inició:") ||
+                      act.startsWith("inicio:") ||
+                      act.startsWith("terminó:") ||
+                      act.startsWith("termino:") ||
+                      act.startsWith("justificación:") ||
+                      act.startsWith("justificacion:")
+                    );
+
+                    const Icon = CATEGORY_ICONS[item.category] || Activity;
+                    const colorClass = CATEGORY_COLORS[item.category] || "text-zinc-400 bg-zinc-500/10 border-zinc-500/20";
+                    const durSeconds = item.duration_ms
+                      ? Math.round(item.duration_ms / 1000)
+                      : meta.duration_seconds || (meta.minutes ? meta.minutes * 60 : null);
+
+                    return (
+                      <div
+                        key={item.id || `log-${idx}`}
+                        className={`p-3.5 rounded-2xl bg-card border transition-all flex items-center justify-between gap-4 text-xs ${
+                          isManual
+                            ? "border-emerald-500/40 bg-emerald-500/5 hover:border-emerald-500/60"
+                            : "border-border/60 hover:border-border"
+                        }`}
+                      >
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <div className={`p-2 rounded-xl border shrink-0 ${colorClass}`}>
+                            <Icon className="h-4 w-4" />
+                          </div>
+
+                          <div className="min-w-0 flex-1 space-y-0.5">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="font-semibold text-foreground text-xs truncate">
+                                {item.action}
+                              </p>
+                              {isManual && (
+                                <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold flex items-center gap-1">
+                                  <Wrench className="h-2.5 w-2.5" /> Labor Manual
+                                </span>
+                              )}
+                              {meta.task && (
+                                <span className="px-2 py-0.5 rounded-md bg-violet-500/15 border border-violet-500/30 text-violet-300 text-[10px] font-medium">
+                                  {meta.task}
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                              <span className="font-medium text-foreground/70">{item.category}</span>
+                              {meta.app && (
+                                <>
+                                  <span>•</span>
+                                  <span>{meta.app}</span>
+                                </>
+                              )}
+                              {meta.title && (
+                                <>
+                                  <span>•</span>
+                                  <span className="truncate max-w-xs">{cleanExecutiveTitle(meta.title)}</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-3 shrink-0 font-mono text-[11px]">
+                          {durSeconds && durSeconds > 0 && (
+                            <span className="px-2 py-0.5 rounded-lg bg-muted/60 border border-border/40 font-bold text-foreground/90">
+                              {durSeconds >= 60 ? `${Math.floor(durSeconds / 60)}m ${durSeconds % 60}s` : `${durSeconds}s`}
+                            </span>
+                          )}
+                          <span className="font-bold text-foreground text-xs">
+                            {timeStr}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -1025,8 +1389,13 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
         {/* PESTAÑA 4: APPS Y SITIOS WEB */}
         {activeTab === "apps" && (
           <div className="space-y-6">
-            <ActivityAppsRanking timeline={timeline} />
-            <ActivityHeatmap timeline={timeline} date={selectedDate} />
+            <ActivityAppsRanking
+              timeline={timeline}
+              scheduleStart={scheduleStart}
+              scheduleEnd={scheduleEnd}
+              scheduleEnabled={scheduleEnabled}
+            />
+            <ActivityHeatmap timeline={timelineWithinSchedule} date={selectedDate} />
           </div>
         )}
 

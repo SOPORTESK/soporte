@@ -113,6 +113,74 @@ export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; online
   });
   const [manualElapsed, setManualElapsed] = useState("");
 
+  // Sincronización robusta de la labor manual al montar:
+  // 1) Lee localStorage
+  // 2) Escucha cambios entre pestañas vía evento 'storage'
+  // 3) Si está vacío, consulta la base de datos Supabase para recuperar la labor activa no finalizada
+  useEffect(() => {
+    let currentTask: { type: string; label: string; start: number } | null = null;
+    try {
+      const saved = localStorage.getItem("sekunet_manual_task");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Date.now() - parsed.start < 10 * 60 * 60 * 1000) {
+          currentTask = parsed;
+          setManualTask(parsed);
+        } else {
+          localStorage.removeItem("sekunet_manual_task");
+        }
+      }
+    } catch {}
+
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === "sekunet_manual_task") {
+        if (e.newValue) {
+          try {
+            setManualTask(JSON.parse(e.newValue));
+          } catch {}
+        } else {
+          setManualTask(null);
+        }
+      }
+    };
+    window.addEventListener("storage", handleStorage);
+
+    // Consulta de respaldo a la base de datos si no hay tarea en localStorage
+    if (!currentTask) {
+      const today = new Date().toISOString().split("T")[0];
+      fetch(`/api/activity/timeline?agent=${encodeURIComponent(agent.email)}&date=${today}`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (data?.timeline && Array.isArray(data.timeline)) {
+            const sorted = [...data.timeline].filter((t: any) => Boolean(t.created_at));
+            // Buscar el último Inició manual
+            const lastStart = sorted.find((it: any) => {
+              const act = (it.action || "").toLowerCase();
+              return (act.startsWith("inició:") || act.startsWith("inicio:")) && (it.metadata?.manual || it.metadata?.task);
+            });
+            if (lastStart) {
+              const startMs = new Date(lastStart.created_at).getTime();
+              const hasEnd = sorted.some((it: any) => {
+                const act = (it.action || "").toLowerCase();
+                return (act.startsWith("terminó:") || act.startsWith("termino:")) && new Date(it.created_at).getTime() > startMs;
+              });
+              if (!hasEnd && (Date.now() - startMs < 10 * 60 * 60 * 1000)) {
+                const label = lastStart.metadata?.task || lastStart.metadata?.label || lastStart.action.replace(/^inici[oó]:\s*/i, "").trim();
+                const restored = { type: lastStart.category || "Labores manuales", label, start: startMs };
+                setManualTask(restored);
+                try { localStorage.setItem("sekunet_manual_task", JSON.stringify(restored)); } catch {}
+              }
+            }
+          }
+        })
+        .catch(() => {});
+    }
+
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, [agent.email]);
+
   useEffect(() => {
     if (tab !== "activity" || !open) return;
     const fetchActivity = () => {
