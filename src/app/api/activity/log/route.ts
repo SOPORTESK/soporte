@@ -39,11 +39,24 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // Si el horario laboral está activo, fuera de ese horario NADA se mide
+      // Si el horario laboral está activo, fuera de ese horario o día NADA se mide
       try {
         const sched = await getWorkSchedule();
         if (sched.scheduleEnabled) {
           const nowCostaRica = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Costa_Rica" }));
+          const dayOfWeek = nowCostaRica.getDay(); // 0 = Domingo, 1 = Lunes, ..., 6 = Sábado
+          const workDays = sched.workDays && sched.workDays.length > 0 ? sched.workDays : [1, 2, 3, 4, 5];
+
+          // 1. Descartar si hoy no es día laboral
+          if (!workDays.includes(dayOfWeek)) {
+            return NextResponse.json({
+              success: true,
+              discarded: true,
+              message: "Día no laboral: nada se mide",
+            });
+          }
+
+          // 2. Descartar si está fuera de la hora de jornada
           const minOfDay = nowCostaRica.getHours() * 60 + nowCostaRica.getMinutes();
           const parseMin = (t: string) => {
             const parts = (t || "").split(":");

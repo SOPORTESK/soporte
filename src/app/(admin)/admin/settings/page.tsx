@@ -8,6 +8,7 @@ import { IaModeToggle } from "@/components/admin/ia-mode-toggle";
 import { UnattendedModeToggle } from "@/components/admin/unattended-mode-toggle";
 import { EvolutionConfigPanel } from "@/components/admin/evolution-config-panel";
 import { WhatsAppQRConnect } from "@/components/admin/whatsapp-qr-connect";
+import { CompanySchedulePanel } from "@/components/admin/company-schedule-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -91,6 +92,9 @@ export default async function AdminSettingsPage() {
 
         {/* ── Columna izquierda (8 col) ── */}
         <div className="lg:col-span-8 space-y-6">
+
+          {/* Horario y Jornada Laboral Oficial */}
+          <CompanySchedulePanel />
 
           {/* Edge Functions */}
           <section className="rounded-2xl border border-border/60 bg-card p-5">

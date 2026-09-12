@@ -31,6 +31,7 @@ export interface WorkScheduleConfig {
   scheduleStart: string;
   scheduleEnd: string;
   scheduleEnabled: boolean;
+  workDays: number[]; // 1=Lun, 2=Mar, 3=Mié, 4=Jue, 5=Vie, 6=Sáb, 0=Dom
 }
 
 const SCHEDULE_SETTING_KEY = "activity_work_schedule";
@@ -50,13 +51,14 @@ export async function getWorkSchedule(): Promise<WorkScheduleConfig> {
         scheduleStart: parsed.scheduleStart || "08:00",
         scheduleEnd: parsed.scheduleEnd || "17:00",
         scheduleEnabled: parsed.scheduleEnabled !== undefined ? Boolean(parsed.scheduleEnabled) : true,
+        workDays: Array.isArray(parsed.workDays) && parsed.workDays.length > 0 ? parsed.workDays : [1, 2, 3, 4, 5],
       };
     }
   } catch (err) {
     console.error("[getWorkSchedule] error:", err);
   }
 
-  return { scheduleStart: "08:00", scheduleEnd: "17:00", scheduleEnabled: true };
+  return { scheduleStart: "08:00", scheduleEnd: "17:00", scheduleEnabled: true, workDays: [1, 2, 3, 4, 5] };
 }
 
 export async function saveWorkSchedule(config: WorkScheduleConfig): Promise<void> {
@@ -65,6 +67,7 @@ export async function saveWorkSchedule(config: WorkScheduleConfig): Promise<void
     scheduleStart: config.scheduleStart || "08:00",
     scheduleEnd: config.scheduleEnd || "17:00",
     scheduleEnabled: Boolean(config.scheduleEnabled),
+    workDays: Array.isArray(config.workDays) && config.workDays.length > 0 ? config.workDays : [1, 2, 3, 4, 5],
   });
 
   const { error } = await supabase.from("sek_app_settings").upsert(

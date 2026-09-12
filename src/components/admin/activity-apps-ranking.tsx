@@ -52,6 +52,7 @@ interface Props {
   scheduleStart?: string;
   scheduleEnd?: string;
   scheduleEnabled?: boolean;
+  workDays?: number[];
 }
 
 export interface CategoryItem {
@@ -398,6 +399,7 @@ export function ActivityAppsRanking({
   scheduleStart = "08:00",
   scheduleEnd = "17:00",
   scheduleEnabled = true,
+  workDays = [1, 2, 3, 4, 5],
 }: Props) {
   const [viewMode, setViewMode] = useState<"categories" | "apps">("categories");
   const [categories, setCategories] = useState<CategoryItem[]>(DEFAULT_CATEGORIES);
@@ -730,8 +732,12 @@ export function ActivityAppsRanking({
         const currTime = new Date(curr.created_at!).getTime();
         const currDate = new Date(currTime);
 
-        // Si el horario laboral está activo, verificar si está dentro del horario
+        // Si el horario laboral está activo, verificar si está dentro del horario y días laborales
         if (scheduleEnabled) {
+          const dayOfWeek = currDate.getDay();
+          if (!workDays.includes(dayOfWeek)) {
+            continue; // Fuera de días laborales: NADA se mide
+          }
           const currMinOfDay = currDate.getHours() * 60 + currDate.getMinutes();
           if (currMinOfDay < startMin || currMinOfDay >= endMin) {
             continue; // Fuera de horario laboral: NADA se mide
@@ -777,7 +783,7 @@ export function ActivityAppsRanking({
       totalActiveTime: totalTime,
       allDetectedApps: Array.from(allAppsSet),
     };
-  }, [timeline, customCategories, scheduleStart, scheduleEnd, scheduleEnabled]);
+  }, [timeline, customCategories, scheduleStart, scheduleEnd, scheduleEnabled, workDays]);
 
   const activeMap = viewMode === "categories" ? catMap : appMap;
   const sortedItems = Object.entries(activeMap)

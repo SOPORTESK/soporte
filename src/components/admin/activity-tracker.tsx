@@ -516,7 +516,8 @@ function consolidateTimelineByBlocks(
   intervalMinutes: number = 5,
   scheduleStart?: string,
   scheduleEnd?: string,
-  scheduleEnabled?: boolean
+  scheduleEnabled?: boolean,
+  workDays: number[] = [1, 2, 3, 4, 5]
 ): ConsolidatedBlock[] {
   if (!entries || entries.length === 0) return [];
 
@@ -540,9 +541,13 @@ function consolidateTimelineByBlocks(
     const time = new Date(entry.created_at).getTime();
     if (isNaN(time)) continue;
 
-    // Si el horario laboral está activo, omitir eventos fuera de rango
+    // Si el horario laboral está activo, omitir eventos fuera de rango o día laboral
     if (scheduleEnabled) {
       const d = new Date(time);
+      const dayOfWeek = d.getDay();
+      if (!workDays.includes(dayOfWeek)) {
+        continue;
+      }
       const minOfDay = d.getHours() * 60 + d.getMinutes();
       if (minOfDay < startMin || minOfDay >= endMin) {
         continue;
@@ -687,10 +692,11 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
     }
   });
 
+  const [workDays, setWorkDays] = useState<number[]>([1, 2, 3, 4, 5]);
   const [savingSchedule, setSavingSchedule] = useState<boolean>(false);
   const [scheduleSavedNotice, setScheduleSavedNotice] = useState<boolean>(false);
 
-  // Cargar horario oficial guardado en base de datos al montar
+  // Cargar horario oficial y días guardados en base de datos al montar
   useEffect(() => {
     fetch("/api/activity/schedule")
       .then((r) => r.json())
@@ -708,6 +714,9 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
             setScheduleEnabled(Boolean(data.scheduleEnabled));
             try { localStorage.setItem("sekunet_activity_schedule_enabled", String(data.scheduleEnabled)); } catch {}
           }
+          if (Array.isArray(data.workDays) && data.workDays.length > 0) {
+            setWorkDays(data.workDays);
+          }
         }
       })
       .catch(() => {});
@@ -716,17 +725,17 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
   const [timelineViewMode, setTimelineViewMode] = useState<"consolidated" | "logs">("consolidated");
   const [onlyManualFilter, setOnlyManualFilter] = useState<boolean>(false);
 
-  const saveScheduleToServer = async (start: string, end: string, enabled: boolean) => {
+  const saveScheduleToServer = async (start: string, end: string, enabled: boolean, days: number[] = workDays) => {
     setSavingSchedule(true);
     try {
       const res = await fetch("/api/activity/schedule", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scheduleStart: start, scheduleEnd: end, scheduleEnabled: enabled }),
+        body: JSON.stringify({ scheduleStart: start, scheduleEnd: end, scheduleEnabled: enabled, workDays: days }),
       });
       if (res.ok) {
         setScheduleSavedNotice(true);
-        toast.success(`Horario ${start} - ${end} guardado en el sistema`);
+        toast.success(`Horario (${start} - ${end}) y días laborales guardados`);
         setTimeout(() => setScheduleSavedNotice(false), 2500);
       }
     } catch (err) {
@@ -735,6 +744,18 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
     } finally {
       setSavingSchedule(false);
     }
+  };
+
+  const handleToggleDay = (dayId: number) => {
+    let nextDays: number[];
+    if (workDays.includes(dayId)) {
+      if (workDays.length <= 1) return; // Mantener al menos un día
+      nextDays = workDays.filter((d) => d !== dayId);
+    } else {
+      nextDays = [...workDays, dayId].sort((a, b) => a - b);
+    }
+    setWorkDays(nextDays);
+    saveScheduleToServer(scheduleStart, scheduleEnd, scheduleEnabled, nextDays);
   };
 
   const handleScheduleChange = (start: string, end: string, enabled = true) => {
@@ -747,7 +768,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
       localStorage.setItem("sekunet_activity_schedule_enabled", enabled ? "true" : "false");
     } catch {}
     if (start && end && start.length === 5 && end.length === 5) {
-      saveScheduleToServer(start, end, enabled);
+      saveScheduleToServer(start, end, enabled, workDays);
     }
   };
 
@@ -756,7 +777,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
     try {
       localStorage.setItem("sekunet_activity_schedule_enabled", enabled ? "true" : "false");
     } catch {}
-    saveScheduleToServer(scheduleStart, scheduleEnd, enabled);
+    saveScheduleToServer(scheduleStart, scheduleEnd, enabled, workDays);
   };
 
   // Cargar estado en vivo de agentes
@@ -830,6 +851,8 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
         if (!entry.created_at) return false;
         const d = new Date(entry.created_at);
         if (isNaN(d.getTime())) return false;
+        const dayOfWeek = d.getDay();
+        if (!workDays.includes(dayOfWeek)) return false;
         const minOfDay = d.getHours() * 60 + d.getMinutes();
         return minOfDay >= startMin && minOfDay < endMin;
       });
@@ -906,7 +929,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
       const inManual = manualRanges.some((r) => itemMs >= r.startMs && itemMs <= r.endMs);
       return !inManual;
     });
-  }, [timeline, scheduleEnabled, scheduleStart, scheduleEnd]);
+  }, [timeline, scheduleEnabled, scheduleStart, scheduleEnd, workDays]);
 
   // Filtrado final de timeline según filtros de UI
   const filteredTimeline = React.useMemo(() => {
@@ -989,6 +1012,36 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
               <span className="text-[11px] font-bold">Horario:</span>
             </button>
 
+            {/* Días laborales interactivos: L M M J V S D */}
+            <div className="flex items-center gap-0.5 px-1 py-0.5 rounded-lg bg-muted/40 border border-border/50" title="Configurar días laborales de la semana">
+              {[
+                { id: 1, label: "L", title: "Lunes" },
+                { id: 2, label: "M", title: "Martes" },
+                { id: 3, label: "M", title: "Miércoles" },
+                { id: 4, label: "J", title: "Jueves" },
+                { id: 5, label: "V", title: "Viernes" },
+                { id: 6, label: "S", title: "Sábado" },
+                { id: 0, label: "D", title: "Domingo" },
+              ].map((d) => {
+                const active = workDays.includes(d.id);
+                return (
+                  <button
+                    key={d.id}
+                    type="button"
+                    onClick={() => handleToggleDay(d.id)}
+                    title={`${d.title}: ${active ? "Laboral (medido)" : "Descanso (fuera de rango, no se mide)"}`}
+                    className={`w-5 h-5 rounded text-[10px] font-mono font-bold transition-all ${
+                      active
+                        ? "bg-violet-600 text-white shadow-xs"
+                        : "text-muted-foreground/50 hover:bg-muted hover:text-foreground"
+                    }`}
+                  >
+                    {d.label}
+                  </button>
+                );
+              })}
+            </div>
+
             <div className="flex items-center gap-1.5">
               <input
                 type="time"
@@ -1009,14 +1062,14 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
 
             {/* Botón de confirmación de guardado en base de datos */}
             <button
-              onClick={() => saveScheduleToServer(scheduleStart, scheduleEnd, scheduleEnabled)}
+              onClick={() => saveScheduleToServer(scheduleStart, scheduleEnd, scheduleEnabled, workDays)}
               disabled={savingSchedule}
               className={`ml-1 px-2 py-0.5 rounded-md text-[10px] font-bold transition-all flex items-center gap-1 ${
                 scheduleSavedNotice
                   ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40"
                   : "bg-muted/70 hover:bg-violet-600 hover:text-white text-muted-foreground border border-border/50"
               }`}
-              title="Guardar horario oficialmente en la base de datos para todos"
+              title="Guardar días y horas oficialmente en la base de datos"
             >
               {savingSchedule ? (
                 <span>Guardando...</span>
@@ -1170,14 +1223,15 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                 scheduleStart={scheduleStart}
                 scheduleEnd={scheduleEnd}
                 scheduleEnabled={scheduleEnabled}
+                workDays={workDays}
               />
 
               {/* Vista rápida de informes narrados de 5 minutos */}
               <div className="p-5 rounded-2xl bg-card border border-border/70 shadow-sm space-y-3">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="h-4 w-4 text-violet-500" />
-                    <h3 className="font-bold text-sm text-foreground">Informes de Actividad (Bloques de 5 Minutos)</h3>
+                  <div>
+                    <h3 className="text-sm font-bold text-foreground">Informes Narrados (5 min)</h3>
+                    <p className="text-[11px] text-muted-foreground">Consolidación de tareas continuas</p>
                   </div>
                   <button
                     onClick={() => setActiveTab("timeline")}
@@ -1188,7 +1242,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                 </div>
 
                 <div className="space-y-2.5 max-h-[350px] overflow-y-auto pr-1">
-                  {consolidateTimelineByBlocks(timelineWithinSchedule, 5, scheduleStart, scheduleEnd, scheduleEnabled).slice(0, 6).map((block) => {
+                  {consolidateTimelineByBlocks(timelineWithinSchedule, 5, scheduleStart, scheduleEnd, scheduleEnabled, workDays).slice(0, 6).map((block) => {
                     const Icon = CATEGORY_ICONS[block.category] || Activity;
                     const colorClass = CATEGORY_COLORS[block.category] || "text-zinc-400 bg-zinc-500/10 border-zinc-500/20";
                     return (
@@ -1298,7 +1352,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
 
               {timelineViewMode === "consolidated" ? (
                 (() => {
-                  const blocks = consolidateTimelineByBlocks(filteredTimeline, 5, scheduleStart, scheduleEnd, scheduleEnabled);
+                  const blocks = consolidateTimelineByBlocks(filteredTimeline, 5, scheduleStart, scheduleEnd, scheduleEnabled, workDays);
                   return (
                     <span className="text-xs text-muted-foreground font-semibold">
                       Mostrando {blocks.length} informes narrados {scheduleEnabled && `(${scheduleStart} – ${scheduleEnd})`}
@@ -1316,7 +1370,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
             {timelineViewMode === "consolidated" && (
               <div className="space-y-3">
                 {(() => {
-                  const blocks = consolidateTimelineByBlocks(filteredTimeline, 5, scheduleStart, scheduleEnd, scheduleEnabled);
+                  const blocks = consolidateTimelineByBlocks(filteredTimeline, 5, scheduleStart, scheduleEnd, scheduleEnabled, workDays);
                   if (blocks.length === 0) {
                     return (
                       <div className="p-12 text-center rounded-2xl bg-card border border-border/70 text-muted-foreground text-xs">
@@ -1498,6 +1552,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
               scheduleStart={scheduleStart}
               scheduleEnd={scheduleEnd}
               scheduleEnabled={scheduleEnabled}
+              workDays={workDays}
             />
             <ActivityHeatmap timeline={timelineWithinSchedule} date={selectedDate} />
           </div>
