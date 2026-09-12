@@ -27,6 +27,61 @@ function getClient(): SupabaseClient {
   return createServiceClient();
 }
 
+export interface WorkScheduleConfig {
+  scheduleStart: string;
+  scheduleEnd: string;
+  scheduleEnabled: boolean;
+}
+
+const SCHEDULE_SETTING_KEY = "activity_work_schedule";
+
+export async function getWorkSchedule(): Promise<WorkScheduleConfig> {
+  const supabase = getClient();
+  try {
+    const { data, error } = await supabase
+      .from("sek_app_settings")
+      .select("value")
+      .eq("key", SCHEDULE_SETTING_KEY)
+      .maybeSingle();
+
+    if (!error && data?.value) {
+      const parsed = JSON.parse(data.value);
+      return {
+        scheduleStart: parsed.scheduleStart || "08:00",
+        scheduleEnd: parsed.scheduleEnd || "17:00",
+        scheduleEnabled: parsed.scheduleEnabled !== undefined ? Boolean(parsed.scheduleEnabled) : true,
+      };
+    }
+  } catch (err) {
+    console.error("[getWorkSchedule] error:", err);
+  }
+
+  return { scheduleStart: "08:00", scheduleEnd: "17:00", scheduleEnabled: true };
+}
+
+export async function saveWorkSchedule(config: WorkScheduleConfig): Promise<void> {
+  const supabase = getClient();
+  const val = JSON.stringify({
+    scheduleStart: config.scheduleStart || "08:00",
+    scheduleEnd: config.scheduleEnd || "17:00",
+    scheduleEnabled: Boolean(config.scheduleEnabled),
+  });
+
+  const { error } = await supabase.from("sek_app_settings").upsert(
+    {
+      key: SCHEDULE_SETTING_KEY,
+      value: val,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "key" }
+  );
+
+  if (error) {
+    console.error("[saveWorkSchedule] error:", error);
+    throw error;
+  }
+}
+
 export async function hasActiveManualTask(agentEmail: string): Promise<boolean> {
   const supabase = getClient();
   const today = new Date().toISOString().split("T")[0];

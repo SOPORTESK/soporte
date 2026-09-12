@@ -687,8 +687,55 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
     }
   });
 
+  const [savingSchedule, setSavingSchedule] = useState<boolean>(false);
+  const [scheduleSavedNotice, setScheduleSavedNotice] = useState<boolean>(false);
+
+  // Cargar horario oficial guardado en base de datos al montar
+  useEffect(() => {
+    fetch("/api/activity/schedule")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.success) {
+          if (data.scheduleStart) {
+            setScheduleStart(data.scheduleStart);
+            try { localStorage.setItem("sekunet_activity_schedule_start", data.scheduleStart); } catch {}
+          }
+          if (data.scheduleEnd) {
+            setScheduleEnd(data.scheduleEnd);
+            try { localStorage.setItem("sekunet_activity_schedule_end", data.scheduleEnd); } catch {}
+          }
+          if (data.scheduleEnabled !== undefined) {
+            setScheduleEnabled(Boolean(data.scheduleEnabled));
+            try { localStorage.setItem("sekunet_activity_schedule_enabled", String(data.scheduleEnabled)); } catch {}
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   const [timelineViewMode, setTimelineViewMode] = useState<"consolidated" | "logs">("consolidated");
   const [onlyManualFilter, setOnlyManualFilter] = useState<boolean>(false);
+
+  const saveScheduleToServer = async (start: string, end: string, enabled: boolean) => {
+    setSavingSchedule(true);
+    try {
+      const res = await fetch("/api/activity/schedule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scheduleStart: start, scheduleEnd: end, scheduleEnabled: enabled }),
+      });
+      if (res.ok) {
+        setScheduleSavedNotice(true);
+        toast.success(`Horario ${start} - ${end} guardado en el sistema`);
+        setTimeout(() => setScheduleSavedNotice(false), 2500);
+      }
+    } catch (err) {
+      console.error("Error saving work schedule:", err);
+      toast.error("Error al guardar horario");
+    } finally {
+      setSavingSchedule(false);
+    }
+  };
 
   const handleScheduleChange = (start: string, end: string, enabled = true) => {
     setScheduleStart(start);
@@ -699,6 +746,9 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
       localStorage.setItem("sekunet_activity_schedule_end", end);
       localStorage.setItem("sekunet_activity_schedule_enabled", enabled ? "true" : "false");
     } catch {}
+    if (start && end && start.length === 5 && end.length === 5) {
+      saveScheduleToServer(start, end, enabled);
+    }
   };
 
   const handleToggleSchedule = (enabled: boolean) => {
@@ -706,6 +756,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
     try {
       localStorage.setItem("sekunet_activity_schedule_enabled", enabled ? "true" : "false");
     } catch {}
+    saveScheduleToServer(scheduleStart, scheduleEnd, enabled);
   };
 
   // Cargar estado en vivo de agentes
@@ -932,7 +983,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
               className={`flex items-center gap-1.5 transition-colors ${
                 scheduleEnabled ? "text-violet-400" : "text-muted-foreground line-through opacity-70"
               }`}
-              title={scheduleEnabled ? "Horario manual activo (clic para desactivar filtro)" : "Horario desactivado (24h)"}
+              title={scheduleEnabled ? "Horario activo (clic para desactivar medición)" : "Horario desactivado (24h)"}
             >
               <Clock className="h-3.5 w-3.5 text-violet-500" />
               <span className="text-[11px] font-bold">Horario:</span>
@@ -942,7 +993,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
               <input
                 type="time"
                 value={scheduleStart}
-                onChange={(e) => handleScheduleChange(e.target.value, scheduleEnd, true)}
+                onChange={(e) => handleScheduleChange(e.target.value, scheduleEnd, scheduleEnabled)}
                 className="bg-transparent text-foreground focus:outline-none cursor-pointer font-mono text-xs w-[48px] text-center [&::-webkit-calendar-picker-indicator]:hidden p-0 border-b border-border/60 hover:border-violet-500 transition-colors"
                 title="Hora de inicio de jornada"
               />
@@ -950,11 +1001,34 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
               <input
                 type="time"
                 value={scheduleEnd}
-                onChange={(e) => handleScheduleChange(scheduleStart, e.target.value, true)}
+                onChange={(e) => handleScheduleChange(scheduleStart, e.target.value, scheduleEnabled)}
                 className="bg-transparent text-foreground focus:outline-none cursor-pointer font-mono text-xs w-[48px] text-center [&::-webkit-calendar-picker-indicator]:hidden p-0 border-b border-border/60 hover:border-violet-500 transition-colors"
                 title="Hora de fin de jornada"
               />
             </div>
+
+            {/* Botón de confirmación de guardado en base de datos */}
+            <button
+              onClick={() => saveScheduleToServer(scheduleStart, scheduleEnd, scheduleEnabled)}
+              disabled={savingSchedule}
+              className={`ml-1 px-2 py-0.5 rounded-md text-[10px] font-bold transition-all flex items-center gap-1 ${
+                scheduleSavedNotice
+                  ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40"
+                  : "bg-muted/70 hover:bg-violet-600 hover:text-white text-muted-foreground border border-border/50"
+              }`}
+              title="Guardar horario oficialmente en la base de datos para todos"
+            >
+              {savingSchedule ? (
+                <span>Guardando...</span>
+              ) : scheduleSavedNotice ? (
+                <>
+                  <CheckCircle2 className="h-3 w-3 text-emerald-400" />
+                  <span>Guardado</span>
+                </>
+              ) : (
+                <span>Guardar</span>
+              )}
+            </button>
           </div>
 
           {/* Selector de fecha */}

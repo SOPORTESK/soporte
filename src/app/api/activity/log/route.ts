@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { insertActivityLog, hasActiveManualTask } from "@/lib/activity-db";
+import { insertActivityLog, hasActiveManualTask, getWorkSchedule } from "@/lib/activity-db";
 
 export const runtime = "nodejs";
 
@@ -37,6 +37,30 @@ export async function POST(req: NextRequest) {
           paused: true,
           message: "Logs automáticos pausados debido a una labor manual activa en curso."
         });
+      }
+
+      // Si el horario laboral está activo, fuera de ese horario NADA se mide
+      try {
+        const sched = await getWorkSchedule();
+        if (sched.scheduleEnabled) {
+          const nowCostaRica = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Costa_Rica" }));
+          const minOfDay = nowCostaRica.getHours() * 60 + nowCostaRica.getMinutes();
+          const parseMin = (t: string) => {
+            const parts = (t || "").split(":");
+            return (parseInt(parts[0], 10) || 0) * 60 + (parseInt(parts[1], 10) || 0);
+          };
+          const startMin = parseMin(sched.scheduleStart);
+          const endMin = parseMin(sched.scheduleEnd);
+          if (minOfDay < startMin || minOfDay >= endMin) {
+            return NextResponse.json({
+              success: true,
+              discarded: true,
+              message: "Fuera de horario laboral: nada se mide",
+            });
+          }
+        }
+      } catch (err) {
+        console.error("[activity/log] Error checking schedule:", err);
       }
     }
 
