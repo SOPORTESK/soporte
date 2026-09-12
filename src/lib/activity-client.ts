@@ -12,6 +12,7 @@ export function logActivity(params: LogActivityParams): void {
   if (typeof window === "undefined") return;
   try {
     const act = (params.action || "").toLowerCase();
+    const cat = (params.category || "").toLowerCase();
     const meta = params.metadata || {};
     const isManualAction = Boolean(
       meta.manual ||
@@ -22,7 +23,18 @@ export function logActivity(params: LogActivityParams): void {
       act.startsWith("terminó:") ||
       act.startsWith("termino:") ||
       act.startsWith("justificación:") ||
-      act.startsWith("justificacion:")
+      act.startsWith("justificacion:") ||
+      cat === "labores manuales" ||
+      cat === "capacitación" ||
+      cat === "capacitacion" ||
+      cat === "tiempo de descanso" ||
+      cat === "pausa personal" ||
+      cat === "reunión interna" ||
+      cat === "reunion interna" ||
+      cat === "atención presencial" ||
+      cat === "atencion presencial" ||
+      cat === "mantenimiento" ||
+      cat === "inventario"
     );
 
     // Si hay una labor manual activa, SE PAUSAN TODOS LOS DEMÁS LOGS

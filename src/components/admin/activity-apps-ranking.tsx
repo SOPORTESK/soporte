@@ -637,21 +637,10 @@ export function ActivityAppsRanking({
           allAppsSet.add(appName);
           const effectiveCat = customCategories[appName] || getDefaultCategoryForApp(appName, it.action, it.category);
 
-          let clampedStart = startMs;
-          let clampedEnd = endMs;
-
-          if (scheduleEnabled) {
-            const endDate = new Date(endMs);
-            const dayStartMs = new Date(endDate).setHours(Math.floor(startMin / 60), startMin % 60, 0, 0);
-            const dayEndMs = new Date(endDate).setHours(Math.floor(endMin / 60), endMin % 60, 0, 0);
-            clampedStart = Math.max(startMs, dayStartMs);
-            clampedEnd = Math.min(endMs, dayEndMs);
-          }
-
-          if (clampedEnd > clampedStart) {
+          if (endMs > startMs) {
             manualIntervals.push({
-              startMs: clampedStart,
-              endMs: clampedEnd,
+              startMs,
+              endMs,
               appName,
               effectiveCat,
             });
@@ -677,21 +666,11 @@ export function ActivityAppsRanking({
             allAppsSet.add(appName);
             const effectiveCat = customCategories[appName] || getDefaultCategoryForApp(appName, it.action, it.category);
 
-            let clampedStart = startMs;
-            let clampedEnd = Date.now();
-
-            if (scheduleEnabled) {
-              const startDate = new Date(startMs);
-              const dayStartMs = new Date(startDate).setHours(Math.floor(startMin / 60), startMin % 60, 0, 0);
-              const dayEndMs = new Date(startDate).setHours(Math.floor(endMin / 60), endMin % 60, 0, 0);
-              clampedStart = Math.max(startMs, dayStartMs);
-              clampedEnd = Math.min(Date.now(), dayEndMs);
-            }
-
-            if (clampedEnd > clampedStart) {
+            const nowMs = Date.now();
+            if (nowMs > startMs) {
               manualIntervals.push({
-                startMs: clampedStart,
-                endMs: clampedEnd,
+                startMs,
+                endMs: nowMs,
                 appName,
                 effectiveCat,
               });

@@ -16,6 +16,7 @@ export async function POST(req: NextRequest) {
     }
 
     const actLower = String(action).toLowerCase();
+    const catLower = String(category || "").toLowerCase();
     const isManualAction = Boolean(
       metadata?.manual ||
       metadata?.task ||
@@ -25,7 +26,18 @@ export async function POST(req: NextRequest) {
       actLower.startsWith("terminó:") ||
       actLower.startsWith("termino:") ||
       actLower.startsWith("justificación:") ||
-      actLower.startsWith("justificacion:")
+      actLower.startsWith("justificacion:") ||
+      catLower === "labores manuales" ||
+      catLower === "capacitación" ||
+      catLower === "capacitacion" ||
+      catLower === "tiempo de descanso" ||
+      catLower === "pausa personal" ||
+      catLower === "reunión interna" ||
+      catLower === "reunion interna" ||
+      catLower === "atención presencial" ||
+      catLower === "atencion presencial" ||
+      catLower === "mantenimiento" ||
+      catLower === "inventario"
     );
 
     // Si el usuario tiene una labor manual activa en curso, SE PAUSAN TODOS LOS DEMÁS LOGS

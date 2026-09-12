@@ -346,6 +346,36 @@ function formatExecutiveDisplay(rawAction: string, category: string, meta: Recor
   return { title: action, subtitle: cleanTitle && cleanTitle !== action ? cleanTitle : undefined };
 }
 
+export function isManualEntry(entry?: { action?: string; category?: string; metadata?: any } | null): boolean {
+  if (!entry) return false;
+  const meta = (entry.metadata || {}) as Record<string, any>;
+  const act = (entry.action || "").toLowerCase().trim();
+  const cat = (entry.category || "").toLowerCase().trim();
+
+  return Boolean(
+    meta.manual ||
+    meta.task ||
+    meta.justification ||
+    act.startsWith("inició:") ||
+    act.startsWith("inicio:") ||
+    act.startsWith("terminó:") ||
+    act.startsWith("termino:") ||
+    act.startsWith("justificación:") ||
+    act.startsWith("justificacion:") ||
+    cat === "labores manuales" ||
+    cat === "capacitación" ||
+    cat === "capacitacion" ||
+    cat === "tiempo de descanso" ||
+    cat === "pausa personal" ||
+    cat === "reunión interna" ||
+    cat === "reunion interna" ||
+    cat === "atención presencial" ||
+    cat === "atencion presencial" ||
+    cat === "mantenimiento" ||
+    cat === "inventario"
+  );
+}
+
 // ─── CONSOLIDADOR NARRATIVO CADA 5 MINUTOS ──────────────────────────────────────
 interface ConsolidatedBlock {
   id: string;
@@ -541,8 +571,9 @@ function consolidateTimelineByBlocks(
     const time = new Date(entry.created_at).getTime();
     if (isNaN(time)) continue;
 
-    // Si el horario laboral está activo, omitir eventos fuera de rango o día laboral
-    if (scheduleEnabled) {
+    // Si el horario laboral está activo, omitir eventos automáticos fuera de rango o día laboral
+    // Las labores manuales TIENEN JERARQUÍA ABSOLUTA y NUNCA se suprimen por horario
+    if (scheduleEnabled && !isManualEntry(entry)) {
       const d = new Date(time);
       const dayOfWeek = d.getDay();
       if (!workDays.includes(dayOfWeek)) {
@@ -582,17 +613,7 @@ function consolidateTimelineByBlocks(
     for (const it of items) {
       const meta = (it.metadata || {}) as Record<string, any>;
       const act = (it.action || "").toLowerCase();
-      const isManual = Boolean(
-        meta.manual ||
-        meta.task ||
-        meta.justification ||
-        act.startsWith("inició:") ||
-        act.startsWith("inicio:") ||
-        act.startsWith("terminó:") ||
-        act.startsWith("termino:") ||
-        act.startsWith("justificación:") ||
-        act.startsWith("justificacion:")
-      );
+      const isManual = isManualEntry(it);
 
       if (isManual) {
         manualCategory = it.category || "Labores manuales";
@@ -848,6 +869,9 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
       const endMin = parseTimeToMinutes(scheduleEnd || "17:00");
 
       list = list.filter((entry) => {
+        // Jerarquía absoluta: Las labores manuales NUNCA se suprimen por horario
+        if (isManualEntry(entry)) return true;
+
         if (!entry.created_at) return false;
         const d = new Date(entry.created_at);
         if (isNaN(d.getTime())) return false;
@@ -910,20 +934,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
 
     // 3. Suprimir cualquier log de software/fondo que caiga dentro de un rango de actividad manual
     return list.filter((item) => {
-      const meta = (item.metadata || {}) as Record<string, any>;
-      const act = (item.action || "").toLowerCase();
-      const isManual = Boolean(
-        meta.manual ||
-        meta.task ||
-        meta.justification ||
-        act.startsWith("inició:") ||
-        act.startsWith("inicio:") ||
-        act.startsWith("terminó:") ||
-        act.startsWith("termino:") ||
-        act.startsWith("justificación:") ||
-        act.startsWith("justificacion:")
-      );
-      if (isManual) return true;
+      if (isManualEntry(item)) return true;
 
       const itemMs = new Date(item.created_at).getTime();
       const inManual = manualRanges.some((r) => itemMs >= r.startMs && itemMs <= r.endMs);
@@ -936,25 +947,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
     let list = timelineWithinSchedule;
 
     if (onlyManualFilter) {
-      list = list.filter((item) => {
-        const meta = (item.metadata || {}) as Record<string, any>;
-        const act = (item.action || "").toLowerCase();
-        return Boolean(
-          meta.manual ||
-          meta.task ||
-          meta.justification ||
-          act.startsWith("inició:") ||
-          act.startsWith("inicio:") ||
-          act.startsWith("terminó:") ||
-          act.startsWith("termino:") ||
-          act.startsWith("justificación:") ||
-          act.startsWith("justificacion:") ||
-          item.category === "Labores manuales" ||
-          item.category === "Capacitación" ||
-          item.category === "Tiempo de descanso" ||
-          item.category === "Pausa personal"
-        );
-      });
+      list = list.filter((item) => isManualEntry(item));
     }
 
     if (categoryFilter !== "all") {
