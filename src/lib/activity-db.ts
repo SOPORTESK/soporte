@@ -71,6 +71,8 @@ export async function saveWorkSchedule(config: WorkScheduleConfig): Promise<void
     {
       key: SCHEDULE_SETTING_KEY,
       value: val,
+      iv: "none",
+      tag: "none",
       updated_at: new Date().toISOString(),
     },
     { onConflict: "key" }

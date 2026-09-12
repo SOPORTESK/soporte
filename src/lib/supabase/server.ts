@@ -1,5 +1,12 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import dns from "node:dns";
+
+if (typeof window === "undefined" && dns?.setDefaultResultOrder) {
+  try {
+    dns.setDefaultResultOrder("ipv4first");
+  } catch {}
+}
 
 export function createClient() {
   const cookieStore = cookies();

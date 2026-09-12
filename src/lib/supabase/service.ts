@@ -1,4 +1,11 @@
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import dns from "node:dns";
+
+if (typeof window === "undefined" && dns?.setDefaultResultOrder) {
+  try {
+    dns.setDefaultResultOrder("ipv4first");
+  } catch {}
+}
 
 /** Cliente con service_role — solo usar en server-side / API routes */
 export function createServiceClient() {
@@ -7,3 +14,4 @@ export function createServiceClient() {
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 }
+
