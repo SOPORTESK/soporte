@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React from "react";
 import {
@@ -36,6 +36,7 @@ interface Props {
   selectedAgent?: string;
   onSelectAgent: (email: string) => void;
   loading?: boolean;
+  targetDailyHours?: number;
 }
 
 function formatMinutes(min: number): string {
@@ -58,6 +59,7 @@ export function ActivityLivePulse({
   selectedAgent,
   onSelectAgent,
   loading = false,
+  targetDailyHours = 8,
 }: Props) {
   const activeCount = agents.filter((a) => a.status === "active").length;
   const awayCount = agents.filter((a) => a.status === "away").length;
@@ -187,21 +189,47 @@ export function ActivityLivePulse({
                 </p>
               </div>
 
-              {/* Métricas de hoy */}
-              <div className="mt-3 pt-3 border-t border-border/50 grid grid-cols-3 gap-2 text-center">
-                <div>
-                  <p className="text-[10px] font-bold uppercase text-muted-foreground">Activo hoy</p>
-                  <p className="text-xs font-black text-emerald-500 mt-0.5">{formatMinutes(ag.activeMinutes)}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] font-bold uppercase text-muted-foreground">Inactivo</p>
-                  <p className="text-xs font-black text-amber-500 mt-0.5">{formatMinutes(ag.idleMinutes)}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] font-bold uppercase text-muted-foreground">Score</p>
-                  <p className="text-xs font-black text-violet-500 mt-0.5">{ag.productivityScore}%</p>
-                </div>
-              </div>
+              {/* Métricas de hoy y Cumplimiento de Jornada */}
+              {(() => {
+                const targetMins = Math.round(targetDailyHours * 60);
+                const compliancePercent = targetMins > 0 ? Math.round((ag.activeMinutes / targetMins) * 100) : 0;
+                const isGoalReached = ag.activeMinutes >= targetMins;
+
+                return (
+                  <div className="mt-3 pt-3 border-t border-border/50 space-y-2.5">
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase text-muted-foreground">Activo hoy</p>
+                        <p className="text-xs font-black text-emerald-500 mt-0.5">{formatMinutes(ag.activeMinutes)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold uppercase text-muted-foreground">Jornada ({targetDailyHours}h)</p>
+                        <p className={`text-xs font-black mt-0.5 ${isGoalReached ? "text-emerald-400" : "text-violet-400"}`}>
+                          {compliancePercent}%
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold uppercase text-muted-foreground">Score</p>
+                        <p className="text-xs font-black text-violet-500 mt-0.5">{ag.productivityScore}%</p>
+                      </div>
+                    </div>
+
+                    {/* Barra de progreso de Jornada Laboral */}
+                    <div className="space-y-1">
+                      <div className="h-1.5 w-full bg-muted/60 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-500 ${
+                            isGoalReached
+                              ? "bg-gradient-to-r from-emerald-500 to-teal-400"
+                              : "bg-gradient-to-r from-violet-600 to-indigo-500"
+                          }`}
+                          style={{ width: `${Math.min(100, compliancePercent)}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           );
         })}

@@ -1,7 +1,7 @@
-﻿"use client";
+"use client";
 
 import React, { useState, useEffect } from "react";
-import { Clock, CheckCircle2, Calendar, ShieldCheck, AlertCircle, Sparkles } from "lucide-react";
+import { Clock, CheckCircle2, Calendar, ShieldCheck, AlertCircle, Sparkles, Briefcase } from "lucide-react";
 import { toast } from "sonner";
 
 const DAYS_LIST = [
@@ -19,6 +19,7 @@ export function CompanySchedulePanel() {
   const [scheduleEnd, setScheduleEnd] = useState<string>("17:00");
   const [scheduleEnabled, setScheduleEnabled] = useState<boolean>(true);
   const [workDays, setWorkDays] = useState<number[]>([1, 2, 3, 4, 5]);
+  const [targetDailyHours, setTargetDailyHours] = useState<number>(8);
   const [loading, setLoading] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
   const [savedSuccess, setSavedSuccess] = useState<boolean>(false);
@@ -32,6 +33,7 @@ export function CompanySchedulePanel() {
           if (data.scheduleEnd) setScheduleEnd(data.scheduleEnd);
           if (data.scheduleEnabled !== undefined) setScheduleEnabled(Boolean(data.scheduleEnabled));
           if (Array.isArray(data.workDays) && data.workDays.length > 0) setWorkDays(data.workDays);
+          if (data.targetDailyHours) setTargetDailyHours(Number(data.targetDailyHours));
         }
       })
       .catch((err) => console.error("Error loading schedule:", err))
@@ -60,6 +62,18 @@ export function CompanySchedulePanel() {
     setScheduleEnd(end);
   };
 
+  const handleCalculateDailyFromSchedule = () => {
+    const parseMin = (t: string) => {
+      const parts = (t || "").split(":");
+      return (parseInt(parts[0], 10) || 0) * 60 + (parseInt(parts[1], 10) || 0);
+    };
+    const diffMin = Math.max(0, parseMin(scheduleEnd) - parseMin(scheduleStart));
+    // Si la jornada supera 5 horas, se asume 1 hora de descanso/almuerzo por defecto
+    const effectiveMin = diffMin > 300 ? diffMin - 60 : diffMin;
+    const hours = Math.round((effectiveMin / 60) * 2) / 2; // redondear a 0.5h
+    setTargetDailyHours(Math.max(1, Math.min(16, hours)));
+  };
+
   const handleSave = async () => {
     setSaving(true);
     try {
@@ -71,6 +85,7 @@ export function CompanySchedulePanel() {
           scheduleEnd,
           scheduleEnabled,
           workDays,
+          targetDailyHours,
         }),
       });
 
@@ -81,6 +96,7 @@ export function CompanySchedulePanel() {
           localStorage.setItem("sekunet_activity_schedule_start", scheduleStart);
           localStorage.setItem("sekunet_activity_schedule_end", scheduleEnd);
           localStorage.setItem("sekunet_activity_schedule_enabled", String(scheduleEnabled));
+          localStorage.setItem("sekunet_activity_target_daily_hours", String(targetDailyHours));
         } catch {}
         setTimeout(() => setSavedSuccess(false), 3000);
       } else {
@@ -240,6 +256,115 @@ export function CompanySchedulePanel() {
                   onChange={(e) => setScheduleEnd(e.target.value)}
                   className="bg-card px-3 py-1.5 rounded-lg border border-border text-foreground font-mono font-bold text-xs focus:outline-none focus:border-violet-500"
                 />
+              </div>
+            </div>
+          </div>
+
+          {/* JORNADA LABORAL (META DE HORAS HÁBILES / EFECTIVAS) */}
+          <div className="space-y-3 pt-3 border-t border-border/40">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <label className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                  <Briefcase className="h-3.5 w-3.5 text-violet-400" />
+                  Jornada Laboral Diaria (Horas Hábiles / Efectivas Meta):
+                </label>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  Base matemática (100%) para medir productividad, cumplimiento diario y detectar déficit u horas extras.
+                </p>
+              </div>
+
+              {/* Presets rápidos */}
+              <div className="flex items-center gap-1 text-[11px] flex-wrap">
+                <span className="text-muted-foreground text-[10px] mr-1">Rápido:</span>
+                {[
+                  { label: "8h", val: 8 },
+                  { label: "8.5h", val: 8.5 },
+                  { label: "9h", val: 9 },
+                  { label: "10h", val: 10 },
+                ].map((p) => (
+                  <button
+                    key={p.val}
+                    type="button"
+                    onClick={() => setTargetDailyHours(p.val)}
+                    className={`px-2 py-0.5 rounded font-mono text-[10px] transition-colors ${
+                      targetDailyHours === p.val
+                        ? "bg-violet-600 text-white font-bold shadow-xs"
+                        : "bg-muted/60 hover:bg-muted text-muted-foreground"
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={handleCalculateDailyFromSchedule}
+                  className="px-2 py-0.5 rounded bg-violet-500/15 hover:bg-violet-500/25 text-violet-400 font-mono text-[10px] transition-colors flex items-center gap-1 border border-violet-500/30"
+                  title="Calcular horas efectivas según hora de inicio y fin (descontando 1h de descanso si aplica)"
+                >
+                  <Sparkles className="h-2.5 w-2.5" />
+                  Auto
+                </button>
+              </div>
+            </div>
+
+            {/* Stepper numérico y Resumen de Proyección */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Selector interactivo con Stepper */}
+              <div className="flex items-center justify-between p-3.5 rounded-xl bg-muted/20 border border-border/60">
+                <div className="space-y-0.5">
+                  <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">
+                    Meta Diaria Asignada
+                  </span>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-2xl font-black text-foreground font-mono">
+                      {targetDailyHours.toFixed(1)}
+                    </span>
+                    <span className="text-xs font-bold text-violet-400">horas / día</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5 bg-background p-1 rounded-xl border border-border shadow-xs">
+                  <button
+                    type="button"
+                    onClick={() => setTargetDailyHours((prev) => Math.max(1, prev - 0.5))}
+                    className="h-8 w-8 rounded-lg hover:bg-muted text-foreground font-bold text-base flex items-center justify-center transition-colors"
+                    title="Reducir 30 minutos"
+                  >
+                    -
+                  </button>
+                  <span className="w-12 text-center font-mono font-bold text-xs text-foreground">
+                    {targetDailyHours}h
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setTargetDailyHours((prev) => Math.min(16, prev + 0.5))}
+                    className="h-8 w-8 rounded-lg hover:bg-muted text-foreground font-bold text-base flex items-center justify-center transition-colors"
+                    title="Aumentar 30 minutos"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
+              {/* Tarjeta de Proyección Semanal */}
+              <div className="p-3.5 rounded-xl bg-gradient-to-br from-violet-500/10 via-card to-card border border-violet-500/25 flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">
+                    Proyección Semanal Total
+                  </span>
+                  <div className="flex items-baseline gap-1.5 mt-0.5">
+                    <span className="text-2xl font-black text-violet-400 font-mono">
+                      {(targetDailyHours * workDays.length).toFixed(1)}
+                    </span>
+                    <span className="text-xs font-bold text-muted-foreground">horas / semana</span>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground/80 mt-1">
+                    {workDays.length} días laborales ({workDays.length === 5 ? "Lunes a Viernes" : workDays.length === 6 ? "Lunes a Sábado" : `${workDays.length} días`})
+                  </p>
+                </div>
+                <div className="h-10 w-10 rounded-2xl bg-violet-500/15 border border-violet-500/30 text-violet-400 grid place-items-center shrink-0">
+                  <Sparkles className="h-5 w-5" />
+                </div>
               </div>
             </div>
           </div>

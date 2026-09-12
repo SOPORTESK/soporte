@@ -714,6 +714,15 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
   });
 
   const [workDays, setWorkDays] = useState<number[]>([1, 2, 3, 4, 5]);
+  const [targetDailyHours, setTargetDailyHours] = useState<number>(() => {
+    if (typeof window === "undefined") return 8;
+    try {
+      const saved = localStorage.getItem("sekunet_activity_target_daily_hours");
+      return saved ? Number(saved) : 8;
+    } catch {
+      return 8;
+    }
+  });
   const [savingSchedule, setSavingSchedule] = useState<boolean>(false);
   const [scheduleSavedNotice, setScheduleSavedNotice] = useState<boolean>(false);
 
@@ -738,6 +747,10 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
           if (Array.isArray(data.workDays) && data.workDays.length > 0) {
             setWorkDays(data.workDays);
           }
+          if (data.targetDailyHours) {
+            setTargetDailyHours(Number(data.targetDailyHours));
+            try { localStorage.setItem("sekunet_activity_target_daily_hours", String(data.targetDailyHours)); } catch {}
+          }
         }
       })
       .catch(() => {});
@@ -746,17 +759,30 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
   const [timelineViewMode, setTimelineViewMode] = useState<"consolidated" | "logs">("consolidated");
   const [onlyManualFilter, setOnlyManualFilter] = useState<boolean>(false);
 
-  const saveScheduleToServer = async (start: string, end: string, enabled: boolean, days: number[] = workDays) => {
+  const saveScheduleToServer = async (
+    start: string,
+    end: string,
+    enabled: boolean,
+    days: number[] = workDays,
+    targetHours: number = targetDailyHours
+  ) => {
     setSavingSchedule(true);
     try {
       const res = await fetch("/api/activity/schedule", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scheduleStart: start, scheduleEnd: end, scheduleEnabled: enabled, workDays: days }),
+        body: JSON.stringify({
+          scheduleStart: start,
+          scheduleEnd: end,
+          scheduleEnabled: enabled,
+          workDays: days,
+          targetDailyHours: targetHours,
+        }),
       });
       if (res.ok) {
         setScheduleSavedNotice(true);
-        toast.success(`Horario (${start} - ${end}) y días laborales guardados`);
+        toast.success(`Jornada (${targetHours}h), horario (${start} - ${end}) y días guardados`);
+        try { localStorage.setItem("sekunet_activity_target_daily_hours", String(targetHours)); } catch {}
         setTimeout(() => setScheduleSavedNotice(false), 2500);
       }
     } catch (err) {
@@ -765,6 +791,13 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
     } finally {
       setSavingSchedule(false);
     }
+  };
+
+  const handleTargetDailyHoursChange = (newHours: number) => {
+    const val = Math.max(1, Math.min(16, Math.round(newHours * 2) / 2));
+    setTargetDailyHours(val);
+    try { localStorage.setItem("sekunet_activity_target_daily_hours", String(val)); } catch {}
+    saveScheduleToServer(scheduleStart, scheduleEnd, scheduleEnabled, workDays, val);
   };
 
   const handleToggleDay = (dayId: number) => {
@@ -967,6 +1000,42 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
     return list;
   }, [timelineWithinSchedule, onlyManualFilter, categoryFilter, searchFilter]);
 
+  // Medición oficial de cumplimiento de la Jornada Laboral (Horas hábiles / efectivas vs Meta)
+  const agentDailyCompliance = React.useMemo(() => {
+    let activeMinutes = currentAgentObj?.activeMinutes || 0;
+
+    // Si currentAgentObj no reporta minutos o es otra fecha seleccionada, derivar sumando los bloques de timelineWithinSchedule
+    if (timelineWithinSchedule && timelineWithinSchedule.length > 0) {
+      let totalMs = 0;
+      for (const t of timelineWithinSchedule) {
+        if (t.duration_ms) {
+          totalMs += t.duration_ms;
+        } else if (t.metadata?.duration_seconds) {
+          totalMs += t.metadata.duration_seconds * 1000;
+        }
+      }
+      const calcMin = Math.round(totalMs / 60000);
+      if (calcMin > activeMinutes) {
+        activeMinutes = calcMin;
+      }
+    }
+
+    const targetMinutes = Math.round(targetDailyHours * 60);
+    const percent = targetMinutes > 0 ? Math.round((activeMinutes / targetMinutes) * 100) : 0;
+    const diffMinutes = activeMinutes - targetMinutes;
+
+    return {
+      activeMinutes,
+      targetMinutes,
+      targetDailyHours,
+      percent,
+      diffMinutes,
+      isCompleted: activeMinutes >= targetMinutes,
+      overtimeMinutes: diffMinutes > 0 ? diffMinutes : 0,
+      deficitMinutes: diffMinutes < 0 ? Math.abs(diffMinutes) : 0,
+    };
+  }, [currentAgentObj?.activeMinutes, timelineWithinSchedule, targetDailyHours]);
+
   const categoriesAvailable = Array.from(new Set(timeline.map((t) => t.category).filter(Boolean)));
 
   return (
@@ -1053,16 +1122,34 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
               />
             </div>
 
+            {/* Meta de Jornada Laboral Diaria */}
+            <div className="flex items-center gap-1 pl-1.5 border-l border-border/50 text-[11px]" title="Meta de Jornada Laboral (Horas Hábiles Efectivas)">
+              <Briefcase className="h-3 w-3 text-violet-400 shrink-0" />
+              <button
+                type="button"
+                onClick={() => {
+                  const presets = [8, 8.5, 9, 10];
+                  const idx = presets.indexOf(targetDailyHours);
+                  const nextVal = idx >= 0 && idx < presets.length - 1 ? presets[idx + 1] : presets[0];
+                  handleTargetDailyHoursChange(nextVal);
+                }}
+                className="font-mono font-bold text-violet-400 hover:text-violet-300 transition-colors"
+                title="Clic para alternar meta rápida (8h, 8.5h, 9h, 10h)"
+              >
+                {targetDailyHours}h
+              </button>
+            </div>
+
             {/* Botón de confirmación de guardado en base de datos */}
             <button
-              onClick={() => saveScheduleToServer(scheduleStart, scheduleEnd, scheduleEnabled, workDays)}
+              onClick={() => saveScheduleToServer(scheduleStart, scheduleEnd, scheduleEnabled, workDays, targetDailyHours)}
               disabled={savingSchedule}
               className={`ml-1 px-2 py-0.5 rounded-md text-[10px] font-bold transition-all flex items-center gap-1 ${
                 scheduleSavedNotice
                   ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40"
                   : "bg-muted/70 hover:bg-violet-600 hover:text-white text-muted-foreground border border-border/50"
               }`}
-              title="Guardar días y horas oficialmente en la base de datos"
+              title="Guardar días, horas y meta de jornada en la base de datos"
             >
               {savingSchedule ? (
                 <span>Guardando...</span>
@@ -1204,7 +1291,72 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
               selectedAgent={selectedAgent}
               onSelectAgent={(email) => setSelectedAgent(email)}
               loading={loading}
+              targetDailyHours={targetDailyHours}
             />
+
+            {/* Banner Premium de Cumplimiento de Jornada Laboral */}
+            <div className="p-4 sm:p-5 rounded-2xl bg-card border border-border/70 shadow-sm relative overflow-hidden space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/30 flex items-center gap-1">
+                      <Briefcase className="h-3 w-3" /> Jornada Laboral
+                    </span>
+                    <span className="text-xs font-bold text-foreground">
+                      {currentAgentObj?.name || selectedAgent}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground font-mono">
+                      ({selectedDate})
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Tiempo medido acumulado en chats, plataforma y labores manuales de taller vs. la jornada meta contratada.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-3 self-end sm:self-center">
+                  <div className="text-right">
+                    <div className="flex items-baseline justify-end gap-1 font-mono">
+                      <span className="text-2xl font-black text-foreground">
+                        {Math.floor(agentDailyCompliance.activeMinutes / 60)}h {(agentDailyCompliance.activeMinutes % 60).toString().padStart(2, "0")}m
+                      </span>
+                      <span className="text-xs font-semibold text-muted-foreground">
+                        / {targetDailyHours.toFixed(1)}h meta
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-end gap-1.5 mt-0.5">
+                      {agentDailyCompliance.isCompleted ? (
+                        <span className="text-[11px] font-bold text-emerald-400 flex items-center gap-1">
+                          <CheckCircle2 className="h-3.5 w-3.5" /> Jornada Cumplida ({agentDailyCompliance.percent}%){agentDailyCompliance.overtimeMinutes > 0 && (
+                            <span className="text-emerald-300 font-semibold">
+                              • +{Math.floor(agentDailyCompliance.overtimeMinutes / 60)}h {agentDailyCompliance.overtimeMinutes % 60}m extras
+                            </span>
+                          )}
+                        </span>
+                      ) : (
+                        <span className="text-[11px] font-bold text-violet-400">
+                          {agentDailyCompliance.percent}% completado ({Math.floor(agentDailyCompliance.deficitMinutes / 60)}h {agentDailyCompliance.deficitMinutes % 60}m restantes)
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Barra de Progreso Visual de la Jornada */}
+              <div className="space-y-1">
+                <div className="h-2.5 w-full bg-muted/40 rounded-full overflow-hidden p-0.5 border border-border/40">
+                  <div
+                    className={`h-full rounded-full transition-all duration-700 ${
+                      agentDailyCompliance.isCompleted
+                        ? "bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-400 shadow-sm shadow-emerald-500/30"
+                        : "bg-gradient-to-r from-violet-600 via-indigo-500 to-violet-400 shadow-sm shadow-violet-500/20"
+                    }`}
+                    style={{ width: `${Math.min(100, agentDailyCompliance.percent)}%` }}
+                  />
+                </div>
+              </div>
+            </div>
 
             {/* Heatmap de Intensidad */}
             <ActivityHeatmap timeline={timelineWithinSchedule} date={selectedDate} />
