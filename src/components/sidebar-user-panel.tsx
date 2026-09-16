@@ -252,7 +252,9 @@ export function SidebarUserPanel({
 
   const stopManualTask = () => {
     if (!manualTask) return;
-    const duration = Date.now() - manualTask.start;
+    const rawDuration = Date.now() - manualTask.start;
+    // Tope de seguridad: si una tarea quedó abierta por días o se olvidó cerrar, limitar a máximo 4 horas
+    const duration = Math.min(rawDuration, 4 * 60 * 60 * 1000);
     const min = Math.floor(duration / 60000);
     const sec = Math.round((duration % 60000) / 1000);
     logActivity({

@@ -133,19 +133,21 @@ export async function insertActivityLog(entry: ActivityLog): Promise<void> {
 
 export async function getActivityTimeline(
   agentEmail?: string,
-  date?: string
+  date?: string,
+  endDate?: string
 ): Promise<ActivityLog[]> {
   const supabase = getClient();
   let query = supabase
     .from("activity_log")
     .select("*")
     .order("created_at", { ascending: false })
-    .limit(2000);
+    .limit(3500);
 
   if (agentEmail) query = query.eq("agent_email", agentEmail);
   if (date) {
     const start = `${date}T00:00:00`;
-    const end = `${date}T23:59:59`;
+    const finalDate = endDate || date;
+    const end = `${finalDate}T23:59:59`;
     query = query.gte("created_at", start).lte("created_at", end);
   }
 

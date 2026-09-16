@@ -9,6 +9,7 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const agent = searchParams.get("agent") || undefined;
     const date = searchParams.get("date") || new Date().toISOString().split("T")[0];
+    const endDate = searchParams.get("endDate") || undefined;
     const metrics = searchParams.get("metrics") === "true";
     const lastMinutes = searchParams.get("lastMinutes");
 
@@ -19,7 +20,7 @@ export async function GET(req: NextRequest) {
       return res;
     }
 
-    let timeline = await getActivityTimeline(agent, date);
+    let timeline = await getActivityTimeline(agent, date, endDate);
 
     // Filtrar últimos N minutos si se especifica
     if (lastMinutes) {

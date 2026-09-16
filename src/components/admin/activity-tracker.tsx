@@ -44,6 +44,7 @@ import { ActivityHeatmap } from "./activity-heatmap";
 import { ActivityAppsRanking } from "./activity-apps-ranking";
 import { ActivityScreenGallery } from "./activity-screen-gallery";
 import { ActivityAiBriefing } from "./activity-ai-briefing";
+import { ActivityExecutiveCharts } from "./activity-executive-charts";
 
 interface TimelineEntry {
   id: number;
@@ -675,6 +676,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
   const [liveAgents, setLiveAgents] = useState<LiveAgent[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<string | undefined>(defaultEmail);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
+  const [selectedEndDate, setSelectedEndDate] = useState<string | undefined>(undefined);
   const [activeTab, setActiveTab] = useState<"live" | "timeline" | "screenshots" | "apps" | "briefing">("live");
 
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
@@ -852,12 +854,13 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
     }
   }, [defaultEmail]);
 
-  // Cargar timeline del agente y fecha seleccionados
+  // Cargar timeline del agente y fecha seleccionados (con soporte para rangos de fecha)
   const fetchTimeline = useCallback(async () => {
     if (!selectedAgent) return;
     setRefreshing(true);
     try {
-      const res = await fetch(`/api/activity/timeline?agent=${encodeURIComponent(selectedAgent)}&date=${selectedDate}`);
+      const endParam = selectedEndDate ? `&endDate=${encodeURIComponent(selectedEndDate)}` : "";
+      const res = await fetch(`/api/activity/timeline?agent=${encodeURIComponent(selectedAgent)}&date=${selectedDate}${endParam}`);
       const data = await res.json();
       setTimeline(data.timeline || []);
     } catch (e) {
@@ -866,7 +869,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
       setRefreshing(false);
       setLoading(false);
     }
-  }, [selectedAgent, selectedDate]);
+  }, [selectedAgent, selectedDate, selectedEndDate]);
 
   useEffect(() => {
     fetchLive();
@@ -1019,6 +1022,9 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
         activeMinutes = calcMin;
       }
     }
+
+    // Tope diario de cordura: en un solo día nadie puede trabajar más de 24 horas (1440 min)
+    activeMinutes = Math.min(activeMinutes, 24 * 60);
 
     const targetMinutes = Math.round(targetDailyHours * 60);
     const percent = targetMinutes > 0 ? Math.round((activeMinutes / targetMinutes) * 100) : 0;
@@ -1360,6 +1366,23 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
 
             {/* Heatmap de Intensidad */}
             <ActivityHeatmap timeline={timelineWithinSchedule} date={selectedDate} />
+
+            {/* Analíticas Ejecutivas (Donut de Efectividad, Top Tareas Demandantes y Curva de Tendencia Horaria) */}
+            <ActivityExecutiveCharts
+              timeline={timelineWithinSchedule}
+              selectedDate={selectedDate}
+              onDateChange={(date, endDate) => {
+                setSelectedDate(date);
+                setSelectedEndDate(endDate);
+              }}
+              onRefresh={() => {
+                fetchLive();
+                fetchTimeline();
+              }}
+              refreshing={refreshing}
+              scheduleStart={scheduleStart}
+              scheduleEnd={scheduleEnd}
+            />
 
             {/* Top Apps y Resumen en 2 Columnas */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
