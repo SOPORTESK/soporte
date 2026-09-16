@@ -124,13 +124,24 @@ export default async function EstadisticasAtencionPage({
 }) {
   const supabase = createClient();
 
-  const { data: todosLosCasos } = await supabase
-    .from("sek_cases")
-    .select("id, assigned_to, created_at, updated_at, closed_at, estado, cliente, title, canal, cat, prioridad, histtecnico, histcliente, accepted_at, escalado_at, tags, problema, es_test")
-    .neq("canal", "simulator")
-    .neq("es_test", true);
+  // Cargar todos los casos paginados en bloques de 1000 para no topar con el límite de Supabase/PostgREST
+  const casos: any[] = [];
+  let pageOffset = 0;
+  const PAGE_SIZE = 1000;
+  while (true) {
+    const { data, error } = await supabase
+      .from("sek_cases")
+      .select("id, assigned_to, created_at, updated_at, closed_at, estado, cliente, title, canal, cat, prioridad, histtecnico, histcliente, accepted_at, escalado_at, tags, problema, es_test")
+      .neq("canal", "simulator")
+      .neq("es_test", true)
+      .order("created_at", { ascending: false })
+      .range(pageOffset, pageOffset + PAGE_SIZE - 1);
 
-  const casos = todosLosCasos || [];
+    if (error || !data || data.length === 0) break;
+    casos.push(...data);
+    if (data.length < PAGE_SIZE) break;
+    pageOffset += PAGE_SIZE;
+  }
 
   // Helper para convertir timestamp a fecha local de Costa Rica (YYYY-MM-DD)
   const toCRDate = (dateVal: string | Date | number) => {

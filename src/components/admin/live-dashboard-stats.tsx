@@ -22,11 +22,11 @@ interface LiveStats {
   casosEscalados: number;
   casosIa: number;
   totalCasos: number;
+  totalResueltos: number;
   casosRecientes: RecentCase[];
 }
 
 interface InitialData extends LiveStats {
-  totalResueltos: number;
   tasaResolucion: number;
   avgResolucion: number;
   avgHandleTimes: Record<string, { ia: number[]; humano: number[] }>;
@@ -66,6 +66,7 @@ export function LiveDashboardStats({ initial }: { initial: InitialData }) {
     casosEscalados: initial.casosEscalados,
     casosIa: initial.casosIa,
     totalCasos: initial.totalCasos,
+    totalResueltos: initial.totalResueltos,
     casosRecientes: initial.casosRecientes,
   });
   const [lastUpdate, setLastUpdate] = React.useState<Date | null>(null);
@@ -79,12 +80,14 @@ export function LiveDashboardStats({ initial }: { initial: InitialData }) {
         { count: casosEscalados },
         { count: casosIa },
         { count: totalCasos },
+        { count: totalResueltos },
         { data: casosRecientes },
       ] = await Promise.all([
         supabase.from("sek_cases").select("*", { count: "exact", head: true }).in("estado", ["ia_atendiendo", "abierto", "escalado", "pendiente"]).neq("canal", "simulator").neq("es_test", true),
         supabase.from("sek_cases").select("*", { count: "exact", head: true }).eq("estado", "escalado").neq("canal", "simulator").neq("es_test", true),
         supabase.from("sek_cases").select("*", { count: "exact", head: true }).eq("estado", "ia_atendiendo").neq("canal", "simulator").neq("es_test", true),
         supabase.from("sek_cases").select("*", { count: "exact", head: true }).neq("canal", "simulator").neq("es_test", true),
+        supabase.from("sek_cases").select("*", { count: "exact", head: true }).or("estado.in.(resuelto,cerrado),closed_at.not.is.null").neq("canal", "simulator").neq("es_test", true),
         supabase.from("sek_cases").select("id, title, estado, canal, created_at, assigned_to").neq("canal", "simulator").neq("es_test", true).order("created_at", { ascending: false }).limit(6),
       ]);
 
@@ -95,6 +98,7 @@ export function LiveDashboardStats({ initial }: { initial: InitialData }) {
         casosEscalados: casosEscalados ?? 0,
         casosIa: casosIa ?? 0,
         totalCasos: totalCasos ?? 0,
+        totalResueltos: totalResueltos ?? 0,
         casosRecientes: (casosRecientes as RecentCase[]) ?? [],
       });
       setLastUpdate(new Date());
@@ -129,6 +133,10 @@ export function LiveDashboardStats({ initial }: { initial: InitialData }) {
   const agenteMap: Record<string, string> = {};
   initial.agentes?.forEach(a => { agenteMap[a.email] = `${a.nombre || ""} ${a.apellido || ""}`.trim() || a.email; });
 
+  const resueltosCount = stats.totalResueltos ?? initial.totalResueltos;
+  const totalCount = stats.totalCasos;
+  const liveTasaResolucion = totalCount > 0 ? Math.round((resueltosCount / totalCount) * 100) : 100;
+
   const kpis = [
     {
       label: "Casos abiertos", value: stats.casosAbiertos.toString(),
@@ -137,8 +145,8 @@ export function LiveDashboardStats({ initial }: { initial: InitialData }) {
       href: "/inbox"
     },
     {
-      label: "Tasa resolución", value: `${initial.tasaResolucion}%`,
-      sub: `${initial.totalResueltos} de ${stats.totalCasos} casos`, icon: CheckCircle,
+      label: "Tasa resolución", value: `${liveTasaResolucion}%`,
+      sub: `${resueltosCount} de ${totalCount} casos`, icon: CheckCircle,
       color: "text-emerald-500", ring: "ring-emerald-500/20", bg: "bg-emerald-500/10",
       href: "/admin/estadisticas/atencion"
     },
