@@ -1005,22 +1005,45 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
 
   // Medición oficial de cumplimiento de la Jornada Laboral (Horas hábiles / efectivas vs Meta)
   const agentDailyCompliance = React.useMemo(() => {
-    let activeMinutes = currentAgentObj?.activeMinutes || 0;
+    let activeMinutes = 0;
 
-    // Si currentAgentObj no reporta minutos o es otra fecha seleccionada, derivar sumando los bloques de timelineWithinSchedule
+    // Calcular el tiempo activo real consolidando las horas de timelineWithinSchedule sin solapamiento
+    // (exactamente igual que el Mapa de Intensidad para garantizar consistencia total)
     if (timelineWithinSchedule && timelineWithinSchedule.length > 0) {
-      let totalMs = 0;
-      for (const t of timelineWithinSchedule) {
-        if (t.duration_ms) {
-          totalMs += t.duration_ms;
-        } else if (t.metadata?.duration_seconds) {
-          totalMs += t.metadata.duration_seconds * 1000;
-        }
+      const sorted = [...timelineWithinSchedule]
+        .filter((t) => Boolean(t.created_at))
+        .sort((a, b) => new Date(a.created_at!).getTime() - new Date(b.created_at!).getTime());
+
+      const IDLE_GAP_MS = 15 * 60 * 1000;
+      const hourBuckets: Record<number, number> = {};
+
+      for (let i = 0; i < sorted.length; i++) {
+        const item = sorted[i];
+        if (item.category === "Inactividad" || item.category === "Pausa personal") continue;
+
+        const currTime = new Date(item.created_at!).getTime();
+        const nextTime = i < sorted.length - 1 ? new Date(sorted[i + 1].created_at!).getTime() : currTime + 60000;
+        const gap = Math.max(0, nextTime - currTime);
+
+        const rawDur = Number(item.duration_ms || (item.metadata?.duration_seconds ? item.metadata.duration_seconds * 1000 : 0)) || 0;
+        const isManual = (item.category || "").toLowerCase().includes("manual") || (item.category || "").toLowerCase().includes("taller") || (item.category || "").toLowerCase().includes("capacitaci") || (item.action || "").toLowerCase().startsWith("terminó:");
+        const effectiveDuration = (rawDur > 0 && isManual)
+          ? Math.min(rawDur, 60 * 60 * 1000)
+          : Math.min(gap, IDLE_GAP_MS);
+
+        const d = new Date(item.created_at!);
+        const h = d.getHours();
+        hourBuckets[h] = Math.min(60 * 60 * 1000, (hourBuckets[h] || 0) + effectiveDuration);
       }
-      const calcMin = Math.round(totalMs / 60000);
-      if (calcMin > activeMinutes) {
-        activeMinutes = calcMin;
+
+      for (const h in hourBuckets) {
+        activeMinutes += Math.min(60, Math.round(hourBuckets[h] / 60000));
       }
+    }
+
+    // Fallback si no hay eventos en timeline pero el reporte live tiene minutos
+    if (activeMinutes === 0 && currentAgentObj?.activeMinutes) {
+      activeMinutes = currentAgentObj.activeMinutes;
     }
 
     // Tope diario de cordura: en un solo día nadie puede trabajar más de 24 horas (1440 min)
@@ -1040,7 +1063,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
       overtimeMinutes: diffMinutes > 0 ? diffMinutes : 0,
       deficitMinutes: diffMinutes < 0 ? Math.abs(diffMinutes) : 0,
     };
-  }, [currentAgentObj?.activeMinutes, timelineWithinSchedule, targetDailyHours]);
+  }, [timelineWithinSchedule, currentAgentObj?.activeMinutes, targetDailyHours]);
 
   const categoriesAvailable = Array.from(new Set(timeline.map((t) => t.category).filter(Boolean)));
 

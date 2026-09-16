@@ -17,10 +17,10 @@ interface Props {
   date: string;
 }
 
-const HOURS = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
+const HOURS = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
 
 export function ActivityHeatmap({ timeline, date }: Props) {
-  // Organizar eventos por hora (07:00 a 18:00) y por bloques de 15 minutos (4 bloques por hora = 48 bloques)
+  // Organizar eventos por hora (06:00 a 19:00) y por bloques continuos
   const hourBuckets: Record<number, { activeMs: number; idleMs: number; count: number; apps: Set<string> }> = {};
 
   HOURS.forEach((h) => {
@@ -42,15 +42,20 @@ export function ActivityHeatmap({ timeline, date }: Props) {
     const h = d.getHours();
 
     if (hourBuckets[h]) {
-      if (item.category === "Inactividad") {
+      if (item.category === "Inactividad" || item.category === "Pausa personal") {
         hourBuckets[h].idleMs += Math.min(gap, 60 * 60 * 1000);
       } else {
-        const effectiveDuration = Math.min(gap, IDLE_GAP_MS);
-        hourBuckets[h].activeMs += effectiveDuration;
+        const rawDur = Number(item.duration_ms || (item.metadata?.duration_seconds ? item.metadata.duration_seconds * 1000 : 0)) || 0;
+        const isManual = (item.category || "").toLowerCase().includes("manual") || (item.category || "").toLowerCase().includes("taller") || (item.category || "").toLowerCase().includes("capacitaci") || (item.action || "").toLowerCase().startsWith("terminó:");
+        const effectiveDuration = (rawDur > 0 && isManual)
+          ? Math.min(rawDur, 60 * 60 * 1000)
+          : Math.min(gap, IDLE_GAP_MS);
+
+        hourBuckets[h].activeMs = Math.min(60 * 60 * 1000, hourBuckets[h].activeMs + effectiveDuration);
         hourBuckets[h].count++;
         const meta = item.metadata || {};
         if (meta.app_name) hourBuckets[h].apps.add(meta.app_name);
-        if (gap > IDLE_GAP_MS) {
+        if (gap > IDLE_GAP_MS && (!isManual || rawDur === 0)) {
           hourBuckets[h].idleMs += (gap - IDLE_GAP_MS);
         }
       }
@@ -62,7 +67,7 @@ export function ActivityHeatmap({ timeline, date }: Props) {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Flame className="h-4 w-4 text-orange-500" />
-          <h3 className="font-bold text-sm text-foreground">Mapa de Intensidad Laboral (7:00 AM - 6:00 PM)</h3>
+          <h3 className="font-bold text-sm text-foreground">Mapa de Intensidad Laboral (6:00 AM - 7:30 PM)</h3>
         </div>
         <div className="flex items-center gap-3 text-[11px] text-muted-foreground font-medium">
           <span className="flex items-center gap-1.5">
@@ -78,7 +83,7 @@ export function ActivityHeatmap({ timeline, date }: Props) {
       </div>
 
       {/* Grid horizontal de horas */}
-      <div className="grid grid-cols-12 gap-1.5 sm:gap-2">
+      <div className="grid grid-cols-4 sm:grid-cols-7 lg:grid-cols-14 gap-1.5 sm:gap-2">
         {HOURS.map((h) => {
           const b = hourBuckets[h];
           const activeMin = Math.round(b.activeMs / 60000);
