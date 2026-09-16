@@ -361,7 +361,8 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
         <div className="hidden md:flex items-center px-6 py-2 border-b border-border bg-muted/10">
           <div className="w-8 shrink-0" />
           <div className="flex-1 min-w-0 ml-4" />
-          <div className="w-20 text-center"><p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Resueltos</p></div>
+          <div className="w-16 text-center"><p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Casos</p></div>
+          <div className="w-16 text-center"><p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Resueltos</p></div>
           <div className="w-14 text-center"><p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Tasa</p></div>
           <div className="w-24 text-center"><p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Handle time</p></div>
           <div className="w-24 text-center"><p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Calif. cliente</p></div>
@@ -427,7 +428,10 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
 
                   {/* Stats — mismo ancho que el header */}
                   <div className="hidden md:flex items-center shrink-0">
-                    <div className="w-20 text-center">
+                    <div className="w-16 text-center">
+                      <p className="text-xl font-black text-foreground tabular-nums">{agent.totalAtendidos}</p>
+                    </div>
+                    <div className="w-16 text-center">
                       <p className="text-xl font-black text-emerald-500 tabular-nums">{agent.resueltos}</p>
                     </div>
                     <div className="w-14 flex items-center justify-center">

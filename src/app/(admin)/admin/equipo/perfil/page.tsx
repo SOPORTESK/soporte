@@ -44,6 +44,8 @@ export default async function AgentProfilePage({
     .from("sek_cases")
     .select("id, estado, calificacion, created_at, updated_at, closed_at, title, canal, cat, last_message_at")
     .ilike("assigned_to", targetEmail)
+    .neq("canal", "simulator")
+    .neq("es_test", true)
     .order("created_at", { ascending: false });
 
   const resueltos = (casos || []).filter(c => c.estado === "resuelto" || c.estado === "cerrado" || (c as any).closed_at);

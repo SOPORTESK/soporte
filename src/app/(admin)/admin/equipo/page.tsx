@@ -45,11 +45,23 @@ export default async function AdminEquipoPage() {
     queryWithFallback(
       "equipo_all_casos",
       async () => {
-        const { data, error } = await supabase
-          .from("sek_cases")
-          .select("id, assigned_to, created_at, updated_at, closed_at, estado, cliente, canal, accepted_at, escalado_at, histtecnico, histcliente")
-          .neq("canal", "simulator");
-        return { data, error };
+        const loaded: any[] = [];
+        let pageOffset = 0;
+        const PAGE_SIZE = 1000;
+        while (true) {
+          const { data, error } = await supabase
+            .from("sek_cases")
+            .select("id, assigned_to, created_at, updated_at, closed_at, estado, cliente, canal, accepted_at, escalado_at, histtecnico, histcliente, es_test")
+            .neq("canal", "simulator")
+            .neq("es_test", true)
+            .order("created_at", { ascending: false })
+            .range(pageOffset, pageOffset + PAGE_SIZE - 1);
+          if (error || !data || data.length === 0) break;
+          loaded.push(...data);
+          if (data.length < PAGE_SIZE) break;
+          pageOffset += PAGE_SIZE;
+        }
+        return { data: loaded, error: null };
       },
       [],
       30000
@@ -82,7 +94,7 @@ export default async function AdminEquipoPage() {
   }> = {};
 
   (casos || []).forEach(c => {
-    const email = c.assigned_to;
+    const email = c.assigned_to ? String(c.assigned_to).toLowerCase() : null;
     if (!email) return;
     if (!statsMap[email]) {
       statsMap[email] = { totalAtendidos: 0, resueltos: 0, calificaciones: [], tiempos: [], casosHoy: 0, casosEstaSemana: 0, resueltosRecientes: 0, totalRecientes: 0 };
@@ -90,7 +102,7 @@ export default async function AdminEquipoPage() {
     const s = statsMap[email];
     s.totalAtendidos++;
 
-    if (c.estado === "resuelto" || c.estado === "cerrado") {
+    if (c.estado === "resuelto" || c.estado === "cerrado" || (c as any).closed_at) {
       s.resueltos++;
       if (c.updated_at) {
         // Handle time: humano = accepted_at → closed_at, IA = created_at → escalado_at/closed_at
@@ -131,7 +143,7 @@ export default async function AdminEquipoPage() {
 
   // Merge agent data with stats
   const agentsWithPerformance = humanAgents.map(a => {
-    const s = statsMap[a.email] || { totalAtendidos: 0, resueltos: 0, calificaciones: [], tiempos: [], casosHoy: 0, casosEstaSemana: 0, resueltosRecientes: 0, totalRecientes: 0 };
+    const s = statsMap[a.email.toLowerCase()] || { totalAtendidos: 0, resueltos: 0, calificaciones: [], tiempos: [], casosHoy: 0, casosEstaSemana: 0, resueltosRecientes: 0, totalRecientes: 0 };
     const avgCal = s.calificaciones.length >= 4
       ? (s.calificaciones.reduce((x, y) => x + y, 0) / s.calificaciones.length).toFixed(1)
       : "N/A";
@@ -163,7 +175,7 @@ export default async function AdminEquipoPage() {
 
   // Global stats (TODOS los casos: IA + humanos)
   const allCasos = todosCasos || [];
-  const allResueltos = allCasos.filter(c => c.estado === "resuelto" || c.estado === "cerrado");
+  const allResueltos = allCasos.filter(c => c.estado === "resuelto" || c.estado === "cerrado" || (c as any).closed_at);
   const allTiemposGlobal = allResueltos
     .filter(c => (c as any).closed_at)
     .map(c => {
