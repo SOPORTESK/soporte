@@ -418,8 +418,8 @@ function buildConsolidatedNarrative(items: TimelineEntry[]): string {
     if (raw.includes("descanso") || raw.includes("almuerzo") || item.category === "Tiempo de descanso") {
       return `Tiempo de descanso y receso laboral.`;
     }
-    if (raw.includes("baño") || item.category === "Pausa personal") {
-      return `Pausa personal operativa.`;
+    if (raw.includes("baño") || raw.includes("bano") || raw.includes("sanitaria") || raw.includes("sanitario") || item.category === "Pausa personal") {
+      return `Pausa sanitaria operativa.`;
     }
     if (raw.includes("reunión") || raw.includes("reunion") || item.category === "Reunión interna") {
       return `Reunión de coordinación y seguimiento de equipo: ${taskName || "Reunión"}.`;

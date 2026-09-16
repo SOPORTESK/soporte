@@ -57,13 +57,13 @@ function formatHoursMinutes(ms: number): string {
 }
 
 // 4 Categorías Maestras
-type MasterCategory = "Productivo" | "Inactivo" | "Descanso" | "Baño";
+type MasterCategory = "Productivo" | "Inactivo" | "Descanso" | "Pausa Sanitaria";
 
 const MASTER_COLORS: Record<MasterCategory, { hex: string; bg: string; text: string }> = {
-  Productivo: { hex: "#0284c7", bg: "bg-sky-600", text: "text-sky-400" },
-  Inactivo:   { hex: "#64748b", bg: "bg-slate-500", text: "text-slate-400" },
-  Descanso:   { hex: "#f59e0b", bg: "bg-amber-500", text: "text-amber-400" },
-  Baño:       { hex: "#10b981", bg: "bg-emerald-500", text: "text-emerald-400" },
+  Productivo:        { hex: "#0284c7", bg: "bg-sky-600", text: "text-sky-400" },
+  Inactivo:          { hex: "#64748b", bg: "bg-slate-500", text: "text-slate-400" },
+  Descanso:          { hex: "#f59e0b", bg: "bg-amber-500", text: "text-amber-400" },
+  "Pausa Sanitaria": { hex: "#10b981", bg: "bg-emerald-500", text: "text-emerald-400" },
 };
 
 function classifyToMasterCategory(item: TimelineEntry): MasterCategory {
@@ -72,18 +72,21 @@ function classifyToMasterCategory(item: TimelineEntry): MasterCategory {
   const meta = (item.metadata || {}) as Record<string, any>;
   const rawApp = (meta.app_name || meta.app || "").toLowerCase();
 
-  // 1. Baño / Pausa personal
+  // 1. Pausa Sanitaria / Pausa personal
   if (
     cat.includes("baño") ||
     cat.includes("bano") ||
+    cat.includes("sanitaria") ||
     cat.includes("pausa personal") ||
     act.includes("baño") ||
     act.includes("bano") ||
+    act.includes("sanitaria") ||
     act.includes("sanitario") ||
     act.includes("servicio") ||
-    rawApp.includes("baño")
+    rawApp.includes("baño") ||
+    rawApp.includes("sanitaria")
   ) {
-    return "Baño";
+    return "Pausa Sanitaria";
   }
 
   // 2. Descanso / Almuerzo / Café
@@ -183,7 +186,7 @@ export function ActivityExecutiveCharts({
       Productivo: 0,
       Inactivo: 0,
       Descanso: 0,
-      Baño: 0,
+      "Pausa Sanitaria": 0,
     };
 
     const taskMap: Record<string, { durationMs: number; count: number }> = {};
@@ -230,7 +233,7 @@ export function ActivityExecutiveCharts({
     const totalMs = Object.values(buckets).reduce((a, b) => a + b, 0) || 1;
 
     // Construir lista con las 4 categorías estrictas
-    const masterList: MasterCategory[] = ["Productivo", "Inactivo", "Descanso", "Baño"];
+    const masterList: MasterCategory[] = ["Productivo", "Inactivo", "Descanso", "Pausa Sanitaria"];
     const effData = masterList.map((cat) => {
       const ms = buckets[cat];
       const pct = Math.round((ms / totalMs) * 100);

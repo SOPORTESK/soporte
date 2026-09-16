@@ -150,7 +150,7 @@ export const DEFAULT_KNOWN_MANUAL_TASKS = [
   "Soporte a Ventas",
   "Capacitacion de clientes",
   "Tiempo de Descanso",
-  "Ir al Baño",
+  "Pausa Sanitaria",
   "Reunión",
   "Capacitacion de Personal",
 ];
@@ -169,7 +169,7 @@ function getAppIcon(appName: string) {
   if (name.includes("capacita")) return <GraduationCap className="h-4 w-4 text-violet-400" />;
   if (name.includes("descanso") || name.includes("almuerzo") || name.includes("café") || name.includes("cafe"))
     return <Sandwich className="h-4 w-4 text-amber-400" />;
-  if (name.includes("baño") || name.includes("bano")) return <Bath className="h-4 w-4 text-sky-400" />;
+  if (name.includes("baño") || name.includes("bano") || name.includes("sanitaria") || name.includes("sanitario")) return <Bath className="h-4 w-4 text-sky-400" />;
   if (name.includes("reunión") || name.includes("reunion")) return <Users className="h-4 w-4 text-indigo-400" />;
   if (name.includes("justificaci")) return <ClipboardList className="h-4 w-4 text-pink-400" />;
 
@@ -231,7 +231,7 @@ export function extractSmartAppName(item: TimelineItem): string {
   if (action.includes("diagnóstico") || action.includes("diagnostico")) return "Iniciar Diagnóstico Físico";
   if (action.includes("soporte a ventas") || action.includes("soporte ventas")) return "Soporte a Ventas";
   if (action.includes("descanso") || action.includes("almuerzo")) return "Tiempo de Descanso";
-  if (action.includes("baño") || action.includes("bano")) return "Ir al Baño";
+  if (action.includes("baño") || action.includes("bano") || action.includes("sanitaria") || action.includes("sanitario")) return "Pausa Sanitaria";
   if (action.includes("reunión") || action.includes("reunion")) return "Reunión";
   if (action.includes("capacita")) return "Capacitacion de Personal";
 

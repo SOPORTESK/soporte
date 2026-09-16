@@ -58,7 +58,7 @@ const TAREAS_GROUPED = [
     group: "Personal",
     items: [
       { label: "Tiempo de Descanso", short: "Descanso", category: "Tiempo de descanso", icon: Sandwich },
-      { label: "Ir al Baño", short: "Pausa (Baño)", category: "Pausa personal", icon: Bath },
+      { label: "Pausa Sanitaria", short: "Pausa Sanitaria", category: "Pausa personal", icon: Bath },
       { label: "Reunión", short: "Reunión", category: "Reunión interna", icon: Users },
       { label: "Capacitacion de Personal", short: "Capacitar (Interno)", category: "Capacitación", icon: GraduationCap },
     ]
