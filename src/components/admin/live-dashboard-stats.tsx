@@ -400,7 +400,9 @@ export function LiveDashboardStats({ initial }: { initial: InitialData }) {
                             </div>
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-center font-bold tabular-nums text-sky-600">{handleMin > 0 ? `${handleMin}m` : "—"}</td>
+                        <td className="px-4 py-3 text-center font-bold tabular-nums text-sky-600">
+                          {handleMin > 0 ? (handleMin >= 60 ? `${Math.floor(handleMin / 60)}h ${handleMin % 60}m` : `${handleMin}m`) : "—"}
+                        </td>
                         <td className="px-4 py-3 text-center">
                           <div className="flex items-center justify-center gap-1">
                             {avgC !== "—" && <Star className="h-3 w-3 text-amber-400 fill-amber-400" />}

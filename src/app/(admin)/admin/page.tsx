@@ -74,7 +74,6 @@ export default async function AdminDashboardPage() {
     { data: docChunks },
     { count: totalInventario },
     { data: casosRecientes },
-    { data: allCasos },
     { data: agentes },
     { data: agentConfig },
   ] = await Promise.all([
@@ -88,22 +87,39 @@ export default async function AdminDashboardPage() {
     supabase.from("sek_doc_chunks").select("doc_id, doc_name"),
     supabase.from("sek_inventario").select("*", { count: "exact", head: true }),
     supabase.from("sek_cases").select("id, title, estado, canal, created_at, assigned_to").neq("canal", "simulator").neq("es_test", true).order("created_at", { ascending: false }).limit(6),
-    supabase.from("sek_cases").select("id, estado, created_at, updated_at, closed_at, cliente, assigned_to, accepted_at, escalado_at").neq("canal", "simulator").neq("es_test", true).order("created_at", { ascending: false }).limit(1000),
     supabase.from("sek_agent_config").select("email, nombre, apellido, rol").neq("email", "system_prompt@sekunet.com"),
     supabase.from("sek_agent_config").select("system_prompt, ia_activa, modo_no_atendido").eq("email", "system_prompt@sekunet.com").maybeSingle(),
   ]);
+
+  // Cargar todos los casos paginados en bloques de 1000 para no perder casos antiguos por el límite de PostgREST
+  const allCasos: any[] = [];
+  let pageOffset = 0;
+  const PAGE_SIZE = 1000;
+  while (true) {
+    const { data, error } = await supabase
+      .from("sek_cases")
+      .select("id, estado, created_at, updated_at, closed_at, cliente, assigned_to, accepted_at, escalado_at, histtecnico")
+      .neq("canal", "simulator")
+      .neq("es_test", true)
+      .order("created_at", { ascending: false })
+      .range(pageOffset, pageOffset + PAGE_SIZE - 1);
+    if (error || !data || data.length === 0) break;
+    allCasos.push(...data);
+    if (data.length < PAGE_SIZE) break;
+    pageOffset += PAGE_SIZE;
+  }
 
   // Manuales unicos: contar por doc_id distinto (no por cantidad de chunks)
   const manualesUnicos = new Set(docChunks?.map((d: any) => d.doc_id).filter(Boolean)).size;
 
   // ── Calcular KPIs ──────────────────────────────────────────────────────────
   const totalCasosN = totalCasos ?? 0;
-  const totalResueltos = countResueltos ?? (allCasos?.filter(c => c.estado === "resuelto" || c.estado === "cerrado" || (c as any).closed_at).length ?? 0);
+  const totalResueltos = countResueltos ?? (allCasos.filter(c => c.estado === "resuelto" || c.estado === "cerrado" || (c as any).closed_at).length ?? 0);
   const tasaResolucion = totalCasosN > 0 ? Math.round((totalResueltos / totalCasosN) * 100) : 100;
 
   // Tiempo de resolución global: created_at → closed_at
   const tiempos: number[] = [];
-  allCasos?.forEach((c: any) => {
+  allCasos.forEach((c: any) => {
     const closedAt = c.closed_at || c.updated_at;
     if ((c.estado === "resuelto" || c.estado === "cerrado") && c.created_at && closedAt) {
       const diff = Math.round((new Date(closedAt).getTime() - new Date(c.created_at).getTime()) / 60000);
@@ -114,12 +130,12 @@ export default async function AdminDashboardPage() {
 
   // Handle time por tipo de agente
   // IA: desde created_at hasta escalado_at o closed_at
-  // Humano: desde accepted_at hasta closed_at
+  // Humano: desde accepted_at (o fallback a 1er mensaje/created_at) hasta closed_at
   const handleTimes: Record<string, { ia: number[]; humano: number[] }> = {};
   agentes?.forEach(a => { handleTimes[a.email] = { ia: [], humano: [] }; });
   // También incluir system_prompt para IA
   handleTimes["system_prompt@sekunet.com"] = { ia: [], humano: [] };
-  allCasos?.forEach((c: any) => {
+  allCasos.forEach((c: any) => {
     const email = c.assigned_to;
     if (!email || !handleTimes[email]) return;
     if (email === "system_prompt@sekunet.com") {
@@ -130,10 +146,22 @@ export default async function AdminDashboardPage() {
         if (diff >= 0 && diff < 10080) handleTimes[email].ia.push(diff);
       }
     } else {
-      // Humano: accepted_at → closed_at
-      if (c.accepted_at && c.closed_at) {
-        const diff = Math.round((new Date(c.closed_at).getTime() - new Date(c.accepted_at).getTime()) / 60000);
-        if (diff >= 0 && diff < 10080) handleTimes[email].humano.push(diff);
+      // Humano: accepted_at → closed_at (con fallback consistente con /admin/equipo)
+      if (c.estado === "resuelto" || c.estado === "cerrado") {
+        let startTimestamp = c.accepted_at;
+        if (!startTimestamp && Array.isArray(c.histtecnico)) {
+          const firstMsg = c.histtecnico.find((h: any) => h.role === "tecnico");
+          if (firstMsg) startTimestamp = firstMsg.time;
+        }
+        const start = startTimestamp ? new Date(startTimestamp) : new Date(c.created_at);
+        const endTimestamp = c.closed_at || c.updated_at;
+        if (endTimestamp) {
+          const end = new Date(endTimestamp);
+          if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
+            const diff = Math.round((end.getTime() - start.getTime()) / 60000);
+            if (diff >= 0 && diff < 10080) handleTimes[email].humano.push(diff);
+          }
+        }
       }
     }
   });
