@@ -76,7 +76,12 @@ export const DEFAULT_GROUPS: PermissionGroup[] = [
   },
 ];
 
+import { cacheGetFresh, cacheSet } from "@/lib/supabase/cache";
+
 export async function getActiveGroups(): Promise<PermissionGroup[]> {
+  const cached = cacheGetFresh("app_permission_groups", 60000); // 1 minuto de cache ultra-rápido
+  if (cached) return cached;
+
   try {
     const supabase = createClient();
     const { data } = await supabase
@@ -88,7 +93,7 @@ export async function getActiveGroups(): Promise<PermissionGroup[]> {
     if (data?.value) {
       const parsed = JSON.parse(data.value);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.map((g: any) => {
+        const groups = parsed.map((g: any) => {
           const defaultRef = DEFAULT_GROUPS.find(dg => dg.id === g.id) || DEFAULT_GROUPS[2];
           return {
             ...g,
@@ -107,11 +112,14 @@ export async function getActiveGroups(): Promise<PermissionGroup[]> {
             },
           };
         });
+        cacheSet("app_permission_groups", groups);
+        return groups;
       }
     }
   } catch (e) {
     console.error("Error loading permission groups:", e);
   }
+  cacheSet("app_permission_groups", DEFAULT_GROUPS);
   return DEFAULT_GROUPS;
 }
 

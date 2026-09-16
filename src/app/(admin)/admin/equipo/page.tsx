@@ -6,40 +6,64 @@ import {
 } from "lucide-react";
 import { TeamPerformance } from "@/components/admin/team-performance";
 
+import { getUserWithTimeout, queryWithFallback } from "@/lib/supabase/resilient";
+
 export const dynamic = "force-dynamic";
 
 export default async function AdminEquipoPage() {
   const supabase = createClient();
 
-  const { data: { user } } = await supabase.auth.getUser();
-  const { data: currentAgent } = await supabase
-    .from("sek_agent_config")
-    .select("rol")
-    .ilike("email", user?.email || "")
-    .single();
+  const { user } = await getUserWithTimeout(supabase);
+  const email = user?.email || "";
 
+  const [currentAgentRes, agentsRes, casosRes] = await Promise.all([
+    queryWithFallback(
+      `agent_config_${email}`,
+      async () => {
+        const { data, error } = await supabase
+          .from("sek_agent_config")
+          .select("rol")
+          .ilike("email", email)
+          .single();
+        return { data, error };
+      },
+      { rol: "admin" },
+      60000
+    ),
+    queryWithFallback(
+      "all_agents_config",
+      async () => {
+        const { data, error } = await supabase
+          .from("sek_agent_config")
+          .select("*")
+          .order("created_at", { ascending: false });
+        return { data, error };
+      },
+      [],
+      60000
+    ),
+    queryWithFallback(
+      "equipo_all_casos",
+      async () => {
+        const { data, error } = await supabase
+          .from("sek_cases")
+          .select("id, assigned_to, created_at, updated_at, closed_at, estado, cliente, canal, accepted_at, escalado_at, histtecnico, histcliente")
+          .neq("canal", "simulator");
+        return { data, error };
+      },
+      [],
+      30000
+    )
+  ]);
+
+  const currentAgent = currentAgentRes.data;
   const isSuperadmin = currentAgent?.rol === "superadmin";
+  const agents = agentsRes.data || [];
+  const sekaAgent = agents.find(a => a.email === "system_prompt@sekunet.com");
+  const humanAgents = agents.filter(a => a.email !== "system_prompt@sekunet.com");
 
-  const { data: agents } = await supabase
-    .from("sek_agent_config")
-    .select("*")
-    .order("created_at", { ascending: false });
-
-  const sekaAgent = agents?.find(a => a.email === "system_prompt@sekunet.com");
-  const humanAgents = agents?.filter(a => a.email !== "system_prompt@sekunet.com") || [];
-
-  // ── Fetch performance data ──
-  const { data: casos } = await supabase
-    .from("sek_cases")
-    .select("id, assigned_to, created_at, updated_at, closed_at, estado, cliente, canal, accepted_at, escalado_at, histtecnico")
-    .not("assigned_to", "is", null)
-    .neq("canal", "simulator");
-
-  // Todos los casos (IA + humanos) para stats globales
-  const { data: todosCasos } = await supabase
-    .from("sek_cases")
-    .select("id, assigned_to, created_at, updated_at, closed_at, estado, cliente, accepted_at, escalado_at, histtecnico, histcliente")
-    .neq("canal", "simulator");
+  const todosCasos = casosRes.data || [];
+  const casos = todosCasos.filter(c => c.assigned_to != null);
 
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();

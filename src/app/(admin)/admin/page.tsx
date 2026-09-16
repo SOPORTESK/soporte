@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { CloseStaleCases } from "@/components/admin/close-stale-cases";
 import { LiveDashboardStats } from "@/components/admin/live-dashboard-stats";
-import { getUserWithTimeout } from "@/lib/supabase/resilient";
+import { getUserWithTimeout, queryWithFallback } from "@/lib/supabase/resilient";
 import { LogoutButton } from "@/components/logout-button";
 
 export const dynamic = "force-dynamic";
@@ -36,11 +36,20 @@ export default async function AdminDashboardPage() {
     redirect("/login");
   }
 
-  const { data: currentAgent } = await supabase
-    .from("sek_agent_config")
-    .select("rol, nombre")
-    .ilike("email", user.email!)
-    .maybeSingle();
+  const agentRes = await queryWithFallback(
+    `agent_config_${user.email!}`,
+    async () => {
+      const { data, error } = await supabase
+        .from("sek_agent_config")
+        .select("rol, nombre")
+        .ilike("email", user.email!)
+        .maybeSingle();
+      return { data, error };
+    },
+    { rol: "admin", nombre: "Admin" },
+    60000
+  );
+  const currentAgent = agentRes.data;
 
   const isAdmin = ["admin", "superadmin"].includes(currentAgent?.rol);
   if (currentAgent?.rol === "tecnico") redirect("/admin/equipo");
@@ -76,6 +85,7 @@ export default async function AdminDashboardPage() {
     { data: casosRecientes },
     { data: agentes },
     { data: agentConfig },
+    allCasosResult,
   ] = await Promise.all([
     supabase.from("sek_agent_config").select("*", { count: "exact", head: true }),
     supabase.from("sek_cases").select("*", { count: "exact", head: true }).neq("canal", "simulator").neq("es_test", true),
@@ -89,25 +99,33 @@ export default async function AdminDashboardPage() {
     supabase.from("sek_cases").select("id, title, estado, canal, created_at, assigned_to").neq("canal", "simulator").neq("es_test", true).order("created_at", { ascending: false }).limit(6),
     supabase.from("sek_agent_config").select("email, nombre, apellido, rol").neq("email", "system_prompt@sekunet.com"),
     supabase.from("sek_agent_config").select("system_prompt, ia_activa, modo_no_atendido").eq("email", "system_prompt@sekunet.com").maybeSingle(),
+    queryWithFallback(
+      "admin_all_casos_kpi",
+      async () => {
+        const loaded: any[] = [];
+        let pageOffset = 0;
+        const PAGE_SIZE = 1000;
+        while (true) {
+          const { data, error } = await supabase
+            .from("sek_cases")
+            .select("id, estado, created_at, updated_at, closed_at, cliente, assigned_to, accepted_at, escalado_at, histtecnico")
+            .neq("canal", "simulator")
+            .neq("es_test", true)
+            .order("created_at", { ascending: false })
+            .range(pageOffset, pageOffset + PAGE_SIZE - 1);
+          if (error || !data || data.length === 0) break;
+          loaded.push(...data);
+          if (data.length < PAGE_SIZE) break;
+          pageOffset += PAGE_SIZE;
+        }
+        return { data: loaded, error: null };
+      },
+      [],
+      30000 // 30 segundos de cache: instantáneo para cambios de pestaña
+    )
   ]);
 
-  // Cargar todos los casos paginados en bloques de 1000 para no perder casos antiguos por el límite de PostgREST
-  const allCasos: any[] = [];
-  let pageOffset = 0;
-  const PAGE_SIZE = 1000;
-  while (true) {
-    const { data, error } = await supabase
-      .from("sek_cases")
-      .select("id, estado, created_at, updated_at, closed_at, cliente, assigned_to, accepted_at, escalado_at, histtecnico")
-      .neq("canal", "simulator")
-      .neq("es_test", true)
-      .order("created_at", { ascending: false })
-      .range(pageOffset, pageOffset + PAGE_SIZE - 1);
-    if (error || !data || data.length === 0) break;
-    allCasos.push(...data);
-    if (data.length < PAGE_SIZE) break;
-    pageOffset += PAGE_SIZE;
-  }
+  const allCasos = allCasosResult.data ?? [];
 
   // Manuales unicos: contar por doc_id distinto (no por cantidad de chunks)
   const manualesUnicos = new Set(docChunks?.map((d: any) => d.doc_id).filter(Boolean)).size;

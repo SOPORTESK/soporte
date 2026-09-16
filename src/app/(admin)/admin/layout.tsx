@@ -48,11 +48,32 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
   const email = user.email!;
 
-  let { data: agent } = await supabase
-    .from("sek_agent_config")
-    .select("*")
-    .ilike("email", email)
-    .maybeSingle();
+  const [agentResult, onlineAgentsResult] = await Promise.all([
+    queryWithFallback(
+      `agent_config_${email}`,
+      async () => {
+        const { data, error } = await supabase
+          .from("sek_agent_config").select("*").ilike("email", email).maybeSingle();
+        return { data, error };
+      },
+      null,
+      60000 // 1 min TTL
+    ),
+    queryWithFallback(
+      "online_agents_admin",
+      async () => {
+        const { data, error } = await supabase
+          .from("sek_agent_config")
+          .select("email, nombre, apellido, avatar_url, status")
+          .eq("activo", true);
+        return { data, error };
+      },
+      [],
+      15000 // 15s TTL
+    )
+  ]);
+
+  let agent = agentResult.data;
 
   if (!agent) {
     // Fallback de contingencia si Supabase tarda en responder
@@ -102,11 +123,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   );
 
   const fullName = [a.nombre, a.apellido].filter(Boolean).join(" ") || user.email!;
-
-  const { data: onlineAgents } = await supabase
-    .from("sek_agent_config")
-    .select("email, nombre, apellido, avatar_url, status")
-    .eq("activo", true);
+  const onlineAgents = (onlineAgentsResult.data || []) as any[];
 
   return (
     <GodModeGuard>
