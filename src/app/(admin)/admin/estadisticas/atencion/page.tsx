@@ -268,11 +268,11 @@ export default async function EstadisticasAtencionPage({
   const casosConAsig = casosFiltrados.filter(c => c.assigned_to && !c.assigned_to.includes("system_prompt"));
   const casosSinAsig = casosFiltrados.filter(c => !c.assigned_to || c.assigned_to.includes("system_prompt"));
 
-  // ── Métricas globales (todos los casos)
   const totalCasos = casosFiltrados.length;
   const totalResueltos = casosFiltrados.filter(c => c.estado === "resuelto" || c.estado === "cerrado" || (c as any).closed_at).length;
   const totalActivos = casosFiltrados.filter(c => c.estado === "abierto").length;
-  const tasaResolucion = totalCasos > 0 ? Math.floor((totalResueltos / totalCasos) * 100) : 0;
+  const rawTasa = totalCasos > 0 ? (totalResueltos / totalCasos) * 100 : 0;
+  const tasaResolucion = totalCasos > 0 ? (rawTasa >= 99 && rawTasa < 100 ? rawTasa.toFixed(1) : Math.floor(rawTasa).toString()) : "0";
 
   // ── Tendencia 7d vs 7d anterior (siempre últimos 7 días reales, sin filtro de mes)
   const casos7d = casos.filter(c => new Date(c.created_at) >= hace7dias).length;

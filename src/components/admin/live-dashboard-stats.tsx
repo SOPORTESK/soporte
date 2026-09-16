@@ -135,7 +135,13 @@ export function LiveDashboardStats({ initial }: { initial: InitialData }) {
 
   const resueltosCount = stats.totalResueltos ?? initial.totalResueltos;
   const totalCount = stats.totalCasos;
-  const liveTasaResolucion = totalCount > 0 ? Math.round((resueltosCount / totalCount) * 100) : 100;
+  const liveTasaResolucionStr = (() => {
+    if (totalCount === 0) return "100%";
+    if (resueltosCount >= totalCount) return "100%";
+    const pct = (resueltosCount / totalCount) * 100;
+    if (pct >= 99) return `${pct.toFixed(1)}%`;
+    return `${Math.floor(pct)}%`;
+  })();
 
   const kpis = [
     {
@@ -145,7 +151,7 @@ export function LiveDashboardStats({ initial }: { initial: InitialData }) {
       href: "/inbox"
     },
     {
-      label: "Tasa resolución", value: `${liveTasaResolucion}%`,
+      label: "Tasa resolución", value: liveTasaResolucionStr,
       sub: `${resueltosCount} de ${totalCount} casos`, icon: CheckCircle,
       color: "text-emerald-500", ring: "ring-emerald-500/20", bg: "bg-emerald-500/10",
       href: "/admin/estadisticas/atencion"
