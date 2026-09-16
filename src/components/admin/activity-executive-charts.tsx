@@ -22,8 +22,8 @@ import {
   FolderOpen,
   Mail,
   Phone,
-  Package,
-  GraduationCap,
+  Coffee,
+  Bath,
 } from "lucide-react";
 import { extractSmartAppName } from "./activity-apps-ranking";
 
@@ -56,43 +56,66 @@ function formatHoursMinutes(ms: number): string {
   return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}h`;
 }
 
-// Colores oficiales por categoría del sistema Sekunet
-const CATEGORY_HEX: Record<string, string> = {
-  "Mensajería": "#10b981",              // emerald
-  "Atención chat": "#10b981",           // emerald
-  "Atención de tickets": "#3b82f6",     // blue
-  "Atención de Tickets": "#3b82f6",     // blue
-  "Atención telefónica": "#f97316",     // orange
-  "Atención por llamada": "#f97316",    // orange
-  "Trámites de garantías": "#a855f7",   // purple
-  "Gestión de Garantías": "#f59e0b",    // amber
-  "Investigación y desarrollo": "#06b6d4", // cyan
-  "Optimización de procesos": "#8b5cf6", // violet
-  "Control administrativo": "#ec4899",  // pink
-  "Gestión de correos": "#eab308",      // yellow
-  "Gestión de Correos": "#3b82f6",      // blue
-  "Gestión de casos": "#10b981",        // emerald
-  "Escalado": "#ef4444",                // red
-  "Asistente IA": "#06b6d4",            // cyan
-  "Inactividad": "#64748b",             // slate
-  "Pausa personal": "#38bdf8",          // sky
-  "Tiempo de descanso": "#f59e0b",      // amber
-  "Navegación": "#0284c7",              // sky
-  "Actividad general": "#64748b",       // slate
-  "Soporte técnico": "#06b6d4",         // cyan
-  "Labores manuales": "#f59e0b",        // amber
-  "Atención presencial": "#0284c7",     // sky
-  "Inventario": "#6366f1",              // indigo
-  "Mantenimiento": "#06b6d4",           // cyan
-  "Soporte comercial": "#3b82f6",       // blue
-  "Capacitación": "#8b5cf6",            // violet
-  "Reunión interna": "#6366f1",         // indigo
-  "Justificación": "#ec4899",           // pink
-  "Otros": "#64748b",                   // slate
+// 4 Categorías Maestras
+type MasterCategory = "Productivo" | "Inactivo" | "Descanso" | "Baño";
+
+const MASTER_COLORS: Record<MasterCategory, { hex: string; bg: string; text: string }> = {
+  Productivo: { hex: "#0284c7", bg: "bg-sky-600", text: "text-sky-400" },
+  Inactivo:   { hex: "#64748b", bg: "bg-slate-500", text: "text-slate-400" },
+  Descanso:   { hex: "#f59e0b", bg: "bg-amber-500", text: "text-amber-400" },
+  Baño:       { hex: "#10b981", bg: "bg-emerald-500", text: "text-emerald-400" },
 };
 
-function getCategoryColor(cat: string): string {
-  return CATEGORY_HEX[cat] || "#64748b";
+function classifyToMasterCategory(item: TimelineEntry): MasterCategory {
+  const cat = (item.category || "").toLowerCase();
+  const act = (item.action || "").toLowerCase();
+  const meta = (item.metadata || {}) as Record<string, any>;
+  const rawApp = (meta.app_name || meta.app || "").toLowerCase();
+
+  // 1. Baño / Pausa personal
+  if (
+    cat.includes("baño") ||
+    cat.includes("bano") ||
+    cat.includes("pausa personal") ||
+    act.includes("baño") ||
+    act.includes("bano") ||
+    act.includes("sanitario") ||
+    act.includes("servicio") ||
+    rawApp.includes("baño")
+  ) {
+    return "Baño";
+  }
+
+  // 2. Descanso / Almuerzo / Café
+  if (
+    cat.includes("descanso") ||
+    cat.includes("almuerzo") ||
+    cat.includes("comida") ||
+    act.includes("descanso") ||
+    act.includes("almuerzo") ||
+    act.includes("café") ||
+    act.includes("cafe") ||
+    act.includes("comida") ||
+    rawApp.includes("almuerzo")
+  ) {
+    return "Descanso";
+  }
+
+  // 3. Inactividad / Pausa prolongada / Sin actividad
+  if (
+    cat.includes("inactividad") ||
+    act.includes("pausa prolongada") ||
+    act.includes("sin actividad detectada") ||
+    act.includes("inactividad") ||
+    act.includes("ausente") ||
+    rawApp.includes("mystify") ||
+    rawApp.includes(".scr")
+  ) {
+    return "Inactivo";
+  }
+
+  // 4. Todo lo demás es Productivo
+  return "Productivo";
 }
 
 function getTaskIcon(name: string) {
@@ -129,7 +152,6 @@ export function ActivityExecutiveCharts({
 }: Props) {
   const [periodPreset, setPeriodPreset] = useState<"hoy" | "este_mes" | "este_ano">("hoy");
 
-  // Manejo de presets rápidos reactivos (sin botones manuales)
   const handleSelectPreset = (preset: "hoy" | "este_mes" | "este_ano") => {
     setPeriodPreset(preset);
     const now = new Date();
@@ -149,15 +171,21 @@ export function ActivityExecutiveCharts({
     }
   };
 
-  // ── 1. Procesar datos usando las CATEGORÍAS REALES DEL SISTEMA ──────────────
-  const { effectiveness, topTasks, hourlyTrend, totalCalculatedMs, globalProductivePct } = useMemo(() => {
+  // ── 1. Procesar datos en las 4 CATEGORÍAS EXACTAS SOLICITADAS ──────────────
+  const { effectiveness, topTasks, hourlyTrend, totalCalculatedMs, productivoPct } = useMemo(() => {
     const sorted = [...timeline]
       .filter((t) => Boolean(t.created_at))
       .sort((a, b) => new Date(a.created_at!).getTime() - new Date(b.created_at!).getTime());
 
     const IDLE_GAP_MS = 15 * 60 * 1000;
 
-    const catMap: Record<string, { ms: number; count: number }> = {};
+    const buckets: Record<MasterCategory, number> = {
+      Productivo: 0,
+      Inactivo: 0,
+      Descanso: 0,
+      Baño: 0,
+    };
+
     const taskMap: Record<string, { durationMs: number; count: number }> = {};
     const hourIntervals: Record<number, number> = {};
 
@@ -165,51 +193,31 @@ export function ActivityExecutiveCharts({
       hourIntervals[h] = 0;
     }
 
-    let totalActiveMs = 0;
-    let totalIdleMs = 0;
-
     for (let i = 0; i < sorted.length; i++) {
       const it = sorted[i];
+      const masterCat = classifyToMasterCategory(it);
       const currTime = new Date(it.created_at!).getTime();
       const nextTime = i < sorted.length - 1 ? new Date(sorted[i + 1].created_at!).getTime() : currTime + 60000;
       const gap = Math.max(0, nextTime - currTime);
 
-      const rawCat = it.category ? it.category.trim() : "Otros";
-      const act = (it.action || "").toLowerCase();
-      const isIdle =
-        rawCat.toLowerCase() === "inactividad" ||
-        rawCat.toLowerCase() === "pausa personal" ||
-        act.includes("pausa prolongada") ||
-        act.includes("sin actividad detectada");
-
+      const isIdle = masterCat === "Inactivo";
       const dur = isIdle ? Math.min(gap > 0 ? gap : 15 * 60 * 1000, 45 * 60 * 1000) : Math.min(gap > 0 ? gap : 60000, IDLE_GAP_MS);
 
-      if (isIdle) {
-        totalIdleMs += dur;
-      } else {
-        totalActiveMs += dur;
-      }
+      buckets[masterCat] += dur;
 
-      // Acumular por la categoría REAL existente en la base de datos
-      if (!catMap[rawCat]) {
-        catMap[rawCat] = { ms: 0, count: 0 };
-      }
-      catMap[rawCat].ms += dur;
-      catMap[rawCat].count++;
-
-      // Acumular tareas individuales reales (excluyendo salvapantallas)
-      const smartName = extractSmartAppName(it);
-      const nameLower = smartName.toLowerCase();
-      if (!nameLower.includes(".scr") && !nameLower.includes("mystify") && !nameLower.includes("lockapp") && !isIdle) {
-        if (!taskMap[smartName]) {
-          taskMap[smartName] = { durationMs: 0, count: 0 };
+      // Desglose de tareas individuales si es productivo
+      if (masterCat === "Productivo") {
+        const smartName = extractSmartAppName(it);
+        const nameLower = smartName.toLowerCase();
+        if (!nameLower.includes(".scr") && !nameLower.includes("mystify") && !nameLower.includes("lockapp")) {
+          if (!taskMap[smartName]) {
+            taskMap[smartName] = { durationMs: 0, count: 0 };
+          }
+          taskMap[smartName].durationMs += dur;
+          taskMap[smartName].count++;
         }
-        taskMap[smartName].durationMs += dur;
-        taskMap[smartName].count++;
-      }
 
-      // Distribución horaria (Costa Rica)
-      if (!isIdle) {
+        // Intervalo horario para tendencia (hora de Costa Rica)
         const d = new Date(it.created_at!);
         const crHourStr = d.toLocaleString("en-US", { timeZone: "America/Costa_Rica", hour: "numeric", hour12: false });
         const crHour = parseInt(crHourStr, 10) % 24;
@@ -219,28 +227,31 @@ export function ActivityExecutiveCharts({
       }
     }
 
-    const grandTotalMs = totalActiveMs + totalIdleMs || 1;
+    const totalMs = Object.values(buckets).reduce((a, b) => a + b, 0) || 1;
 
-    // Tomar las categorías reales activas ordenadas por tiempo
-    const sortedCats = Object.entries(catMap)
-      .map(([cat, data]) => ({
+    // Construir lista con las 4 categorías estrictas
+    const masterList: MasterCategory[] = ["Productivo", "Inactivo", "Descanso", "Baño"];
+    const effData = masterList.map((cat) => {
+      const ms = buckets[cat];
+      const pct = Math.round((ms / totalMs) * 100);
+      return {
         id: cat,
         label: cat,
-        color: getCategoryColor(cat),
-        ms: data.ms,
-        pct: Math.round((data.ms / grandTotalMs) * 100),
-      }))
-      .sort((a, b) => b.ms - a.ms);
+        color: MASTER_COLORS[cat].hex,
+        ms,
+        pct,
+      };
+    });
 
-    // Ajuste de porcentaje si la suma da 99% o 101% por redondeo
-    const sumPct = sortedCats.reduce((acc, c) => acc + c.pct, 0);
-    if (sumPct > 0 && sumPct !== 100 && sortedCats[0]) {
-      sortedCats[0].pct += (100 - sumPct);
+    // Ajuste de porcentaje si redondeo difiere de 100%
+    const sumPct = effData.reduce((acc, c) => acc + c.pct, 0);
+    if (sumPct > 0 && sumPct !== 100) {
+      effData[0].pct += (100 - sumPct);
     }
 
-    const globalProdPct = Math.round((totalActiveMs / grandTotalMs) * 100);
+    const prodPct = effData[0]?.pct || 0;
 
-    // Top 5 tareas demandantes
+    // Top 5 tareas más demandantes
     const tasksArr = Object.entries(taskMap)
       .map(([name, data]) => ({
         name,
@@ -268,19 +279,19 @@ export function ActivityExecutiveCharts({
     });
 
     return {
-      effectiveness: sortedCats,
+      effectiveness: effData,
       topTasks: tasksArr,
       hourlyTrend: trendPoints,
-      totalCalculatedMs: grandTotalMs,
-      globalProductivePct: globalProdPct,
+      totalCalculatedMs: totalMs,
+      productivoPct: prodPct,
     };
   }, [timeline]);
 
-  // ── 2. Cálculos geométricos SVG para el Donut ──────────────────────────────
+  // ── 2. Donut SVG Amplio con viewBox holgado (CERO RECORTES LATERALES) ────────
   const donutSegments = useMemo(() => {
-    const size = 160;
-    const strokeWidth = 20;
-    const radius = (size - strokeWidth) / 2;
+    // Canvas de 200x200 con radio 70 y trazo 20
+    // Límite exterior = 70 + 10 = 80px del centro (deja 20px de margen en todos los bordes)
+    const radius = 70;
     const circumference = 2 * Math.PI * radius;
 
     let accumulatedPct = 0;
@@ -386,33 +397,36 @@ export function ActivityExecutiveCharts({
         </div>
       </div>
 
-      {/* ── FILA SUPERIOR: DONUT DE EFECTIVIDAD REAL + TOP TAREAS DEMANDANTES ── */}
+      {/* ── FILA SUPERIOR: DONUT (4 CATEGORÍAS) + TOP TAREAS DEMANDANTES ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* PANEL 1: DONUT CHART DE CATEGORÍAS REALES SIN TEXTO CORTADO */}
+        {/* PANEL 1: DONUT CHART AMPLIO Y SIN RECORTES */}
         <div className="p-5 rounded-2xl bg-muted/15 border border-border/60 flex flex-col justify-between shadow-xs">
           <div className="flex items-center justify-between mb-4">
             <h4 className="text-xs font-black uppercase tracking-wider text-muted-foreground flex items-center gap-2">
               <Sparkles className="h-3.5 w-3.5 text-brand-400" />
-              Desglose Real por Categoría
+              Efectividad & Desglose de Jornada
             </h4>
             <span className="text-[11px] font-mono font-bold text-foreground/80 bg-background/80 px-2.5 py-1 rounded-lg border border-border/50">
               Total: {formatHoursMinutes(totalCalculatedMs)}
             </span>
           </div>
 
-          <div className="flex flex-col sm:flex-row items-center gap-6">
-            {/* Donut SVG con Anillo Luminoso */}
-            <div className="relative flex items-center justify-center shrink-0">
-              <svg width="150" height="150" className="transform -rotate-90 drop-shadow-md">
+          <div className="flex flex-col sm:flex-row items-center gap-8 py-2">
+            {/* Donut SVG con Canvas Holgado de 200x200 (Nunca se corta a los lados) */}
+            <div className="relative flex items-center justify-center shrink-0 p-2">
+              <svg
+                viewBox="0 0 200 200"
+                className="w-44 h-44 transform -rotate-90 overflow-visible"
+              >
                 {donutSegments.map((seg) => (
                   <circle
                     key={seg.id}
-                    cx="75"
-                    cy="75"
+                    cx="100"
+                    cy="100"
                     r={seg.radius}
                     fill="transparent"
                     stroke={seg.color}
-                    strokeWidth="18"
+                    strokeWidth="20"
                     strokeDasharray={seg.strokeDasharray}
                     strokeDashoffset={seg.strokeDashoffset}
                     className="transition-all duration-700 ease-out hover:opacity-85"
@@ -420,43 +434,43 @@ export function ActivityExecutiveCharts({
                 ))}
               </svg>
 
-              {/* Texto Central */}
+              {/* Texto Central Estilo Ejecutivo */}
               <div className="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                  Productivo
+                  PRODUCTIVO
                 </span>
-                <span className="text-2xl font-black text-brand-400 font-mono tracking-tight">
-                  {globalProductivePct}%
+                <span className="text-3xl font-black text-sky-400 font-mono tracking-tight">
+                  {productivoPct}%
                 </span>
               </div>
             </div>
 
-            {/* Tabla de Categorías Reales - Con Ancho Completo sin cortar texto */}
-            <div className="flex-1 w-full space-y-1.5 max-h-[220px] overflow-y-auto pr-1">
+            {/* Las 4 Categorías Maestras con Ancho Completo sin cortar texto */}
+            <div className="flex-1 w-full space-y-2">
               <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-muted-foreground/70 pb-1 border-b border-border/40 px-1">
-                <span>Categoría</span>
-                <div className="flex items-center gap-4">
+                <span>CATEGORÍA</span>
+                <div className="flex items-center gap-5 font-mono">
                   <span className="w-8 text-center">%</span>
-                  <span className="w-14 text-right">Horas</span>
+                  <span className="w-14 text-right">HORAS</span>
                 </div>
               </div>
 
               {effectiveness.map((item) => (
                 <div
                   key={item.id}
-                  className="flex items-center justify-between py-1 px-1.5 rounded-lg hover:bg-muted/30 transition-colors text-xs"
+                  className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-muted/30 transition-colors text-xs"
                 >
-                  <div className="flex items-center gap-2 min-w-0 pr-2">
+                  <div className="flex items-center gap-2.5 min-w-0">
                     <span
-                      className="w-2.5 h-2.5 rounded-full shrink-0 shadow-xs"
+                      className="w-3 h-3 rounded-full shrink-0 shadow-xs"
                       style={{ backgroundColor: item.color }}
                     />
-                    <span className="font-semibold text-foreground text-[11px] leading-tight break-words">
+                    <span className="font-semibold text-foreground text-xs leading-normal whitespace-nowrap">
                       {item.label}
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-4 shrink-0 font-mono text-[11px]">
+                  <div className="flex items-center gap-5 shrink-0 font-mono text-xs">
                     <span className="w-8 text-center font-bold text-foreground">
                       {item.pct}%
                     </span>
@@ -480,7 +494,7 @@ export function ActivityExecutiveCharts({
             <span className="text-[11px] font-mono font-bold text-muted-foreground uppercase">Horas Reales</span>
           </div>
 
-          <div className="space-y-3 my-auto">
+          <div className="space-y-3.5 my-auto">
             {topTasks.map((task) => {
               const Icon = getTaskIcon(task.name);
               const barWidthPct = Math.min(100, Math.max(6, (task.hours / maxTaskHours) * 100));
