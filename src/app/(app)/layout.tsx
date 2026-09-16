@@ -17,6 +17,7 @@ import { EscalatedCasesBanner } from "@/components/escalated-cases-banner";
 import { FloatingTechAssistant } from "@/components/floating-tech-assistant";
 import { ActivityTrackerProvider } from "@/components/activity-tracker-provider";
 import { getUserWithTimeout, queryWithFallback } from "@/lib/supabase/resilient";
+import { getAgentGroupPermissions } from "@/lib/permissions";
 
 export const dynamic = 'force-dynamic';
 
@@ -115,6 +116,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const adminHref = isTecnico ? "/admin/equipo" : "/admin";
   const fullName = [currentAgent.nombre, currentAgent.apellido].filter(Boolean).join(" ") || email;
 
+  const userPerms = await getAgentGroupPermissions(currentAgent.rol);
+  const isSuperadmin = currentAgent.rol === "superadmin";
+  const canViewActivityTracker = isSuperadmin || (
+    (userPerms as any).activity?.subcategories?.panel_externo_visibilidad ?? 
+    ((userPerms as any).activity?.view || isAdmin)
+  );
+
   return (
     <GodModeWrapper originalAgent={currentAgent}>
     <div className="h-dvh flex flex-col overflow-hidden">
@@ -171,7 +179,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <div className="flex items-center gap-1 px-4 pb-2 pt-2">
           <ThemeToggle />
         </div>
-        <SidebarUserPanel agent={a as any} onlineAgents={onlineAgents || []} />
+        <SidebarUserPanel agent={a as any} onlineAgents={onlineAgents || []} canViewActivityTracker={canViewActivityTracker} />
       </aside>
 
       {/* ── Main content area ── */}

@@ -93,8 +93,13 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const isAdmin = ["admin", "superadmin"].includes(a.rol);
   const isTecnico = a.rol === "tecnico";
   
-  const canAccessAdmin = isSuperadmin || isAdmin || userPerms.inventory.view || userPerms.manuals.view || userPerms.stats.view || userPerms.ai.view || userPerms.settings.view;
+  const canAccessAdmin = isSuperadmin || isAdmin || userPerms.inventory.view || userPerms.manuals.view || userPerms.stats.view || userPerms.ai.view || userPerms.settings.view || (userPerms as any).activity?.view;
   if (!canAccessAdmin) redirect("/inbox");
+
+  const canViewActivityTracker = isSuperadmin || (
+    (userPerms as any).activity?.subcategories?.panel_externo_visibilidad ?? 
+    ((userPerms as any).activity?.view || isAdmin)
+  );
 
   const fullName = [a.nombre, a.apellido].filter(Boolean).join(" ") || user.email!;
 
@@ -166,7 +171,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             <div className="flex items-center gap-1 px-4 pb-2 pt-2">
               <ThemeToggle />
             </div>
-            <SidebarUserPanel agent={a as any} onlineAgents={onlineAgents || []} />
+            <SidebarUserPanel agent={a as any} onlineAgents={onlineAgents || []} canViewActivityTracker={canViewActivityTracker} />
           </aside>
 
           <header className="lg:hidden flex items-center justify-between p-4 border-b border-border bg-card">

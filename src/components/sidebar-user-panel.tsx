@@ -80,8 +80,17 @@ function AvatarImg({ url, name, size = 36 }: { url?: string | null; name: string
   );
 }
 
-export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; onlineAgents: OnlineAgent[] }) {
+export function SidebarUserPanel({ 
+  agent, 
+  onlineAgents, 
+  canViewActivityTracker 
+}: { 
+  agent: Agent; 
+  onlineAgents: OnlineAgent[]; 
+  canViewActivityTracker?: boolean; 
+}) {
   const canAccessAdmin = ["admin", "superadmin"].includes(agent.rol);
+  const hasActivityAccess = canViewActivityTracker !== undefined ? canViewActivityTracker : canAccessAdmin;
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"profile" | "team" | "activity">("profile");
   const [status, setStatus] = useState(agent.status || "online");
@@ -112,6 +121,12 @@ export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; online
     }
   });
   const [manualElapsed, setManualElapsed] = useState("");
+
+  useEffect(() => {
+    if (tab === "activity" && !hasActivityAccess) {
+      setTab("profile");
+    }
+  }, [hasActivityAccess, tab]);
 
   // Sincronización robusta de la labor manual al montar:
   // 1) Lee localStorage
@@ -387,10 +402,10 @@ export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; online
             <button onClick={() => setTab("team")} className={`flex-1 text-xs font-semibold py-2.5 transition-colors ${tab === "team" ? "text-foreground border-b-2 border-violet-500" : "text-muted-foreground hover:text-foreground"}`}>
               Equipo {others.length > 0 && <span className="ml-1 px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 text-[10px]">{others.length}</span>}
             </button>
-            {canAccessAdmin && (
-            <button onClick={() => setTab("activity")} className={`flex-1 text-xs font-semibold py-2.5 transition-colors ${tab === "activity" ? "text-foreground border-b-2 border-violet-500" : "text-muted-foreground hover:text-foreground"}`}>
-              <ActivityIcon className="h-3.5 w-3.5 inline-block" />
-            </button>
+            {hasActivityAccess && (
+              <button onClick={() => setTab("activity")} className={`flex-1 text-xs font-semibold py-2.5 transition-colors flex items-center justify-center gap-1.5 ${tab === "activity" ? "text-violet-500 border-b-2 border-violet-500" : "text-muted-foreground hover:text-foreground"}`} title="Activity Tracker">
+                <ActivityIcon className="h-3.5 w-3.5 inline-block" />
+              </button>
             )}
           </div>
 
@@ -489,7 +504,7 @@ export function SidebarUserPanel({ agent, onlineAgents }: { agent: Agent; online
             </div>
           )}
 
-          {tab === "activity" && canAccessAdmin && (
+          {tab === "activity" && hasActivityAccess && (
             <div className="flex flex-col" style={{ minHeight: "440px", maxHeight: "560px" }}>
               {/* Header con gradiente y métricas */}
               <div className="px-3.5 py-3 bg-gradient-to-br from-violet-500/15 via-indigo-500/5 to-transparent border-b border-border/50">

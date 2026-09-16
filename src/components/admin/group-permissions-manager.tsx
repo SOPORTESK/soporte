@@ -36,18 +36,29 @@ interface ModuleDef {
 
 export const COMPLETE_MODULE_DEFINITIONS: ModuleDef[] = [
   {
+    key: "activity",
+    label: "Suite de Actividad & Productividad",
+    icon: Activity,
+    color: "text-violet-400 bg-violet-500/10 border-violet-500/20",
+    desc: "Monitoreo en tiempo real de colaboradores, apps, capturas y control de Activity Tracker",
+    subcategories: [
+      { key: "registro_actividad", label: "Suite de Auditoría & Actividad (/admin/actividad)", desc: "Monitoreo en tiempo real de espacios de trabajo, apps y colaboradores" },
+      { key: "auditoria_pantalla", label: "Galería de Capturas de Pantalla (HD)", desc: "Inspección visual de escritorios capturados por la app Electron" },
+      { key: "ranking_apps_sitios", label: "Ranking de Apps & Sitios Web", desc: "Tiempos de uso en WhatsApp, Softphone, Odoo, Office y sitios" },
+      { key: "heatmap_intensidad", label: "Mapa de Calor Horario (Intensidad)", desc: "Visualización de picos de concentración e inactividad (8am - 6pm)" },
+      { key: "dictamen_ejecutivo_ia", label: "Dictamen Ejecutivo de Auditoría con IA", desc: "Generación de informes de jornada con Gemini y exportación PDF/Excel" },
+      { key: "panel_externo_visibilidad", label: "Visibilidad de Panel Activity Tracker (Drawer lateral)", desc: "Habilita o deshabilita la pestaña de Activity Tracker en el panel lateral del usuario (labores físicas y pausas)" },
+      { key: "panel_externo_gestion", label: "Gestión y Control de Paneles de Técnicos", desc: "Potestad para habilitar o inhabilitar la visibilidad del Activity Tracker para otros colaboradores" },
+    ],
+  },
+  {
     key: "stats",
     label: "Estadísticas, Analítica & CRM",
     icon: BarChart3,
     color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
     desc: "Métricas globales, KPIs de atención, SLAs, volumen y analítica de clientes",
     subcategories: [
-      { key: "resumen_general", label: "Resumen General (/admin)", desc: "Panel de control principal con tarjetas y actividad en vivo" },
-      { key: "registro_actividad", label: "Suite de Auditoría & Actividad (/admin/actividad)", desc: "Monitoreo en tiempo real de espacios de trabajo, apps y colaboradores" },
-      { key: "auditoria_pantalla", label: "Galería de Capturas de Pantalla (HD)", desc: "Inspección visual de escritorios capturados por la app Electron" },
-      { key: "ranking_apps_sitios", label: "Ranking de Apps & Sitios Web", desc: "Tiempos de uso en WhatsApp, Softphone, Odoo, Office y sitios" },
-      { key: "heatmap_intensidad", label: "Mapa de Calor Horario (Intensidad)", desc: "Visualización de picos de concentración e inactividad (8am - 6pm)" },
-      { key: "dictamen_ejecutivo_ia", label: "Dictamen Ejecutivo de Auditoría con IA", desc: "Generación de informes de jornada con Gemini y exportación PDF/Excel" },
+      { key: "resumen_general", label: "Centro de Operaciones (/admin)", desc: "Panel de control principal con tarjetas y actividad en vivo" },
       { key: "estadisticas_detalladas", label: "Estadísticas Detalladas (/admin/estadisticas)", desc: "Analítica profunda, gráficos de volumen histórico y estados" },
       { key: "estadisticas_atencion", label: "Estadísticas de Atención & SLAs (/admin/estadisticas/atencion)", desc: "Ranking de agentes, tiempos de respuesta (AHT) y SLAs" },
       { key: "volumen_mensajes", label: "Pestaña Volumen de Mensajes", desc: "Conteo exacto de mensajes de clientes, técnicos e IA" },
@@ -118,7 +129,7 @@ export const COMPLETE_MODULE_DEFINITIONS: ModuleDef[] = [
   },
   {
     key: "ai",
-    label: "Agente IA, Flujos & Automatizaciones",
+    label: "Agente IA & Flujos del Bot",
     icon: Bot,
     color: "text-purple-400 bg-purple-500/10 border-purple-500/20",
     desc: "Configuración del bot, entrenamiento, simulador y árboles de decisión",
@@ -136,9 +147,11 @@ export const COMPLETE_MODULE_DEFINITIONS: ModuleDef[] = [
     label: "Configuración & Plataforma",
     icon: Settings,
     color: "text-rose-400 bg-rose-500/10 border-rose-500/20",
-    desc: "Canales de mensajería, WhatsApp QR, Evolution API y base de datos",
+    desc: "Canales de mensajería, horarios de jornada, Google Drive, WhatsApp QR y base de datos",
     subcategories: [
-      { key: "view_settings", label: "Configuración General (/admin/settings)", desc: "Ajustes de la aplicación y perfil personal" },
+      { key: "view_settings", label: "Configuración General (/admin/settings)", desc: "Ajustes de la aplicación y perfil corporativo" },
+      { key: "horarios_jornada", label: "Horarios Laborales & Jornada Laboral (/admin/settings)", desc: "Configuración de horarios de atención, días hábiles y meta de horas efectivas" },
+      { key: "google_drive_backup", label: "Almacenamiento Google Drive & Respaldos", desc: "Conexión OAuth con Google Drive, cuota y sincronización automática" },
       { key: "manage_channels", label: "Canales de Atención (/admin/canales)", desc: "Parametrizar WhatsApp, Web Widget, etc." },
       { key: "whatsapp_qr_connect", label: "Conexión WhatsApp QR", desc: "Escanear QR de Evolution API en tiempo real" },
       { key: "evolution_api_config", label: "Configuración de Servidor Evolution API", desc: "Instancia, URL base y API keys de WhatsApp" },
