@@ -74,12 +74,12 @@ function categorizeApp(appName, title) {
 
   // WhatsApp
   if (app.includes("whatsapp") || t.includes("whatsapp"))
-    return { category: "Mensajería", label: "WhatsApp" };
+    return { category: "Soporte Mensajería", label: "WhatsApp" };
 
-  // Linkus (Grandstream softphone) - Atención telefónica
+  // Linkus (Grandstream softphone) - Soporte Telefónico
   if (app.includes("linkus") || t.includes("linkus") || app.includes("grandstream")) {
     let label = "Linkus (Softphone)";
-    let category = "Atención telefónica";
+    let category = "Soporte Telefónico";
     if (t.includes("calling") || t.includes("llamando") || t.includes("dialing")) {
       label = "Linkus - Llamada saliente";
     } else if (t.includes("incoming") || t.includes("entrante") || t.includes("ringing") || t.includes("timbrando")) {

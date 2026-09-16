@@ -64,12 +64,12 @@ export interface CategoryItem {
 }
 
 export const DEFAULT_CATEGORIES: CategoryItem[] = [
-  { id: "Atención chat", label: "Atención chat", color: "text-emerald-400 border-emerald-500/30 bg-emerald-500/15", bgBar: "bg-emerald-500", iconName: "MessageSquare" },
+  { id: "Soporte Mensajería", label: "Soporte Mensajería", color: "text-emerald-400 border-emerald-500/30 bg-emerald-500/15", bgBar: "bg-emerald-500", iconName: "MessageSquare" },
   { id: "Atención de Tickets", label: "Atención de Tickets", color: "text-indigo-400 border-indigo-500/30 bg-indigo-500/15", bgBar: "bg-indigo-500", iconName: "FileText" },
   { id: "Optimización de procesos", label: "Optimización de procesos", color: "text-violet-400 border-violet-500/30 bg-violet-500/15", bgBar: "bg-violet-500", iconName: "Code" },
   { id: "Control administrativo", label: "Control administrativo", color: "text-fuchsia-400 border-fuchsia-500/30 bg-fuchsia-500/15", bgBar: "bg-fuchsia-500", iconName: "TrendingUp" },
   { id: "Gestión de Correos", label: "Gestión de Correos", color: "text-blue-400 border-blue-500/30 bg-blue-500/15", bgBar: "bg-blue-500", iconName: "Mail" },
-  { id: "Atención por llamada", label: "Atención por llamada", color: "text-orange-400 border-orange-500/30 bg-orange-500/15", bgBar: "bg-orange-500", iconName: "Phone" },
+  { id: "Soporte Telefónico", label: "Soporte Telefónico", color: "text-orange-400 border-orange-500/30 bg-orange-500/15", bgBar: "bg-orange-500", iconName: "Phone" },
   { id: "Soporte técnico", label: "Soporte técnico", color: "text-cyan-400 border-cyan-500/30 bg-cyan-500/15", bgBar: "bg-cyan-500", iconName: "Monitor" },
   { id: "Gestión de Garantías", label: "Gestión de Garantías", color: "text-amber-400 border-amber-500/30 bg-amber-500/15", bgBar: "bg-amber-500", iconName: "ShieldCheck" },
   { id: "Actividad general", label: "Actividad general", color: "text-slate-400 border-slate-500/30 bg-slate-500/15", bgBar: "bg-slate-500", iconName: "Monitor" },
@@ -126,15 +126,21 @@ function renderCategoryIcon(iconName?: string, className: string = "h-4 w-4") {
 export const WORKSHOP_CATEGORIES = DEFAULT_CATEGORIES;
 
 export function getCategoryUI(catName: string) {
+  const lower = (catName || "").toLowerCase();
+  if (lower === "atención chat" || lower === "atencion chat" || lower === "mensajería" || lower === "mensajeria" || lower === "soporte mensajería" || lower === "soporte mensajeria") {
+    return DEFAULT_CATEGORIES[0];
+  }
+  if (lower === "atención por llamada" || lower === "atencion por llamada" || lower === "atención telefónica" || lower === "atencion telefonica" || lower === "soporte telefónico" || lower === "soporte telefonico") {
+    return DEFAULT_CATEGORIES[5];
+  }
   const found = DEFAULT_CATEGORIES.find((c) => c.id === catName);
   if (found) return found;
-  const lower = (catName || "").toLowerCase();
-  if (lower.includes("chat") || lower.includes("mensajería")) return DEFAULT_CATEGORIES[0];
+  if (lower.includes("chat") || lower.includes("mensajer")) return DEFAULT_CATEGORIES[0];
   if (lower.includes("ticket")) return DEFAULT_CATEGORIES[1];
   if (lower.includes("proceso") || lower.includes("desarrollo") || lower.includes("investiga")) return DEFAULT_CATEGORIES[2];
   if (lower.includes("admin") || lower.includes("control")) return DEFAULT_CATEGORIES[3];
   if (lower.includes("correo") || lower.includes("mail")) return DEFAULT_CATEGORIES[4];
-  if (lower.includes("llamada") || lower.includes("telefón") || lower.includes("phone")) return DEFAULT_CATEGORIES[5];
+  if (lower.includes("llamada") || lower.includes("telef") || lower.includes("phone") || lower.includes("linkus")) return DEFAULT_CATEGORIES[5];
   if (lower.includes("soporte") || lower.includes("redes") || lower.includes("taller")) return DEFAULT_CATEGORIES[6];
   if (lower.includes("garant") || lower.includes("rma")) return DEFAULT_CATEGORIES[7];
   return DEFAULT_CATEGORIES[DEFAULT_CATEGORIES.length - 1];
@@ -289,16 +295,16 @@ export function getDefaultCategoryForApp(appName: string, action: string = "", c
     return "Optimización de procesos";
   }
 
-  // 2. Atención chat (Seka Chat, WhatsApp)
+  // 2. Soporte Mensajería (Seka Chat, WhatsApp)
   if (
     name.includes("whatsapp") ||
     name.includes("seka chat") ||
     name.includes("chat") ||
     name.includes("inbox") ||
     cat.includes("chat") ||
-    cat.includes("mensajería")
+    cat.includes("mensajer")
   ) {
-    return "Atención chat";
+    return "Soporte Mensajería";
   }
 
   // 3. Atención de Tickets (Odoo ERP)
@@ -322,9 +328,17 @@ export function getDefaultCategoryForApp(appName: string, action: string = "", c
     return "Gestión de Correos";
   }
 
-  // 6. Atención por llamada (Linkus, Softphone)
-  if (name.includes("linkus") || name.includes("phone") || name.includes("llamada") || cat.includes("llamada") || cat.includes("telefón")) {
-    return "Atención por llamada";
+  // 6. Soporte Telefónico (Linkus, Softphone)
+  if (
+    name.includes("linkus") ||
+    name.includes("phone") ||
+    name.includes("llamada") ||
+    name.includes("telef") ||
+    cat.includes("llamada") ||
+    cat.includes("telef") ||
+    cat.includes("linkus")
+  ) {
+    return "Soporte Telefónico";
   }
 
   // 7. Control administrativo (Suite Auditoría, Excel, Word, Inventario, Admin, Inventario GAR)
@@ -416,13 +430,27 @@ export function ActivityAppsRanking({
   const [formCatColorIdx, setFormCatColorIdx] = useState(0);
   const [formCatIcon, setFormCatIcon] = useState("Monitor");
 
+  // Función para normalizar nombres antiguos a la nomenclatura oficial
+  const sanitizeCategoryList = (list: CategoryItem[]): CategoryItem[] => {
+    return list.map((c) => {
+      const lower = (c.id || "").toLowerCase();
+      if (lower === "atención chat" || lower === "atencion chat" || lower === "mensajería" || lower === "mensajeria") {
+        return { ...c, id: "Soporte Mensajería", label: "Soporte Mensajería" };
+      }
+      if (lower === "atención por llamada" || lower === "atencion por llamada" || lower === "atención telefónica" || lower === "atencion telefonica") {
+        return { ...c, id: "Soporte Telefónico", label: "Soporte Telefónico" };
+      }
+      return c;
+    });
+  };
+
   // Cargar categorías y mapeos de localStorage y API
   useEffect(() => {
     try {
       const localMaps = localStorage.getItem("sek_app_categories");
       if (localMaps) setCustomCategories(JSON.parse(localMaps));
       const localCats = localStorage.getItem("sek_categories_list");
-      if (localCats) setCategories(JSON.parse(localCats));
+      if (localCats) setCategories(sanitizeCategoryList(JSON.parse(localCats)));
     } catch {}
 
     fetch("/api/activity/app-categories")
@@ -433,17 +461,25 @@ export function ActivityAppsRanking({
           try { localStorage.setItem("sek_app_categories", JSON.stringify(data.appMappings)); } catch {}
         }
         if (data?.categories && Array.isArray(data.categories) && data.categories.length > 0) {
-          setCategories(data.categories);
-          try { localStorage.setItem("sek_categories_list", JSON.stringify(data.categories)); } catch {}
+          const sanitized = sanitizeCategoryList(data.categories);
+          setCategories(sanitized);
+          try { localStorage.setItem("sek_categories_list", JSON.stringify(sanitized)); } catch {}
         }
       })
       .catch(() => {});
   }, []);
 
   const getCategoryDef = (catName: string): CategoryItem => {
-    const found = categories.find((c) => c.id === catName || c.label === catName);
+    let normalized = catName;
+    const lower = (catName || "").toLowerCase();
+    if (lower === "atención chat" || lower === "atencion chat" || lower === "mensajería" || lower === "mensajeria") {
+      normalized = "Soporte Mensajería";
+    } else if (lower === "atención por llamada" || lower === "atencion por llamada" || lower === "atención telefónica" || lower === "atencion telefonica") {
+      normalized = "Soporte Telefónico";
+    }
+    const found = categories.find((c) => c.id === normalized || c.label === normalized);
     if (found) return found;
-    return categories[categories.length - 1] || DEFAULT_CATEGORIES[DEFAULT_CATEGORIES.length - 1];
+    return getCategoryUI(normalized);
   };
 
   // Asignar categoría a una aplicación

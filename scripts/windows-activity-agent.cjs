@@ -23,14 +23,14 @@ function categorizeWindow(processName, title) {
   if (p.includes('whatsapp') || t.includes('whatsapp')) {
     context = t.replace(/\s*[-–]\s*WhatsApp.*$/i, '').trim();
     context_type = 'chat';
-    return { category: 'Mensajería', label: 'WhatsApp', context, context_type };
+    return { category: 'Soporte Mensajería', label: 'WhatsApp', context, context_type };
   }
   if (p.includes('linkus') || t.includes('linkus') || p.includes('grandstream') || p.includes('microip') || p.includes('zoiper') || p.includes('3cx')) {
     let label = 'Linkus (Softphone)';
     if (t.includes('calling') || t.includes('llamando') || t.includes('dialing')) label = 'Linkus - Llamada saliente';
     else if (t.includes('incoming') || t.includes('entrante') || t.includes('ringing') || t.includes('timbrando')) label = 'Linkus - Llamada entrante';
     else if (t.includes('connected') || t.includes('conectado') || t.includes('talking') || t.includes('hablando') || t.includes('in call') || t.includes('en llamada')) label = 'Linkus - En llamada';
-    return { category: 'Atención telefónica', label, context, context_type: 'call' };
+    return { category: 'Soporte Telefónico', label, context, context_type: 'call' };
   }
   if (p.includes('chrome') || p.includes('msedge') || p.includes('edge') || p.includes('brave') || p.includes('firefox') || p.includes('opera')) {
     context = t.replace(/\s*[-–]\s*(Brave|Google Chrome|Microsoft Edge|Firefox|Opera).*$/i, '').trim();

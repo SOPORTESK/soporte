@@ -7,12 +7,12 @@ const APP_MAPPINGS_KEY = "activity_app_categories";
 const CATEGORIES_LIST_KEY = "activity_categories_list";
 
 const DEFAULT_CATEGORIES = [
-  { id: "Atención chat", label: "Atención chat", color: "text-emerald-400 border-emerald-500/30 bg-emerald-500/15", bgBar: "bg-emerald-500", iconName: "MessageSquare" },
+  { id: "Soporte Mensajería", label: "Soporte Mensajería", color: "text-emerald-400 border-emerald-500/30 bg-emerald-500/15", bgBar: "bg-emerald-500", iconName: "MessageSquare" },
   { id: "Atención de Tickets", label: "Atención de Tickets", color: "text-indigo-400 border-indigo-500/30 bg-indigo-500/15", bgBar: "bg-indigo-500", iconName: "FileText" },
   { id: "Optimización de procesos", label: "Optimización de procesos", color: "text-violet-400 border-violet-500/30 bg-violet-500/15", bgBar: "bg-violet-500", iconName: "Code" },
   { id: "Control administrativo", label: "Control administrativo", color: "text-fuchsia-400 border-fuchsia-500/30 bg-fuchsia-500/15", bgBar: "bg-fuchsia-500", iconName: "TrendingUp" },
   { id: "Gestión de Correos", label: "Gestión de Correos", color: "text-blue-400 border-blue-500/30 bg-blue-500/15", bgBar: "bg-blue-500", iconName: "Mail" },
-  { id: "Atención por llamada", label: "Atención por llamada", color: "text-orange-400 border-orange-500/30 bg-orange-500/15", bgBar: "bg-orange-500", iconName: "Phone" },
+  { id: "Soporte Telefónico", label: "Soporte Telefónico", color: "text-orange-400 border-orange-500/30 bg-orange-500/15", bgBar: "bg-orange-500", iconName: "Phone" },
   { id: "Soporte técnico", label: "Soporte técnico", color: "text-cyan-400 border-cyan-500/30 bg-cyan-500/15", bgBar: "bg-cyan-500", iconName: "Monitor" },
   { id: "Gestión de Garantías", label: "Gestión de Garantías", color: "text-amber-400 border-amber-500/30 bg-amber-500/15", bgBar: "bg-amber-500", iconName: "ShieldCheck" },
   { id: "Actividad general", label: "Actividad general", color: "text-slate-400 border-slate-500/30 bg-slate-500/15", bgBar: "bg-slate-500", iconName: "Monitor" },
@@ -42,7 +42,16 @@ export async function GET() {
         try {
           const parsed = JSON.parse(row.value);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            categories = parsed;
+            categories = parsed.map((c: any) => {
+              const lower = (c.id || "").toLowerCase();
+              if (lower === "atención chat" || lower === "atencion chat" || lower === "mensajería" || lower === "mensajeria") {
+                return { ...c, id: "Soporte Mensajería", label: "Soporte Mensajería" };
+              }
+              if (lower === "atención por llamada" || lower === "atencion por llamada" || lower === "atención telefónica" || lower === "atencion telefonica") {
+                return { ...c, id: "Soporte Telefónico", label: "Soporte Telefónico" };
+              }
+              return c;
+            });
           }
         } catch {}
       }

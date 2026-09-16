@@ -49,8 +49,8 @@ export async function POST(req: NextRequest) {
     const prompt = `Eres un analista de productividad laboral para un taller de servicio y soporte técnico. Analiza el siguiente registro de actividad del técnico ${agent_name} durante el día ${targetDate}.
 
 CATEGORÍAS DE ACTIVIDAD DEL TALLER:
-- Atención telefónica: llamadas entrantes/salientes vía Linkus (softphone)
-- Mensajería: atención por chat (Seka Chat / WhatsApp)
+- Soporte Telefónico: llamadas entrantes/salientes vía Linkus (softphone)
+- Soporte Mensajería: atención por chat (Seka Chat / WhatsApp)
 - Atención de tickets: gestión en Odoo
 - Trámites de garantías: Tienda 3D, RMA, trámites de warranty
 - Investigación y desarrollo: programación, IDEs, GitHub, documentación técnica

@@ -73,7 +73,7 @@ export function useActivityTracker(agentEmail: string, agentName: string, enable
           agent_email: agentEmail,
           agent_name: agentName,
           action: `Atención por Chat: Caso ${cleanCase}`,
-          category: "Atención chat",
+          category: "Soporte Mensajería",
           case_id: lastCaseIdRef.current,
           duration_ms: caseDuration,
           metadata: {
@@ -254,7 +254,7 @@ export function useActivityTracker(agentEmail: string, agentName: string, enable
             agent_email: agentEmail,
             agent_name: agentName,
             action: `Atención por Chat: Caso ${cleanCase} (${dwellStr})`,
-            category: "Atención chat",
+            category: "Soporte Mensajería",
             case_id: activeCaseId,
             duration_ms: caseDuration,
             metadata: {

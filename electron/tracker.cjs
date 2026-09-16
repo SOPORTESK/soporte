@@ -122,10 +122,10 @@ function categorizeApp(appName, title) {
   if (app.includes('whatsapp') || t.includes('whatsapp')) {
     context = t.replace(/\s*[-–]\s*WhatsApp.*$/i, '').trim();
     context_type = 'chat';
-    return { category: 'Mensajería', label: 'WhatsApp', context, context_type };
+    return { category: 'Soporte Mensajería', label: 'WhatsApp', context, context_type };
   }
   if (app.includes('linkus') || t.includes('linkus') || app.includes('grandstream')) {
-    let label = 'Linkus (Softphone)', category = 'Atención telefónica';
+    let label = 'Linkus (Softphone)', category = 'Soporte Telefónico';
     if (t.includes('calling') || t.includes('llamando') || t.includes('dialing')) label = 'Linkus - Llamada saliente';
     else if (t.includes('incoming') || t.includes('entrante') || t.includes('ringing') || t.includes('timbrando')) label = 'Linkus - Llamada entrante';
     else if (t.includes('connected') || t.includes('conectado') || t.includes('talking') || t.includes('hablando') || t.includes('in call') || t.includes('en llamada')) label = 'Linkus - En llamada';

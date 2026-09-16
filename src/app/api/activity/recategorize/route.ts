@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
       // Recategorizar TODO
       // Regla: Mensajería SOLO si hubo interacción en un buzón del web tracker
       if (app.includes("linkus") || app.includes("grandstream") || action.includes("linkus")) {
-        newCategory = action.includes("perdida") ? "Escalado" : "Atención telefónica";
+        newCategory = action.includes("perdida") ? "Escalado" : "Soporte Telefónico";
       } else if (title.includes("odoo") || action.includes("odoo")) {
         newCategory = "Atención de tickets";
       } else if (title.includes("tienda 3d") || title.includes("tienda3d") || title.includes("rma") || title.includes("garant") || action.includes("rma") || action.includes("garant")) {
@@ -71,8 +71,8 @@ export async function POST(req: NextRequest) {
       } else if (app.includes("whatsapp") || title.includes("whatsapp") || action.includes("whatsapp")) {
         newCategory = "Navegación";
       } else if (action.includes("mensaje a cliente") || action.includes("envió mensaje")) {
-        // Logs de envío de mensaje = Mensajería
-        newCategory = "Mensajería";
+        // Logs de envío de mensaje = Soporte Mensajería
+        newCategory = "Soporte Mensajería";
       } else {
         newCategory = "Navegación";
       }

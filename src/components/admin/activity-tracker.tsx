@@ -65,6 +65,8 @@ interface Props {
 }
 
 const CATEGORY_ICONS: Record<string, any> = {
+  "Soporte Telefónico": Phone,
+  "Soporte Mensajería": MessageSquare,
   "Atención telefónica": Phone,
   "Atención por llamada": Phone,
   "Mensajería": MessageSquare,
@@ -88,6 +90,7 @@ const CATEGORY_ICONS: Record<string, any> = {
   "Labores manuales": Package,
   "Tiempo de descanso": Sandwich,
   "Pausa personal": Bath,
+  "Pausa Sanitaria": Bath,
   "Atención presencial": UserPlus,
   "Inventario": ClipboardList,
   "Mantenimiento": Sparkles,
@@ -99,6 +102,8 @@ const CATEGORY_ICONS: Record<string, any> = {
 };
 
 const CATEGORY_COLORS: Record<string, string> = {
+  "Soporte Telefónico": "text-orange-400 bg-orange-500/10 border-orange-500/20",
+  "Soporte Mensajería": "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
   "Atención telefónica": "text-orange-400 bg-orange-500/10 border-orange-500/20",
   "Atención por llamada": "text-orange-400 bg-orange-500/10 border-orange-500/20",
   "Mensajería": "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
