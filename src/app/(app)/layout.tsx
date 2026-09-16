@@ -176,10 +176,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <SidebarLink href="/inbox" icon={<Inbox className="h-4 w-4" />}>Bandeja</SidebarLink>
         </nav>
 
-        <div className="flex items-center gap-1 px-4 pb-2 pt-2">
-          <ThemeToggle />
+        <div className="mt-auto shrink-0 border-t border-border/50 bg-card">
+          <div className="flex items-center gap-1 px-4 pb-2 pt-2">
+            <ThemeToggle />
+          </div>
+          <SidebarUserPanel agent={a as any} onlineAgents={onlineAgents || []} canViewActivityTracker={canViewActivityTracker} />
         </div>
-        <SidebarUserPanel agent={a as any} onlineAgents={onlineAgents || []} canViewActivityTracker={canViewActivityTracker} />
       </aside>
 
       {/* ── Main content area ── */}

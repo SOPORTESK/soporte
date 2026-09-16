@@ -129,9 +129,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     <GodModeGuard>
       <GodModeAdminWrapper originalAgent={a}>
         <div className="min-h-dvh grid grid-cols-1 lg:grid-cols-[280px_1fr] bg-muted/30">
-          <aside className="hidden lg:flex lg:flex-col border-r border-border bg-card relative overflow-hidden">
+          <aside className="hidden lg:flex lg:flex-col border-r border-border bg-card sticky top-0 h-dvh z-30 shrink-0">
             {/* Header con gradiente */}
-            <div className="relative px-5 py-5 border-b border-border gradient-brand text-white overflow-hidden">
+            <div className="shrink-0 relative px-5 py-5 border-b border-border gradient-brand text-white overflow-hidden">
               <div className="absolute inset-0 opacity-30" aria-hidden style={{
                 backgroundImage:
                   "radial-gradient(circle at 20% 0%, rgba(255,255,255,.4), transparent 50%), radial-gradient(circle at 90% 100%, rgba(255,180,80,.5), transparent 50%)"
@@ -154,7 +154,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               </div>
             </div>
 
-            <nav className="flex-1 p-3 space-y-4 overflow-y-auto">
+            <nav className="flex-1 min-h-0 p-3 space-y-4 overflow-y-auto">
               <Link
                 href="/inbox"
                 className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
@@ -185,10 +185,12 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               )}
             </nav>
 
-            <div className="flex items-center gap-1 px-4 pb-2 pt-2">
-              <ThemeToggle />
+            <div className="mt-auto shrink-0 border-t border-border/50 bg-card">
+              <div className="flex items-center gap-1 px-4 pb-2 pt-2">
+                <ThemeToggle />
+              </div>
+              <SidebarUserPanel agent={a as any} onlineAgents={onlineAgents || []} canViewActivityTracker={canViewActivityTracker} />
             </div>
-            <SidebarUserPanel agent={a as any} onlineAgents={onlineAgents || []} canViewActivityTracker={canViewActivityTracker} />
           </aside>
 
           <header className="lg:hidden flex items-center justify-between p-4 border-b border-border bg-card">
