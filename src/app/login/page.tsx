@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ShieldCheck, Lock, Mail, AlertCircle, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
+import { logActivity } from "@/lib/activity-client";
 
 function normalizeEmail(raw: string): string {
   return raw
@@ -54,6 +55,15 @@ function LoginPageContent() {
       const normalizedEmail = normalizeEmail(email);
       const { error } = await supabase.auth.signInWithPassword({ email: normalizedEmail, password });
       if (error) throw error;
+      try {
+        logActivity({
+          agent_email: normalizedEmail,
+          agent_name: normalizedEmail.split("@")[0],
+          action: "Inicio de sesión en el sistema",
+          category: "Control Administrativo",
+          metadata: { type: "auth_login", method: "password", timestamp: new Date().toISOString() },
+        });
+      } catch {}
       toast.success("Bienvenido a Sekunet Chat");
       router.replace(next);
       router.refresh();

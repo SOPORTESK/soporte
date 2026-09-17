@@ -59,7 +59,7 @@ export function ActivityLivePulse({
   selectedAgent,
   onSelectAgent,
   loading = false,
-  targetDailyHours = 8,
+  targetDailyHours = 10,
 }: Props) {
   const activeCount = agents.filter((a) => a.status === "active").length;
   const awayCount = agents.filter((a) => a.status === "away").length;

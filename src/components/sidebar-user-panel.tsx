@@ -303,9 +303,26 @@ export function SidebarUserPanel({
       .catch(() => {});
   };
 
-  // Marcar online al montar + auto-away por inactividad + heartbeat
+  // Marcar online al montar + auto-away por inactividad + heartbeat + registro de inicio de sesión
   useEffect(() => {
     fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online", email: agent.email }) }).catch(() => {});
+    
+    // Registrar Inicio de Sesión si es la primera vez que se monta en el día
+    try {
+      const todayStr = new Date().toISOString().split("T")[0];
+      const loginKey = `sekunet_login_logged_${agent.email}_${todayStr}`;
+      if (!localStorage.getItem(loginKey)) {
+        localStorage.setItem(loginKey, "1");
+        logActivity({
+          agent_email: agent.email,
+          agent_name: fullName,
+          action: "Inicio de sesión en el sistema",
+          category: "Control Administrativo",
+          metadata: { type: "auth_login", date: todayStr, timestamp: new Date().toISOString() },
+        });
+      }
+    } catch {}
+
     const handleUnload = () => navigator.sendBeacon("/api/profile/status", JSON.stringify({ status: "offline", email: agent.email }));
     window.addEventListener("beforeunload", handleUnload);
 
@@ -352,13 +369,12 @@ export function SidebarUserPanel({
       clearTimeout(idleTimer);
       clearInterval(heartbeat);
     };
-  }, []);
+  }, [agent.email, fullName]);
 
   const handleStatusChange = async (s: string) => {
     setStatus(s);
     await fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: s, email: agent.email }) }).catch(() => {});
     logActivity({ agent_email: agent.email, agent_name: fullName, action: `Cambió su estado de conexión de "${status}" a "${s}"`, category: "Actividad general", metadata: { from: status, to: s } });
-    router.refresh();
   };
 
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -386,6 +402,15 @@ export function SidebarUserPanel({
   };
 
   const handleLogout = async () => {
+    try {
+      logActivity({
+        agent_email: agent.email,
+        agent_name: fullName,
+        action: "Cierre de sesión del sistema",
+        category: "Control Administrativo",
+        metadata: { type: "auth_logout", method: "button", timestamp: new Date().toISOString() },
+      });
+    } catch {}
     await fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "offline" }) }).catch(() => {});
     await supabase.auth.signOut();
     router.push("/login");
@@ -513,13 +538,12 @@ export function SidebarUserPanel({
               <div className="px-3.5 py-3 bg-gradient-to-br from-violet-500/15 via-indigo-500/5 to-transparent border-b border-border/50">
                 <div className="flex items-center justify-between mb-1.5">
                   <span className="text-[11px] font-black tracking-wider text-foreground uppercase flex items-center gap-1.5">
-                    <ActivityIcon className="h-3.5 w-3.5 text-violet-500" /> Actividad de hoy
+                    <ActivityIcon className="h-3.5 w-3.5 text-violet-500" /> Jornada (10h)
                   </span>
                   <div className="flex items-center gap-1.5">
-                    {elapsed && (
-                      <span className="text-[9px] text-muted-foreground flex items-center gap-1">
-                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                        {elapsed}
+                    {myMetrics?.firstLoginTime && (
+                      <span className="text-[9px] text-muted-foreground font-mono">
+                        Entrada: {myMetrics.firstLoginTime}
                       </span>
                     )}
                     <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/20">
@@ -527,20 +551,37 @@ export function SidebarUserPanel({
                     </span>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 text-[10px] font-medium text-muted-foreground mb-2">
+                <div className="flex items-center gap-2 text-[10px] font-medium text-muted-foreground mb-2 flex-wrap">
                   <span className="flex items-center gap-1 text-emerald-500 font-bold">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                     {myMetrics?.totalActiveTime || "0m"} activo
                   </span>
                   <span className="text-border">|</span>
-                  <span className="flex items-center gap-1 text-zinc-400 font-semibold">
-                    <span className="h-1.5 w-1.5 rounded-full bg-zinc-400" />
-                    {myMetrics?.totalIdleTime || "0m"} inactivo
-                  </span>
+                  {myMetrics?.deficitMs > 0 ? (
+                    <span className="flex items-center gap-1 text-rose-400 font-semibold" title="Tiempo que falta para las 10 horas de jornada">
+                      <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
+                      {myMetrics?.deficitTime || "0m"} tiempo perdido
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1 text-emerald-400 font-bold">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                      10h cumplidas {myMetrics?.rawOvertimeMs > 0 ? (myMetrics?.isOvertimeApproved ? `(+${myMetrics.overtimeTime} extra)` : `(+${myMetrics.overtimeTime} pendiente)`) : ""}
+                    </span>
+                  )}
                 </div>
                 <div className="h-2 rounded-full bg-muted/60 overflow-hidden flex shadow-inner">
-                  <div className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-500" style={{ width: `${myMetrics?.productivityScore || 0}%` }} />
-                  <div className="h-full bg-zinc-700/40 transition-all duration-500" style={{ width: `${100 - (myMetrics?.productivityScore || 0)}%` }} />
+                  <div
+                    className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-500"
+                    style={{
+                      width: `${Math.min(100, Math.round(((myMetrics?.totalActiveMs || 0) / (10 * 3600 * 1000)) * 100))}%`
+                    }}
+                  />
+                  <div
+                    className="h-full bg-rose-500/80 transition-all duration-500"
+                    style={{
+                      width: `${Math.max(0, 100 - Math.min(100, Math.round(((myMetrics?.totalActiveMs || 0) / (10 * 3600 * 1000)) * 100)))}%`
+                    }}
+                  />
                 </div>
               </div>
 

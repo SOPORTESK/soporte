@@ -19,7 +19,7 @@ export function CompanySchedulePanel() {
   const [scheduleEnd, setScheduleEnd] = useState<string>("17:00");
   const [scheduleEnabled, setScheduleEnabled] = useState<boolean>(true);
   const [workDays, setWorkDays] = useState<number[]>([1, 2, 3, 4, 5]);
-  const [targetDailyHours, setTargetDailyHours] = useState<number>(8);
+  const [targetDailyHours, setTargetDailyHours] = useState<number>(10);
   const [loading, setLoading] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
   const [savedSuccess, setSavedSuccess] = useState<boolean>(false);

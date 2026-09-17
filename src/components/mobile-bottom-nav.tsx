@@ -237,6 +237,21 @@ function MobileProfileDrawer({
   };
 
   const handleLogout = async () => {
+    try {
+      if (agent?.email) {
+        await fetch("/api/activity/log", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            agent_email: agent.email,
+            agent_name: agentName || agent.email.split("@")[0],
+            action: "Cierre de sesión del sistema",
+            category: "Control Administrativo",
+            metadata: { type: "auth_logout", method: "mobile_button", timestamp: new Date().toISOString() },
+          }),
+        }).catch(() => {});
+      }
+    } catch {}
     await fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "offline" }) });
     await supabase.auth.signOut();
     router.push("/login");

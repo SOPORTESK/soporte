@@ -39,6 +39,9 @@ import {
   GraduationCap,
   Sandwich,
   Bath,
+  LogIn,
+  LogOut,
+  XCircle,
 } from "lucide-react";
 import { Avatar } from "@/components/ui/avatar";
 import { ActivityLivePulse, type LiveAgent } from "./activity-live-pulse";
@@ -236,6 +239,20 @@ function formatExecutiveDisplay(rawAction: string, category: string, meta: Recor
     return {
       title: "Consulta y gestión de registros de asistencia de personal en plataforma de control horario",
       subtitle: cleanTitle || "Sistema de marcas y control horario",
+    };
+  }
+
+  // 4.1 Inicio y Cierre de Sesión oficial
+  if (lower.includes("inicio de sesión") || lower.includes("inició sesión") || meta.type === "auth_login") {
+    return {
+      title: "🟢 Inicio de sesión en el sistema (Entrada de jornada)",
+      subtitle: meta.timestamp ? `Hora de registro: ${formatTime(meta.timestamp)}` : "Apertura de sesión del colaborador",
+    };
+  }
+  if (lower.includes("cierre de sesión") || lower.includes("cerró sesión") || meta.type === "auth_logout") {
+    return {
+      title: "🔴 Cierre de sesión del sistema (Salida de jornada)",
+      subtitle: meta.timestamp ? `Hora de registro: ${formatTime(meta.timestamp)}` : "Cierre voluntario de sesión",
     };
   }
 
@@ -736,16 +753,32 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
 
   const [workDays, setWorkDays] = useState<number[]>([1, 2, 3, 4, 5]);
   const [targetDailyHours, setTargetDailyHours] = useState<number>(() => {
-    if (typeof window === "undefined") return 8;
+    if (typeof window === "undefined") return 10;
     try {
       const saved = localStorage.getItem("sekunet_activity_target_daily_hours");
-      return saved ? Number(saved) : 8;
+      return saved ? Number(saved) : 10;
     } catch {
-      return 8;
+      return 10;
     }
   });
   const [savingSchedule, setSavingSchedule] = useState<boolean>(false);
   const [scheduleSavedNotice, setScheduleSavedNotice] = useState<boolean>(false);
+
+  // Solicitudes de horas extras (Overtime)
+  const [overtimeRequests, setOvertimeRequests] = useState<any[]>([]);
+  const [reviewingOvertime, setReviewingOvertime] = useState<boolean>(false);
+
+  const fetchOvertime = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/activity/overtime?date=${selectedDate}`);
+      const data = await res.json();
+      if (data?.success && Array.isArray(data.requests)) {
+        setOvertimeRequests(data.requests);
+      }
+    } catch (e) {
+      console.error("[tracker] error fetching overtime:", e);
+    }
+  }, [selectedDate]);
 
   // Cargar horario oficial y días guardados en base de datos al montar
   useEffect(() => {
@@ -896,7 +929,8 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
 
   useEffect(() => {
     fetchTimeline();
-  }, [fetchTimeline]);
+    fetchOvertime();
+  }, [fetchTimeline, fetchOvertime]);
 
   // Auto-refresco periódico
   useEffect(() => {
@@ -904,9 +938,10 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
     const interval = setInterval(() => {
       fetchLive();
       fetchTimeline();
+      fetchOvertime();
     }, autoRefreshSec * 1000);
     return () => clearInterval(interval);
-  }, [autoRefreshSec, fetchLive, fetchTimeline]);
+  }, [autoRefreshSec, fetchLive, fetchTimeline, fetchOvertime]);
 
   const currentAgentObj = liveAgents.find((a) => a.email.toLowerCase() === selectedAgent?.toLowerCase());
 
@@ -1066,23 +1101,82 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
     }
 
     // Tope diario de cordura: en un solo día nadie puede trabajar más de 24 horas (1440 min)
-    activeMinutes = Math.min(activeMinutes, 24 * 60);
+    const rawActiveMinutes = Math.min(activeMinutes, 24 * 60);
 
     const targetMinutes = Math.round(targetDailyHours * 60);
-    const percent = targetMinutes > 0 ? Math.round((activeMinutes / targetMinutes) * 100) : 0;
-    const diffMinutes = activeMinutes - targetMinutes;
+    const diffMinutes = rawActiveMinutes - targetMinutes;
+    const rawOvertimeMinutes = diffMinutes > 0 ? diffMinutes : 0;
+    const deficitMinutes = diffMinutes < 0 ? Math.abs(diffMinutes) : 0;
+
+    // Verificar si el tiempo extra está autorizado por un administrador
+    const currentOtReq = overtimeRequests.find(
+      (r) => r.agent_email?.toLowerCase() === (selectedAgent || "").toLowerCase()
+    );
+    const isOvertimeApproved = currentOtReq?.status === "approved";
+    const isOvertimePending = currentOtReq?.status === "pending";
+    const isOvertimeRejected = currentOtReq?.status === "rejected";
+
+    // Si hay tiempo extra (> targetDailyHours):
+    // - Si está aprobado: se muestra el tiempo completo con sus horas extras
+    // - Si NO está aprobado (pendiente o rechazado o sin autorizar): SE TOPA estrictamente a la meta (10 horas)
+    const activeMinutesDisplay = (rawOvertimeMinutes > 0 && !isOvertimeApproved)
+      ? targetMinutes
+      : rawActiveMinutes;
+
+    const percent = targetMinutes > 0 ? Math.round((activeMinutesDisplay / targetMinutes) * 100) : 0;
+
+    // Detectar Hora de Inicio de Sesión y Hora de Cierre / Último Evento
+    let firstLoginTime: string | null = null;
+    let lastLogoutTime: string | null = null;
+
+    if (timeline && timeline.length > 0) {
+      const sortedAll = [...timeline]
+        .filter((t) => Boolean(t.created_at))
+        .sort((a, b) => new Date(a.created_at!).getTime() - new Date(b.created_at!).getTime());
+
+      // 1. Primer evento o primer login
+      const loginEvt = sortedAll.find((t) => {
+        const act = (t.action || "").toLowerCase();
+        const meta = (t.metadata || {}) as Record<string, any>;
+        return act.includes("inicio de sesión") || meta.type === "auth_login";
+      });
+      if (loginEvt) {
+        firstLoginTime = formatTime(loginEvt.created_at);
+      } else if (sortedAll.length > 0) {
+        firstLoginTime = formatTime(sortedAll[0].created_at);
+      }
+
+      // 2. Último logout o último evento
+      const logoutEvt = [...sortedAll].reverse().find((t) => {
+        const act = (t.action || "").toLowerCase();
+        const meta = (t.metadata || {}) as Record<string, any>;
+        return act.includes("cierre de sesión") || meta.type === "auth_logout";
+      });
+      if (logoutEvt) {
+        lastLogoutTime = formatTime(logoutEvt.created_at);
+      } else if (sortedAll.length > 0) {
+        lastLogoutTime = formatTime(sortedAll[sortedAll.length - 1].created_at);
+      }
+    }
 
     return {
-      activeMinutes,
+      rawActiveMinutes,
+      activeMinutes: activeMinutesDisplay,
       targetMinutes,
       targetDailyHours,
       percent,
       diffMinutes,
-      isCompleted: activeMinutes >= targetMinutes,
-      overtimeMinutes: diffMinutes > 0 ? diffMinutes : 0,
-      deficitMinutes: diffMinutes < 0 ? Math.abs(diffMinutes) : 0,
+      isCompleted: rawActiveMinutes >= targetMinutes,
+      overtimeMinutes: rawOvertimeMinutes,
+      deficitMinutes,
+      isOvertimeApproved,
+      isOvertimePending,
+      isOvertimeRejected,
+      currentOtReq,
+      firstLoginTime,
+      lastLogoutTime,
     };
-  }, [timelineWithinSchedule, currentAgentObj?.activeMinutes, targetDailyHours]);
+  }, [timelineWithinSchedule, currentAgentObj?.activeMinutes, targetDailyHours, overtimeRequests, selectedAgent, timeline]);
 
   const categoriesAvailable = Array.from(new Set(timeline.map((t) => t.category).filter(Boolean)));
 
@@ -1375,20 +1469,136 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                     <div className="flex items-center justify-end gap-1.5 mt-0.5">
                       {agentDailyCompliance.isCompleted ? (
                         <span className="text-[11px] font-bold text-emerald-400 flex items-center gap-1">
-                          <CheckCircle2 className="h-3.5 w-3.5" /> Jornada Cumplida ({agentDailyCompliance.percent}%){agentDailyCompliance.overtimeMinutes > 0 && (
-                            <span className="text-emerald-300 font-semibold">
-                              • +{Math.floor(agentDailyCompliance.overtimeMinutes / 60)}h {agentDailyCompliance.overtimeMinutes % 60}m extras
-                            </span>
-                          )}
+                          <CheckCircle2 className="h-3.5 w-3.5" /> Jornada Cumplida ({agentDailyCompliance.percent}%)
                         </span>
                       ) : (
-                        <span className="text-[11px] font-bold text-violet-400">
-                          {agentDailyCompliance.percent}% completado ({Math.floor(agentDailyCompliance.deficitMinutes / 60)}h {agentDailyCompliance.deficitMinutes % 60}m restantes)
+                        <span className="text-[11px] font-bold text-rose-400 flex items-center gap-1">
+                          <AlertCircle className="h-3.5 w-3.5" /> {agentDailyCompliance.percent}% completado (Tiempo perdido/déficit: {Math.floor(agentDailyCompliance.deficitMinutes / 60)}h {agentDailyCompliance.deficitMinutes % 60}m)
                         </span>
                       )}
                     </div>
                   </div>
                 </div>
+              </div>
+
+              {/* Marcas de Entrada/Salida y Control de Horas Extras */}
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border/40 text-xs">
+                {/* 1. Registro explícito de Entrada y Salida */}
+                <div className="flex items-center gap-3 font-mono">
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                    <LogIn className="h-3.5 w-3.5" />
+                    <span className="text-[10px] uppercase font-sans font-bold text-emerald-500/80">Entrada:</span>
+                    <span className="font-bold">{agentDailyCompliance.firstLoginTime || "--:--"}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-500/10 border border-slate-500/20 text-slate-300">
+                    <LogOut className="h-3.5 w-3.5" />
+                    <span className="text-[10px] uppercase font-sans font-bold text-slate-400">Salida / Última marca:</span>
+                    <span className="font-bold">{agentDailyCompliance.lastLogoutTime || "--:--"}</span>
+                  </div>
+                </div>
+
+                {/* 2. Estado de Horas Extras y Acciones Administrativas */}
+                {agentDailyCompliance.overtimeMinutes > 0 ? (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {agentDailyCompliance.isOvertimeApproved ? (
+                      <span className="px-2.5 py-1 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-bold flex items-center gap-1.5">
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        Tiempo Extra Autorizado: +{Math.floor(agentDailyCompliance.overtimeMinutes / 60)}h {agentDailyCompliance.overtimeMinutes % 60}m
+                      </span>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="px-2.5 py-1 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400 font-bold flex items-center gap-1.5">
+                          <Clock className="h-3.5 w-3.5 animate-pulse" />
+                          Tiempo Extra Detectado (+{Math.floor(agentDailyCompliance.overtimeMinutes / 60)}h {agentDailyCompliance.overtimeMinutes % 60}m) — Topado a 10h (Sin autorizar)
+                        </span>
+
+                        {isAdmin && (
+                          <div className="flex items-center gap-1">
+                            <button
+                              disabled={reviewingOvertime}
+                              onClick={async () => {
+                                setReviewingOvertime(true);
+                                try {
+                                  // 1. Asegurar solicitud
+                                  await fetch("/api/activity/overtime", {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({
+                                      action: "request",
+                                      agentEmail: selectedAgent,
+                                      agentName: currentAgentObj?.name || selectedAgent,
+                                      date: selectedDate,
+                                      overtimeMinutes: agentDailyCompliance.overtimeMinutes,
+                                      totalActiveMinutes: agentDailyCompliance.rawActiveMinutes,
+                                    }),
+                                  });
+                                  // 2. Aprobar solicitud
+                                  const reqId = `ot-${(selectedAgent || "").toLowerCase().trim()}-${selectedDate}`;
+                                  await fetch("/api/activity/overtime", {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({
+                                      action: "review",
+                                      id: reqId,
+                                      status: "approved",
+                                      reviewedBy: agentEmail || "admin@sekunet.com",
+                                      notes: "Autorizado por la administración",
+                                    }),
+                                  });
+                                  toast.success("Horas extras autorizadas con éxito.");
+                                  fetchOvertime();
+                                } catch (e) {
+                                  toast.error("Error al autorizar horas extras");
+                                } finally {
+                                  setReviewingOvertime(false);
+                                }
+                              }}
+                              className="px-2.5 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1 shadow-sm transition-all"
+                            >
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                              Autorizar Extra
+                            </button>
+
+                            <button
+                              disabled={reviewingOvertime}
+                              onClick={async () => {
+                                setReviewingOvertime(true);
+                                try {
+                                  const reqId = `ot-${(selectedAgent || "").toLowerCase().trim()}-${selectedDate}`;
+                                  await fetch("/api/activity/overtime", {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({
+                                      action: "review",
+                                      id: reqId,
+                                      status: "rejected",
+                                      reviewedBy: agentEmail || "admin@sekunet.com",
+                                      notes: "No autorizado",
+                                    }),
+                                  });
+                                  toast.info("Horas extras denegadas. Se mantienen 10 horas.");
+                                  fetchOvertime();
+                                } catch (e) {
+                                  toast.error("Error al procesar");
+                                } finally {
+                                  setReviewingOvertime(false);
+                                }
+                              }}
+                              className="px-2.5 py-1 rounded-xl bg-rose-600/80 hover:bg-rose-600 text-white font-bold text-xs flex items-center gap-1 transition-all"
+                            >
+                              <XCircle className="h-3.5 w-3.5" />
+                              Denegar
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <span className="text-muted-foreground text-[11px]">
+                    Sin excedente de jornada en esta fecha.
+                  </span>
+                )}
               </div>
 
               {/* Barra de Progreso Visual de la Jornada */}

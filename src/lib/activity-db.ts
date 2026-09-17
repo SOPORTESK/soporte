@@ -32,10 +32,25 @@ export interface WorkScheduleConfig {
   scheduleEnd: string;
   scheduleEnabled: boolean;
   workDays: number[]; // 1=Lun, 2=Mar, 3=Mié, 4=Jue, 5=Vie, 6=Sáb, 0=Dom
-  targetDailyHours: number; // Meta oficial de jornada diaria en horas (ej. 8, 8.5, 9)
+  targetDailyHours: number; // Meta oficial de jornada diaria en horas (por defecto 10 horas)
+}
+
+export interface OvertimeRequest {
+  id: string; // ej: "ot-cbatista@sekunet.com-2026-09-17"
+  agent_email: string;
+  agent_name: string;
+  date: string;
+  overtime_minutes: number;
+  total_active_minutes: number;
+  status: "pending" | "approved" | "rejected";
+  requested_at: string;
+  reviewed_at?: string | null;
+  reviewed_by?: string | null;
+  notes?: string | null;
 }
 
 const SCHEDULE_SETTING_KEY = "activity_work_schedule";
+const OVERTIME_SETTING_KEY = "activity_overtime_requests";
 
 export async function getWorkSchedule(): Promise<WorkScheduleConfig> {
   const supabase = getClient();
@@ -49,28 +64,28 @@ export async function getWorkSchedule(): Promise<WorkScheduleConfig> {
     if (!error && data?.value) {
       const parsed = JSON.parse(data.value);
       return {
-        scheduleStart: parsed.scheduleStart || "08:00",
-        scheduleEnd: parsed.scheduleEnd || "17:00",
+        scheduleStart: parsed.scheduleStart || "06:00",
+        scheduleEnd: parsed.scheduleEnd || "18:00",
         scheduleEnabled: parsed.scheduleEnabled !== undefined ? Boolean(parsed.scheduleEnabled) : true,
         workDays: Array.isArray(parsed.workDays) && parsed.workDays.length > 0 ? parsed.workDays : [1, 2, 3, 4, 5],
-        targetDailyHours: Number(parsed.targetDailyHours) || 8,
+        targetDailyHours: Number(parsed.targetDailyHours) || 10,
       };
     }
   } catch (err) {
     console.error("[getWorkSchedule] error:", err);
   }
 
-  return { scheduleStart: "08:00", scheduleEnd: "17:00", scheduleEnabled: true, workDays: [1, 2, 3, 4, 5], targetDailyHours: 8 };
+  return { scheduleStart: "06:00", scheduleEnd: "18:00", scheduleEnabled: true, workDays: [1, 2, 3, 4, 5], targetDailyHours: 10 };
 }
 
 export async function saveWorkSchedule(config: WorkScheduleConfig): Promise<void> {
   const supabase = getClient();
   const val = JSON.stringify({
-    scheduleStart: config.scheduleStart || "08:00",
-    scheduleEnd: config.scheduleEnd || "17:00",
+    scheduleStart: config.scheduleStart || "06:00",
+    scheduleEnd: config.scheduleEnd || "18:00",
     scheduleEnabled: Boolean(config.scheduleEnabled),
     workDays: Array.isArray(config.workDays) && config.workDays.length > 0 ? config.workDays : [1, 2, 3, 4, 5],
-    targetDailyHours: Number(config.targetDailyHours) || 8,
+    targetDailyHours: Number(config.targetDailyHours) || 10,
   });
 
   const { error } = await supabase.from("sek_app_settings").upsert(
@@ -88,6 +103,120 @@ export async function saveWorkSchedule(config: WorkScheduleConfig): Promise<void
     console.error("[saveWorkSchedule] error:", error);
     throw error;
   }
+}
+
+export async function getOvertimeRequests(date?: string, agentEmail?: string): Promise<OvertimeRequest[]> {
+  const supabase = getClient();
+  try {
+    const { data, error } = await supabase
+      .from("sek_app_settings")
+      .select("value")
+      .eq("key", OVERTIME_SETTING_KEY)
+      .maybeSingle();
+
+    if (!error && data?.value) {
+      let list: OvertimeRequest[] = JSON.parse(data.value);
+      if (!Array.isArray(list)) list = [];
+      if (date) {
+        list = list.filter((r) => r.date === date);
+      }
+      if (agentEmail) {
+        list = list.filter((r) => r.agent_email.toLowerCase() === agentEmail.toLowerCase());
+      }
+      return list;
+    }
+  } catch (err) {
+    console.error("[getOvertimeRequests] error:", err);
+  }
+  return [];
+}
+
+export async function requestOvertime(params: {
+  agentEmail: string;
+  agentName: string;
+  date: string;
+  overtimeMinutes: number;
+  totalActiveMinutes: number;
+}): Promise<OvertimeRequest> {
+  const supabase = getClient();
+  const currentRequests = await getOvertimeRequests();
+  const id = `ot-${params.agentEmail.toLowerCase().trim()}-${params.date}`;
+  const existingIdx = currentRequests.findIndex((r) => r.id === id);
+
+  let updatedRequest: OvertimeRequest;
+
+  if (existingIdx >= 0) {
+    // Si ya existe y está aprobada o rechazada, conservar su estatus a menos que cambien los minutos sustancialmente
+    updatedRequest = {
+      ...currentRequests[existingIdx],
+      overtime_minutes: params.overtimeMinutes,
+      total_active_minutes: params.totalActiveMinutes,
+      agent_name: params.agentName || currentRequests[existingIdx].agent_name,
+    };
+    currentRequests[existingIdx] = updatedRequest;
+  } else {
+    updatedRequest = {
+      id,
+      agent_email: params.agentEmail.toLowerCase().trim(),
+      agent_name: params.agentName,
+      date: params.date,
+      overtime_minutes: params.overtimeMinutes,
+      total_active_minutes: params.totalActiveMinutes,
+      status: "pending",
+      requested_at: new Date().toISOString(),
+      reviewed_at: null,
+      reviewed_by: null,
+      notes: null,
+    };
+    currentRequests.push(updatedRequest);
+  }
+
+  // Guardar en la base de datos
+  await supabase.from("sek_app_settings").upsert(
+    {
+      key: OVERTIME_SETTING_KEY,
+      value: JSON.stringify(currentRequests),
+      iv: "none",
+      tag: "none",
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "key" }
+  );
+
+  return updatedRequest;
+}
+
+export async function updateOvertimeStatus(
+  id: string,
+  status: "approved" | "rejected",
+  reviewedBy: string,
+  notes?: string
+): Promise<OvertimeRequest | null> {
+  const supabase = getClient();
+  const currentRequests = await getOvertimeRequests();
+  const idx = currentRequests.findIndex((r) => r.id === id);
+  if (idx < 0) return null;
+
+  currentRequests[idx] = {
+    ...currentRequests[idx],
+    status,
+    reviewed_at: new Date().toISOString(),
+    reviewed_by: reviewedBy,
+    notes: notes || currentRequests[idx].notes || null,
+  };
+
+  await supabase.from("sek_app_settings").upsert(
+    {
+      key: OVERTIME_SETTING_KEY,
+      value: JSON.stringify(currentRequests),
+      iv: "none",
+      tag: "none",
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "key" }
+  );
+
+  return currentRequests[idx];
 }
 
 export async function hasActiveManualTask(agentEmail: string): Promise<boolean> {
@@ -224,11 +353,59 @@ export async function getActivityMetrics(agentEmail: string, date: string) {
   const totalDayMs = totalActiveMs + totalIdleMs;
   const productivityScore = totalDayMs > 0 ? Math.round((totalActiveMs / totalDayMs) * 100) : 100;
 
+  // Jornada y Horas extras
+  const schedule = await getWorkSchedule();
+  const targetDailyHours = schedule.targetDailyHours || 10;
+  const targetMs = targetDailyHours * 60 * 60 * 1000;
+  const overtimeRequests = await getOvertimeRequests(date, agentEmail);
+  const otReq = overtimeRequests[0] || null;
+  const isOvertimeApproved = otReq?.status === "approved";
+  const rawOvertimeMs = Math.max(0, totalActiveMs - targetMs);
+  const deficitMs = Math.max(0, targetMs - totalActiveMs);
+  const activeDisplayMs = (rawOvertimeMs > 0 && !isOvertimeApproved) ? targetMs : totalActiveMs;
+
+  // Primer login y último logout
+  let firstLoginTime: string | null = null;
+  let lastLogoutTime: string | null = null;
+  if (sorted.length > 0) {
+    const loginEvt = sorted.find((t) => {
+      const act = (t.action || "").toLowerCase();
+      const meta = (t.metadata || {}) as Record<string, any>;
+      return act.includes("inicio de sesión") || meta.type === "auth_login";
+    });
+    const firstEvt = loginEvt || sorted[0];
+    if (firstEvt?.created_at) {
+      const d = new Date(firstEvt.created_at);
+      firstLoginTime = isNaN(d.getTime()) ? null : d.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit" });
+    }
+
+    const logoutEvt = [...sorted].reverse().find((t) => {
+      const act = (t.action || "").toLowerCase();
+      const meta = (t.metadata || {}) as Record<string, any>;
+      return act.includes("cierre de sesión") || meta.type === "auth_logout";
+    });
+    const lastEvt = logoutEvt || sorted[sorted.length - 1];
+    if (lastEvt?.created_at) {
+      const d = new Date(lastEvt.created_at);
+      lastLogoutTime = isNaN(d.getTime()) ? null : d.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit" });
+    }
+  }
+
   return {
-    totalActiveMs,
+    totalActiveMs: activeDisplayMs,
+    rawActiveMs: totalActiveMs,
+    targetDailyHours,
+    deficitMs,
+    rawOvertimeMs,
+    isOvertimeApproved,
+    overtimeStatus: otReq?.status || (rawOvertimeMs > 0 ? "pending" : "none"),
     totalIdleMs,
-    totalActiveTime: formatDuration(totalActiveMs),
+    totalActiveTime: formatDuration(activeDisplayMs),
     totalIdleTime: formatDuration(totalIdleMs),
+    deficitTime: formatDuration(deficitMs),
+    overtimeTime: formatDuration(rawOvertimeMs),
+    firstLoginTime,
+    lastLogoutTime,
     productivityScore,
     totalEvents: timeline.length,
     activeEvents: sorted.length,

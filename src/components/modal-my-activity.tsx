@@ -23,6 +23,9 @@ import {
   Trash2,
   Package,
   GraduationCap,
+  LogIn,
+  LogOut,
+  Briefcase,
 } from "lucide-react";
 import { toast } from "sonner";
 import { logActivity } from "@/lib/activity-client";
@@ -53,20 +56,35 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
   const [justReason, setJustReason] = useState("Atención presencial en mostrador");
   const [justDetail, setJustDetail] = useState("");
   const [savingJust, setSavingJust] = useState(false);
+  const [targetDailyHours, setTargetDailyHours] = useState(10);
+  const [overtimeInfo, setOvertimeInfo] = useState<any>(null);
 
   const fetchMyData = async () => {
     setLoading(true);
     try {
       const today = new Date().toISOString().split("T")[0];
-      const res = await fetch(
-        `/api/activity/timeline?agent=${encodeURIComponent(agentEmail)}&date=${today}`
-      );
-      const data = await res.json();
-      if (res.ok) {
+      const [resTimeline, resSchedule, resOvertime] = await Promise.all([
+        fetch(`/api/activity/timeline?agent=${encodeURIComponent(agentEmail)}&date=${today}`),
+        fetch("/api/activity/schedule"),
+        fetch(`/api/activity/overtime?date=${today}&agent=${encodeURIComponent(agentEmail)}`),
+      ]);
+
+      const data = await resTimeline.json();
+      if (resTimeline.ok) {
         setTimeline(data.timeline || []);
       }
+
+      const schedData = await resSchedule.json();
+      if (schedData?.targetDailyHours) {
+        setTargetDailyHours(Number(schedData.targetDailyHours));
+      }
+
+      const otData = await resOvertime.json();
+      if (otData?.requests && Array.isArray(otData.requests)) {
+        setOvertimeInfo(otData.requests[0] || null);
+      }
     } catch (e) {
-      console.error("[ModalMyActivity] Error fetching timeline:", e);
+      console.error("[ModalMyActivity] Error fetching data:", e);
     } finally {
       setLoading(false);
     }
@@ -141,8 +159,42 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
     }
   }
 
-  const totalDayMs = totalActiveMs + totalIdleMs;
-  const productivityScore = totalDayMs > 0 ? Math.round((totalActiveMs / totalDayMs) * 100) : 100;
+  // Cálculo de jornada base de 10 horas y tiempo perdido / tiempo extra
+  const targetMs = targetDailyHours * 60 * 60 * 1000;
+  const isOvertimeApproved = overtimeInfo?.status === "approved";
+  const rawOvertimeMs = Math.max(0, totalActiveMs - targetMs);
+  const deficitMs = Math.max(0, targetMs - totalActiveMs);
+
+  // Si no está aprobado el tiempo extra, topar la visualización en 10 horas
+  const activeDisplayMs = (rawOvertimeMs > 0 && !isOvertimeApproved) ? targetMs : totalActiveMs;
+  const compliancePercent = targetMs > 0 ? Math.round((activeDisplayMs / targetMs) * 100) : 0;
+
+  // Detectar primer inicio de sesión y último cierre de sesión
+  let firstLoginTime: string | null = null;
+  let lastLogoutTime: string | null = null;
+  if (sorted.length > 0) {
+    const loginEvt = sorted.find((t) => {
+      const act = (t.action || "").toLowerCase();
+      const meta = (t.metadata || {}) as Record<string, any>;
+      return act.includes("inicio de sesión") || meta.type === "auth_login";
+    });
+    const firstEvt = loginEvt || sorted[0];
+    if (firstEvt?.created_at) {
+      const d = new Date(firstEvt.created_at);
+      firstLoginTime = isNaN(d.getTime()) ? null : d.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit" });
+    }
+
+    const logoutEvt = [...sorted].reverse().find((t) => {
+      const act = (t.action || "").toLowerCase();
+      const meta = (t.metadata || {}) as Record<string, any>;
+      return act.includes("cierre de sesión") || meta.type === "auth_logout";
+    });
+    const lastEvt = logoutEvt || sorted[sorted.length - 1];
+    if (lastEvt?.created_at) {
+      const d = new Date(lastEvt.created_at);
+      lastLogoutTime = isNaN(d.getTime()) ? null : d.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit" });
+    }
+  }
 
   const categoriesList: CategoryUsage[] = Object.entries(categoryMap)
     .map(([cat, val]) => ({
@@ -281,21 +333,21 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
               </div>
             ) : (
               <div className="space-y-6">
-                {/* 1. Tarjetas KPI de la Jornada */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div className="p-4 rounded-2xl bg-muted/30 border border-border/60 flex items-center gap-3">
+                {/* 1. Tarjetas KPI de la Jornada Base (10 horas) */}
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  <div className="p-3.5 rounded-2xl bg-muted/30 border border-border/60 flex items-center gap-3">
                     <div className="h-10 w-10 rounded-xl bg-violet-500/15 text-violet-400 grid place-items-center shrink-0">
-                      <TrendingUp className="h-5 w-5" />
+                      <Briefcase className="h-5 w-5" />
                     </div>
                     <div>
                       <p className="text-[10px] font-extrabold uppercase text-muted-foreground">
-                        Productividad
+                        Meta Jornada
                       </p>
-                      <p className="text-xl font-black text-violet-400">{productivityScore}%</p>
+                      <p className="text-lg font-black text-violet-400">{targetDailyHours}h base</p>
                     </div>
                   </div>
 
-                  <div className="p-4 rounded-2xl bg-muted/30 border border-border/60 flex items-center gap-3">
+                  <div className="p-3.5 rounded-2xl bg-muted/30 border border-border/60 flex items-center gap-3">
                     <div className="h-10 w-10 rounded-xl bg-emerald-500/15 text-emerald-400 grid place-items-center shrink-0">
                       <Clock className="h-5 w-5" />
                     </div>
@@ -303,32 +355,78 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                       <p className="text-[10px] font-extrabold uppercase text-muted-foreground">
                         Tiempo Activo
                       </p>
-                      <p className="text-xl font-black text-emerald-400">{formatMinHours(totalActiveMs)}</p>
+                      <p className="text-lg font-black text-emerald-400">{formatMinHours(activeDisplayMs)}</p>
                     </div>
                   </div>
 
-                  <div className="p-4 rounded-2xl bg-muted/30 border border-border/60 flex items-center gap-3">
+                  <div className="p-3.5 rounded-2xl bg-muted/30 border border-border/60 flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-xl bg-rose-500/15 text-rose-400 grid place-items-center shrink-0">
+                      <AlertCircle className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-extrabold uppercase text-muted-foreground">
+                        Tiempo Perdido
+                      </p>
+                      <p className="text-lg font-black text-rose-400">
+                        {deficitMs > 0 ? formatMinHours(deficitMs) : "0m"}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="p-3.5 rounded-2xl bg-muted/30 border border-border/60 flex items-center gap-3">
                     <div className="h-10 w-10 rounded-xl bg-amber-500/15 text-amber-400 grid place-items-center shrink-0">
                       <Clock className="h-5 w-5" />
                     </div>
                     <div>
                       <p className="text-[10px] font-extrabold uppercase text-muted-foreground">
-                        Inactividad / Pausas
+                        Pausas / Almuerzo
                       </p>
-                      <p className="text-xl font-black text-amber-400">{formatMinHours(totalIdleMs)}</p>
+                      <p className="text-lg font-black text-amber-400">{formatMinHours(totalIdleMs)}</p>
                     </div>
                   </div>
                 </div>
 
-                {/* Barra de Proporción */}
+                {/* Banner de Entrada / Salida y Estado de Horas Extras */}
+                <div className="p-3.5 rounded-2xl bg-muted/20 border border-border/50 flex flex-wrap items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center gap-3 font-mono">
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                      <LogIn className="h-3.5 w-3.5" />
+                      <span className="text-[10px] uppercase font-sans font-bold text-emerald-500/80">Inicio Sesión:</span>
+                      <span className="font-bold">{firstLoginTime || "--:--"}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-500/10 border border-slate-500/20 text-slate-300">
+                      <LogOut className="h-3.5 w-3.5" />
+                      <span className="text-[10px] uppercase font-sans font-bold text-slate-400">Última marca:</span>
+                      <span className="font-bold">{lastLogoutTime || "--:--"}</span>
+                    </div>
+                  </div>
+
+                  {rawOvertimeMs > 0 && (
+                    <div>
+                      {isOvertimeApproved ? (
+                        <span className="px-2.5 py-1 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-bold flex items-center gap-1.5">
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                          Tiempo Extra Aprobado: +{formatMinHours(rawOvertimeMs)}
+                        </span>
+                      ) : (
+                        <span className="px-2.5 py-1 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400 font-bold flex items-center gap-1.5" title="El tiempo extra requiere autorización del administrador">
+                          <Clock className="h-3.5 w-3.5 animate-pulse" />
+                          +{formatMinHours(rawOvertimeMs)} extra pendiente de autorización (Mostrando 10h)
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Barra de Proporción de la Jornada */}
                 <div className="p-4 rounded-2xl bg-muted/20 border border-border/50 space-y-2">
                   <div className="flex justify-between text-xs font-bold">
-                    <span className="text-emerald-400">Activo: {formatMinHours(totalActiveMs)} ({productivityScore}%)</span>
-                    <span className="text-amber-400">Pausas: {formatMinHours(totalIdleMs)} ({100 - productivityScore}%)</span>
+                    <span className="text-emerald-400">Cumplimiento: {compliancePercent}% de {targetDailyHours}h ({formatMinHours(activeDisplayMs)})</span>
+                    <span className="text-rose-400">{deficitMs > 0 ? `Déficit / Faltante: ${formatMinHours(deficitMs)}` : "Jornada Completa"}</span>
                   </div>
                   <div className="h-2.5 w-full rounded-full bg-slate-800 overflow-hidden flex">
-                    <div className="bg-emerald-500 transition-all duration-500" style={{ width: `${productivityScore}%` }} />
-                    <div className="bg-amber-500 transition-all duration-500" style={{ width: `${100 - productivityScore}%` }} />
+                    <div className="bg-emerald-500 transition-all duration-500" style={{ width: `${Math.min(100, compliancePercent)}%` }} />
+                    <div className="bg-rose-500 transition-all duration-500" style={{ width: `${Math.max(0, 100 - compliancePercent)}%` }} />
                   </div>
                 </div>
 
