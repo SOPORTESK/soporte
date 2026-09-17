@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Camera, Lock, Eye, EyeOff, Check, X, ChevronUp, Circle, LogOut, Activity as ActivityIcon, FileText, ChevronRight, X as XIcon, RefreshCw, Wrench, Coffee, Timer, BarChart3, Package, LayoutDashboard, ClipboardList, Sparkles, UserPlus, Briefcase, GraduationCap, Users, Utensils, Sandwich, Bath, Square } from "lucide-react";
+import { Camera, Lock, Eye, EyeOff, Check, X, ChevronUp, Circle, LogOut, Activity as ActivityIcon, FileText, ChevronRight, X as XIcon, RefreshCw, Wrench, Coffee, Timer, BarChart3, Package, LayoutDashboard, ClipboardList, Sparkles, UserPlus, Briefcase, GraduationCap, Users, Utensils, Sandwich, Bath, Square, Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -39,19 +39,20 @@ const TAREAS_GROUPED = [
   {
     group: "Operativa",
     items: [
-      { label: "Ir a Bodega", short: "Bodega", category: "Labores manuales", icon: Package },
-      { label: "Exhibidores", short: "Exhibidores", category: "Labores manuales", icon: LayoutDashboard },
-      { label: "Inventario y Actualización de Bodega GAR", short: "Inventario GAR", category: "Inventario", icon: ClipboardList },
-      { label: "Limpieza de taller", short: "Limpieza", category: "Mantenimiento", icon: Sparkles },
+      { label: "Ir a Bodega", short: "Bodega", category: "Gestión del Taller", icon: Package },
+      { label: "Exhibidores", short: "Exhibidores", category: "Gestión del Taller", icon: LayoutDashboard },
+      { label: "Inventario y Actualización de Bodega GAR", short: "Inventario GAR", category: "Gestión del Taller", icon: ClipboardList },
+      { label: "Limpieza de taller", short: "Limpieza", category: "Gestión del Taller", icon: Sparkles },
+      { label: "Gestión de Residuos", short: "Residuos", category: "Gestión de Residuos", icon: Trash2 },
     ]
   },
   {
     group: "Soporte",
     items: [
-      { label: "Ir a Ventanilla", short: "Ventanilla", category: "Atención presencial", icon: UserPlus },
-      { label: "Iniciar Diagnóstico Físico", short: "Diagnóstico", category: "Soporte técnico", icon: Wrench },
-      { label: "Soporte a Ventas", short: "Soporte Ventas", category: "Soporte comercial", icon: Briefcase },
-      { label: "Capacitacion de clientes", short: "Capacitar Cliente", category: "Capacitación", icon: GraduationCap },
+      { label: "Ir a Ventanilla", short: "Ventanilla", category: "Gestión del Taller", icon: UserPlus },
+      { label: "Iniciar Diagnóstico Físico", short: "Diagnóstico", category: "Servicio de Taller", icon: Wrench },
+      { label: "Soporte a Ventas", short: "Soporte Ventas", category: "Soporte", icon: Briefcase },
+      { label: "Capacitacion de clientes", short: "Capacitar Cliente", category: "On-the-Job Training (OJT)", icon: GraduationCap },
     ]
   },
   {
@@ -59,8 +60,8 @@ const TAREAS_GROUPED = [
     items: [
       { label: "Tiempo de Descanso", short: "Descanso", category: "Tiempo de descanso", icon: Sandwich },
       { label: "Pausa Sanitaria", short: "Pausa Sanitaria", category: "Pausa personal", icon: Bath },
-      { label: "Reunión", short: "Reunión", category: "Reunión interna", icon: Users },
-      { label: "Capacitacion de Personal", short: "Capacitar (Interno)", category: "Capacitación", icon: GraduationCap },
+      { label: "Reunión", short: "Reunión", category: "Control Administrativo", icon: Users },
+      { label: "Capacitacion de Personal", short: "Capacitar (Interno)", category: "On-the-Job Training (OJT)", icon: GraduationCap },
     ]
   }
 ];

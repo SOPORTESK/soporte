@@ -7,15 +7,12 @@ const APP_MAPPINGS_KEY = "activity_app_categories";
 const CATEGORIES_LIST_KEY = "activity_categories_list";
 
 const DEFAULT_CATEGORIES = [
-  { id: "Soporte Mensajería", label: "Soporte Mensajería", color: "text-emerald-400 border-emerald-500/30 bg-emerald-500/15", bgBar: "bg-emerald-500", iconName: "MessageSquare" },
-  { id: "Atención de Tickets", label: "Atención de Tickets", color: "text-indigo-400 border-indigo-500/30 bg-indigo-500/15", bgBar: "bg-indigo-500", iconName: "FileText" },
-  { id: "Optimización de procesos", label: "Optimización de procesos", color: "text-violet-400 border-violet-500/30 bg-violet-500/15", bgBar: "bg-violet-500", iconName: "Code" },
-  { id: "Control administrativo", label: "Control administrativo", color: "text-fuchsia-400 border-fuchsia-500/30 bg-fuchsia-500/15", bgBar: "bg-fuchsia-500", iconName: "TrendingUp" },
-  { id: "Gestión de Correos", label: "Gestión de Correos", color: "text-blue-400 border-blue-500/30 bg-blue-500/15", bgBar: "bg-blue-500", iconName: "Mail" },
-  { id: "Soporte Telefónico", label: "Soporte Telefónico", color: "text-orange-400 border-orange-500/30 bg-orange-500/15", bgBar: "bg-orange-500", iconName: "Phone" },
-  { id: "Soporte técnico", label: "Soporte técnico", color: "text-cyan-400 border-cyan-500/30 bg-cyan-500/15", bgBar: "bg-cyan-500", iconName: "Monitor" },
-  { id: "Gestión de Garantías", label: "Gestión de Garantías", color: "text-amber-400 border-amber-500/30 bg-amber-500/15", bgBar: "bg-amber-500", iconName: "ShieldCheck" },
-  { id: "Actividad general", label: "Actividad general", color: "text-slate-400 border-slate-500/30 bg-slate-500/15", bgBar: "bg-slate-500", iconName: "Monitor" },
+  { id: "Soporte", label: "Soporte", color: "text-emerald-400 border-emerald-500/30 bg-emerald-500/15", bgBar: "bg-emerald-500", iconName: "Headphones" },
+  { id: "Servicio de Taller", label: "Servicio de Taller", color: "text-amber-400 border-amber-500/30 bg-amber-500/15", bgBar: "bg-amber-500", iconName: "Wrench" },
+  { id: "Control Administrativo", label: "Control Administrativo", color: "text-blue-400 border-blue-500/30 bg-blue-500/15", bgBar: "bg-blue-500", iconName: "TrendingUp" },
+  { id: "Gestión del Taller", label: "Gestión del Taller", color: "text-indigo-400 border-indigo-500/30 bg-indigo-500/15", bgBar: "bg-indigo-500", iconName: "Package" },
+  { id: "Gestión de Residuos", label: "Gestión de Residuos", color: "text-rose-400 border-rose-500/30 bg-rose-500/15", bgBar: "bg-rose-500", iconName: "Trash2" },
+  { id: "On-the-Job Training (OJT)", label: "On-the-Job Training (OJT)", color: "text-violet-400 border-violet-500/30 bg-violet-500/15", bgBar: "bg-violet-500", iconName: "GraduationCap" },
 ];
 
 export async function GET() {
@@ -42,16 +39,22 @@ export async function GET() {
         try {
           const parsed = JSON.parse(row.value);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            categories = parsed.map((c: any) => {
-              const lower = (c.id || "").toLowerCase();
-              if (lower === "atención chat" || lower === "atencion chat" || lower === "mensajería" || lower === "mensajeria") {
-                return { ...c, id: "Soporte Mensajería", label: "Soporte Mensajería" };
-              }
-              if (lower === "atención por llamada" || lower === "atencion por llamada" || lower === "atención telefónica" || lower === "atencion telefonica") {
-                return { ...c, id: "Soporte Telefónico", label: "Soporte Telefónico" };
-              }
-              return c;
-            });
+            const hasOld = parsed.some((c: any) =>
+              c.id === "Atención chat" ||
+              c.id === "Soporte Mensajería" ||
+              c.id === "Soporte Telefónico" ||
+              c.id === "Atención de Tickets" ||
+              c.id === "Optimización de procesos" ||
+              c.id === "Gestión de Correos" ||
+              c.id === "Gestión de Garantías" ||
+              c.id === "Actividad general" ||
+              c.id === "Soporte técnico"
+            );
+            if (hasOld || parsed.length !== DEFAULT_CATEGORIES.length) {
+              categories = DEFAULT_CATEGORIES;
+            } else {
+              categories = parsed;
+            }
           }
         } catch {}
       }

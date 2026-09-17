@@ -16,6 +16,8 @@ import {
   Bot,
   Eye,
   Phone,
+  Headphones,
+  Trash2,
   ShieldCheck,
   Code,
   Camera,
@@ -65,6 +67,12 @@ interface Props {
 }
 
 const CATEGORY_ICONS: Record<string, any> = {
+  "Soporte": Headphones,
+  "Servicio de Taller": Wrench,
+  "Control Administrativo": TrendingUp,
+  "Gestión del Taller": Package,
+  "Gestión de Residuos": Trash2,
+  "On-the-Job Training (OJT)": GraduationCap,
   "Soporte Telefónico": Phone,
   "Soporte Mensajería": MessageSquare,
   "Atención telefónica": Phone,
@@ -102,6 +110,12 @@ const CATEGORY_ICONS: Record<string, any> = {
 };
 
 const CATEGORY_COLORS: Record<string, string> = {
+  "Soporte": "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
+  "Servicio de Taller": "text-amber-400 bg-amber-500/10 border-amber-500/20",
+  "Control Administrativo": "text-blue-400 bg-blue-500/10 border-blue-500/20",
+  "Gestión del Taller": "text-indigo-400 bg-indigo-500/10 border-indigo-500/20",
+  "Gestión de Residuos": "text-rose-400 bg-rose-500/10 border-rose-500/20",
+  "On-the-Job Training (OJT)": "text-violet-400 bg-violet-500/10 border-violet-500/20",
   "Soporte Telefónico": "text-orange-400 bg-orange-500/10 border-orange-500/20",
   "Soporte Mensajería": "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
   "Atención telefónica": "text-orange-400 bg-orange-500/10 border-orange-500/20",

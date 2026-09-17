@@ -19,6 +19,10 @@ import {
   AlertCircle,
   BarChart3,
   Sparkles,
+  Headphones,
+  Trash2,
+  Package,
+  GraduationCap,
 } from "lucide-react";
 import { toast } from "sonner";
 import { logActivity } from "@/lib/activity-client";
@@ -159,11 +163,12 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
 
   const getCategoryIcon = (cat: string) => {
     const c = cat.toLowerCase();
-    if (c.includes("mensajer") || c.includes("whatsapp")) return <MessageSquare className="h-4 w-4 text-emerald-400" />;
-    if (c.includes("telef") || c.includes("llamada") || c.includes("linkus")) return <Phone className="h-4 w-4 text-orange-400" />;
-    if (c.includes("ticket") || c.includes("caso") || c.includes("odoo")) return <ShieldCheck className="h-4 w-4 text-violet-400" />;
-    if (c.includes("correo") || c.includes("mail")) return <Mail className="h-4 w-4 text-blue-400" />;
-    if (c.includes("física") || c.includes("bodega") || c.includes("taller") || c.includes("diagnóstico")) return <Wrench className="h-4 w-4 text-amber-400" />;
+    if (c.includes("residuo") || c.includes("desecho") || c.includes("reciclaj") || c.includes("chatarra")) return <Trash2 className="h-4 w-4 text-rose-400" />;
+    if (c.includes("ojt") || c.includes("training") || c.includes("capacita") || c.includes("inducci") || c.includes("reunión") || c.includes("reunion")) return <GraduationCap className="h-4 w-4 text-violet-400" />;
+    if (c.includes("soporte") || c.includes("mensajer") || c.includes("whatsapp") || c.includes("telef") || c.includes("llamada") || c.includes("linkus") || c.includes("ticket")) return <Headphones className="h-4 w-4 text-emerald-400" />;
+    if (c.includes("servicio") || c.includes("diagnóst") || c.includes("diagnost") || c.includes("garant") || c.includes("rma") || c.includes("tienda 3d")) return <Wrench className="h-4 w-4 text-amber-400" />;
+    if (c.includes("control") || c.includes("admin") || c.includes("correo") || c.includes("mail") || c.includes("excel") || c.includes("word") || c.includes("informe")) return <TrendingUp className="h-4 w-4 text-blue-400" />;
+    if (c.includes("gestión del taller") || c.includes("gestion del taller") || c.includes("bodega") || c.includes("inventario") || c.includes("ventanilla") || c.includes("mostrador") || c.includes("limpieza") || c.includes("exhibidor")) return <Package className="h-4 w-4 text-indigo-400" />;
     if (c.includes("justificación")) return <CheckCircle2 className="h-4 w-4 text-cyan-400" />;
     return <Globe className="h-4 w-4 text-muted-foreground" />;
   };

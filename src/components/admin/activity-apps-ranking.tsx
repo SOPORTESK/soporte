@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import {
   Monitor,
   Phone,
+  Headphones,
   MessageSquare,
   Mail,
   FileText,
@@ -64,47 +65,47 @@ export interface CategoryItem {
 }
 
 export const DEFAULT_CATEGORIES: CategoryItem[] = [
-  { id: "Soporte Mensajería", label: "Soporte Mensajería", color: "text-emerald-400 border-emerald-500/30 bg-emerald-500/15", bgBar: "bg-emerald-500", iconName: "MessageSquare" },
-  { id: "Atención de Tickets", label: "Atención de Tickets", color: "text-indigo-400 border-indigo-500/30 bg-indigo-500/15", bgBar: "bg-indigo-500", iconName: "FileText" },
-  { id: "Optimización de procesos", label: "Optimización de procesos", color: "text-violet-400 border-violet-500/30 bg-violet-500/15", bgBar: "bg-violet-500", iconName: "Code" },
-  { id: "Control administrativo", label: "Control administrativo", color: "text-fuchsia-400 border-fuchsia-500/30 bg-fuchsia-500/15", bgBar: "bg-fuchsia-500", iconName: "TrendingUp" },
-  { id: "Gestión de Correos", label: "Gestión de Correos", color: "text-blue-400 border-blue-500/30 bg-blue-500/15", bgBar: "bg-blue-500", iconName: "Mail" },
-  { id: "Soporte Telefónico", label: "Soporte Telefónico", color: "text-orange-400 border-orange-500/30 bg-orange-500/15", bgBar: "bg-orange-500", iconName: "Phone" },
-  { id: "Soporte técnico", label: "Soporte técnico", color: "text-cyan-400 border-cyan-500/30 bg-cyan-500/15", bgBar: "bg-cyan-500", iconName: "Monitor" },
-  { id: "Gestión de Garantías", label: "Gestión de Garantías", color: "text-amber-400 border-amber-500/30 bg-amber-500/15", bgBar: "bg-amber-500", iconName: "ShieldCheck" },
-  { id: "Actividad general", label: "Actividad general", color: "text-slate-400 border-slate-500/30 bg-slate-500/15", bgBar: "bg-slate-500", iconName: "Monitor" },
+  { id: "Soporte", label: "Soporte", color: "text-emerald-400 border-emerald-500/30 bg-emerald-500/15", bgBar: "bg-emerald-500", iconName: "Headphones" },
+  { id: "Servicio de Taller", label: "Servicio de Taller", color: "text-amber-400 border-amber-500/30 bg-amber-500/15", bgBar: "bg-amber-500", iconName: "Wrench" },
+  { id: "Control Administrativo", label: "Control Administrativo", color: "text-blue-400 border-blue-500/30 bg-blue-500/15", bgBar: "bg-blue-500", iconName: "TrendingUp" },
+  { id: "Gestión del Taller", label: "Gestión del Taller", color: "text-indigo-400 border-indigo-500/30 bg-indigo-500/15", bgBar: "bg-indigo-500", iconName: "Package" },
+  { id: "Gestión de Residuos", label: "Gestión de Residuos", color: "text-rose-400 border-rose-500/30 bg-rose-500/15", bgBar: "bg-rose-500", iconName: "Trash2" },
+  { id: "On-the-Job Training (OJT)", label: "On-the-Job Training (OJT)", color: "text-violet-400 border-violet-500/30 bg-violet-500/15", bgBar: "bg-violet-500", iconName: "GraduationCap" },
 ];
 
 export const COLOR_PRESETS = [
   { name: "Verde", color: "text-emerald-400 border-emerald-500/30 bg-emerald-500/15", bgBar: "bg-emerald-500" },
+  { name: "Ámbar", color: "text-amber-400 border-amber-500/30 bg-amber-500/15", bgBar: "bg-amber-500" },
+  { name: "Azul", color: "text-blue-400 border-blue-500/30 bg-blue-500/15", bgBar: "bg-blue-500" },
   { name: "Índigo", color: "text-indigo-400 border-indigo-500/30 bg-indigo-500/15", bgBar: "bg-indigo-500" },
+  { name: "Rojo", color: "text-rose-400 border-rose-500/30 bg-rose-500/15", bgBar: "bg-rose-500" },
   { name: "Violeta", color: "text-violet-400 border-violet-500/30 bg-violet-500/15", bgBar: "bg-violet-500" },
   { name: "Fucsia", color: "text-fuchsia-400 border-fuchsia-500/30 bg-fuchsia-500/15", bgBar: "bg-fuchsia-500" },
-  { name: "Azul", color: "text-blue-400 border-blue-500/30 bg-blue-500/15", bgBar: "bg-blue-500" },
-  { name: "Naranja", color: "text-orange-400 border-orange-500/30 bg-orange-500/15", bgBar: "bg-orange-500" },
   { name: "Cyan", color: "text-cyan-400 border-cyan-500/30 bg-cyan-500/15", bgBar: "bg-cyan-500" },
-  { name: "Ámbar", color: "text-amber-400 border-amber-500/30 bg-amber-500/15", bgBar: "bg-amber-500" },
-  { name: "Rojo", color: "text-rose-400 border-rose-500/30 bg-rose-500/15", bgBar: "bg-rose-500" },
   { name: "Pizarra", color: "text-slate-400 border-slate-500/30 bg-slate-500/15", bgBar: "bg-slate-500" },
 ];
 
 export const ICON_PRESETS = [
+  "Headphones",
+  "Wrench",
+  "TrendingUp",
+  "Package",
+  "Trash2",
+  "GraduationCap",
   "MessageSquare",
   "FileText",
-  "Code",
-  "TrendingUp",
   "Mail",
   "Phone",
   "Monitor",
   "ShieldCheck",
-  "Wrench",
-  "Globe",
-  "Cpu",
-  "Clock",
 ];
 
 function renderCategoryIcon(iconName?: string, className: string = "h-4 w-4") {
   switch (iconName) {
+    case "Headphones": return <Headphones className={className} />;
+    case "Trash2": return <Trash2 className={className} />;
+    case "Package": return <Package className={className} />;
+    case "GraduationCap": return <GraduationCap className={className} />;
     case "MessageSquare": return <MessageSquare className={className} />;
     case "FileText": return <FileText className={className} />;
     case "Code": return <Code className={className} />;
@@ -126,24 +127,107 @@ function renderCategoryIcon(iconName?: string, className: string = "h-4 w-4") {
 export const WORKSHOP_CATEGORIES = DEFAULT_CATEGORIES;
 
 export function getCategoryUI(catName: string) {
+  const found = DEFAULT_CATEGORIES.find((c) => c.id === catName || c.label === catName);
+  if (found) return found;
+
   const lower = (catName || "").toLowerCase();
-  if (lower === "atención chat" || lower === "atencion chat" || lower === "mensajería" || lower === "mensajeria" || lower === "soporte mensajería" || lower === "soporte mensajeria") {
+
+  // 1. Soporte
+  if (
+    (lower.includes("soporte") && !lower.includes("taller") && !lower.includes("residuo")) ||
+    lower.includes("chat") ||
+    lower.includes("mensajer") ||
+    lower.includes("llamada") ||
+    lower.includes("telef") ||
+    lower.includes("phone") ||
+    lower.includes("linkus") ||
+    lower.includes("ticket") ||
+    lower.includes("whatsapp")
+  ) {
     return DEFAULT_CATEGORIES[0];
   }
-  if (lower === "atención por llamada" || lower === "atencion por llamada" || lower === "atención telefónica" || lower === "atencion telefonica" || lower === "soporte telefónico" || lower === "soporte telefonico") {
+
+  // 2. Servicio de Taller
+  if (
+    lower.includes("servicio") ||
+    lower.includes("diagnóst") ||
+    lower.includes("diagnost") ||
+    lower.includes("repara") ||
+    lower.includes("garant") ||
+    lower.includes("rma") ||
+    lower.includes("tienda 3d") ||
+    lower.includes("tienda3d") ||
+    lower.includes("ivms") ||
+    lower.includes("cctv") ||
+    lower.includes("sadp") ||
+    lower.includes("mikrotik") ||
+    lower.includes("winbox")
+  ) {
+    return DEFAULT_CATEGORIES[1];
+  }
+
+  // 3. Control Administrativo
+  if (
+    lower.includes("admin") ||
+    lower.includes("control") ||
+    lower.includes("correo") ||
+    lower.includes("mail") ||
+    lower.includes("outlook") ||
+    lower.includes("excel") ||
+    lower.includes("word") ||
+    lower.includes("informe") ||
+    lower.includes("office") ||
+    lower.includes("proceso") ||
+    lower.includes("desarrollo") ||
+    lower.includes("investiga")
+  ) {
+    return DEFAULT_CATEGORIES[2];
+  }
+
+  // 4. Gestión del Taller
+  if (
+    lower.includes("gestión del taller") ||
+    lower.includes("gestion del taller") ||
+    lower.includes("taller") ||
+    lower.includes("bodega") ||
+    lower.includes("inventario") ||
+    lower.includes("mostrador") ||
+    lower.includes("ventanilla") ||
+    lower.includes("limpieza") ||
+    lower.includes("exhibidor") ||
+    lower.includes("física") ||
+    lower.includes("fisica")
+  ) {
+    return DEFAULT_CATEGORIES[3];
+  }
+
+  // 5. Gestión de Residuos
+  if (
+    lower.includes("residuo") ||
+    lower.includes("desecho") ||
+    lower.includes("reciclaj") ||
+    lower.includes("chatarra") ||
+    lower.includes("basura") ||
+    lower.includes("descarte")
+  ) {
+    return DEFAULT_CATEGORIES[4];
+  }
+
+  // 6. On-the-Job Training (OJT)
+  if (
+    lower.includes("ojt") ||
+    lower.includes("training") ||
+    lower.includes("capacita") ||
+    lower.includes("entrena") ||
+    lower.includes("inducci") ||
+    lower.includes("reunión") ||
+    lower.includes("reunion") ||
+    lower.includes("aprendizaje")
+  ) {
     return DEFAULT_CATEGORIES[5];
   }
-  const found = DEFAULT_CATEGORIES.find((c) => c.id === catName);
-  if (found) return found;
-  if (lower.includes("chat") || lower.includes("mensajer")) return DEFAULT_CATEGORIES[0];
-  if (lower.includes("ticket")) return DEFAULT_CATEGORIES[1];
-  if (lower.includes("proceso") || lower.includes("desarrollo") || lower.includes("investiga")) return DEFAULT_CATEGORIES[2];
-  if (lower.includes("admin") || lower.includes("control")) return DEFAULT_CATEGORIES[3];
-  if (lower.includes("correo") || lower.includes("mail")) return DEFAULT_CATEGORIES[4];
-  if (lower.includes("llamada") || lower.includes("telef") || lower.includes("phone") || lower.includes("linkus")) return DEFAULT_CATEGORIES[5];
-  if (lower.includes("soporte") || lower.includes("redes") || lower.includes("taller")) return DEFAULT_CATEGORIES[6];
-  if (lower.includes("garant") || lower.includes("rma")) return DEFAULT_CATEGORIES[7];
-  return DEFAULT_CATEGORIES[DEFAULT_CATEGORIES.length - 1];
+
+  return DEFAULT_CATEGORIES[0];
 }
 
 export const DEFAULT_KNOWN_MANUAL_TASKS = [
@@ -271,120 +355,118 @@ export function getDefaultCategoryForApp(appName: string, action: string = "", c
   const act = (action || "").toLowerCase();
   const cat = (category || "").toLowerCase();
 
-  // 1. Optimización de procesos (Programación, IDEs, Terminales, código, Capacitaciones, Reuniones)
+  // 1. On-the-Job Training (OJT) (Capacitaciones a clientes, personal, inducciones, reuniones formativas)
   if (
-    name.includes("antigravity") ||
-    name.includes("code") ||
-    name.includes("cursor") ||
-    name.includes("terminal") ||
-    name.includes("windsurf") ||
-    name.includes("devin") ||
-    name.includes("powershell") ||
-    name.includes("cmd") ||
-    name.includes("gemini") ||
-    name.includes("github") ||
+    name.includes("capacita") ||
     name.includes("reunión") ||
     name.includes("reunion") ||
-    name.includes("capacita") ||
-    cat.includes("desarrollo") ||
-    cat.includes("proceso") ||
+    name.includes("ojt") ||
+    name.includes("training") ||
+    name.includes("inducci") ||
+    act.includes("capacita") ||
+    act.includes("reunión") ||
+    act.includes("reunion") ||
+    act.includes("ojt") ||
     cat.includes("capacita") ||
     cat.includes("reunión") ||
-    cat.includes("reunion")
+    cat.includes("reunion") ||
+    cat.includes("ojt")
   ) {
-    return "Optimización de procesos";
+    return "On-the-Job Training (OJT)";
   }
 
-  // 2. Soporte Mensajería (Seka Chat, WhatsApp)
+  // 2. Gestión de Residuos (Reciclaje, Desechos, Embalajes, Descarte de piezas, Chatarra)
   if (
-    name.includes("whatsapp") ||
-    name.includes("seka chat") ||
-    name.includes("chat") ||
-    name.includes("inbox") ||
-    cat.includes("chat") ||
-    cat.includes("mensajer")
+    name.includes("residuo") ||
+    name.includes("desecho") ||
+    name.includes("reciclaj") ||
+    name.includes("chatarra") ||
+    name.includes("descarte") ||
+    act.includes("residuo") ||
+    act.includes("desecho") ||
+    act.includes("reciclaj") ||
+    cat.includes("residuo") ||
+    cat.includes("desecho")
   ) {
-    return "Soporte Mensajería";
+    return "Gestión de Residuos";
   }
 
-  // 3. Atención de Tickets (Odoo ERP)
-  if (name.includes("odoo") || name.includes("ticket") || cat.includes("ticket")) {
-    return "Atención de Tickets";
-  }
-
-  // 4. Gestión de Garantías (Tienda 3D, RMA)
+  // 3. Gestión del Taller (Bodega, Inventario, Mostrador, Ventanilla, Limpieza, Exhibidores)
   if (
-    name.includes("tienda 3d") ||
-    name.includes("tienda3d") ||
-    name.includes("garant") ||
-    name.includes("rma") ||
-    cat.includes("garant")
-  ) {
-    return "Gestión de Garantías";
-  }
-
-  // 5. Gestión de Correos (Outlook)
-  if (name.includes("outlook") || name.includes("mail") || name.includes("correo") || cat.includes("correo")) {
-    return "Gestión de Correos";
-  }
-
-  // 6. Soporte Telefónico (Linkus, Softphone)
-  if (
-    name.includes("linkus") ||
-    name.includes("phone") ||
-    name.includes("llamada") ||
-    name.includes("telef") ||
-    cat.includes("llamada") ||
-    cat.includes("telef") ||
-    cat.includes("linkus")
-  ) {
-    return "Soporte Telefónico";
-  }
-
-  // 7. Control administrativo (Suite Auditoría, Excel, Word, Inventario, Admin, Inventario GAR)
-  if (
-    name.includes("auditor") ||
-    name.includes("excel") ||
-    name.includes("word") ||
-    name.includes("office") ||
-    name.includes("inventario") ||
-    name.includes("admin") ||
-    cat.includes("admin") ||
-    cat.includes("inventario") ||
-    act.includes("informe")
-  ) {
-    return "Control administrativo";
-  }
-
-  // 8. Soporte técnico (CCTV, iVMS, Winbox, MikroTik, Taller, Bodega, Exhibidores, Limpieza, Diagnóstico, Ventanilla)
-  if (
-    name.includes("ivms") ||
-    name.includes("sadp") ||
-    name.includes("winbox") ||
-    name.includes("mikrotik") ||
-    name.includes("unifi") ||
-    name.includes("recorte") ||
-    name.includes("snipping") ||
-    name.includes("taller") ||
     name.includes("bodega") ||
+    name.includes("inventario") ||
     name.includes("exhibidor") ||
     name.includes("limpieza") ||
     name.includes("ventanilla") ||
     name.includes("mostrador") ||
-    name.includes("diagnóstico") ||
-    name.includes("diagnostico") ||
-    name.includes("soporte a ventas") ||
-    name.includes("soporte ventas") ||
-    name.includes("justificación") ||
-    cat.includes("soporte") ||
+    act.includes("bodega") ||
+    act.includes("inventario") ||
+    act.includes("exhibidor") ||
+    act.includes("limpieza") ||
+    act.includes("ventanilla") ||
+    act.includes("mostrador") ||
+    cat.includes("bodega") ||
+    cat.includes("inventario") ||
     cat.includes("manual") ||
-    cat.includes("mantenimiento") ||
-    cat.includes("atención presencial")
+    cat.includes("mantenimiento")
   ) {
-    return "Soporte técnico";
+    return "Gestión del Taller";
   }
 
-  return "Actividad general";
+  // 4. Servicio de Taller (Diagnósticos, Banco de pruebas, Garantías, RMA, Tienda 3D, Cámaras CCTV, iVMS, SADP, MikroTik)
+  if (
+    name.includes("diagnóstico") ||
+    name.includes("diagnostico") ||
+    name.includes("tienda 3d") ||
+    name.includes("tienda3d") ||
+    name.includes("garant") ||
+    name.includes("rma") ||
+    name.includes("ivms") ||
+    name.includes("sadp") ||
+    name.includes("cctv") ||
+    name.includes("winbox") ||
+    name.includes("mikrotik") ||
+    name.includes("unifi") ||
+    act.includes("diagnóstico") ||
+    act.includes("diagnostico") ||
+    act.includes("garant") ||
+    act.includes("rma") ||
+    cat.includes("garant") ||
+    cat.includes("diagnóst") ||
+    cat.includes("diagnost")
+  ) {
+    return "Servicio de Taller";
+  }
+
+  // 5. Control Administrativo (Outlook, Correo, Excel, Word, Informes, Suite Auditoría, Programación y desarrollo técnico)
+  if (
+    name.includes("outlook") ||
+    name.includes("mail") ||
+    name.includes("correo") ||
+    name.includes("excel") ||
+    name.includes("word") ||
+    name.includes("office") ||
+    name.includes("antigravity") ||
+    name.includes("code") ||
+    name.includes("cursor") ||
+    name.includes("terminal") ||
+    name.includes("powershell") ||
+    name.includes("cmd") ||
+    name.includes("github") ||
+    name.includes("gemini") ||
+    name.includes("auditor") ||
+    name.includes("admin") ||
+    act.includes("informe") ||
+    cat.includes("admin") ||
+    cat.includes("correo") ||
+    cat.includes("desarrollo") ||
+    cat.includes("proceso")
+  ) {
+    return "Control Administrativo";
+  }
+
+  // 6. Soporte (WhatsApp, Seka Chat, Linkus llamadas, Odoo Tickets, Casos, Atención directa)
+  return "Soporte";
 }
 
 // Compatibilidad hacia atrás
@@ -430,18 +512,26 @@ export function ActivityAppsRanking({
   const [formCatColorIdx, setFormCatColorIdx] = useState(0);
   const [formCatIcon, setFormCatIcon] = useState("Monitor");
 
-  // Función para normalizar nombres antiguos a la nomenclatura oficial
+  // Función para normalizar nombres antiguos a la nomenclatura de las 6 categorías oficiales
   const sanitizeCategoryList = (list: CategoryItem[]): CategoryItem[] => {
-    return list.map((c) => {
-      const lower = (c.id || "").toLowerCase();
-      if (lower === "atención chat" || lower === "atencion chat" || lower === "mensajería" || lower === "mensajeria") {
-        return { ...c, id: "Soporte Mensajería", label: "Soporte Mensajería" };
-      }
-      if (lower === "atención por llamada" || lower === "atencion por llamada" || lower === "atención telefónica" || lower === "atencion telefonica") {
-        return { ...c, id: "Soporte Telefónico", label: "Soporte Telefónico" };
-      }
-      return c;
-    });
+    if (!Array.isArray(list) || list.length === 0) return DEFAULT_CATEGORIES;
+    const hasOldCategories = list.some((c) =>
+      c.id === "Atención chat" ||
+      c.id === "Soporte Mensajería" ||
+      c.id === "Soporte Telefónico" ||
+      c.id === "Atención por llamada" ||
+      c.id === "Atención telefónica" ||
+      c.id === "Atención de Tickets" ||
+      c.id === "Optimización de procesos" ||
+      c.id === "Gestión de Correos" ||
+      c.id === "Gestión de Garantías" ||
+      c.id === "Actividad general" ||
+      c.id === "Soporte técnico"
+    );
+    if (hasOldCategories || list.length !== DEFAULT_CATEGORIES.length) {
+      return DEFAULT_CATEGORIES;
+    }
+    return list;
   };
 
   // Cargar categorías y mapeos de localStorage y API
@@ -470,16 +560,10 @@ export function ActivityAppsRanking({
   }, []);
 
   const getCategoryDef = (catName: string): CategoryItem => {
-    let normalized = catName;
-    const lower = (catName || "").toLowerCase();
-    if (lower === "atención chat" || lower === "atencion chat" || lower === "mensajería" || lower === "mensajeria") {
-      normalized = "Soporte Mensajería";
-    } else if (lower === "atención por llamada" || lower === "atencion por llamada" || lower === "atención telefónica" || lower === "atencion telefonica") {
-      normalized = "Soporte Telefónico";
-    }
-    const found = categories.find((c) => c.id === normalized || c.label === normalized);
+    const ui = getCategoryUI(catName);
+    const found = categories.find((c) => c.id === ui.id || c.label === ui.label);
     if (found) return found;
-    return getCategoryUI(normalized);
+    return ui;
   };
 
   // Asignar categoría a una aplicación
