@@ -199,6 +199,44 @@ export function ActivityExecutiveCharts({
     for (let i = 0; i < sorted.length; i++) {
       const it = sorted[i];
       const masterCat = classifyToMasterCategory(it);
+      const meta = (it.metadata || {}) as Record<string, any>;
+      const act = (it.action || "").toLowerCase();
+      const isJust = Boolean(meta.justification || it.category === "Justificación" || act.startsWith("justificación:") || act.startsWith("justificacion:"));
+      const isEnd = act.startsWith("terminó:") || act.startsWith("termino:");
+
+      // Si es una justificación declarada o fin de labor manual con duración discreta
+      if (isJust || isEnd) {
+        const discreteMs = Number(
+          it.duration_ms ||
+          (meta.duration_seconds ? meta.duration_seconds * 1000 : 0) ||
+          (meta.minutes ? meta.minutes * 60000 : 0)
+        ) || 0;
+        const durClamped = Math.min(discreteMs, 4 * 3600 * 1000);
+
+        if (durClamped > 0) {
+          buckets[masterCat] += durClamped;
+          // Recuperar de inactividad si era tiempo justificado productivo
+          if (masterCat === "Productivo" && buckets.Inactivo > 0) {
+            buckets.Inactivo = Math.max(0, buckets.Inactivo - durClamped);
+          }
+
+          const smartName = extractSmartAppName(it);
+          if (!taskMap[smartName]) {
+            taskMap[smartName] = { durationMs: 0, count: 0 };
+          }
+          taskMap[smartName].durationMs += durClamped;
+          taskMap[smartName].count++;
+
+          const d = new Date(it.created_at!);
+          const crHourStr = d.toLocaleString("en-US", { timeZone: "America/Costa_Rica", hour: "numeric", hour12: false });
+          const crHour = parseInt(crHourStr, 10) % 24;
+          if (hourIntervals[crHour] !== undefined) {
+            hourIntervals[crHour] = Math.min(60 * 60 * 1000, hourIntervals[crHour] + durClamped);
+          }
+          continue;
+        }
+      }
+
       const currTime = new Date(it.created_at!).getTime();
       const nextTime = i < sorted.length - 1 ? new Date(sorted[i + 1].created_at!).getTime() : currTime + 60000;
       const gap = Math.max(0, nextTime - currTime);

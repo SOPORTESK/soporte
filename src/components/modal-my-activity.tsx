@@ -88,13 +88,33 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
 
   for (let i = 0; i < sorted.length; i++) {
     const item = sorted[i];
+    const meta = (item.metadata || {}) as Record<string, any>;
+    const act = (item.action || "").toLowerCase();
+    const isJust = Boolean(meta.justification || item.category === "Justificación" || act.startsWith("justificación:") || act.startsWith("justificacion:"));
+
+    // Si es una justificación de tiempo manual/laguna, sumar sus minutos exactos declarados
+    if (isJust) {
+      const justMs = Number(
+        item.duration_ms ||
+        (meta.minutes ? meta.minutes * 60000 : 0) ||
+        (meta.duration_seconds ? meta.duration_seconds * 1000 : 0)
+      ) || 0;
+      const cat = extractSmartAppName(item);
+      if (!categoryMap[cat]) categoryMap[cat] = { durationMs: 0, count: 0 };
+      categoryMap[cat].durationMs += justMs;
+      categoryMap[cat].count++;
+      totalActiveMs += justMs;
+      // Recuperar el tiempo perdido de la inactividad acumulada
+      totalIdleMs = Math.max(0, totalIdleMs - justMs);
+      continue;
+    }
+
     const currTime = new Date(item.created_at).getTime();
     const nextTime = i < sorted.length - 1 ? new Date(sorted[i + 1].created_at).getTime() : currTime + 60000;
     const gap = Math.max(0, nextTime - currTime);
-    const meta = (item.metadata || {}) as Record<string, any>;
 
     // Es pausa real SOLO SI: fue bloqueo de pantalla explícito, suspensión o pausa personal
-    const isExplicitPause = meta.reason === "lock_screen" || meta.reason === "suspend" || item.category === "Pausa personal";
+    const isExplicitPause = meta.reason === "lock_screen" || meta.reason === "suspend" || item.category === "Pausa personal" || item.category === "Pausa Sanitaria";
 
     if (isExplicitPause) {
       totalIdleMs += Math.min(gap, 60 * 60 * 1000);
