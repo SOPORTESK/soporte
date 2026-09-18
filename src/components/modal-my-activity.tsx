@@ -66,10 +66,30 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
   const [timeline, setTimeline] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<"resumen" | "justificar">("resumen");
 
-  // Formulario de Justificación
+  // Filtro de Rango Temporal (Días, Semana, Mes, Personalizado)
+  type RangeMode = "hoy" | "ayer" | "semana" | "mes" | "custom";
+  const [rangeMode, setRangeMode] = useState<RangeMode>("hoy");
+  const [customDate, setCustomDate] = useState<string>(() => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  });
+
+  // Formulario de Justificación con fecha y rango de horas
+  const [justDate, setJustDate] = useState<string>(() => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  });
+  const [justStartTime, setJustStartTime] = useState("");
+  const [justEndTime, setJustEndTime] = useState("");
   const [justTimeRange, setJustTimeRange] = useState("");
   const [justMinutes, setJustMinutes] = useState("15");
-  const [justReason, setJustReason] = useState("Atención presencial en mostrador");
+  const [justReason, setJustReason] = useState("Limpieza de taller");
   const [justDetail, setJustDetail] = useState("");
   const [savingJust, setSavingJust] = useState(false);
   const [targetDailyHours, setTargetDailyHours] = useState(10);
@@ -77,14 +97,47 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
   const [catPage, setCatPage] = useState(1);
   const ITEMS_PER_PAGE = 5;
 
-  const fetchMyData = async () => {
+  const getDateRange = (mode: RangeMode, cDate: string) => {
+    const now = new Date();
+    const toYMD = (d: Date) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${y}-${m}-${day}`;
+    };
+    const todayStr = toYMD(now);
+
+    if (mode === "ayer") {
+      const yest = new Date(now);
+      yest.setDate(yest.getDate() - 1);
+      const yestStr = toYMD(yest);
+      return { start: yestStr, end: yestStr, label: "Ayer" };
+    }
+    if (mode === "semana") {
+      const startOfWeek = new Date(now);
+      const day = startOfWeek.getDay();
+      const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1);
+      startOfWeek.setDate(diff);
+      return { start: toYMD(startOfWeek), end: todayStr, label: "Esta Semana" };
+    }
+    if (mode === "mes") {
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      return { start: toYMD(startOfMonth), end: todayStr, label: "Este Mes" };
+    }
+    if (mode === "custom") {
+      return { start: cDate, end: cDate, label: cDate };
+    }
+    return { start: todayStr, end: todayStr, label: "Hoy" };
+  };
+
+  const fetchMyData = async (mode: RangeMode = rangeMode, cDate: string = customDate) => {
     setLoading(true);
     try {
-      const today = new Date().toISOString().split("T")[0];
+      const { start, end } = getDateRange(mode, cDate);
       const [resTimeline, resSchedule, resOvertime] = await Promise.all([
-        fetch(`/api/activity/timeline?agent=${encodeURIComponent(agentEmail)}&date=${today}`),
+        fetch(`/api/activity/timeline?agent=${encodeURIComponent(agentEmail)}&date=${start}&endDate=${end}`),
         fetch("/api/activity/schedule"),
-        fetch(`/api/activity/overtime?date=${today}&agent=${encodeURIComponent(agentEmail)}`),
+        fetch(`/api/activity/overtime?date=${start}&agent=${encodeURIComponent(agentEmail)}`),
       ]);
 
       const data = await resTimeline.json();
@@ -111,9 +164,9 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
   useEffect(() => {
     if (isOpen) {
       setCatPage(1);
-      fetchMyData();
+      fetchMyData(rangeMode, customDate);
     }
-  }, [isOpen, agentEmail]);
+  }, [isOpen, agentEmail, rangeMode, customDate]);
 
   // ─── CALCULAR MÉTRICAS CALIBRADAS ───
   const sorted = [...timeline]
@@ -124,6 +177,29 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
   let totalActiveMs = 0;
   let totalIdleMs = 0;
   const ACTIVE_GAP_LIMIT = 5 * 60 * 1000; // Tolerancia de 5 minutos: micro-pausas y desplazamientos breves cuentan como activos
+
+  interface DetectedGap {
+    id: string;
+    dateStr: string;
+    dateFormatted: string;
+    startTime: string;
+    endTime: string;
+    startTimeVal: string;
+    endTimeVal: string;
+    durationMs: number;
+    minutes: number;
+    reason: string;
+  }
+  const detectedGaps: DetectedGap[] = [];
+
+  const toTimeVal = (d: Date) => {
+    const parts = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }).split(":");
+    return `${parts[0]}:${parts[1]}`;
+  };
+  const toYMD = (d: Date) => {
+    const parts = d.toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
+    return parts;
+  };
 
   for (let i = 0; i < sorted.length; i++) {
     const item = sorted[i];
@@ -185,7 +261,24 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
     const isExplicitPause = meta.reason === "lock_screen" || meta.reason === "suspend" || item.category === "Pausa personal" || item.category === "Pausa Sanitaria";
 
     if (isExplicitPause) {
-      totalIdleMs += Math.min(gap, 60 * 60 * 1000);
+      const pauseDur = Math.min(gap, 60 * 60 * 1000);
+      totalIdleMs += pauseDur;
+      if (pauseDur >= 60000) {
+        const dStart = new Date(currTime);
+        const dEnd = new Date(currTime + pauseDur);
+        detectedGaps.push({
+          id: `gap-${i}`,
+          dateStr: toYMD(dStart),
+          dateFormatted: dStart.toLocaleDateString("es-CR", { day: "numeric", month: "short", timeZone: "America/Costa_Rica" }),
+          startTime: dStart.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }),
+          endTime: dEnd.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }),
+          startTimeVal: toTimeVal(dStart),
+          endTimeVal: toTimeVal(dEnd),
+          durationMs: pauseDur,
+          minutes: Math.round(pauseDur / 60000),
+          reason: item.category || "Pausa explícita",
+        });
+      }
       continue;
     }
 
@@ -201,24 +294,76 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
       categoryMap[cat].durationMs += ACTIVE_GAP_LIMIT;
       categoryMap[cat].count++;
       totalActiveMs += ACTIVE_GAP_LIMIT;
-      totalIdleMs += (gap - ACTIVE_GAP_LIMIT);
+
+      const idlePartMs = gap - ACTIVE_GAP_LIMIT;
+      totalIdleMs += idlePartMs;
+
+      if (idlePartMs >= 60000) {
+        const dStart = new Date(currTime + ACTIVE_GAP_LIMIT);
+        const dEnd = new Date(nextTime);
+        detectedGaps.push({
+          id: `gap-${i}`,
+          dateStr: toYMD(dStart),
+          dateFormatted: dStart.toLocaleDateString("es-CR", { day: "numeric", month: "short", timeZone: "America/Costa_Rica" }),
+          startTime: dStart.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }),
+          endTime: dEnd.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }),
+          startTimeVal: toTimeVal(dStart),
+          endTimeVal: toTimeVal(dEnd),
+          durationMs: idlePartMs,
+          minutes: Math.round(idlePartMs / 60000),
+          reason: "Inactividad prolongada (> 5m)",
+        });
+      }
     }
   }
+
+  // Ordenar lagunas de más reciente a más antigua
+  detectedGaps.reverse();
 
   // Cálculo de jornada base de 10 horas y tiempo perdido / tiempo extra
   const targetMs = targetDailyHours * 60 * 60 * 1000;
   const isOvertimeApproved = overtimeInfo?.status === "approved";
   const rawOvertimeMs = Math.max(0, totalActiveMs - targetMs);
   const deficitMs = Math.max(0, targetMs - totalActiveMs);
-  const detectedLostMin = Math.round(totalIdleMs / 60000) > 0
-    ? Math.round(totalIdleMs / 60000)
-    : Math.max(0, Math.round(deficitMs / 60000));
+
+  // Inactividad real detectada (NUNCA usar deficitMs como tiempo perdido)
+  const detectedLostMin = Math.max(0, Math.round(totalIdleMs / 60000));
 
   useEffect(() => {
-    if (activeTab === "justificar" && detectedLostMin > 0) {
-      setJustMinutes(String(detectedLostMin));
+    if (activeTab === "justificar") {
+      if (detectedLostMin > 0) {
+        setJustMinutes(String(detectedLostMin));
+      }
+      if (!justDate) {
+        const todayParts = new Date().toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
+        setJustDate(todayParts);
+      }
     }
   }, [activeTab, detectedLostMin]);
+
+  const handleSelectGap = (gap: DetectedGap) => {
+    setJustDate(gap.dateStr);
+    setJustStartTime(gap.startTimeVal);
+    setJustEndTime(gap.endTimeVal);
+    setJustTimeRange(`${gap.startTime} a ${gap.endTime}`);
+    setJustMinutes(String(gap.minutes));
+    toast.info(`Laguna seleccionada: ${gap.startTime} — ${gap.endTime} (${gap.minutes} min)`);
+  };
+
+  const handleTimeChange = (startVal: string, endVal: string) => {
+    setJustStartTime(startVal);
+    setJustEndTime(endVal);
+    if (startVal && endVal) {
+      const [sh, sm] = startVal.split(":").map(Number);
+      const [eh, em] = endVal.split(":").map(Number);
+      let diffMin = (eh * 60 + em) - (sh * 60 + sm);
+      if (diffMin < 0) diffMin += 24 * 60;
+      if (diffMin > 0) {
+        setJustMinutes(String(diffMin));
+        setJustTimeRange(`${startVal} a ${endVal}`);
+      }
+    }
+  };
 
   // Si no está aprobado el tiempo extra, topar la visualización en 10 horas
   const activeDisplayMs = (rawOvertimeMs > 0 && !isOvertimeApproved) ? targetMs : totalActiveMs;
@@ -287,22 +432,35 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
       const minVal = parseInt(justMinutes, 10) || 15;
       const durationMs = minVal * 60 * 1000;
       const detailText = justDetail.trim() ? ` — ${justDetail.trim()}` : "";
-      const timeRangeText = justTimeRange.trim() ? ` [Horario: ${justTimeRange.trim()}]` : "";
+      const timeRangeText = justTimeRange.trim()
+        ? ` [${justTimeRange.trim()}]`
+        : (justStartTime && justEndTime ? ` [${justStartTime} - ${justEndTime}]` : "");
+      const dateText = justDate ? ` (${justDate})` : "";
 
       const matchedPreset = WORKSHOP_JUSTIFY_PRESETS.find((p) => p.label === justReason);
       const categoryToUse = matchedPreset?.cat || "Justificación";
 
+      let customCreatedAt: string | undefined = undefined;
+      if (justDate) {
+        const timePart = justStartTime || "12:00";
+        customCreatedAt = new Date(`${justDate}T${timePart}:00`).toISOString();
+      }
+
       logActivity({
         agent_email: agentEmail,
         agent_name: agentName,
-        action: `Justificación: ${justReason}${detailText}${timeRangeText} (${minVal} min)`,
+        action: `Justificación: ${justReason}${detailText}${timeRangeText}${dateText} (${minVal} min)`,
         category: categoryToUse,
         duration_ms: durationMs,
+        created_at: customCreatedAt,
         metadata: {
           justification: true,
           reason: justReason,
           detail: justDetail.trim(),
-          time_range: justTimeRange.trim(),
+          time_range: justTimeRange.trim() || (justStartTime && justEndTime ? `${justStartTime} a ${justEndTime}` : undefined),
+          date: justDate,
+          start_time: justStartTime || undefined,
+          end_time: justEndTime || undefined,
           minutes: minVal,
           task: justReason,
         },
@@ -311,8 +469,10 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
       toast.success(`Justificación de ${minVal} min guardada para "${justReason}".`);
       setJustDetail("");
       setJustTimeRange("");
+      setJustStartTime("");
+      setJustEndTime("");
       setActiveTab("resumen");
-      setTimeout(() => fetchMyData(), 500);
+      setTimeout(() => fetchMyData(rangeMode, customDate), 600);
     } catch (e: any) {
       toast.error("Error al registrar justificación");
     } finally {
@@ -338,9 +498,14 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
               <Activity className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-base font-black text-foreground">Mi Actividad Diaria</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-black text-foreground">Mi Actividad Diaria</h2>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-violet-500/20 text-violet-300 font-mono">
+                  {getDateRange(rangeMode, customDate).label}
+                </span>
+              </div>
               <p className="text-xs text-muted-foreground">
-                Consolidado de tiempo de hoy: <span className="font-semibold text-foreground">{agentName}</span>
+                Consolidado de: <span className="font-semibold text-foreground">{agentName}</span>
               </p>
             </div>
           </div>
@@ -351,6 +516,48 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
           >
             <X className="h-4 w-4" />
           </button>
+        </div>
+
+        {/* ── SELECTOR DE RANGO TEMPORAL (Días, Semana, Mes) ── */}
+        <div className="px-6 py-2.5 bg-muted/30 border-b border-border/60 flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div className="flex items-center gap-1.5 text-muted-foreground font-semibold">
+            <Calendar className="h-3.5 w-3.5 text-violet-400" />
+            <span>Rango / Período:</span>
+          </div>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {[
+              { id: "hoy" as const, label: "Hoy" },
+              { id: "ayer" as const, label: "Ayer" },
+              { id: "semana" as const, label: "Esta Semana" },
+              { id: "mes" as const, label: "Este Mes" },
+            ].map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setRangeMode(item.id)}
+                className={`px-3 py-1 rounded-xl text-xs font-bold transition-all ${
+                  rangeMode === item.id
+                    ? "bg-violet-600 text-white shadow-sm shadow-violet-600/25"
+                    : "bg-background border border-border text-muted-foreground hover:text-foreground hover:bg-muted"
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+            <div className="flex items-center gap-1 pl-1">
+              <input
+                type="date"
+                value={customDate}
+                onChange={(e) => {
+                  setCustomDate(e.target.value);
+                  setRangeMode("custom");
+                }}
+                className={`px-2 py-0.5 rounded-xl text-xs font-semibold border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-violet-500 ${
+                  rangeMode === "custom" ? "border-violet-500 ring-1 ring-violet-500" : "border-border"
+                }`}
+              />
+            </div>
+          </div>
         </div>
 
         {/* ── PESTAÑAS ── */}
@@ -625,7 +832,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
           ) : (
             /* ── PESTAÑA: JUSTIFICAR TIEMPO PERDIDO / LAGUNA ── */
             <form onSubmit={handleSendJustification} className="space-y-5">
-              {/* Banner de Tiempo Perdido Detectado */}
+              {/* Banner de Inactividad Real Detectada */}
               <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border border-amber-500/25 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
                 <div className="flex items-center gap-3">
                   <div className="p-2.5 rounded-xl bg-amber-500/20 text-amber-400 shrink-0">
@@ -633,13 +840,16 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-foreground">Tiempo Detectado sin Actividad</span>
+                      <span className="text-xs font-bold text-foreground">Inactividad Real Detectada</span>
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                        {getDateRange(rangeMode, customDate).label}
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-muted text-muted-foreground">
                         Tolerancia: 5 min
                       </span>
                     </div>
                     <p className="text-lg font-black text-amber-400 font-mono">
-                      {detectedLostMin > 0 ? `${detectedLostMin} minutos (${formatMinHours(detectedLostMin * 60000)})` : "0 minutos (Al día)"}
+                      {detectedLostMin > 0 ? `${detectedLostMin} minutos (${formatMinHours(detectedLostMin * 60000)})` : "0 minutos (Sin inactividad detectada)"}
                     </p>
                   </div>
                 </div>
@@ -653,6 +863,92 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                     Usar {detectedLostMin} min detectados
                   </button>
                 )}
+              </div>
+
+              {/* Lagunas e Inactividad Detectadas por Hora */}
+              {detectedGaps.length > 0 && (
+                <div className="space-y-2 p-3.5 rounded-2xl bg-muted/20 border border-border/80">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                      <Clock className="h-3.5 w-3.5 text-amber-400" />
+                      Lagunas detectadas por hora ({detectedGaps.length}):
+                    </label>
+                    <span className="text-[11px] text-muted-foreground">Clic para cargar fecha y horas exactas</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-1">
+                    {detectedGaps.map((gap) => {
+                      const isSelected = justStartTime === gap.startTimeVal && justEndTime === gap.endTimeVal && justDate === gap.dateStr;
+                      return (
+                        <button
+                          key={gap.id}
+                          type="button"
+                          onClick={() => handleSelectGap(gap)}
+                          className={`p-2.5 rounded-xl border text-left transition-all flex items-center justify-between text-xs ${
+                            isSelected
+                              ? "bg-amber-500/20 border-amber-500 text-amber-200 ring-2 ring-amber-500/40 shadow-sm"
+                              : "bg-card border-border/80 hover:bg-muted text-foreground"
+                          }`}
+                        >
+                          <div className="space-y-0.5">
+                            <div className="flex items-center gap-1.5 font-bold font-mono">
+                              <span className="text-amber-400">{gap.startTime}</span>
+                              <span className="text-muted-foreground">a</span>
+                              <span className="text-amber-400">{gap.endTime}</span>
+                            </div>
+                            <p className="text-[10px] text-muted-foreground">
+                              {gap.dateFormatted} • {gap.reason}
+                            </p>
+                          </div>
+                          <span className="px-2 py-1 rounded-lg bg-amber-500/20 text-amber-300 font-black font-mono text-[11px] shrink-0">
+                            {gap.minutes}m
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Rango de Fecha y Horas Específicas */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 p-3.5 rounded-2xl bg-muted/20 border border-border/60">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-foreground flex items-center gap-1">
+                    <Calendar className="h-3 w-3 text-violet-400" />
+                    Fecha a justificar:
+                  </label>
+                  <input
+                    type="date"
+                    value={justDate}
+                    onChange={(e) => setJustDate(e.target.value)}
+                    className="w-full px-2.5 py-1.5 rounded-xl border border-border bg-background text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-foreground flex items-center gap-1">
+                    <Clock className="h-3 w-3 text-violet-400" />
+                    Hora Inicio:
+                  </label>
+                  <input
+                    type="time"
+                    value={justStartTime}
+                    onChange={(e) => handleTimeChange(e.target.value, justEndTime)}
+                    className="w-full px-2.5 py-1.5 rounded-xl border border-border bg-background text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-foreground flex items-center gap-1">
+                    <Clock className="h-3 w-3 text-violet-400" />
+                    Hora Fin:
+                  </label>
+                  <input
+                    type="time"
+                    value={justEndTime}
+                    onChange={(e) => handleTimeChange(justStartTime, e.target.value)}
+                    className="w-full px-2.5 py-1.5 rounded-xl border border-border bg-background text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  />
+                </div>
               </div>
 
               {/* Labores Manuales Elegibles (Tarjetas Clickables de 1 Clic) */}
@@ -760,39 +1056,24 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                 </div>
               </div>
 
-              {/* Rango de Horas y Detalle (Campos Opcionales) */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-muted-foreground">
-                    Horario aproximado <span className="text-[11px] text-muted-foreground/60">(Opcional)</span>:
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Ej: 7:30 a.m. a 8:15 a.m."
-                    value={justTimeRange}
-                    onChange={(e) => setJustTimeRange(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-border bg-background text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-violet-500"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-muted-foreground">
-                    Detalle o nota <span className="text-[11px] text-muted-foreground/60">(Opcional)</span>:
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Ej: Don Carlos vino por revisión de equipo..."
-                    value={justDetail}
-                    onChange={(e) => setJustDetail(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-border bg-background text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-violet-500"
-                  />
-                </div>
+              {/* Detalle o Explicación (Opcional) */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-muted-foreground">
+                  Detalle o nota <span className="text-[11px] text-muted-foreground/60">(Opcional - solo si deseas dar contexto)</span>:
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ej: Cliente Don Carlos vino por revisión de equipo..."
+                  value={justDetail}
+                  onChange={(e) => setJustDetail(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-border bg-background text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                />
               </div>
 
               {/* Botones de Acción */}
               <div className="pt-3 flex items-center justify-between border-t border-border/50">
                 <p className="text-[11px] text-muted-foreground">
-                  Se computará como labor oficial en tus métricas del día.
+                  Se computará como labor oficial en tus métricas del período.
                 </p>
                 <div className="flex items-center gap-2">
                   <button

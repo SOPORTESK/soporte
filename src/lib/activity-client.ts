@@ -6,6 +6,7 @@ interface LogActivityParams {
   case_id?: string | null;
   metadata?: Record<string, any> | null;
   duration_ms?: number | null;
+  created_at?: string;
 }
 
 export function logActivity(params: LogActivityParams): void {

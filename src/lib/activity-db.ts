@@ -248,7 +248,7 @@ export async function hasActiveManualTask(agentEmail: string): Promise<boolean> 
 
 export async function insertActivityLog(entry: ActivityLog): Promise<void> {
   const supabase = getClient();
-  const { error } = await supabase.from("activity_log").insert({
+  const insertPayload: any = {
     agent_email: entry.agent_email,
     agent_name: entry.agent_name,
     action: entry.action,
@@ -256,7 +256,11 @@ export async function insertActivityLog(entry: ActivityLog): Promise<void> {
     case_id: entry.case_id || null,
     metadata: entry.metadata || null,
     duration_ms: entry.duration_ms || null,
-  });
+  };
+  if (entry.created_at) {
+    insertPayload.created_at = entry.created_at;
+  }
+  const { error } = await supabase.from("activity_log").insert(insertPayload);
   if (error) console.error("[activity-db] insert error:", error.message);
 }
 

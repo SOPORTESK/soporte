@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { agent_email, agent_name, action, category, case_id, metadata, duration_ms } = body;
+    const { agent_email, agent_name, action, category, case_id, metadata, duration_ms, created_at } = body;
 
     if (!agent_email || !action || !category) {
       return NextResponse.json(
@@ -69,14 +69,14 @@ export async function POST(req: NextRequest) {
           }
 
           // 2. Descartar si está fuera de la hora de jornada
-          const minOfDay = nowCostaRica.getHours() * 60 + nowCostaRica.getMinutes();
-          const parseMin = (t: string) => {
-            const parts = (t || "").split(":");
-            return (parseInt(parts[0], 10) || 0) * 60 + (parseInt(parts[1], 10) || 0);
-          };
-          const startMin = parseMin(sched.scheduleStart);
-          const endMin = parseMin(sched.scheduleEnd);
-          if (minOfDay < startMin || minOfDay >= endMin) {
+          const [startH, startM] = (sched.scheduleStart || "07:00").split(":").map(Number);
+          const [endH, endM] = (sched.scheduleEnd || "17:00").split(":").map(Number);
+
+          const currentMinutes = nowCostaRica.getHours() * 60 + nowCostaRica.getMinutes();
+          const startMinutes = startH * 60 + startM;
+          const endMinutes = endH * 60 + endM;
+
+          if (currentMinutes < startMinutes || currentMinutes > endMinutes) {
             return NextResponse.json({
               success: true,
               discarded: true,
@@ -98,6 +98,7 @@ export async function POST(req: NextRequest) {
         case_id: case_id || null,
         metadata: metadata || null,
         duration_ms: duration_ms || null,
+        created_at: created_at || undefined,
       });
     } catch (e: any) {
       console.error("[activity/log] Async insert error:", e.message);
