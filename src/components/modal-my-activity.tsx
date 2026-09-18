@@ -30,6 +30,7 @@ import {
   ChevronRight,
   UserPlus,
   Users,
+  SlidersHorizontal,
 } from "lucide-react";
 import { toast } from "sonner";
 import { logActivity } from "@/lib/activity-client";
@@ -96,6 +97,26 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
   const [overtimeInfo, setOvertimeInfo] = useState<any>(null);
   const [catPage, setCatPage] = useState(1);
   const ITEMS_PER_PAGE = 5;
+
+  // Gestión interactiva y real de la Tolerancia de Inactividad (en minutos)
+  const [toleranceMin, setToleranceMin] = useState<number>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("activity_tolerance_minutes");
+      if (saved && !isNaN(Number(saved)) && Number(saved) > 0) {
+        return Number(saved);
+      }
+    }
+    return 5;
+  });
+
+  const handleUpdateTolerance = (newVal: number) => {
+    const safeVal = Math.max(1, Math.min(60, newVal));
+    setToleranceMin(safeVal);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("activity_tolerance_minutes", String(safeVal));
+    }
+    toast.success(`Tolerancia ajustada a ${safeVal} min. Métricas recalculadas.`);
+  };
 
   const getDateRange = (mode: RangeMode, cDate: string) => {
     const now = new Date();
@@ -176,7 +197,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
   const categoryMap: Record<string, { durationMs: number; count: number }> = {};
   let totalActiveMs = 0;
   let totalJustifiedMs = 0;
-  const ACTIVE_GAP_LIMIT = 5 * 60 * 1000; // Tolerancia de 5 minutos: micro-pausas y desplazamientos breves cuentan como activos
+  const ACTIVE_GAP_LIMIT = toleranceMin * 60 * 1000; // Tolerancia dinámica gestionable por el usuario (en minutos)
 
   interface DetectedGap {
     id: string;
@@ -311,7 +332,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
           endTimeVal: toTimeVal(dEnd),
           durationMs: idlePartMs,
           minutes: Math.round(idlePartMs / 60000),
-          reason: "Inactividad prolongada (> 5 min tolerancia)",
+          reason: `Inactividad prolongada (> ${toleranceMin} min tolerancia)`,
         });
       }
     }
@@ -570,6 +591,64 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
           </div>
         </div>
 
+        {/* ── GESTIÓN REAL DE TOLERANCIA DE INACTIVIDAD ── */}
+        <div className="px-6 py-2.5 bg-muted/20 border-b border-border/50 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-lg bg-amber-500/15 text-amber-400 shrink-0">
+              <SlidersHorizontal className="h-4 w-4" />
+            </div>
+            <div>
+              <span className="font-bold text-foreground">Gestión de Tolerancia:</span>{" "}
+              <span className="text-muted-foreground text-[11px] sm:text-xs">
+                Pausas menores a este límite cuentan como trabajo activo.
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Control +/- para subir y bajar */}
+            <div className="flex items-center rounded-xl border border-border bg-card shadow-xs p-0.5">
+              <button
+                type="button"
+                onClick={() => handleUpdateTolerance(Math.max(1, toleranceMin - 1))}
+                className="h-7 w-7 rounded-lg hover:bg-muted active:bg-muted/80 flex items-center justify-center font-black text-sm text-muted-foreground hover:text-foreground transition-colors"
+                title="Bajar tolerancia en 1 minuto"
+              >
+                −
+              </button>
+              <div className="px-3 font-mono font-black text-xs text-amber-400 min-w-[56px] text-center select-none">
+                {toleranceMin} min
+              </div>
+              <button
+                type="button"
+                onClick={() => handleUpdateTolerance(Math.min(60, toleranceMin + 1))}
+                className="h-7 w-7 rounded-lg hover:bg-muted active:bg-muted/80 flex items-center justify-center font-black text-sm text-muted-foreground hover:text-foreground transition-colors"
+                title="Subir tolerancia en 1 minuto"
+              >
+                +
+              </button>
+            </div>
+
+            {/* Accesos rápidos de 3m, 5m, 10m, 15m */}
+            <div className="flex items-center gap-1">
+              {[3, 5, 10, 15].map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => handleUpdateTolerance(preset)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                    toleranceMin === preset
+                      ? "bg-amber-500 text-black shadow-xs font-black"
+                      : "bg-card border border-border text-muted-foreground hover:text-foreground hover:bg-muted"
+                  }`}
+                >
+                  {preset}m
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
         {/* ── PESTAÑAS ── */}
         <div className="px-6 pt-3 flex gap-2 border-b border-border/50 bg-muted/20">
           <button
@@ -680,7 +759,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                         {formatMinHours(totalIdleMs)}
                       </p>
                       <div className="flex items-center justify-between mt-0.5">
-                        <span className="text-[10px] text-amber-500/80 font-medium">Tolerancia: 5 min</span>
+                        <span className="text-[10px] text-amber-500/80 font-medium">Tolerancia: {toleranceMin} min</span>
                         {totalIdleMs > 0 && (
                           <button
                             type="button"
@@ -855,11 +934,11 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                         {getDateRange(rangeMode, customDate).label}
                       </span>
                       <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-muted text-muted-foreground">
-                        Tolerancia: 5 min
+                        Tolerancia: {toleranceMin} min
                       </span>
                     </div>
                     <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
-                      No se encontraron pausas mayores a 5 minutos en este período. Toda la jornada transcurrió con actividad continua.
+                      No se encontraron pausas mayores a {toleranceMin} minutos en este período. Toda la jornada transcurrió con actividad continua.
                     </p>
                   </div>
                 </div>
@@ -877,7 +956,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                             {getDateRange(rangeMode, customDate).label}
                           </span>
                           <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-muted text-muted-foreground">
-                            Tolerancia: 5 min
+                            Tolerancia: {toleranceMin} min
                           </span>
                         </div>
                         <p className="text-2xl sm:text-3xl font-black text-amber-400 font-mono">
