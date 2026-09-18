@@ -339,7 +339,7 @@ export function ConversationList({
           const active = id === selectedId;
           const canalKind = (c.canal as ChannelKind) || "otros";
           const ci = clienteInfo(c.cliente);
-          const display = ci.nombre || ci.telefono || asText(c.title) || "Cliente";
+          const display = ci.displayName || ci.nombre || ci.whatsapp_name || ci.telefono || asText(c.title) || "Cliente";
           const sub = ci.cuenta || asText(c.title) || "";
           const estadoLower = String(c.estado || "").toLowerCase();
           const lm = lastMessage(c);

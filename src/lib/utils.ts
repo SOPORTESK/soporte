@@ -18,19 +18,42 @@ export function formatTime(iso: string | null | undefined): string {
 
 /** Extrae info del campo cliente (que puede ser objeto, string o null) */
 export function clienteInfo(cliente: unknown): {
-  nombre: string; telefono: string; correo: string; cedula: string; cuenta: string;
+  nombre: string;
+  telefono: string;
+  correo: string;
+  cedula: string;
+  cuenta: string;
+  whatsapp_name: string;
+  displayName: string;
 } {
   if (!cliente || typeof cliente !== "object") {
-    return { nombre: typeof cliente === "string" ? cliente : "", telefono: "", correo: "", cedula: "", cuenta: "" };
+    const raw = typeof cliente === "string" ? cliente : "";
+    return {
+      nombre: raw,
+      telefono: "",
+      correo: "",
+      cedula: "",
+      cuenta: "",
+      whatsapp_name: "",
+      displayName: raw,
+    };
   }
   const c = cliente as Record<string, unknown>;
   const s = (v: unknown) => typeof v === "string" ? v : v == null ? "" : String(v);
+
+  // Nombre formal / datos personales reales: NO incluye el perfil/pushName de WhatsApp
+  const nombreReal = s(c.nombre ?? c.full_name ?? c.name);
+  const whatsappName = s(c.whatsapp_name ?? c.pushName ?? c.profileName ?? c.verifiedName);
+  const tel = s(c.telefono ?? c.phone ?? c.tel);
+
   return {
-    nombre: s(c.nombre ?? c.whatsapp_name ?? c.pushName ?? c.profileName ?? c.contact_name ?? c.name ?? c.full_name ?? c.verifiedName),
-    telefono: s(c.telefono ?? c.phone ?? c.tel),
+    nombre: nombreReal,
+    telefono: tel,
     correo: s(c.correo ?? c.email ?? c.mail),
     cedula: s(c.cedula ?? c.identificacion ?? c.id_fiscal),
-    cuenta: s(c.cuenta ?? c.account ?? c.empresa ?? c.company)
+    cuenta: s(c.cuenta ?? c.account ?? c.empresa ?? c.company),
+    whatsapp_name: whatsappName,
+    displayName: nombreReal || whatsappName || tel || "Cliente",
   };
 }
 

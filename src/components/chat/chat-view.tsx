@@ -251,7 +251,7 @@ export function ChatView({
   // Mantener el nombre del perfil del contacto en la pestaña MIENTRAS este chat esté abierto
   React.useEffect(() => {
     const ci = clienteInfo(sekCase.cliente);
-    let name = ci.nombre || ci.telefono || asText(sekCase.title) || "Cliente";
+    let name = ci.displayName || ci.nombre || ci.whatsapp_name || ci.telefono || asText(sekCase.title) || "Cliente";
     name = name.replace(/^whatsapp\s*—\s*/i, "").trim() || "Cliente";
     const targetTitle = `${name} — Chat Sekunet`;
 
@@ -1846,7 +1846,7 @@ export function ChatView({
 
   const canalKind = (sekCase.canal as ChannelKind) || "web";
   const ci = clienteInfo(sekCase.cliente);
-  const display = ci.nombre || ci.telefono || asText(sekCase.title) || "Cliente";
+  const display = ci.displayName || ci.nombre || ci.whatsapp_name || ci.telefono || asText(sekCase.title) || "Cliente";
   const estadoLower = String(sekCase.estado || "").toLowerCase();
   const cerrado = estadoLower === "cerrado" || estadoLower === "resuelto" || estadoLower === "calificacion_pendiente";
   const iaAtendiendo = estadoLower === "ia_atendiendo";
