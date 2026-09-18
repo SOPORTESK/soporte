@@ -89,6 +89,29 @@ export async function POST(req: NextRequest) {
         if (caseData) {
           targetCase = caseData;
           validCaseId = caseData.id;
+
+          // Si el caso tiene poco o ningún historial (ej: stub de cierre), pero el cliente tiene teléfono,
+          // buscar el caso hermano que contiene la conversación real y los adjuntos
+          const histLen = (Array.isArray(caseData.histcliente) ? caseData.histcliente.length : 0) +
+                          (Array.isArray(caseData.histtecnico) ? caseData.histtecnico.length : 0);
+          if (histLen <= 2 && caseData.customer_phone) {
+            const { data: siblingCases } = await serviceClient
+              .from("sek_cases")
+              .select("id, estado, created_at, canal, customer_phone, cliente, histcliente, histtecnico, title, marca, modelo")
+              .ilike("customer_phone", `%${caseData.customer_phone}%`)
+              .order("created_at", { ascending: false })
+              .limit(6);
+
+            const caseWithMore = siblingCases?.find(c => {
+              const count = (Array.isArray(c.histcliente) ? c.histcliente.length : 0) +
+                            (Array.isArray(c.histtecnico) ? c.histtecnico.length : 0);
+              return count > histLen;
+            });
+            if (caseWithMore) {
+              targetCase = caseWithMore;
+              validCaseId = caseWithMore.id;
+            }
+          }
         }
       }
     }
@@ -137,13 +160,13 @@ export async function POST(req: NextRequest) {
           ...m,
           speaker: "Cliente",
           time: m.time || "",
-          sortKey: m.time ? new Date(m.time).getTime() : idx,
+          sortKey: typeof m.seq === "number" ? m.seq : (m.time ? new Date(m.time).getTime() : idx),
         })),
         ...histTecnico.map((m: any, idx: number) => ({
           ...m,
           speaker: m.role === "ia" ? "Asistente Virtual" : (m.author ? `Técnico (${m.author})` : "Técnico"),
           time: m.time || "",
-          sortKey: m.time ? new Date(m.time).getTime() : 1000 + idx,
+          sortKey: typeof m.seq === "number" ? m.seq : (m.time ? new Date(m.time).getTime() : 1000 + idx),
         })),
       ].sort((a, b) => a.sortKey - b.sortKey);
 
@@ -264,7 +287,8 @@ REGLAS DE ATENCIÓN TÉCNICA OBLIGATORIAS:
           content: m.content,
         })),
         temperature: 0.2,
-        maxTokens: 1800,
+        maxTokens: 2048,
+        timeoutMs: 60_000,
       });
 
       if (aiGen?.text) {

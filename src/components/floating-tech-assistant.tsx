@@ -80,17 +80,21 @@ export function FloatingTechAssistant() {
     };
   };
 
-  // Detectar caso actual desde la URL (?c=...) — polling + eventos de navegación
+  // Detectar caso actual desde estado global, URL (?c=...) y eventos de navegación
   React.useEffect(() => {
     const readCaseId = () => {
+      if (typeof window === "undefined") return;
+      const globalId = (window as any).__CURRENT_OPEN_CASE_ID__;
+      const globalPhone = (window as any).__CURRENT_OPEN_CASE_PHONE__;
       const params = new URLSearchParams(window.location.search);
-      const c = params.get("c");
-      setCaseId(prev => prev !== c ? c : prev);
+      const urlC = params.get("c");
+      const resolved = urlC || (globalId ? `case:${globalId}` : (globalPhone ? `tel:${globalPhone}` : null));
+      setCaseId(prev => (prev !== resolved ? resolved : prev));
     };
     readCaseId();
 
-    // popstate: back/forward
     window.addEventListener("popstate", readCaseId);
+    window.addEventListener("sek-open-case-change", readCaseId as EventListener);
 
     // Patch pushState/replaceState para detectar navegación client-side
     const origPush = history.pushState;
@@ -106,11 +110,12 @@ export function FloatingTechAssistant() {
       return ret;
     };
 
-    // Polling cada 800ms como respaldo para detectar cambios de URL
-    const pollInterval = setInterval(readCaseId, 800);
+    // Polling cada 500ms como respaldo
+    const pollInterval = setInterval(readCaseId, 500);
 
     return () => {
       window.removeEventListener("popstate", readCaseId);
+      window.removeEventListener("sek-open-case-change", readCaseId as EventListener);
       history.pushState = origPush;
       history.replaceState = origReplace;
       clearInterval(pollInterval);
@@ -150,7 +155,7 @@ export function FloatingTechAssistant() {
     }
   }, [messages, isOpen]);
 
-  const handleSend = async (text?: string, currentMessages?: TechMessage[]) => {
+  const handleSend = async (text?: string, currentMessages?: TechMessage[], targetCaseId?: string | null) => {
     const messageText = text?.trim() || input.trim();
     if ((!messageText && !pendingAttachment) || loading) return;
     if (!text) setInput("");
@@ -158,13 +163,18 @@ export function FloatingTechAssistant() {
 
     const messagesToSend = currentMessages ?? messages;
 
+    const globalId = typeof window !== "undefined" ? (window as any).__CURRENT_OPEN_CASE_ID__ : null;
+    const globalPhone = typeof window !== "undefined" ? (window as any).__CURRENT_OPEN_CASE_PHONE__ : null;
+    const urlC = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("c") : null;
+    const effectiveCaseId = targetCaseId || caseId || urlC || (globalId ? `case:${globalId}` : (globalPhone ? `tel:${globalPhone}` : null));
+
     try {
       const res = await fetch("/api/tech-assistant/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: messageText,
-          case_id: caseId,
+          case_id: effectiveCaseId,
           messages: messagesToSend.slice(-9),
           mediaUrl: pendingAttachment?.url,
           mediaType: pendingAttachment?.type,
@@ -329,15 +339,19 @@ Si después de consultar las fuentes disponibles no es posible confirmar una res
 Objetivo
 La prioridad es proporcionar respuestas correctas, útiles y fáciles de comprender, manteniendo una experiencia de servicio profesional, humana y eficiente.
 
-Redacte la respuesta para el cliente basándose en el contexto del caso y la última pregunta del cliente. Responda SOLO con el texto de la respuesta, sin explicaciones adicionales ni comentarios.`;
+Redacte la respuesta para el cliente basándose en el análisis integral de todo el caso abierto, el estado actual de la avería y la última intervención del cliente. Responda SOLO con el texto de la respuesta, sin explicaciones adicionales ni comentarios.`;
     setLoading(true);
+    const globalId = typeof window !== "undefined" ? (window as any).__CURRENT_OPEN_CASE_ID__ : null;
+    const globalPhone = typeof window !== "undefined" ? (window as any).__CURRENT_OPEN_CASE_PHONE__ : null;
+    const urlC = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("c") : null;
+    const effectiveCaseId = caseId || urlC || (globalId ? `case:${globalId}` : (globalPhone ? `tel:${globalPhone}` : null));
     try {
       const res = await fetch("/api/tech-assistant/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: instructionText,
-          case_id: caseId,
+          case_id: effectiveCaseId,
           messages: messages.slice(-9),
         }),
       });
@@ -365,14 +379,21 @@ Redacte la respuesta para el cliente basándose en el contexto del caso y la úl
   };
 
   const startNewCaseChat = async () => {
-    const params = new URLSearchParams(window.location.search);
-    const c = params.get("c");
-    setCaseId(c);
+    const globalId = typeof window !== "undefined" ? (window as any).__CURRENT_OPEN_CASE_ID__ : null;
+    const globalPhone = typeof window !== "undefined" ? (window as any).__CURRENT_OPEN_CASE_PHONE__ : null;
+    const urlC = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("c") : null;
+    const resolved = urlC || (globalId ? `case:${globalId}` : (globalPhone ? `tel:${globalPhone}` : null));
+
+    setCaseId(resolved);
     setSessionId(null);
     setMessages([]);
     localStorage.removeItem("sek_tech_assistant_session");
-    if (c) {
-      await handleSend("Realice un análisis técnico integral del caso abierto:\n1. Equipo y síntoma principal reportado.\n2. Evidencia técnica en adjuntos (imágenes, audios o documentos).\n3. Diagnóstico técnico y pruebas realizadas.\n4. Estado actual y recomendación o próximos pasos.", []);
+    if (resolved) {
+      await handleSend(
+        "Realice un análisis técnico integral del caso abierto:\n1. Equipo y síntoma principal reportado.\n2. Evidencia técnica en adjuntos (imágenes, audios o documentos).\n3. Diagnóstico técnico y pruebas realizadas.\n4. Estado actual y recomendación o próximos pasos.",
+        [],
+        resolved
+      );
     }
   };
 

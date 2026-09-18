@@ -165,7 +165,7 @@ export async function generateText(
   opts: GenerateOptions
 ): Promise<{ text: string; modelo: string; provider: string } | null> {
   const chain = await getChain(role);
-  const { system, messages, temperature = 0.3, maxTokens = 1024, timeoutMs = 20_000, tools } = opts;
+  const { system, messages, temperature = 0.3, maxTokens = 2048, timeoutMs = 60_000, tools } = opts;
 
   for (const m of chain) {
     try {

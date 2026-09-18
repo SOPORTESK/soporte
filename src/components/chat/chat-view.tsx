@@ -234,6 +234,20 @@ export function ChatView({
     return () => window.removeEventListener("sek-insert-draft", handler);
   }, []);
 
+  // Notificar al asistente técnico flotante el caso actualmente abierto en pantalla
+  React.useEffect(() => {
+    if (typeof window !== "undefined" && sekCase?.id) {
+      (window as any).__CURRENT_OPEN_CASE_ID__ = String(sekCase.id);
+      (window as any).__CURRENT_OPEN_CASE_PHONE__ = sekCase.customer_phone || "";
+      (window as any).__CURRENT_OPEN_CASE__ = sekCase;
+      window.dispatchEvent(
+        new CustomEvent("sek-open-case-change", {
+          detail: { caseId: String(sekCase.id), customerPhone: sekCase.customer_phone, sekCase }
+        })
+      );
+    }
+  }, [sekCase?.id, sekCase?.customer_phone]);
+
   // Mantener el nombre del perfil del contacto en la pestaña MIENTRAS este chat esté abierto
   React.useEffect(() => {
     const ci = clienteInfo(sekCase.cliente);
