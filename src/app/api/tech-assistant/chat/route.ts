@@ -263,7 +263,7 @@ ${openCaseConversation || "No hay mensajes registrados en este caso."}
 ${ragContext ? `\n\nINFORMACIÓN DE LA BASE DE CONOCIMIENTO (RAG):\n${ragContext}` : ""}
 
 REGLAS DE ATENCIÓN TÉCNICA OBLIGATORIAS:
-1. Conoces a fondo toda la conversación del caso abierto, lo que el cliente dijo en texto y en notas de voz, y las imágenes que envió.
+1. Te limitas ESTRICTAMENTE al caso que está actualmente abierto en pantalla. Conoces toda la conversación de este caso abierto (lo que el cliente y técnico dijeron en texto y en notas de voz transcritas, y las imágenes/videos analizados). NO traigas ni mezcles casos antiguos ni historiales pasados de otras fechas; tu alcance es única y exclusivamente el caso abierto actual.
 2. Si el técnico te pide un análisis del caso, o si la pregunta es sobre el caso en general (por ejemplo: "y el analisis del caso?", "analice el caso", "qué tiene?", "diagnóstico", "resumen del caso", etc.), o al iniciar un análisis del caso:
    DEBES responder con un **Análisis Técnico Integral del Caso** estructurado así:
    - **Equipo y Síntoma:** Marca, modelo exacto y qué falla o problema presenta el equipo según el cliente.
