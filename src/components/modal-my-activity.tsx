@@ -28,6 +28,8 @@ import {
   Briefcase,
   ChevronLeft,
   ChevronRight,
+  UserPlus,
+  Users,
 } from "lucide-react";
 import { toast } from "sonner";
 import { logActivity } from "@/lib/activity-client";
@@ -46,6 +48,18 @@ interface CategoryUsage {
   count: number;
   percentage: number;
 }
+
+const WORKSHOP_JUSTIFY_PRESETS = [
+  { label: "Limpieza de taller", short: "Limpieza", icon: Sparkles, cat: "Gestión del Taller" },
+  { label: "Bodega e Inventario", short: "Bodega", icon: Package, cat: "Gestión del Taller" },
+  { label: "Iniciar Diagnóstico Físico", short: "Diagnóstico", icon: Wrench, cat: "Servicio de Taller" },
+  { label: "Reparación de equipo", short: "Reparación", icon: Wrench, cat: "Servicio de Taller" },
+  { label: "Atención presencial en mostrador", short: "Ventanilla", icon: UserPlus, cat: "Gestión del Taller" },
+  { label: "Soporte a Ventas", short: "Soporte Ventas", icon: Briefcase, cat: "Soporte" },
+  { label: "Gestión de Residuos", short: "Residuos", icon: Trash2, cat: "Gestión de Residuos" },
+  { label: "Capacitación / Inducción", short: "Capacitación", icon: GraduationCap, cat: "On-the-Job Training (OJT)" },
+  { label: "Reunión de taller", short: "Reunión", icon: Users, cat: "Control Administrativo" },
+];
 
 export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Props) {
   const [loading, setLoading] = useState(true);
@@ -101,8 +115,6 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
     }
   }, [isOpen, agentEmail]);
 
-  if (!isOpen) return null;
-
   // ─── CALCULAR MÉTRICAS CALIBRADAS ───
   const sorted = [...timeline]
     .filter((t) => Boolean(t.created_at))
@@ -111,7 +123,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
   const categoryMap: Record<string, { durationMs: number; count: number }> = {};
   let totalActiveMs = 0;
   let totalIdleMs = 0;
-  const LUNCH_GAP_MS = 30 * 60 * 1000; // Solo ausencias mayores a 30 minutos continuos se consideran pausa/almuerzo
+  const ACTIVE_GAP_LIMIT = 5 * 60 * 1000; // Tolerancia de 5 minutos: micro-pausas y desplazamientos breves cuentan como activos
 
   for (let i = 0; i < sorted.length; i++) {
     const item = sorted[i];
@@ -179,17 +191,17 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
 
     let cat = extractSmartAppName(item);
 
-    if (gap <= LUNCH_GAP_MS) {
+    if (gap <= ACTIVE_GAP_LIMIT) {
       if (!categoryMap[cat]) categoryMap[cat] = { durationMs: 0, count: 0 };
       categoryMap[cat].durationMs += gap;
       categoryMap[cat].count++;
       totalActiveMs += gap;
     } else {
       if (!categoryMap[cat]) categoryMap[cat] = { durationMs: 0, count: 0 };
-      categoryMap[cat].durationMs += LUNCH_GAP_MS;
+      categoryMap[cat].durationMs += ACTIVE_GAP_LIMIT;
       categoryMap[cat].count++;
-      totalActiveMs += LUNCH_GAP_MS;
-      totalIdleMs += (gap - LUNCH_GAP_MS);
+      totalActiveMs += ACTIVE_GAP_LIMIT;
+      totalIdleMs += (gap - ACTIVE_GAP_LIMIT);
     }
   }
 
@@ -198,6 +210,15 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
   const isOvertimeApproved = overtimeInfo?.status === "approved";
   const rawOvertimeMs = Math.max(0, totalActiveMs - targetMs);
   const deficitMs = Math.max(0, targetMs - totalActiveMs);
+  const detectedLostMin = Math.round(totalIdleMs / 60000) > 0
+    ? Math.round(totalIdleMs / 60000)
+    : Math.max(0, Math.round(deficitMs / 60000));
+
+  useEffect(() => {
+    if (activeTab === "justificar" && detectedLostMin > 0) {
+      setJustMinutes(String(detectedLostMin));
+    }
+  }, [activeTab, detectedLostMin]);
 
   // Si no está aprobado el tiempo extra, topar la visualización en 10 horas
   const activeDisplayMs = (rawOvertimeMs > 0 && !isOvertimeApproved) ? targetMs : totalActiveMs;
@@ -220,6 +241,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
     }
   }
 
+  // Ordenar categorías por mayor tiempo acumulado y paginar
   const categoriesList: CategoryUsage[] = Object.entries(categoryMap)
     .map(([cat, val]) => ({
       category: cat,
@@ -253,8 +275,8 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
     return <Globe className="h-4 w-4 text-muted-foreground" />;
   };
 
-  const handleSendJustification = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSendJustification = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (!justReason.trim()) {
       toast.error("Por favor seleccione o escriba un motivo.");
       return;
@@ -267,11 +289,14 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
       const detailText = justDetail.trim() ? ` — ${justDetail.trim()}` : "";
       const timeRangeText = justTimeRange.trim() ? ` [Horario: ${justTimeRange.trim()}]` : "";
 
+      const matchedPreset = WORKSHOP_JUSTIFY_PRESETS.find((p) => p.label === justReason);
+      const categoryToUse = matchedPreset?.cat || "Justificación";
+
       logActivity({
         agent_email: agentEmail,
         agent_name: agentName,
         action: `Justificación: ${justReason}${detailText}${timeRangeText} (${minVal} min)`,
-        category: "Justificación",
+        category: categoryToUse,
         duration_ms: durationMs,
         metadata: {
           justification: true,
@@ -279,10 +304,11 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
           detail: justDetail.trim(),
           time_range: justTimeRange.trim(),
           minutes: minVal,
+          task: justReason,
         },
       });
 
-      toast.success("Justificación de tiempo registrada correctamente.");
+      toast.success(`Justificación de ${minVal} min guardada para "${justReason}".`);
       setJustDetail("");
       setJustTimeRange("");
       setActiveTab("resumen");
@@ -293,6 +319,8 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
       setSavingJust(false);
     }
   };
+
+  if (!isOpen) return null;
 
   return (
     <div
@@ -347,7 +375,12 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
             }`}
           >
             <FileEdit className="h-4 w-4" />
-            Justificar Tiempo Perdido / Laguna
+            Justificar Tiempo Perdido
+            {detectedLostMin > 0 && (
+              <span className="ml-1 px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-bold font-mono">
+                {detectedLostMin}m
+              </span>
+            )}
           </button>
         </div>
 
@@ -419,7 +452,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                   <div className="p-3.5 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-2 shadow-sm">
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">
-                        Pausas / Almuerzo
+                        Inactividad / Pausas
                       </span>
                       <div className="h-7 w-7 rounded-lg bg-amber-500/15 text-amber-400 grid place-items-center shrink-0">
                         <Clock className="h-3.5 w-3.5" />
@@ -429,7 +462,18 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                       <p className="text-xl font-black text-amber-400 tabular-nums whitespace-nowrap tracking-tight">
                         {formatMinHours(totalIdleMs)}
                       </p>
-                      <span className="text-[10px] text-amber-500/80 font-medium">Inactividad acumulada</span>
+                      <div className="flex items-center justify-between mt-0.5">
+                        <span className="text-[10px] text-amber-500/80 font-medium">Tolerancia: 5 min</span>
+                        {totalIdleMs > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setActiveTab("justificar")}
+                            className="text-[10px] font-bold text-violet-400 hover:text-violet-300 underline underline-offset-2 transition-colors"
+                          >
+                            Justificar
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -581,123 +625,192 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
           ) : (
             /* ── PESTAÑA: JUSTIFICAR TIEMPO PERDIDO / LAGUNA ── */
             <form onSubmit={handleSendJustification} className="space-y-5">
-              <div className="p-4 rounded-2xl bg-violet-500/10 border border-violet-500/20 text-xs text-violet-300 flex items-start gap-3">
-                <AlertCircle className="h-5 w-5 text-violet-400 shrink-0 mt-0.5" />
-                <div className="space-y-1">
-                  <p className="font-bold text-foreground">¿Tuviste un período fuera de estación no registrado?</p>
-                  <p className="text-muted-foreground leading-relaxed">
-                    Si atendiste a un cliente presencial, fuiste a bodega, tuviste un problema técnico o una reunión, justifica los minutos aquí para que el sistema los compute como tiempo productivo justificado en la auditoría.
-                  </p>
+              {/* Banner de Tiempo Perdido Detectado */}
+              <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border border-amber-500/25 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-xl bg-amber-500/20 text-amber-400 shrink-0">
+                    <Clock className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-foreground">Tiempo Detectado sin Actividad</span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                        Tolerancia: 5 min
+                      </span>
+                    </div>
+                    <p className="text-lg font-black text-amber-400 font-mono">
+                      {detectedLostMin > 0 ? `${detectedLostMin} minutos (${formatMinHours(detectedLostMin * 60000)})` : "0 minutos (Al día)"}
+                    </p>
+                  </div>
+                </div>
+                {detectedLostMin > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setJustMinutes(String(detectedLostMin))}
+                    className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs transition-all flex items-center gap-1.5 shadow-md shadow-amber-500/20 active:scale-95"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    Usar {detectedLostMin} min detectados
+                  </button>
+                )}
+              </div>
+
+              {/* Labores Manuales Elegibles (Tarjetas Clickables de 1 Clic) */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                    <Wrench className="h-3.5 w-3.5 text-violet-400" />
+                    Labor realizada en taller (1 solo clic):
+                  </label>
+                  <span className="text-[11px] text-muted-foreground">Selecciona sin necesidad de escribir</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {WORKSHOP_JUSTIFY_PRESETS.map((preset) => {
+                    const Icon = preset.icon;
+                    const isSelected = justReason === preset.label;
+                    return (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        onClick={() => setJustReason(preset.label)}
+                        className={`p-3 rounded-2xl border text-left flex flex-col justify-between gap-2 transition-all relative overflow-hidden ${
+                          isSelected
+                            ? "bg-violet-600/15 border-violet-500 text-violet-200 ring-2 ring-violet-500/40 shadow-sm"
+                            : "bg-card/70 border-border/70 hover:bg-muted/60 text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between w-full">
+                          <div
+                            className={`p-2 rounded-xl transition-colors ${
+                              isSelected ? "bg-violet-600 text-white shadow-sm" : "bg-muted text-muted-foreground"
+                            }`}
+                          >
+                            <Icon className="h-4 w-4" />
+                          </div>
+                          {isSelected && <CheckCircle2 className="h-4 w-4 text-violet-400" />}
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold text-foreground line-clamp-1 leading-snug">
+                            {preset.label}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground line-clamp-1 mt-0.5">
+                            {preset.cat}
+                          </p>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* Motivo Principal */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-foreground">Motivo de la actividad:</label>
-                  <select
-                    value={justReason}
-                    onChange={(e) => setJustReason(e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-violet-500"
-                  >
-                    <option value="Atención presencial en mostrador">Atención presencial en mostrador</option>
-                    <option value="Soporte técnico físico a cliente">Soporte técnico físico a cliente</option>
-                    <option value="Traslado a Bodega / Búsqueda de repuestos">Traslado a Bodega / Búsqueda de repuestos</option>
-                    <option value="Reunión o llamada de trabajo">Reunión o llamada de trabajo</option>
-                    <option value="Limpieza y orden de taller">Limpieza y orden de taller</option>
-                    <option value="Fallo eléctrico / Problema de conexión">Fallo eléctrico / Problema de conexión</option>
-                    <option value="Capacitación / Inducción">Capacitación / Inducción</option>
-                    <option value="Otro motivo justificado">Otro motivo justificado</option>
-                  </select>
+              {/* Minutos a Justificar: Chips Rápidos + Input Numérico */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-foreground">Tiempo a justificar:</label>
+                  <span className="text-xs font-mono font-black text-violet-400">
+                    {justMinutes} minutos ({formatMinHours((parseInt(justMinutes, 10) || 0) * 60000)})
+                  </span>
                 </div>
 
-                {/* Minutos estimados con chips */}
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-foreground">Tiempo aproximado (minutos):</label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {[
-                      { label: "15m", val: "15" },
-                      { label: "30m", val: "30" },
-                      { label: "45m", val: "45" },
-                      { label: "1h", val: "60" },
-                      { label: "1h 30m", val: "90" },
-                      { label: "2h", val: "120" },
-                    ].map((item) => (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {detectedLostMin > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setJustMinutes(String(detectedLostMin))}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
+                        justMinutes === String(detectedLostMin)
+                          ? "bg-amber-500 text-black border-amber-500 shadow-sm"
+                          : "bg-amber-500/10 border-amber-500/30 text-amber-300 hover:bg-amber-500/20"
+                      }`}
+                    >
+                      Exacto detectado ({detectedLostMin}m)
+                    </button>
+                  )}
+                  {[15, 30, 45, 60, 90, 120].map((val) => {
+                    const sVal = String(val);
+                    const isSel = justMinutes === sVal;
+                    return (
                       <button
-                        key={item.val}
+                        key={val}
                         type="button"
-                        onClick={() => setJustMinutes(item.val)}
-                        className={`px-2.5 py-1 rounded-xl text-xs font-semibold border transition-all ${
-                          justMinutes === item.val
-                            ? "bg-violet-600 text-white border-violet-600 shadow-sm shadow-violet-600/25"
+                        onClick={() => setJustMinutes(sVal)}
+                        className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
+                          isSel
+                            ? "bg-violet-600 text-white border-violet-600 shadow-sm"
                             : "bg-muted/40 border-border text-muted-foreground hover:text-foreground hover:bg-muted"
                         }`}
                       >
-                        {item.label}
+                        {val < 60 ? `${val}m` : `${val / 60}h${val % 60 ? ` ${val % 60}m` : ""}`}
                       </button>
-                    ))}
+                    );
+                  })}
+                  <div className="flex items-center gap-1.5 ml-auto">
+                    <span className="text-[11px] text-muted-foreground">Otro:</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="600"
+                      value={justMinutes}
+                      onChange={(e) => setJustMinutes(e.target.value)}
+                      className="w-20 px-2 py-1 rounded-xl border border-border bg-background text-xs font-mono font-bold text-foreground text-center focus:ring-2 focus:ring-violet-500 focus:outline-none"
+                    />
+                    <span className="text-[11px] text-muted-foreground font-semibold">min</span>
                   </div>
-                  <select
-                    value={justMinutes}
-                    onChange={(e) => setJustMinutes(e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-violet-500"
-                  >
-                    <option value="10">10 minutos</option>
-                    <option value="15">15 minutos</option>
-                    <option value="20">20 minutos</option>
-                    <option value="30">30 minutos</option>
-                    <option value="45">45 minutos</option>
-                    <option value="60">1 hora (60 minutos)</option>
-                    <option value="90">1 hora y media (90 minutos)</option>
-                    <option value="120">2 horas (120 minutos)</option>
-                  </select>
                 </div>
               </div>
 
-              {/* Rango de Horas (Opcional) */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-foreground">
-                  Horario aproximado (Opcional, ej: &ldquo;7:30 AM - 8:00 AM&rdquo;):
-                </label>
-                <input
-                  type="text"
-                  placeholder="Ej: 7:30 a.m. a 8:00 a.m."
-                  value={justTimeRange}
-                  onChange={(e) => setJustTimeRange(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-violet-500"
-                />
+              {/* Rango de Horas y Detalle (Campos Opcionales) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-muted-foreground">
+                    Horario aproximado <span className="text-[11px] text-muted-foreground/60">(Opcional)</span>:
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ej: 7:30 a.m. a 8:15 a.m."
+                    value={justTimeRange}
+                    onChange={(e) => setJustTimeRange(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-border bg-background text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-muted-foreground">
+                    Detalle o nota <span className="text-[11px] text-muted-foreground/60">(Opcional)</span>:
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ej: Don Carlos vino por revisión de equipo..."
+                    value={justDetail}
+                    onChange={(e) => setJustDetail(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-border bg-background text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  />
+                </div>
               </div>
 
-              {/* Detalle o Explicación */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-foreground">
-                  Detalle o descripción (Opcional):
-                </label>
-                <textarea
-                  rows={3}
-                  placeholder="Escriba cualquier detalle relevante para la supervisión (ej: Cliente Don Carlos vino por revisión de equipo...)"
-                  value={justDetail}
-                  onChange={(e) => setJustDetail(e.target.value)}
-                  className="w-full p-3 rounded-xl border border-border bg-background text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-violet-500 resize-none"
-                />
-              </div>
-
-              <div className="pt-2 flex justify-end gap-2.5">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("resumen")}
-                  className="px-4 py-2.5 rounded-xl border border-border hover:bg-muted text-xs font-semibold text-muted-foreground transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={savingJust}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold shadow-md shadow-violet-600/25 transition-all disabled:opacity-50"
-                >
-                  <Send className="h-3.5 w-3.5" />
-                  {savingJust ? "Guardando..." : "Guardar Justificación"}
-                </button>
+              {/* Botones de Acción */}
+              <div className="pt-3 flex items-center justify-between border-t border-border/50">
+                <p className="text-[11px] text-muted-foreground">
+                  Se computará como labor oficial en tus métricas del día.
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("resumen")}
+                    className="px-4 py-2.5 rounded-xl border border-border hover:bg-muted text-xs font-semibold text-muted-foreground transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingJust || !justReason.trim()}
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold shadow-md shadow-violet-600/25 transition-all disabled:opacity-50 active:scale-95"
+                  >
+                    <Send className="h-3.5 w-3.5" />
+                    {savingJust ? "Guardando..." : `Guardar Justificación (${justMinutes} min)`}
+                  </button>
+                </div>
               </div>
             </form>
           )}
