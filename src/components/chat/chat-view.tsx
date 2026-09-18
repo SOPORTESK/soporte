@@ -234,6 +234,38 @@ export function ChatView({
     return () => window.removeEventListener("sek-insert-draft", handler);
   }, []);
 
+  // Mantener el nombre del perfil del contacto en la pestaña MIENTRAS este chat esté abierto
+  React.useEffect(() => {
+    const ci = clienteInfo(sekCase.cliente);
+    let name = ci.nombre || ci.telefono || asText(sekCase.title) || "Cliente";
+    name = name.replace(/^whatsapp\s*—\s*/i, "").trim() || "Cliente";
+    const targetTitle = `${name} — Chat Sekunet`;
+
+    document.title = targetTitle;
+
+    let observer: MutationObserver | null = null;
+    const titleEl = document.querySelector("title");
+
+    const enforceTitle = () => {
+      if (document.title !== targetTitle) {
+        document.title = targetTitle;
+      }
+    };
+
+    if (titleEl && typeof MutationObserver !== "undefined") {
+      observer = new MutationObserver(enforceTitle);
+      observer.observe(titleEl, { subtree: true, characterData: true, childList: true });
+    }
+
+    const interval = setInterval(enforceTitle, 500);
+
+    return () => {
+      if (observer) observer.disconnect();
+      clearInterval(interval);
+      document.title = "Chat Sekunet - Atención al cliente";
+    };
+  }, [sekCase.id, sekCase.cliente, sekCase.title]);
+
   const handleMessageUpdate = (
     historyType: "histcliente" | "histtecnico",
     originalIndex: number,

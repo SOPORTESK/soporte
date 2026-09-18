@@ -153,7 +153,7 @@ function mergeGroups(rawCases: SekCase[]): SekCase[] {
   return out;
 }
 
-const BASE_TITLE = "Sekunet Chat";
+const BASE_TITLE = "Chat Sekunet - Atención al cliente";
 
 // Campos para la lista del inbox (consulta ligera sin historiales pesados).
 // Las notificaciones de mensajes nuevos usan unread_count y last_message_at.
@@ -647,20 +647,13 @@ export function InboxClient({
     || (selectedId ? (allCases.find(c => String(c.id) === selectedId) as any || null) : null);
 
   /* Título dinámico de la pestaña:
-     Muestra el nombre de perfil del contacto que se está atendiendo ÚNICAMENTE en ese escenario.
-     Al volver a la lista o no tener ningún chat abierto, regresa al título general ("Sekunet Chat"). */
-  const activeClientName = React.useMemo(() => {
-    if (!selected) return null;
-    const ci = clienteInfo(selected.cliente);
-    let name = ci.nombre || ci.telefono || asText(selected.title) || selected.customer_phone || "";
-    name = name.replace(/^whatsapp\s*—\s*/i, "").trim();
-    return name || null;
-  }, [selected]);
-
+     Cuando hay un chat abierto, ChatView se encarga activamente de mantener el nombre del perfil del contacto.
+     Al volver a la lista o no tener ningún chat abierto, regresa al título general ("Chat Sekunet - Atención al cliente"). */
   React.useEffect(() => {
-    const titleBase = activeClientName ? `${activeClientName} — ${BASE_TITLE}` : BASE_TITLE;
-    document.title = unreadTotal > 0 ? `(${unreadTotal}) ${titleBase}` : titleBase;
-  }, [unreadTotal, activeClientName]);
+    if (selected) return; // ChatView se encarga del título mientras el chat esté abierto
+    const base = BASE_TITLE;
+    document.title = unreadTotal > 0 ? `(${unreadTotal}) ${base}` : base;
+  }, [unreadTotal, selected]);
 
   const [listWidth, setListWidth] = React.useState<number>(340);
   const [mounted, setMounted] = React.useState(false);
