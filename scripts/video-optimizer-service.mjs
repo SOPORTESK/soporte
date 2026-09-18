@@ -305,6 +305,59 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Webhook Ingress Proxy endpoint: intercepta el webhook de Evolution, protege a Vercel de 413, y reenvía
+  if (req.method === "POST" && (url.pathname === "/webhook" || url.pathname === "/api/webhook" || url.pathname === "/video-optimizer/webhook")) {
+    let bodyRaw = "";
+    req.on("data", chunk => { bodyRaw += chunk; });
+    req.on("end", async () => {
+      try {
+        const body = JSON.parse(bodyRaw || "{}");
+        const VERCEL_WEBHOOK_URL = process.env.VERCEL_WEBHOOK_URL || "https://sekachat.vercel.app/api/webhooks/evolution";
+
+        // Detectar si Evolution incluyó base64 pesado
+        const msg = body.data?.message || body.data?.messages?.[0]?.message;
+        const base64Data = msg?.base64 || body.data?.base64;
+
+        if (base64Data && typeof base64Data === "string" && base64Data.length > 500 * 1024) {
+          console.log(`[optimizer-proxy] Base64 pesado detectado (${Math.round(base64Data.length / 1024 / 1024)} MB). Removiendo del payload antes de enviar a Vercel para prevenir HTTP 413...`);
+          if (msg?.base64) delete msg.base64;
+          if (body.data?.base64) delete body.data.base64;
+        }
+
+        const cleanPayload = JSON.stringify(body);
+        console.log(`[optimizer-proxy] Reenviando webhook a Vercel (${Buffer.byteLength(cleanPayload)} bytes)...`);
+
+        let forwardStatus = 200;
+        let forwardBody = "{}";
+
+        try {
+          const vRes = await fetch(VERCEL_WEBHOOK_URL, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "apikey": req.headers["apikey"] || "B6D711FCDE4D4FD5936544120E713976",
+            },
+            body: cleanPayload,
+            signal: AbortSignal.timeout(20000),
+          });
+          forwardStatus = vRes.status;
+          forwardBody = await vRes.text();
+          console.log(`[optimizer-proxy] Vercel respondió HTTP ${forwardStatus}`);
+        } catch (fwdErr) {
+          console.error("[optimizer-proxy] Error reenviando a Vercel:", fwdErr.message);
+        }
+
+        res.writeHead(forwardStatus, { "Content-Type": "application/json" });
+        res.end(forwardBody);
+      } catch (err) {
+        console.error("[optimizer-proxy] Error procesando webhook ingress:", err.message);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, proxied: true }));
+      }
+    });
+    return;
+  }
+
   // Optimize endpoint
   if (req.method === "POST" && (url.pathname === "/optimize" || url.pathname === "/api/optimize" || url.pathname === "/video-optimizer/optimize")) {
     const authHeader = req.headers["authorization"] || "";
