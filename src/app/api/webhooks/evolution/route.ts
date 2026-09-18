@@ -543,7 +543,7 @@ function extractMediaInfo(msgObj: any): {
   };
 }
 
-function triggerSidecarOptimizer(params: {
+async function triggerSidecarOptimizer(params: {
   encUrl?: string | null;
   mediaKey?: any;
   videoBase64?: string;
@@ -556,36 +556,36 @@ function triggerSidecarOptimizer(params: {
   const OPTIMIZER_SECRET = process.env.VIDEO_OPTIMIZER_SECRET || "sekunet_video_opt_2026_secure_key_x99";
 
   console.log(`[evo-webhook] Derivando archivo pesado a VPS Sidecar para caso ${params.caseId}, mensaje ${params.messageId}...`);
-  fetch(`${OPTIMIZER_URL.replace(/\/$/, "")}/optimize`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${OPTIMIZER_SECRET}`,
-    },
-    body: JSON.stringify({
-      encUrl: params.encUrl || undefined,
-      mediaKey: params.mediaKey,
-      videoBase64: params.videoBase64,
-      mediaType: params.mediaType || "video",
-      fileName: params.fileName,
-      caseId: params.caseId,
-      messageId: params.messageId,
-      supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
-      supabaseKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
-    }),
-  })
-    .then(async (res) => {
-      if (!res.ok) {
-        const t = await res.text().catch(() => "");
-        console.error(`[evo-webhook] Sidecar VPS devolvió HTTP ${res.status}: ${t}`);
-      } else {
-        const data = await res.json().catch(() => ({}));
-        console.log(`[evo-webhook] Sidecar VPS encolado exitosamente:`, data);
-      }
-    })
-    .catch((err) => {
-      console.error(`[evo-webhook] Error invocando Sidecar VPS:`, err.message);
+  try {
+    const res = await fetch(`${OPTIMIZER_URL.replace(/\/$/, "")}/optimize`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${OPTIMIZER_SECRET}`,
+      },
+      body: JSON.stringify({
+        encUrl: params.encUrl || undefined,
+        mediaKey: params.mediaKey,
+        videoBase64: params.videoBase64,
+        mediaType: params.mediaType || "video",
+        fileName: params.fileName,
+        caseId: params.caseId,
+        messageId: params.messageId,
+        supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
+        supabaseKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+      }),
+      signal: AbortSignal.timeout(5000),
     });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      console.error(`[evo-webhook] Sidecar VPS devolvió HTTP ${res.status}: ${t}`);
+    } else {
+      const data = await res.json().catch(() => ({}));
+      console.log(`[evo-webhook] Sidecar VPS encolado exitosamente:`, data);
+    }
+  } catch (err: any) {
+    console.error(`[evo-webhook] Error invocando Sidecar VPS:`, err.message);
+  }
 }
 
 const jidToPhone = (jid?: string | null) => {
@@ -1719,7 +1719,7 @@ export async function POST(req: NextRequest) {
       }
 
       if (needsOptimizer && existing?.id) {
-        triggerSidecarOptimizer({
+        await triggerSidecarOptimizer({
           encUrl: optimizerEncUrl,
           mediaKey: optimizerMediaKey,
           videoBase64: optimizerBase64,
@@ -2005,6 +2005,17 @@ export async function POST(req: NextRequest) {
               p_customer_phone: phone || jid,
             });
             console.log(`[evo-webhook] Fuera de horario — mensaje agregado al caso existente ${claimed.caseId}, sin repetir aviso`);
+            if (needsOptimizer && claimed?.caseId) {
+              await triggerSidecarOptimizer({
+                encUrl: optimizerEncUrl,
+                mediaKey: optimizerMediaKey,
+                videoBase64: optimizerBase64,
+                mediaType: mediaType || "video",
+                fileName,
+                caseId: String(claimed.caseId),
+                messageId: keyId,
+              });
+            }
             return NextResponse.json({ ok: true, unattended: true, fueraHorario: true, reused: true });
           }
           const msgHorario = await getFueraHorarioMsg(supabase);
@@ -2025,7 +2036,7 @@ export async function POST(req: NextRequest) {
           });
           console.log(`[evo-webhook] Modo No Atendido + fuera de horario — caso ${claimed.caseId} creado cerrado`);
           if (needsOptimizer && claimed?.caseId) {
-            triggerSidecarOptimizer({
+            await triggerSidecarOptimizer({
               encUrl: optimizerEncUrl,
               mediaKey: optimizerMediaKey,
               videoBase64: optimizerBase64,
@@ -2058,7 +2069,7 @@ export async function POST(req: NextRequest) {
 
         console.log(`[evo-webhook] Modo No Atendido + fuera de horario — caso ${newCase?.id} creado cerrado (respaldo)`);
         if (needsOptimizer && newCase?.id) {
-          triggerSidecarOptimizer({
+          await triggerSidecarOptimizer({
             encUrl: optimizerEncUrl,
             mediaKey: optimizerMediaKey,
             videoBase64: optimizerBase64,
@@ -2100,7 +2111,7 @@ export async function POST(req: NextRequest) {
             });
             console.log(`[evo-webhook] Modo No Atendido — mensaje agregado al caso existente ${claimed.caseId}, sin repetir bienvenida`);
             if (needsOptimizer && claimed?.caseId) {
-              triggerSidecarOptimizer({
+              await triggerSidecarOptimizer({
                 encUrl: optimizerEncUrl,
                 mediaKey: optimizerMediaKey,
                 videoBase64: optimizerBase64,
@@ -2129,7 +2140,7 @@ export async function POST(req: NextRequest) {
           });
           console.log(`[evo-webhook] Modo No Atendido — caso ${claimed.caseId} creado como escalado, bienvenida enviada`);
           if (needsOptimizer && claimed?.caseId) {
-            triggerSidecarOptimizer({
+            await triggerSidecarOptimizer({
               encUrl: optimizerEncUrl,
               mediaKey: optimizerMediaKey,
               videoBase64: optimizerBase64,
@@ -2161,7 +2172,7 @@ export async function POST(req: NextRequest) {
 
         console.log(`[evo-webhook] Modo No Atendido — caso ${newCase?.id} creado como escalado (respaldo)`);
         if (needsOptimizer && newCase?.id) {
-          triggerSidecarOptimizer({
+          await triggerSidecarOptimizer({
             encUrl: optimizerEncUrl,
             mediaKey: optimizerMediaKey,
             videoBase64: optimizerBase64,
@@ -2213,7 +2224,7 @@ export async function POST(req: NextRequest) {
       }
 
       if (needsOptimizer && nuevoCaseId) {
-        triggerSidecarOptimizer({
+        await triggerSidecarOptimizer({
           encUrl: optimizerEncUrl,
           mediaKey: optimizerMediaKey,
           videoBase64: optimizerBase64,

@@ -163,7 +163,7 @@ async function updateCaseInSupabase(supabaseUrl, supabaseKey, caseId, messageId,
         msg.mediaUrl = publicUrl;
         msg.mediaType = targetMime;
         msg.fileName = fileName;
-        if (msg.content && msg.content.startsWith("[Archivo adjunto:") || msg.content === "[Video en optimización...]") {
+        if (msg.content && (msg.content.startsWith("[Archivo adjunto:") || msg.content.startsWith("[Procesando") || msg.content === "[Video en optimización...]")) {
           msg.content = "";
         }
         found = true;
@@ -173,7 +173,7 @@ async function updateCaseInSupabase(supabaseUrl, supabaseKey, caseId, messageId,
     if (!found) {
       for (let i = arr.length - 1; i >= 0; i--) {
         const msg = arr[i];
-        if ((msg.content && msg.content.startsWith("[Archivo adjunto:") || msg.content === "[Video en optimización...]" || !msg.content) && !msg.mediaUrl) {
+        if ((msg.content && (msg.content.startsWith("[Archivo adjunto:") || msg.content.startsWith("[Procesando") || msg.content === "[Video en optimización...]") || !msg.content) && !msg.mediaUrl) {
           msg.mediaUrl = publicUrl;
           msg.mediaType = targetMime;
           msg.fileName = fileName;
@@ -205,6 +205,10 @@ async function updateCaseInSupabase(supabaseUrl, supabaseKey, caseId, messageId,
 
   // 2. Guardar cambios en sek_cases
   const patchUrl = `${supabaseUrl.replace(/\/$/, "")}/rest/v1/sek_cases?id=eq.${encodeURIComponent(caseId)}`;
+  const lastPreview = (currentCase.last_message_preview || "").startsWith("[Procesando")
+    ? (mediaCategory === "video" ? "[Video]" : mediaCategory === "audio" ? "[Audio]" : mediaCategory === "image" ? "[Imagen]" : "[Documento]")
+    : currentCase.last_message_preview;
+
   const patchRes = await fetch(patchUrl, {
     method: "PATCH",
     headers: {
@@ -216,6 +220,7 @@ async function updateCaseInSupabase(supabaseUrl, supabaseKey, caseId, messageId,
     body: JSON.stringify({
       histcliente: updatedHistCliente,
       histtecnico: updatedHistTecnico,
+      ...(lastPreview ? { last_message_preview: lastPreview } : {}),
       updated_at: new Date().toISOString(),
     }),
   });
