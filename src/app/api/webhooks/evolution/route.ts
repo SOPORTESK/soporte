@@ -1366,9 +1366,10 @@ export async function POST(req: NextRequest) {
         else if (mediaType === "document") { ext = "pdf"; }
         fileName = `${Date.now()}_${phone || "media"}.${ext}`;
         finalMediaType = mediaInfo?.mimetype || (mediaType === "video" ? "video/mp4" : mediaType === "audio" ? "audio/ogg" : mediaType === "image" ? "image/jpeg" : "application/octet-stream");
-        if (text === `[Archivo adjunto: ${mediaType}]`) {
-          text = `[Procesando ${mediaType}... (${Math.round((mediaInfo.fileLength || 0) / 1024 / 1024)} MB)]`;
+        if (text === `[Archivo adjunto: ${mediaType}]` || text?.startsWith("[Procesando")) {
+          text = "";
         }
+
       } else if (encUrl && mediaInfo?.mediaKey) {
         try {
           console.log("[evo-webhook] desencriptando media directo de WhatsApp", { mediaType });
@@ -1470,8 +1471,8 @@ export async function POST(req: NextRequest) {
           needsOptimizer = true;
           optimizerBase64 = uploadBuffer.toString("base64");
           finalMediaType = mime;
-          if (text === `[Archivo adjunto: ${mediaType}]`) {
-            text = `[Procesando ${mediaType}... (${Math.round(uploadBuffer.length / 1024 / 1024)} MB)]`;
+          if (text === `[Archivo adjunto: ${mediaType}]` || text?.startsWith("[Procesando")) {
+            text = "";
           }
         } else {
           // Archivo estándar (< 25MB): subida directa a Supabase Storage
@@ -1536,6 +1537,11 @@ export async function POST(req: NextRequest) {
       }
     }
   } catch {}
+
+  if (text?.startsWith("[Archivo adjunto:") || text?.startsWith("[Procesando") || text === "[Video en optimización...]") {
+    text = "";
+  }
+  const previewText = text || (mediaType === "video" ? "📹 Video" : mediaType === "image" ? "📷 Imagen" : mediaType === "audio" ? "🎵 Audio" : mediaType ? "📎 Archivo" : "");
 
   const entry = isOutgoing
     ? { role: "tecnico", time: msgTime, content: text || "", author: "Soporte Sekunet", mediaUrl, mediaType: finalMediaType, fileName, messageId: keyId, fromMe: true, ...(replyTo ? { replyTo } : {}) } as any
@@ -1673,7 +1679,7 @@ export async function POST(req: NextRequest) {
           p_case_id: String(existing.id),
           p_entry: entry,
           p_col: "histtecnico",
-          p_preview: (text || "").slice(0, 200),
+          p_preview: previewText.slice(0, 200),
           p_customer_phone: phone || jid,
         });
         if (appendOutErr) {
@@ -1690,7 +1696,7 @@ export async function POST(req: NextRequest) {
           p_case_id: String(existing.id),
           p_entry: entry,
           p_col: "histcliente",
-          p_preview: (text || "").slice(0, 200),
+          p_preview: previewText.slice(0, 200),
           p_customer_phone: phone || jid,
         });
         if (appendErr) {
@@ -1940,7 +1946,7 @@ export async function POST(req: NextRequest) {
         histtecnico: [entry],
         title: `WhatsApp — ${contactPhone}`,
         last_message_at: msgTime,
-        last_message_preview: (text || "").slice(0, 200),
+        last_message_preview: previewText.slice(0, 200),
       };
       const claimed = await claimWaCase(supabase, contactPhone, outPayload);
       if (claimed) {
@@ -1952,7 +1958,7 @@ export async function POST(req: NextRequest) {
             p_case_id: claimed.caseId,
             p_entry: entry,
             p_col: "histtecnico",
-            p_preview: (text || "").slice(0, 200),
+            p_preview: previewText.slice(0, 200),
             p_customer_phone: phone || jid,
           });
         }
@@ -1989,7 +1995,7 @@ export async function POST(req: NextRequest) {
           closed_at: nowIso,
           title: horarioTitle,
           last_message_at: msgTime,
-          last_message_preview: (text || "").slice(0, 200),
+          last_message_preview: previewText.slice(0, 200),
         };
 
         const claimed = await claimWaCase(supabase, contactPhone, horarioPayload);
@@ -2001,7 +2007,7 @@ export async function POST(req: NextRequest) {
               p_case_id: claimed.caseId,
               p_entry: entry,
               p_col: "histcliente",
-              p_preview: (text || "").slice(0, 200),
+              p_preview: previewText.slice(0, 200),
               p_customer_phone: phone || jid,
             });
             console.log(`[evo-webhook] Fuera de horario — mensaje agregado al caso existente ${claimed.caseId}, sin repetir aviso`);
@@ -2094,7 +2100,7 @@ export async function POST(req: NextRequest) {
           escalado_at: new Date().toISOString(),
           title: pushName ? `WhatsApp — ${pushName}` : (knownClient.nombre ? `WhatsApp — ${knownClient.nombre}` : `WhatsApp — ${contactPhone}`),
           last_message_at: msgTime,
-          last_message_preview: (text || "").slice(0, 200),
+          last_message_preview: previewText.slice(0, 200),
         };
 
         const claimed = await claimWaCase(supabase, contactPhone, unattPayload);
@@ -2106,7 +2112,7 @@ export async function POST(req: NextRequest) {
               p_case_id: claimed.caseId,
               p_entry: entry,
               p_col: "histcliente",
-              p_preview: (text || "").slice(0, 200),
+              p_preview: previewText.slice(0, 200),
               p_customer_phone: phone || jid,
             });
             console.log(`[evo-webhook] Modo No Atendido — mensaje agregado al caso existente ${claimed.caseId}, sin repetir bienvenida`);
@@ -2194,7 +2200,7 @@ export async function POST(req: NextRequest) {
         histtecnico: [],
         title: pushName ? `WhatsApp — ${pushName}` : (knownClient.nombre ? `WhatsApp — ${knownClient.nombre}` : `WhatsApp — ${contactPhone}`),
         last_message_at: msgTime,
-        last_message_preview: (text || "").slice(0, 200),
+        last_message_preview: previewText.slice(0, 200),
       };
 
       let nuevoCaseId: string | null = null;
@@ -2210,7 +2216,7 @@ export async function POST(req: NextRequest) {
             p_case_id: nuevoCaseId,
             p_entry: entry,
             p_col: "histcliente",
-            p_preview: (text || "").slice(0, 200),
+            p_preview: previewText.slice(0, 200),
             p_customer_phone: phone || jid,
           });
           console.log(`[evo-webhook] Mensaje agregado al caso existente ${nuevoCaseId}, sin disparar IA de nuevo`);

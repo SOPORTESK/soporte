@@ -26,7 +26,19 @@ function lastMessage(c: SekCase): { content: string; time: string } | null {
   if (all.length === 0) return null;
   const sorted = [...all].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
   const last = sorted[sorted.length - 1];
-  return { content: asText(last.content), time: last.time };
+  let content = asText(last.content)?.trim() || "";
+  if (content.startsWith("[Procesando") || content.startsWith("[Archivo adjunto:") || content === "[Video en optimización...]") {
+    content = "";
+  }
+  if (!content) {
+    const mt = String(last.mediaType || "").toLowerCase();
+    const fn = String(last.fileName || "").toLowerCase();
+    if (mt.startsWith("video") || fn.endsWith(".mp4") || fn.endsWith(".mov")) content = "📹 Video";
+    else if (mt.startsWith("image") || fn.endsWith(".jpg") || fn.endsWith(".jpeg") || fn.endsWith(".png")) content = "📷 Imagen";
+    else if (mt.startsWith("audio") || fn.endsWith(".ogg") || fn.endsWith(".mp3") || fn.endsWith(".opus")) content = "🎵 Audio";
+    else if (last.mediaUrl || fn) content = "📎 Archivo";
+  }
+  return { content, time: last.time };
 }
 
 export function ConversationList({
@@ -333,7 +345,14 @@ export function ConversationList({
           const lm = lastMessage(c);
           const isClosed = estadoLower === "cerrado" || estadoLower === "resuelto";
           const attendedBy = isClosed ? (c.assigned_to ? `Atendido por: ${c.assigned_to}` : "Atendido por: IA") : null;
-          const preview = attendedBy || lm?.content || asText(c.last_message_preview) || sub || "Sin mensajes";
+          const cleanLastPreview = (() => {
+            const p = asText(c.last_message_preview)?.trim() || "";
+            if (p.startsWith("[Procesando") || p.startsWith("[Archivo adjunto:") || p === "[Video en optimización...]") {
+              return "📹 Video";
+            }
+            return p;
+          })();
+          const preview = attendedBy || lm?.content || cleanLastPreview || sub || "Sin mensajes";
           const timeStr = formatTime(lm?.time || c.last_message_at || c.created_at);
           const isSaliente = Array.isArray(c.tags) && c.tags.some(t => String(t).toLowerCase() === "saliente");
           const isEscaladoPendiente = estadoLower === "escalado" && !c.accepted_at;

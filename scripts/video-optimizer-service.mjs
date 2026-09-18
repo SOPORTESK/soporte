@@ -205,8 +205,8 @@ async function updateCaseInSupabase(supabaseUrl, supabaseKey, caseId, messageId,
 
   // 2. Guardar cambios en sek_cases
   const patchUrl = `${supabaseUrl.replace(/\/$/, "")}/rest/v1/sek_cases?id=eq.${encodeURIComponent(caseId)}`;
-  const lastPreview = (currentCase.last_message_preview || "").startsWith("[Procesando")
-    ? (mediaCategory === "video" ? "[Video]" : mediaCategory === "audio" ? "[Audio]" : mediaCategory === "image" ? "[Imagen]" : "[Documento]")
+  const lastPreview = ((currentCase.last_message_preview || "").startsWith("[Procesando") || (currentCase.last_message_preview || "").startsWith("[Archivo adjunto:"))
+    ? (mediaCategory === "video" ? "📹 Video" : mediaCategory === "audio" ? "🎵 Audio" : mediaCategory === "image" ? "📷 Imagen" : "📎 Archivo")
     : currentCase.last_message_preview;
 
   const patchRes = await fetch(patchUrl, {

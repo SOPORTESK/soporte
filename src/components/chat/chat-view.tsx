@@ -8,7 +8,7 @@ import {
   XCircle, Image as ImageIcon, FileText, Music, Video,
   Download, X, ChevronDown, ChevronUp, History, HandMetal, Star, Tag, AlertTriangle,
   Mic, Play, Pause, Square, Smile, Trash2, UserCheck,
-  Info, Copy, Forward, Pin, Edit, Clock, RotateCcw, Search, Globe
+  Info, Copy, Forward, Pin, Edit, Clock, RotateCcw, Search, Globe, Loader2
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { logActivity } from "@/lib/activity-client";
@@ -3794,9 +3794,19 @@ function Bubble({ m, prev, next, clienteName, onImageClick, agentEmail, onMessag
         </div>
 
         {m.mediaUrl && <MediaPreview url={m.mediaUrl} type={m.mediaType} name={m.fileName} onImageClick={onImageClick} />}
-          {!m.mediaUrl && extractFirstUrl(m.content) && (
-            <LinkPreviewCard url={extractFirstUrl(m.content)!} isCliente={isCliente} />
-          )}
+        {!m.mediaUrl && (m.mediaType?.startsWith("video") || m.fileName?.endsWith(".mp4") || (m.content && (m.content.includes("video") || m.content.includes("Video")))) && (
+          <div className="relative w-[220px] h-[124px] rounded-xl bg-slate-900 flex flex-col items-center justify-center border border-white/10 overflow-hidden shadow-inner my-1">
+            <div className="flex flex-col items-center gap-2 text-white/80">
+              <div className="w-10 h-10 rounded-full bg-black/40 flex items-center justify-center border border-white/20">
+                <Loader2 className="w-5 h-5 text-white/90 animate-spin" />
+              </div>
+              <span className="text-[11px] font-medium tracking-wide text-white/70">Video</span>
+            </div>
+          </div>
+        )}
+        {!m.mediaUrl && extractFirstUrl(m.content) && (
+          <LinkPreviewCard url={extractFirstUrl(m.content)!} isCliente={isCliente} />
+        )}
 
         {isAudio && transcription && (
           <div className={cn(
@@ -3843,34 +3853,44 @@ function Bubble({ m, prev, next, clienteName, onImageClick, agentEmail, onMessag
             </div>
           </div>
         ) : (
-        <div className="text-sm leading-relaxed whitespace-pre-wrap break-words mt-1" suppressHydrationWarning>
-          {m.content?.includes("[SUGERENCIAS:") ? (
-            <>
-              {m.content.split("[SUGERENCIAS:")[0]}
-              <div className="flex flex-wrap gap-2 mt-2">
-                {m.content
-                  .match(/\[SUGERENCIAS:\s*(.+?)\]/)?.[1]
-                  .split(",")
-                  .map((opt, idx) => (
-                    <div
-                      key={idx}
-                      className={cn(
-                        "px-3 py-1 rounded-full text-xs font-semibold border transition-all",
-                        isCliente 
-                          ? "bg-brand-50 text-brand-700 border-brand-200" 
-                          : "bg-white/20 text-white border-white/40"
-                      )}
-                    >
-                      {opt.trim()}
+          (() => {
+            const trimmed = m.content?.trim() || "";
+            const isPlaceholder = !trimmed ||
+              trimmed.startsWith("[Procesando") ||
+              trimmed.startsWith("[Archivo adjunto:") ||
+              trimmed === "[Video en optimización...]";
+            if (isPlaceholder) return null;
+            return (
+              <div className="text-sm leading-relaxed whitespace-pre-wrap break-words mt-1" suppressHydrationWarning>
+                {m.content?.includes("[SUGERENCIAS:") ? (
+                  <>
+                    {m.content.split("[SUGERENCIAS:")[0]}
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {m.content
+                        .match(/\[SUGERENCIAS:\s*(.+?)\]/)?.[1]
+                        .split(",")
+                        .map((opt, idx) => (
+                          <div
+                            key={idx}
+                            className={cn(
+                              "px-3 py-1 rounded-full text-xs font-semibold border transition-all",
+                              isCliente 
+                                ? "bg-brand-50 text-brand-700 border-brand-200" 
+                                : "bg-white/20 text-white border-white/40"
+                            )}
+                          >
+                            {opt.trim()}
+                          </div>
+                        ))}
                     </div>
-                  ))}
+                    {m.content.split("]")[1]}
+                  </>
+                ) : (
+                  <FormattedTextWithLinks text={m.content} isCliente={isCliente} />
+                )}
               </div>
-              {m.content.split("]")[1]}
-            </>
-          ) : (
-              <FormattedTextWithLinks text={m.content} isCliente={isCliente} />
-            )}
-        </div>
+            );
+          })()
         )}
 
         <div className={cn(
