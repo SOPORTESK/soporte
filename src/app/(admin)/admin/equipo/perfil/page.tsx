@@ -7,6 +7,8 @@ import {
 } from "lucide-react";
 import { GodModeButton } from "@/components/admin/god-mode-button";
 import { GodModeBanner } from "@/components/admin/god-mode-banner";
+import { AgentCasesHistory } from "@/components/admin/agent-cases-history";
+import { AgentScheduleCard } from "@/components/admin/agent-schedule-card";
 
 export const dynamic = "force-dynamic";
 
@@ -42,7 +44,7 @@ export default async function AgentProfilePage({
   // Stats del agente
   const { data: casos } = await supabase
     .from("sek_cases")
-    .select("id, estado, calificacion, created_at, updated_at, closed_at, title, canal, cat, last_message_at")
+    .select("id, estado, calificacion, created_at, updated_at, closed_at, title, canal, cat, last_message_at, cliente, customer_phone")
     .ilike("assigned_to", targetEmail)
     .neq("canal", "simulator")
     .neq("es_test", true)
@@ -241,71 +243,11 @@ export default async function AgentProfilePage({
         </div>
       </section>
 
-      {/* ── ÚLTIMOS CASOS ── */}
-      <section className="rounded-2xl border border-border bg-card overflow-hidden">
-        <div className="px-6 py-4 border-b border-border bg-muted/10 flex items-center gap-3">
-          <MessageSquare className="h-4 w-4 text-muted-foreground" />
-          <h2 className="font-black text-sm uppercase tracking-widest text-muted-foreground">Últimos Casos Asignados</h2>
-          <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-brand-500/10 text-brand-500">{(casos || []).length}</span>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-muted/10">
-                <th className="px-6 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Caso</th>
-                <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Estado</th>
-                <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Canal</th>
-                <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Calificación</th>
-                <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Fecha</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/50">
-              {(casos || []).slice(0, 20).map((c, i) => {
-                const estadoStyles: Record<string, string> = {
-                  resuelto:      "bg-emerald-500/10 text-emerald-500 border-emerald-500/20",
-                  cerrado:       "bg-zinc-500/10 text-zinc-400 border-zinc-500/20",
-                  abierto:       "bg-brand-500/10 text-brand-500 border-brand-500/20",
-                  asignado:      "bg-sky-500/10 text-sky-500 border-sky-500/20",
-                  pendiente:     "bg-amber-500/10 text-amber-500 border-amber-500/20",
-                  ia_atendiendo: "bg-violet-500/10 text-violet-500 border-violet-500/20",
-                  escalado:      "bg-rose-500/10 text-rose-500 border-rose-500/20",
-                };
-                return (
-                  <tr key={i} className="hover:bg-muted/20 transition-colors">
-                    <td className="px-6 py-3">
-                      <p className="font-semibold text-sm truncate max-w-[220px]">{c.title || `Caso #${c.id}`}</p>
-                      {c.cat && <p className="text-[10px] text-muted-foreground">{c.cat}</p>}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border capitalize ${estadoStyles[c.estado] || "bg-muted text-muted-foreground border-border"}`}>
-                        {c.estado?.replace("_", " ")}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <span className="text-[10px] font-bold uppercase text-muted-foreground">{c.canal || "—"}</span>
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      {c.calificacion ? (
-                        <div className="flex items-center justify-center gap-1">
-                          <Star className="h-3 w-3 text-amber-400 fill-amber-400" />
-                          <span className="font-black text-amber-400 text-xs">{c.calificacion}</span>
-                        </div>
-                      ) : <span className="text-muted-foreground/40">—</span>}
-                    </td>
-                    <td className="px-4 py-3 text-right text-[11px] text-muted-foreground">
-                      {new Date(c.created_at).toLocaleDateString("es-CR", { day: "numeric", month: "short", year: "2-digit" })}
-                    </td>
-                  </tr>
-                );
-              })}
-              {(casos || []).length === 0 && (
-                <tr><td colSpan={5} className="py-12 text-center text-sm text-muted-foreground">Este agente no tiene casos asignados aún.</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      {/* ── GESTIÓN DE HORARIO DEL EMPLEADO ── */}
+      <AgentScheduleCard agentEmail={targetEmail} agentName={fullName} />
 
+      {/* ── HISTORIAL DE CASOS CON BÚSQUEDA, FILTROS Y SCROLL ── */}
+      <AgentCasesHistory cases={(casos as any[]) || []} />
     </div>
   );
 }

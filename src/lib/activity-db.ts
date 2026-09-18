@@ -27,12 +27,22 @@ function getClient(): SupabaseClient {
   return createServiceClient();
 }
 
+export interface AgentScheduleOverride {
+  scheduleStart: string;
+  scheduleEnd: string;
+  scheduleEnabled: boolean;
+  workDays: number[];
+  targetDailyHours: number;
+  custom: boolean;
+}
+
 export interface WorkScheduleConfig {
   scheduleStart: string;
   scheduleEnd: string;
   scheduleEnabled: boolean;
   workDays: number[]; // 1=Lun, 2=Mar, 3=Mié, 4=Jue, 5=Vie, 6=Sáb, 0=Dom
   targetDailyHours: number; // Meta oficial de jornada diaria en horas (por defecto 10 horas)
+  agentSchedules?: Record<string, AgentScheduleOverride>;
 }
 
 export interface OvertimeRequest {
@@ -69,23 +79,59 @@ export async function getWorkSchedule(): Promise<WorkScheduleConfig> {
         scheduleEnabled: parsed.scheduleEnabled !== undefined ? Boolean(parsed.scheduleEnabled) : true,
         workDays: Array.isArray(parsed.workDays) && parsed.workDays.length > 0 ? parsed.workDays : [1, 2, 3, 4, 5],
         targetDailyHours: Number(parsed.targetDailyHours) || 10,
+        agentSchedules: parsed.agentSchedules && typeof parsed.agentSchedules === "object" ? parsed.agentSchedules : {},
       };
     }
   } catch (err) {
     console.error("[getWorkSchedule] error:", err);
   }
 
-  return { scheduleStart: "06:00", scheduleEnd: "18:00", scheduleEnabled: true, workDays: [1, 2, 3, 4, 5], targetDailyHours: 10 };
+  return { scheduleStart: "06:00", scheduleEnd: "18:00", scheduleEnabled: true, workDays: [1, 2, 3, 4, 5], targetDailyHours: 10, agentSchedules: {} };
+}
+
+export async function getAgentSchedule(agentEmail: string): Promise<WorkScheduleConfig & { isCustom: boolean; globalSchedule: Omit<WorkScheduleConfig, "agentSchedules"> }> {
+  const global = await getWorkSchedule();
+  const normalizedEmail = (agentEmail || "").trim().toLowerCase();
+  const custom = global.agentSchedules ? global.agentSchedules[normalizedEmail] : null;
+
+  const globalSchedule = {
+    scheduleStart: global.scheduleStart,
+    scheduleEnd: global.scheduleEnd,
+    scheduleEnabled: global.scheduleEnabled,
+    workDays: global.workDays,
+    targetDailyHours: global.targetDailyHours,
+  };
+
+  if (custom && custom.custom) {
+    return {
+      scheduleStart: custom.scheduleStart || global.scheduleStart,
+      scheduleEnd: custom.scheduleEnd || global.scheduleEnd,
+      scheduleEnabled: custom.scheduleEnabled !== undefined ? Boolean(custom.scheduleEnabled) : global.scheduleEnabled,
+      workDays: Array.isArray(custom.workDays) && custom.workDays.length > 0 ? custom.workDays : global.workDays,
+      targetDailyHours: Number(custom.targetDailyHours) || global.targetDailyHours,
+      isCustom: true,
+      globalSchedule,
+    };
+  }
+
+  return {
+    ...global,
+    isCustom: false,
+    globalSchedule,
+  };
 }
 
 export async function saveWorkSchedule(config: WorkScheduleConfig): Promise<void> {
   const supabase = getClient();
+  // Preservar agentSchedules existentes si no vienen en config
+  const existing = await getWorkSchedule();
   const val = JSON.stringify({
     scheduleStart: config.scheduleStart || "06:00",
     scheduleEnd: config.scheduleEnd || "18:00",
     scheduleEnabled: Boolean(config.scheduleEnabled),
     workDays: Array.isArray(config.workDays) && config.workDays.length > 0 ? config.workDays : [1, 2, 3, 4, 5],
     targetDailyHours: Number(config.targetDailyHours) || 10,
+    agentSchedules: config.agentSchedules || existing.agentSchedules || {},
   });
 
   const { error } = await supabase.from("sek_app_settings").upsert(
@@ -101,6 +147,51 @@ export async function saveWorkSchedule(config: WorkScheduleConfig): Promise<void
 
   if (error) {
     console.error("[saveWorkSchedule] error:", error);
+    throw error;
+  }
+}
+
+export async function saveAgentSchedule(
+  agentEmail: string,
+  schedule: Partial<AgentScheduleOverride> & { custom: boolean }
+): Promise<void> {
+  const supabase = getClient();
+  const existing = await getWorkSchedule();
+  const normalizedEmail = (agentEmail || "").trim().toLowerCase();
+  const agentSchedules = { ...(existing.agentSchedules || {}) };
+
+  if (schedule.custom) {
+    agentSchedules[normalizedEmail] = {
+      scheduleStart: schedule.scheduleStart || existing.scheduleStart || "08:00",
+      scheduleEnd: schedule.scheduleEnd || existing.scheduleEnd || "17:00",
+      scheduleEnabled: schedule.scheduleEnabled !== undefined ? Boolean(schedule.scheduleEnabled) : true,
+      workDays: Array.isArray(schedule.workDays) && schedule.workDays.length > 0 ? schedule.workDays : existing.workDays || [1, 2, 3, 4, 5],
+      targetDailyHours: Number(schedule.targetDailyHours) || existing.targetDailyHours || 10,
+      custom: true,
+    };
+  } else {
+    // Si se desactiva el personalizado, se elimina o se marca custom: false
+    delete agentSchedules[normalizedEmail];
+  }
+
+  const val = JSON.stringify({
+    ...existing,
+    agentSchedules,
+  });
+
+  const { error } = await supabase.from("sek_app_settings").upsert(
+    {
+      key: SCHEDULE_SETTING_KEY,
+      value: val,
+      iv: "none",
+      tag: "none",
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "key" }
+  );
+
+  if (error) {
+    console.error("[saveAgentSchedule] error:", error);
     throw error;
   }
 }

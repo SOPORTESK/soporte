@@ -157,7 +157,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
       const { start, end } = getDateRange(mode, cDate);
       const [resTimeline, resSchedule, resOvertime] = await Promise.all([
         fetch(`/api/activity/timeline?agent=${encodeURIComponent(agentEmail)}&date=${start}&endDate=${end}`),
-        fetch("/api/activity/schedule"),
+        fetch(`/api/activity/schedule?agentEmail=${encodeURIComponent(agentEmail)}`),
         fetch(`/api/activity/overtime?date=${start}&agent=${encodeURIComponent(agentEmail)}`),
       ]);
 
