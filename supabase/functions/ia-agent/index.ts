@@ -581,6 +581,17 @@ function getGeminiMimeType(mediaType: string, url: string): string {
   return "application/octet-stream";
 }
 
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunkSize = 8192;
+  for (let i = 0; i < bytes.byteLength; i += chunkSize) {
+    const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.byteLength));
+    binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
+  }
+  return btoa(binary);
+}
+
 async function callGeminiVision(mediaUrl: string, mediaType: string, userText: string): Promise<string> {
   const FAIL_MSG = "[ANÁLISIS DE ADJUNTO NO DISPONIBLE] No se pudo procesar el archivo adjunto en este momento. Informe al técnico que el análisis automático falló y que debe verificar el contenido manualmente.";
   if (GEMINI_KEYS.length === 0) return FAIL_MSG;
@@ -735,37 +746,48 @@ Analiza el documento COMPLETAMENTE:
       return `El archivo adjunto supera el límite de procesamiento (20MB). Solicite al cliente que envíe una versión más pequeña o dividida.`;
     }
 
-    const base64Data = btoa(String.fromCharCode(...new Uint8Array(fileBuffer)));
+    const base64Data = arrayBufferToBase64(fileBuffer);
 
-    // Intentar con cada key de Gemini disponible
+    // Intentar con modelos candidatos y cada key de Gemini disponible
     let visionResult = "";
     let geminiVisionOk = false;
-    for (let ki = 0; ki < GEMINI_KEYS.length && !geminiVisionOk; ki++) {
-      const gKey = GEMINI_KEYS[ki];
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${gKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{
-              parts: [
-                { text: prompt },
-                { inline_data: { mime_type: mimeType, data: base64Data } },
-              ],
-            }],
-            generationConfig: { maxOutputTokens: 2048, temperature: 0.1 },
-          }),
+    const candidateModels = [modelName, "gemini-3.5-flash-lite", "gemini-3.6-flash"].filter((m, i, a) => Boolean(m) && a.indexOf(m) === i);
+    for (const curModel of candidateModels) {
+      for (let ki = 0; ki < GEMINI_KEYS.length && !geminiVisionOk; ki++) {
+        const gKey = GEMINI_KEYS[ki];
+        try {
+          const res = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${curModel}:generateContent?key=${gKey}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contents: [{
+                  parts: [
+                    { text: prompt },
+                    { inline_data: { mime_type: mimeType, data: base64Data } },
+                  ],
+                }],
+                generationConfig: { maxOutputTokens: 2048, temperature: 0.1 },
+              }),
+            }
+          );
+          if (res.ok) {
+            const data = await res.json();
+            visionResult = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? "";
+            if (visionResult) {
+              geminiVisionOk = true;
+              break;
+            }
+          } else {
+            const errText = await res.text();
+            console.warn(`[ia-agent] Gemini Vision model ${curModel} key ${ki + 1} error:`, res.status, errText.substring(0, 150));
+          }
+        } catch (e: any) {
+          console.warn(`[ia-agent] Gemini Vision fetch error (${curModel}):`, e?.message);
         }
-      );
-      if (res.ok) {
-        const data = await res.json();
-        visionResult = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? "";
-        geminiVisionOk = true;
-      } else {
-        const errText = await res.text();
-        console.warn(`[ia-agent] Gemini Vision key ${ki + 1} error:`, res.status, errText.substring(0, 150));
       }
+      if (geminiVisionOk) break;
     }
     if (geminiVisionOk && visionResult) return visionResult;
 
@@ -1115,16 +1137,16 @@ async function handleTechnicianMode(body: Record<string, unknown>): Promise<Resp
           let histChanged = false;
           for (const [url, m] of uniqueUrls) {
             let analysis: string = m._visionAnalysis || "";
-            if (!analysis) {
+            if (!analysis || analysis.startsWith("[ANÁLISIS DE ADJUNTO")) {
               analysis = await callGeminiVision(m.mediaUrl, m.mediaType || "", m.content || "");
-              if (analysis) {
+              if (analysis && !analysis.startsWith("[ANÁLISIS DE ADJUNTO")) {
                 const patch = (e: any) => (e.mediaUrl === url ? { ...e, _visionAnalysis: analysis } : e);
                 for (let i = 0; i < histCliente.length; i++) histCliente[i] = patch(histCliente[i]);
                 for (let i = 0; i < histTecnico.length; i++) histTecnico[i] = patch(histTecnico[i]);
                 histChanged = true;
               }
             }
-            if (analysis) {
+            if (analysis && !analysis.startsWith("[ANÁLISIS DE ADJUNTO")) {
               attachmentResults.push(`[ADJUNTO ${idx} — tipo: ${m.mediaType || "desconocido"}${m.fileName ? ` — ${m.fileName}` : ""}]\n${analysis}`);
               idx++;
             }
@@ -1173,16 +1195,16 @@ async function handleTechnicianMode(body: Record<string, unknown>): Promise<Resp
         let histChanged = false;
         for (const [url, m] of uniqueUrls) {
           let analysis: string = m._visionAnalysis || "";
-          if (!analysis) {
+          if (!analysis || analysis.startsWith("[ANÁLISIS DE ADJUNTO")) {
             analysis = await callGeminiVision(m.mediaUrl, m.mediaType || "", m.content || "");
-            if (analysis) {
+            if (analysis && !analysis.startsWith("[ANÁLISIS DE ADJUNTO")) {
               const patch = (e: any) => (e.mediaUrl === url ? { ...e, _visionAnalysis: analysis } : e);
               for (let i = 0; i < histCliente.length; i++) histCliente[i] = patch(histCliente[i]);
               for (let i = 0; i < histTecnico.length; i++) histTecnico[i] = patch(histTecnico[i]);
               histChanged = true;
             }
           }
-          if (analysis) {
+          if (analysis && !analysis.startsWith("[ANÁLISIS DE ADJUNTO")) {
             attachmentResults.push(`[ADJUNTO ${idx} — tipo: ${m.mediaType || "desconocido"}${m.fileName ? ` — ${m.fileName}` : ""}]\n${analysis}`);
             idx++;
           }
@@ -1210,7 +1232,7 @@ async function handleTechnicianMode(body: Record<string, unknown>): Promise<Resp
   const lastTechnicianMsg = [...techMessages].reverse().find((m) => m.role === "user" && m.mediaUrl);
   if (lastTechnicianMsg && lastTechnicianMsg.mediaUrl) {
     const analysis = await callGeminiVision(lastTechnicianMsg.mediaUrl, lastTechnicianMsg.mediaType || "", lastTechnicianMsg.content || "");
-    if (analysis) {
+    if (analysis && !analysis.startsWith("[ANÁLISIS DE ADJUNTO")) {
       technicianAttachmentAnalysis = `\n\nANÁLISIS DEL ADJUNTO DEL TÉCNICO (${lastTechnicianMsg.fileName || lastTechnicianMsg.mediaType || "archivo"}):\n${analysis}`;
     }
   }
@@ -1548,7 +1570,7 @@ Deno.serve(async (req) => {
         lastMsg.mediaType ?? "",
         lastMsg.content ?? ""
       );
-      if (geminiDescription) {
+      if (geminiDescription && !geminiDescription.startsWith("[ANÁLISIS DE ADJUNTO")) {
         chatMessages.push({
           role: "system",
           content: `El cliente acaba de enviar un archivo adjunto (${lastMsg.fileName || lastMsg.mediaType || "archivo"}). Analisis completo del archivo:\n\n${geminiDescription}\n\nUsa este analisis para entender el problema tecnico del cliente. Si identificaste marca y modelo del equipo, usalo para buscar en inventario con [BUSCAR_INVENTARIO: marca modelo]. Continua el flujo de atencion normalmente basandote en esta informacion.`,
