@@ -175,7 +175,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
 
   const categoryMap: Record<string, { durationMs: number; count: number }> = {};
   let totalActiveMs = 0;
-  let totalIdleMs = 0;
+  let totalJustifiedMs = 0;
   const ACTIVE_GAP_LIMIT = 5 * 60 * 1000; // Tolerancia de 5 minutos: micro-pausas y desplazamientos breves cuentan como activos
 
   interface DetectedGap {
@@ -219,7 +219,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
       categoryMap[cat].durationMs += justMs;
       categoryMap[cat].count++;
       totalActiveMs += justMs;
-      totalIdleMs = Math.max(0, totalIdleMs - justMs);
+      totalJustifiedMs += justMs;
       continue;
     }
 
@@ -262,7 +262,6 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
 
     if (isExplicitPause) {
       const pauseDur = Math.min(gap, 60 * 60 * 1000);
-      totalIdleMs += pauseDur;
       if (pauseDur >= 60000) {
         const dStart = new Date(currTime);
         const dEnd = new Date(currTime + pauseDur);
@@ -276,7 +275,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
           endTimeVal: toTimeVal(dEnd),
           durationMs: pauseDur,
           minutes: Math.round(pauseDur / 60000),
-          reason: item.category || "Pausa explícita",
+          reason: item.category || "Pausa explícita (Bloqueo / Suspensión)",
         });
       }
       continue;
@@ -296,8 +295,9 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
       totalActiveMs += ACTIVE_GAP_LIMIT;
 
       const idlePartMs = gap - ACTIVE_GAP_LIMIT;
-      totalIdleMs += idlePartMs;
 
+      // Solo si la inactividad real después de la tolerancia (5 min) es de al menos 1 minuto completo
+      // Evita falsos positivos de microsegundos por latencia de red entre pings del tracker
       if (idlePartMs >= 60000) {
         const dStart = new Date(currTime + ACTIVE_GAP_LIMIT);
         const dEnd = new Date(nextTime);
@@ -311,7 +311,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
           endTimeVal: toTimeVal(dEnd),
           durationMs: idlePartMs,
           minutes: Math.round(idlePartMs / 60000),
-          reason: "Inactividad prolongada (> 5m)",
+          reason: "Inactividad prolongada (> 5 min tolerancia)",
         });
       }
     }
@@ -319,6 +319,11 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
 
   // Ordenar lagunas de más reciente a más antigua
   detectedGaps.reverse();
+
+  // La inactividad real total es la suma exacta de las lagunas reales detectadas menos las ya justificadas
+  // Garantiza 100% de consistencia entre los minutos detectados y la lista con horas exactas
+  const rawGapsMs = detectedGaps.reduce((acc, g) => acc + g.durationMs, 0);
+  const totalIdleMs = Math.max(0, rawGapsMs - totalJustifiedMs);
 
   // Cálculo de jornada base de 10 horas y tiempo perdido / tiempo extra
   const targetMs = targetDailyHours * 60 * 60 * 1000;
@@ -334,12 +339,17 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
       if (detectedLostMin > 0) {
         setJustMinutes(String(detectedLostMin));
       }
-      if (!justDate) {
+      if (detectedGaps.length === 1 && !justStartTime) {
+        setJustDate(detectedGaps[0].dateStr);
+        setJustStartTime(detectedGaps[0].startTimeVal);
+        setJustEndTime(detectedGaps[0].endTimeVal);
+        setJustTimeRange(`${detectedGaps[0].startTime} a ${detectedGaps[0].endTime}`);
+      } else if (!justDate) {
         const todayParts = new Date().toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
         setJustDate(todayParts);
       }
     }
-  }, [activeTab, detectedLostMin]);
+  }, [activeTab, detectedLostMin, detectedGaps.length]);
 
   const handleSelectGap = (gap: DetectedGap) => {
     setJustDate(gap.dateStr);
@@ -488,7 +498,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
       onClick={onClose}
     >
       <div
-        className="bg-card border border-border/80 rounded-3xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+        className="bg-card border border-border/80 rounded-3xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150"
         onClick={(e) => e.stopPropagation()}
       >
         {/* ── HEADER DEL MODAL ── */}
@@ -833,76 +843,157 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
             /* ── PESTAÑA: JUSTIFICAR TIEMPO PERDIDO / LAGUNA ── */
             <form onSubmit={handleSendJustification} className="space-y-5">
               {/* Banner de Inactividad Real Detectada */}
-              <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border border-amber-500/25 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
-                <div className="flex items-center gap-3">
-                  <div className="p-2.5 rounded-xl bg-amber-500/20 text-amber-400 shrink-0">
-                    <Clock className="h-5 w-5" />
+              {detectedLostMin === 0 ? (
+                <div className="p-5 sm:p-6 rounded-3xl bg-emerald-500/10 border border-emerald-500/30 flex items-center gap-4 shadow-sm">
+                  <div className="p-3 rounded-2xl bg-emerald-500/20 text-emerald-400 shrink-0">
+                    <CheckCircle2 className="h-6 w-6" />
                   </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-foreground">Inactividad Real Detectada</span>
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="text-sm sm:text-base font-bold text-foreground">Sin inactividad detectada (0 minutos)</h3>
+                      <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                         {getDateRange(rangeMode, customDate).label}
                       </span>
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-muted text-muted-foreground">
+                      <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-muted text-muted-foreground">
                         Tolerancia: 5 min
                       </span>
                     </div>
-                    <p className="text-lg font-black text-amber-400 font-mono">
-                      {detectedLostMin > 0 ? `${detectedLostMin} minutos (${formatMinHours(detectedLostMin * 60000)})` : "0 minutos (Sin inactividad detectada)"}
+                    <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
+                      No se encontraron pausas mayores a 5 minutos en este período. Toda la jornada transcurrió con actividad continua.
                     </p>
                   </div>
                 </div>
-                {detectedLostMin > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setJustMinutes(String(detectedLostMin))}
-                    className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs transition-all flex items-center gap-1.5 shadow-md shadow-amber-500/20 active:scale-95"
-                  >
-                    <Sparkles className="h-3.5 w-3.5" />
-                    Usar {detectedLostMin} min detectados
-                  </button>
-                )}
-              </div>
+              ) : (
+                <div className="p-5 sm:p-6 rounded-3xl bg-gradient-to-r from-amber-500/15 via-amber-500/10 to-amber-500/5 border-2 border-amber-500/40 shadow-lg space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="flex items-start sm:items-center gap-3.5">
+                      <div className="p-3 rounded-2xl bg-amber-500/25 text-amber-400 shrink-0 mt-0.5 sm:mt-0">
+                        <Clock className="h-6 w-6" />
+                      </div>
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs sm:text-sm font-bold text-foreground uppercase tracking-wider">Inactividad Real Detectada</span>
+                          <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/25 text-amber-300 border border-amber-500/30">
+                            {getDateRange(rangeMode, customDate).label}
+                          </span>
+                          <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-muted text-muted-foreground">
+                            Tolerancia: 5 min
+                          </span>
+                        </div>
+                        <p className="text-2xl sm:text-3xl font-black text-amber-400 font-mono">
+                          {detectedLostMin} minutos <span className="text-base font-normal text-amber-300/80">({formatMinHours(detectedLostMin * 60000)})</span>
+                        </p>
+                      </div>
+                    </div>
 
-              {/* Lagunas e Inactividad Detectadas por Hora */}
-              {detectedGaps.length > 0 && (
-                <div className="space-y-2 p-3.5 rounded-2xl bg-muted/20 border border-border/80">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-bold text-foreground flex items-center gap-1.5">
-                      <Clock className="h-3.5 w-3.5 text-amber-400" />
-                      Lagunas detectadas por hora ({detectedGaps.length}):
-                    </label>
-                    <span className="text-[11px] text-muted-foreground">Clic para cargar fecha y horas exactas</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setJustMinutes(String(detectedLostMin));
+                        if (detectedGaps.length === 1) {
+                          handleSelectGap(detectedGaps[0]);
+                        }
+                      }}
+                      className="px-5 py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs sm:text-sm transition-all flex items-center justify-center gap-2 shadow-md shadow-amber-500/25 active:scale-95 shrink-0 self-stretch sm:self-auto"
+                    >
+                      <Sparkles className="h-4 w-4" />
+                      Usar {detectedLostMin} min detectados
+                    </button>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-1">
+
+                  {/* Resumen directo de la hora exacta */}
+                  <div className="p-3.5 sm:p-4 rounded-2xl bg-black/40 border border-amber-500/30 flex items-start sm:items-center gap-3">
+                    <AlertCircle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5 sm:mt-0" />
+                    <p className="text-xs sm:text-sm text-amber-200 font-medium leading-relaxed">
+                      {detectedGaps.length === 1 ? (
+                        <>
+                          <strong className="text-white">Hora exacta de la inactividad:</strong> de{" "}
+                          <span className="font-mono font-bold text-amber-300 text-sm underline underline-offset-4">
+                            {detectedGaps[0].startTime}
+                          </span>{" "}
+                          a{" "}
+                          <span className="font-mono font-bold text-amber-300 text-sm underline underline-offset-4">
+                            {detectedGaps[0].endTime}
+                          </span>{" "}
+                          ({detectedGaps[0].minutes} min) el día {detectedGaps[0].dateFormatted}.
+                        </>
+                      ) : (
+                        <>
+                          <strong className="text-white">Horarios detectados:</strong> Ocurrió en{" "}
+                          <span className="font-bold text-amber-300">{detectedGaps.length} momentos</span> durante la jornada. Selecciona una laguna de la lista abajo para justificarla con 1 clic.
+                        </>
+                      )}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Lagunas e Inactividad Detectadas por Hora (Diseño Espacioso, Sin Apelmazar) */}
+              {detectedGaps.length > 0 && (
+                <div className="space-y-3 p-5 sm:p-6 rounded-3xl bg-muted/30 border border-border/80 shadow-sm">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 pb-2 border-b border-border/50">
+                    <div className="flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-amber-400" />
+                      <h4 className="text-sm font-bold text-foreground">
+                        Lagunas detectadas con fecha y hora exacta ({detectedGaps.length}):
+                      </h4>
+                    </div>
+                    <span className="text-xs text-muted-foreground">
+                      Haz clic en cualquier laguna para seleccionarla
+                    </span>
+                  </div>
+
+                  <div className="space-y-3 pt-1">
                     {detectedGaps.map((gap) => {
                       const isSelected = justStartTime === gap.startTimeVal && justEndTime === gap.endTimeVal && justDate === gap.dateStr;
                       return (
-                        <button
+                        <div
                           key={gap.id}
-                          type="button"
                           onClick={() => handleSelectGap(gap)}
-                          className={`p-2.5 rounded-xl border text-left transition-all flex items-center justify-between text-xs ${
+                          className={`p-4 sm:p-5 rounded-2xl border transition-all cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
                             isSelected
-                              ? "bg-amber-500/20 border-amber-500 text-amber-200 ring-2 ring-amber-500/40 shadow-sm"
-                              : "bg-card border-border/80 hover:bg-muted text-foreground"
+                              ? "bg-amber-500/20 border-amber-500 text-amber-200 ring-2 ring-amber-500/50 shadow-md"
+                              : "bg-card border-border/90 hover:bg-muted/70 hover:border-amber-500/40 text-foreground"
                           }`}
                         >
-                          <div className="space-y-0.5">
-                            <div className="flex items-center gap-1.5 font-bold font-mono">
-                              <span className="text-amber-400">{gap.startTime}</span>
-                              <span className="text-muted-foreground">a</span>
-                              <span className="text-amber-400">{gap.endTime}</span>
+                          <div className="space-y-2 min-w-0">
+                            <div className="flex items-center gap-3 flex-wrap">
+                              <div className="flex items-center gap-2">
+                                <span className="px-3 py-1 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-300 font-mono font-black text-sm sm:text-base">
+                                  {gap.startTime}
+                                </span>
+                                <span className="text-xs font-bold text-muted-foreground uppercase">hasta</span>
+                                <span className="px-3 py-1 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-300 font-mono font-black text-sm sm:text-base">
+                                  {gap.endTime}
+                                </span>
+                              </div>
+                              <span className="px-3 py-1 rounded-full bg-amber-500 text-black font-black font-mono text-xs shadow-xs">
+                                {gap.minutes} min de inactividad
+                              </span>
                             </div>
-                            <p className="text-[10px] text-muted-foreground">
-                              {gap.dateFormatted} • {gap.reason}
-                            </p>
+
+                            <div className="flex items-center gap-2 text-xs sm:text-sm text-muted-foreground flex-wrap">
+                              <span className="font-semibold text-foreground">📅 {gap.dateFormatted}</span>
+                              <span>•</span>
+                              <span>{gap.reason}</span>
+                            </div>
                           </div>
-                          <span className="px-2 py-1 rounded-lg bg-amber-500/20 text-amber-300 font-black font-mono text-[11px] shrink-0">
-                            {gap.minutes}m
-                          </span>
-                        </button>
+
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSelectGap(gap);
+                            }}
+                            className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all shrink-0 ${
+                              isSelected
+                                ? "bg-amber-500 text-black shadow-md font-black"
+                                : "bg-muted hover:bg-amber-500 hover:text-black border border-border text-foreground"
+                            }`}
+                          >
+                            {isSelected ? "✓ Horario Seleccionado" : "Usar este horario"}
+                          </button>
+                        </div>
                       );
                     })}
                   </div>
@@ -910,58 +1001,58 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
               )}
 
               {/* Rango de Fecha y Horas Específicas */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 p-3.5 rounded-2xl bg-muted/20 border border-border/60">
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-foreground flex items-center gap-1">
-                    <Calendar className="h-3 w-3 text-violet-400" />
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-5 rounded-2xl bg-muted/20 border border-border/70">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wider">
+                    <Calendar className="h-3.5 w-3.5 text-violet-400" />
                     Fecha a justificar:
                   </label>
                   <input
                     type="date"
                     value={justDate}
                     onChange={(e) => setJustDate(e.target.value)}
-                    className="w-full px-2.5 py-1.5 rounded-xl border border-border bg-background text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-violet-500"
+                    className="w-full h-11 px-3.5 py-2 rounded-xl border border-border bg-background text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-violet-500"
                   />
                 </div>
 
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-foreground flex items-center gap-1">
-                    <Clock className="h-3 w-3 text-violet-400" />
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wider">
+                    <Clock className="h-3.5 w-3.5 text-violet-400" />
                     Hora Inicio:
                   </label>
                   <input
                     type="time"
                     value={justStartTime}
                     onChange={(e) => handleTimeChange(e.target.value, justEndTime)}
-                    className="w-full px-2.5 py-1.5 rounded-xl border border-border bg-background text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-violet-500"
+                    className="w-full h-11 px-3.5 py-2 rounded-xl border border-border bg-background text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-violet-500"
                   />
                 </div>
 
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-foreground flex items-center gap-1">
-                    <Clock className="h-3 w-3 text-violet-400" />
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wider">
+                    <Clock className="h-3.5 w-3.5 text-violet-400" />
                     Hora Fin:
                   </label>
                   <input
                     type="time"
                     value={justEndTime}
                     onChange={(e) => handleTimeChange(justStartTime, e.target.value)}
-                    className="w-full px-2.5 py-1.5 rounded-xl border border-border bg-background text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-violet-500"
+                    className="w-full h-11 px-3.5 py-2 rounded-xl border border-border bg-background text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-violet-500"
                   />
                 </div>
               </div>
 
-              {/* Labores Manuales Elegibles (Tarjetas Clickables de 1 Clic) */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-foreground flex items-center gap-1.5">
-                    <Wrench className="h-3.5 w-3.5 text-violet-400" />
+              {/* Labores Manuales Elegibles (Tarjetas Amplias y Sin Texto Cortado) */}
+              <div className="space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                  <label className="text-xs font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wider">
+                    <Wrench className="h-4 w-4 text-violet-400" />
                     Labor realizada en taller (1 solo clic):
                   </label>
-                  <span className="text-[11px] text-muted-foreground">Selecciona sin necesidad de escribir</span>
+                  <span className="text-xs text-muted-foreground">Selecciona la actividad sin escribir</span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                   {WORKSHOP_JUSTIFY_PRESETS.map((preset) => {
                     const Icon = preset.icon;
                     const isSelected = justReason === preset.label;
@@ -970,30 +1061,28 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                         key={preset.label}
                         type="button"
                         onClick={() => setJustReason(preset.label)}
-                        className={`p-3 rounded-2xl border text-left flex flex-col justify-between gap-2 transition-all relative overflow-hidden ${
+                        className={`p-4 rounded-2xl border text-left flex items-start gap-3.5 transition-all relative overflow-hidden ${
                           isSelected
                             ? "bg-violet-600/15 border-violet-500 text-violet-200 ring-2 ring-violet-500/40 shadow-sm"
-                            : "bg-card/70 border-border/70 hover:bg-muted/60 text-muted-foreground hover:text-foreground"
+                            : "bg-card border-border/80 hover:bg-muted/70 text-muted-foreground hover:text-foreground"
                         }`}
                       >
-                        <div className="flex items-center justify-between w-full">
-                          <div
-                            className={`p-2 rounded-xl transition-colors ${
-                              isSelected ? "bg-violet-600 text-white shadow-sm" : "bg-muted text-muted-foreground"
-                            }`}
-                          >
-                            <Icon className="h-4 w-4" />
-                          </div>
-                          {isSelected && <CheckCircle2 className="h-4 w-4 text-violet-400" />}
+                        <div
+                          className={`p-2.5 rounded-xl shrink-0 transition-colors ${
+                            isSelected ? "bg-violet-600 text-white shadow-sm" : "bg-muted text-muted-foreground"
+                          }`}
+                        >
+                          <Icon className="h-5 w-5" />
                         </div>
-                        <div>
-                          <p className="text-xs font-bold text-foreground line-clamp-1 leading-snug">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs sm:text-sm font-bold text-foreground leading-snug whitespace-normal break-words">
                             {preset.label}
                           </p>
-                          <p className="text-[10px] text-muted-foreground line-clamp-1 mt-0.5">
+                          <p className="text-[11px] text-muted-foreground mt-1 whitespace-normal break-words">
                             {preset.cat}
                           </p>
                         </div>
+                        {isSelected && <CheckCircle2 className="h-4 w-4 text-violet-400 shrink-0 mt-0.5" />}
                       </button>
                     );
                   })}
