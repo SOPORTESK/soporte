@@ -26,7 +26,7 @@ export function clienteInfo(cliente: unknown): {
   const c = cliente as Record<string, unknown>;
   const s = (v: unknown) => typeof v === "string" ? v : v == null ? "" : String(v);
   return {
-    nombre: s(c.nombre ?? c.name ?? c.full_name),
+    nombre: s(c.nombre ?? c.whatsapp_name ?? c.pushName ?? c.profileName ?? c.contact_name ?? c.name ?? c.full_name ?? c.verifiedName),
     telefono: s(c.telefono ?? c.phone ?? c.tel),
     correo: s(c.correo ?? c.email ?? c.mail),
     cedula: s(c.cedula ?? c.identificacion ?? c.id_fiscal),

@@ -396,14 +396,6 @@ export function InboxClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  React.useEffect(() => {
-    if (unreadTotal > 0) {
-      document.title = `(${unreadTotal}) ${BASE_TITLE}`;
-    } else {
-      document.title = BASE_TITLE;
-    }
-  }, [unreadTotal]);
-
   /* Intervalo: recordar casos escalados pendientes cada 60s */
   React.useEffect(() => {
     const timer = setInterval(() => {
@@ -653,6 +645,22 @@ export function InboxClient({
     || (selectedId ? (cases.find(c => String(c.id) === selectedId) as any || null) : null)
     // Fallback: buscar en allCases (sin filtrar) para casos salientes recién creados
     || (selectedId ? (allCases.find(c => String(c.id) === selectedId) as any || null) : null);
+
+  /* Título dinámico de la pestaña:
+     Muestra el nombre de perfil del contacto que se está atendiendo ÚNICAMENTE en ese escenario.
+     Al volver a la lista o no tener ningún chat abierto, regresa al título general ("Sekunet Chat"). */
+  const activeClientName = React.useMemo(() => {
+    if (!selected) return null;
+    const ci = clienteInfo(selected.cliente);
+    let name = ci.nombre || ci.telefono || asText(selected.title) || selected.customer_phone || "";
+    name = name.replace(/^whatsapp\s*—\s*/i, "").trim();
+    return name || null;
+  }, [selected]);
+
+  React.useEffect(() => {
+    const titleBase = activeClientName ? `${activeClientName} — ${BASE_TITLE}` : BASE_TITLE;
+    document.title = unreadTotal > 0 ? `(${unreadTotal}) ${titleBase}` : titleBase;
+  }, [unreadTotal, activeClientName]);
 
   const [listWidth, setListWidth] = React.useState<number>(340);
   const [mounted, setMounted] = React.useState(false);
