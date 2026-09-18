@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getEvolutionConfig } from "@/lib/evolution-config";
-import { uploadToDrive } from "@/lib/google-drive";
 
 export const maxDuration = 60; // Evita el timeout de 10s en Vercel Hobby
 
@@ -1372,50 +1371,44 @@ export async function POST(req: NextRequest) {
            }
         }
 
-        const buffer = directDecryptedBuffer || Buffer.from(dataStr, "base64");
+        let uploadBuffer = directDecryptedBuffer || Buffer.from(dataStr, "base64");
         fileName = `${Date.now()}_${phone || "media"}.${finalExt}`;
 
-        // Archivos grandes (>= 90MB) se suben directo a Google Drive para no topar el límite de 100MB de Supabase Storage
-        if (buffer.length >= 90 * 1024 * 1024) {
+        // Si el video supera 80MB, comprimirlo con ffmpeg para optimizar peso y compatibilidad nativa
+        if (mediaType === "video" && uploadBuffer.length >= 80 * 1024 * 1024) {
           try {
-            console.log(`[evo-webhook] Archivo pesado (${(buffer.length / (1024 * 1024)).toFixed(1)} MB), subiendo a Google Drive...`);
-            const driveRes = await uploadToDrive(buffer, fileName, mime);
-            mediaUrl = driveRes.shareableLink;
-            finalMediaType = mime;
-            if (text === `[Archivo adjunto: ${mediaType}]`) text = "";
-            console.log("[evo-webhook] Archivo pesado subido OK a Google Drive:", mediaUrl);
-          } catch (driveErr: any) {
-            console.error("[evo-webhook] Error subiendo archivo pesado a Google Drive:", driveErr.message);
+            const os = await import("os");
+            const fs = await import("fs");
+            const path = await import("path");
+            const { execSync } = await import("child_process");
+            const tmpRaw = path.join(os.tmpdir(), `raw_${Date.now()}.mp4`);
+            const tmpComp = path.join(os.tmpdir(), `comp_${Date.now()}.mp4`);
+            fs.writeFileSync(tmpRaw, uploadBuffer);
+            console.log("[evo-webhook] Optimizando video pesado con ffmpeg...");
+            execSync(`ffmpeg -y -i "${tmpRaw}" -vf "scale='min(1280,iw)':-2" -c:v libx264 -crf 26 -preset veryfast -c:a aac -b:a 128k "${tmpComp}"`, { timeout: 30000 });
+            if (fs.existsSync(tmpComp)) {
+              uploadBuffer = fs.readFileSync(tmpComp);
+              console.log("[evo-webhook] Video optimizado con ffmpeg, nuevo tamaño:", uploadBuffer.length);
+              try { fs.unlinkSync(tmpRaw); fs.unlinkSync(tmpComp); } catch {}
+            }
+          } catch (compErr: any) {
+            console.warn("[evo-webhook] ffmpeg no disponible o falló:", compErr.message);
           }
         }
 
-        // Si no se subió a Google Drive (o falló), intentar Supabase Storage
-        if (!mediaUrl) {
-          const { data: uploadData, error: uploadErr } = await supabase.storage
-            .from("attachments")
-            .upload(`cases/evolution/${fileName}`, buffer, { contentType: mime });
+        const { data: uploadData, error: uploadErr } = await supabase.storage
+          .from("attachments")
+          .upload(`cases/evolution/${fileName}`, uploadBuffer, { contentType: mime, upsert: true });
 
-          if (uploadErr) {
-            console.error("[evo-webhook] Error subiendo media a Supabase", uploadErr.message || uploadErr);
-            // Fallback a Google Drive si Supabase rechaza por tamaño (ej: 413) o error de storage
-            try {
-              console.log("[evo-webhook] Intentando fallback a Google Drive tras fallo de Supabase...");
-              const driveRes = await uploadToDrive(buffer, fileName, mime);
-              mediaUrl = driveRes.shareableLink;
-              finalMediaType = mime;
-              if (text === `[Archivo adjunto: ${mediaType}]`) text = "";
-              console.log("[evo-webhook] Fallback a Google Drive exitoso:", mediaUrl);
-            } catch (fallbackDriveErr: any) {
-              console.error("[evo-webhook] Fallback a Google Drive también falló:", fallbackDriveErr.message);
-            }
-          }
-          if (!uploadErr && uploadData) {
-            const { data: urlData } = supabase.storage.from("attachments").getPublicUrl(`cases/evolution/${fileName}`);
-            mediaUrl = urlData.publicUrl;
-            finalMediaType = mime;
-            if (text === `[Archivo adjunto: ${mediaType}]`) text = "";
-            console.log("[evo-webhook] media subida OK a Supabase", { mediaUrl, mime, fileName });
-          }
+        if (uploadErr) {
+          console.error("[evo-webhook] Error subiendo media a Supabase", uploadErr.message || uploadErr);
+        }
+        if (!uploadErr && uploadData) {
+          const { data: urlData } = supabase.storage.from("attachments").getPublicUrl(`cases/evolution/${fileName}`);
+          mediaUrl = urlData.publicUrl;
+          finalMediaType = mime;
+          if (text === `[Archivo adjunto: ${mediaType}]`) text = ""; // Limpiar el placeholder si se subió con éxito
+          console.log("[evo-webhook] media subida OK a Supabase", { mediaUrl, mime, fileName });
         }
       }
     } catch (e: any) {
