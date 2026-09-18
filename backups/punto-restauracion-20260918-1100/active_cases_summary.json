@@ -1,0 +1,26 @@
+[
+  {
+    "id": "f6402ca5-eae3-4f99-942c-444cae2b8a6d",
+    "customer_phone": "50687043603",
+    "estado": "abierto",
+    "title": "WhatsApp — .",
+    "updated_at": "2026-09-18T16:55:01.261879+00:00",
+    "last_message_at": "2026-09-18T16:49:02+00:00"
+  },
+  {
+    "id": "5dd5a33c-be50-4c8d-b17e-acfc17d1ee1c",
+    "customer_phone": "50662698020",
+    "estado": "abierto",
+    "title": "WhatsApp — Chris Calderon",
+    "updated_at": "2026-09-18T17:00:17.365883+00:00",
+    "last_message_at": "2026-09-18T17:00:14+00:00"
+  },
+  {
+    "id": "ce071324-e4eb-4a42-b525-4da2cc0301b8",
+    "customer_phone": "50660354270",
+    "estado": "abierto",
+    "title": "WhatsApp — Cercas Perimetrales",
+    "updated_at": "2026-09-18T16:38:33.579732+00:00",
+    "last_message_at": "2026-09-18T16:38:32+00:00"
+  }
+]

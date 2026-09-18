@@ -499,29 +499,13 @@ async function decryptWhatsAppMedia(
   return { buffer: decrypted };
 }
 
-function parseFileLength(fl: any): number {
-  if (!fl) return 0;
-  if (typeof fl === "number") return fl;
-  if (typeof fl === "string") {
-    const n = parseInt(fl, 10);
-    return isNaN(n) ? 0 : n;
-  }
-  if (typeof fl === "object") {
-    const low = Number(fl.low || 0);
-    const high = Number(fl.high || 0);
-    return (low >>> 0) + (high * 4294967296);
-  }
-  return 0;
-}
-
-// Extrae { url, directPath, mediaKey, mimetype, fileName, fileLength } del objeto de mensaje
+// Extrae { url, directPath, mediaKey, mimetype, fileName } del objeto de mensaje
 function extractMediaInfo(msgObj: any): {
   url?: string;
   directPath?: string;
   mediaKey?: any;
   mimetype?: string;
   fileName?: string;
-  fileLength?: number;
 } | null {
   if (!msgObj) return null;
   const unwrapped = unwrapMsg(msgObj);
@@ -539,53 +523,7 @@ function extractMediaInfo(msgObj: any): {
     mediaKey: media.mediaKey,
     mimetype: media.mimetype,
     fileName: media.fileName || media.title,
-    fileLength: parseFileLength(media.fileLength),
   };
-}
-
-function triggerSidecarOptimizer(params: {
-  encUrl?: string | null;
-  mediaKey?: any;
-  videoBase64?: string;
-  mediaType?: string;
-  fileName: string;
-  caseId: string;
-  messageId: string | null;
-}) {
-  const OPTIMIZER_URL = process.env.VIDEO_OPTIMIZER_URL || "http://129.146.7.74/video-optimizer";
-  const OPTIMIZER_SECRET = process.env.VIDEO_OPTIMIZER_SECRET || "sekunet_video_opt_2026_secure_key_x99";
-
-  console.log(`[evo-webhook] Derivando archivo pesado a VPS Sidecar para caso ${params.caseId}, mensaje ${params.messageId}...`);
-  fetch(`${OPTIMIZER_URL.replace(/\/$/, "")}/optimize`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${OPTIMIZER_SECRET}`,
-    },
-    body: JSON.stringify({
-      encUrl: params.encUrl || undefined,
-      mediaKey: params.mediaKey,
-      videoBase64: params.videoBase64,
-      mediaType: params.mediaType || "video",
-      fileName: params.fileName,
-      caseId: params.caseId,
-      messageId: params.messageId,
-      supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
-      supabaseKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
-    }),
-  })
-    .then(async (res) => {
-      if (!res.ok) {
-        const t = await res.text().catch(() => "");
-        console.error(`[evo-webhook] Sidecar VPS devolvió HTTP ${res.status}: ${t}`);
-      } else {
-        const data = await res.json().catch(() => ({}));
-        console.log(`[evo-webhook] Sidecar VPS encolado exitosamente:`, data);
-      }
-    })
-    .catch((err) => {
-      console.error(`[evo-webhook] Error invocando Sidecar VPS:`, err.message);
-    });
 }
 
 const jidToPhone = (jid?: string | null) => {
@@ -1289,10 +1227,6 @@ export async function POST(req: NextRequest) {
   let finalMediaType = mediaType;
   let fileName = "";
   let mediaDebug: any = null;
-  let needsOptimizer = false;
-  let optimizerBase64: string | undefined = undefined;
-  let optimizerEncUrl: string | null = null;
-  let optimizerMediaKey: any = null;
 
   if (mediaType) {
     console.log("[evo-webhook] media detectada", mediaType);
@@ -1331,8 +1265,6 @@ export async function POST(req: NextRequest) {
       const mediaInfo = extractMediaInfo(msgObj);
       const encUrl = mediaInfo?.url
         || (mediaInfo?.directPath ? `https://mmg.whatsapp.net${mediaInfo.directPath}` : null);
-      optimizerEncUrl = encUrl;
-      optimizerMediaKey = mediaInfo?.mediaKey;
       mediaDebug.hasMediaKey = !!mediaInfo?.mediaKey;
       mediaDebug.hasEncUrl = !!encUrl;
       mediaDebug.encUrlPreview = encUrl ? encUrl.slice(0, 80) : null;
@@ -1341,34 +1273,12 @@ export async function POST(req: NextRequest) {
         ? (typeof mediaInfo.mediaKey === "string" ? mediaInfo.mediaKey.slice(0, 40) : "object:" + Object.keys(mediaInfo.mediaKey).length + "keys")
         : null;
       mediaDebug.docMsgKeys = msgObj?.documentMessage ? Object.keys(msgObj.documentMessage) : [];
-      mediaDebug.fileLength = mediaInfo?.fileLength;
 
       let directDecryptedBuffer: Buffer | null = null;
-
-      // Umbral para derivar al sidecar en VPS (25 MB)
-      const isHeavyMedia = (mediaInfo?.fileLength ? mediaInfo.fileLength >= 25 * 1024 * 1024 : false);
 
       if (inlineB64) {
         base64 = String(inlineB64);
         console.log("[evo-webhook] base64 inline detectado en payload, longitud:", base64.length);
-      } else if (isHeavyMedia && encUrl && mediaInfo?.mediaKey) {
-        console.log("[evo-webhook] Archivo pesado detectado antes de descarga, delegando a VPS Sidecar:", {
-          fileLength: mediaInfo.fileLength,
-          mediaType
-        });
-        needsOptimizer = true;
-        let ext = "bin";
-        if (originalFileName && originalFileName.includes(".")) {
-          ext = originalFileName.split(".").pop() || ext;
-        } else if (mediaType === "video") { ext = "mp4"; }
-        else if (mediaType === "audio") { ext = "ogg"; }
-        else if (mediaType === "image") { ext = "jpg"; }
-        else if (mediaType === "document") { ext = "pdf"; }
-        fileName = `${Date.now()}_${phone || "media"}.${ext}`;
-        finalMediaType = mediaInfo?.mimetype || (mediaType === "video" ? "video/mp4" : mediaType === "audio" ? "audio/ogg" : mediaType === "image" ? "image/jpeg" : "application/octet-stream");
-        if (text === `[Archivo adjunto: ${mediaType}]`) {
-          text = `[Procesando ${mediaType}... (${Math.round((mediaInfo.fileLength || 0) / 1024 / 1024)} MB)]`;
-        }
       } else if (encUrl && mediaInfo?.mediaKey) {
         try {
           console.log("[evo-webhook] desencriptando media directo de WhatsApp", { mediaType });
@@ -1394,9 +1304,9 @@ export async function POST(req: NextRequest) {
       const msgKey = messageToExtract?.key || rawData?.key || payload?.data?.key;
       const msgContent = messageToExtract?.message || rawData?.message || payload?.data?.message;
 
-      if (!needsOptimizer && !base64 && !inlineB64 && (!msgKey || !msgContent)) {
+      if (!base64 && !inlineB64 && (!msgKey || !msgContent)) {
         console.error("[evo-webhook] sin base64 inline/directo y sin key+message para getBase64", mediaDebug);
-      } else if (!needsOptimizer && !base64) {
+      } else if (!base64) {
         console.log("[evo-webhook] fallback: solicitando a Evolution getBase64", { mediaType });
         // Evolution espera solo { key, message } — campos extra causan errores
         const cleanMsg = {
@@ -1421,7 +1331,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      if (!needsOptimizer && (base64 || directDecryptedBuffer)) {
+      if (base64 || directDecryptedBuffer) {
         let dataStr = "";
         let mime = b64Data?.mimetype || "application/octet-stream";
         let ext = mime.split("/")[1]?.split(";")[0] || "bin";
@@ -1464,31 +1374,41 @@ export async function POST(req: NextRequest) {
         let uploadBuffer = directDecryptedBuffer || Buffer.from(dataStr, "base64");
         fileName = `${Date.now()}_${phone || "media"}.${finalExt}`;
 
-        // Si el buffer supera 25MB, delegarlo al sidecar de la VPS para no saturar Supabase ni Vercel
-        if (uploadBuffer.length >= 25 * 1024 * 1024) {
-          console.log("[evo-webhook] Buffer pesado detectado (" + uploadBuffer.length + " bytes), delegando a VPS Sidecar...");
-          needsOptimizer = true;
-          optimizerBase64 = uploadBuffer.toString("base64");
-          finalMediaType = mime;
-          if (text === `[Archivo adjunto: ${mediaType}]`) {
-            text = `[Procesando ${mediaType}... (${Math.round(uploadBuffer.length / 1024 / 1024)} MB)]`;
+        // Si el video supera 80MB, comprimirlo con ffmpeg para optimizar peso y compatibilidad nativa
+        if (mediaType === "video" && uploadBuffer.length >= 80 * 1024 * 1024) {
+          try {
+            const os = await import("os");
+            const fs = await import("fs");
+            const path = await import("path");
+            const { execSync } = await import("child_process");
+            const tmpRaw = path.join(os.tmpdir(), `raw_${Date.now()}.mp4`);
+            const tmpComp = path.join(os.tmpdir(), `comp_${Date.now()}.mp4`);
+            fs.writeFileSync(tmpRaw, uploadBuffer);
+            console.log("[evo-webhook] Optimizando video pesado con ffmpeg...");
+            execSync(`ffmpeg -y -i "${tmpRaw}" -vf "scale='min(1280,iw)':-2" -c:v libx264 -crf 26 -preset veryfast -c:a aac -b:a 128k "${tmpComp}"`, { timeout: 30000 });
+            if (fs.existsSync(tmpComp)) {
+              uploadBuffer = fs.readFileSync(tmpComp);
+              console.log("[evo-webhook] Video optimizado con ffmpeg, nuevo tamaño:", uploadBuffer.length);
+              try { fs.unlinkSync(tmpRaw); fs.unlinkSync(tmpComp); } catch {}
+            }
+          } catch (compErr: any) {
+            console.warn("[evo-webhook] ffmpeg no disponible o falló:", compErr.message);
           }
-        } else {
-          // Archivo estándar (< 25MB): subida directa a Supabase Storage
-          const { data: uploadData, error: uploadErr } = await supabase.storage
-            .from("attachments")
-            .upload(`cases/evolution/${fileName}`, uploadBuffer, { contentType: mime, upsert: true });
+        }
 
-          if (uploadErr) {
-            console.error("[evo-webhook] Error subiendo media a Supabase", uploadErr.message || uploadErr);
-          }
-          if (!uploadErr && uploadData) {
-            const { data: urlData } = supabase.storage.from("attachments").getPublicUrl(`cases/evolution/${fileName}`);
-            mediaUrl = urlData.publicUrl;
-            finalMediaType = mime;
-            if (text === `[Archivo adjunto: ${mediaType}]`) text = ""; // Limpiar el placeholder si se subió con éxito
-            console.log("[evo-webhook] media subida OK a Supabase", { mediaUrl, mime, fileName });
-          }
+        const { data: uploadData, error: uploadErr } = await supabase.storage
+          .from("attachments")
+          .upload(`cases/evolution/${fileName}`, uploadBuffer, { contentType: mime, upsert: true });
+
+        if (uploadErr) {
+          console.error("[evo-webhook] Error subiendo media a Supabase", uploadErr.message || uploadErr);
+        }
+        if (!uploadErr && uploadData) {
+          const { data: urlData } = supabase.storage.from("attachments").getPublicUrl(`cases/evolution/${fileName}`);
+          mediaUrl = urlData.publicUrl;
+          finalMediaType = mime;
+          if (text === `[Archivo adjunto: ${mediaType}]`) text = ""; // Limpiar el placeholder si se subió con éxito
+          console.log("[evo-webhook] media subida OK a Supabase", { mediaUrl, mime, fileName });
         }
       }
     } catch (e: any) {
@@ -1716,18 +1636,6 @@ export async function POST(req: NextRequest) {
         await supabase.from("sek_cases").update(metaUpdate).eq("id", existing.id);
         
         console.log("[evo-webhook] Paso 9 OK - mensaje guardado en histcliente");
-      }
-
-      if (needsOptimizer && existing?.id) {
-        triggerSidecarOptimizer({
-          encUrl: optimizerEncUrl,
-          mediaKey: optimizerMediaKey,
-          videoBase64: optimizerBase64,
-          mediaType: mediaType || "video",
-          fileName,
-          caseId: String(existing.id),
-          messageId: keyId,
-        });
       }
 
       // ── Modo No Atendido: mensaje guardado, no procesar nada más ──
@@ -2024,17 +1932,6 @@ export async function POST(req: NextRequest) {
             p_preview: msgHorario.slice(0, 200),
           });
           console.log(`[evo-webhook] Modo No Atendido + fuera de horario — caso ${claimed.caseId} creado cerrado`);
-          if (needsOptimizer && claimed?.caseId) {
-            triggerSidecarOptimizer({
-              encUrl: optimizerEncUrl,
-              mediaKey: optimizerMediaKey,
-              videoBase64: optimizerBase64,
-              mediaType: mediaType || "video",
-              fileName,
-              caseId: String(claimed.caseId),
-              messageId: keyId,
-            });
-          }
           return NextResponse.json({ ok: true, unattended: true, fueraHorario: true });
         }
 
@@ -2057,17 +1954,6 @@ export async function POST(req: NextRequest) {
         }).select("id").single();
 
         console.log(`[evo-webhook] Modo No Atendido + fuera de horario — caso ${newCase?.id} creado cerrado (respaldo)`);
-        if (needsOptimizer && newCase?.id) {
-          triggerSidecarOptimizer({
-            encUrl: optimizerEncUrl,
-            mediaKey: optimizerMediaKey,
-            videoBase64: optimizerBase64,
-            mediaType: mediaType || "video",
-            fileName,
-            caseId: String(newCase.id),
-            messageId: keyId,
-          });
-        }
         return NextResponse.json({ ok: true, unattended: true, fueraHorario: true });
       }
 
@@ -2099,17 +1985,6 @@ export async function POST(req: NextRequest) {
               p_customer_phone: phone || jid,
             });
             console.log(`[evo-webhook] Modo No Atendido — mensaje agregado al caso existente ${claimed.caseId}, sin repetir bienvenida`);
-            if (needsOptimizer && claimed?.caseId) {
-              triggerSidecarOptimizer({
-                encUrl: optimizerEncUrl,
-                mediaKey: optimizerMediaKey,
-                videoBase64: optimizerBase64,
-                mediaType: mediaType || "video",
-                fileName,
-                caseId: String(claimed.caseId),
-                messageId: keyId,
-              });
-            }
             return NextResponse.json({ ok: true, unattended: true, reused: true });
           }
           const welcomeSent = await sendWhatsAppText(phone || jid || "", WELCOME_MSG, evoCfg, 500);
@@ -2128,17 +2003,6 @@ export async function POST(req: NextRequest) {
             p_preview: WELCOME_MSG.slice(0, 200),
           });
           console.log(`[evo-webhook] Modo No Atendido — caso ${claimed.caseId} creado como escalado, bienvenida enviada`);
-          if (needsOptimizer && claimed?.caseId) {
-            triggerSidecarOptimizer({
-              encUrl: optimizerEncUrl,
-              mediaKey: optimizerMediaKey,
-              videoBase64: optimizerBase64,
-              mediaType: mediaType || "video",
-              fileName,
-              caseId: String(claimed.caseId),
-              messageId: keyId,
-            });
-          }
           return NextResponse.json({ ok: true, unattended: true });
         }
 
@@ -2160,17 +2024,6 @@ export async function POST(req: NextRequest) {
         }).select("id").single();
 
         console.log(`[evo-webhook] Modo No Atendido — caso ${newCase?.id} creado como escalado (respaldo)`);
-        if (needsOptimizer && newCase?.id) {
-          triggerSidecarOptimizer({
-            encUrl: optimizerEncUrl,
-            mediaKey: optimizerMediaKey,
-            videoBase64: optimizerBase64,
-            mediaType: mediaType || "video",
-            fileName,
-            caseId: String(newCase.id),
-            messageId: keyId,
-          });
-        }
         return NextResponse.json({ ok: true, unattended: true });
       }
 
@@ -2210,18 +2063,6 @@ export async function POST(req: NextRequest) {
           ...iaPayload,
         }).select("id").single();
         nuevoCaseId = newCase?.id ? String(newCase.id) : null;
-      }
-
-      if (needsOptimizer && nuevoCaseId) {
-        triggerSidecarOptimizer({
-          encUrl: optimizerEncUrl,
-          mediaKey: optimizerMediaKey,
-          videoBase64: optimizerBase64,
-          mediaType: mediaType || "video",
-          fileName,
-          caseId: String(nuevoCaseId),
-          messageId: keyId,
-        });
       }
 
       if (hasKnownData) {

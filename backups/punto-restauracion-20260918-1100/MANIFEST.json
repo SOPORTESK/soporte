@@ -1,0 +1,18 @@
+{
+  "timestamp": "2026-09-18T17:00:50.330Z",
+  "git_tag": "backup-punto-restauracion-20260918-1100",
+  "git_branch": "backup-pre-video-sidecar-20260918",
+  "files_backed_up": [
+    ".env.local.bak",
+    "active_cases_summary.json",
+    "docker-compose.yml.bak",
+    "evolution_instances.json",
+    "evolution_webhook.json",
+    "nginx-evolution.conf.bak",
+    "route.ts.bak",
+    "sek_agent_config.json",
+    "sek_app_settings.json",
+    "sek_flow_configs.json"
+  ],
+  "status": "COMPLETE_AND_VERIFIED"
+}

@@ -1,0 +1,90 @@
+version: "3.8"
+
+services:
+  # ─── PostgreSQL para Evolution API ───────────────────────────────────
+  evolution-postgres:
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_DB: evolution
+      POSTGRES_USER: evolution
+      POSTGRES_PASSWORD: SekEvo2026Secure
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+    networks:
+      - evolution-net
+
+  # ─── Redis para cache de Evolution API ──────────────────────────────
+  evolution-redis:
+    image: redis:7
+    restart: always
+    command: redis-server --port 6379 --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "127.0.0.1:6379:6379"
+    networks:
+      - evolution-net
+
+  # ─── Evolution API ──────────────────────────────────────────────────
+  evolution-api:
+    image: evoapicloud/evolution-api:v2.3.0
+    restart: always
+    depends_on:
+      - evolution-postgres
+      - evolution-redis
+    ports:
+      - "8080:8080"
+    volumes:
+      - evolution_instances:/evolution/instances
+    networks:
+      - evolution-net
+    environment:
+      # Servidor
+      SERVER_URL: http://129.146.7.74
+      SERVER_PORT: 8080
+      SERVER_TYPE: http
+
+      # Autenticación
+      AUTHENTICATION_TYPE: apikey
+      AUTHENTICATION_API_KEY: SEKUNET_EVO_KEY_123
+
+      # Base de datos (PostgreSQL local)
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://evolution:SekEvo2026Secure@evolution-postgres:5432/evolution
+      DATABASE_CONNECTION_CLIENT_NAME: evolution_exchange
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "true"
+      DATABASE_SAVE_MESSAGE_UPDATE: "true"
+      DATABASE_SAVE_DATA_CONTACTS: "true"
+      DATABASE_SAVE_DATA_CHATS: "true"
+      DATABASE_SAVE_DATA_LABELS: "true"
+      DATABASE_SAVE_DATA_HISTORIC: "true"
+
+      # Cache (Redis local)
+      CACHE_REDIS_ENABLED: "true"
+      CACHE_REDIS_URI: redis://evolution-redis:6379/1
+      CACHE_REDIS_PREFIX_KEY: evolution_exchange
+      CACHE_REDIS_SAVE_INSTANCES: "false"
+
+      # RabbitMQ deshabilitado
+      RABBITMQ_ENABLED: "false"
+
+      # No eliminar instancia al desconectar
+      DEL_INSTANCE: "false"
+
+      # QRLib (generación de QR)
+      QRCODE_LIMIT: 30
+
+volumes:
+  postgres_data:
+  redis_data:
+  evolution_instances:
+
+networks:
+  evolution-net:
+    name: evolution-net
+    driver: bridge

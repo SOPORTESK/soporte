@@ -1,0 +1,45 @@
+[
+  {
+    "id": "c69bfe21-ddfb-4d55-9109-468515ff9898",
+    "name": "sekunet",
+    "connectionStatus": "open",
+    "ownerJid": "50660160394@s.whatsapp.net",
+    "profileName": "Soporte Sekunet",
+    "profilePicUrl": null,
+    "integration": "WHATSAPP-BAILEYS",
+    "number": null,
+    "businessId": null,
+    "token": "SEKUNET_EVO_KEY_123",
+    "clientName": "evolution_exchange",
+    "disconnectionReasonCode": 401,
+    "disconnectionObject": "{\"error\":{\"data\":null,\"isBoom\":true,\"isServer\":false,\"output\":{\"statusCode\":401,\"payload\":{\"statusCode\":401,\"error\":\"Unauthorized\",\"message\":\"Log out instance: sekunet\"},\"headers\":{}}},\"date\":\"2026-09-01T14:03:39.984Z\"}",
+    "disconnectionAt": "2026-09-01T14:03:40.000Z",
+    "createdAt": "2026-08-31T18:28:49.386Z",
+    "updatedAt": "2026-09-18T02:22:12.065Z",
+    "Chatwoot": null,
+    "Proxy": null,
+    "Rabbitmq": null,
+    "Nats": null,
+    "Sqs": null,
+    "Websocket": null,
+    "Setting": {
+      "id": "cmthknvqm0011md54y7wttvwl",
+      "rejectCall": false,
+      "msgCall": "",
+      "groupsIgnore": false,
+      "alwaysOnline": false,
+      "readMessages": false,
+      "readStatus": false,
+      "syncFullHistory": false,
+      "wavoipToken": "",
+      "createdAt": "2026-08-31T18:28:49.390Z",
+      "updatedAt": "2026-08-31T18:28:49.390Z",
+      "instanceId": "c69bfe21-ddfb-4d55-9109-468515ff9898"
+    },
+    "_count": {
+      "Message": 26106,
+      "Contact": 538,
+      "Chat": 465
+    }
+  }
+]
