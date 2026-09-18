@@ -1228,127 +1228,133 @@ export function ChatView({
     } finally { setUploadingFile(false); }
   }
 
+  async function uploadToDriveAndSend(fileToUpload: File, reason?: string) {
+    const isWhatsApp = String(sekCase.canal || "").toLowerCase() === "whatsapp";
+    setUploadingFile(true);
+    toast.info(reason ? `${reason}. Subiendo a Google Drive como respaldo...` : "Subiendo archivo a Google Drive...", {
+      description: `"${fileToUpload.name}" (${(fileToUpload.size / 1024 / 1024).toFixed(1)} MB). Generando enlace de descarga...`,
+    });
+    try {
+      // 1. Inicializar sesión de subida en el servidor (el servidor gestiona OAuth y permisos de forma 100% segura)
+      const initRes = await fetch("/api/drive-init", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileName: fileToUpload.name,
+          fileSize: fileToUpload.size,
+          mimeType: fileToUpload.type || "application/octet-stream",
+        }),
+      });
+      if (!initRes.ok) {
+        const d = await initRes.json().catch(() => ({}));
+        throw new Error(d.error || `Error iniciando subida a Drive (${initRes.status})`);
+      }
+      const { uploadUrl } = await initRes.json();
+      if (!uploadUrl) throw new Error("No se obtuvo URL de subida de Google Drive");
+
+      // 2. Subir el archivo en chunks de 8MB directamente a Google
+      const chunkSize = 8 * 1024 * 1024;
+      let start = 0;
+      let fileId = "";
+      while (start < fileToUpload.size) {
+        const end = Math.min(start + chunkSize - 1, fileToUpload.size - 1);
+        const chunk = fileToUpload.slice(start, end + 1);
+        const uploadRes = await fetch(uploadUrl, {
+          method: "PUT",
+          headers: {
+            "Content-Range": `bytes ${start}-${end}/${fileToUpload.size}`,
+            "Content-Length": String(end - start + 1),
+            "Content-Type": fileToUpload.type || "application/octet-stream",
+          },
+          body: chunk,
+        });
+        if (uploadRes.status === 308) {
+          const range = uploadRes.headers.get("Range");
+          if (range) {
+            const match = range.match(/bytes=\d+-(\d+)/);
+            if (match) start = parseInt(match[1], 10) + 1;
+            else start = end + 1;
+          } else {
+            start = end + 1;
+          }
+          continue;
+        }
+        if (uploadRes.status === 200 || uploadRes.status === 201) {
+          const data = await uploadRes.json();
+          fileId = data.id;
+          break;
+        }
+        if (!uploadRes.ok) throw new Error(`Error en subida: ${await uploadRes.text()}`);
+        start = end + 1;
+      }
+      if (!fileId) throw new Error("Subida completada sin fileId");
+
+      // 3. Registrar en BD y asignar permisos públicos desde el servidor
+      const regRes = await fetch("/api/drive-register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileId,
+          fileName: fileToUpload.name,
+          mimeType: fileToUpload.type || "application/octet-stream",
+          fileSize: fileToUpload.size,
+          caseId: String(targetId),
+          agentEmail,
+        }),
+      });
+      const regData = await regRes.json().catch(() => ({}));
+      const shareableLink = regData.shareableLink || `https://drive.google.com/file/d/${fileId}/view?usp=sharing`;
+
+      const driveMsg = `Estimado cliente:\n\nA continuación, le compartimos el enlace para la descarga directa del archivo solicitado:\n\n${shareableLink}\n\nPor favor, tenga en cuenta que el enlace permanecerá activo durante las próximas 2 horas.\n\nSi requiere cualquier otra asistencia, con gusto estaremos para ayudarle.`;
+
+      // Registrar en histtecnico PRIMERO (para que persistMessageId lo encuentre)
+      await send(driveMsg, undefined, undefined, undefined, true);
+
+      if (isWhatsApp) {
+        // Enviar el mensaje con el enlace por WhatsApp
+        const sendRes = await fetch("/api/evolution/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            case_id: String(targetId),
+            text: driveMsg,
+          }),
+        });
+        if (!sendRes.ok) {
+          const d = await sendRes.json().catch(() => ({}));
+          throw new Error(d.error || `Error enviando a WhatsApp ${sendRes.status}`);
+        }
+      }
+
+      toast.success("Archivo subido a Google Drive y enlace compartido con el cliente");
+    } catch (err: any) {
+      console.error("[uploadToDriveAndSend] Error:", err);
+      toast.error("Error al subir archivo a Google Drive", { description: err?.message });
+    } finally {
+      setUploadingFile(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file || !agentEmail) return;
 
     const isWhatsApp = String(sekCase.canal || "").toLowerCase() === "whatsapp";
-    const MAX_MB = isWhatsApp ? 100 : 50;
-    const DRIVE_THRESHOLD = 15 * 1024 * 1024; // 15 MB → subir a Google Drive (evita límites de WhatsApp y Supabase)
+    const MAX_DRIVE_MB = 5120; // 5 GB tope para Google Drive
+    const WPP_MAX_SIZE = 2048 * 1024 * 1024; // 2 GB límite oficial de WhatsApp
 
-    // Archivos ≥15MB: subir a Google Drive y enviar enlace
-    if (file.size >= DRIVE_THRESHOLD) {
-      setUploadingFile(true);
-      toast.info("Subiendo archivo a Google Drive...", {
-        description: `"${file.name}" pesa ${(file.size / 1024 / 1024).toFixed(1)} MB. Esto puede tardar unos minutos.`,
+    if (file.size > MAX_DRIVE_MB * 1024 * 1024) {
+      toast.error(`El archivo excede el límite máximo de ${MAX_DRIVE_MB / 1024} GB`, {
+        description: `"${file.name}" pesa ${(file.size / 1024 / 1024).toFixed(1)} MB.`,
       });
-      try {
-        // 1. Inicializar sesión de subida en el servidor (el servidor gestiona OAuth y permisos de forma 100% segura)
-        const initRes = await fetch("/api/drive-init", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            fileName: file.name,
-            fileSize: file.size,
-            mimeType: file.type || "application/octet-stream",
-          }),
-        });
-        if (!initRes.ok) {
-          const d = await initRes.json().catch(() => ({}));
-          throw new Error(d.error || `Error iniciando subida a Drive (${initRes.status})`);
-        }
-        const { uploadUrl } = await initRes.json();
-        if (!uploadUrl) throw new Error("No se obtuvo URL de subida de Google Drive");
-
-        // 2. Subir el archivo en chunks de 8MB directamente a Google (sin necesidad de tokens en el navegador)
-        const chunkSize = 8 * 1024 * 1024;
-        let start = 0;
-        let fileId = "";
-        while (start < file.size) {
-          const end = Math.min(start + chunkSize - 1, file.size - 1);
-          const chunk = file.slice(start, end + 1);
-          const uploadRes = await fetch(uploadUrl, {
-            method: "PUT",
-            headers: {
-              "Content-Range": `bytes ${start}-${end}/${file.size}`,
-              "Content-Length": String(end - start + 1),
-              "Content-Type": file.type || "application/octet-stream",
-            },
-            body: chunk,
-          });
-          if (uploadRes.status === 308) {
-            const range = uploadRes.headers.get("Range");
-            if (range) {
-              const match = range.match(/bytes=\d+-(\d+)/);
-              if (match) start = parseInt(match[1], 10) + 1;
-              else start = end + 1;
-            } else {
-              start = end + 1;
-            }
-            continue;
-          }
-          if (uploadRes.status === 200 || uploadRes.status === 201) {
-            const data = await uploadRes.json();
-            fileId = data.id;
-            break;
-          }
-          if (!uploadRes.ok) throw new Error(`Error en subida: ${await uploadRes.text()}`);
-          start = end + 1;
-        }
-        if (!fileId) throw new Error("Subida completada sin fileId");
-
-        // 3. Registrar en BD y asignar permisos públicos desde el servidor
-        const regRes = await fetch("/api/drive-register", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            fileId,
-            fileName: file.name,
-            mimeType: file.type || "application/octet-stream",
-            fileSize: file.size,
-            caseId: String(targetId),
-            agentEmail,
-          }),
-        });
-        const regData = await regRes.json().catch(() => ({}));
-        const shareableLink = regData.shareableLink || `https://drive.google.com/file/d/${fileId}/view?usp=sharing`;
-
-        const driveMsg = `Estimado cliente:\n\nA continuación, le compartimos el enlace para la descarga directa del archivo solicitado:\n\n${shareableLink}\n\nPor favor, tenga en cuenta que el enlace permanecerá activo durante las próximas 2 horas.\n\nSi requiere cualquier otra asistencia, con gusto estaremos para ayudarle.`;
-
-        // Registrar en histtecnico PRIMERO (para que persistMessageId lo encuentre)
-        await send(driveMsg, undefined, undefined, undefined, true);
-
-        if (isWhatsApp) {
-          // Enviar el mensaje con el enlace por WhatsApp
-          const sendRes = await fetch("/api/evolution/send", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              case_id: String(targetId),
-              text: driveMsg,
-            }),
-          });
-          if (!sendRes.ok) {
-            const d = await sendRes.json().catch(() => ({}));
-            throw new Error(d.error || `Error enviando a WhatsApp ${sendRes.status}`);
-          }
-        }
-
-        toast.success("Archivo subido a Google Drive y enlace compartido");
-      } catch (err: any) {
-        toast.error("Error al subir archivo grande", { description: err?.message });
-      } finally {
-        setUploadingFile(false);
-        if (fileInputRef.current) fileInputRef.current.value = "";
-      }
+      if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
 
-    if (file.size > MAX_MB * 1024 * 1024) {
-      toast.error(`El archivo excede el límite de ${MAX_MB} MB`, {
-        description: `"${file.name}" pesa ${(file.size / 1024 / 1024).toFixed(1)} MB. Comprímaló o compártalo por otro medio.`,
-      });
-      if (fileInputRef.current) fileInputRef.current.value = "";
+    // Si supera los 2 GB (límite físico insuperable de WhatsApp), va directamente a Google Drive
+    if (isWhatsApp && file.size > WPP_MAX_SIZE) {
+      await uploadToDriveAndSend(file, "El archivo supera los 2 GB de WhatsApp");
       return;
     }
 
@@ -1358,18 +1364,28 @@ export function ChatView({
         const DIRECT_BASE64_LIMIT = 3 * 1024 * 1024; // 3 MB → base64 directo; mayor → URL pública
         const caseIdStr = String(targetId);
 
-        // Subir siempre a Storage para tener una URL con la que mostrar el adjunto en el chat
+        // 1. Subir a Supabase Storage
         const ext = file.name.split(".").pop() ?? "bin";
         const path = `cases/${targetId}/${Date.now()}.${ext}`;
-        const { error: upErr } = await supabase.storage
-          .from("attachments")
-          .upload(path, file, { upsert: true, contentType: file.type || undefined });
-        if (upErr) throw upErr;
-        const { data: pub } = supabase.storage.from("attachments").getPublicUrl(path);
 
+        let pubUrl: string | null = null;
+        try {
+          const { error: upErr } = await supabase.storage
+            .from("attachments")
+            .upload(path, file, { upsert: true, contentType: file.type || undefined });
+          if (upErr) throw upErr;
+          const { data: pub } = supabase.storage.from("attachments").getPublicUrl(path);
+          pubUrl = pub.publicUrl;
+        } catch (storageErr: any) {
+          console.warn("[handleFile] Falló subida a Storage, activando respaldo con Google Drive:", storageErr.message);
+          toast.warning("Capacidad de almacenamiento directo excedida. Enviando automáticamente mediante Google Drive...");
+          await uploadToDriveAndSend(file, "Almacenamiento directo no disponible para este tamaño");
+          return;
+        }
+
+        // 2. Preparar payload de envío para Evolution API
         let payload: Record<string, string>;
         if (file.size <= DIRECT_BASE64_LIMIT) {
-          // Archivo pequeño: enviar a Evolution como base64 directo
           const reader = new FileReader();
           const base64 = await new Promise<string>((resolve, reject) => {
             reader.onload = () => resolve(reader.result as string);
@@ -1378,24 +1394,32 @@ export function ChatView({
           });
           payload = { case_id: caseIdStr, base64, mimeType: file.type || "application/octet-stream", fileName: file.name };
         } else {
-          // Archivo grande: enviar a Evolution por URL pública
-          payload = { case_id: caseIdStr, mediaUrl: pub.publicUrl, mimeType: file.type || "application/octet-stream", fileName: file.name };
+          payload = { case_id: caseIdStr, mediaUrl: pubUrl, mimeType: file.type || "application/octet-stream", fileName: file.name };
         }
 
+        // 3. Intentar envío directo a WhatsApp
         const res = await fetch("/api/evolution/send-base64", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
+
+        // 4. Si WhatsApp rechaza el archivo por cualquier motivo, respaldo automático con Google Drive
         if (!res.ok) {
           const d = await res.json().catch(() => ({}));
-          throw new Error(d.error || `Error ${res.status}`);
+          console.warn("[handleFile] WhatsApp rechazó el archivo directo:", res.status, d.error);
+          toast.warning("WhatsApp rechazó el archivo directo. Enviando automáticamente mediante Google Drive...", {
+            description: d.error || `Error ${res.status}`,
+          });
+          await uploadToDriveAndSend(file, "WhatsApp rechazó el archivo directo");
+          return;
         }
-        // Registrar en histtecnico con la URL de storage para que se vea el adjunto en el chat
-        // skipWhatsApp=true: ya se envió por /api/evolution/send-base64, evitar duplicado
-        await send("", pub.publicUrl, file.type, file.name, true);
+
+        // Envío exitoso directo por WhatsApp
+        await send("", pubUrl, file.type, file.name, true);
+        toast.success("Archivo enviado directamente a WhatsApp");
       } else {
-        // Otros canales (Widget, etc.): subir a Supabase Storage como antes
+        // Canales Web / Widget
         const ext = file.name.split(".").pop();
         const path = `cases/${targetId}/${Date.now()}.${ext}`;
         const { error: upErr } = await supabase.storage
@@ -1404,13 +1428,16 @@ export function ChatView({
         if (upErr) throw upErr;
         const { data: urlData } = supabase.storage.from("attachments").getPublicUrl(path);
         await send("", urlData.publicUrl, file.type, file.name);
+        toast.success("Archivo enviado");
       }
     } catch (err: any) {
-      const msg: string = err?.message || "";
-      const isSize = msg.toLowerCase().includes("size") || msg.toLowerCase().includes("limit");
-      toast.error("Error al subir archivo", {
-        description: isSize ? `El archivo supera el límite. Intente con un archivo más pequeño.` : msg,
-      });
+      console.error("[handleFile] Error general:", err);
+      if (isWhatsApp) {
+        toast.warning("Error en envío directo. Usando Google Drive como respaldo...");
+        await uploadToDriveAndSend(file, "Respaldo automático por error");
+      } else {
+        toast.error("Error al subir archivo", { description: err?.message });
+      }
     } finally {
       setUploadingFile(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
