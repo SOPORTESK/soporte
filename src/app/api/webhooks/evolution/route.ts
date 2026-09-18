@@ -448,6 +448,21 @@ function mediaKeyToBuffer(mediaKey: any): Buffer | null {
   return null;
 }
 
+// Desempaqueta capas anidadas de WhatsApp (ephemeral, viewOnce, viewOnceV2, etc.)
+function unwrapMsg(msg: any): any {
+  if (!msg || typeof msg !== "object") return msg;
+  let cur = msg;
+  for (let i = 0; i < 5; i++) {
+    if (cur.ephemeralMessage?.message) { cur = cur.ephemeralMessage.message; continue; }
+    if (cur.viewOnceMessage?.message) { cur = cur.viewOnceMessage.message; continue; }
+    if (cur.viewOnceMessageV2?.message) { cur = cur.viewOnceMessageV2.message; continue; }
+    if (cur.viewOnceMessageV2Extension?.message) { cur = cur.viewOnceMessageV2Extension.message; continue; }
+    if (cur.documentWithCaptionMessage?.message) { cur = cur.documentWithCaptionMessage.message; continue; }
+    break;
+  }
+  return cur;
+}
+
 // Descarga y desencripta media de WhatsApp directamente (AES-256-CBC + HKDF),
 // sin depender de getBase64FromMediaMessage de Evolution (que falla en Render).
 async function decryptWhatsAppMedia(
@@ -463,9 +478,15 @@ async function decryptWhatsAppMedia(
   const iv = expanded.slice(0, 16);
   const cipherKey = expanded.slice(16, 48);
 
-  const res = await fetch(encUrl, { signal: AbortSignal.timeout(45000) });
+  const res = await fetch(encUrl, {
+    headers: {
+      "User-Agent": "WhatsApp/2.24.12.78 i",
+      "Accept": "*/*",
+    },
+    signal: AbortSignal.timeout(60000),
+  });
   if (!res.ok) {
-    console.error("[evo-webhook] descarga media WhatsApp NO OK", res.status);
+    console.error("[evo-webhook] descarga media WhatsApp NO OK", res.status, encUrl.slice(0, 100));
     return null;
   }
   const enc = Buffer.from(await res.arrayBuffer());
@@ -487,17 +508,13 @@ function extractMediaInfo(msgObj: any): {
   fileName?: string;
 } | null {
   if (!msgObj) return null;
-  const unwrapped =
-    msgObj.ephemeralMessage?.message ||
-    msgObj.viewOnceMessage?.message ||
-    msgObj.documentWithCaptionMessage?.message ||
-    msgObj;
+  const unwrapped = unwrapMsg(msgObj);
   const media =
+    unwrapped.videoMessage ||
+    unwrapped.ptvMessage ||
     unwrapped.documentMessage ||
     unwrapped.imageMessage ||
-    unwrapped.videoMessage ||
     unwrapped.audioMessage ||
-    unwrapped.ptvMessage ||
     unwrapped.stickerMessage;
   if (!media) return null;
   return {
@@ -1091,35 +1108,22 @@ export async function POST(req: NextRequest) {
   let mediaType = "";
   let originalFileName = "";
   if (msgObj) {
-    if (msgObj.audioMessage) mediaType = "audio";
-    else if (msgObj.imageMessage) mediaType = "image";
-    else if (msgObj.videoMessage) mediaType = "video";
-    else if (msgObj.ptvMessage) mediaType = "video"; // video note ("videito circular")
-    else if (msgObj.viewOnceMessage?.message?.videoMessage) mediaType = "video";
-    else if (msgObj.viewOnceMessage?.message?.imageMessage) mediaType = "image";
-    else if (msgObj.ephemeralMessage?.message?.videoMessage) mediaType = "video";
-    else if (msgObj.ephemeralMessage?.message?.imageMessage) mediaType = "image";
-    else if (msgObj.ephemeralMessage?.message?.audioMessage) mediaType = "audio";
-    else if (msgObj.documentWithCaptionMessage?.message) {
-      // Document with caption — could be video, image, or other
-      const docMsg = msgObj.documentWithCaptionMessage.message;
-      if (docMsg.mimetype?.startsWith("video/")) mediaType = "video";
-      else if (docMsg.mimetype?.startsWith("image/")) mediaType = "image";
-      else if (docMsg.mimetype?.startsWith("audio/")) mediaType = "audio";
-      else mediaType = "document";
-      originalFileName = docMsg.fileName || docMsg.title || "";
-    }
-    else if (msgObj.documentMessage) {
-      const docMime = msgObj.documentMessage.mimetype || "";
+    const u = unwrapMsg(msgObj);
+    if (u.videoMessage) mediaType = "video";
+    else if (u.ptvMessage) mediaType = "video"; // video note ("videito circular")
+    else if (u.audioMessage) mediaType = "audio";
+    else if (u.imageMessage) mediaType = "image";
+    else if (u.documentMessage) {
+      const docMime = u.documentMessage.mimetype || "";
       if (docMime.startsWith("video/")) mediaType = "video";
       else if (docMime.startsWith("image/")) mediaType = "image";
       else if (docMime.startsWith("audio/")) mediaType = "audio";
       else mediaType = "document";
-      originalFileName = msgObj.documentMessage.fileName || msgObj.documentMessage.title || "";
+      originalFileName = u.documentMessage.fileName || u.documentMessage.title || "";
     }
-    else if (msgObj.stickerMessage) mediaType = "sticker";
+    else if (u.stickerMessage) mediaType = "sticker";
     else {
-      console.log("[evo-webhook] msgObj keys sin mediaType detectado:", msgObj ? Object.keys(msgObj) : "null");
+      console.log("[evo-webhook] msgObj keys sin mediaType detectado:", u ? Object.keys(u) : "null");
     }
   }
 
@@ -1278,20 +1282,23 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      if (!base64 && !inlineB64 && (!messageToExtract || !messageToExtract.key || !messageToExtract.message)) {
+      const msgKey = messageToExtract?.key || rawData?.key || payload?.data?.key;
+      const msgContent = messageToExtract?.message || rawData?.message || payload?.data?.message;
+
+      if (!base64 && !inlineB64 && (!msgKey || !msgContent)) {
         console.error("[evo-webhook] sin base64 inline/directo y sin key+message para getBase64", mediaDebug);
       } else if (!base64) {
         console.log("[evo-webhook] fallback: solicitando a Evolution getBase64", { mediaType });
         // Evolution espera solo { key, message } — campos extra causan errores
         const cleanMsg = {
-          key: messageToExtract.key,
-          message: messageToExtract.message,
+          key: msgKey,
+          message: msgContent,
         };
         const b64Res = await fetch(`${EVO_URL.replace(/\/$/, "")}/chat/getBase64FromMediaMessage/${encodeURIComponent(EVO_INSTANCE)}`, {
           method: "POST",
           headers: { "Content-Type": "application/json", apikey: EVO_KEY },
           body: JSON.stringify({ message: cleanMsg, convertToMp4: false }),
-          signal: AbortSignal.timeout(55000)
+          signal: AbortSignal.timeout(60000)
         });
         if (!b64Res.ok) {
           const body = await b64Res.text().catch(() => "<no-body>");
