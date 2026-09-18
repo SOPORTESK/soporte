@@ -11,8 +11,14 @@ interface MediaViewerProps {
 }
 
 export function MediaViewer({ url, type, name, onClose }: MediaViewerProps) {
+  const isDrive = url.includes("drive.google.com");
+  const drivePreviewUrl = isDrive
+    ? url.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1]
+      ? `https://drive.google.com/file/d/${url.match(/\/d\/([a-zA-Z0-9_-]+)/)![1]}/preview`
+      : url
+    : null;
   const isVideo = (type || "").startsWith("video/") ||
-    /\.(mp4|mov|webm|mkv)(\?|$)/i.test(url);
+    /\.(mp4|mov|webm|mkv)(\?|$)/i.test(url) || isDrive;
   const isImage = (type || "").startsWith("image/") ||
     /\.(jpg|jpeg|png|gif|webp|svg|bmp)(\?|$)/i.test(url);
 
@@ -139,7 +145,16 @@ export function MediaViewer({ url, type, name, onClose }: MediaViewerProps) {
         style={{ cursor: scale > 1 ? (dragging ? "grabbing" : "grab") : "default" }}
         onClick={(e) => e.stopPropagation()}
       >
-        {isVideo ? (
+        {isDrive ? (
+          <div className="w-[90vw] max-w-4xl h-[80vh] rounded-xl overflow-hidden shadow-2xl bg-black border border-white/10">
+            <iframe
+              src={drivePreviewUrl!}
+              className="w-full h-full border-0"
+              allow="autoplay"
+              allowFullScreen
+            />
+          </div>
+        ) : isVideo ? (
           <div className="relative" style={{ transform, transition: dragging ? "none" : "transform 0.1s" }}>
             <video
               ref={videoRef}

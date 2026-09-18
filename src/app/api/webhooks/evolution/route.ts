@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getEvolutionConfig } from "@/lib/evolution-config";
+import { uploadToDrive } from "@/lib/google-drive";
 
 export const maxDuration = 60; // Evita el timeout de 10s en Vercel Hobby
 
@@ -640,12 +641,28 @@ async function extractJid(payload: any, evoUrl: string, evoKey: string, evoInsta
 
   if (!rawJid) return null;
 
-  // Si es un LID (Linked Identity), resolverlo de inmediato con senderPn
+  // Si es un LID (Linked Identity), resolverlo de inmediato
   if (String(rawJid).endsWith("@lid")) {
+    // 1. WhatsApp envía el JID real en remoteJidAlt (ej: 50687043603@s.whatsapp.net)
+    const altJid = get(msg, "key.remoteJidAlt") || get(payload, "data.key.remoteJidAlt") || get(payload, "data.remoteJidAlt") || get(payload, "remoteJidAlt");
+    if (altJid && String(altJid).endsWith("@s.whatsapp.net")) {
+      console.log("[evo-webhook] LID resuelto instantáneamente con remoteJidAlt:", altJid);
+      return String(altJid);
+    }
+
+    // 2. Revisar senderPn o key.senderPn
     const directPn = get(msg, "key.senderPn") || get(msg, "senderPn") || get(payload, "data.key.senderPn") || get(payload, "data.senderPn") || get(payload, "senderPn") || possiblePnJid;
-    if (directPn && String(directPn).endsWith("@s.whatsapp.net")) {
-      console.log("[evo-webhook] LID resuelto instantáneamente con senderPn:", directPn);
-      return String(directPn);
+    if (directPn) {
+      const s = String(directPn).trim();
+      if (s.endsWith("@s.whatsapp.net")) {
+        console.log("[evo-webhook] LID resuelto instantáneamente con senderPn:", s);
+        return s;
+      }
+      const numOnly = s.replace(/[^0-9]/g, "");
+      if (numOnly.length >= 8) {
+        console.log("[evo-webhook] LID resuelto con senderPn numérico:", `${numOnly}@s.whatsapp.net`);
+        return `${numOnly}@s.whatsapp.net`;
+      }
     }
     
     try {
@@ -1258,6 +1275,8 @@ export async function POST(req: NextRequest) {
         : null;
       mediaDebug.docMsgKeys = msgObj?.documentMessage ? Object.keys(msgObj.documentMessage) : [];
 
+      let directDecryptedBuffer: Buffer | null = null;
+
       if (inlineB64) {
         base64 = String(inlineB64);
         console.log("[evo-webhook] base64 inline detectado en payload, longitud:", base64.length);
@@ -1266,7 +1285,8 @@ export async function POST(req: NextRequest) {
           console.log("[evo-webhook] desencriptando media directo de WhatsApp", { mediaType });
           const dec = await decryptWhatsAppMedia(encUrl, mediaInfo.mediaKey, mediaType);
           if (dec?.buffer) {
-            base64 = dec.buffer.toString("base64");
+            directDecryptedBuffer = dec.buffer;
+            base64 = "direct"; // Flag to bypass Evolution getBase64 fallback
             b64Data = { mimetype: mediaInfo.mimetype };
             mediaDebug.directDecrypt = true;
             mediaDebug.directBytes = dec.buffer.length;
@@ -1312,19 +1332,26 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      if (base64) {
+      if (base64 || directDecryptedBuffer) {
         let dataStr = "";
         let mime = b64Data?.mimetype || "application/octet-stream";
         let ext = mime.split("/")[1]?.split(";")[0] || "bin";
 
-        if (base64.includes(",")) {
+        if (directDecryptedBuffer) {
+          if (!b64Data?.mimetype) {
+            if (mediaType === "video") { mime = "video/mp4"; ext = "mp4"; }
+            else if (mediaType === "audio") { mime = "audio/ogg"; ext = "ogg"; }
+            else if (mediaType === "image") { mime = "image/jpeg"; ext = "jpg"; }
+            else if (mediaType === "document") { mime = "application/pdf"; ext = "pdf"; }
+          }
+        } else if (base64 && base64.includes(",")) {
           const [prefix, rest] = base64.split(",");
           dataStr = rest || "";
           if (!b64Data?.mimetype) {
             mime = prefix.split(":")[1]?.split(";")[0] || "application/octet-stream";
             ext = mime.split("/")[1]?.split(";")[0] || "bin";
           }
-        } else {
+        } else if (base64) {
           // Base64 sin cabecera
           dataStr = base64;
           if (!b64Data?.mimetype) {
@@ -1337,33 +1364,58 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        console.log("[evo-webhook] base64 recibido", { mime, base64Length: base64.length });
-
         let finalExt = ext;
         if (originalFileName && originalFileName.includes(".")) {
            finalExt = originalFileName.split(".").pop() || ext;
-           // Si no hay mime específico o es genérico, lo inferimos por la extensión original
            if (!b64Data?.mimetype || b64Data.mimetype === "application/octet-stream") {
              mime = inferMimeFromExt(finalExt);
            }
         }
 
-        const buffer = Buffer.from(dataStr, "base64");
+        const buffer = directDecryptedBuffer || Buffer.from(dataStr, "base64");
         fileName = `${Date.now()}_${phone || "media"}.${finalExt}`;
 
-        const { data: uploadData, error: uploadErr } = await supabase.storage
-          .from("attachments")
-          .upload(`cases/evolution/${fileName}`, buffer, { contentType: mime });
-
-        if (uploadErr) {
-          console.error("[evo-webhook] Error subiendo media a Supabase", uploadErr.message || uploadErr);
+        // Archivos grandes (>= 90MB) se suben directo a Google Drive para no topar el límite de 100MB de Supabase Storage
+        if (buffer.length >= 90 * 1024 * 1024) {
+          try {
+            console.log(`[evo-webhook] Archivo pesado (${(buffer.length / (1024 * 1024)).toFixed(1)} MB), subiendo a Google Drive...`);
+            const driveRes = await uploadToDrive(buffer, fileName, mime);
+            mediaUrl = driveRes.shareableLink;
+            finalMediaType = mime;
+            if (text === `[Archivo adjunto: ${mediaType}]`) text = "";
+            console.log("[evo-webhook] Archivo pesado subido OK a Google Drive:", mediaUrl);
+          } catch (driveErr: any) {
+            console.error("[evo-webhook] Error subiendo archivo pesado a Google Drive:", driveErr.message);
+          }
         }
-        if (!uploadErr && uploadData) {
-          const { data: urlData } = supabase.storage.from("attachments").getPublicUrl(`cases/evolution/${fileName}`);
-          mediaUrl = urlData.publicUrl;
-          finalMediaType = mime;
-          if (text === `[Archivo adjunto: ${mediaType}]`) text = ""; // Limpiar el placeholder si se subió con éxito
-          console.log("[evo-webhook] media subida OK", { mediaUrl, mime, fileName });
+
+        // Si no se subió a Google Drive (o falló), intentar Supabase Storage
+        if (!mediaUrl) {
+          const { data: uploadData, error: uploadErr } = await supabase.storage
+            .from("attachments")
+            .upload(`cases/evolution/${fileName}`, buffer, { contentType: mime });
+
+          if (uploadErr) {
+            console.error("[evo-webhook] Error subiendo media a Supabase", uploadErr.message || uploadErr);
+            // Fallback a Google Drive si Supabase rechaza por tamaño (ej: 413) o error de storage
+            try {
+              console.log("[evo-webhook] Intentando fallback a Google Drive tras fallo de Supabase...");
+              const driveRes = await uploadToDrive(buffer, fileName, mime);
+              mediaUrl = driveRes.shareableLink;
+              finalMediaType = mime;
+              if (text === `[Archivo adjunto: ${mediaType}]`) text = "";
+              console.log("[evo-webhook] Fallback a Google Drive exitoso:", mediaUrl);
+            } catch (fallbackDriveErr: any) {
+              console.error("[evo-webhook] Fallback a Google Drive también falló:", fallbackDriveErr.message);
+            }
+          }
+          if (!uploadErr && uploadData) {
+            const { data: urlData } = supabase.storage.from("attachments").getPublicUrl(`cases/evolution/${fileName}`);
+            mediaUrl = urlData.publicUrl;
+            finalMediaType = mime;
+            if (text === `[Archivo adjunto: ${mediaType}]`) text = "";
+            console.log("[evo-webhook] media subida OK a Supabase", { mediaUrl, mime, fileName });
+          }
         }
       }
     } catch (e: any) {

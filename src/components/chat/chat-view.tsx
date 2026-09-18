@@ -3360,7 +3360,28 @@ function MediaPreview({ url, type, name, onImageClick }: { url: string; type?: s
       </div>
     );
   }
-  if (t.startsWith("video/")) {
+  if (t.startsWith("video/") || url.includes("drive.google.com")) {
+    const isDrive = url.includes("drive.google.com");
+    if (isDrive) {
+      const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+      const previewUrl = match ? `https://drive.google.com/file/d/${match[1]}/preview` : url;
+      return (
+        <div className="mt-1.5 rounded-xl overflow-hidden border border-white/20 bg-black/40 shadow-sm max-w-[280px]">
+          <iframe
+            src={previewUrl}
+            className="w-full aspect-video rounded-t-lg border-0 pointer-events-auto"
+            allow="autoplay"
+            allowFullScreen
+          />
+          <div className="px-2.5 py-1.5 flex items-center justify-between text-[11px] bg-black/70 text-white/90">
+            <span className="truncate max-w-[170px]">{name || "Video en Drive"}</span>
+            <a href={url} target="_blank" rel="noopener noreferrer" className="underline text-brand-300 ml-2 hover:text-brand-200">
+              Abrir
+            </a>
+          </div>
+        </div>
+      );
+    }
     const isNote = (name || url).includes("nota-video");
     if (isNote) return <VideoNote url={url} type={t} />;
     return (
