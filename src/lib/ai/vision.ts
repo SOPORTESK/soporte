@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { Buffer } from "node:buffer";
 
 function getMimeType(url: string, declaredType?: string): string {
   const clean = url.split("?")[0].toLowerCase();
