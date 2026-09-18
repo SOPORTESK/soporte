@@ -372,7 +372,7 @@ Redacte la respuesta para el cliente basándose en el contexto del caso y la úl
     setMessages([]);
     localStorage.removeItem("sek_tech_assistant_session");
     if (c) {
-      await handleSend("Lea la última pregunta del cliente en el historial y respóndala directamente. Si es una consulta informativa simple (ej: qué batería usa, qué voltaje soporta), responda solo con esa información. NO haga diagnóstico ni análisis de problemas si el cliente no reportó ninguno. Use los adjuntos solo si son relevantes a la pregunta.", []);
+      await handleSend("Realice un análisis técnico integral del caso abierto:\n1. Equipo y síntoma principal reportado.\n2. Evidencia técnica en adjuntos (imágenes, audios o documentos).\n3. Diagnóstico técnico y pruebas realizadas.\n4. Estado actual y recomendación o próximos pasos.", []);
     }
   };
 
