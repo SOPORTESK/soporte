@@ -202,9 +202,9 @@ export async function POST(req: NextRequest) {
     if (lastUserQuery.length >= 3) {
       try {
         const normalized = lastUserQuery.toLowerCase().replace(/[^a-z0-9\s\-áéíóúñ]/gi, "");
-        const terms = normalized.split(/\s+/).filter(t => t.length >= 3);
+        const terms = normalized.split(/\s+/).filter((t: string) => t.length >= 3);
         if (terms.length > 0) {
-          const orFilter = terms.slice(0, 5).map(t => `content.ilike.%${t}%`).join(",");
+          const orFilter = terms.slice(0, 5).map((t: string) => `content.ilike.%${t}%`).join(",");
           const { data: ragData } = await serviceClient
             .from("sek_doc_chunks")
             .select("content,doc_name")
