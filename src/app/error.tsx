@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { RefreshCw, ShieldAlert } from "lucide-react";
+import { AlertTriangle, RefreshCw, Home } from "lucide-react";
+import Link from "next/link";
 
 export default function ErrorPage({
   error,
@@ -10,72 +11,83 @@ export default function ErrorPage({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
-  const [countdown, setCountdown] = useState(4);
+  const [showDetails, setShowDetails] = useState(false);
 
   useEffect(() => {
+    // Only auto-reload if it is strictly a chunk loading error (e.g. new deployment)
+    // AND limit to at most ONCE per session in a 60 second window to prevent reload loops.
     const msg = error?.message || "";
     const name = error?.name || "";
     const isChunkError =
       name === "ChunkLoadError" ||
       msg.includes("Loading chunk") ||
       msg.includes("ChunkLoadError") ||
-      msg.includes("Failed to fetch dynamically imported module") ||
-      msg.includes("useContext");
+      msg.includes("Failed to fetch dynamically imported module");
 
-    const STORAGE_KEY = "sekunet_autorecover_ts";
-    const lastRecover = Number(sessionStorage.getItem(STORAGE_KEY) || 0);
-    const now = Date.now();
+    if (isChunkError && typeof window !== "undefined") {
+      const STORAGE_KEY = "sekunet_chunk_reload_ts";
+      const lastRecover = Number(sessionStorage.getItem(STORAGE_KEY) || 0);
+      const now = Date.now();
 
-    if (isChunkError) {
-      if (!lastRecover || now - lastRecover > 8000) {
+      if (!lastRecover || now - lastRecover > 60000) {
         sessionStorage.setItem(STORAGE_KEY, String(now));
-        window.location.href = window.location.pathname + (window.location.search || "");
-        return;
+        window.location.reload();
       }
     }
-
-    const timer = setInterval(() => {
-      setCountdown((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          window.location.href = window.location.pathname + (window.location.search || "");
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(timer);
   }, [error]);
 
   return (
     <div className="flex items-center justify-center min-h-[70vh] p-4 font-sans">
-      <div className="bg-card border border-border rounded-3xl p-8 max-w-md w-full text-center shadow-2xl space-y-5">
-        <div className="h-14 w-14 rounded-2xl bg-violet-600/15 border border-violet-500/30 text-violet-400 grid place-items-center mx-auto">
-          <ShieldAlert className="h-7 w-7" />
+      <div className="bg-card border border-border rounded-2xl p-6 sm:p-8 max-w-md w-full text-center shadow-xl space-y-4">
+        <div className="h-12 w-12 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 grid place-items-center mx-auto">
+          <AlertTriangle className="h-6 w-6" />
         </div>
-        <div className="space-y-1.5">
-          <h2 className="text-lg font-black text-foreground">Soporte Sekunet — Autorecuperación</h2>
+        <div className="space-y-1">
+          <h2 className="text-base font-bold text-foreground">Inconveniente al cargar la vista</h2>
           <p className="text-xs text-muted-foreground leading-relaxed">
-            Se detectó un cambio de versión o actualización. Restaurando la vista automáticamente.
+            Se produjo un error al procesar este contenido. Puedes reintentar o regresar a la bandeja.
           </p>
         </div>
 
         <div className="flex flex-col gap-2 pt-2">
           <button
-            onClick={() => { window.location.href = window.location.pathname + (window.location.search || ""); }}
-            className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-xs shadow-lg shadow-violet-600/25 transition-all"
-          >
-            <RefreshCw className="h-4 w-4 animate-spin" />
-            Recargar ahora {countdown > 0 ? `(${countdown}s)` : ""}
-          </button>
-          <button
             onClick={() => reset()}
-            className="w-full py-2.5 px-4 rounded-xl border border-border hover:bg-muted text-muted-foreground hover:text-foreground font-semibold text-xs transition-colors"
+            className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-semibold text-xs shadow-md shadow-violet-600/20 transition-all cursor-pointer"
           >
+            <RefreshCw className="h-3.5 w-3.5" />
             Reintentar componente
           </button>
+          <button
+            onClick={() => { window.location.reload(); }}
+            className="w-full py-2.5 px-4 rounded-xl border border-border hover:bg-muted text-foreground font-semibold text-xs transition-colors cursor-pointer"
+          >
+            Recargar página
+          </button>
+          <Link
+            href="/inbox"
+            className="w-full py-2 px-4 rounded-xl text-muted-foreground hover:text-foreground font-medium text-xs transition-colors flex items-center justify-center gap-1.5"
+          >
+            <Home className="h-3.5 w-3.5" />
+            Ir a Bandeja
+          </Link>
         </div>
+
+        {error?.message && (
+          <div className="pt-2 border-t border-border/40 text-left">
+            <button
+              onClick={() => setShowDetails(v => !v)}
+              className="text-[11px] text-muted-foreground hover:text-foreground underline"
+            >
+              {showDetails ? "Ocultar detalle técnico" : "Ver detalle técnico"}
+            </button>
+            {showDetails && (
+              <pre className="mt-2 p-2 bg-muted/60 rounded-lg text-[10px] text-muted-foreground font-mono overflow-x-auto whitespace-pre-wrap max-h-32">
+                {error.message}
+                {error.digest ? `\nDigest: ${error.digest}` : ""}
+              </pre>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -54,7 +54,7 @@ function formatRelativeTime(seconds: number): string {
   return `hace ${h}h`;
 }
 
-export function ActivityLivePulse({
+function ActivityLivePulseComponent({
   agents,
   selectedAgent,
   onSelectAgent,
@@ -237,3 +237,5 @@ export function ActivityLivePulse({
     </div>
   );
 }
+
+export const ActivityLivePulse = React.memo(ActivityLivePulseComponent);

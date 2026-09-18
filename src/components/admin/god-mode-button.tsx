@@ -25,7 +25,7 @@ export function GodModeButton({ email, name }: { email: string; name: string }) 
       {loading ? (
         <><Loader2 className="h-4 w-4 animate-spin" /> Activando...</>
       ) : (
-        <><Crown className="h-4 w-4" /> Modo Dios: {name.split(" ")[0]}</>
+        <><Crown className="h-4 w-4" /> Modo Dios: {(name || "Usuario").split(" ")[0]}</>
       )}
     </button>
   );

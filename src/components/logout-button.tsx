@@ -16,7 +16,7 @@ export function LogoutButton() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             agent_email: data.user.email,
-            agent_name: data.user.user_metadata?.nombre || data.user.email.split("@")[0],
+            agent_name: data.user.user_metadata?.nombre || (data.user.email ? data.user.email.split("@")[0] : "Usuario"),
             action: "Cierre de sesión del sistema",
             category: "Control Administrativo",
             metadata: { type: "auth_logout", method: "logout_button", timestamp: new Date().toISOString() },

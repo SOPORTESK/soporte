@@ -373,8 +373,8 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
         {/* Agent List */}
         <div className="divide-y divide-border/50">
           {sortedAgents.map((agent, index) => {
-            const fullName = [agent.nombre, agent.apellido].filter(Boolean).join(" ") || agent.email;
-            const initials = fullName.split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase();
+            const fullName = [agent.nombre, agent.apellido].filter(Boolean).join(" ") || agent.email || "Agente";
+            const initials = fullName.split(" ").filter(Boolean).map(n => n[0]).join("").substring(0, 2).toUpperCase() || "AG";
             const score = getPerformanceScore(agent);
             const isExpanded = expandedAgent === agent.email;
             const isTop = index === 0 && agents.length > 1;

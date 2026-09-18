@@ -20,21 +20,21 @@ export async function GET(_req: NextRequest) {
 
     if (agentErr) throw agentErr;
 
-    // 2. Obtener los últimos eventos de actividad de las últimas 24 horas
+    // 2. Obtener los eventos de actividad del día de hoy
     const now = new Date();
-    const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+    const todayStr = now.toISOString().split("T")[0];
+    const startOfToday = `${todayStr}T00:00:00`;
 
     const { data: recentLogs, error: logErr } = await supabase
       .from("activity_log")
       .select("id, agent_email, agent_name, action, category, case_id, metadata, duration_ms, created_at")
-      .gte("created_at", oneDayAgo)
+      .gte("created_at", startOfToday)
       .order("created_at", { ascending: false })
-      .limit(1000);
+      .limit(10000);
 
     if (logErr) throw logErr;
 
     // 3. Mapear estado en vivo por agente
-    const todayStr = now.toISOString().split("T")[0];
     const liveAgents = (agents || []).map((ag) => {
       const email = ag.email.toLowerCase();
       const agLogs = (recentLogs || []).filter((l) => (l.agent_email || "").toLowerCase() === email);
@@ -45,21 +45,76 @@ export async function GET(_req: NextRequest) {
 
       let activeMs = 0;
       let idleMs = 0;
-      const MAX_GAP = 10 * 60 * 1000; // 10 min max gap
 
-      for (let i = 0; i < sortedLogs.length - 1; i++) {
-        const curr = new Date(sortedLogs[i].created_at!).getTime();
-        const next = new Date(sortedLogs[i + 1].created_at!).getTime();
-        const gap = next - curr;
-        if (gap > 0 && gap <= MAX_GAP) {
-          const cat = sortedLogs[i].category || "";
-          if (cat === "Inactividad" || cat === "Pausa personal") {
-            idleMs += gap;
+      // Recolectar intervalos y fusionar solapamientos
+      const rawIntervals: { start: number; end: number }[] = [];
+      const firstEventMs = sortedLogs.length > 0 ? new Date(sortedLogs[0].created_at!).getTime() : 0;
+
+      for (let i = 0; i < sortedLogs.length; i++) {
+        const item = sortedLogs[i];
+        const currTime = new Date(item.created_at!).getTime();
+        const nextTime = i < sortedLogs.length - 1 ? new Date(sortedLogs[i + 1].created_at!).getTime() : currTime + 60000;
+        const gap = Math.max(0, nextTime - currTime);
+        const meta = (item.metadata || {}) as Record<string, any>;
+        const act = (item.action || "").toLowerCase();
+
+        const isExplicitPause = meta.reason === "lock_screen" || meta.reason === "suspend" || item.category === "Pausa personal" || item.category === "Pausa Sanitaria" || item.category === "Descanso";
+        if (isExplicitPause) {
+          idleMs += Math.min(gap, 60 * 60 * 1000);
+          continue;
+        }
+
+        const isManualStart = (act.startsWith("inició:") || act.startsWith("inicio:")) && (meta.manual || meta.task);
+        const isManualEnd = (act.startsWith("terminó:") || act.startsWith("termino:")) && (meta.manual || meta.task);
+        const isJustification = Boolean(meta.justification || item.category === "Justificación" || act.startsWith("justificación:") || act.startsWith("justificacion:"));
+
+        if (isManualStart) {
+          const dur = Math.min(gap, 4 * 60 * 60 * 1000);
+          rawIntervals.push({ start: currTime, end: currTime + dur });
+          continue;
+        }
+
+        if (isManualEnd || isJustification) {
+          const discreteMs = Number(
+            item.duration_ms ||
+            (meta.duration_seconds ? meta.duration_seconds * 1000 : 0) ||
+            (meta.minutes ? meta.minutes * 60000 : 0)
+          ) || 0;
+          const prev = i > 0 ? sortedLogs[i - 1] : null;
+          const prevAct = (prev?.action || "").toLowerCase();
+          const prevWasStart = prev && (prevAct.startsWith("inició:") || prevAct.startsWith("inicio:"));
+          if (!prevWasStart && discreteMs > 0) {
+            const dur = Math.min(discreteMs, 4 * 60 * 60 * 1000);
+            const rStart = Math.max(firstEventMs, currTime - dur);
+            rawIntervals.push({ start: rStart, end: currTime });
+          }
+          continue;
+        }
+
+        const ACTIVE_GAP_LIMIT = 5 * 60 * 1000;
+        const dur = Math.min(gap > 0 ? gap : 60000, ACTIVE_GAP_LIMIT);
+        rawIntervals.push({ start: currTime, end: currTime + dur });
+        if (gap > ACTIVE_GAP_LIMIT) {
+          idleMs += (gap - ACTIVE_GAP_LIMIT);
+        }
+      }
+
+      // Consolidar intervalos sin duplicación ni solapamiento
+      rawIntervals.sort((a, b) => a.start - b.start);
+      const mergedIntervals: { start: number; end: number }[] = [];
+      for (const interval of rawIntervals) {
+        if (mergedIntervals.length === 0) {
+          mergedIntervals.push({ start: interval.start, end: interval.end });
+        } else {
+          const last = mergedIntervals[mergedIntervals.length - 1];
+          if (interval.start <= last.end) {
+            last.end = Math.max(last.end, interval.end);
           } else {
-            activeMs += gap;
+            mergedIntervals.push({ start: interval.start, end: interval.end });
           }
         }
       }
+      activeMs = mergedIntervals.reduce((sum, int) => sum + (int.end - int.start), 0);
 
       const totalMs = activeMs + idleMs;
       const productivityScore = totalMs > 0 ? Math.round((activeMs / totalMs) * 100) : 100;

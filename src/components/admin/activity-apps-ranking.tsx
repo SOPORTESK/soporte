@@ -38,6 +38,12 @@ import {
   Sandwich,
   Bath,
   Hammer,
+  FolderTree,
+  ExternalLink,
+  Link,
+  Inbox,
+  GripVertical,
+  ArrowRightLeft,
 } from "lucide-react";
 
 interface TimelineItem {
@@ -62,15 +68,93 @@ export interface CategoryItem {
   color: string;
   bgBar: string;
   iconName: string;
+  subcategories: string[];
 }
 
 export const DEFAULT_CATEGORIES: CategoryItem[] = [
-  { id: "Soporte", label: "Soporte", color: "text-emerald-400 border-emerald-500/30 bg-emerald-500/15", bgBar: "bg-emerald-500", iconName: "Headphones" },
-  { id: "Servicio de Taller", label: "Servicio de Taller", color: "text-amber-400 border-amber-500/30 bg-amber-500/15", bgBar: "bg-amber-500", iconName: "Wrench" },
-  { id: "Control Administrativo", label: "Control Administrativo", color: "text-blue-400 border-blue-500/30 bg-blue-500/15", bgBar: "bg-blue-500", iconName: "TrendingUp" },
-  { id: "Gestión del Taller", label: "Gestión del Taller", color: "text-indigo-400 border-indigo-500/30 bg-indigo-500/15", bgBar: "bg-indigo-500", iconName: "Package" },
-  { id: "Gestión de Residuos", label: "Gestión de Residuos", color: "text-rose-400 border-rose-500/30 bg-rose-500/15", bgBar: "bg-rose-500", iconName: "Trash2" },
-  { id: "On-the-Job Training (OJT)", label: "On-the-Job Training (OJT)", color: "text-violet-400 border-violet-500/30 bg-violet-500/15", bgBar: "bg-violet-500", iconName: "GraduationCap" },
+  {
+    id: "Soporte",
+    label: "Soporte",
+    color: "text-emerald-400 border-emerald-500/30 bg-emerald-500/15",
+    bgBar: "bg-emerald-500",
+    iconName: "Headphones",
+    subcategories: ["Telefónico", "Mensajería", "Presencial", "Remoto"],
+  },
+  {
+    id: "Servicio de Taller",
+    label: "Servicio de Taller",
+    color: "text-amber-400 border-amber-500/30 bg-amber-500/15",
+    bgBar: "bg-amber-500",
+    iconName: "Wrench",
+    subcategories: [
+      "Diagnóstico (MANUAL)",
+      "Reparación (MANUAL)",
+      "Mantenimiento (MANUAL)",
+      "Pruebas y Validación (MANUAL)",
+    ],
+  },
+  {
+    id: "Control Administrativo",
+    label: "Control Administrativo",
+    color: "text-blue-400 border-blue-500/30 bg-blue-500/15",
+    bgBar: "bg-blue-500",
+    iconName: "TrendingUp",
+    subcategories: [
+      "Optimización de Procesos",
+      "Inventarios",
+      "Gestión de Garantías",
+      "Gestión de Desechos",
+      "Seguimiento de Casos",
+      "Devoluciones",
+    ],
+  },
+  {
+    id: "Gestión del Taller",
+    label: "Gestión del Taller",
+    color: "text-indigo-400 border-indigo-500/30 bg-indigo-500/15",
+    bgBar: "bg-indigo-500",
+    iconName: "Package",
+    subcategories: [
+      "Orden y Limpieza de Taller",
+      "Organización de Equipos",
+      "Acondicionamiento del Área",
+    ],
+  },
+  {
+    id: "Gestión de Residuos",
+    label: "Gestión de Residuos",
+    color: "text-rose-400 border-rose-500/30 bg-rose-500/15",
+    bgBar: "bg-rose-500",
+    iconName: "Trash2",
+    subcategories: [
+      "Desecho de equipos abandonados",
+      "Residuos electrónicos",
+    ],
+  },
+  {
+    id: "On-the-Job Training (OJT)",
+    label: "On-the-Job Training (OJT)",
+    color: "text-violet-400 border-violet-500/30 bg-violet-500/15",
+    bgBar: "bg-violet-500",
+    iconName: "GraduationCap",
+    subcategories: [
+      "Certificaciones oficiales",
+      "Educación Continua",
+    ],
+  },
+  {
+    id: "Pausas y Descansos",
+    label: "Pausas y Descansos",
+    color: "text-amber-400 border-amber-500/30 bg-amber-500/15",
+    bgBar: "bg-amber-500",
+    iconName: "Clock",
+    subcategories: [
+      "Tiempo de Descanso",
+      "Pausa Sanitaria",
+      "Almuerzo",
+      "Pausa Operativa",
+    ],
+  },
 ];
 
 export const COLOR_PRESETS = [
@@ -92,6 +176,7 @@ export const ICON_PRESETS = [
   "Package",
   "Trash2",
   "GraduationCap",
+  "Clock",
   "MessageSquare",
   "FileText",
   "Mail",
@@ -227,6 +312,25 @@ export function getCategoryUI(catName: string) {
     return DEFAULT_CATEGORIES[5];
   }
 
+  // 7. Pausas y Descansos
+  if (
+    lower.includes("pausa") ||
+    lower.includes("descanso") ||
+    lower.includes("almuerzo") ||
+    lower.includes("receso") ||
+    lower.includes("inactividad") ||
+    lower.includes("sanitaria")
+  ) {
+    return DEFAULT_CATEGORIES[6] || {
+      id: "Pausas y Descansos",
+      label: "Pausas y Descansos",
+      color: "text-amber-400 border-amber-500/30 bg-amber-500/15",
+      bgBar: "bg-amber-500",
+      iconName: "Clock",
+      subcategories: ["Tiempo de Descanso", "Pausa Sanitaria", "Almuerzo", "Pausa Operativa"],
+    };
+  }
+
   return DEFAULT_CATEGORIES[0];
 }
 
@@ -285,11 +389,35 @@ export function extractSmartAppName(item: TimelineItem): string {
   const rawAction = item.action || "";
   const action = rawAction.toLowerCase();
   const rawPath = (meta.path || meta.page || "").toLowerCase();
+  const rawTitle = (meta.title || meta.context || "").trim();
+  const rawApp = (meta.app || meta.app_name || "").toLowerCase();
 
   // 1. Tareas manuales y justificaciones explícitas
   if (meta.task) return meta.task;
   if (meta.manual && meta.label) return meta.label;
   if (meta.justification && meta.reason) return `Justificación: ${meta.reason}`;
+
+  // 1.1 Detección de pausas, descansos e inactividad
+  const catLower = (item.category || "").toLowerCase();
+  const isPauseOrIdle =
+    catLower === "inactividad" ||
+    catLower === "tiempo de descanso" ||
+    catLower === "pausa personal" ||
+    catLower === "pausa sanitaria" ||
+    catLower === "pausas y descansos" ||
+    meta.reason === "lock_screen" ||
+    meta.reason === "suspend" ||
+    meta.reason === "idle" ||
+    action.includes("sin interacción") ||
+    action.includes("sin interaccion") ||
+    action.includes("pausa prolongada");
+
+  if (isPauseOrIdle) {
+    if (action.includes("almuerzo") || action.includes("comida")) return "Almuerzo";
+    if (action.includes("baño") || action.includes("bano") || action.includes("sanitaria") || action.includes("sanitario")) return "Pausa Sanitaria";
+    if (action.includes("descanso") || action.includes("café") || action.includes("cafe")) return "Tiempo de Descanso";
+    return "Tiempo de Descanso";
+  }
 
   // 2. Extracción de acciones manuales iniciadas / terminadas en taller
   if (action.startsWith("inició:") || action.startsWith("inicio:")) {
@@ -307,11 +435,66 @@ export function extractSmartAppName(item: TimelineItem): string {
     if (taskName) return `Justificación: ${taskName}`;
   }
 
-  // 3. Apps de escritorio / externas explícitas
-  if (meta.app_name) return meta.app_name;
-  if (meta.label) return meta.label;
+  // 3. Extracción de URLs / Sitios Web desde Navegadores (Chrome, Brave, Edge, Firefox, etc.)
+  const isBrowser =
+    rawApp.includes("chrome") ||
+    rawApp.includes("brave") ||
+    rawApp.includes("edge") ||
+    rawApp.includes("firefox") ||
+    rawApp.includes("opera") ||
+    rawApp.includes("browser") ||
+    action.includes("navegador");
 
-  // 4. Labores físicas por contenido
+  if (meta.url) {
+    try {
+      const u = new URL(meta.url);
+      return u.hostname.replace(/^www\./i, "");
+    } catch {
+      return meta.url;
+    }
+  }
+
+  if (isBrowser && rawTitle) {
+    const cleanTitle = rawTitle
+      .replace(/\s*[-–—|]\s*(Google Chrome|Brave Browser|Brave|Microsoft Edge|Mozilla Firefox|Opera).*$/i, "")
+      .trim();
+    const lowerTitle = cleanTitle.toLowerCase();
+
+    if (lowerTitle.includes("github")) return "github.com";
+    if (lowerTitle.includes("whatsapp")) return "web.whatsapp.com";
+    if (lowerTitle.includes("odoo")) return "odoo.com";
+    if (lowerTitle.includes("google drive") || lowerTitle.includes("drive - google") || lowerTitle.includes("drive.google")) return "drive.google.com";
+    if (lowerTitle.includes("youtube")) return "youtube.com";
+    if (lowerTitle.includes("canva")) return "canva.com";
+    if (lowerTitle.includes("chatgpt") || lowerTitle.includes("openai")) return "chatgpt.com";
+    if (lowerTitle.includes("claude")) return "claude.ai";
+    if (lowerTitle.includes("devin")) return "devin.ai";
+    if (lowerTitle.includes("linkedin")) return "linkedin.com";
+    if (lowerTitle.includes("stackoverflow")) return "stackoverflow.com";
+    if (lowerTitle.includes("seka chat") || lowerTitle.includes("sekunet") || lowerTitle.includes("localhost:3100")) return "Seka Chat";
+
+    // Si tiene un dominio explícito (ej: portal.sekunet.cr o soporte.com)
+    const domainMatch = cleanTitle.match(/\b([a-zA-Z0-9-]+\.(?:com|cr|net|org|io|ai|app|dev|edu|gov))\b/i);
+    if (domainMatch) {
+      return domainMatch[1].toLowerCase();
+    }
+
+    // Tomar el nombre del sitio web de la pestaña
+    if (cleanTitle.length > 0) {
+      const parts = cleanTitle.split(/[-–—|]/);
+      const siteCandidate = parts[parts.length - 1].trim();
+      if (siteCandidate.length > 2 && siteCandidate.length < 32) {
+        return `Web: ${siteCandidate}`;
+      }
+      return `Web: ${cleanTitle.substring(0, 30)}`;
+    }
+  }
+
+  // 4. Apps de escritorio / externas explícitas
+  if (meta.app_name) return meta.app_name;
+  if (meta.label && !meta.label.toLowerCase().startsWith("navegador web")) return meta.label;
+
+  // 5. Labores físicas por contenido
   if (action.includes("bodega")) return "Ir a Bodega";
   if (action.includes("exhibidor")) return "Exhibidores";
   if (action.includes("inventario gar") || action.includes("inventario y actualización"))
@@ -325,7 +508,7 @@ export function extractSmartAppName(item: TimelineItem): string {
   if (action.includes("reunión") || action.includes("reunion")) return "Reunión";
   if (action.includes("capacita")) return "Capacitacion de Personal";
 
-  // 5. Por contenido textual de la acción (Software)
+  // 6. Por contenido textual de la acción (Software)
   if (action.includes("whatsapp")) return "WhatsApp";
   if (action.includes("linkus") || action.includes("llamada")) return "Linkus (Softphone)";
   if (action.includes("odoo")) return "Odoo ERP";
@@ -335,7 +518,7 @@ export function extractSmartAppName(item: TimelineItem): string {
   if (action.includes("atendió caso") || action.includes("atendiendo caso")) return "Atención de Casos / Chats";
   if (action.includes("tomó el caso") || action.includes("gestión de casos")) return "Gestión y Asignación de Casos";
 
-  // 6. Por páginas y módulos del sistema
+  // 7. Por páginas y módulos del sistema
   if (rawPath.includes("soporte-avanzado") || action.includes("soporte avanzado")) return "Soporte Avanzado (N2)";
   if (rawPath.includes("smart-inbox") || action.includes("smart inbox")) return "Smart Inbox (IA & Casos)";
   if (rawPath.includes("mi-gestion") || action.includes("mi bandeja de gestión")) return "Mi Bandeja de Gestión";
@@ -465,7 +648,30 @@ export function getDefaultCategoryForApp(appName: string, action: string = "", c
     return "Control Administrativo";
   }
 
-  // 6. Soporte (WhatsApp, Seka Chat, Linkus llamadas, Odoo Tickets, Casos, Atención directa)
+  // 6. Pausas y Descansos (Descansos, Almuerzo, Pausa Sanitaria, Inactividad del sistema)
+  if (
+    name.includes("descanso") ||
+    name.includes("pausa") ||
+    name.includes("almuerzo") ||
+    name.includes("inactividad") ||
+    name.includes("sanitaria") ||
+    name.includes("receso") ||
+    act.includes("descanso") ||
+    act.includes("pausa") ||
+    act.includes("almuerzo") ||
+    act.includes("inactividad") ||
+    act.includes("sanitaria") ||
+    act.includes("receso") ||
+    cat.includes("descanso") ||
+    cat.includes("pausa") ||
+    cat.includes("inactividad") ||
+    cat.includes("almuerzo") ||
+    cat.includes("sanitaria")
+  ) {
+    return "Pausas y Descansos";
+  }
+
+  // 7. Soporte (WhatsApp, Seka Chat, Linkus llamadas, Odoo Tickets, Casos, Atención directa)
   return "Soporte";
 }
 
@@ -490,7 +696,7 @@ function formatDuration(ms: number): string {
   return `${minutes}m`;
 }
 
-export function ActivityAppsRanking({
+function ActivityAppsRankingComponent({
   timeline,
   scheduleStart = "08:00",
   scheduleEnd = "17:00",
@@ -499,46 +705,119 @@ export function ActivityAppsRanking({
 }: Props) {
   const [viewMode, setViewMode] = useState<"categories" | "apps">("categories");
   const [categories, setCategories] = useState<CategoryItem[]>(DEFAULT_CATEGORIES);
-  const [customCategories, setCustomCategories] = useState<Record<string, string>>({});
+  const [customCategories, setCustomCategories] = useState<Record<string, any>>({});
   const [activeDropdownApp, setActiveDropdownApp] = useState<string | null>(null);
   const [showManageModal, setShowManageModal] = useState(false);
-  const [activeModalTab, setActiveModalTab] = useState<"apps" | "categories">("apps");
+  const [activeModalTab, setActiveModalTab] = useState<"tree" | "apps" | "categories">("tree");
   const [searchQuery, setSearchQuery] = useState("");
   const [savingApp, setSavingApp] = useState<string | null>(null);
+
+  // Estados para agregar software o URL manual
+  const [showAddCustomModal, setShowAddCustomModal] = useState(false);
+  const [newCustomItemName, setNewCustomItemName] = useState("");
+  const [newCustomItemCat, setNewCustomItemCat] = useState("Soporte");
+  const [newCustomItemSub, setNewCustomItemSub] = useState("");
+
+  // Estado para inline add en Árbol Operativo
+  const [treeSubcatAddTarget, setTreeSubcatAddTarget] = useState<string | null>(null);
+  const [treeSubcatItemInput, setTreeSubcatItemInput] = useState("");
+
+  // Estados para Tree View interactivo y edición
+  const [treeSearch, setTreeSearch] = useState("");
+  const [editingSubcat, setEditingSubcat] = useState<{ catId: string; subcat: string } | null>(null);
+  const [editingSubcatValue, setEditingSubcatValue] = useState("");
+  const [treeNewSubcatCatId, setTreeNewSubcatCatId] = useState<string | null>(null);
+  const [treeNewSubcatInput, setTreeNewSubcatInput] = useState("");
+  const [selectedTreeCatId, setSelectedTreeCatId] = useState<string>("Soporte");
+
+  // Estados para Drag & Drop y Gestión Avanzada de Items
+  const [draggedItem, setDraggedItem] = useState<string | null>(null);
+  const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
+  const [showUnassignedDrawer, setShowUnassignedDrawer] = useState(false);
+  const [unassignedSearch, setUnassignedSearch] = useState("");
+  const [itemToManage, setItemToManage] = useState<{
+    appName: string;
+    currentCat: string;
+    currentSub: string | null;
+  } | null>(null);
+  const [manageTargetCat, setManageTargetCat] = useState<string>("");
+  const [manageTargetSub, setManageTargetSub] = useState<string>("");
 
   const [editingCategory, setEditingCategory] = useState<CategoryItem | null>(null);
   const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [formCatName, setFormCatName] = useState("");
   const [formCatColorIdx, setFormCatColorIdx] = useState(0);
   const [formCatIcon, setFormCatIcon] = useState("Monitor");
+  const [formCatSubcategories, setFormCatSubcategories] = useState<string[]>([]);
+  const [newSubcatInput, setNewSubcatInput] = useState("");
+  const [inlineAddSubcatCatId, setInlineAddSubcatCatId] = useState<string | null>(null);
+  const [inlineSubcatValue, setInlineSubcatValue] = useState("");
 
-  // Función para normalizar nombres antiguos a la nomenclatura de las 6 categorías oficiales
+  // Helper para resolver la asignación completa (categoría + subcategoría) de una app
+  const getAppAssignment = (appName: string, action?: string, category?: string) => {
+    if (appName === "Formación de Usuarios") {
+      return {
+        category: "Sin Clasificar",
+        subcategory: null,
+        isManual: true,
+      };
+    }
+    const custom = customCategories[appName];
+    if (custom) {
+      if (typeof custom === "object" && custom.category) {
+        if (custom.category === "Sin Clasificar" || custom.category === "unassigned") {
+          return {
+            category: "Sin Clasificar",
+            subcategory: null,
+            isManual: true,
+          };
+        }
+        return {
+          category: custom.category as string,
+          subcategory: (custom.subcategory as string) || null,
+          isManual: true,
+        };
+      }
+      if (typeof custom === "string") {
+        if (custom === "Sin Clasificar" || custom === "unassigned") {
+          return {
+            category: "Sin Clasificar",
+            subcategory: null,
+            isManual: true,
+          };
+        }
+        return {
+          category: custom,
+          subcategory: null,
+          isManual: true,
+        };
+      }
+    }
+    return {
+      category: getDefaultCategoryForApp(appName, action, category),
+      subcategory: null,
+      isManual: false,
+    };
+  };
+
+  // Función para normalizar categorías y asegurar que incluyan subcategorías
   const sanitizeCategoryList = (list: CategoryItem[]): CategoryItem[] => {
     if (!Array.isArray(list) || list.length === 0) return DEFAULT_CATEGORIES;
-    const hasOldCategories = list.some((c) =>
-      c.id === "Atención chat" ||
-      c.id === "Soporte Mensajería" ||
-      c.id === "Soporte Telefónico" ||
-      c.id === "Atención por llamada" ||
-      c.id === "Atención telefónica" ||
-      c.id === "Atención de Tickets" ||
-      c.id === "Optimización de procesos" ||
-      c.id === "Gestión de Correos" ||
-      c.id === "Gestión de Garantías" ||
-      c.id === "Actividad general" ||
-      c.id === "Soporte técnico"
-    );
-    if (hasOldCategories || list.length !== DEFAULT_CATEGORIES.length) {
-      return DEFAULT_CATEGORIES;
-    }
-    return list;
+    return list.map((cat) => ({
+      ...cat,
+      subcategories: Array.isArray(cat.subcategories) ? cat.subcategories : [],
+    }));
   };
 
   // Cargar categorías y mapeos de localStorage y API
   useEffect(() => {
     try {
       const localMaps = localStorage.getItem("sek_app_categories");
-      if (localMaps) setCustomCategories(JSON.parse(localMaps));
+      if (localMaps) {
+        const parsed = JSON.parse(localMaps);
+        delete parsed["Formación de Usuarios"];
+        setCustomCategories(parsed);
+      }
       const localCats = localStorage.getItem("sek_categories_list");
       if (localCats) setCategories(sanitizeCategoryList(JSON.parse(localCats)));
     } catch {}
@@ -547,6 +826,7 @@ export function ActivityAppsRanking({
       .then((res) => res.json())
       .then((data) => {
         if (data?.appMappings) {
+          delete data.appMappings["Formación de Usuarios"];
           setCustomCategories(data.appMappings);
           try { localStorage.setItem("sek_app_categories", JSON.stringify(data.appMappings)); } catch {}
         }
@@ -566,14 +846,22 @@ export function ActivityAppsRanking({
     return ui;
   };
 
-  // Asignar categoría a una aplicación
-  const handleSetCategory = async (appName: string, category: string | null) => {
+  // Asignar categoría y subcategoría a una aplicación
+  const handleSetCategory = async (appName: string, category: string | null, subcategory?: string | null) => {
     setSavingApp(appName);
     const newMap = { ...customCategories };
-    if (!category || category === "auto") {
-      delete newMap[appName];
+    if (!category || category === "auto" || category === "Sin Clasificar") {
+      newMap[appName] = { category: "Sin Clasificar", subcategory: null };
     } else {
-      newMap[appName] = category;
+      if (subcategory) {
+        newMap[appName] = { category, subcategory };
+      } else {
+        newMap[appName] = category;
+      }
+    }
+
+    if (appName === "Formación de Usuarios") {
+      delete newMap[appName];
     }
 
     setCustomCategories(newMap);
@@ -584,7 +872,11 @@ export function ActivityAppsRanking({
       await fetch("/api/activity/app-categories", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ appName, category: category || "auto" }),
+        body: JSON.stringify({
+          appName,
+          category: (!category || category === "auto" || category === "Sin Clasificar") ? "Sin Clasificar" : category,
+          subcategory: subcategory || undefined,
+        }),
       });
     } catch (err) {
       console.error("Error al guardar categoría:", err);
@@ -596,6 +888,9 @@ export function ActivityAppsRanking({
   const saveCategoriesList = async (updatedList: CategoryItem[]) => {
     setCategories(updatedList);
     try { localStorage.setItem("sek_categories_list", JSON.stringify(updatedList)); } catch {}
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("sekunet_categories_updated"));
+    }
     try {
       await fetch("/api/activity/app-categories", {
         method: "POST",
@@ -605,6 +900,105 @@ export function ActivityAppsRanking({
     } catch (err) {
       console.error("Error al guardar categorías:", err);
     }
+  };
+
+  // Agregar subcategoría rápida a una categoría existente
+  const handleAddSubcategory = async (catId: string, subcatName: string) => {
+    const trimmed = subcatName.trim();
+    if (!trimmed) return;
+    const updated = categories.map((cat) => {
+      if (cat.id === catId) {
+        const subs = cat.subcategories || [];
+        if (!subs.includes(trimmed)) {
+          return { ...cat, subcategories: [...subs, trimmed] };
+        }
+      }
+      return cat;
+    });
+    saveCategoriesList(updated);
+    setInlineAddSubcatCatId(null);
+    setInlineSubcatValue("");
+    setTreeNewSubcatCatId(null);
+    setTreeNewSubcatInput("");
+  };
+
+  // Eliminar subcategoría de una categoría
+  const handleDeleteSubcategory = async (catId: string, subcatName: string) => {
+    const updated = categories.map((cat) => {
+      if (cat.id === catId && cat.subcategories) {
+        return { ...cat, subcategories: cat.subcategories.filter((s) => s !== subcatName) };
+      }
+      return cat;
+    });
+    saveCategoriesList(updated);
+
+    // Desvincular de customCategories para que pasen a Sin Clasificar
+    const newMap = { ...customCategories };
+    let changed = false;
+    for (const [app, val] of Object.entries(newMap)) {
+      if (typeof val === "object" && val && (val.category === catId || val.category === getCategoryUI(catId).label) && val.subcategory === subcatName) {
+        newMap[app] = { category: catId, subcategory: null };
+        changed = true;
+      }
+    }
+    if (changed) {
+      setCustomCategories(newMap);
+      try { localStorage.setItem("sek_app_categories", JSON.stringify(newMap)); } catch {}
+      fetch("/api/activity/app-categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ appMappings: newMap }),
+      });
+    }
+  };
+
+  // Renombrar subcategoría y migrar las asignaciones existentes
+  const handleRenameSubcategory = async (catId: string, oldName: string, newName: string) => {
+    const trimmed = newName.trim();
+    if (!trimmed || trimmed === oldName) {
+      setEditingSubcat(null);
+      return;
+    }
+    const updated = categories.map((cat) => {
+      if (cat.id === catId && cat.subcategories) {
+        return {
+          ...cat,
+          subcategories: cat.subcategories.map((s) => (s === oldName ? trimmed : s)),
+        };
+      }
+      return cat;
+    });
+    saveCategoriesList(updated);
+
+    const newMap = { ...customCategories };
+    let changed = false;
+    for (const [app, val] of Object.entries(newMap)) {
+      if (typeof val === "object" && val.category === catId && val.subcategory === oldName) {
+        newMap[app] = { category: catId, subcategory: trimmed };
+        changed = true;
+      }
+    }
+    if (changed) {
+      setCustomCategories(newMap);
+      try { localStorage.setItem("sek_app_categories", JSON.stringify(newMap)); } catch {}
+      fetch("/api/activity/app-categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fullMap: newMap }),
+      });
+    }
+    setEditingSubcat(null);
+    setEditingSubcatValue("");
+  };
+
+  // Restablecer al árbol oficial del taller (Excel)
+  const handleResetToOfficialTree = async () => {
+    if (!confirm("¿Restablecer el Árbol Operativo a las 6 columnas oficiales del taller (Excel)?")) return;
+    try {
+      localStorage.setItem("sek_categories_list", JSON.stringify(DEFAULT_CATEGORIES));
+    } catch {}
+    setCategories(DEFAULT_CATEGORIES);
+    saveCategoriesList(DEFAULT_CATEGORIES);
   };
 
   const handleSaveCategoryForm = () => {
@@ -622,6 +1016,7 @@ export function ActivityAppsRanking({
             color: preset.color,
             bgBar: preset.bgBar,
             iconName: formCatIcon,
+            subcategories: formCatSubcategories,
           };
         }
         return c;
@@ -630,9 +1025,14 @@ export function ActivityAppsRanking({
       if (editingCategory.id !== name) {
         const newMaps = { ...customCategories };
         let changed = false;
-        for (const [app, cat] of Object.entries(newMaps)) {
-          if (cat === editingCategory.id) {
-            newMaps[app] = name;
+        for (const [app, val] of Object.entries(newMaps)) {
+          const currentCat = typeof val === "object" ? val?.category : val;
+          if (currentCat === editingCategory.id) {
+            if (typeof val === "object") {
+              newMaps[app] = { ...val, category: name };
+            } else {
+              newMaps[app] = name;
+            }
             changed = true;
           }
         }
@@ -655,12 +1055,15 @@ export function ActivityAppsRanking({
         color: preset.color,
         bgBar: preset.bgBar,
         iconName: formCatIcon,
+        subcategories: formCatSubcategories,
       };
       saveCategoriesList([...categories, newCat]);
       setIsCreatingNew(false);
     }
 
     setFormCatName("");
+    setFormCatSubcategories([]);
+    setNewSubcatInput("");
   };
 
   const handleDeleteCategory = (catId: string) => {
@@ -677,8 +1080,9 @@ export function ActivityAppsRanking({
 
     const newMaps = { ...customCategories };
     let changed = false;
-    for (const [app, cat] of Object.entries(newMaps)) {
-      if (cat === catId) {
+    for (const [app, val] of Object.entries(newMaps)) {
+      const currentCat = typeof val === "object" ? val?.category : val;
+      if (currentCat === catId) {
         delete newMaps[app];
         changed = true;
       }
@@ -694,7 +1098,7 @@ export function ActivityAppsRanking({
   };
 
   const handleResetCategoriesToDefault = async () => {
-    if (!confirm("¿Restablecer todas las categorías a las 9 preconfiguradas originales?")) return;
+    if (!confirm("¿Restablecer todas las categorías a las preconfiguradas originales?")) return;
     setCategories(DEFAULT_CATEGORIES);
     try { localStorage.setItem("sek_categories_list", JSON.stringify(DEFAULT_CATEGORIES)); } catch {}
     await fetch("/api/activity/app-categories", {
@@ -716,7 +1120,7 @@ export function ActivityAppsRanking({
         .filter((t) => Boolean(t.created_at))
         .sort((a, b) => new Date(a.created_at!).getTime() - new Date(b.created_at!).getTime());
 
-      const LUNCH_GAP_MS = 30 * 60 * 1000;
+      const ACTIVE_GAP_LIMIT = 5 * 60 * 1000;
       const parseTimeToMinutes = (t: string) => {
         if (!t) return 0;
         const parts = t.split(":");
@@ -726,7 +1130,7 @@ export function ActivityAppsRanking({
       const startMin = parseTimeToMinutes(scheduleStart || "08:00");
       const endMin = parseTimeToMinutes(scheduleEnd || "17:00");
 
-      // 1. Identificar intervalos manuales discretos (inicio/fin) acotados al horario laboral
+      // 1. Identificar intervalos manuales discretos (inicio/fin)
       interface ManualInterval {
         startMs: number;
         endMs: number;
@@ -751,11 +1155,25 @@ export function ActivityAppsRanking({
           ) || 0;
           // Máximo 4 horas por olvido
           const durMs = Math.min(discreteMs, 4 * 3600 * 1000);
-          const startMs = endMs - durMs;
+          let startMs = endMs - durMs;
+
+          // Si existe un evento "Inició: <labor>" previo coincidente, sincronizar con su timestamp exacto
+          const taskName = (meta.task || extractSmartAppName(it)).toLowerCase();
+          for (let j = i - 1; j >= 0; j--) {
+            const prev = sorted[j];
+            const pAct = (prev.action || "").toLowerCase();
+            if ((pAct.startsWith("inició:") || pAct.startsWith("inicio:")) && pAct.includes(taskName)) {
+              const pStart = new Date(prev.created_at!).getTime();
+              if (pStart <= endMs && (endMs - pStart) <= 5 * 3600 * 1000) {
+                startMs = Math.min(startMs, pStart);
+              }
+              break;
+            }
+          }
 
           const appName = extractSmartAppName(it);
           allAppsSet.add(appName);
-          const effectiveCat = customCategories[appName] || getDefaultCategoryForApp(appName, it.action, it.category);
+          const effectiveCat = getAppAssignment(appName, it.action, it.category).category;
 
           if (endMs > startMs) {
             manualIntervals.push({
@@ -784,7 +1202,7 @@ export function ActivityAppsRanking({
           if (!hasEndLater) {
             const appName = extractSmartAppName(it);
             allAppsSet.add(appName);
-            const effectiveCat = customCategories[appName] || getDefaultCategoryForApp(appName, it.action, it.category);
+            const effectiveCat = getAppAssignment(appName, it.action, it.category).category;
 
             const nowMs = Date.now();
             if (nowMs > startMs) {
@@ -800,7 +1218,7 @@ export function ActivityAppsRanking({
         }
       }
 
-      // Sumar los intervalos manuales
+      // Sumar los intervalos manuales una única vez
       for (const m of manualIntervals) {
         const dur = m.endMs - m.startMs;
         if (dur > 0) {
@@ -816,20 +1234,25 @@ export function ActivityAppsRanking({
         }
       }
 
-      // 2. Procesar eventos de software secuenciales no solapados
+      // 2. Procesar eventos de software secuenciales no solapados con labores manuales
       for (let i = 0; i < sorted.length; i++) {
         const curr = sorted[i];
         const meta = (curr.metadata || {}) as Record<string, any>;
-
-        // Si es salvapantallas de Windows o suspensión de pantalla, descartar de software productivo
-        const appName = extractSmartAppName(curr);
-        const appLower = appName.toLowerCase();
-        if (appLower.includes(".scr") || appLower.includes("mystify") || meta.reason === "lock_screen" || meta.reason === "suspend") {
-          continue;
-        }
-
+        const act = (curr.action || "").toLowerCase();
         const currTime = new Date(curr.created_at!).getTime();
         const currDate = new Date(currTime);
+
+        // Omitir inmediatamente eventos de registro manual (ya están medidos en manualIntervals)
+        const isManualEvt =
+          act.startsWith("inició:") ||
+          act.startsWith("inicio:") ||
+          act.startsWith("terminó:") ||
+          act.startsWith("termino:") ||
+          act.startsWith("justificación:") ||
+          act.startsWith("justificacion:") ||
+          meta.manual ||
+          meta.task;
+        if (isManualEvt) continue;
 
         // Si el horario laboral está activo, verificar si está dentro del horario y días laborales
         if (scheduleEnabled) {
@@ -843,13 +1266,14 @@ export function ActivityAppsRanking({
           }
         }
 
-        // Si este instante de tiempo cae dentro de un intervalo de labor manual, la labor manual ya lo midió
-        const inManual = manualIntervals.some((m) => currTime >= m.startMs && currTime <= m.endMs);
+        // Si este instante de tiempo cae dentro de un intervalo de labor manual, omitir
+        const inManual = manualIntervals.some((m) => currTime >= (m.startMs - 5000) && currTime <= (m.endMs + 5000));
         if (inManual) continue;
 
-        // Software regular (Brave, Antigravity, Odoo, etc.)
+        const appName = extractSmartAppName(curr);
+        const appLower = appName.toLowerCase();
         allAppsSet.add(appName);
-        const effectiveCat = customCategories[appName] || getDefaultCategoryForApp(appName, curr.action, curr.category);
+        const effectiveCat = getAppAssignment(appName, curr.action, curr.category).category;
 
         const nextTime = i < sorted.length - 1 ? new Date(sorted[i + 1].created_at!).getTime() : currTime + 60000;
         let clampedNext = nextTime;
@@ -859,8 +1283,43 @@ export function ActivityAppsRanking({
           clampedNext = Math.min(nextTime, dayEndMs);
         }
 
-        const gap = Math.max(0, clampedNext - currTime);
-        const effectiveDuration = Math.min(gap, LUNCH_GAP_MS);
+        let gap = Math.max(0, clampedNext - currTime);
+
+        // El gap jamás debe sobrepasar el inicio de una labor manual próxima
+        for (const m of manualIntervals) {
+          if (m.startMs > currTime && m.startMs < currTime + gap) {
+            gap = m.startMs - currTime;
+          }
+        }
+
+        // Pausas explícitas (salvapantallas, bloqueo, inactividad registrada o asignada a Pausas y Descansos)
+        const isExplicitPause =
+          appLower.includes(".scr") ||
+          appLower.includes("mystify") ||
+          meta.reason === "lock_screen" ||
+          meta.reason === "suspend" ||
+          curr.category === "Inactividad" ||
+          effectiveCat === "Pausas y Descansos";
+
+        if (isExplicitPause) {
+          const pauseCat = "Pausas y Descansos";
+          const pauseDuration = Math.min(gap, 60 * 60 * 1000);
+          if (pauseDuration > 0) {
+            const pauseName = appName && appName !== "Unknown" ? appName : "Tiempo de Descanso";
+            if (!appM[pauseName]) appM[pauseName] = { durationMs: 0, count: 0 };
+            appM[pauseName].durationMs += pauseDuration;
+            appM[pauseName].count++;
+
+            if (!catM[pauseCat]) catM[pauseCat] = { durationMs: 0, count: 0 };
+            catM[pauseCat].durationMs += pauseDuration;
+            catM[pauseCat].count++;
+
+            totalTime += pauseDuration;
+          }
+          continue;
+        }
+
+        const effectiveDuration = Math.min(gap, ACTIVE_GAP_LIMIT);
 
         if (effectiveDuration > 0) {
           if (!appM[appName]) appM[appName] = { durationMs: 0, count: 0 };
@@ -873,8 +1332,30 @@ export function ActivityAppsRanking({
 
           totalTime += effectiveDuration;
         }
+
+        // Si la ausencia entre eventos de software superó 15 minutos continuos sin estar en labor manual, registrar tiempo inactivo
+        if (gap > 15 * 60 * 1000) {
+          const excessPause = Math.min(gap - ACTIVE_GAP_LIMIT, 2 * 60 * 60 * 1000);
+          const pauseCat = "Pausas y Descansos";
+          if (!appM["Tiempo de Descanso"]) appM["Tiempo de Descanso"] = { durationMs: 0, count: 0 };
+          appM["Tiempo de Descanso"].durationMs += excessPause;
+          appM["Tiempo de Descanso"].count++;
+
+          if (!catM[pauseCat]) catM[pauseCat] = { durationMs: 0, count: 0 };
+          catM[pauseCat].durationMs += excessPause;
+          catM[pauseCat].count++;
+
+          totalTime += excessPause;
+        }
       }
     }
+
+    // Asegurar que todas las categorías oficiales existan en catMap
+    categories.forEach((c) => {
+      if (!catM[c.id]) {
+        catM[c.id] = { durationMs: 0, count: 0 };
+      }
+    });
 
     return {
       appMap: appM,
@@ -882,9 +1363,10 @@ export function ActivityAppsRanking({
       totalActiveTime: totalTime,
       allDetectedApps: Array.from(allAppsSet),
     };
-  }, [timeline, customCategories, scheduleStart, scheduleEnd, scheduleEnabled, workDays]);
+  }, [timeline, customCategories, categories, scheduleStart, scheduleEnd, scheduleEnabled, workDays]);
 
   const activeMap = viewMode === "categories" ? catMap : appMap;
+  const currentTotal = Math.max(1, Object.values(activeMap).reduce((acc, it) => acc + it.durationMs, 0));
   const sortedItems = Object.entries(activeMap)
     .sort((a, b) => b[1].durationMs - a[1].durationMs)
     .slice(0, 10);
@@ -897,6 +1379,23 @@ export function ActivityAppsRanking({
     if (!searchQuery.trim()) return combined;
     return combined.filter((app) => app.toLowerCase().includes(searchQuery.toLowerCase()));
   }, [allDetectedApps, customCategories, searchQuery]);
+
+  // Lista de apps y URLs pendientes de clasificar (sin subcategoría oficial asignada)
+  const unassignedApps = useMemo(() => {
+    return filteredModalApps.filter((appName) => {
+      const asg = getAppAssignment(appName);
+      const matchedCat = categories.find((c) => c.id === asg.category || c.label === asg.category);
+      if (!matchedCat) return true;
+      if (!asg.subcategory) return true;
+      return false;
+    });
+  }, [filteredModalApps, categories, customCategories]);
+
+  const filteredUnassigned = useMemo(() => {
+    if (!unassignedSearch.trim()) return unassignedApps;
+    const q = unassignedSearch.toLowerCase();
+    return unassignedApps.filter((a) => a.toLowerCase().includes(q));
+  }, [unassignedApps, unassignedSearch]);
 
   if (sortedItems.length === 0) {
     return (
@@ -955,14 +1454,14 @@ export function ActivityAppsRanking({
           </div>
 
           <span className="text-xs text-muted-foreground font-medium hidden sm:inline-block">
-            Total: {formatDuration(totalActiveTime)}
+            Total: {formatDuration(currentTotal)}
           </span>
         </div>
       </div>
 
       <div className="space-y-2.5">
         {sortedItems.map(([itemName, stats], index) => {
-          const percentage = totalActiveTime > 0 ? Math.round((stats.durationMs / totalActiveTime) * 100) : 0;
+          const percentage = currentTotal > 0 ? Math.round((stats.durationMs / currentTotal) * 100) : 0;
 
           let icon, labelNode, barClass;
           if (viewMode === "categories") {
@@ -975,15 +1474,16 @@ export function ActivityAppsRanking({
             );
             barClass = ui.bgBar;
           } else {
-            // Modo Por Software: muestra la categoría asignada
-            const isManual = Boolean(customCategories[itemName]);
-            const currentCat = customCategories[itemName] || getDefaultCategoryForApp(itemName);
+            // Modo Por Software: muestra la categoría y subcategoría asignada
+            const assignment = getAppAssignment(itemName);
+            const currentCat = assignment.category;
+            const currentSub = assignment.subcategory;
             const ui = getCategoryUI(currentCat);
             icon = getAppIcon(itemName);
             barClass = ui.bgBar;
 
             labelNode = (
-              <div className="relative inline-block">
+              <div className="relative inline-flex items-center gap-1.5">
                 <button
                   type="button"
                   onClick={(e) => {
@@ -991,53 +1491,99 @@ export function ActivityAppsRanking({
                     setActiveDropdownApp(activeDropdownApp === itemName ? null : itemName);
                   }}
                   className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border flex items-center gap-1 transition-all hover:scale-105 cursor-pointer ${ui.color} ${
-                    isManual ? "ring-1 ring-violet-500/50" : ""
+                    assignment.isManual ? "ring-1 ring-violet-500/50" : ""
                   }`}
-                  title={isManual ? "Categoría personalizada manualmente (clic para cambiar)" : "Categoría asignada (clic para cambiar)"}
+                  title={assignment.isManual ? "Categoría personalizada manualmente (clic para cambiar)" : "Categoría asignada (clic para cambiar)"}
                 >
-                  {isManual && <span className="text-[9px] font-black mr-0.5">●</span>}
+                  {assignment.isManual && <span className="text-[9px] font-black mr-0.5">●</span>}
                   <span>{ui.label}</span>
                   <ChevronDown className="h-2.5 w-2.5 opacity-60 ml-0.5" />
                 </button>
 
-                {/* Dropdown flotante con las categorías de la pantalla */}
+                {currentSub && (
+                  <span
+                    className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-muted/60 border border-border text-foreground/90"
+                    title={`Subcategoría: ${currentSub}`}
+                  >
+                    {currentSub}
+                  </span>
+                )}
+
+                {/* Dropdown flotante con las categorías y subcategorías */}
                 {activeDropdownApp === itemName && (
                   <div
-                    className="absolute right-0 top-full mt-1.5 w-60 rounded-xl bg-card border border-border shadow-2xl p-1.5 z-50 space-y-0.5 animate-in fade-in zoom-in-95 duration-100"
+                    className="absolute right-0 top-full mt-1.5 w-64 rounded-xl bg-card border border-border shadow-2xl p-1.5 z-50 space-y-0.5 max-h-80 overflow-y-auto animate-in fade-in zoom-in-95 duration-100"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <div className="px-2 py-1 text-[9px] font-black uppercase tracking-wider text-muted-foreground border-b border-border/50 mb-1 flex items-center justify-between">
-                      <span>Categoría para {itemName}</span>
-                      {savingApp === itemName && <span className="text-violet-400 font-bold">Guardando...</span>}
+                      <span className="truncate max-w-[150px]">Clasificar {itemName}</span>
+                      {savingApp === itemName && <span className="text-violet-400 font-bold text-[9px]">Guardando...</span>}
                     </div>
 
                     {categories.map((cat) => {
                       const isSelected = currentCat === cat.id;
                       return (
-                        <button
-                          key={cat.id}
-                          type="button"
-                          onClick={() => handleSetCategory(itemName, cat.id)}
-                          className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center justify-between transition-colors ${
-                            isSelected
-                              ? "bg-violet-500/15 text-violet-300 font-bold"
-                              : "hover:bg-muted/60 text-foreground"
-                          }`}
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className="opacity-80">{renderCategoryIcon(cat.iconName, "h-3.5 w-3.5")}</span>
-                            <span className="text-[11px] truncate">{cat.label}</span>
-                          </div>
-                          {isSelected && <Check className="h-3.5 w-3.5 text-violet-400 shrink-0 ml-1" />}
-                        </button>
+                        <div key={cat.id} className="space-y-0.5">
+                          <button
+                            type="button"
+                            onClick={() => handleSetCategory(itemName, cat.id, null)}
+                            className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center justify-between transition-colors ${
+                              isSelected
+                                ? "bg-violet-500/15 text-violet-300 font-bold"
+                                : "hover:bg-muted/60 text-foreground"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="opacity-80">{renderCategoryIcon(cat.iconName, "h-3.5 w-3.5")}</span>
+                              <span className="text-[11px] truncate">{cat.label}</span>
+                            </div>
+                            {isSelected && <Check className="h-3.5 w-3.5 text-violet-400 shrink-0 ml-1" />}
+                          </button>
+
+                          {/* Opciones de subcategorías dependientes si la categoría está seleccionada */}
+                          {isSelected && cat.subcategories && cat.subcategories.length > 0 && (
+                            <div className="pl-6 pr-1 py-0.5 space-y-0.5 border-l-2 border-violet-500/30 ml-4 my-1">
+                              <button
+                                type="button"
+                                onClick={() => handleSetCategory(itemName, cat.id, null)}
+                                className={`w-full text-left px-2 py-1 rounded text-[10px] flex items-center justify-between transition-colors ${
+                                  !currentSub
+                                    ? "bg-violet-500/20 text-violet-200 font-bold"
+                                    : "hover:bg-muted/40 text-muted-foreground"
+                                }`}
+                              >
+                                <span>(Sin subcategoría)</span>
+                                {!currentSub && <Check className="h-2.5 w-2.5 text-violet-400" />}
+                              </button>
+                              {cat.subcategories.map((sub) => {
+                                const isSubSelected = currentSub === sub;
+                                return (
+                                  <button
+                                    key={sub}
+                                    type="button"
+                                    onClick={() => handleSetCategory(itemName, cat.id, sub)}
+                                    className={`w-full text-left px-2 py-1 rounded text-[10px] flex items-center justify-between transition-colors ${
+                                      isSubSelected
+                                        ? "bg-violet-500/25 text-violet-200 font-bold"
+                                        : "hover:bg-muted/50 text-muted-foreground hover:text-foreground"
+                                    }`}
+                                  >
+                                    <span className="truncate">{sub}</span>
+                                    {isSubSelected && <Check className="h-2.5 w-2.5 text-violet-400 shrink-0" />}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
                       );
                     })}
 
-                    {isManual && (
+                    {assignment.isManual && (
                       <div className="pt-1 mt-1 border-t border-border/50">
                         <button
                           type="button"
-                          onClick={() => handleSetCategory(itemName, null)}
+                          onClick={() => handleSetCategory(itemName, null, null)}
                           className="w-full text-left px-2.5 py-1.5 rounded-lg text-[11px] font-medium text-amber-400 hover:bg-amber-500/10 flex items-center gap-2 transition-colors"
                         >
                           <RotateCcw className="h-3 w-3" />
@@ -1093,17 +1639,21 @@ export function ActivityAppsRanking({
       {showManageModal && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div
-            className="w-full max-w-2xl rounded-2xl bg-card border border-border shadow-2xl p-6 space-y-4 max-h-[90vh] flex flex-col"
+            className={`w-full transition-all duration-300 ${
+              activeModalTab === "tree" ? "max-w-[96vw] xl:max-w-[1720px] h-[92vh]" : "max-w-3xl"
+            } rounded-3xl bg-[#0b0f19] border border-border/80 shadow-2xl p-6 space-y-4 max-h-[94vh] flex flex-col`}
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header del Modal con Tabs */}
-            <div className="flex items-center justify-between border-b border-border/50 pb-3">
-              <div className="flex items-center gap-2">
-                <SlidersHorizontal className="h-5 w-5 text-violet-400" />
+            <div className="flex items-center justify-between border-b border-border/50 pb-3 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-violet-500/15 border border-violet-500/20 text-violet-400">
+                  <SlidersHorizontal className="h-5 w-5" />
+                </div>
                 <div>
-                  <h3 className="font-bold text-base text-foreground">Gestión de Categorías y Software</h3>
+                  <h3 className="font-bold text-base text-foreground tracking-tight">Gestión y Árbol Operativo del Taller</h3>
                   <p className="text-xs text-muted-foreground">
-                    Asigne aplicaciones o cree, edite y elimine categorías del taller
+                    Organice aplicaciones, URLs y labores en categorías y subcategorías oficiales
                   </p>
                 </div>
               </div>
@@ -1112,52 +1662,881 @@ export function ActivityAppsRanking({
                   setShowManageModal(false);
                   setIsCreatingNew(false);
                   setEditingCategory(null);
+                  setShowAddCustomModal(false);
+                  setTreeSubcatAddTarget(null);
+                  setEditingSubcat(null);
+                  setTreeNewSubcatCatId(null);
                 }}
-                className="p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                className="p-1.5 rounded-xl hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
             {/* Pestañas del Modal */}
-            <div className="flex border-b border-border/50 gap-4">
+            <div className="flex border-b border-border/50 gap-4 overflow-x-auto pb-1 shrink-0">
+              <button
+                onClick={() => { setActiveModalTab("tree"); }}
+                className={`pb-2.5 text-xs font-bold transition-all border-b-2 flex items-center gap-2 whitespace-nowrap cursor-pointer ${
+                  activeModalTab === "tree"
+                    ? "border-violet-500 text-violet-400"
+                    : "border-transparent text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <FolderTree className="h-4 w-4" />
+                <span>Árbol Operativo (Vista Jerárquica)</span>
+              </button>
               <button
                 onClick={() => { setActiveModalTab("apps"); setIsCreatingNew(false); setEditingCategory(null); }}
-                className={`pb-2 text-xs font-bold transition-all border-b-2 flex items-center gap-1.5 ${
+                className={`pb-2.5 text-xs font-bold transition-all border-b-2 flex items-center gap-2 whitespace-nowrap cursor-pointer ${
                   activeModalTab === "apps"
                     ? "border-violet-500 text-violet-400"
                     : "border-transparent text-muted-foreground hover:text-foreground"
                 }`}
               >
-                <Layers className="h-3.5 w-3.5" />
-                <span>Mapeo de Software y Labores ({filteredModalApps.length})</span>
+                <Layers className="h-4 w-4" />
+                <span>Mapeo de Software y URLs ({filteredModalApps.length})</span>
               </button>
               <button
                 onClick={() => { setActiveModalTab("categories"); }}
-                className={`pb-2 text-xs font-bold transition-all border-b-2 flex items-center gap-1.5 ${
+                className={`pb-2.5 text-xs font-bold transition-all border-b-2 flex items-center gap-2 whitespace-nowrap cursor-pointer ${
                   activeModalTab === "categories"
                     ? "border-violet-500 text-violet-400"
                     : "border-transparent text-muted-foreground hover:text-foreground"
                 }`}
               >
-                <SlidersHorizontal className="h-3.5 w-3.5" />
+                <SlidersHorizontal className="h-4 w-4" />
                 <span>Categorías del Taller ({categories.length})</span>
               </button>
             </div>
 
-            {/* CONTENIDO PESTAÑA 1: MAPEO DE SOFTWARE Y LABORES */}
+            {/* CONTENIDO PESTAÑA 1: ÁRBOL OPERATIVO */}
+            {activeModalTab === "tree" && (
+              <div className="flex-1 flex flex-col min-h-0 space-y-3.5">
+                {/* Barra de herramientas superior del Árbol */}
+                <div className="flex flex-wrap items-center justify-between gap-3 bg-muted/20 border border-border/50 p-2.5 px-3.5 rounded-2xl shrink-0">
+                  <div className="flex items-center gap-2 flex-1 min-w-[240px] max-w-md bg-muted/30 border border-border/60 rounded-xl px-3 py-1.5">
+                    <Search className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <input
+                      type="text"
+                      value={treeSearch}
+                      onChange={(e) => setTreeSearch(e.target.value)}
+                      placeholder="Buscar por software, URL, subcategoría o labor..."
+                      className="w-full bg-transparent text-xs text-foreground placeholder:text-muted-foreground focus:outline-none"
+                    />
+                    {treeSearch && (
+                      <button onClick={() => setTreeSearch("")} className="text-muted-foreground hover:text-foreground">
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                    <button
+                      onClick={() => setShowAddCustomModal(true)}
+                      className="px-3.5 py-2 text-xs font-bold rounded-xl bg-violet-600 hover:bg-violet-700 text-white flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
+                    >
+                      <Plus className="h-4 w-4" />
+                      <span>Agregar Software o URL</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsCreatingNew(true);
+                        setEditingCategory(null);
+                        setFormCatName("");
+                        setFormCatColorIdx(0);
+                        setFormCatIcon("Monitor");
+                        setFormCatSubcategories([]);
+                        setActiveModalTab("categories");
+                      }}
+                      className="px-3.5 py-2 text-xs font-semibold rounded-xl bg-muted/40 hover:bg-muted text-foreground border border-border/60 flex items-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <Plus className="h-3.5 w-3.5 text-violet-400" />
+                      <span>Nueva Categoría</span>
+                    </button>
+                    <button
+                      onClick={handleResetToOfficialTree}
+                      className="px-3 py-2 text-xs font-semibold rounded-xl hover:bg-amber-500/10 text-amber-400 border border-amber-500/30 flex items-center gap-1.5 transition-colors cursor-pointer"
+                      title="Restablecer exactamente a las 6 columnas del Excel"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                      <span>Restablecer Oficial (Excel)</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* ARQUITECTURA MASTER-DETAIL (2 PANELES, SIN SCROLL HORIZONTAL) */}
+                <div className="flex-1 flex min-h-0 gap-4 overflow-hidden">
+                  {/* PANEL IZQUIERDO: MASTER (Lista Vertical de Categorías + Sin Clasificar) */}
+                  <div className="w-[280px] min-w-[280px] max-w-[300px] flex flex-col bg-[#0f1422]/95 border border-border/70 rounded-2xl overflow-hidden shadow-md shrink-0">
+                    <div className="p-3 border-b border-border/60 bg-muted/20 flex items-center justify-between shrink-0">
+                      <div className="flex items-center gap-2">
+                        <Layers className="h-4 w-4 text-violet-400" />
+                        <span className="text-xs font-bold text-foreground">Categorías ({categories.length})</span>
+                      </div>
+                      <span className="text-[10px] font-mono font-bold text-muted-foreground bg-muted/60 px-2 py-0.5 rounded-full border border-border/40">
+                        Total {filteredModalApps.length}
+                      </span>
+                    </div>
+
+                    <div className="p-2 space-y-1.5 flex-1 overflow-y-auto pr-1.5">
+                      {/* Opción Destacada: 📥 Sin Clasificar */}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedTreeCatId("__unassigned__")}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = "move";
+                          if (dragOverTarget !== "master::__unassigned__") {
+                            setDragOverTarget("master::__unassigned__");
+                          }
+                        }}
+                        onDragLeave={(e) => {
+                          if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+                          setDragOverTarget(null);
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          const droppedApp = e.dataTransfer.getData("text/plain") || draggedItem;
+                          if (droppedApp) {
+                            handleSetCategory(droppedApp, null, null);
+                          }
+                          setDraggedItem(null);
+                          setDragOverTarget(null);
+                        }}
+                        className={`w-full text-left p-2.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between group ${
+                          dragOverTarget === "master::__unassigned__"
+                            ? "bg-amber-500/30 border-amber-400 ring-2 ring-amber-500/50 scale-[1.02]"
+                            : selectedTreeCatId === "__unassigned__"
+                            ? "bg-amber-500/15 border-amber-500/60 ring-1 ring-amber-500/40 shadow-sm"
+                            : "bg-background/60 hover:bg-background border-border/50 hover:border-amber-500/40"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className={`p-2 rounded-lg shrink-0 transition-colors ${
+                            selectedTreeCatId === "__unassigned__"
+                              ? "bg-amber-500 text-black font-bold"
+                              : "bg-amber-500/15 text-amber-400 group-hover:bg-amber-500/25"
+                          }`}>
+                            <Inbox className="h-4 w-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <h5 className="font-bold text-xs text-foreground truncate">Sin Clasificar</h5>
+                            <p className="text-[10px] text-muted-foreground truncate">Arrastre o asigne aquí</p>
+                          </div>
+                        </div>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold shrink-0 ${
+                          unassignedApps.length > 0
+                            ? "bg-amber-500/20 text-amber-300 border border-amber-500/40"
+                            : "bg-muted/60 text-muted-foreground"
+                        }`}>
+                          {unassignedApps.length}
+                        </span>
+                      </button>
+
+                      <div className="pt-2 pb-1 px-1">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">
+                          Árbol Oficial
+                        </span>
+                      </div>
+
+                      {/* Lista de las 6 Categorías */}
+                      {categories.map((cat) => {
+                        const countInCat = filteredModalApps.filter((appName) => {
+                          const asg = getAppAssignment(appName);
+                          return asg.category === cat.id || asg.category === cat.label;
+                        }).length;
+
+                        const isSelected = selectedTreeCatId === cat.id;
+                        const isDropTarget = dragOverTarget === `master::${cat.id}`;
+
+                        return (
+                          <button
+                            key={cat.id}
+                            type="button"
+                            onClick={() => setSelectedTreeCatId(cat.id)}
+                            onDragOver={(e) => {
+                              e.preventDefault();
+                              e.dataTransfer.dropEffect = "move";
+                              if (dragOverTarget !== `master::${cat.id}`) {
+                                setDragOverTarget(`master::${cat.id}`);
+                              }
+                            }}
+                            onDragLeave={(e) => {
+                              if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+                              setDragOverTarget(null);
+                            }}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              const droppedApp = e.dataTransfer.getData("text/plain") || draggedItem;
+                              if (droppedApp) {
+                                handleSetCategory(droppedApp, cat.id, cat.subcategories?.[0] || null);
+                                setSelectedTreeCatId(cat.id);
+                              }
+                              setDraggedItem(null);
+                              setDragOverTarget(null);
+                            }}
+                            className={`w-full text-left p-2.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between group ${
+                              isDropTarget
+                                ? "bg-violet-500/30 border-violet-400 ring-2 ring-violet-500/60 scale-[1.02]"
+                                : isSelected
+                                ? "bg-violet-600/15 border-violet-500/60 ring-1 ring-violet-500/40 shadow-sm"
+                                : "bg-background/60 hover:bg-background border-border/50 hover:border-violet-500/30"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0 pr-1">
+                              <div className={`p-2 rounded-lg shrink-0 ${cat.color.replace('text-', 'bg-')}/15 ${cat.color}`}>
+                                {renderCategoryIcon(cat.iconName, "h-4 w-4")}
+                              </div>
+                              <div className="min-w-0">
+                                <h5 className={`font-bold text-xs truncate leading-tight ${
+                                  isSelected ? "text-violet-300" : "text-foreground group-hover:text-foreground"
+                                }`}>
+                                  {cat.label}
+                                </h5>
+                                <p className="text-[10px] text-muted-foreground truncate">
+                                  {(cat.subcategories || []).length} subcategorías
+                                </p>
+                              </div>
+                            </div>
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold shrink-0 border ${
+                              isSelected
+                                ? "bg-violet-500/20 text-violet-200 border-violet-500/40"
+                                : "bg-muted/60 text-muted-foreground border-border/40"
+                            }`}>
+                              {countInCat}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* PANEL DERECHO: DETALLE (Área de Trabajo Espaciosa de la Categoría Activa) */}
+                  <div className="flex-1 flex flex-col min-h-0 bg-[#0f1422]/95 border border-border/70 rounded-2xl overflow-hidden shadow-md">
+                    {/* Caso A: Detalle de Sin Clasificar */}
+                    {selectedTreeCatId === "__unassigned__" ? (
+                      <div className="flex-1 flex flex-col min-h-0 p-5 space-y-4">
+                        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/50 pb-4 shrink-0">
+                          <div className="flex items-center gap-3">
+                            <div className="p-3 rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-400">
+                              <Inbox className="h-6 w-6" />
+                            </div>
+                            <div>
+                              <h4 className="font-bold text-base text-foreground tracking-tight flex items-center gap-2">
+                                <span>Software y URLs Sin Clasificar</span>
+                                <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                                  {unassignedApps.length}
+                                </span>
+                              </h4>
+                              <p className="text-xs text-muted-foreground">
+                                Elementos detectados en jornada que no tienen una subcategoría asignada. Arrástrelos a una categoría en el panel izquierdo o haga clic para asignarlos.
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <div className="relative">
+                              <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground" />
+                              <input
+                                type="text"
+                                value={unassignedSearch}
+                                onChange={(e) => setUnassignedSearch(e.target.value)}
+                                placeholder="Filtrar pendientes..."
+                                className="pl-8 pr-3 py-1.5 text-xs rounded-xl bg-background border border-border/60 focus:outline-none focus:border-amber-500 text-foreground w-48 shadow-xs"
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Contenido Grid de Pendientes */}
+                        <div className="flex-1 overflow-y-auto pr-1.5">
+                          {filteredUnassigned.length === 0 ? (
+                            <div className="p-12 text-center space-y-2 border border-dashed border-border/60 rounded-2xl bg-muted/10">
+                              <div className="p-3 rounded-2xl bg-emerald-500/15 text-emerald-400 inline-block">
+                                <Check className="h-6 w-6" />
+                              </div>
+                              <h5 className="font-bold text-sm text-foreground">¡Excelente! Sin pendientes</h5>
+                              <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+                                Todas las aplicaciones, URLs y labores detectadas están clasificadas en las 6 categorías oficiales.
+                              </p>
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5">
+                              {filteredUnassigned.map((item) => {
+                                const isUrl = item.includes(".") && !item.endsWith(".exe") && (item.includes(".com") || item.includes(".org") || item.includes(".net") || item.includes(".io") || item.includes(".app") || item.startsWith("http"));
+                                return (
+                                  <div
+                                    key={item}
+                                    draggable
+                                    onDragStart={(e) => {
+                                      e.dataTransfer.setData("text/plain", item);
+                                      e.dataTransfer.effectAllowed = "move";
+                                      setDraggedItem(item);
+                                    }}
+                                    onDragEnd={() => {
+                                      setDraggedItem(null);
+                                      setDragOverTarget(null);
+                                    }}
+                                    onClick={() => {
+                                      const asg = getAppAssignment(item);
+                                      setItemToManage({
+                                        appName: item,
+                                        currentCat: asg.category || categories[0]?.id || "Soporte",
+                                        currentSub: asg.subcategory || null,
+                                      });
+                                      setManageTargetCat(asg.category || categories[0]?.id || "Soporte");
+                                      setManageTargetSub(asg.subcategory || "");
+                                    }}
+                                    className="group/item flex items-center justify-between p-2.5 rounded-xl bg-background/80 hover:bg-background border border-amber-500/20 hover:border-amber-500/50 text-xs transition-all shadow-xs cursor-grab active:cursor-grabbing hover:shadow-md"
+                                  >
+                                    <div className="flex items-center gap-2 min-w-0 pr-2 flex-1">
+                                      <GripVertical className="h-4 w-4 text-muted-foreground/30 group-hover/item:text-amber-400 shrink-0" />
+                                      {isUrl ? (
+                                        <Globe className="h-4 w-4 text-cyan-400 shrink-0" />
+                                      ) : (
+                                        <span className="shrink-0">{getAppIcon(item)}</span>
+                                      )}
+                                      <span className="text-xs font-medium text-foreground truncate" title={item}>
+                                        {item}
+                                      </span>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        const asg = getAppAssignment(item);
+                                        setItemToManage({
+                                          appName: item,
+                                          currentCat: asg.category || categories[0]?.id || "Soporte",
+                                          currentSub: asg.subcategory || null,
+                                        });
+                                        setManageTargetCat(asg.category || categories[0]?.id || "Soporte");
+                                        setManageTargetSub(asg.subcategory || "");
+                                      }}
+                                      className="px-2 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 font-bold text-[10px] flex items-center gap-1 transition-colors shrink-0 cursor-pointer"
+                                    >
+                                      <ArrowRightLeft className="h-3 w-3" />
+                                      <span>Clasificar</span>
+                                    </button>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      /* Caso B: Detalle de una Categoría Oficial Seleccionada */
+                      (() => {
+                        const activeCat = categories.find((c) => c.id === selectedTreeCatId) || categories[0];
+                        if (!activeCat) return null;
+
+                        const allAssignedInCat = filteredModalApps.filter((appName) => {
+                          const asg = getAppAssignment(appName);
+                          return asg.category === activeCat.id || asg.category === activeCat.label;
+                        });
+
+                        const isAddingSubcatToThisCat = treeNewSubcatCatId === activeCat.id;
+
+                        return (
+                          <div className="flex-1 flex flex-col min-h-0 p-5 space-y-4">
+                            {/* Header Amplio de la Categoría Activa */}
+                            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/50 pb-4 shrink-0">
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div className={`p-3 rounded-2xl ${activeCat.color.replace('text-', 'bg-')}/15 ${activeCat.color} shrink-0`}>
+                                  {renderCategoryIcon(activeCat.iconName, "h-6 w-6")}
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <h3 className="font-bold text-base text-foreground tracking-tight truncate">
+                                      {activeCat.label}
+                                    </h3>
+                                    <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-muted/70 text-muted-foreground border border-border/50 shrink-0">
+                                      {allAssignedInCat.length} elementos
+                                    </span>
+                                  </div>
+                                  <p className="text-xs text-muted-foreground">
+                                    {(activeCat.subcategories || []).length} subcategorías operativas definidas
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                {isAddingSubcatToThisCat ? (
+                                  <div className="flex items-center gap-1 bg-background border border-violet-500 rounded-xl p-1 shadow-xs">
+                                    <input
+                                      type="text"
+                                      autoFocus
+                                      value={treeNewSubcatInput}
+                                      onChange={(e) => setTreeNewSubcatInput(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter" && treeNewSubcatInput.trim()) {
+                                          handleAddSubcategory(activeCat.id, treeNewSubcatInput.trim());
+                                          setTreeNewSubcatInput("");
+                                          setTreeNewSubcatCatId(null);
+                                        } else if (e.key === "Escape") {
+                                          setTreeNewSubcatCatId(null);
+                                        }
+                                      }}
+                                      placeholder="Nombre de subcategoría..."
+                                      className="text-xs px-2 py-1 bg-transparent text-foreground focus:outline-none w-44"
+                                    />
+                                    <button
+                                      onClick={() => {
+                                        if (!treeNewSubcatInput.trim()) return;
+                                        handleAddSubcategory(activeCat.id, treeNewSubcatInput.trim());
+                                        setTreeNewSubcatInput("");
+                                        setTreeNewSubcatCatId(null);
+                                      }}
+                                      className="px-2.5 py-1 text-xs font-bold rounded-lg bg-violet-600 hover:bg-violet-700 text-white cursor-pointer"
+                                    >
+                                      Crear
+                                    </button>
+                                    <button
+                                      onClick={() => setTreeNewSubcatCatId(null)}
+                                      className="p-1 rounded-lg hover:bg-muted text-muted-foreground cursor-pointer"
+                                    >
+                                      <X className="h-3.5 w-3.5" />
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={() => {
+                                      setTreeNewSubcatCatId(activeCat.id);
+                                      setTreeNewSubcatInput("");
+                                    }}
+                                    className="px-3 py-1.5 text-xs font-semibold rounded-xl bg-violet-600/10 hover:bg-violet-600/20 text-violet-300 border border-violet-500/30 flex items-center gap-1.5 transition-colors cursor-pointer"
+                                  >
+                                    <Plus className="h-3.5 w-3.5" />
+                                    <span>Nueva Subcategoría</span>
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Rejilla Espaciosa de Subcategorías (2 Columnas) */}
+                            <div className="flex-1 overflow-y-auto pr-1.5">
+                              {(activeCat.subcategories || []).length === 0 ? (
+                                <div className="p-10 text-center text-xs text-muted-foreground border border-dashed border-border/60 rounded-2xl">
+                                  No hay subcategorías en esta categoría. Haga clic en «Nueva Subcategoría» para crear una.
+                                </div>
+                              ) : (
+                                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 pb-2">
+                                  {(activeCat.subcategories || []).map((subcat) => {
+                                    const assignedItems = filteredModalApps.filter((appName) => {
+                                      const asg = getAppAssignment(appName);
+                                      const matchCat = asg.category === activeCat.id || asg.category === activeCat.label;
+                                      const matchSub = asg.subcategory === subcat || (!asg.subcategory && subcat === "General");
+                                      if (!matchCat || !matchSub) return false;
+                                      if (!treeSearch.trim()) return true;
+                                      const q = treeSearch.toLowerCase();
+                                      return (
+                                        appName.toLowerCase().includes(q) ||
+                                        subcat.toLowerCase().includes(q) ||
+                                        activeCat.label.toLowerCase().includes(q)
+                                      );
+                                    });
+
+                                    const isEditingThisSub = editingSubcat?.catId === activeCat.id && editingSubcat?.subcat === subcat;
+                                    const isAddingHere = treeSubcatAddTarget === `${activeCat.id}::${subcat}`;
+                                    const isManual = subcat.includes("(MANUAL)");
+                                    const cleanSubcatTitle = subcat.replace(/\s*\(MANUAL\)\s*/i, "").trim();
+                                    const isDropTarget = dragOverTarget === `${activeCat.id}::${subcat}`;
+
+                                    return (
+                                      <div
+                                        key={subcat}
+                                        onDragOver={(e) => {
+                                          e.preventDefault();
+                                          e.dataTransfer.dropEffect = "move";
+                                          if (dragOverTarget !== `${activeCat.id}::${subcat}`) {
+                                            setDragOverTarget(`${activeCat.id}::${subcat}`);
+                                          }
+                                        }}
+                                        onDragLeave={(e) => {
+                                          if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+                                          setDragOverTarget(null);
+                                        }}
+                                        onDrop={(e) => {
+                                          e.preventDefault();
+                                          const droppedApp = e.dataTransfer.getData("text/plain") || draggedItem;
+                                          if (droppedApp) {
+                                            handleSetCategory(droppedApp, activeCat.id, subcat);
+                                          }
+                                          setDraggedItem(null);
+                                          setDragOverTarget(null);
+                                        }}
+                                        className={`group/sub p-4 rounded-2xl transition-all shadow-xs border flex flex-col justify-between ${
+                                          isDropTarget
+                                            ? "bg-violet-500/20 border-violet-400 ring-2 ring-violet-500/50 scale-[1.01]"
+                                            : "bg-background/80 hover:bg-background border-border/70 hover:border-violet-500/40 space-y-3"
+                                        }`}
+                                      >
+                                        <div>
+                                          {/* Encabezado de la Subcategoría */}
+                                          <div className="flex items-start justify-between gap-2 pb-2.5 border-b border-border/40">
+                                            {isEditingThisSub ? (
+                                              <div className="flex items-center gap-1 flex-1">
+                                                <input
+                                                  type="text"
+                                                  autoFocus
+                                                  value={editingSubcatValue}
+                                                  onChange={(e) => setEditingSubcatValue(e.target.value)}
+                                                  onKeyDown={(e) => {
+                                                    if (e.key === "Enter") {
+                                                      handleRenameSubcategory(activeCat.id, subcat, editingSubcatValue);
+                                                    } else if (e.key === "Escape") {
+                                                      setEditingSubcat(null);
+                                                    }
+                                                  }}
+                                                  className="w-full text-xs px-2.5 py-1 rounded-lg bg-background border border-violet-500 text-foreground"
+                                                />
+                                                <button
+                                                  onClick={() => handleRenameSubcategory(activeCat.id, subcat, editingSubcatValue)}
+                                                  className="p-1 rounded-lg hover:bg-muted text-emerald-400 cursor-pointer"
+                                                >
+                                                  <Check className="h-3.5 w-3.5" />
+                                                </button>
+                                                <button
+                                                  onClick={() => setEditingSubcat(null)}
+                                                  className="p-1 rounded-lg hover:bg-muted text-muted-foreground cursor-pointer"
+                                                >
+                                                  <X className="h-3.5 w-3.5" />
+                                                </button>
+                                              </div>
+                                            ) : (
+                                              <>
+                                                <div className="flex items-center gap-2 min-w-0">
+                                                  <span className="text-xs font-bold text-foreground leading-snug">
+                                                    {cleanSubcatTitle}
+                                                  </span>
+                                                  {isManual && (
+                                                    <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 shrink-0">
+                                                      MANUAL
+                                                    </span>
+                                                  )}
+                                                </div>
+
+                                                <div className="flex items-center gap-1 shrink-0">
+                                                  <span className="text-[10px] text-muted-foreground font-mono bg-muted/60 px-2 py-0.5 rounded-full border border-border/40">
+                                                    {assignedItems.length}
+                                                  </span>
+                                                  <button
+                                                    onClick={() => {
+                                                      setEditingSubcat({ catId: activeCat.id, subcat });
+                                                      setEditingSubcatValue(subcat);
+                                                    }}
+                                                    title="Renombrar subcategoría"
+                                                    className="opacity-0 group-hover/sub:opacity-100 p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-opacity cursor-pointer"
+                                                  >
+                                                    <Edit2 className="h-3 w-3" />
+                                                  </button>
+                                                  <button
+                                                    onClick={() => {
+                                                      if (confirm(`¿Eliminar la subcategoría "${subcat}"?`)) {
+                                                        handleDeleteSubcategory(activeCat.id, subcat);
+                                                      }
+                                                    }}
+                                                    title="Eliminar subcategoría"
+                                                    className="opacity-0 group-hover/sub:opacity-100 p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-rose-400 transition-opacity cursor-pointer"
+                                                  >
+                                                    <Trash2 className="h-3 w-3" />
+                                                  </button>
+                                                </div>
+                                              </>
+                                            )}
+                                          </div>
+
+                                          {/* Lista de Software o URLs Asignados */}
+                                          <div className="pt-2.5 space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                                            {assignedItems.map((item) => {
+                                              const isUrl = item.includes(".") && !item.endsWith(".exe") && (item.includes(".com") || item.includes(".org") || item.includes(".net") || item.includes(".io") || item.includes(".app") || item.startsWith("http"));
+                                              return (
+                                                <div
+                                                  key={item}
+                                                  draggable
+                                                  onDragStart={(e) => {
+                                                    e.dataTransfer.setData("text/plain", item);
+                                                    e.dataTransfer.effectAllowed = "move";
+                                                    setDraggedItem(item);
+                                                  }}
+                                                  onDragEnd={() => {
+                                                    setDraggedItem(null);
+                                                    setDragOverTarget(null);
+                                                  }}
+                                                  onClick={() => {
+                                                    setItemToManage({
+                                                      appName: item,
+                                                      currentCat: activeCat.id,
+                                                      currentSub: subcat,
+                                                    });
+                                                    setManageTargetCat(activeCat.id);
+                                                    setManageTargetSub(subcat);
+                                                  }}
+                                                  className="group/item flex items-center justify-between p-2 rounded-xl bg-card/60 hover:bg-card border border-border/40 hover:border-violet-500/40 text-xs transition-all cursor-grab active:cursor-grabbing shadow-2xs"
+                                                  title="Arrastre a otra subcategoría o haga clic para reasignar"
+                                                >
+                                                  <div className="flex items-center gap-2 min-w-0 pr-1 flex-1">
+                                                    <GripVertical className="h-3.5 w-3.5 text-muted-foreground/30 group-hover/item:text-violet-400 shrink-0" />
+                                                    {isUrl ? (
+                                                      <Globe className="h-3.5 w-3.5 text-cyan-400 shrink-0" />
+                                                    ) : (
+                                                      <span className="shrink-0">{getAppIcon(item)}</span>
+                                                    )}
+                                                    <span className="text-[11px] font-medium text-foreground/90 truncate leading-tight">
+                                                      {item}
+                                                    </span>
+                                                  </div>
+                                                  <div className="flex items-center gap-1 shrink-0">
+                                                    <button
+                                                      type="button"
+                                                      onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setItemToManage({
+                                                          appName: item,
+                                                          currentCat: activeCat.id,
+                                                          currentSub: subcat,
+                                                        });
+                                                        setManageTargetCat(activeCat.id);
+                                                        setManageTargetSub(subcat);
+                                                      }}
+                                                      title="Mover o reasignar"
+                                                      className="opacity-0 group-hover/item:opacity-100 p-1 rounded-md text-muted-foreground hover:text-violet-400 hover:bg-violet-500/10 transition-all cursor-pointer"
+                                                    >
+                                                      <ArrowRightLeft className="h-3 w-3" />
+                                                    </button>
+                                                    <button
+                                                      type="button"
+                                                      onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleSetCategory(item, null, null);
+                                                      }}
+                                                      title="Desvincular (enviar a Sin Clasificar)"
+                                                      className="opacity-0 group-hover/item:opacity-100 p-1 rounded-md text-muted-foreground hover:text-rose-400 hover:bg-rose-500/10 transition-all cursor-pointer"
+                                                    >
+                                                      <X className="h-3 w-3" />
+                                                    </button>
+                                                  </div>
+                                                </div>
+                                              );
+                                            })}
+                                            {assignedItems.length === 0 && !isAddingHere && (
+                                              <p className="text-[11px] text-muted-foreground/50 italic py-2 text-center">
+                                                Sin elementos asignados (arrastre aquí)
+                                              </p>
+                                            )}
+                                          </div>
+                                        </div>
+
+                                        {/* Footer de la Subcategoría: Añadir software o URL */}
+                                        <div className="pt-2 border-t border-border/40">
+                                          {isAddingHere ? (
+                                            <div className="space-y-1.5">
+                                              <input
+                                                type="text"
+                                                autoFocus
+                                                value={treeSubcatItemInput}
+                                                onChange={(e) => setTreeSubcatItemInput(e.target.value)}
+                                                onKeyDown={(e) => {
+                                                  if (e.key === "Enter" && treeSubcatItemInput.trim()) {
+                                                    handleSetCategory(treeSubcatItemInput.trim(), activeCat.id, subcat);
+                                                    setTreeSubcatItemInput("");
+                                                    setTreeSubcatAddTarget(null);
+                                                  } else if (e.key === "Escape") {
+                                                    setTreeSubcatAddTarget(null);
+                                                  }
+                                                }}
+                                                placeholder="Escriba software o URL..."
+                                                className="w-full text-xs px-2.5 py-1.5 rounded-lg bg-background border border-violet-500/60 focus:outline-none text-foreground placeholder:text-muted-foreground/60 shadow-xs"
+                                              />
+
+                                              {/* Sugerencias de apps pendientes no asignadas */}
+                                              {unassignedApps.length > 0 && (
+                                                <div className="max-h-28 overflow-y-auto space-y-1 p-1 bg-background/80 rounded-lg border border-border/40">
+                                                  <p className="text-[9px] font-semibold text-muted-foreground px-1 uppercase tracking-wider">
+                                                    Sugerencias pendientes:
+                                                  </p>
+                                                  {unassignedApps
+                                                    .filter((u) => !treeSubcatItemInput.trim() || u.toLowerCase().includes(treeSubcatItemInput.toLowerCase()))
+                                                    .slice(0, 5)
+                                                    .map((sug) => (
+                                                      <button
+                                                        key={sug}
+                                                        type="button"
+                                                        onClick={() => {
+                                                          handleSetCategory(sug, activeCat.id, subcat);
+                                                          setTreeSubcatItemInput("");
+                                                          setTreeSubcatAddTarget(null);
+                                                        }}
+                                                        className="w-full text-left px-2 py-1 rounded text-[11px] hover:bg-violet-500/20 text-foreground/90 hover:text-violet-300 flex items-center justify-between transition-colors cursor-pointer"
+                                                      >
+                                                        <span className="truncate">{sug}</span>
+                                                        <Plus className="h-3 w-3 text-violet-400 shrink-0" />
+                                                      </button>
+                                                    ))}
+                                                </div>
+                                              )}
+
+                                              <div className="flex items-center gap-1.5 justify-end">
+                                                <button
+                                                  onClick={() => {
+                                                    setTreeSubcatAddTarget(null);
+                                                    setTreeSubcatItemInput("");
+                                                  }}
+                                                  className="px-2 py-0.5 text-xs rounded hover:bg-muted text-muted-foreground cursor-pointer"
+                                                >
+                                                  Cancelar
+                                                </button>
+                                                <button
+                                                  disabled={!treeSubcatItemInput.trim()}
+                                                  onClick={() => {
+                                                    if (!treeSubcatItemInput.trim()) return;
+                                                    handleSetCategory(treeSubcatItemInput.trim(), activeCat.id, subcat);
+                                                    setTreeSubcatItemInput("");
+                                                    setTreeSubcatAddTarget(null);
+                                                  }}
+                                                  className="px-2.5 py-0.5 text-xs font-bold rounded-md bg-violet-600 hover:bg-violet-700 text-white disabled:opacity-50 cursor-pointer"
+                                                >
+                                                  Añadir
+                                                </button>
+                                              </div>
+                                            </div>
+                                          ) : (
+                                            <button
+                                              onClick={() => {
+                                                setTreeSubcatAddTarget(`${activeCat.id}::${subcat}`);
+                                                setTreeSubcatItemInput("");
+                                              }}
+                                              className="w-full py-1 text-[11px] font-medium text-muted-foreground hover:text-violet-400 hover:bg-violet-500/10 rounded-lg flex items-center justify-center gap-1 transition-colors border border-dashed border-border/60 hover:border-violet-500/40 cursor-pointer"
+                                            >
+                                              <Plus className="h-3 w-3" />
+                                              <span>Añadir software o URL</span>
+                                            </button>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* CONTENIDO PESTAÑA 2: MAPEO DE SOFTWARE Y LABORES */}
             {activeModalTab === "apps" && (
               <div className="flex-1 flex flex-col min-h-0 space-y-3">
-                <div className="relative">
-                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Buscar software o labor manual (ej: Bodega, WhatsApp, Odoo)..."
-                    className="w-full pl-9 pr-4 py-2 text-xs rounded-xl bg-muted/40 border border-border focus:outline-none focus:ring-2 focus:ring-violet-500 text-foreground placeholder:text-muted-foreground"
-                  />
+                <div className="flex items-center justify-between gap-2">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Buscar software, URL o labor manual (ej: github.com, Odoo, WhatsApp)..."
+                      className="w-full pl-9 pr-4 py-2 text-xs rounded-xl bg-muted/40 border border-border focus:outline-none focus:ring-2 focus:ring-violet-500 text-foreground placeholder:text-muted-foreground"
+                    />
+                  </div>
+                  <button
+                    onClick={() => {
+                      setShowAddCustomModal(!showAddCustomModal);
+                      if (!newCustomItemCat && categories.length > 0) {
+                        setNewCustomItemCat(categories[0].id);
+                        setNewCustomItemSub(categories[0].subcategories?.[0] || "");
+                      }
+                    }}
+                    className="px-3 py-2 text-xs font-bold rounded-xl bg-violet-600 hover:bg-violet-700 text-white flex items-center gap-1.5 transition-colors shrink-0 shadow-sm cursor-pointer"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    <span>Agregar Software o URL</span>
+                  </button>
                 </div>
+
+                {/* Formulario desplegable para agregar Software o URL manual */}
+                {showAddCustomModal && (
+                  <div className="p-3.5 rounded-xl bg-muted/30 border border-violet-500/40 space-y-2.5 animate-in fade-in duration-150">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold text-violet-300 flex items-center gap-1.5">
+                        <Plus className="h-3.5 w-3.5" />
+                        <span>Registrar Software, URL o Tarea Manual</span>
+                      </h4>
+                      <button
+                        onClick={() => setShowAddCustomModal(false)}
+                        className="text-muted-foreground hover:text-foreground p-0.5 cursor-pointer"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <div>
+                        <label className="text-[10px] text-muted-foreground block mb-1">Nombre o URL:</label>
+                        <input
+                          type="text"
+                          value={newCustomItemName}
+                          onChange={(e) => setNewCustomItemName(e.target.value)}
+                          placeholder="ej: github.com o Linkus"
+                          className="w-full px-2.5 py-1.5 text-xs rounded-lg bg-background border border-border focus:ring-2 focus:ring-violet-500 text-foreground placeholder:text-muted-foreground"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-muted-foreground block mb-1">Categoría Principal:</label>
+                        <select
+                          value={newCustomItemCat}
+                          onChange={(e) => {
+                            setNewCustomItemCat(e.target.value);
+                            const targetCat = categories.find((c) => c.id === e.target.value);
+                            setNewCustomItemSub(targetCat?.subcategories?.[0] || "");
+                          }}
+                          className="w-full px-2.5 py-1.5 text-xs rounded-lg bg-background border border-border focus:ring-2 focus:ring-violet-500 text-foreground cursor-pointer"
+                        >
+                          {categories.map((c) => (
+                            <option key={c.id} value={c.id}>{c.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-muted-foreground block mb-1">Subcategoría:</label>
+                        <select
+                          value={newCustomItemSub}
+                          onChange={(e) => setNewCustomItemSub(e.target.value)}
+                          className="w-full px-2.5 py-1.5 text-xs rounded-lg bg-background border border-border focus:ring-2 focus:ring-violet-500 text-foreground cursor-pointer"
+                        >
+                          <option value="">(Sin subcategoría)</option>
+                          {(categories.find((c) => c.id === newCustomItemCat)?.subcategories || []).map((s) => (
+                            <option key={s} value={s}>{s}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    <div className="flex justify-end gap-2 pt-1">
+                      <button
+                        onClick={() => setShowAddCustomModal(false)}
+                        className="px-2.5 py-1 text-xs rounded-lg text-muted-foreground hover:bg-muted cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        disabled={!newCustomItemName.trim()}
+                        onClick={() => {
+                          if (!newCustomItemName.trim()) return;
+                          handleSetCategory(newCustomItemName.trim(), newCustomItemCat, newCustomItemSub || null);
+                          setNewCustomItemName("");
+                          setShowAddCustomModal(false);
+                        }}
+                        className="px-3 py-1 text-xs font-bold rounded-lg bg-violet-600 hover:bg-violet-700 text-white disabled:opacity-50 cursor-pointer"
+                      >
+                        Guardar y Asignar
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 <div className="flex-1 overflow-y-auto space-y-2 pr-1 min-h-[260px] max-h-[350px]">
                   {filteredModalApps.length === 0 ? (
@@ -1166,14 +2545,19 @@ export function ActivityAppsRanking({
                     </div>
                   ) : (
                     filteredModalApps.map((appName) => {
-                      const isManual = Boolean(customCategories[appName]);
-                      const currentCat = customCategories[appName] || getDefaultCategoryForApp(appName);
+                      const assignment = getAppAssignment(appName);
+                      const currentCat = assignment.category;
+                      const currentSub = assignment.subcategory;
+                      const isManual = assignment.isManual;
                       const icon = getAppIcon(appName);
+
+                      const matchedCat = categories.find((c) => c.id === currentCat || c.label === currentCat);
+                      const availableSubcats = matchedCat?.subcategories || [];
 
                       return (
                         <div
                           key={appName}
-                          className="p-2.5 rounded-xl bg-muted/20 border border-border/50 flex items-center justify-between gap-3 hover:bg-muted/30 transition-colors"
+                          className="p-2.5 rounded-xl bg-muted/20 border border-border/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-muted/30 transition-colors"
                         >
                           <div className="flex items-center gap-2.5 min-w-0">
                             {icon}
@@ -1181,21 +2565,28 @@ export function ActivityAppsRanking({
                               <p className="font-bold text-xs text-foreground truncate" title={appName}>
                                 {appName}
                               </p>
-                              <p className="text-[10px] text-muted-foreground">
+                              <p className="text-[10px] text-muted-foreground flex items-center gap-1.5 flex-wrap">
                                 {isManual ? (
                                   <span className="text-violet-400 font-semibold">● Asignación manual</span>
                                 ) : (
-                                  "Asignación automática"
+                                  <span>Asignación automática</span>
+                                )}
+                                {currentSub && (
+                                  <span className="text-foreground/80 font-medium px-1.5 py-0.2 bg-muted/60 rounded border border-border/50">
+                                    {currentSub}
+                                  </span>
                                 )}
                               </p>
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-2 shrink-0">
+                          <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                            {/* Selector de Categoría Principal */}
                             <select
                               value={currentCat}
-                              onChange={(e) => handleSetCategory(appName, e.target.value)}
-                              className="text-xs font-bold px-2.5 py-1.5 rounded-lg bg-card border border-border focus:outline-none focus:ring-2 focus:ring-violet-500 text-foreground cursor-pointer max-w-[180px]"
+                              onChange={(e) => handleSetCategory(appName, e.target.value, null)}
+                              className="text-xs font-bold px-2.5 py-1.5 rounded-lg bg-card border border-border focus:outline-none focus:ring-2 focus:ring-violet-500 text-foreground cursor-pointer max-w-[160px]"
+                              title="Categoría Principal"
                             >
                               {categories.map((cat) => (
                                 <option key={cat.id} value={cat.id}>
@@ -1204,11 +2595,28 @@ export function ActivityAppsRanking({
                               ))}
                             </select>
 
+                            {/* Selector de Subcategoría Dependiente */}
+                            {availableSubcats.length > 0 && (
+                              <select
+                                value={currentSub || ""}
+                                onChange={(e) => handleSetCategory(appName, currentCat, e.target.value || null)}
+                                className="text-xs font-medium px-2 py-1.5 rounded-lg bg-card border border-border focus:outline-none focus:ring-2 focus:ring-violet-500 text-foreground cursor-pointer max-w-[150px]"
+                                title="Subcategoría"
+                              >
+                                <option value="">(Sin subcategoría)</option>
+                                {availableSubcats.map((sub) => (
+                                  <option key={sub} value={sub}>
+                                    {sub}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
+
                             {isManual && (
                               <button
-                                onClick={() => handleSetCategory(appName, null)}
+                                onClick={() => handleSetCategory(appName, null, null)}
                                 title="Restablecer a automático"
-                                className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-amber-400 transition-colors"
+                                className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-amber-400 transition-colors cursor-pointer"
                               >
                                 <RotateCcw className="h-3.5 w-3.5" />
                               </button>
@@ -1222,7 +2630,7 @@ export function ActivityAppsRanking({
               </div>
             )}
 
-            {/* CONTENIDO PESTAÑA 2: CRUD DE CATEGORÍAS (AGREGAR / EDITAR / ELIMINAR) */}
+            {/* CONTENIDO PESTAÑA 2: CRUD DE CATEGORÍAS (AGREGAR / EDITAR / ELIMINAR Y SUBCATEGORÍAS) */}
             {activeModalTab === "categories" && (
               <div className="flex-1 flex flex-col min-h-0 space-y-3">
                 {/* Formulario de Creación / Edición */}
@@ -1234,7 +2642,7 @@ export function ActivityAppsRanking({
                       </h4>
                       <button
                         onClick={() => { setIsCreatingNew(false); setEditingCategory(null); }}
-                        className="text-xs text-muted-foreground hover:text-foreground"
+                        className="text-xs text-muted-foreground hover:text-foreground cursor-pointer"
                       >
                         Cancelar
                       </button>
@@ -1283,8 +2691,8 @@ export function ActivityAppsRanking({
                               onClick={() => setFormCatIcon(ico)}
                               className={`p-1.5 rounded-lg border transition-all ${
                                 formCatIcon === ico
-                                  ? "border-violet-500 bg-violet-500/20 text-violet-300"
-                                  : "border-border/60 bg-card text-muted-foreground hover:text-foreground"
+                                    ? "border-violet-500 bg-violet-500/20 text-violet-300"
+                                    : "border-border/60 bg-card text-muted-foreground hover:text-foreground"
                               }`}
                             >
                               {renderCategoryIcon(ico, "h-3.5 w-3.5")}
@@ -1294,10 +2702,75 @@ export function ActivityAppsRanking({
                       </div>
                     </div>
 
+                    {/* Subcategorías de la Categoría en el Formulario */}
+                    <div className="space-y-1.5 pt-1 border-t border-border/40">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[11px] font-semibold text-muted-foreground block">
+                          Subcategorías ({formCatSubcategories.length})
+                        </label>
+                        <span className="text-[10px] text-muted-foreground">Escriba y presione Enter</span>
+                      </div>
+
+                      {formCatSubcategories.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 p-2 rounded-lg bg-card/60 border border-border/50 max-h-24 overflow-y-auto">
+                          {formCatSubcategories.map((sub, sIdx) => (
+                            <span
+                              key={sIdx}
+                              className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-violet-500/15 border border-violet-500/30 text-violet-300 animate-in fade-in duration-100"
+                            >
+                              <span>{sub}</span>
+                              <button
+                                type="button"
+                                onClick={() => setFormCatSubcategories(formCatSubcategories.filter((_, i) => i !== sIdx))}
+                                className="text-violet-400 hover:text-rose-400 transition-colors p-0.5 cursor-pointer"
+                                title="Quitar subcategoría"
+                              >
+                                <X className="h-2.5 w-2.5" />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={newSubcatInput}
+                          onChange={(e) => setNewSubcatInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              const trimmed = newSubcatInput.trim();
+                              if (trimmed && !formCatSubcategories.includes(trimmed)) {
+                                setFormCatSubcategories([...formCatSubcategories, trimmed]);
+                                setNewSubcatInput("");
+                              }
+                            }
+                          }}
+                          placeholder="Nueva subcategoría (ej: Informes, Facturación)..."
+                          className="flex-1 px-3 py-1.5 text-xs rounded-lg bg-card border border-border focus:outline-none focus:ring-2 focus:ring-violet-500 text-foreground"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const trimmed = newSubcatInput.trim();
+                            if (trimmed && !formCatSubcategories.includes(trimmed)) {
+                              setFormCatSubcategories([...formCatSubcategories, trimmed]);
+                              setNewSubcatInput("");
+                            }
+                          }}
+                          disabled={!newSubcatInput.trim()}
+                          className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-muted hover:bg-muted/80 text-foreground disabled:opacity-40 cursor-pointer"
+                        >
+                          + Añadir
+                        </button>
+                      </div>
+                    </div>
+
                     <div className="pt-2 flex justify-end gap-2">
                       <button
                         onClick={() => { setIsCreatingNew(false); setEditingCategory(null); }}
-                        className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-muted text-muted-foreground hover:text-foreground"
+                        className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-muted text-muted-foreground hover:text-foreground cursor-pointer"
                       >
                         Cancelar
                       </button>
@@ -1313,7 +2786,7 @@ export function ActivityAppsRanking({
                 ) : (
                   <div className="flex justify-between items-center">
                     <p className="text-xs text-muted-foreground">
-                      Administre las categorías en las que se clasifica el tiempo laboral
+                      Administre las categorías y subcategorías operativas del taller
                     </p>
                     <button
                       onClick={() => {
@@ -1322,6 +2795,8 @@ export function ActivityAppsRanking({
                         setFormCatName("");
                         setFormCatColorIdx(0);
                         setFormCatIcon("Monitor");
+                        setFormCatSubcategories([]);
+                        setNewSubcatInput("");
                       }}
                       className="px-3 py-1.5 text-xs font-bold rounded-lg bg-violet-600 hover:bg-violet-700 text-white flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
                     >
@@ -1331,48 +2806,130 @@ export function ActivityAppsRanking({
                   </div>
                 )}
 
-                {/* Lista de Categorías Existentes */}
-                <div className="flex-1 overflow-y-auto space-y-2 pr-1 min-h-[220px] max-h-[320px]">
+                {/* Lista de Categorías Existentes con sus Subcategorías */}
+                <div className="flex-1 overflow-y-auto space-y-2 pr-1 min-h-[220px] max-h-[340px]">
                   {categories.map((cat) => (
                     <div
                       key={cat.id}
-                      className="p-2.5 rounded-xl bg-muted/20 border border-border/50 flex items-center justify-between gap-3 hover:bg-muted/30 transition-colors"
+                      className="p-3 rounded-xl bg-muted/20 border border-border/50 space-y-2 hover:bg-muted/30 transition-colors"
                     >
-                      <div className="flex items-center gap-2.5">
-                        <div className={`p-1.5 rounded-lg border ${cat.color}`}>
-                          {renderCategoryIcon(cat.iconName, "h-4 w-4")}
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2.5">
+                          <div className={`p-1.5 rounded-lg border ${cat.color}`}>
+                            {renderCategoryIcon(cat.iconName, "h-4 w-4")}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-xs text-foreground">{cat.label}</span>
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted/80 text-muted-foreground font-mono">
+                                {cat.subcategories?.length || 0} subcat.
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-muted-foreground">
+                              {cat.id === "Actividad general" ? "Categoría por defecto" : "Categoría activa"}
+                            </p>
+                          </div>
                         </div>
-                        <div>
-                          <span className="font-bold text-xs text-foreground">{cat.label}</span>
-                          <p className="text-[10px] text-muted-foreground">
-                            {cat.id === "Actividad general" ? "Categoría por defecto" : "Categoría activa"}
-                          </p>
+
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => {
+                              setEditingCategory(cat);
+                              setIsCreatingNew(false);
+                              setFormCatName(cat.label);
+                              const foundIdx = COLOR_PRESETS.findIndex((p) => p.bgBar === cat.bgBar);
+                              setFormCatColorIdx(foundIdx >= 0 ? foundIdx : 0);
+                              setFormCatIcon(cat.iconName || "Monitor");
+                              setFormCatSubcategories(cat.subcategories ? [...cat.subcategories] : []);
+                              setNewSubcatInput("");
+                            }}
+                            className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-violet-300 transition-colors cursor-pointer"
+                            title="Editar nombre, color, icono y subcategorías"
+                          >
+                            <Edit2 className="h-3.5 w-3.5" />
+                          </button>
+
+                          <button
+                            onClick={() => handleDeleteCategory(cat.id)}
+                            className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-rose-400 transition-colors cursor-pointer"
+                            title="Eliminar categoría"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          onClick={() => {
-                            setEditingCategory(cat);
-                            setIsCreatingNew(false);
-                            setFormCatName(cat.label);
-                            const foundIdx = COLOR_PRESETS.findIndex((p) => p.bgBar === cat.bgBar);
-                            setFormCatColorIdx(foundIdx >= 0 ? foundIdx : 0);
-                            setFormCatIcon(cat.iconName || "Monitor");
-                          }}
-                          className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-violet-300 transition-colors cursor-pointer"
-                          title="Editar nombre, color o icono"
-                        >
-                          <Edit2 className="h-3.5 w-3.5" />
-                        </button>
+                      {/* Subcategorías de la categoría con botón para agregar/eliminar en vivo */}
+                      <div className="pt-2 border-t border-border/30">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {(cat.subcategories || []).map((sub) => (
+                            <span
+                              key={sub}
+                              className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-md bg-muted/60 border border-border/60 text-foreground group"
+                            >
+                              <span>{sub}</span>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteSubcategory(cat.id, sub)}
+                                className="text-muted-foreground hover:text-rose-400 transition-colors p-0.5 rounded cursor-pointer"
+                                title={`Eliminar subcategoría "${sub}"`}
+                              >
+                                <X className="h-2.5 w-2.5" />
+                              </button>
+                            </span>
+                          ))}
 
-                        <button
-                          onClick={() => handleDeleteCategory(cat.id)}
-                          className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-rose-400 transition-colors cursor-pointer"
-                          title="Eliminar categoría"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                          {/* Input inline para agregar subcategoría al instante */}
+                          {inlineAddSubcatCatId === cat.id ? (
+                            <div className="inline-flex items-center gap-1">
+                              <input
+                                type="text"
+                                autoFocus
+                                value={inlineSubcatValue}
+                                onChange={(e) => setInlineSubcatValue(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    handleAddSubcategory(cat.id, inlineSubcatValue);
+                                  } else if (e.key === "Escape") {
+                                    setInlineAddSubcatCatId(null);
+                                    setInlineSubcatValue("");
+                                  }
+                                }}
+                                placeholder="Nueva subcategoría..."
+                                className="text-[10px] px-2 py-0.5 rounded bg-background border border-violet-500 focus:outline-none text-foreground w-36"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => handleAddSubcategory(cat.id, inlineSubcatValue)}
+                                className="p-1 rounded bg-violet-600 hover:bg-violet-700 text-white text-[10px] cursor-pointer"
+                                title="Guardar subcategoría"
+                              >
+                                <Check className="h-2.5 w-2.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => { setInlineAddSubcatCatId(null); setInlineSubcatValue(""); }}
+                                className="p-1 rounded hover:bg-muted text-muted-foreground text-[10px] cursor-pointer"
+                                title="Cancelar"
+                              >
+                                <X className="h-2.5 w-2.5" />
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setInlineAddSubcatCatId(cat.id);
+                                setInlineSubcatValue("");
+                              }}
+                              className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md border border-dashed border-border hover:border-violet-500/60 hover:text-violet-300 text-muted-foreground transition-all cursor-pointer"
+                            >
+                              <Plus className="h-2.5 w-2.5" />
+                              <span>Subcategoría</span>
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -1382,9 +2939,13 @@ export function ActivityAppsRanking({
 
             {/* Footer */}
             <div className="border-t border-border/50 pt-3 flex items-center justify-between text-xs">
-              {activeModalTab === "apps" ? (
+              {activeModalTab === "tree" ? (
                 <span className="text-muted-foreground">
-                  {Object.keys(customCategories).length} aplicación(es) con categoría personalizada
+                  Vista de árbol: 6 categorías operativas oficiales del taller
+                </span>
+              ) : activeModalTab === "apps" ? (
+                <span className="text-muted-foreground">
+                  {Object.keys(customCategories).length} aplicación(es) o URL(s) con categoría personalizada
                 </span>
               ) : (
                 <button
@@ -1424,9 +2985,139 @@ export function ActivityAppsRanking({
                 </button>
               </div>
             </div>
+
+            {/* MODAL DE REASIGNACIÓN RÁPIDA DE ITEM (SOFTWARE O URL) */}
+            {itemToManage && (
+              <div
+                className="fixed inset-0 z-[70] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-150"
+                onClick={() => setItemToManage(null)}
+              >
+                <div
+                  className="w-full max-w-md bg-[#0f1424] border border-border/80 rounded-2xl shadow-2xl p-5 space-y-4"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex items-start justify-between gap-2 border-b border-border/50 pb-3">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="p-2 rounded-xl bg-violet-500/15 text-violet-400 shrink-0">
+                        {getAppIcon(itemToManage.appName)}
+                      </div>
+                      <div className="min-w-0">
+                        <h4 className="font-bold text-sm text-foreground truncate">
+                          {itemToManage.appName}
+                        </h4>
+                        <p className="text-[11px] text-muted-foreground">
+                          Reasignar categoría o subcategoría operativa
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setItemToManage(null)}
+                      className="p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground cursor-pointer"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+
+                  <div className="space-y-3.5 text-xs">
+                    <div>
+                      <label className="block text-[11px] font-bold text-muted-foreground mb-1.5">
+                        Categoría Oficial:
+                      </label>
+                      <select
+                        value={manageTargetCat}
+                        onChange={(e) => {
+                          const nextCat = e.target.value;
+                          setManageTargetCat(nextCat);
+                          const found = categories.find((c) => c.id === nextCat);
+                          setManageTargetSub(found?.subcategories?.[0] || "");
+                        }}
+                        className="w-full px-3 py-2 rounded-xl bg-background border border-border/70 text-foreground text-xs focus:outline-none focus:border-violet-500 cursor-pointer"
+                      >
+                        {categories.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-muted-foreground mb-1.5">
+                        Subcategoría Oficial:
+                      </label>
+                      {(() => {
+                        const selectedCat = categories.find((c) => c.id === manageTargetCat);
+                        const subs = selectedCat?.subcategories || [];
+                        if (subs.length === 0) {
+                          return (
+                            <p className="text-muted-foreground text-[11px] italic py-1">
+                              Esta categoría no tiene subcategorías definidas.
+                            </p>
+                          );
+                        }
+                        return (
+                          <select
+                            value={manageTargetSub}
+                            onChange={(e) => setManageTargetSub(e.target.value)}
+                            className="w-full px-3 py-2 rounded-xl bg-background border border-border/70 text-foreground text-xs focus:outline-none focus:border-violet-500 cursor-pointer"
+                          >
+                            {subs.map((s) => (
+                              <option key={s} value={s}>
+                                {s}
+                              </option>
+                            ))}
+                          </select>
+                        );
+                      })()}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-3 border-t border-border/50">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleSetCategory(itemToManage.appName, null, null);
+                        setItemToManage(null);
+                      }}
+                      className="px-3 py-1.5 text-xs font-semibold text-rose-400 hover:bg-rose-500/10 rounded-xl transition-colors cursor-pointer"
+                    >
+                      Desvincular
+                    </button>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setItemToManage(null)}
+                        className="px-3 py-1.5 text-xs rounded-xl hover:bg-muted text-muted-foreground cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (manageTargetCat) {
+                            handleSetCategory(
+                              itemToManage.appName,
+                              manageTargetCat,
+                              manageTargetSub || null
+                            );
+                          }
+                          setItemToManage(null);
+                        }}
+                        className="px-4 py-1.5 text-xs font-bold rounded-xl bg-violet-600 hover:bg-violet-700 text-white shadow-sm transition-colors cursor-pointer"
+                      >
+                        Guardar Cambios
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
     </div>
   );
 }
+
+export const ActivityAppsRanking = React.memo(ActivityAppsRankingComponent);

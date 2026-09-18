@@ -159,7 +159,7 @@ export function AgentRankingTable({ agentes }: { agentes: AgentRankingItem[] }) 
             <tr><td colSpan={11} className="py-16 text-center text-sm text-muted-foreground">Sin datos de atención registrados.</td></tr>
           ) : agentesFiltrados.map((a, i) => {
             const isTop = i === 0 && agentes.length > 1;
-            const initials = a.nombre.split(" ").filter(Boolean).map(n => n[0]).join("").substring(0, 2).toUpperCase();
+            const initials = (a.nombre || a.email || "Agente").split(" ").filter(Boolean).map(n => n[0]).join("").substring(0, 2).toUpperCase() || "AG";
             const scoreColor = a.score >= 75 ? "text-emerald-500" : a.score >= 50 ? "text-amber-400" : "text-rose-500";
             const scoreBg = a.score >= 75 ? "bg-emerald-500/10" : a.score >= 50 ? "bg-amber-400/10" : "bg-rose-500/10";
             const isOpen = expanded === a.email;

@@ -707,6 +707,47 @@ function consolidateTimelineByBlocks(
   });
 }
 
+// Comparador eficiente de igualdad para evitar renders innecesarios en auto-refresco en segundo plano
+function areTimelinesEqual(a: TimelineEntry[], b: TimelineEntry[]): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const itemA = a[i];
+    const itemB = b[i];
+    if (
+      itemA.id !== itemB.id ||
+      itemA.action !== itemB.action ||
+      itemA.category !== itemB.category ||
+      itemA.duration_ms !== itemB.duration_ms ||
+      itemA.created_at !== itemB.created_at
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function areLiveAgentsEqual(a: LiveAgent[], b: LiveAgent[]): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const agA = a[i];
+    const agB = b[i];
+    if (
+      agA.email !== agB.email ||
+      agA.status !== agB.status ||
+      agA.currentApp !== agB.currentApp ||
+      agA.activeMinutes !== agB.activeMinutes ||
+      agA.idleMinutes !== agB.idleMinutes ||
+      agA.productivityScore !== agB.productivityScore ||
+      agA.todayEventsCount !== agB.todayEventsCount
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Props) {
   const defaultEmail = agentEmail || "cbatista@sekunet.com";
   const [liveAgents, setLiveAgents] = useState<LiveAgent[]>([]);
@@ -773,7 +814,10 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
       const res = await fetch(`/api/activity/overtime?date=${selectedDate}`);
       const data = await res.json();
       if (data?.success && Array.isArray(data.requests)) {
-        setOvertimeRequests(data.requests);
+        setOvertimeRequests((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(data.requests)) return prev;
+          return data.requests;
+        });
       }
     } catch (e) {
       console.error("[tracker] error fetching overtime:", e);
@@ -812,6 +856,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
 
   const [timelineViewMode, setTimelineViewMode] = useState<"consolidated" | "logs">("consolidated");
   const [onlyManualFilter, setOnlyManualFilter] = useState<boolean>(false);
+  const [serverMetrics, setServerMetrics] = useState<any>(null);
 
   const saveScheduleToServer = async (
     start: string,
@@ -888,13 +933,16 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
     saveScheduleToServer(scheduleStart, scheduleEnd, enabled, workDays);
   };
 
-  // Cargar estado en vivo de agentes
+  // Cargar estado en vivo de agentes (soporta modo silencioso sin provocar re-renders)
   const fetchLive = useCallback(async () => {
     try {
       const res = await fetch("/api/activity/live");
       const data = await res.json();
-      if (data.ok && data.agents) {
-        setLiveAgents(data.agents);
+      if (data.ok && Array.isArray(data.agents)) {
+        setLiveAgents((prev) => {
+          if (areLiveAgentsEqual(prev, data.agents)) return prev;
+          return data.agents;
+        });
         setSelectedAgent((prev) => {
           if (prev) return prev;
           const found = data.agents.find((a: LiveAgent) => a.email.toLowerCase() === defaultEmail.toLowerCase());
@@ -906,19 +954,26 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
     }
   }, [defaultEmail]);
 
-  // Cargar timeline del agente y fecha seleccionados (con soporte para rangos de fecha)
-  const fetchTimeline = useCallback(async () => {
+  // Cargar timeline del agente y fecha seleccionados (con soporte para refresco en segundo plano silencioso)
+  const fetchTimeline = useCallback(async (isSilent = false) => {
     if (!selectedAgent) return;
-    setRefreshing(true);
+    if (!isSilent) setRefreshing(true);
     try {
       const endParam = selectedEndDate ? `&endDate=${encodeURIComponent(selectedEndDate)}` : "";
-      const res = await fetch(`/api/activity/timeline?agent=${encodeURIComponent(selectedAgent)}&date=${selectedDate}${endParam}`);
+      const res = await fetch(`/api/activity/timeline?agent=${encodeURIComponent(selectedAgent)}&date=${selectedDate}${endParam}&_t=${Date.now()}`);
       const data = await res.json();
-      setTimeline(data.timeline || []);
+      const newTimeline: TimelineEntry[] = data.timeline || [];
+      setTimeline((prev) => {
+        if (areTimelinesEqual(prev, newTimeline)) return prev;
+        return newTimeline;
+      });
+      if (data.metrics) {
+        setServerMetrics(data.metrics);
+      }
     } catch (e) {
       console.error("[tracker] error fetching timeline:", e);
     } finally {
-      setRefreshing(false);
+      if (!isSilent) setRefreshing(false);
       setLoading(false);
     }
   }, [selectedAgent, selectedDate, selectedEndDate]);
@@ -928,16 +983,16 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
   }, [fetchLive]);
 
   useEffect(() => {
-    fetchTimeline();
+    fetchTimeline(false);
     fetchOvertime();
   }, [fetchTimeline, fetchOvertime]);
 
-  // Auto-refresco periódico
+  // Auto-refresco periódico 100% silencioso y fluido (sin parpadeos de DOM ni animaciones)
   useEffect(() => {
     if (autoRefreshSec <= 0) return;
     const interval = setInterval(() => {
       fetchLive();
-      fetchTimeline();
+      fetchTimeline(true);
       fetchOvertime();
     }, autoRefreshSec * 1000);
     return () => clearInterval(interval);
@@ -1059,6 +1114,41 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
 
   // Medición oficial de cumplimiento de la Jornada Laboral (Horas hábiles / efectivas vs Meta)
   const agentDailyCompliance = React.useMemo(() => {
+    // Si tenemos las métricas oficiales del servidor (la misma fuente de verdad que el Sidebar), las usamos directamente
+    if (serverMetrics) {
+      const targetMins = Math.round((serverMetrics.targetDailyHours || targetDailyHours || 10) * 60);
+      const activeMins = Math.round((serverMetrics.totalActiveMs || 0) / 60000);
+      const rawActiveMins = Math.round((serverMetrics.rawActiveMs || 0) / 60000);
+      const deficitMins = Math.round((serverMetrics.deficitMs || 0) / 60000);
+      const rawOtMins = Math.round((serverMetrics.rawOvertimeMs || 0) / 60000);
+      const percent = targetMins > 0 ? Math.round((activeMins / targetMins) * 100) : 0;
+
+      const currentOtReq = overtimeRequests.find(
+        (r) => r.agent_email?.toLowerCase() === (selectedAgent || "").toLowerCase()
+      );
+      const isOvertimeApproved = serverMetrics.isOvertimeApproved || currentOtReq?.status === "approved";
+      const isOvertimePending = serverMetrics.overtimeStatus === "pending" || currentOtReq?.status === "pending";
+      const isOvertimeRejected = serverMetrics.overtimeStatus === "rejected" || currentOtReq?.status === "rejected";
+
+      return {
+        rawActiveMinutes: rawActiveMins,
+        activeMinutes: activeMins,
+        targetMinutes: targetMins,
+        targetDailyHours: serverMetrics.targetDailyHours || targetDailyHours || 10,
+        percent,
+        diffMinutes: activeMins - targetMins,
+        isCompleted: rawActiveMins >= targetMins,
+        overtimeMinutes: rawOtMins,
+        deficitMinutes: deficitMins,
+        isOvertimeApproved,
+        isOvertimePending,
+        isOvertimeRejected,
+        currentOtReq,
+        firstLoginTime: serverMetrics.firstLoginTime,
+        lastLogoutTime: serverMetrics.lastLogoutTime,
+      };
+    }
+
     let activeMinutes = 0;
 
     // Calcular el tiempo activo real consolidando las horas de timelineWithinSchedule sin solapamiento
@@ -1080,14 +1170,30 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
         const gap = Math.max(0, nextTime - currTime);
 
         const rawDur = Number(item.duration_ms || (item.metadata?.duration_seconds ? item.metadata.duration_seconds * 1000 : 0)) || 0;
-        const isManual = (item.category || "").toLowerCase().includes("manual") || (item.category || "").toLowerCase().includes("taller") || (item.category || "").toLowerCase().includes("capacitaci") || (item.action || "").toLowerCase().startsWith("terminó:");
-        const effectiveDuration = (rawDur > 0 && isManual)
-          ? Math.min(rawDur, 60 * 60 * 1000)
-          : Math.min(gap, IDLE_GAP_MS);
+        const isManual = (item.category || "").toLowerCase().includes("manual") || (item.category || "").toLowerCase().includes("taller") || (item.category || "").toLowerCase().includes("capacitaci") || (item.action || "").toLowerCase().startsWith("terminó:") || (item.action || "").toLowerCase().startsWith("termino:");
 
-        const d = new Date(item.created_at!);
-        const h = d.getHours();
-        hourBuckets[h] = Math.min(60 * 60 * 1000, (hourBuckets[h] || 0) + effectiveDuration);
+        if (rawDur > 0 && isManual) {
+          // Distribuir la labor manual a lo largo de las horas reales en que se ejecutó
+          const endMs = currTime;
+          const startMs = Math.max(endMs - Math.min(rawDur, 12 * 3600 * 1000), 0);
+          let cursor = startMs;
+          while (cursor < endMs) {
+            const d = new Date(cursor);
+            const h = d.getHours();
+            const nextHour = new Date(cursor);
+            nextHour.setMinutes(60, 0, 0);
+            nextHour.setMilliseconds(0);
+            const chunkEnd = Math.min(endMs, nextHour.getTime());
+            const chunkDur = chunkEnd - cursor;
+            hourBuckets[h] = Math.min(60 * 60 * 1000, (hourBuckets[h] || 0) + chunkDur);
+            cursor = chunkEnd;
+          }
+        } else {
+          const effectiveDuration = Math.min(gap, IDLE_GAP_MS);
+          const d = new Date(item.created_at!);
+          const h = d.getHours();
+          hourBuckets[h] = Math.min(60 * 60 * 1000, (hourBuckets[h] || 0) + effectiveDuration);
+        }
       }
 
       for (const h in hourBuckets) {
@@ -1176,7 +1282,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
       firstLoginTime,
       lastLogoutTime,
     };
-  }, [timelineWithinSchedule, currentAgentObj?.activeMinutes, targetDailyHours, overtimeRequests, selectedAgent, timeline]);
+  }, [serverMetrics, timelineWithinSchedule, currentAgentObj?.activeMinutes, targetDailyHours, overtimeRequests, selectedAgent, timeline]);
 
   const categoriesAvailable = Array.from(new Set(timeline.map((t) => t.category).filter(Boolean)));
 
@@ -1384,7 +1490,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                   }`}
                 />
               </span>
-              <span className="truncate max-w-[130px]">{ag.name.split(" ")[0]}</span>
+              <span className="truncate max-w-[130px]">{(ag.name || "Agente").split(" ")[0]}</span>
               {ag.hasDesktopApp && (
                 <span title="Desktop App Conectada">
                   <Laptop className="h-3 w-3 text-blue-400/80 shrink-0" />
@@ -1472,8 +1578,8 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                           <CheckCircle2 className="h-3.5 w-3.5" /> Jornada Cumplida ({agentDailyCompliance.percent}%)
                         </span>
                       ) : (
-                        <span className="text-[11px] font-bold text-rose-400 flex items-center gap-1">
-                          <AlertCircle className="h-3.5 w-3.5" /> {agentDailyCompliance.percent}% completado (Tiempo perdido/déficit: {Math.floor(agentDailyCompliance.deficitMinutes / 60)}h {agentDailyCompliance.deficitMinutes % 60}m)
+                        <span className="text-[11px] font-bold text-sky-400 flex items-center gap-1">
+                          <Clock className="h-3.5 w-3.5" /> {agentDailyCompliance.percent}% completado ({Math.floor(agentDailyCompliance.deficitMinutes / 60)}h {agentDailyCompliance.deficitMinutes % 60}m restantes de jornada)
                         </span>
                       )}
                     </div>

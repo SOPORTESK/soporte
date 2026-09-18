@@ -65,7 +65,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         const { data, error } = await supabase
           .from("sek_agent_config")
           .select("email, nombre, apellido, avatar_url, status")
-          .eq("activo", true);
+          .neq("status", "offline");
         return { data, error };
       },
       [],

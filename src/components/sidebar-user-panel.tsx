@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { Camera, Lock, Eye, EyeOff, Check, X, ChevronUp, Circle, LogOut, Activity as ActivityIcon, FileText, ChevronRight, X as XIcon, RefreshCw, Wrench, Coffee, Timer, BarChart3, Package, LayoutDashboard, ClipboardList, Sparkles, UserPlus, Briefcase, GraduationCap, Users, Utensils, Sandwich, Bath, Square, Trash2 } from "lucide-react";
+import { useState, useRef, useEffect, useMemo } from "react";
+import { Camera, Lock, Eye, EyeOff, Check, X, ChevronUp, Circle, LogOut, Activity as ActivityIcon, FileText, ChevronRight, X as XIcon, RefreshCw, Wrench, Coffee, Timer, BarChart3, Package, LayoutDashboard, ClipboardList, Sparkles, UserPlus, Briefcase, GraduationCap, Users, Utensils, Sandwich, Bath, Square, Trash2, Clock, CheckCircle2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -35,6 +35,25 @@ const STATUS_LABELS: Record<string, { label: string; color: string; icon?: strin
 
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutos (tolerancia de taller)
 
+function getTaskIcon(name: string) {
+  const lower = (name || "").toLowerCase();
+  if (lower.includes("bodega")) return Package;
+  if (lower.includes("exhibidor")) return LayoutDashboard;
+  if (lower.includes("inventario")) return ClipboardList;
+  if (lower.includes("limpieza") || lower.includes("orden")) return Sparkles;
+  if (lower.includes("residuo") || lower.includes("desecho") || lower.includes("reciclaj") || lower.includes("disposici")) return Trash2;
+  if (lower.includes("ventanilla") || lower.includes("mostrador")) return UserPlus;
+  if (lower.includes("diagnóstico") || lower.includes("diagnostico") || lower.includes("repara")) return Wrench;
+  if (lower.includes("venta")) return Briefcase;
+  if (lower.includes("capacita") || lower.includes("inducci") || lower.includes("entrena") || lower.includes("curso") || lower.includes("autoaprendizaje")) return GraduationCap;
+  if (lower.includes("descanso") || lower.includes("almuerzo") || lower.includes("comida")) return Sandwich;
+  if (lower.includes("sanitaria") || lower.includes("baño") || lower.includes("bano")) return Bath;
+  if (lower.includes("reunión") || lower.includes("reunion") || lower.includes("charla")) return Users;
+  if (lower.includes("correo") || lower.includes("mail")) return FileText;
+  if (lower.includes("reloj") || lower.includes("pausa")) return Clock;
+  return Timer;
+}
+
 const TAREAS_GROUPED = [
   {
     group: "Operativa",
@@ -58,21 +77,28 @@ const TAREAS_GROUPED = [
   {
     group: "Personal",
     items: [
-      { label: "Tiempo de Descanso", short: "Descanso", category: "Tiempo de descanso", icon: Sandwich },
-      { label: "Pausa Sanitaria", short: "Pausa Sanitaria", category: "Pausa personal", icon: Bath },
+      { label: "Tiempo de Descanso", short: "Descanso", category: "Pausas y Descansos", icon: Sandwich },
+      { label: "Pausa Sanitaria", short: "Pausa Sanitaria", category: "Pausas y Descansos", icon: Bath },
       { label: "Reunión", short: "Reunión", category: "Control Administrativo", icon: Users },
       { label: "Capacitacion de Personal", short: "Capacitar (Interno)", category: "On-the-Job Training (OJT)", icon: GraduationCap },
     ]
   }
 ];
 
-function AvatarImg({ url, name, size = 36 }: { url?: string | null; name: string; size?: number }) {
-  const initials = name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase();
+function AvatarImg({ url, name, size = 36 }: { url?: string | null; name?: string | null; size?: number }) {
+  const safeName = (typeof name === "string" ? name : "").trim() || "Usuario";
+  const initials = safeName
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(w => w[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase() || "U";
   const colors = ["bg-violet-500", "bg-indigo-500", "bg-sky-500", "bg-emerald-500", "bg-amber-500", "bg-rose-500"];
-  const color = colors[name.charCodeAt(0) % colors.length];
+  const color = colors[safeName.charCodeAt(0) % colors.length];
 
   if (url) {
-    return <img src={url} alt={name} style={{ width: size, height: size }} className="rounded-full object-cover ring-2 ring-border" />;
+    return <img src={url} alt={safeName} style={{ width: size, height: size }} className="rounded-full object-cover ring-2 ring-border" />;
   }
   return (
     <div style={{ width: size, height: size, fontSize: size * 0.35 }} className={`${color} rounded-full flex items-center justify-center text-white font-bold shrink-0`}>
@@ -90,12 +116,13 @@ export function SidebarUserPanel({
   onlineAgents: OnlineAgent[]; 
   canViewActivityTracker?: boolean; 
 }) {
-  const canAccessAdmin = ["admin", "superadmin"].includes(agent.rol);
+  const safeAgent = agent || ({ rol: "tecnico", email: "agente@sekunet.com" } as Agent);
+  const canAccessAdmin = ["admin", "superadmin"].includes(safeAgent.rol);
   const hasActivityAccess = canViewActivityTracker !== undefined ? canViewActivityTracker : canAccessAdmin;
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"profile" | "team" | "activity">("profile");
-  const [status, setStatus] = useState(agent.status || "online");
-  const [avatarUrl, setAvatarUrl] = useState(agent.avatar_url || null);
+  const [status, setStatus] = useState(safeAgent.status || "online");
+  const [avatarUrl, setAvatarUrl] = useState(safeAgent.avatar_url || null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [showPwd, setShowPwd] = useState(false);
   const [pwd, setPwd] = useState("");
@@ -106,7 +133,7 @@ export function SidebarUserPanel({
   const fileRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
   const supabase = createClient();
-  const fullName = [agent.nombre, agent.apellido].filter(Boolean).join(" ") || agent.email;
+  const fullName = [safeAgent.nombre, safeAgent.apellido].filter(Boolean).join(" ") || safeAgent.email || "Usuario";
   const [myMetrics, setMyMetrics] = useState<any>(null);
   const [showActivityModal, setShowActivityModal] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -122,6 +149,81 @@ export function SidebarUserPanel({
     }
   });
   const [manualElapsed, setManualElapsed] = useState("");
+
+  // Categorías dinámicas sincronizadas con "Gestionar Categorías"
+  const [categoriesConfig, setCategoriesConfig] = useState<any[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const saved = localStorage.getItem("sek_categories_list");
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    const loadCategories = () => {
+      fetch("/api/activity/app-categories")
+        .then((r) => r.json())
+        .then((data) => {
+          if (Array.isArray(data?.categories) && data.categories.length > 0) {
+            setCategoriesConfig(data.categories);
+            try {
+              localStorage.setItem("sek_categories_list", JSON.stringify(data.categories));
+            } catch {}
+          }
+        })
+        .catch(() => {});
+    };
+
+    loadCategories();
+    const handleUpdate = () => loadCategories();
+    window.addEventListener("sekunet_categories_updated", handleUpdate);
+    window.addEventListener("storage", handleUpdate);
+    return () => {
+      window.removeEventListener("sekunet_categories_updated", handleUpdate);
+      window.removeEventListener("storage", handleUpdate);
+    };
+  }, []);
+
+  const taskGroups = useMemo(() => {
+    if (!categoriesConfig || categoriesConfig.length === 0) {
+      return TAREAS_GROUPED;
+    }
+
+    const groups: {
+      group: string;
+      color?: string;
+      items: { label: string; short: string; category: string; icon: any }[];
+    }[] = [];
+
+    for (const cat of categoriesConfig) {
+      let subs: string[] = Array.isArray(cat.subcategories) ? [...cat.subcategories] : [];
+      if (subs.length === 0 && (cat.id === "Pausas y Descansos" || cat.label === "Pausas y Descansos")) {
+        subs = ["Tiempo de Descanso", "Pausa Sanitaria", "Almuerzo"];
+      }
+
+      if (subs.length === 0) continue;
+
+      const items = subs.map((sub: string) => {
+        const cleanShort = sub.replace(/\s*\(manual\)\s*/i, "").trim();
+        return {
+          label: cleanShort,
+          short: cleanShort.length > 20 ? cleanShort.slice(0, 18) + "…" : cleanShort,
+          category: cat.label || cat.id,
+          icon: getTaskIcon(sub),
+        };
+      });
+
+      groups.push({
+        group: cat.label || cat.id,
+        color: cat.color,
+        items,
+      });
+    }
+
+    return groups.length > 0 ? groups : TAREAS_GROUPED;
+  }, [categoriesConfig]);
 
   useEffect(() => {
     if (tab === "activity" && !hasActivityAccess) {
@@ -200,7 +302,7 @@ export function SidebarUserPanel({
   useEffect(() => {
     if (tab !== "activity" || !open) return;
     const fetchActivity = () => {
-      fetch(`/api/activity/timeline?agent=${encodeURIComponent(agent.email)}&date=${new Date().toISOString().split("T")[0]}&metrics=true`)
+      fetch(`/api/activity/timeline?agent=${encodeURIComponent(agent.email)}&date=${new Date().toISOString().split("T")[0]}&metrics=true&_t=${Date.now()}`)
         .then(r => r.json())
         .then(d => setMyMetrics(d))
         .catch(() => {});
@@ -210,7 +312,7 @@ export function SidebarUserPanel({
     const interval = setInterval(() => {
       fetchActivity();
       setLastUpdate(new Date());
-    }, 600000);
+    }, 20000);
     return () => { clearInterval(interval); };
   }, [tab, open, agent.email]);
 
@@ -297,7 +399,7 @@ export function SidebarUserPanel({
   };
 
   const fetchActivity = () => {
-    fetch(`/api/activity/timeline?agent=${encodeURIComponent(agent.email)}&date=${new Date().toISOString().split("T")[0]}&metrics=true`)
+    fetch(`/api/activity/timeline?agent=${encodeURIComponent(agent.email)}&date=${new Date().toISOString().split("T")[0]}&metrics=true&_t=${Date.now()}`)
       .then(r => r.json())
       .then(d => setMyMetrics(d))
       .catch(() => {});
@@ -417,7 +519,7 @@ export function SidebarUserPanel({
   };
 
   const st = STATUS_LABELS[status] || STATUS_LABELS.offline;
-  const others = onlineAgents.filter(a => a.email !== agent.email && a.status !== "offline");
+  const others = (onlineAgents || []).filter(a => a && a.email && a.email !== safeAgent.email && a.status !== "offline");
 
   return (
     <div className="border-t border-border">
@@ -534,60 +636,87 @@ export function SidebarUserPanel({
 
           {tab === "activity" && hasActivityAccess && (
             <div className="flex flex-col" style={{ minHeight: "440px", maxHeight: "560px" }}>
-              {/* Header con gradiente y métricas */}
-              <div className="px-3.5 py-3 bg-gradient-to-br from-violet-500/15 via-indigo-500/5 to-transparent border-b border-border/50">
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[11px] font-black tracking-wider text-foreground uppercase flex items-center gap-1.5">
-                    <ActivityIcon className="h-3.5 w-3.5 text-violet-500" /> Jornada (10h)
-                  </span>
-                  <div className="flex items-center gap-1.5">
-                    {myMetrics?.firstLoginTime && (
-                      <span className="text-[9px] text-muted-foreground font-mono">
-                        Entrada: {myMetrics.firstLoginTime}
+              {/* Header con gradiente y métricas con diseño amplio, sin textos cortados ni solapados */}
+              <div className="p-3 bg-gradient-to-br from-violet-500/15 via-indigo-500/5 to-transparent border-b border-border/50 space-y-2.5">
+                {/* Fila 1: Título de jornada + Estado/Entrada + Score */}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="h-7 w-7 rounded-lg bg-violet-500/20 text-violet-400 grid place-items-center shrink-0 border border-violet-500/30">
+                      <ActivityIcon className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <span className="text-xs font-black tracking-tight text-foreground block leading-tight">
+                        JORNADA 10H
                       </span>
-                    )}
-                    <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/20">
-                      {myMetrics?.productivityScore || 0}%
+                      {myMetrics?.firstLoginTime && (
+                        <span className="text-[10px] text-muted-foreground font-mono leading-tight block">
+                          Entrada: {myMetrics.firstLoginTime}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col items-end shrink-0">
+                    <span className="text-[11px] font-black px-2 py-0.5 rounded-md bg-violet-500/15 text-violet-400 border border-violet-500/30 leading-tight">
+                      {myMetrics?.productivityScore ?? 100}%
+                    </span>
+                    <span className="text-[9px] uppercase font-bold tracking-wider text-muted-foreground mt-0.5">
+                      Efectividad
                     </span>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 text-[10px] font-medium text-muted-foreground mb-2 flex-wrap">
-                  <span className="flex items-center gap-1 text-emerald-500 font-bold">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                    {myMetrics?.totalActiveTime || "0m"} activo
-                  </span>
-                  <span className="text-border">|</span>
-                  {myMetrics?.deficitMs > 0 ? (
-                    <span className="flex items-center gap-1 text-rose-400 font-semibold" title="Tiempo que falta para las 10 horas de jornada">
-                      <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
-                      {myMetrics?.deficitTime || "0m"} tiempo perdido
-                    </span>
-                  ) : (
-                    <span className="flex items-center gap-1 text-emerald-400 font-bold">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                      10h cumplidas {myMetrics?.rawOvertimeMs > 0 ? (myMetrics?.isOvertimeApproved ? `(+${myMetrics.overtimeTime} extra)` : `(+${myMetrics.overtimeTime} pendiente)`) : ""}
-                    </span>
-                  )}
+
+                {/* Fila 2: Cuadrícula de métricas con tarjetas dedicadas para cero solapamientos */}
+                <div className="grid grid-cols-2 gap-2 pt-1 border-t border-border/40">
+                  <div className="bg-card/80 border border-emerald-500/25 rounded-xl p-2 flex flex-col justify-center">
+                    <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                      <span className="truncate">Activo</span>
+                    </div>
+                    <p className="text-sm font-black text-emerald-400 mt-0.5 tracking-tight truncate">
+                      {myMetrics?.totalActiveTime || "0m"}
+                    </p>
+                  </div>
+
+                  <div className="bg-card/80 border border-sky-500/25 rounded-xl p-2 flex flex-col justify-center">
+                    <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                      <Clock className="h-2.5 w-2.5 text-sky-400 shrink-0" />
+                      <span className="truncate">Restante</span>
+                    </div>
+                    <p className="text-sm font-black text-sky-400 mt-0.5 tracking-tight truncate">
+                      {myMetrics?.deficitMs > 0 ? (myMetrics?.deficitTime || "0m") : "Cumplida"}
+                    </p>
+                  </div>
                 </div>
-                <div className="h-2 rounded-full bg-muted/60 overflow-hidden flex shadow-inner">
-                  <div
-                    className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-500"
-                    style={{
-                      width: `${Math.min(100, Math.round(((myMetrics?.totalActiveMs || 0) / (10 * 3600 * 1000)) * 100))}%`
-                    }}
-                  />
-                  <div
-                    className="h-full bg-rose-500/80 transition-all duration-500"
-                    style={{
-                      width: `${Math.max(0, 100 - Math.min(100, Math.round(((myMetrics?.totalActiveMs || 0) / (10 * 3600 * 1000)) * 100)))}%`
-                    }}
-                  />
+
+                {/* Fila 3: Barra de progreso con porcentaje visible y sin textos solapados */}
+                <div className="space-y-1 pt-0.5">
+                  <div className="flex items-center justify-between text-[10px] font-semibold text-muted-foreground">
+                    <span>Progreso</span>
+                    <span className="font-bold text-foreground">
+                      {Math.min(100, Math.round(((myMetrics?.totalActiveMs || 0) / (10 * 3600 * 1000)) * 100))}% de 10h
+                    </span>
+                  </div>
+                  <div className="h-2 w-full rounded-full bg-slate-800/80 overflow-hidden flex border border-border/40">
+                    <div
+                      className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-500 rounded-full"
+                      style={{
+                        width: `${Math.min(100, Math.round(((myMetrics?.totalActiveMs || 0) / (10 * 3600 * 1000)) * 100))}%`
+                      }}
+                    />
+                    <div
+                      className="h-full bg-slate-700/40 transition-all duration-500"
+                      style={{
+                        width: `${Math.max(0, 100 - Math.min(100, Math.round(((myMetrics?.totalActiveMs || 0) / (10 * 3600 * 1000)) * 100)))}%`
+                      }}
+                    />
+                  </div>
                 </div>
               </div>
 
               {/* Timer manual activo si hay labor en curso */}
               {manualTask && (() => {
-                const ActiveIcon = TAREAS_GROUPED.flatMap(g => g.items).find(i => i.label === manualTask.label)?.icon || Timer;
+                const ActiveIcon = taskGroups.flatMap(g => g.items).find(i => i.label === manualTask.label)?.icon || Timer;
                 return (
                   <div className="mx-3 mt-3 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 shadow-sm space-y-2.5 animate-in fade-in slide-in-from-top-1">
                     {/* Fila superior: Ícono, Título y Cronómetro */}
@@ -633,7 +762,7 @@ export function SidebarUserPanel({
                 </div>
 
                 <div className="space-y-3 mt-1">
-                  {TAREAS_GROUPED.map((group) => (
+                  {taskGroups.map((group) => (
                     <div key={group.group}>
                       <h5 className="text-[10px] font-bold text-muted-foreground/70 uppercase tracking-wider mb-1.5 pl-1">{group.group}</h5>
                       <div className="grid grid-cols-2 gap-1.5">
@@ -706,7 +835,7 @@ export function SidebarUserPanel({
           </div>
           <div className="min-w-0 flex-1 text-left">
             <p className="text-sm font-medium truncate leading-tight">{fullName}</p>
-            <p className="text-xs text-muted-foreground capitalize leading-tight">{agent.rol}</p>
+            <p className="text-xs text-muted-foreground capitalize leading-tight">{safeAgent.rol || "agente"}</p>
           </div>
           <ChevronUp className={`h-4 w-4 text-muted-foreground shrink-0 transition-transform ${open ? "" : "rotate-180"}`} />
         </button>
@@ -714,11 +843,11 @@ export function SidebarUserPanel({
           <div className="flex items-center gap-1">
             {/* Indicadores de agentes online */}
             {others.slice(0, 4).map(a => {
-              const n = [a.nombre, a.apellido].filter(Boolean).join(" ") || a.email;
-              const s = STATUS_LABELS[a.status || "offline"] || STATUS_LABELS.offline;
+              const n = [a?.nombre, a?.apellido].filter(Boolean).join(" ") || a?.email || "Agente";
+              const s = STATUS_LABELS[a?.status || "offline"] || STATUS_LABELS.offline;
               return (
-                <div key={a.email} className="relative" title={`${n} — ${s.label}`}>
-                  <AvatarImg url={a.avatar_url} name={n} size={22} />
+                <div key={a?.email || Math.random().toString()} className="relative" title={`${n} — ${s.label}`}>
+                  <AvatarImg url={a?.avatar_url} name={n} size={22} />
                   <span className={`absolute bottom-0 right-0 h-1.5 w-1.5 rounded-full border border-card ${s.color}`} />
                 </div>
               );

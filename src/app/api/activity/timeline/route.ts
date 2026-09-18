@@ -34,7 +34,16 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const res = NextResponse.json({ timeline });
+    let metricsData = null;
+    if (agent) {
+      try {
+        metricsData = await getActivityMetrics(agent, date);
+      } catch (err) {
+        console.error("[activity/timeline] Error getting metrics:", err);
+      }
+    }
+
+    const res = NextResponse.json({ timeline, metrics: metricsData });
     res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
     return res;
   } catch (error: any) {

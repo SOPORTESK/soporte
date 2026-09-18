@@ -147,7 +147,7 @@ export function TeamClient({ humanAgents, sekaAgent, isSuperadmin }: TeamClientP
       {/* Lista de agentes con botones de gestión */}
       <ul className="divide-y divide-border">
         {humanAgents.map((a) => {
-          const fullName = [a.nombre, a.apellido].filter(Boolean).join(" ") || a.email;
+          const fullName = [a.nombre, a.apellido].filter(Boolean).join(" ") || a.email || "Agente";
           const variant = a.rol === "superadmin" ? "danger" : a.rol === "admin" ? "warning" : "default";
           const roleIcon = a.rol === "superadmin" ? <Shield className="h-3 w-3" /> : 
                           a.rol === "admin" ? <UserCheck className="h-3 w-3" /> : 
@@ -156,7 +156,7 @@ export function TeamClient({ humanAgents, sekaAgent, isSuperadmin }: TeamClientP
           return (
             <li key={a.email} className="p-4 flex items-center gap-4 hover:bg-muted/30 transition-colors">
               <div className="h-11 w-11 rounded-full bg-gradient-to-br from-brand-500 to-brand-600 text-white grid place-items-center text-sm font-bold shrink-0">
-                {fullName.split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase()}
+                {fullName.split(" ").filter(Boolean).map(n => n[0]).join("").substring(0, 2).toUpperCase() || "AG"}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">

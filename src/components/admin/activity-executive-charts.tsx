@@ -144,7 +144,7 @@ function getTaskIcon(name: string) {
   return Laptop;
 }
 
-export function ActivityExecutiveCharts({
+function ActivityExecutiveChartsComponent({
   timeline,
   selectedDate,
   onDateChange,
@@ -202,69 +202,126 @@ export function ActivityExecutiveCharts({
       const meta = (it.metadata || {}) as Record<string, any>;
       const act = (it.action || "").toLowerCase();
       const isJust = Boolean(meta.justification || it.category === "Justificación" || act.startsWith("justificación:") || act.startsWith("justificacion:"));
-      const isEnd = act.startsWith("terminó:") || act.startsWith("termino:");
-
-      // Si es una justificación declarada o fin de labor manual con duración discreta
-      if (isJust || isEnd) {
-        const discreteMs = Number(
-          it.duration_ms ||
-          (meta.duration_seconds ? meta.duration_seconds * 1000 : 0) ||
-          (meta.minutes ? meta.minutes * 60000 : 0)
-        ) || 0;
-        const durClamped = Math.min(discreteMs, 4 * 3600 * 1000);
-
-        if (durClamped > 0) {
-          buckets[masterCat] += durClamped;
-          // Recuperar de inactividad si era tiempo justificado productivo
-          if (masterCat === "Productivo" && buckets.Inactivo > 0) {
-            buckets.Inactivo = Math.max(0, buckets.Inactivo - durClamped);
-          }
-
-          const smartName = extractSmartAppName(it);
-          if (!taskMap[smartName]) {
-            taskMap[smartName] = { durationMs: 0, count: 0 };
-          }
-          taskMap[smartName].durationMs += durClamped;
-          taskMap[smartName].count++;
-
-          const d = new Date(it.created_at!);
-          const crHourStr = d.toLocaleString("en-US", { timeZone: "America/Costa_Rica", hour: "numeric", hour12: false });
-          const crHour = parseInt(crHourStr, 10) % 24;
-          if (hourIntervals[crHour] !== undefined) {
-            hourIntervals[crHour] = Math.min(60 * 60 * 1000, hourIntervals[crHour] + durClamped);
-          }
-          continue;
-        }
-      }
+      const isStart = (act.startsWith("inició:") || act.startsWith("inicio:")) && (meta.manual || meta.task);
+      const isEnd = (act.startsWith("terminó:") || act.startsWith("termino:")) && (meta.manual || meta.task);
 
       const currTime = new Date(it.created_at!).getTime();
       const nextTime = i < sorted.length - 1 ? new Date(sorted[i + 1].created_at!).getTime() : currTime + 60000;
       const gap = Math.max(0, nextTime - currTime);
 
-      const isIdle = masterCat === "Inactivo";
-      const dur = isIdle ? Math.min(gap > 0 ? gap : 15 * 60 * 1000, 45 * 60 * 1000) : Math.min(gap > 0 ? gap : 60000, IDLE_GAP_MS);
+      // 1. Si es inicio de labor manual, computar el lapso hasta el siguiente evento
+      if (isStart) {
+        const dur = Math.min(gap, 4 * 3600 * 1000);
+        buckets.Productivo += dur;
 
-      buckets[masterCat] += dur;
-
-      // Desglose de tareas individuales si es productivo
-      if (masterCat === "Productivo") {
         const smartName = extractSmartAppName(it);
-        const nameLower = smartName.toLowerCase();
-        if (!nameLower.includes(".scr") && !nameLower.includes("mystify") && !nameLower.includes("lockapp")) {
-          if (!taskMap[smartName]) {
-            taskMap[smartName] = { durationMs: 0, count: 0 };
-          }
+        if (!taskMap[smartName]) {
+          taskMap[smartName] = { durationMs: 0, count: 1 };
+        } else {
           taskMap[smartName].durationMs += dur;
           taskMap[smartName].count++;
         }
 
-        // Intervalo horario para tendencia (hora de Costa Rica)
         const d = new Date(it.created_at!);
         const crHourStr = d.toLocaleString("en-US", { timeZone: "America/Costa_Rica", hour: "numeric", hour12: false });
         const crHour = parseInt(crHourStr, 10) % 24;
         if (hourIntervals[crHour] !== undefined) {
           hourIntervals[crHour] = Math.min(60 * 60 * 1000, hourIntervals[crHour] + dur);
         }
+        continue;
+      }
+
+      // 2. Si es fin de labor manual o justificación declarada
+      if (isJust || isEnd) {
+        const prev = i > 0 ? sorted[i - 1] : null;
+        const prevAct = (prev?.action || "").toLowerCase();
+        const prevWasStart = prev && (prevAct.startsWith("inició:") || prevAct.startsWith("inicio:"));
+
+        if (!prevWasStart) {
+          const discreteMs = Number(
+            it.duration_ms ||
+            (meta.duration_seconds ? meta.duration_seconds * 1000 : 0) ||
+            (meta.minutes ? meta.minutes * 60000 : 0)
+          ) || 0;
+          const durClamped = Math.min(discreteMs, 4 * 3600 * 1000);
+
+          if (durClamped > 0) {
+            buckets[masterCat] += durClamped;
+
+            const smartName = extractSmartAppName(it);
+            if (!taskMap[smartName]) {
+              taskMap[smartName] = { durationMs: durClamped, count: 1 };
+            } else {
+              taskMap[smartName].durationMs += durClamped;
+              taskMap[smartName].count++;
+            }
+
+            const endMs = currTime;
+            const startMs = Math.max(endMs - Math.min(durClamped, 12 * 3600 * 1000), 0);
+            let cursor = startMs;
+            while (cursor < endMs) {
+              const dt = new Date(cursor);
+              const crHourStr = dt.toLocaleString("en-US", { timeZone: "America/Costa_Rica", hour: "numeric", hour12: false });
+              const crHour = parseInt(crHourStr, 10) % 24;
+              const nextHour = new Date(cursor);
+              nextHour.setMinutes(60, 0, 0);
+              nextHour.setMilliseconds(0);
+              const chunkEnd = Math.min(endMs, nextHour.getTime());
+              const chunkDur = chunkEnd - cursor;
+              if (hourIntervals[crHour] !== undefined) {
+                hourIntervals[crHour] = Math.min(60 * 60 * 1000, hourIntervals[crHour] + chunkDur);
+              }
+              cursor = chunkEnd;
+            }
+          }
+        }
+        continue;
+      }
+
+      // 3. Categorías explícitas de pausa o inactividad
+      if (masterCat === "Pausa Sanitaria") {
+        buckets["Pausa Sanitaria"] += Math.min(gap, 30 * 60 * 1000);
+        continue;
+      }
+      if (masterCat === "Descanso") {
+        buckets.Descanso += Math.min(gap, 60 * 60 * 1000);
+        continue;
+      }
+      if (masterCat === "Inactivo") {
+        buckets.Inactivo += Math.min(gap, 60 * 60 * 1000);
+        continue;
+      }
+
+      // 4. Actividad estándar en PC (Productivo):
+      // Lapsos de hasta 5 minutos entre eventos se consideran 100% productivos;
+      // el exceso de tiempo sin eventos pasa a inactividad.
+      const ACTIVE_GAP_LIMIT = 5 * 60 * 1000;
+      const activePart = Math.min(gap > 0 ? gap : 60000, ACTIVE_GAP_LIMIT);
+      const idlePart = gap > ACTIVE_GAP_LIMIT ? Math.min(gap - ACTIVE_GAP_LIMIT, 60 * 60 * 1000) : 0;
+
+      buckets.Productivo += activePart;
+      if (idlePart > 0) {
+        buckets.Inactivo += idlePart;
+      }
+
+      // Desglose de tareas individuales
+      const smartName = extractSmartAppName(it);
+      const nameLower = smartName.toLowerCase();
+      if (!nameLower.includes(".scr") && !nameLower.includes("mystify") && !nameLower.includes("lockapp")) {
+        if (!taskMap[smartName]) {
+          taskMap[smartName] = { durationMs: activePart, count: 1 };
+        } else {
+          taskMap[smartName].durationMs += activePart;
+          taskMap[smartName].count++;
+        }
+      }
+
+      // Intervalo horario para tendencia (hora de Costa Rica)
+      const d = new Date(it.created_at!);
+      const crHourStr = d.toLocaleString("en-US", { timeZone: "America/Costa_Rica", hour: "numeric", hour12: false });
+      const crHour = parseInt(crHourStr, 10) % 24;
+      if (hourIntervals[crHour] !== undefined) {
+        hourIntervals[crHour] = Math.min(60 * 60 * 1000, hourIntervals[crHour] + activePart);
       }
     }
 
@@ -683,3 +740,5 @@ export function ActivityExecutiveCharts({
     </div>
   );
 }
+
+export const ActivityExecutiveCharts = React.memo(ActivityExecutiveChartsComponent);

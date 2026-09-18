@@ -26,6 +26,8 @@ import {
   LogIn,
   LogOut,
   Briefcase,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { logActivity } from "@/lib/activity-client";
@@ -58,6 +60,8 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
   const [savingJust, setSavingJust] = useState(false);
   const [targetDailyHours, setTargetDailyHours] = useState(10);
   const [overtimeInfo, setOvertimeInfo] = useState<any>(null);
+  const [catPage, setCatPage] = useState(1);
+  const ITEMS_PER_PAGE = 5;
 
   const fetchMyData = async () => {
     setLoading(true);
@@ -92,6 +96,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
 
   useEffect(() => {
     if (isOpen) {
+      setCatPage(1);
       fetchMyData();
     }
   }, [isOpen, agentEmail]);
@@ -111,10 +116,10 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
   for (let i = 0; i < sorted.length; i++) {
     const item = sorted[i];
     const meta = (item.metadata || {}) as Record<string, any>;
+    const currTime = new Date(item.created_at).getTime();
+    const nextTime = i < sorted.length - 1 ? new Date(sorted[i + 1].created_at).getTime() : currTime + 60000;
     const act = (item.action || "").toLowerCase();
     const isJust = Boolean(meta.justification || item.category === "Justificación" || act.startsWith("justificación:") || act.startsWith("justificacion:"));
-
-    // Si es una justificación de tiempo manual/laguna, sumar sus minutos exactos declarados
     if (isJust) {
       const justMs = Number(
         item.duration_ms ||
@@ -126,14 +131,43 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
       categoryMap[cat].durationMs += justMs;
       categoryMap[cat].count++;
       totalActiveMs += justMs;
-      // Recuperar el tiempo perdido de la inactividad acumulada
       totalIdleMs = Math.max(0, totalIdleMs - justMs);
       continue;
     }
 
-    const currTime = new Date(item.created_at).getTime();
-    const nextTime = i < sorted.length - 1 ? new Date(sorted[i + 1].created_at).getTime() : currTime + 60000;
     const gap = Math.max(0, nextTime - currTime);
+    const isManualStart = (act.startsWith("inició:") || act.startsWith("inicio:")) && (meta.manual || meta.task);
+    const isManualEnd = (act.startsWith("terminó:") || act.startsWith("termino:")) && (meta.manual || meta.task);
+
+    if (isManualStart) {
+      const dur = Math.min(gap, 4 * 60 * 60 * 1000);
+      const cat = meta.task || item.category || "Labores de Taller";
+      if (!categoryMap[cat]) categoryMap[cat] = { durationMs: 0, count: 0 };
+      categoryMap[cat].durationMs += dur;
+      categoryMap[cat].count++;
+      totalActiveMs += dur;
+      continue;
+    }
+
+    if (isManualEnd) {
+      const prev = i > 0 ? sorted[i - 1] : null;
+      const prevAct = (prev?.action || "").toLowerCase();
+      const prevWasStart = prev && (prevAct.startsWith("inició:") || prevAct.startsWith("inicio:"));
+      if (!prevWasStart) {
+        const discreteMs = Number(
+          item.duration_ms ||
+          (meta.duration_seconds ? meta.duration_seconds * 1000 : 0) ||
+          (meta.minutes ? meta.minutes * 60000 : 0)
+        ) || 0;
+        const dur = Math.min(discreteMs, 4 * 60 * 60 * 1000);
+        const cat = meta.task || item.category || "Labores de Taller";
+        if (!categoryMap[cat]) categoryMap[cat] = { durationMs: 0, count: 0 };
+        categoryMap[cat].durationMs += dur;
+        categoryMap[cat].count++;
+        totalActiveMs += dur;
+      }
+      continue;
+    }
 
     // Es pausa real SOLO SI: fue bloqueo de pantalla explícito, suspensión o pausa personal
     const isExplicitPause = meta.reason === "lock_screen" || meta.reason === "suspend" || item.category === "Pausa personal" || item.category === "Pausa Sanitaria";
@@ -169,30 +203,20 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
   const activeDisplayMs = (rawOvertimeMs > 0 && !isOvertimeApproved) ? targetMs : totalActiveMs;
   const compliancePercent = targetMs > 0 ? Math.round((activeDisplayMs / targetMs) * 100) : 0;
 
-  // Detectar primer inicio de sesión y último cierre de sesión
+  // Detectar primer evento del día (hora real de entrada) y último evento
   let firstLoginTime: string | null = null;
   let lastLogoutTime: string | null = null;
   if (sorted.length > 0) {
-    const loginEvt = sorted.find((t) => {
-      const act = (t.action || "").toLowerCase();
-      const meta = (t.metadata || {}) as Record<string, any>;
-      return act.includes("inicio de sesión") || meta.type === "auth_login";
-    });
-    const firstEvt = loginEvt || sorted[0];
+    const firstEvt = sorted[0];
     if (firstEvt?.created_at) {
       const d = new Date(firstEvt.created_at);
-      firstLoginTime = isNaN(d.getTime()) ? null : d.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit" });
+      firstLoginTime = isNaN(d.getTime()) ? null : d.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" });
     }
 
-    const logoutEvt = [...sorted].reverse().find((t) => {
-      const act = (t.action || "").toLowerCase();
-      const meta = (t.metadata || {}) as Record<string, any>;
-      return act.includes("cierre de sesión") || meta.type === "auth_logout";
-    });
-    const lastEvt = logoutEvt || sorted[sorted.length - 1];
+    const lastEvt = sorted[sorted.length - 1];
     if (lastEvt?.created_at) {
       const d = new Date(lastEvt.created_at);
-      lastLogoutTime = isNaN(d.getTime()) ? null : d.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit" });
+      lastLogoutTime = isNaN(d.getTime()) ? null : d.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" });
     }
   }
 
@@ -204,6 +228,10 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
       percentage: totalActiveMs > 0 ? Math.round((val.durationMs / totalActiveMs) * 100) : 0,
     }))
     .sort((a, b) => b.durationMs - a.durationMs);
+
+  const totalCatPages = Math.max(1, Math.ceil(categoriesList.length / ITEMS_PER_PAGE));
+  const currentCatPage = Math.min(Math.max(1, catPage), totalCatPages);
+  const paginatedCategories = categoriesList.slice((currentCatPage - 1) * ITEMS_PER_PAGE, currentCatPage * ITEMS_PER_PAGE);
 
   const formatMinHours = (ms: number) => {
     const min = Math.round(ms / 60000);
@@ -272,7 +300,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
       onClick={onClose}
     >
       <div
-        className="bg-card border border-border/80 rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+        className="bg-card border border-border/80 rounded-3xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150"
         onClick={(e) => e.stopPropagation()}
       >
         {/* ── HEADER DEL MODAL ── */}
@@ -334,108 +362,145 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
             ) : (
               <div className="space-y-6">
                 {/* 1. Tarjetas KPI de la Jornada Base (10 horas) */}
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                  <div className="p-3.5 rounded-2xl bg-muted/30 border border-border/60 flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-xl bg-violet-500/15 text-violet-400 grid place-items-center shrink-0">
-                      <Briefcase className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-extrabold uppercase text-muted-foreground">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="p-3.5 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-2 shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">
                         Meta Jornada
+                      </span>
+                      <div className="h-7 w-7 rounded-lg bg-violet-500/15 text-violet-400 grid place-items-center shrink-0">
+                        <Briefcase className="h-3.5 w-3.5" />
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xl font-black text-violet-400 tabular-nums whitespace-nowrap tracking-tight">
+                        {targetDailyHours}h 00m
                       </p>
-                      <p className="text-lg font-black text-violet-400">{targetDailyHours}h base</p>
+                      <span className="text-[10px] text-muted-foreground font-medium">Jornada estándar</span>
                     </div>
                   </div>
 
-                  <div className="p-3.5 rounded-2xl bg-muted/30 border border-border/60 flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-xl bg-emerald-500/15 text-emerald-400 grid place-items-center shrink-0">
-                      <Clock className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-extrabold uppercase text-muted-foreground">
+                  <div className="p-3.5 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-2 shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">
                         Tiempo Activo
+                      </span>
+                      <div className="h-7 w-7 rounded-lg bg-emerald-500/15 text-emerald-400 grid place-items-center shrink-0">
+                        <Clock className="h-3.5 w-3.5" />
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xl font-black text-emerald-400 tabular-nums whitespace-nowrap tracking-tight">
+                        {formatMinHours(activeDisplayMs)}
                       </p>
-                      <p className="text-lg font-black text-emerald-400">{formatMinHours(activeDisplayMs)}</p>
+                      <span className="text-[10px] text-emerald-500/80 font-medium">Actividad registrada</span>
                     </div>
                   </div>
 
-                  <div className="p-3.5 rounded-2xl bg-muted/30 border border-border/60 flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-xl bg-rose-500/15 text-rose-400 grid place-items-center shrink-0">
-                      <AlertCircle className="h-5 w-5" />
+                  <div className="p-3.5 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-2 shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">
+                        Tiempo Restante
+                      </span>
+                      <div className="h-7 w-7 rounded-lg bg-sky-500/15 text-sky-400 grid place-items-center shrink-0">
+                        <TrendingUp className="h-3.5 w-3.5" />
+                      </div>
                     </div>
                     <div>
-                      <p className="text-[10px] font-extrabold uppercase text-muted-foreground">
-                        Tiempo Perdido
-                      </p>
-                      <p className="text-lg font-black text-rose-400">
+                      <p className="text-xl font-black text-sky-400 tabular-nums whitespace-nowrap tracking-tight">
                         {deficitMs > 0 ? formatMinHours(deficitMs) : "0m"}
                       </p>
+                      <span className="text-[10px] text-sky-500/80 font-medium">
+                        {deficitMs > 0 ? "Para cumplir meta" : "¡Meta cumplida!"}
+                      </span>
                     </div>
                   </div>
 
-                  <div className="p-3.5 rounded-2xl bg-muted/30 border border-border/60 flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-xl bg-amber-500/15 text-amber-400 grid place-items-center shrink-0">
-                      <Clock className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-extrabold uppercase text-muted-foreground">
+                  <div className="p-3.5 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-2 shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">
                         Pausas / Almuerzo
-                      </p>
-                      <p className="text-lg font-black text-amber-400">{formatMinHours(totalIdleMs)}</p>
+                      </span>
+                      <div className="h-7 w-7 rounded-lg bg-amber-500/15 text-amber-400 grid place-items-center shrink-0">
+                        <Clock className="h-3.5 w-3.5" />
+                      </div>
                     </div>
-                  </div>
-                </div>
-
-                {/* Banner de Entrada / Salida y Estado de Horas Extras */}
-                <div className="p-3.5 rounded-2xl bg-muted/20 border border-border/50 flex flex-wrap items-center justify-between gap-3 text-xs">
-                  <div className="flex items-center gap-3 font-mono">
-                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
-                      <LogIn className="h-3.5 w-3.5" />
-                      <span className="text-[10px] uppercase font-sans font-bold text-emerald-500/80">Inicio Sesión:</span>
-                      <span className="font-bold">{firstLoginTime || "--:--"}</span>
-                    </div>
-                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-500/10 border border-slate-500/20 text-slate-300">
-                      <LogOut className="h-3.5 w-3.5" />
-                      <span className="text-[10px] uppercase font-sans font-bold text-slate-400">Última marca:</span>
-                      <span className="font-bold">{lastLogoutTime || "--:--"}</span>
-                    </div>
-                  </div>
-
-                  {rawOvertimeMs > 0 && (
                     <div>
-                      {isOvertimeApproved ? (
-                        <span className="px-2.5 py-1 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-bold flex items-center gap-1.5">
-                          <CheckCircle2 className="h-3.5 w-3.5" />
-                          Tiempo Extra Aprobado: +{formatMinHours(rawOvertimeMs)}
-                        </span>
-                      ) : (
-                        <span className="px-2.5 py-1 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400 font-bold flex items-center gap-1.5" title="El tiempo extra requiere autorización del administrador">
-                          <Clock className="h-3.5 w-3.5 animate-pulse" />
-                          +{formatMinHours(rawOvertimeMs)} extra pendiente de autorización (Mostrando 10h)
-                        </span>
-                      )}
+                      <p className="text-xl font-black text-amber-400 tabular-nums whitespace-nowrap tracking-tight">
+                        {formatMinHours(totalIdleMs)}
+                      </p>
+                      <span className="text-[10px] text-amber-500/80 font-medium">Inactividad acumulada</span>
                     </div>
-                  )}
+                  </div>
                 </div>
 
-                {/* Barra de Proporción de la Jornada */}
-                <div className="p-4 rounded-2xl bg-muted/20 border border-border/50 space-y-2">
-                  <div className="flex justify-between text-xs font-bold">
-                    <span className="text-emerald-400">Cumplimiento: {compliancePercent}% de {targetDailyHours}h ({formatMinHours(activeDisplayMs)})</span>
-                    <span className="text-rose-400">{deficitMs > 0 ? `Déficit / Faltante: ${formatMinHours(deficitMs)}` : "Jornada Completa"}</span>
+                {/* Panel Consolidado de Sesión y Progreso */}
+                <div className="p-4 rounded-2xl bg-muted/20 border border-border/60 space-y-3.5">
+                  <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
+                    <div className="flex items-center gap-2.5 font-mono">
+                      <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                        <LogIn className="h-3.5 w-3.5" />
+                        <span className="text-[10px] uppercase font-sans font-bold text-emerald-500/80">Inicio Sesión:</span>
+                        <span className="font-bold">{firstLoginTime || "--:--"}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-500/10 border border-slate-500/20 text-slate-300">
+                        <LogOut className="h-3.5 w-3.5" />
+                        <span className="text-[10px] uppercase font-sans font-bold text-slate-400">Última marca:</span>
+                        <span className="font-bold">{lastLogoutTime || "--:--"}</span>
+                      </div>
+                    </div>
+
+                    {rawOvertimeMs > 0 && (
+                      <div>
+                        {isOvertimeApproved ? (
+                          <span className="px-3 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-bold flex items-center gap-1.5">
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            Tiempo Extra Aprobado: +{formatMinHours(rawOvertimeMs)}
+                          </span>
+                        ) : (
+                          <span className="px-3 py-1.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400 font-bold flex items-center gap-1.5" title="El tiempo extra requiere autorización del supervisor">
+                            <Clock className="h-3.5 w-3.5 animate-pulse" />
+                            +{formatMinHours(rawOvertimeMs)} extra pendiente de autorización
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
-                  <div className="h-2.5 w-full rounded-full bg-slate-800 overflow-hidden flex">
-                    <div className="bg-emerald-500 transition-all duration-500" style={{ width: `${Math.min(100, compliancePercent)}%` }} />
-                    <div className="bg-rose-500 transition-all duration-500" style={{ width: `${Math.max(0, 100 - compliancePercent)}%` }} />
+
+                  {/* Barra de Progreso */}
+                  <div className="space-y-1.5 pt-1">
+                    <div className="flex justify-between items-center text-xs font-bold">
+                      <span className="text-emerald-400">
+                        Cumplimiento de Jornada: {compliancePercent}% ({formatMinHours(activeDisplayMs)} / {targetDailyHours}h)
+                      </span>
+                      <span className="text-sky-400 text-[11px]">
+                        {deficitMs > 0 ? `Faltan ${formatMinHours(deficitMs)} para completar` : "¡Jornada de 10h completada!"}
+                      </span>
+                    </div>
+                    <div className="h-2.5 w-full rounded-full bg-slate-800/80 overflow-hidden flex shadow-inner">
+                      <div
+                        className="bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-500 rounded-full"
+                        style={{ width: `${Math.min(100, compliancePercent)}%` }}
+                      />
+                      <div
+                        className="bg-transparent transition-all duration-500"
+                        style={{ width: `${Math.max(0, 100 - compliancePercent)}%` }}
+                      />
+                    </div>
                   </div>
                 </div>
 
                 {/* 2. Desglose por Categorías de Tiempo */}
                 <div className="space-y-3">
-                  <h3 className="text-xs font-black uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                    <BarChart3 className="h-4 w-4 text-violet-400" />
-                    Distribución de Tiempo por Categorías
-                  </h3>
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xs font-black uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                      <BarChart3 className="h-4 w-4 text-violet-400" />
+                      Distribución de Tiempo por Categorías
+                    </h3>
+                    <span className="text-[11px] font-medium text-muted-foreground">
+                      {categoriesList.length} {categoriesList.length === 1 ? "categoría" : "categorías"}
+                    </span>
+                  </div>
 
                   {categoriesList.length === 0 ? (
                     <div className="p-8 text-center rounded-2xl bg-muted/20 border border-border/50 text-xs text-muted-foreground">
@@ -443,36 +508,71 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                     </div>
                   ) : (
                     <div className="space-y-2.5">
-                      {categoriesList.map((cat) => (
-                        <div
-                          key={cat.category}
-                          className="p-3.5 rounded-2xl bg-card border border-border/70 flex flex-col gap-2 hover:border-violet-500/40 transition-colors"
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2.5">
-                              <div className="p-1.5 rounded-lg bg-muted border border-border">
-                                {getCategoryIcon(cat.category)}
+                      <div className="space-y-2">
+                        {paginatedCategories.map((cat) => (
+                          <div
+                            key={cat.category}
+                            className="p-3.5 rounded-2xl bg-card border border-border/70 flex flex-col gap-2 hover:border-violet-500/40 transition-colors"
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2.5">
+                                <div className="p-1.5 rounded-lg bg-muted border border-border">
+                                  {getCategoryIcon(cat.category)}
+                                </div>
+                                <span className="font-bold text-xs text-foreground">{cat.category}</span>
                               </div>
-                              <span className="font-bold text-xs text-foreground">{cat.category}</span>
+                              <div className="text-right">
+                                <span className="font-mono font-bold text-xs text-foreground">
+                                  {formatMinHours(cat.durationMs)}
+                                </span>
+                                <span className="text-[10px] text-muted-foreground ml-1.5">
+                                  ({cat.percentage}%)
+                                </span>
+                              </div>
                             </div>
-                            <div className="text-right">
-                              <span className="font-mono font-bold text-xs text-foreground">
-                                {formatMinHours(cat.durationMs)}
-                              </span>
-                              <span className="text-[10px] text-muted-foreground ml-1.5">
-                                ({cat.percentage}%)
-                              </span>
+
+                            <div className="h-1.5 w-full rounded-full bg-muted/60 overflow-hidden">
+                              <div
+                                className="h-full bg-gradient-to-r from-violet-500 to-indigo-500 rounded-full transition-all duration-500"
+                                style={{ width: `${cat.percentage}%` }}
+                              />
                             </div>
                           </div>
+                        ))}
+                      </div>
 
-                          <div className="h-1.5 w-full rounded-full bg-muted/60 overflow-hidden">
-                            <div
-                              className="h-full bg-gradient-to-r from-violet-500 to-indigo-500 rounded-full transition-all duration-500"
-                              style={{ width: `${cat.percentage}%` }}
-                            />
+                      {/* Paginador Interactivo */}
+                      {categoriesList.length > ITEMS_PER_PAGE && (
+                        <div className="pt-2 flex items-center justify-between border-t border-border/50 text-xs">
+                          <span className="text-muted-foreground text-[11px]">
+                            Mostrando {(currentCatPage - 1) * ITEMS_PER_PAGE + 1} -{" "}
+                            {Math.min(currentCatPage * ITEMS_PER_PAGE, categoriesList.length)} de {categoriesList.length} categorías
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              disabled={currentCatPage <= 1}
+                              onClick={() => setCatPage((p) => Math.max(1, p - 1))}
+                              className="px-2.5 py-1 rounded-lg border border-border bg-background hover:bg-muted text-foreground text-xs font-semibold disabled:opacity-40 disabled:pointer-events-none transition-colors flex items-center gap-1"
+                            >
+                              <ChevronLeft className="h-3.5 w-3.5" />
+                              Anterior
+                            </button>
+                            <span className="px-2 py-0.5 text-[11px] font-bold text-muted-foreground font-mono">
+                              {currentCatPage} / {totalCatPages}
+                            </span>
+                            <button
+                              type="button"
+                              disabled={currentCatPage >= totalCatPages}
+                              onClick={() => setCatPage((p) => Math.min(totalCatPages, p + 1))}
+                              className="px-2.5 py-1 rounded-lg border border-border bg-background hover:bg-muted text-foreground text-xs font-semibold disabled:opacity-40 disabled:pointer-events-none transition-colors flex items-center gap-1"
+                            >
+                              Siguiente
+                              <ChevronRight className="h-3.5 w-3.5" />
+                            </button>
                           </div>
                         </div>
-                      ))}
+                      )}
                     </div>
                   )}
                 </div>
@@ -511,9 +611,32 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                   </select>
                 </div>
 
-                {/* Minutos estimados */}
-                <div className="space-y-1.5">
+                {/* Minutos estimados con chips */}
+                <div className="space-y-2">
                   <label className="text-xs font-bold text-foreground">Tiempo aproximado (minutos):</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      { label: "15m", val: "15" },
+                      { label: "30m", val: "30" },
+                      { label: "45m", val: "45" },
+                      { label: "1h", val: "60" },
+                      { label: "1h 30m", val: "90" },
+                      { label: "2h", val: "120" },
+                    ].map((item) => (
+                      <button
+                        key={item.val}
+                        type="button"
+                        onClick={() => setJustMinutes(item.val)}
+                        className={`px-2.5 py-1 rounded-xl text-xs font-semibold border transition-all ${
+                          justMinutes === item.val
+                            ? "bg-violet-600 text-white border-violet-600 shadow-sm shadow-violet-600/25"
+                            : "bg-muted/40 border-border text-muted-foreground hover:text-foreground hover:bg-muted"
+                        }`}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
                   <select
                     value={justMinutes}
                     onChange={(e) => setJustMinutes(e.target.value)}

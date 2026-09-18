@@ -56,12 +56,19 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
 };
 
 /* ── Avatar helper ── */
-function NavAvatar({ url, name, size = 24 }: { url?: string | null; name: string; size?: number }) {
-  const initials = name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase();
+function NavAvatar({ url, name, size = 24 }: { url?: string | null; name?: string | null; size?: number }) {
+  const safeName = (typeof name === "string" ? name : "").trim() || "Usuario";
+  const initials = safeName
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(w => w[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase() || "U";
   const colors = ["bg-violet-500", "bg-indigo-500", "bg-sky-500", "bg-emerald-500", "bg-amber-500", "bg-rose-500"];
-  const color = colors[name.charCodeAt(0) % colors.length];
+  const color = colors[safeName.charCodeAt(0) % colors.length];
   if (url) {
-    return <img src={url} alt={name} style={{ width: size, height: size }} className="rounded-full object-cover" />;
+    return <img src={url} alt={safeName} style={{ width: size, height: size }} className="rounded-full object-cover" />;
   }
   return (
     <div style={{ width: size, height: size, fontSize: size * 0.38 }} className={`${color} rounded-full flex items-center justify-center text-white font-bold shrink-0`}>
@@ -204,7 +211,7 @@ function MobileProfileDrawer({
   const fileRef = useRef<HTMLInputElement>(null);
 
   const st = STATUS_LABELS[status] || STATUS_LABELS.offline;
-  const others = onlineAgents.filter(a => a.email !== agent?.email && a.status !== "offline");
+  const others = (onlineAgents || []).filter(a => a && a.email && a.email !== agent?.email && a.status !== "offline");
 
   const handleStatusChange = async (s: string) => {
     setStatus(s);
@@ -244,7 +251,7 @@ function MobileProfileDrawer({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             agent_email: agent.email,
-            agent_name: agentName || agent.email.split("@")[0],
+            agent_name: agentName || (agent.email ? agent.email.split("@")[0] : "Agente"),
             action: "Cierre de sesión del sistema",
             category: "Control Administrativo",
             metadata: { type: "auth_logout", method: "mobile_button", timestamp: new Date().toISOString() },
@@ -452,12 +459,12 @@ function MobileProfileDrawer({
                 </div>
               ) : (
                 others.map(a => {
-                  const n = [a.nombre, a.apellido].filter(Boolean).join(" ") || a.email;
-                  const s = STATUS_LABELS[a.status || "offline"] || STATUS_LABELS.offline;
+                  const n = [a?.nombre, a?.apellido].filter(Boolean).join(" ") || a?.email || "Agente";
+                  const s = STATUS_LABELS[a?.status || "offline"] || STATUS_LABELS.offline;
                   return (
-                    <div key={a.email} className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-muted/50 active:bg-muted transition-colors">
+                    <div key={a?.email || Math.random().toString()} className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-muted/50 active:bg-muted transition-colors">
                       <div className="relative shrink-0">
-                        <NavAvatar url={a.avatar_url} name={n} size={36} />
+                        <NavAvatar url={a?.avatar_url} name={n} size={36} />
                         <span className={`absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-card ${s.color}`} />
                       </div>
                       <div className="min-w-0 flex-1">

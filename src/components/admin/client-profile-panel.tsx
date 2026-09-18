@@ -214,7 +214,7 @@ export function ClientProfilePanel({ perfiles }: { perfiles: PerfilClienteDTO[] 
             ) : visible.map((p, i) => {
               const sc = saludConfig[p.salud];
               const tc = tipoConfig[p.tipo];
-              const initials = p.nombre.split(" ").filter(Boolean).map(n => n[0]).join("").substring(0, 2).toUpperCase();
+              const initials = (p.nombre || "Cliente").split(" ").filter(Boolean).map(n => n[0]).join("").substring(0, 2).toUpperCase() || "CL";
               const tendIcon = p.tendencia === "subiendo" ? <TrendingUp className="h-3 w-3" /> : p.tendencia === "bajando" ? <TrendingDown className="h-3 w-3" /> : <Minus className="h-3 w-3" />;
               const tendColor = p.tendencia === "subiendo" ? "text-amber-400" : p.tendencia === "bajando" ? "text-emerald-500" : "text-muted-foreground";
               const antigShort = p.antiguedadDias > 365 ? `${(p.antiguedadDias / 365).toFixed(1)}a` : p.antiguedadDias > 30 ? `${Math.round(p.antiguedadDias / 30)}m` : `${p.antiguedadDias}d`;

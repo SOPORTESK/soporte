@@ -315,17 +315,58 @@ export async function getActivityMetrics(agentEmail: string, date: string) {
   const categoryEvents: Record<string, number> = {};
   const LUNCH_GAP_MS = 30 * 60 * 1000;
 
+  // 1. Recolectar intervalos activos reales (software y labores manuales)
+  interface ActiveInterval {
+    start: number;
+    end: number;
+    cat: string;
+  }
+  const rawIntervals: ActiveInterval[] = [];
+
+  const firstEventMs = sorted.length > 0 ? new Date(sorted[0].created_at!).getTime() : 0;
+
   for (let i = 0; i < sorted.length; i++) {
     const item = sorted[i];
     const currTime = new Date(item.created_at!).getTime();
     const nextTime = i < sorted.length - 1 ? new Date(sorted[i + 1].created_at!).getTime() : currTime + 60000;
     const gap = Math.max(0, nextTime - currTime);
     const meta = (item.metadata || {}) as Record<string, any>;
+    const act = (item.action || "").toLowerCase();
 
-    const isExplicitPause = meta.reason === "lock_screen" || meta.reason === "suspend" || item.category === "Pausa personal";
-
+    const isExplicitPause = meta.reason === "lock_screen" || meta.reason === "suspend" || item.category === "Pausa personal" || item.category === "Pausa Sanitaria" || item.category === "Descanso";
     if (isExplicitPause) {
       totalIdleMs += Math.min(gap, 60 * 60 * 1000);
+      continue;
+    }
+
+    const isManualStart = (act.startsWith("inició:") || act.startsWith("inicio:")) && (meta.manual || meta.task);
+    const isManualEnd = (act.startsWith("terminó:") || act.startsWith("termino:")) && (meta.manual || meta.task);
+    const isJustification = Boolean(meta.justification || item.category === "Justificación" || act.startsWith("justificación:") || act.startsWith("justificacion:"));
+
+    if (isManualStart) {
+      const dur = Math.min(gap, 4 * 60 * 60 * 1000);
+      const cat = item.category || meta.task || "Labores de Taller";
+      rawIntervals.push({ start: currTime, end: currTime + dur, cat });
+      categoryEvents[cat] = (categoryEvents[cat] || 0) + 1;
+      continue;
+    }
+
+    if (isManualEnd || isJustification) {
+      const discreteMs = Number(
+        item.duration_ms ||
+        (meta.duration_seconds ? meta.duration_seconds * 1000 : 0) ||
+        (meta.minutes ? meta.minutes * 60000 : 0)
+      ) || 0;
+      const prev = i > 0 ? sorted[i - 1] : null;
+      const prevAct = (prev?.action || "").toLowerCase();
+      const prevWasStart = prev && (prevAct.startsWith("inició:") || prevAct.startsWith("inicio:"));
+      if (!prevWasStart && discreteMs > 0) {
+        const dur = Math.min(discreteMs, 4 * 60 * 60 * 1000);
+        const cat = item.category || meta.task || "Labores de Taller";
+        const rStart = Math.max(firstEventMs, currTime - dur);
+        rawIntervals.push({ start: rStart, end: currTime, cat });
+        categoryEvents[cat] = (categoryEvents[cat] || 0) + 1;
+      }
       continue;
     }
 
@@ -340,15 +381,35 @@ export async function getActivityMetrics(agentEmail: string, date: string) {
       else cat = "Operación Sekunet";
     }
 
-    const effectiveDuration = Math.min(gap, LUNCH_GAP_MS);
-    categoryTimeMs[cat] = (categoryTimeMs[cat] || 0) + effectiveDuration;
+    const ACTIVE_GAP_LIMIT = 5 * 60 * 1000;
+    const dur = Math.min(gap > 0 ? gap : 60000, ACTIVE_GAP_LIMIT);
+    rawIntervals.push({ start: currTime, end: currTime + dur, cat });
+    if (gap > ACTIVE_GAP_LIMIT) {
+      totalIdleMs += (gap - ACTIVE_GAP_LIMIT);
+    }
     categoryEvents[cat] = (categoryEvents[cat] || 0) + 1;
-    totalActiveMs += effectiveDuration;
+  }
 
-    if (gap > LUNCH_GAP_MS) {
-      totalIdleMs += (gap - LUNCH_GAP_MS);
+  // 2. Consolidar intervalos activos sin duplicación ni solapamiento
+  rawIntervals.sort((a, b) => a.start - b.start);
+  const mergedIntervals: { start: number; end: number }[] = [];
+  for (const interval of rawIntervals) {
+    const dur = interval.end - interval.start;
+    categoryTimeMs[interval.cat] = (categoryTimeMs[interval.cat] || 0) + dur;
+
+    if (mergedIntervals.length === 0) {
+      mergedIntervals.push({ start: interval.start, end: interval.end });
+    } else {
+      const last = mergedIntervals[mergedIntervals.length - 1];
+      if (interval.start <= last.end) {
+        last.end = Math.max(last.end, interval.end);
+      } else {
+        mergedIntervals.push({ start: interval.start, end: interval.end });
+      }
     }
   }
+
+  totalActiveMs = mergedIntervals.reduce((sum, int) => sum + (int.end - int.start), 0);
 
   const totalDayMs = totalActiveMs + totalIdleMs;
   const productivityScore = totalDayMs > 0 ? Math.round((totalActiveMs / totalDayMs) * 100) : 100;
@@ -364,30 +425,20 @@ export async function getActivityMetrics(agentEmail: string, date: string) {
   const deficitMs = Math.max(0, targetMs - totalActiveMs);
   const activeDisplayMs = (rawOvertimeMs > 0 && !isOvertimeApproved) ? targetMs : totalActiveMs;
 
-  // Primer login y último logout
+  // Primer evento del día (hora real de entrada) y último evento
   let firstLoginTime: string | null = null;
   let lastLogoutTime: string | null = null;
   if (sorted.length > 0) {
-    const loginEvt = sorted.find((t) => {
-      const act = (t.action || "").toLowerCase();
-      const meta = (t.metadata || {}) as Record<string, any>;
-      return act.includes("inicio de sesión") || meta.type === "auth_login";
-    });
-    const firstEvt = loginEvt || sorted[0];
+    const firstEvt = sorted[0];
     if (firstEvt?.created_at) {
       const d = new Date(firstEvt.created_at);
-      firstLoginTime = isNaN(d.getTime()) ? null : d.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit" });
+      firstLoginTime = isNaN(d.getTime()) ? null : d.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" });
     }
 
-    const logoutEvt = [...sorted].reverse().find((t) => {
-      const act = (t.action || "").toLowerCase();
-      const meta = (t.metadata || {}) as Record<string, any>;
-      return act.includes("cierre de sesión") || meta.type === "auth_logout";
-    });
-    const lastEvt = logoutEvt || sorted[sorted.length - 1];
+    const lastEvt = sorted[sorted.length - 1];
     if (lastEvt?.created_at) {
       const d = new Date(lastEvt.created_at);
-      lastLogoutTime = isNaN(d.getTime()) ? null : d.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit" });
+      lastLogoutTime = isNaN(d.getTime()) ? null : d.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" });
     }
   }
 
