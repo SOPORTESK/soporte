@@ -56,6 +56,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           .from("sek_agent_config")
           .select("email, nombre, apellido, avatar_url, status, last_seen_at")
           .neq("status", "offline")
+          .not("rol", "in", "(bot,sistema)")
+          .not("email", "in", "(technician_assistant@sekunet.com,whatsapp_agent@sekunet.com,system_prompt@sekunet.com)")
           .gte("last_seen_at", twoMinutesAgo);
         return { data, error };
       },

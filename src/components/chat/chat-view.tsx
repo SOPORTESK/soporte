@@ -1921,7 +1921,11 @@ export function ChatView({
         const clientData = clienteInfo(sekCase.cliente);
         const rawName = (clientData.nombre || "").trim();
         const isRawPhone = /^[+\d\s()-]{6,}$/.test(rawName);
-        const hasClientInfo = Boolean(rawName && !isRawPhone && rawName.toLowerCase() !== "cliente") || Boolean(clientData.correo) || Boolean(clientData.cuenta);
+        const rawCuenta = (clientData.cuenta || "").trim();
+        const hasValidCuenta = Boolean(rawCuenta && !/^(sin\s+cuenta|no\s+tengo|ninguna|cliente\s+final)$/i.test(rawCuenta));
+
+        // Solo se considera cliente registrado si tiene nombre formal real Y cuenta afiliada válida
+        const hasClientInfo = Boolean(rawName && !isRawPhone && rawName.toLowerCase() !== "cliente" && hasValidCuenta);
 
         let welcomeMsg = "";
         if (hasClientInfo) {

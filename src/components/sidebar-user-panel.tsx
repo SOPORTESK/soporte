@@ -519,7 +519,13 @@ export function SidebarUserPanel({
   };
 
   const st = STATUS_LABELS[status] || STATUS_LABELS.offline;
-  const others = (onlineAgents || []).filter(a => a && a.email && a.email !== safeAgent.email && a.status !== "offline");
+  const isBotAgent = (a: any) => {
+    const em = String(a.email || "").toLowerCase();
+    const ro = String(a.rol || "").toLowerCase();
+    const no = String(a.nombre || "").toLowerCase();
+    return ro === "bot" || ro === "sistema" || em.includes("agent") || em.includes("assistant") || em.includes("system_prompt") || no.includes("asistente") || no.includes("agente whatsapp");
+  };
+  const others = (onlineAgents || []).filter(a => a && a.email && a.email !== safeAgent.email && a.status !== "offline" && !isBotAgent(a));
 
   return (
     <div className="border-t border-border">
