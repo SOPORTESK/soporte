@@ -130,7 +130,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   return (
     <GodModeGuard>
       <GodModeAdminWrapper originalAgent={a}>
-        <div className="min-h-dvh grid grid-cols-1 lg:grid-cols-[300px_1fr] bg-muted/30">
+        <div className="min-h-dvh grid grid-cols-1 lg:grid-cols-[340px_1fr] bg-muted/30">
           <aside className="hidden lg:flex lg:flex-col border-r border-border bg-card sticky top-0 h-dvh z-30 shrink-0">
             {/* Header con gradiente */}
             <div className="shrink-0 relative px-5 py-5 border-b border-border gradient-brand text-white overflow-hidden">

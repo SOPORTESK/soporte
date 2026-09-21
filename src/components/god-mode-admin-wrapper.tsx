@@ -68,7 +68,7 @@ export function GodModeAdminWrapper({
 
       <div className="flex-1 flex min-h-0 bg-muted/30">
         {/* Sidebar de AGENTE (no admin) */}
-        <aside className="hidden lg:flex lg:flex-col w-[300px] shrink-0 border-r border-border bg-card">
+        <aside className="hidden lg:flex lg:flex-col w-[340px] shrink-0 border-r border-border bg-card">
           {/* Header como agente */}
           <div className="group relative px-5 py-5 flex items-center gap-3 border-b border-border overflow-hidden">
             <div className="relative group/logo">

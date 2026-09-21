@@ -243,10 +243,10 @@ export function SidebarUserPanel({
       if (manualSubs.length === 0) continue;
 
       const items = manualSubs.map((sub: string) => {
-        const cleanShort = sub.replace(/\s*\(manual\)\s*/i, "").trim();
+        const cleanLabel = sub.replace(/\s*\(manual\)\s*/i, "").trim();
         return {
-          label: cleanShort,
-          short: cleanShort.length > 26 ? cleanShort.slice(0, 24) + "…" : cleanShort,
+          label: cleanLabel,
+          short: cleanLabel,
           category: cat.label || cat.id,
           icon: getTaskIcon(sub),
         };
@@ -780,10 +780,10 @@ export function SidebarUserPanel({
                           <ActiveIcon className="h-4 w-4 animate-pulse" />
                         </div>
                         <div className="min-w-0">
-                          <p className="text-xs font-black text-amber-400 truncate leading-tight" title={manualTask.label}>
+                          <p className="text-xs font-black text-amber-400 leading-snug break-words" title={manualTask.label}>
                             {manualTask.label}
                           </p>
-                          <p className="text-[10px] text-amber-500/80 font-medium leading-tight mt-0.5 truncate">
+                          <p className="text-[10px] text-amber-500/80 font-medium leading-tight mt-0.5">
                             Auto-tracking en pausa
                           </p>
                         </div>
@@ -819,7 +819,7 @@ export function SidebarUserPanel({
                   {taskGroups.map((group) => (
                     <div key={group.group}>
                       <h5 className="text-[10px] font-bold text-muted-foreground/70 uppercase tracking-wider mb-1.5 pl-1">{group.group}</h5>
-                      <div className="grid grid-cols-2 gap-1.5">
+                      <div className="grid grid-cols-2 gap-2">
                         {group.items.map((task) => {
                           const isCurrent = manualTask?.label === task.label;
                           const Icon = task.icon;
@@ -831,14 +831,14 @@ export function SidebarUserPanel({
                                 if (isCurrent) stopManualTask();
                                 else startManualTask(task.category, task.label);
                               }}
-                              className={`px-2.5 py-2 rounded-xl font-medium text-[10px] transition-all flex items-center gap-1.5 text-left border ${
+                              className={`px-3 py-2 rounded-xl font-medium transition-all flex items-center gap-2 text-left border min-h-[42px] cursor-pointer ${
                                 isCurrent
-                                  ? "bg-amber-500/10 border-amber-500/50 text-amber-500 shadow-sm"
-                                  : "bg-card border-border hover:bg-muted hover:border-muted-foreground/30 text-muted-foreground"
+                                  ? "bg-amber-500/15 border-amber-500/50 text-amber-400 shadow-sm"
+                                  : "bg-card border-border hover:bg-muted hover:border-muted-foreground/30 text-foreground"
                               }`}
                             >
-                              {isCurrent ? <Timer className="h-3.5 w-3.5 animate-pulse shrink-0" /> : <Icon className="h-3.5 w-3.5 shrink-0 opacity-70" />}
-                              <span className="truncate leading-tight">{task.short}</span>
+                              {isCurrent ? <Timer className="h-4 w-4 animate-pulse shrink-0 text-amber-400" /> : <Icon className="h-4 w-4 shrink-0 opacity-70" />}
+                              <span className="text-[11px] font-medium leading-snug whitespace-normal break-words flex-1">{task.label}</span>
                             </button>
                           );
                         })}
