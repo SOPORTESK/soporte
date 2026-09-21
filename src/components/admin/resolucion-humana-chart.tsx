@@ -142,22 +142,22 @@ export function ResolucionHumanaChart({ grupos, totalValidos, excluidos, sinDato
           {sinDatos.count > 0 && (
             <div className="pt-2 border-t border-border">
               <button
-                onClick={() => toggle("Sin datos de cierre")}
+                onClick={() => toggle("En curso o sin fecha de cierre")}
                 className="w-full space-y-1.5 cursor-pointer hover:opacity-80"
               >
                 <div className="flex justify-between items-center">
                   <span className="text-xs font-black text-muted-foreground flex items-center gap-1">
-                    Sin datos de cierre
-                    <ChevronDown className={`h-3 w-3 transition-transform ${expanded === "Sin datos de cierre" ? "rotate-180" : ""}`} />
+                    En curso o sin fecha de cierre
+                    <ChevronDown className={`h-3 w-3 transition-transform ${expanded === "En curso o sin fecha de cierre" ? "rotate-180" : ""}`} />
                   </span>
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] text-muted-foreground">—</span>
                     <span className="text-xs font-black tabular-nums text-muted-foreground">{sinDatos.count}</span>
                   </div>
                 </div>
-                <p className="text-[9px] text-muted-foreground/60">Casos sin fecha de aceptación/cierre o con fechas inconsistentes</p>
+                <p className="text-[9px] text-muted-foreground/60">Casos actualmente abiertos en atención o sin fecha válida de cierre</p>
               </button>
-              {expanded === "Sin datos de cierre" && (
+              {expanded === "En curso o sin fecha de cierre" && (
                 <div className="mt-2 space-y-1.5 max-h-48 overflow-y-auto pr-1">
                   {sinDatos.casos.map(c => (
                     <a
@@ -196,7 +196,7 @@ export function ResolucionHumanaChart({ grupos, totalValidos, excluidos, sinDato
                     <span className="text-xs font-black tabular-nums text-muted-foreground">{sinAsignar.count}</span>
                   </div>
                 </div>
-                <p className="text-[9px] text-muted-foreground/60">Casos cerrados o abandonados que no fueron asignados a ningún agente</p>
+                <p className="text-[9px] text-muted-foreground/60">Contactos de WhatsApp cerrados sin técnico asignado (agradecimientos, fuera de horario o no continuados)</p>
               </button>
               {expanded === "Sin asignar / no atendidos" && (
                 <div className="mt-2 space-y-1.5 max-h-48 overflow-y-auto pr-1">

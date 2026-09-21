@@ -296,15 +296,23 @@ export default async function EstadisticasAtencionPage({
   const slaGt4h = tiemposTodos.filter(t => t > 240).length;
   const avgSlaGlobal = tiemposTodos.length > 0 ? Math.round(tiemposTodos.reduce((a, b) => a + b, 0) / tiemposTodos.length) : 0;
 
-  // ── Distribución de tiempo de resolución humana (actividad real de mensajes, solo humanos)
+  // ── Distribución de tiempo de resolución humana (tiempo reloj real de aceptación a cierre)
   const casosResolucion = casosConAsig
-    .filter(c => c.accepted_at && (c as any).closed_at && (c.estado === "resuelto" || c.estado === "cerrado" || (c as any).closed_at))
+    .filter(c => (c.estado === "resuelto" || c.estado === "cerrado" || (c as any).closed_at) && (c as any).closed_at)
     .map(c => {
-      const min = calculateRealMinutes(c);
-      if (min < 0) return null;
+      const tStart = c.accepted_at ? new Date(c.accepted_at).getTime() : new Date(c.created_at).getTime();
+      const tEnd = new Date((c as any).closed_at).getTime();
+      if (isNaN(tStart) || isNaN(tEnd)) return null;
+      const min = Math.round((tEnd - tStart) / 60000);
+      if (min < 0) return null; // Inconsistencias de reloj van a sinDatosRes
       return {
-        id: c.id, title: c.title || "Caso sin título", agente: agenteMap[c.assigned_to!.toLowerCase()] || c.assigned_to!,
-        created_at: c.created_at, closed_at: (c as any).closed_at, accepted_at: c.accepted_at, minutos: min,
+        id: c.id,
+        title: c.title || "Caso sin título",
+        agente: agenteMap[c.assigned_to!.toLowerCase()] || c.assigned_to!,
+        created_at: c.created_at,
+        closed_at: (c as any).closed_at,
+        accepted_at: c.accepted_at || c.created_at,
+        minutos: min,
         cliente: getClienteNombre(c),
       };
     })
@@ -312,22 +320,22 @@ export default async function EstadisticasAtencionPage({
 
   const casosValidos = casosResolucion.filter(c => c.minutos < 10080);
   const casosExcluidosRes = casosResolucion.filter(c => c.minutos >= 10080);
+  const resueltosIds = new Set(casosResolucion.map(c => c.id));
+
+  // Casos sin datos o actualmente en curso: los que NO están en casosResolucion
   const casosSinDatosRes = casosConAsig
-    .filter(c => {
-      // Sin accepted_at o closed_at
-      if (!c.accepted_at || !(c as any).closed_at) return true;
-      // Con ambos pero fecha inválida o tiempo <= 0
-      const start = new Date(c.accepted_at!);
-      const end = new Date((c as any).closed_at!);
-      if (isNaN(start.getTime()) || isNaN(end.getTime())) return true;
-      if (Math.round((end.getTime() - start.getTime()) / 60000) < 0) return true;
-      return false;
-    })
+    .filter(c => !resueltosIds.has(c.id))
     .map(c => ({
-      id: c.id, title: c.title || "Caso sin título", agente: agenteMap[c.assigned_to!.toLowerCase()] || c.assigned_to!,
-      created_at: c.created_at, closed_at: (c as any).closed_at || "", accepted_at: c.accepted_at || "", minutos: 0,
+      id: c.id,
+      title: c.title || "Caso sin título",
+      agente: agenteMap[c.assigned_to!.toLowerCase()] || c.assigned_to!,
+      created_at: c.created_at,
+      closed_at: (c as any).closed_at || "",
+      accepted_at: c.accepted_at || "",
+      minutos: 0,
       cliente: getClienteNombre(c),
     }));
+
   const resLt1h = casosValidos.filter(c => c.minutos <= 60).length;
   const res1_4h = casosValidos.filter(c => c.minutos > 60 && c.minutos <= 240).length;
   const res4_8h = casosValidos.filter(c => c.minutos > 240 && c.minutos <= 480).length;
@@ -455,8 +463,12 @@ export default async function EstadisticasAtencionPage({
       s.resueltos++;
       const closedAt = (caso as any).closed_at;
       if (closedAt) {
-        const diff = calculateRealMinutes(caso);
-        if (diff > 0 && diff < 10080) s.tiemposResolucion.push(diff);
+        const tStart = caso.accepted_at ? new Date(caso.accepted_at).getTime() : new Date(caso.created_at).getTime();
+        const tEnd = new Date(closedAt).getTime();
+        if (!isNaN(tStart) && !isNaN(tEnd)) {
+          const diff = Math.round((tEnd - tStart) / 60000);
+          if (diff > 0 && diff < 10080) s.tiemposResolucion.push(diff);
+        }
       }
       const te = tiempoEfectivo((caso as any).histtecnico, (caso as any).histcliente, (caso as any).accepted_at);
       if (te > 0) s.tiemposEfectivos.push(te);
