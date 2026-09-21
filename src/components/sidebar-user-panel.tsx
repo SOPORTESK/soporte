@@ -1184,9 +1184,9 @@ export function SidebarUserPanel({
           <ChevronUp className={`h-4 w-4 text-muted-foreground shrink-0 transition-transform ${open ? "" : "rotate-180"}`} />
         </button>
         <div className="flex items-center justify-between gap-1 px-1">
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 flex-wrap min-w-0">
             {/* Indicadores de agentes online */}
-            {others.slice(0, 4).map(a => {
+            {others.map(a => {
               const n = [a?.nombre, a?.apellido].filter(Boolean).join(" ") || a?.email || "Agente";
               const s = STATUS_LABELS[a?.status || "offline"] || STATUS_LABELS.offline;
               return (
@@ -1196,7 +1196,6 @@ export function SidebarUserPanel({
                 </div>
               );
             })}
-            {others.length > 4 && <span className="text-[10px] text-muted-foreground ml-0.5">+{others.length - 4}</span>}
           </div>
           <button onClick={handleLogout} title="Cerrar sesión" className="p-1.5 rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-colors">
             <LogOut className="h-3.5 w-3.5" />
