@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Crown, LogOut, Inbox, Wrench, FolderKanban, ArrowLeft } from "lucide-react";
+import { Crown, LogOut, Inbox, Wrench, FolderKanban, ArrowLeft, Calendar } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
 import { Avatar } from "@/components/ui/avatar";
@@ -98,6 +98,7 @@ export function GodModeAdminWrapper({
             <SidebarLink href="/inbox" icon={<Inbox className="h-4 w-4" />}>Bandeja</SidebarLink>
             <SidebarLink href="/soporte-avanzado" icon={<Wrench className="h-4 w-4" />}>Soporte Avanzado</SidebarLink>
             <SidebarLink href="/mi-gestion" icon={<FolderKanban className="h-4 w-4" />}>Mi Gestión</SidebarLink>
+            <SidebarLink href="/agenda" icon={<Calendar className="h-4 w-4 text-violet-400" />}>Calendario & Agenda</SidebarLink>
           </nav>
 
           {/* Panel de usuario como agente */}
