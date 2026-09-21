@@ -95,6 +95,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
   const [savingJust, setSavingJust] = useState(false);
   const [targetDailyHours, setTargetDailyHours] = useState(10);
   const [overtimeInfo, setOvertimeInfo] = useState<any>(null);
+  const [serverMetrics, setServerMetrics] = useState<any>(null);
   const [catPage, setCatPage] = useState(1);
   const ITEMS_PER_PAGE = 5;
 
@@ -164,6 +165,9 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
       const data = await resTimeline.json();
       if (resTimeline.ok) {
         setTimeline(data.timeline || []);
+        if (data.metrics) {
+          setServerMetrics(data.metrics);
+        }
       }
 
       const schedData = await resSchedule.json();
@@ -399,6 +403,22 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
   // Si no está aprobado el tiempo extra, topar la visualización en 10 horas
   const activeDisplayMs = (rawOvertimeMs > 0 && !isOvertimeApproved) ? targetMs : totalActiveMs;
   const compliancePercent = targetMs > 0 ? Math.round((activeDisplayMs / targetMs) * 100) : 0;
+
+  // ── Consolidación con la Única Fuente de Verdad (Métricas Oficiales) ──
+  // Si el servidor provee métricas consolidadas sin solapamiento, las usamos para alineación perfecta con los otros paneles
+  const officialActiveMs = (serverMetrics?.totalActiveMs !== undefined && (rangeMode === "hoy" || rangeMode === "custom"))
+    ? serverMetrics.totalActiveMs
+    : activeDisplayMs;
+
+  const officialDeficitMs = (serverMetrics?.deficitMs !== undefined && (rangeMode === "hoy" || rangeMode === "custom"))
+    ? serverMetrics.deficitMs
+    : deficitMs;
+
+  const officialIdleMs = (serverMetrics?.totalIdleMs !== undefined && (rangeMode === "hoy" || rangeMode === "custom"))
+    ? serverMetrics.totalIdleMs
+    : totalIdleMs;
+
+  const officialCompliancePercent = targetMs > 0 ? Math.round((officialActiveMs / targetMs) * 100) : compliancePercent;
 
   // Detectar primer evento del día (hora real de entrada) y último evento
   let firstLoginTime: string | null = null;
@@ -720,7 +740,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                     </div>
                     <div>
                       <p className="text-xl font-black text-emerald-400 tabular-nums whitespace-nowrap tracking-tight">
-                        {formatMinHours(activeDisplayMs)}
+                        {formatMinHours(officialActiveMs)}
                       </p>
                       <span className="text-[10px] text-emerald-500/80 font-medium">Actividad registrada</span>
                     </div>
@@ -737,10 +757,10 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                     </div>
                     <div>
                       <p className="text-xl font-black text-sky-400 tabular-nums whitespace-nowrap tracking-tight">
-                        {deficitMs > 0 ? formatMinHours(deficitMs) : "0m"}
+                        {officialDeficitMs > 0 ? formatMinHours(officialDeficitMs) : "0m"}
                       </p>
                       <span className="text-[10px] text-sky-500/80 font-medium">
-                        {deficitMs > 0 ? "Para cumplir meta" : "¡Meta cumplida!"}
+                        {officialDeficitMs > 0 ? "Para cumplir meta" : "¡Meta cumplida!"}
                       </span>
                     </div>
                   </div>
@@ -756,11 +776,11 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                     </div>
                     <div>
                       <p className="text-xl font-black text-amber-400 tabular-nums whitespace-nowrap tracking-tight">
-                        {formatMinHours(totalIdleMs)}
+                        {formatMinHours(officialIdleMs)}
                       </p>
                       <div className="flex items-center justify-between mt-0.5">
                         <span className="text-[10px] text-amber-500/80 font-medium">Tolerancia: {toleranceMin} min</span>
-                        {totalIdleMs > 0 && (
+                        {officialIdleMs > 0 && (
                           <button
                             type="button"
                             onClick={() => setActiveTab("justificar")}
@@ -811,20 +831,20 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                   <div className="space-y-1.5 pt-1">
                     <div className="flex justify-between items-center text-xs font-bold">
                       <span className="text-emerald-400">
-                        Cumplimiento de Jornada: {compliancePercent}% ({formatMinHours(activeDisplayMs)} / {targetDailyHours}h)
+                        Cumplimiento de Jornada: {officialCompliancePercent}% ({formatMinHours(officialActiveMs)} / {targetDailyHours}h)
                       </span>
                       <span className="text-sky-400 text-[11px]">
-                        {deficitMs > 0 ? `Faltan ${formatMinHours(deficitMs)} para completar` : "¡Jornada de 10h completada!"}
+                        {officialDeficitMs > 0 ? `Faltan ${formatMinHours(officialDeficitMs)} para completar` : "¡Jornada de 10h completada!"}
                       </span>
                     </div>
                     <div className="h-2.5 w-full rounded-full bg-slate-800/80 overflow-hidden flex shadow-inner">
                       <div
                         className="bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-500 rounded-full"
-                        style={{ width: `${Math.min(100, compliancePercent)}%` }}
+                        style={{ width: `${Math.min(100, officialCompliancePercent)}%` }}
                       />
                       <div
                         className="bg-transparent transition-all duration-500"
-                        style={{ width: `${Math.max(0, 100 - compliancePercent)}%` }}
+                        style={{ width: `${Math.max(0, 100 - officialCompliancePercent)}%` }}
                       />
                     </div>
                   </div>

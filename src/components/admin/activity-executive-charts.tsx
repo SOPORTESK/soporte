@@ -47,6 +47,8 @@ interface Props {
   refreshing?: boolean;
   scheduleStart?: string;
   scheduleEnd?: string;
+  compliance?: any;
+  serverMetrics?: any;
 }
 
 function formatHoursMinutes(ms: number): string {
@@ -152,6 +154,8 @@ function ActivityExecutiveChartsComponent({
   refreshing = false,
   scheduleStart = "06:00",
   scheduleEnd = "19:30",
+  compliance,
+  serverMetrics,
 }: Props) {
   const [periodPreset, setPeriodPreset] = useState<"hoy" | "este_mes" | "este_ano">("hoy");
 
@@ -325,6 +329,18 @@ function ActivityExecutiveChartsComponent({
       }
     }
 
+    // ── Consolidación unificada con la única fuente de verdad oficial ──
+    const officialActiveMs = compliance?.activeMinutes
+      ? compliance.activeMinutes * 60000
+      : (serverMetrics?.totalActiveMs || buckets.Productivo);
+
+    const officialIdleMs = serverMetrics?.totalIdleMs !== undefined
+      ? serverMetrics.totalIdleMs
+      : buckets.Inactivo;
+
+    buckets.Productivo = officialActiveMs;
+    buckets.Inactivo = officialIdleMs;
+
     const totalMs = Object.values(buckets).reduce((a, b) => a + b, 0) || 1;
 
     // Construir lista con las 4 categorías estrictas
@@ -383,7 +399,7 @@ function ActivityExecutiveChartsComponent({
       totalCalculatedMs: totalMs,
       productivoPct: prodPct,
     };
-  }, [timeline]);
+  }, [timeline, compliance, serverMetrics]);
 
   // ── 2. Donut SVG Amplio con viewBox holgado (CERO RECORTES LATERALES) ────────
   const donutSegments = useMemo(() => {

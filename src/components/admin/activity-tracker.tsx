@@ -1740,6 +1740,8 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
               refreshing={refreshing}
               scheduleStart={scheduleStart}
               scheduleEnd={scheduleEnd}
+              compliance={agentDailyCompliance}
+              serverMetrics={serverMetrics}
             />
 
             {/* Top Apps y Resumen en 2 Columnas */}
