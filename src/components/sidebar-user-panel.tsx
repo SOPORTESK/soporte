@@ -120,11 +120,13 @@ function AvatarImg({ url, name, size = 36 }: { url?: string | null; name?: strin
 export function SidebarUserPanel({ 
   agent, 
   onlineAgents, 
-  canViewActivityTracker 
+  canViewActivityTracker,
+  canViewAgenda = true,
 }: { 
   agent: Agent; 
   onlineAgents: OnlineAgent[]; 
   canViewActivityTracker?: boolean; 
+  canViewAgenda?: boolean;
 }) {
   const safeAgent = agent || ({ rol: "tecnico", email: "agente@sekunet.com" } as Agent);
   const canAccessAdmin = ["admin", "superadmin"].includes(safeAgent.rol);
@@ -657,17 +659,19 @@ export function SidebarUserPanel({
                 <ActivityIcon className="h-3.5 w-3.5 inline-block" />
               </button>
             )}
-            <button
-              onClick={() => setTab("agenda")}
-              className={`flex-1 text-xs font-semibold py-2.5 transition-colors flex items-center justify-center gap-1.5 ${
-                tab === "agenda"
-                  ? "text-violet-500 border-b-2 border-violet-500"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-              title="Calendario, Agenda y Tareas"
-            >
-              <Calendar className="h-3.5 w-3.5 inline-block" />
-            </button>
+            {canViewAgenda && (
+              <button
+                onClick={() => setTab("agenda")}
+                className={`flex-1 text-xs font-semibold py-2.5 transition-colors flex items-center justify-center gap-1.5 ${
+                  tab === "agenda"
+                    ? "text-violet-500 border-b-2 border-violet-500"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+                title="Calendario, Agenda y Tareas"
+              >
+                <Calendar className="h-3.5 w-3.5 inline-block" />
+              </button>
+            )}
           </div>
 
           {tab === "profile" && (

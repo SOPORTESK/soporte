@@ -40,6 +40,7 @@ interface AgendaViewProps {
     rol?: string | null;
     avatar_url?: string | null;
   };
+  canManageGlobal?: boolean;
 }
 
 const CATEGORY_COLORS: Record<string, { label: string; bg: string; text: string; border: string }> = {
@@ -64,7 +65,7 @@ const MONTH_NAMES = [
 
 const DAY_NAMES = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 
-export function AgendaView({ currentAgent }: AgendaViewProps) {
+export function AgendaView({ currentAgent, canManageGlobal = false }: AgendaViewProps) {
   const [events, setEvents] = useState<AgendaEvent[]>([]);
   const [tasks, setTasks] = useState<AgendaTask[]>([]);
   const [agents, setAgents] = useState<any[]>([]);

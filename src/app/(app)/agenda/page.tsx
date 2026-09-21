@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getUserWithTimeout, queryWithFallback } from "@/lib/supabase/resilient";
+import { getAgentGroupPermissions } from "@/lib/permissions";
 import { redirect } from "next/navigation";
 import { AgendaView } from "@/components/agenda/agenda-view";
 
@@ -39,5 +40,19 @@ export default async function AgendaPage() {
     avatar_url: agentConfig?.avatar_url || null,
   };
 
-  return <AgendaView currentAgent={currentAgent} />;
+  const isSuperadmin = currentAgent.rol === "superadmin";
+  const userPerms = await getAgentGroupPermissions(currentAgent.rol);
+  const canViewAgenda = isSuperadmin || (
+    (userPerms as any).activity?.subcategories?.agenda_calendario ?? true
+  );
+
+  if (!canViewAgenda) {
+    redirect("/inbox");
+  }
+
+  const canManageGlobal = isSuperadmin || (
+    (userPerms as any).activity?.subcategories?.agenda_gestion_global ?? false
+  );
+
+  return <AgendaView currentAgent={currentAgent} canManageGlobal={canManageGlobal} />;
 }

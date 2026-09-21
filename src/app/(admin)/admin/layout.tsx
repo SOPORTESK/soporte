@@ -124,6 +124,10 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     ((userPerms as any).activity?.view || isAdmin)
   );
 
+  const canViewAgenda = isSuperadmin || (
+    (userPerms as any).activity?.subcategories?.agenda_calendario ?? true
+  );
+
   const fullName = [a.nombre, a.apellido].filter(Boolean).join(" ") || user.email!;
   const onlineAgents = (onlineAgentsResult.data || []) as any[];
 
@@ -164,25 +168,45 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                 <ArrowLeft className="h-4 w-4" /> Volver a Bandeja
               </Link>
 
-              {!isTecnico && (
+              {(isSuperadmin || userPerms.stats?.view || (userPerms as any).activity?.view) && (
                 <NavSection title="General">
-                  <SidebarLink href="/admin" icon={<LayoutDashboard className="h-4 w-4" />}>Resumen</SidebarLink>
-                  <SidebarLink href="/admin/actividad" icon={<Activity className="h-4 w-4" />}>Actividad</SidebarLink>
+                  {(isSuperadmin || userPerms.stats?.view || userPerms.stats?.subcategories?.resumen_general) && (
+                    <SidebarLink href="/admin" icon={<LayoutDashboard className="h-4 w-4" />}>Resumen</SidebarLink>
+                  )}
+                  {(isSuperadmin || (userPerms as any).activity?.view || (userPerms as any).activity?.subcategories?.registro_actividad) && (
+                    <SidebarLink href="/admin/actividad" icon={<Activity className="h-4 w-4" />}>Actividad</SidebarLink>
+                  )}
                 </NavSection>
               )}
 
-              <NavSection title="Gestión">
-                <SidebarLink href="/admin/equipo" icon={<Users className="h-4 w-4" />}>Equipo</SidebarLink>
-                {isAdmin && <SidebarLink href="/admin/inventario" icon={<Package className="h-4 w-4" />}>Inventario</SidebarLink>}
-                {isAdmin && <SidebarLink href="/admin/manuales" icon={<BookOpen className="h-4 w-4" />}>Manuales</SidebarLink>}
-              </NavSection>
+              {(isSuperadmin || userPerms.team?.view || userPerms.inventory?.view || userPerms.manuals?.view) && (
+                <NavSection title="Gestión">
+                  {(isSuperadmin || userPerms.team?.view) && (
+                    <SidebarLink href="/admin/equipo" icon={<Users className="h-4 w-4" />}>Equipo</SidebarLink>
+                  )}
+                  {(isSuperadmin || userPerms.inventory?.view) && (
+                    <SidebarLink href="/admin/inventario" icon={<Package className="h-4 w-4" />}>Inventario</SidebarLink>
+                  )}
+                  {(isSuperadmin || userPerms.manuals?.view) && (
+                    <SidebarLink href="/admin/manuales" icon={<BookOpen className="h-4 w-4" />}>Manuales</SidebarLink>
+                  )}
+                </NavSection>
+              )}
 
-              {isAdmin && (
+              {(isSuperadmin || userPerms.settings?.view || userPerms.ai?.view) && (
                 <NavSection title="Plataforma">
-                  <SidebarLink href="/admin/canales" icon={<MessageCircle className="h-4 w-4" />}>Canales</SidebarLink>
-                  <SidebarLink href="/admin/agente-ia" icon={<Bot className="h-4 w-4" />}>Agente IA</SidebarLink>
-                  <SidebarLink href="/admin/flujos-bot" icon={<Workflow className="h-4 w-4" />}>Flujos del Bot</SidebarLink>
-                  <SidebarLink href="/admin/settings" icon={<Settings className="h-4 w-4" />}>Configuración</SidebarLink>
+                  {(isSuperadmin || userPerms.settings?.subcategories?.manage_channels || (userPerms.settings?.view && isAdmin)) && (
+                    <SidebarLink href="/admin/canales" icon={<MessageCircle className="h-4 w-4" />}>Canales</SidebarLink>
+                  )}
+                  {(isSuperadmin || userPerms.ai?.view) && (
+                    <SidebarLink href="/admin/agente-ia" icon={<Bot className="h-4 w-4" />}>Agente IA</SidebarLink>
+                  )}
+                  {(isSuperadmin || userPerms.ai?.subcategories?.flujos_bot || (userPerms.ai?.view && isAdmin)) && (
+                    <SidebarLink href="/admin/flujos-bot" icon={<Workflow className="h-4 w-4" />}>Flujos del Bot</SidebarLink>
+                  )}
+                  {(isSuperadmin || userPerms.settings?.view) && (
+                    <SidebarLink href="/admin/settings" icon={<Settings className="h-4 w-4" />}>Configuración</SidebarLink>
+                  )}
                 </NavSection>
               )}
             </nav>
@@ -191,7 +215,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               <div className="flex items-center gap-1 px-4 pb-2 pt-2">
                 <ThemeToggle />
               </div>
-              <SidebarUserPanel agent={a as any} onlineAgents={onlineAgents || []} canViewActivityTracker={canViewActivityTracker} />
+              <SidebarUserPanel agent={a as any} onlineAgents={onlineAgents || []} canViewActivityTracker={canViewActivityTracker} canViewAgenda={canViewAgenda} />
             </div>
           </aside>
 
