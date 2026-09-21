@@ -226,7 +226,7 @@ export function SidebarUserPanel({
         const cleanShort = sub.replace(/\s*\(manual\)\s*/i, "").trim();
         return {
           label: cleanShort,
-          short: cleanShort.length > 20 ? cleanShort.slice(0, 18) + "…" : cleanShort,
+          short: cleanShort.length > 26 ? cleanShort.slice(0, 24) + "…" : cleanShort,
           category: cat.label || cat.id,
           icon: getTaskIcon(sub),
         };

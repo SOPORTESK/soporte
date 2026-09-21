@@ -130,7 +130,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <div className="h-dvh flex flex-col overflow-hidden">
     <div className="flex-1 flex min-h-0 bg-muted/30">
       {/* ── Desktop sidebar ── */}
-      <aside className="hidden lg:flex lg:flex-col w-[260px] shrink-0 border-r border-border bg-card">
+      <aside className="hidden lg:flex lg:flex-col w-[300px] shrink-0 border-r border-border bg-card">
         {canAccessAdmin ? (
           <Link
             href={adminHref}
