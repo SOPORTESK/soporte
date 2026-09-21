@@ -98,7 +98,6 @@ export function GodModeAdminWrapper({
             <SidebarLink href="/inbox" icon={<Inbox className="h-4 w-4" />}>Bandeja</SidebarLink>
             <SidebarLink href="/soporte-avanzado" icon={<Wrench className="h-4 w-4" />}>Soporte Avanzado</SidebarLink>
             <SidebarLink href="/mi-gestion" icon={<FolderKanban className="h-4 w-4" />}>Mi Gestión</SidebarLink>
-            <SidebarLink href="/agenda" icon={<Calendar className="h-4 w-4 text-violet-400" />}>Calendario & Agenda</SidebarLink>
           </nav>
 
           {/* Panel de usuario como agente */}

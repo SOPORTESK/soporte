@@ -176,7 +176,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <SidebarLink href="/soporte-avanzado" icon={<Wrench className="h-4 w-4" />} badge={<N2Badge initialCount={n2Count ?? 0} />}>Soporte Avanzado</SidebarLink>
           <SidebarLink href="/mi-gestion" icon={<FolderKanban className="h-4 w-4" />}>Mi Bandeja de Gestión</SidebarLink>
           <SidebarLink href="/inbox" icon={<Inbox className="h-4 w-4" />}>Bandeja</SidebarLink>
-          <SidebarLink href="/agenda" icon={<Calendar className="h-4 w-4 text-violet-400" />}>Calendario & Agenda</SidebarLink>
         </nav>
 
         <div className="mt-auto shrink-0 border-t border-border/50 bg-card">

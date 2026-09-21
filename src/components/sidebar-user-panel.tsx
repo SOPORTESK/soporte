@@ -1,12 +1,14 @@
 "use client";
 
 import { useState, useRef, useEffect, useMemo } from "react";
-import { Camera, Lock, Eye, EyeOff, Check, X, ChevronUp, Circle, LogOut, Activity as ActivityIcon, FileText, ChevronRight, X as XIcon, RefreshCw, Wrench, Coffee, Timer, BarChart3, Package, LayoutDashboard, ClipboardList, Sparkles, UserPlus, Briefcase, GraduationCap, Users, Utensils, Sandwich, Bath, Square, Trash2, Clock, CheckCircle2 } from "lucide-react";
+import { Camera, Lock, Eye, EyeOff, Check, X, ChevronUp, Circle, LogOut, Activity as ActivityIcon, FileText, ChevronRight, X as XIcon, RefreshCw, Wrench, Coffee, Timer, BarChart3, Package, LayoutDashboard, ClipboardList, Sparkles, UserPlus, Briefcase, GraduationCap, Users, Utensils, Sandwich, Bath, Square, Trash2, Clock, CheckCircle2, Calendar, Maximize2, Plus } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { logActivity } from "@/lib/activity-client";
 import { ModalMyActivity } from "@/components/modal-my-activity";
+import { ModalAgenda } from "@/components/modal-agenda";
+import { AgendaEvent, AgendaTask } from "@/app/api/agenda/route";
 
 interface Agent {
   email: string;
@@ -120,7 +122,13 @@ export function SidebarUserPanel({
   const canAccessAdmin = ["admin", "superadmin"].includes(safeAgent.rol);
   const hasActivityAccess = canViewActivityTracker !== undefined ? canViewActivityTracker : canAccessAdmin;
   const [open, setOpen] = useState(false);
-  const [tab, setTab] = useState<"profile" | "team" | "activity">("profile");
+  const [tab, setTab] = useState<"profile" | "team" | "activity" | "agenda">("profile");
+  const [showAgendaModal, setShowAgendaModal] = useState(false);
+  const [panelAgendaEvents, setPanelAgendaEvents] = useState<AgendaEvent[]>([]);
+  const [panelAgendaTasks, setPanelAgendaTasks] = useState<AgendaTask[]>([]);
+  const [panelAgendaTab, setPanelAgendaTab] = useState<"tasks" | "events">("tasks");
+  const [newQuickTaskTitle, setNewQuickTaskTitle] = useState("");
+  const [creatingQuickTask, setCreatingQuickTask] = useState(false);
   const [status, setStatus] = useState(safeAgent.status || "online");
   const [avatarUrl, setAvatarUrl] = useState(safeAgent.avatar_url || null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
@@ -185,6 +193,18 @@ export function SidebarUserPanel({
       window.removeEventListener("storage", handleUpdate);
     };
   }, []);
+
+  useEffect(() => {
+    if (tab === "agenda" || open) {
+      fetch("/api/agenda")
+        .then((r) => r.json())
+        .then((d) => {
+          if (Array.isArray(d?.events)) setPanelAgendaEvents(d.events);
+          if (Array.isArray(d?.tasks)) setPanelAgendaTasks(d.tasks);
+        })
+        .catch(() => {});
+    }
+  }, [tab, open]);
 
   const taskGroups = useMemo(() => {
     if (!categoriesConfig || categoriesConfig.length === 0) {
@@ -560,6 +580,17 @@ export function SidebarUserPanel({
                 <ActivityIcon className="h-3.5 w-3.5 inline-block" />
               </button>
             )}
+            <button
+              onClick={() => setTab("agenda")}
+              className={`flex-1 text-xs font-semibold py-2.5 transition-colors flex items-center justify-center gap-1.5 ${
+                tab === "agenda"
+                  ? "text-violet-500 border-b-2 border-violet-500"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+              title="Calendario, Agenda y Tareas"
+            >
+              <Calendar className="h-3.5 w-3.5 inline-block" />
+            </button>
           </div>
 
           {tab === "profile" && (
@@ -838,6 +869,199 @@ export function SidebarUserPanel({
               </div>
             </div>
           )}
+
+          {tab === "agenda" && (
+            <div className="p-3 space-y-3 flex flex-col">
+              {/* Cabecera del tab */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1 p-0.5 rounded-lg bg-muted/60 border border-border">
+                  <button
+                    onClick={() => setPanelAgendaTab("tasks")}
+                    className={`px-2 py-0.5 rounded-md text-[10.5px] font-bold transition-all cursor-pointer ${
+                      panelAgendaTab === "tasks" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Tareas ({panelAgendaTasks.filter(t => t.status !== "completed").length})
+                  </button>
+                  <button
+                    onClick={() => setPanelAgendaTab("events")}
+                    className={`px-2 py-0.5 rounded-md text-[10.5px] font-bold transition-all cursor-pointer ${
+                      panelAgendaTab === "events" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Eventos ({panelAgendaEvents.length})
+                  </button>
+                </div>
+
+                <button
+                  onClick={() => setShowAgendaModal(true)}
+                  className="flex items-center gap-1 text-[10.5px] font-bold px-2 py-1 rounded-lg bg-violet-500/10 text-violet-400 border border-violet-500/20 hover:bg-violet-500/20 transition-colors cursor-pointer"
+                  title="Abrir vista completa"
+                >
+                  <Maximize2 className="h-3 w-3" />
+                  <span>Expandir</span>
+                </button>
+              </div>
+
+              {/* Contenido Tareas */}
+              {panelAgendaTab === "tasks" && (
+                <div className="space-y-2.5">
+                  {/* Formulario rápido para añadir tarea */}
+                  <form
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      const title = newQuickTaskTitle.trim();
+                      if (!title) return;
+                      setCreatingQuickTask(true);
+                      try {
+                        const res = await fetch("/api/agenda", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            type: "task",
+                            item: {
+                              title,
+                              priority: "media",
+                              status: "pending",
+                              created_by: safeAgent.email,
+                              created_by_name: fullName,
+                            },
+                          }),
+                        });
+                        if (res.ok) {
+                          const data = await res.json();
+                          setPanelAgendaTasks(data.tasks || []);
+                          setNewQuickTaskTitle("");
+                          toast.success("Tarea agregada");
+                        }
+                      } catch {
+                        toast.error("Error al crear tarea");
+                      } finally {
+                        setCreatingQuickTask(false);
+                      }
+                    }}
+                    className="flex items-center gap-1.5"
+                  >
+                    <input
+                      type="text"
+                      placeholder="Nueva tarea rápida..."
+                      value={newQuickTaskTitle}
+                      onChange={(e) => setNewQuickTaskTitle(e.target.value)}
+                      className="flex-1 text-[11px] px-2.5 py-1.5 rounded-lg border border-border bg-background focus:outline-none focus:ring-1 focus:ring-violet-500 text-foreground placeholder:text-muted-foreground"
+                    />
+                    <button
+                      type="submit"
+                      disabled={creatingQuickTask || !newQuickTaskTitle.trim()}
+                      className="p-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white transition-colors cursor-pointer"
+                      title="Agregar tarea"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                    </button>
+                  </form>
+
+                  {/* Lista de tareas */}
+                  <div className="space-y-1.5 max-h-[300px] overflow-y-auto pr-1">
+                    {panelAgendaTasks.length === 0 ? (
+                      <p className="text-center py-6 text-[11px] text-muted-foreground">
+                        Sin tareas pendientes. ¡Todo al día!
+                      </p>
+                    ) : (
+                      panelAgendaTasks.slice(0, 15).map((tsk) => {
+                        const isDone = tsk.status === "completed";
+                        return (
+                          <div
+                            key={tsk.id}
+                            className={`p-2 rounded-lg border border-border/70 flex items-center justify-between gap-2 text-xs transition-colors hover:bg-muted/30 ${
+                              isDone ? "bg-muted/10 opacity-50" : "bg-card"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                              <button
+                                onClick={async () => {
+                                  const nextStatus = isDone ? "pending" : "completed";
+                                  await fetch("/api/agenda", {
+                                    method: "PATCH",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ taskId: tsk.id, status: nextStatus }),
+                                  });
+                                  setPanelAgendaTasks((prev) =>
+                                    prev.map((t) => (t.id === tsk.id ? { ...t, status: nextStatus } : t))
+                                  );
+                                }}
+                                className="text-muted-foreground hover:text-emerald-400 shrink-0 cursor-pointer"
+                              >
+                                {isDone ? (
+                                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                                ) : (
+                                  <Square className="h-3.5 w-3.5" />
+                                )}
+                              </button>
+                              <span className={`text-[11px] truncate leading-tight ${isDone ? "line-through text-muted-foreground" : "text-foreground"}`}>
+                                {tsk.title}
+                              </span>
+                            </div>
+
+                            {tsk.priority === "alta" && (
+                              <span className="text-[9px] font-bold text-rose-400 shrink-0">🔥</span>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Contenido Eventos */}
+              {panelAgendaTab === "events" && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-[11px] text-muted-foreground border-b border-border/50 pb-1.5">
+                    <span className="font-semibold">Próximos eventos</span>
+                    <button
+                      onClick={() => setShowAgendaModal(true)}
+                      className="text-violet-400 hover:underline font-bold cursor-pointer"
+                    >
+                      + Programar
+                    </button>
+                  </div>
+
+                  <div className="space-y-1.5 max-h-[300px] overflow-y-auto pr-1">
+                    {panelAgendaEvents.length === 0 ? (
+                      <p className="text-center py-6 text-[11px] text-muted-foreground">
+                        No hay eventos agendados próximos.
+                      </p>
+                    ) : (
+                      panelAgendaEvents.slice(0, 10).map((evt) => (
+                        <div
+                          key={evt.id}
+                          className="p-2 rounded-lg border border-border/70 bg-card space-y-1 text-xs"
+                        >
+                          <div className="flex items-center justify-between gap-1">
+                            <h6 className="font-bold text-[11px] text-foreground truncate">{evt.title}</h6>
+                            <span className="text-[10px] font-mono text-muted-foreground shrink-0">{evt.date}</span>
+                          </div>
+                          {evt.start_time && (
+                            <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                              <Clock className="h-2.5 w-2.5" /> {evt.start_time} {evt.end_time ? `- ${evt.end_time}` : ""}
+                            </p>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Botón inferior a pantalla completa */}
+              <button
+                onClick={() => setShowAgendaModal(true)}
+                className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-violet-600 hover:bg-violet-500 text-white font-bold text-xs shadow-md shadow-violet-600/20 transition-all cursor-pointer mt-1"
+              >
+                <Calendar className="h-3.5 w-3.5" />
+                <span>Abrir Calendario Completo</span>
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -847,6 +1071,22 @@ export function SidebarUserPanel({
         onClose={() => setShowActivityModal(false)}
         agentEmail={agent.email}
         agentName={fullName}
+      />
+
+      {/* Modal: Calendario, Agenda & Tareas */}
+      <ModalAgenda
+        isOpen={showAgendaModal}
+        onClose={() => {
+          setShowAgendaModal(false);
+          fetch("/api/agenda")
+            .then((r) => r.json())
+            .then((d) => {
+              if (Array.isArray(d?.tasks)) setPanelAgendaTasks(d.tasks);
+              if (Array.isArray(d?.events)) setPanelAgendaEvents(d.events);
+            })
+            .catch(() => {});
+        }}
+        currentAgent={safeAgent}
       />
 
       {/* Barra inferior siempre visible */}
