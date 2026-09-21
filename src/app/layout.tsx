@@ -61,6 +61,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     if (msg.indexOf('Loading chunk') !== -1 ||
         msg.indexOf('ChunkLoadError') !== -1 ||
         msg.indexOf('Failed to fetch dynamically imported module') !== -1 ||
+        msg.indexOf('entryCSSFiles') !== -1 ||
+        msg.indexOf('Cannot read properties of undefined') !== -1 ||
         msg.indexOf('Cannot read properties of null (reading') !== -1) {
       handleStale();
     }
@@ -70,6 +72,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     var msg = (e.reason.message || '') + ' ' + (e.reason.stack || '');
     if (msg.indexOf('Loading chunk') !== -1 ||
         msg.indexOf('ChunkLoadError') !== -1 ||
+        msg.indexOf('entryCSSFiles') !== -1 ||
         msg.indexOf('Failed to fetch dynamically imported module') !== -1) {
       handleStale();
     }
