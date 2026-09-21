@@ -755,6 +755,8 @@ function ActivityAppsRankingComponent({
   const [inlineSubcatValue, setInlineSubcatValue] = useState("");
   const [inlineSubcatIsManual, setInlineSubcatIsManual] = useState(false);
   const [formSubcatIsManual, setFormSubcatIsManual] = useState(false);
+  const [expandedManualSubcat, setExpandedManualSubcat] = useState<string | null>(null);
+  const [newManualTaskInput, setNewManualTaskInput] = useState("");
 
   // Helper para resolver la asignación completa (categoría + subcategoría) de una app
   const getAppAssignment = (appName: string, action?: string, category?: string) => {
@@ -869,6 +871,9 @@ function ActivityAppsRankingComponent({
 
     setCustomCategories(newMap);
     try { localStorage.setItem("sek_app_categories", JSON.stringify(newMap)); } catch {}
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("sekunet_categories_updated"));
+    }
     setActiveDropdownApp(null);
 
     try {
@@ -2998,6 +3003,36 @@ function ActivityAppsRankingComponent({
                           {(cat.subcategories || []).map((sub) => {
                             const isManual = /\(manual\)/i.test(sub) || !!cat.is_manual;
                             const cleanName = sub.replace(/\s*\(manual\)/i, "").trim();
+                            const isExpanded = expandedManualSubcat === `${cat.id}::${sub}`;
+
+                            const isSoftwareOrUrl = (name: string) => {
+                              const n = name.trim().toLowerCase();
+                              if (n.startsWith("http://") || n.startsWith("https://") || n.startsWith("web:") || n.startsWith("web.")) return true;
+                              if (n.includes(".") && !n.endsWith(".exe") && (n.includes(".com") || n.includes(".org") || n.includes(".net") || n.includes(".io") || n.includes(".app") || n.includes(".co") || n.includes(".es") || n.includes(".la"))) {
+                                return true;
+                              }
+                              if (n.endsWith(".exe") || n.endsWith(".dll") || n.endsWith(".bat")) return true;
+                              if (["odoo erp", "nextime pro", "linkus", "seka chat", "whatsapp", "anydesk", "teamviewer", "chrome", "firefox", "edge", "explorer"].some(soft => n.includes(soft))) {
+                                return true;
+                              }
+                              return false;
+                            };
+
+                            const associatedManualTasks = isManual
+                              ? Object.entries(customCategories)
+                                  .filter(([appName, val]) => {
+                                    const valCat = typeof val === "object" ? val?.category : val;
+                                    const valSub = typeof val === "object" ? val?.subcategory : null;
+                                    const catMatches = valCat === cat.id || valCat === cat.label;
+                                    if (!catMatches) return false;
+                                    const cleanValSub = (valSub || "").replace(/\s*\(manual\)\s*/i, "").trim();
+                                    const subMatches = valSub === sub || cleanValSub.toLowerCase() === cleanName.toLowerCase();
+                                    if (!subMatches) return false;
+                                    return !isSoftwareOrUrl(appName);
+                                  })
+                                  .map(([appName]) => appName.trim())
+                              : [];
+
                             return (
                               <span
                                 key={sub}
@@ -3024,6 +3059,26 @@ function ActivityAppsRankingComponent({
                                 >
                                   {isManual ? "🛠 Manual" : "💻 PC"}
                                 </button>
+
+                                {isManual && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const key = `${cat.id}::${sub}`;
+                                      setExpandedManualSubcat(isExpanded ? null : key);
+                                    }}
+                                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                                      isExpanded
+                                        ? "bg-amber-500 text-black shadow-xs"
+                                        : "bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30"
+                                    }`}
+                                    title="Ver / Gestionar labores hijas asociadas que aparecen en la barra lateral"
+                                  >
+                                    <span>{associatedManualTasks.length} {associatedManualTasks.length === 1 ? "labor" : "labores"}</span>
+                                    <ChevronDown className={`h-2.5 w-2.5 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                                  </button>
+                                )}
+
                                 <button
                                   type="button"
                                   onClick={() => handleDeleteSubcategory(cat.id, sub)}
@@ -3103,6 +3158,117 @@ function ActivityAppsRankingComponent({
                             </button>
                           )}
                         </div>
+
+                        {/* Panel expandido para gestionar las labores hijas de la subcategoría manual seleccionada */}
+                        {(() => {
+                          if (!expandedManualSubcat || !expandedManualSubcat.startsWith(`${cat.id}::`)) return null;
+                          const targetSub = expandedManualSubcat.split("::")[1];
+                          const targetCleanName = targetSub.replace(/\s*\(manual\)\s*/i, "").trim();
+
+                          const isSoftwareOrUrl = (name: string) => {
+                            const n = name.trim().toLowerCase();
+                            if (n.startsWith("http://") || n.startsWith("https://") || n.startsWith("web:") || n.startsWith("web.")) return true;
+                            if (n.includes(".") && !n.endsWith(".exe") && (n.includes(".com") || n.includes(".org") || n.includes(".net") || n.includes(".io") || n.includes(".app") || n.includes(".co") || n.includes(".es") || n.includes(".la"))) {
+                              return true;
+                            }
+                            if (n.endsWith(".exe") || n.endsWith(".dll") || n.endsWith(".bat")) return true;
+                            if (["odoo erp", "nextime pro", "linkus", "seka chat", "whatsapp", "anydesk", "teamviewer", "chrome", "firefox", "edge", "explorer"].some(soft => n.includes(soft))) {
+                              return true;
+                            }
+                            return false;
+                          };
+
+                          const currentTasks = Object.entries(customCategories)
+                            .filter(([appName, val]) => {
+                              const valCat = typeof val === "object" ? val?.category : val;
+                              const valSub = typeof val === "object" ? val?.subcategory : null;
+                              const catMatches = valCat === cat.id || valCat === cat.label;
+                              if (!catMatches) return false;
+                              const cleanValSub = (valSub || "").replace(/\s*\(manual\)\s*/i, "").trim();
+                              const subMatches = valSub === targetSub || cleanValSub.toLowerCase() === targetCleanName.toLowerCase();
+                              if (!subMatches) return false;
+                              return !isSoftwareOrUrl(appName);
+                            })
+                            .map(([appName]) => appName.trim());
+
+                          return (
+                            <div className="w-full mt-2.5 p-3 rounded-xl bg-amber-950/20 border border-amber-500/40 space-y-2.5 animate-in fade-in duration-150">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-1.5 text-xs font-bold text-amber-300">
+                                  <Wrench className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                                  <span>Labores en barra lateral para &ldquo;{targetCleanName}&rdquo; ({currentTasks.length})</span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setExpandedManualSubcat(null)}
+                                  className="text-muted-foreground hover:text-foreground text-xs p-1 rounded-md hover:bg-muted cursor-pointer"
+                                  title="Cerrar panel de labores"
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              </div>
+
+                              <p className="text-[11px] text-muted-foreground">
+                                Estas labores aparecerán directamente como botones en la sección &ldquo;Labores Manuales&rdquo; de la barra lateral para pausar el auto-tracking de pantalla.
+                              </p>
+
+                              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                                {currentTasks.map((tName) => (
+                                  <span
+                                    key={tName}
+                                    className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/40 text-amber-200"
+                                  >
+                                    <span>{tName}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSetCategory(tName, null, null)}
+                                      className="text-amber-400 hover:text-rose-400 p-0.5 rounded cursor-pointer"
+                                      title={`Desvincular labor "${tName}"`}
+                                    >
+                                      <X className="h-3 w-3" />
+                                    </button>
+                                  </span>
+                                ))}
+                                {currentTasks.length === 0 && (
+                                  <p className="text-xs text-amber-300/70 italic py-1">
+                                    Sin labores específicas asociadas. Actualmente se mostrará el botón directo &ldquo;{targetCleanName}&rdquo;.
+                                  </p>
+                                )}
+                              </div>
+
+                              <div className="flex items-center gap-2 pt-1">
+                                <input
+                                  type="text"
+                                  value={newManualTaskInput}
+                                  onChange={(e) => setNewManualTaskInput(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter" && newManualTaskInput.trim()) {
+                                      e.preventDefault();
+                                      handleSetCategory(newManualTaskInput.trim(), cat.id, targetSub);
+                                      setNewManualTaskInput("");
+                                    }
+                                  }}
+                                  placeholder={`Añadir labor para "${targetCleanName}" (ej: Entrega de Equipos, Firma de Actas)...`}
+                                  className="text-xs px-3 py-1.5 rounded-lg bg-background border border-border focus:outline-none focus:border-amber-500 text-foreground flex-1"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (newManualTaskInput.trim()) {
+                                      handleSetCategory(newManualTaskInput.trim(), cat.id, targetSub);
+                                      setNewManualTaskInput("");
+                                    }
+                                  }}
+                                  disabled={!newManualTaskInput.trim()}
+                                  className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold disabled:opacity-40 cursor-pointer flex items-center gap-1"
+                                >
+                                  <Plus className="h-3.5 w-3.5" />
+                                  <span>Añadir Labor</span>
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
                   ))}

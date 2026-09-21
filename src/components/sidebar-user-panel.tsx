@@ -56,7 +56,15 @@ function getTaskIcon(name: string) {
   return Timer;
 }
 
-const TAREAS_GROUPED = [
+interface ManualTaskItem {
+  label: string;
+  short: string;
+  category: string;
+  subcategory?: string;
+  icon: any;
+}
+
+const TAREAS_GROUPED: { group: string; color?: string; items: ManualTaskItem[] }[] = [
   {
     group: "Operativa",
     items: [
@@ -147,7 +155,7 @@ export function SidebarUserPanel({
   const [syncing, setSyncing] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [elapsed, setElapsed] = useState("");
-  const [manualTask, setManualTask] = useState<{ type: string; label: string; start: number } | null>(() => {
+  const [manualTask, setManualTask] = useState<{ type: string; label: string; subcategory?: string; start: number } | null>(() => {
     if (typeof window === "undefined") return null;
     try {
       const saved = localStorage.getItem("sekunet_manual_task");
@@ -169,6 +177,16 @@ export function SidebarUserPanel({
     }
   });
 
+  const [appMappingsConfig, setAppMappingsConfig] = useState<Record<string, any>>(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      const saved = localStorage.getItem("sek_app_categories");
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
   useEffect(() => {
     const loadCategories = () => {
       fetch("/api/activity/app-categories")
@@ -178,6 +196,12 @@ export function SidebarUserPanel({
             setCategoriesConfig(data.categories);
             try {
               localStorage.setItem("sek_categories_list", JSON.stringify(data.categories));
+            } catch {}
+          }
+          if (data?.appMappings && typeof data.appMappings === "object") {
+            setAppMappingsConfig(data.appMappings);
+            try {
+              localStorage.setItem("sek_app_categories", JSON.stringify(data.appMappings));
             } catch {}
           }
         })
@@ -211,10 +235,23 @@ export function SidebarUserPanel({
       return TAREAS_GROUPED;
     }
 
+    const isSoftwareOrUrl = (name: string) => {
+      const n = name.trim().toLowerCase();
+      if (n.startsWith("http://") || n.startsWith("https://") || n.startsWith("web:") || n.startsWith("web.")) return true;
+      if (n.includes(".") && !n.endsWith(".exe") && (n.includes(".com") || n.includes(".org") || n.includes(".net") || n.includes(".io") || n.includes(".app") || n.includes(".co") || n.includes(".es") || n.includes(".la"))) {
+        return true;
+      }
+      if (n.endsWith(".exe") || n.endsWith(".dll") || n.endsWith(".bat")) return true;
+      if (["odoo erp", "nextime pro", "linkus", "seka chat", "whatsapp", "anydesk", "teamviewer", "chrome", "firefox", "edge", "explorer"].some(soft => n.includes(soft))) {
+        return true;
+      }
+      return false;
+    };
+
     const groups: {
       group: string;
       color?: string;
-      items: { label: string; short: string; category: string; icon: any }[];
+      items: { label: string; short: string; category: string; subcategory?: string; icon: any }[];
     }[] = [];
 
     for (const cat of categoriesConfig) {
@@ -225,44 +262,82 @@ export function SidebarUserPanel({
 
       if (subs.length === 0) continue;
 
-      // FILTRADO ESTRICTO: En "Labores Manuales" ÚNICAMENTE van labores configuradas como manuales o pausas
       const isBreakCat = (cat.id === "Pausas y Descansos" || cat.label === "Pausas y Descansos" || (cat.id || "").toLowerCase().includes("pausa"));
-      
-      const manualSubs = subs.filter((sub: string) => {
-        if (!sub) return false;
-        // 1. Marcadas explícitamente con (MANUAL) en la subcategoría
-        if (/\(manual\)/i.test(sub) || /manual/i.test(sub)) return true;
-        // 2. Si la categoría completa está configurada como manual
-        if (cat.is_manual) return true;
-        // 3. Pausas y Descansos (físicas / fuera de pantalla)
-        if (isBreakCat) return true;
-        // 4. Reuniones fuera de estación
+
+      const catItems: { label: string; short: string; category: string; subcategory?: string; icon: any }[] = [];
+      const seenLabels = new Set<string>();
+
+      for (const sub of subs) {
+        if (!sub) continue;
+        const isSubManual = /\(manual\)/i.test(sub) || /manual/i.test(sub) || cat.is_manual || isBreakCat;
         const sLower = sub.toLowerCase();
-        if (sLower === "reunión" || sLower === "reuniones" || sLower === "reuniones y charlas") return true;
-        return false;
-      });
+        const isMeeting = (sLower === "reunión" || sLower === "reuniones" || sLower === "reuniones y charlas");
 
-      if (manualSubs.length === 0) continue;
+        if (!isSubManual && !isMeeting) continue;
 
-      const items = manualSubs.map((sub: string) => {
-        const cleanLabel = sub.replace(/\s*\(manual\)\s*/i, "").trim();
-        return {
-          label: cleanLabel,
-          short: cleanLabel,
-          category: cat.label || cat.id,
-          icon: getTaskIcon(sub),
-        };
-      });
+        const cleanSub = sub.replace(/\s*\(manual\)\s*/i, "").trim();
 
-      groups.push({
-        group: cat.label || cat.id,
-        color: cat.color,
-        items,
-      });
+        // Buscar todas las tareas asociadas a esta subcategoría en appMappingsConfig
+        const associatedTasks: string[] = [];
+        if (appMappingsConfig && typeof appMappingsConfig === "object") {
+          for (const [appName, val] of Object.entries(appMappingsConfig)) {
+            const valCat = typeof val === "object" ? val?.category : val;
+            const valSub = typeof val === "object" ? val?.subcategory : null;
+
+            const catMatches = (valCat === cat.id || valCat === cat.label);
+            if (!catMatches) continue;
+
+            const cleanValSub = (valSub || "").replace(/\s*\(manual\)\s*/i, "").trim();
+            const subMatches = valSub === sub || cleanValSub.toLowerCase() === cleanSub.toLowerCase();
+
+            if (subMatches) {
+              if (!isSoftwareOrUrl(appName)) {
+                associatedTasks.push(appName.trim());
+              }
+            }
+          }
+        }
+
+        if (associatedTasks.length > 0) {
+          // Si tiene tareas específicas asociadas (ej: Atención en Ventanilla, Soporte a Ventas, etc.)
+          for (const taskName of associatedTasks) {
+            if (!seenLabels.has(taskName)) {
+              seenLabels.add(taskName);
+              catItems.push({
+                label: taskName,
+                short: taskName,
+                category: cat.label || cat.id,
+                subcategory: cleanSub,
+                icon: getTaskIcon(taskName),
+              });
+            }
+          }
+        } else {
+          // Si no tiene tareas hijas adicionales, el botón directo es la subcategoría
+          if (!seenLabels.has(cleanSub)) {
+            seenLabels.add(cleanSub);
+            catItems.push({
+              label: cleanSub,
+              short: cleanSub,
+              category: cat.label || cat.id,
+              subcategory: cleanSub,
+              icon: getTaskIcon(cleanSub),
+            });
+          }
+        }
+      }
+
+      if (catItems.length > 0) {
+        groups.push({
+          group: cat.label || cat.id,
+          color: cat.color,
+          items: catItems,
+        });
+      }
     }
 
     return groups.length > 0 ? groups : TAREAS_GROUPED;
-  }, [categoriesConfig]);
+  }, [categoriesConfig, appMappingsConfig]);
 
   useEffect(() => {
     if (tab === "activity" && !hasActivityAccess) {
@@ -376,9 +451,9 @@ export function SidebarUserPanel({
     return () => clearInterval(ticker);
   }, [tab, open, lastUpdate, manualTask]);
 
-  const startManualTask = (type: string, label: string) => {
+  const startManualTask = (type: string, label: string, subcategory?: string) => {
     if (manualTask) return;
-    const taskObj = { type, label, start: Date.now() };
+    const taskObj = { type, label, subcategory, start: Date.now() };
     setManualTask(taskObj);
     try {
       localStorage.setItem("sekunet_manual_task", JSON.stringify(taskObj));
@@ -388,7 +463,7 @@ export function SidebarUserPanel({
       agent_name: fullName,
       action: `Inició: ${label}`,
       category: type,
-      metadata: { manual: true, task: label },
+      metadata: { manual: true, task: label, subcategory },
     });
   };
 
@@ -405,7 +480,7 @@ export function SidebarUserPanel({
       action: `Terminó: ${manualTask.label} (${min}min ${sec}s)`,
       category: manualTask.type,
       duration_ms: duration,
-      metadata: { manual: true, task: manualTask.label, duration_seconds: Math.round(duration / 1000) },
+      metadata: { manual: true, task: manualTask.label, subcategory: manualTask.subcategory, duration_seconds: Math.round(duration / 1000) },
     });
     setManualTask(null);
     setManualElapsed("");
@@ -831,7 +906,7 @@ export function SidebarUserPanel({
                               title={task.label}
                               onClick={() => {
                                 if (isCurrent) stopManualTask();
-                                else startManualTask(task.category, task.label);
+                                else startManualTask(task.category, task.label, task.subcategory);
                               }}
                               className={`px-3 py-2 rounded-xl font-medium transition-all flex items-center gap-2 text-left border min-h-[42px] cursor-pointer ${
                                 isCurrent
