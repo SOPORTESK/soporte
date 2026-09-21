@@ -42,6 +42,7 @@ import {
   LogIn,
   LogOut,
   XCircle,
+  X,
 } from "lucide-react";
 import { Avatar } from "@/components/ui/avatar";
 import { ActivityLivePulse, type LiveAgent } from "./activity-live-pulse";
@@ -804,6 +805,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
   });
   const [savingSchedule, setSavingSchedule] = useState<boolean>(false);
   const [scheduleSavedNotice, setScheduleSavedNotice] = useState<boolean>(false);
+  const [showScheduleModal, setShowScheduleModal] = useState<boolean>(false);
 
   // Solicitudes de horas extras (Overtime)
   const [overtimeRequests, setOvertimeRequests] = useState<any[]>([]);
@@ -1163,14 +1165,37 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
 
       for (let i = 0; i < sorted.length; i++) {
         const item = sorted[i];
-        if (item.category === "Inactividad" || item.category === "Pausa personal") continue;
+        const act = (item.action || "").toLowerCase();
+        const cat = (item.category || "").toLowerCase();
+        const meta = (item.metadata || {}) as Record<string, any>;
+        const appStr = (meta.app || meta.app_name || "").toLowerCase();
+
+        const isPauseOrIdle =
+          cat === "inactividad" ||
+          cat === "pausas y descansos" ||
+          cat === "descanso" ||
+          cat === "pausa personal" ||
+          cat === "pausa sanitaria" ||
+          cat.includes("pausa") ||
+          cat.includes("descanso") ||
+          act.includes("almuerzo") ||
+          act.includes("descanso") ||
+          act.includes(".scr") ||
+          act.includes("mystify") ||
+          act.includes("lockapp") ||
+          appStr.includes(".scr") ||
+          appStr.includes("mystify") ||
+          meta.task === "Almuerzo" ||
+          meta.subcategory === "Almuerzo";
+
+        if (isPauseOrIdle) continue;
 
         const currTime = new Date(item.created_at!).getTime();
         const nextTime = i < sorted.length - 1 ? new Date(sorted[i + 1].created_at!).getTime() : currTime + 60000;
         const gap = Math.max(0, nextTime - currTime);
 
         const rawDur = Number(item.duration_ms || (item.metadata?.duration_seconds ? item.metadata.duration_seconds * 1000 : 0)) || 0;
-        const isManual = (item.category || "").toLowerCase().includes("manual") || (item.category || "").toLowerCase().includes("taller") || (item.category || "").toLowerCase().includes("capacitaci") || (item.action || "").toLowerCase().startsWith("terminó:") || (item.action || "").toLowerCase().startsWith("termino:");
+        const isManual = !isPauseOrIdle && ((item.category || "").toLowerCase().includes("manual") || (item.category || "").toLowerCase().includes("taller") || (item.category || "").toLowerCase().includes("capacitaci") || (act.startsWith("terminó:") || act.startsWith("termino:")));
 
         if (rawDur > 0 && isManual) {
           // Distribuir la labor manual a lo largo de las horas reales en que se ejecutó
@@ -1307,110 +1332,24 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
           </div>
         </div>
 
-        {/* Controles de horario laboral, fecha y refresco */}
+        {/* Controles de jornada, fecha y refresco */}
         <div className="flex flex-wrap items-center gap-2.5">
-          {/* Selector de Horario Laboral Manual (Fuera de rango NADA se mide) */}
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-border bg-background shadow-sm text-xs font-semibold">
-            <button
-              onClick={() => handleToggleSchedule(!scheduleEnabled)}
-              className={`flex items-center gap-1.5 transition-colors ${
-                scheduleEnabled ? "text-violet-400" : "text-muted-foreground line-through opacity-70"
-              }`}
-              title={scheduleEnabled ? "Horario activo (clic para desactivar medición)" : "Horario desactivado (24h)"}
-            >
-              <Clock className="h-3.5 w-3.5 text-violet-500" />
-              <span className="text-[11px] font-bold">Horario:</span>
-            </button>
-
-            {/* Días laborales interactivos: L M M J V S D */}
-            <div className="flex items-center gap-0.5 px-1 py-0.5 rounded-lg bg-muted/40 border border-border/50" title="Configurar días laborales de la semana">
-              {[
-                { id: 1, label: "L", title: "Lunes" },
-                { id: 2, label: "M", title: "Martes" },
-                { id: 3, label: "M", title: "Miércoles" },
-                { id: 4, label: "J", title: "Jueves" },
-                { id: 5, label: "V", title: "Viernes" },
-                { id: 6, label: "S", title: "Sábado" },
-                { id: 0, label: "D", title: "Domingo" },
-              ].map((d) => {
-                const active = workDays.includes(d.id);
-                return (
-                  <button
-                    key={d.id}
-                    type="button"
-                    onClick={() => handleToggleDay(d.id)}
-                    title={`${d.title}: ${active ? "Laboral (medido)" : "Descanso (fuera de rango, no se mide)"}`}
-                    className={`w-5 h-5 rounded text-[10px] font-mono font-bold transition-all ${
-                      active
-                        ? "bg-violet-600 text-white shadow-xs"
-                        : "text-muted-foreground/50 hover:bg-muted hover:text-foreground"
-                    }`}
-                  >
-                    {d.label}
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="flex items-center gap-1.5">
-              <input
-                type="time"
-                value={scheduleStart}
-                onChange={(e) => handleScheduleChange(e.target.value, scheduleEnd, scheduleEnabled)}
-                className="bg-transparent text-foreground focus:outline-none cursor-pointer font-mono text-xs w-[48px] text-center [&::-webkit-calendar-picker-indicator]:hidden p-0 border-b border-border/60 hover:border-violet-500 transition-colors"
-                title="Hora de inicio de jornada"
-              />
-              <span className="text-muted-foreground text-xs font-normal">a</span>
-              <input
-                type="time"
-                value={scheduleEnd}
-                onChange={(e) => handleScheduleChange(scheduleStart, e.target.value, scheduleEnabled)}
-                className="bg-transparent text-foreground focus:outline-none cursor-pointer font-mono text-xs w-[48px] text-center [&::-webkit-calendar-picker-indicator]:hidden p-0 border-b border-border/60 hover:border-violet-500 transition-colors"
-                title="Hora de fin de jornada"
-              />
-            </div>
-
-            {/* Meta de Jornada Laboral Diaria */}
-            <div className="flex items-center gap-1 pl-1.5 border-l border-border/50 text-[11px]" title="Meta de Jornada Laboral (Horas Hábiles Efectivas)">
-              <Briefcase className="h-3 w-3 text-violet-400 shrink-0" />
-              <button
-                type="button"
-                onClick={() => {
-                  const presets = [8, 8.5, 9, 10];
-                  const idx = presets.indexOf(targetDailyHours);
-                  const nextVal = idx >= 0 && idx < presets.length - 1 ? presets[idx + 1] : presets[0];
-                  handleTargetDailyHoursChange(nextVal);
-                }}
-                className="font-mono font-bold text-violet-400 hover:text-violet-300 transition-colors"
-                title="Clic para alternar meta rápida (8h, 8.5h, 9h, 10h)"
-              >
-                {targetDailyHours}h
-              </button>
-            </div>
-
-            {/* Botón de confirmación de guardado en base de datos */}
-            <button
-              onClick={() => saveScheduleToServer(scheduleStart, scheduleEnd, scheduleEnabled, workDays, targetDailyHours)}
-              disabled={savingSchedule}
-              className={`ml-1 px-2 py-0.5 rounded-md text-[10px] font-bold transition-all flex items-center gap-1 ${
-                scheduleSavedNotice
-                  ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40"
-                  : "bg-muted/70 hover:bg-violet-600 hover:text-white text-muted-foreground border border-border/50"
-              }`}
-              title="Guardar días, horas y meta de jornada en la base de datos"
-            >
-              {savingSchedule ? (
-                <span>Guardando...</span>
-              ) : scheduleSavedNotice ? (
-                <>
-                  <CheckCircle2 className="h-3 w-3 text-emerald-400" />
-                  <span>Guardado</span>
-                </>
-              ) : (
-                <span>Guardar</span>
-              )}
-            </button>
-          </div>
+          {/* Botón Ajustes de Jornada Laboral (Abre modal limpio) */}
+          <button
+            onClick={() => setShowScheduleModal(true)}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-border bg-background hover:bg-muted/70 shadow-xs text-xs font-semibold text-foreground transition-all"
+            title="Configurar horario laboral, días y meta contratada"
+          >
+            <Clock className="h-3.5 w-3.5 text-violet-500" />
+            <span className="text-muted-foreground">Jornada:</span>
+            <span className="font-mono font-bold text-violet-400">
+              {scheduleEnabled ? `${scheduleStart} a ${scheduleEnd}` : "24h"}
+            </span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-violet-500/15 text-violet-300 font-bold border border-violet-500/30">
+              {targetDailyHours}h meta
+            </span>
+            <Settings className="h-3 w-3 text-muted-foreground ml-0.5 hover:text-foreground" />
+          </button>
 
           {/* Selector de fecha */}
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-border bg-background shadow-sm text-xs font-semibold">
@@ -1505,9 +1444,9 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
       <div className="border-b border-border px-6 flex-shrink-0 bg-card/20 flex items-center gap-1 overflow-x-auto scrollbar-none">
         {[
           { id: "live", label: "En Vivo & Resumen", icon: Activity },
+          { id: "apps", label: "Productividad & Apps", icon: Monitor },
           { id: "timeline", label: "Línea de Tiempo", icon: Clock },
           { id: "screenshots", label: "Capturas de Pantalla", icon: Camera },
-          { id: "apps", label: "Apps y Sitios Web", icon: Monitor },
           { id: "briefing", label: "Dictamen IA & Reportes", icon: Sparkles },
         ].map((tab) => {
           const Icon = tab.icon;
@@ -1722,86 +1661,53 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
               </div>
             </div>
 
-            {/* Heatmap de Intensidad */}
-            <ActivityHeatmap timeline={timelineWithinSchedule} date={selectedDate} />
-
-            {/* Analíticas Ejecutivas (Donut de Efectividad, Top Tareas Demandantes y Curva de Tendencia Horaria) */}
-            <ActivityExecutiveCharts
-              timeline={timelineWithinSchedule}
-              selectedDate={selectedDate}
-              onDateChange={(date, endDate) => {
-                setSelectedDate(date);
-                setSelectedEndDate(endDate);
-              }}
-              onRefresh={() => {
-                fetchLive();
-                fetchTimeline();
-              }}
-              refreshing={refreshing}
-              scheduleStart={scheduleStart}
-              scheduleEnd={scheduleEnd}
-              compliance={agentDailyCompliance}
-              serverMetrics={serverMetrics}
-            />
-
-            {/* Top Apps y Resumen en 2 Columnas */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <ActivityAppsRanking
-                timeline={timeline}
-                scheduleStart={scheduleStart}
-                scheduleEnd={scheduleEnd}
-                scheduleEnabled={scheduleEnabled}
-                workDays={workDays}
-              />
-
-              {/* Vista rápida de informes narrados de 5 minutos */}
-              <div className="p-5 rounded-2xl bg-card border border-border/70 shadow-sm space-y-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-sm font-bold text-foreground">Informes Narrados (5 min)</h3>
-                    <p className="text-[11px] text-muted-foreground">Consolidación de tareas continuas</p>
-                  </div>
-                  <button
-                    onClick={() => setActiveTab("timeline")}
-                    className="text-xs font-bold text-violet-400 hover:text-violet-300 flex items-center gap-1"
-                  >
-                    Ver historial completo <ChevronRight className="h-3.5 w-3.5" />
-                  </button>
+            {/* Vista rápida de informes narrados de 5 minutos */}
+            <div className="p-5 rounded-2xl bg-card border border-border/70 shadow-sm space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-foreground">Informes Narrados Recientes (Bloques de 5 min)</h3>
+                  <p className="text-[11px] text-muted-foreground">Consolidación de tareas activas continuas del colaborador</p>
                 </div>
+                <button
+                  onClick={() => setActiveTab("timeline")}
+                  className="text-xs font-bold text-violet-400 hover:text-violet-300 flex items-center gap-1 transition-colors"
+                >
+                  Ver auditoría detallada <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
 
-                <div className="space-y-2.5 max-h-[350px] overflow-y-auto pr-1">
-                  {consolidateTimelineByBlocks(timelineWithinSchedule, 5, scheduleStart, scheduleEnd, scheduleEnabled, workDays).slice(0, 6).map((block) => {
-                    const Icon = CATEGORY_ICONS[block.category] || Activity;
-                    const colorClass = CATEGORY_COLORS[block.category] || "text-zinc-400 bg-zinc-500/10 border-zinc-500/20";
-                    return (
-                      <div
-                        key={block.id}
-                        className="p-3.5 rounded-xl bg-muted/20 border border-border/50 hover:border-violet-500/30 transition-all flex items-start gap-3 text-xs"
-                      >
-                        <div className={`p-2 rounded-xl border shrink-0 ${colorClass}`}>
-                          <Icon className="h-4 w-4" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-foreground leading-relaxed text-justify">{block.narrative}</p>
-                          <div className="flex items-center gap-2 mt-2 text-[11px] text-muted-foreground font-mono flex-wrap">
-                            <span className="font-bold text-foreground/80">{block.startTime} – {block.endTime}</span>
-                            {block.manualTask && (
-                              <span className="px-1.5 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold flex items-center gap-1">
-                                <Wrench className="h-2.5 w-2.5" /> {block.manualTask}
-                              </span>
-                            )}
-                            {block.apps.length > 0 && (
-                              <>
-                                <span>•</span>
-                                <span className="font-sans text-muted-foreground truncate">{block.apps.join(", ")}</span>
-                              </>
-                            )}
-                          </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[400px] overflow-y-auto pr-1">
+                {consolidateTimelineByBlocks(timelineWithinSchedule, 5, scheduleStart, scheduleEnd, scheduleEnabled, workDays).slice(0, 8).map((block) => {
+                  const Icon = CATEGORY_ICONS[block.category] || Activity;
+                  const colorClass = CATEGORY_COLORS[block.category] || "text-zinc-400 bg-zinc-500/10 border-zinc-500/20";
+                  return (
+                    <div
+                      key={block.id}
+                      className="p-3.5 rounded-xl bg-muted/20 border border-border/50 hover:border-violet-500/30 transition-all flex items-start gap-3 text-xs"
+                    >
+                      <div className={`p-2 rounded-xl border shrink-0 ${colorClass}`}>
+                        <Icon className="h-4 w-4" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-foreground leading-relaxed text-justify">{block.narrative}</p>
+                        <div className="flex items-center gap-2 mt-2 text-[11px] text-muted-foreground font-mono flex-wrap">
+                          <span className="font-bold text-foreground/80">{block.startTime} – {block.endTime}</span>
+                          {block.manualTask && (
+                            <span className="px-1.5 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold flex items-center gap-1">
+                              <Wrench className="h-2.5 w-2.5" /> {block.manualTask}
+                            </span>
+                          )}
+                          {block.apps.length > 0 && (
+                            <>
+                              <span>•</span>
+                              <span className="font-sans text-muted-foreground truncate">{block.apps.join(", ")}</span>
+                            </>
+                          )}
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -2072,16 +1978,39 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
           />
         )}
 
-        {/* PESTAÑA 4: APPS Y SITIOS WEB */}
+        {/* PESTAÑA 2: PRODUCTIVIDAD & APLICACIONES */}
         {activeTab === "apps" && (
           <div className="space-y-6">
-            <ActivityAppsRanking
-              timeline={timeline}
+            {/* Analíticas Ejecutivas (Donut de Efectividad, Top Tareas Demandantes y Curva de Tendencia Horaria) */}
+            <ActivityExecutiveCharts
+              timeline={timelineWithinSchedule}
+              selectedDate={selectedDate}
+              onDateChange={(date, endDate) => {
+                setSelectedDate(date);
+                setSelectedEndDate(endDate);
+              }}
+              onRefresh={() => {
+                fetchLive();
+                fetchTimeline();
+              }}
+              refreshing={refreshing}
               scheduleStart={scheduleStart}
               scheduleEnd={scheduleEnd}
-              scheduleEnabled={scheduleEnabled}
-              workDays={workDays}
+              compliance={agentDailyCompliance}
+              serverMetrics={serverMetrics}
             />
+
+            <div className="grid grid-cols-1 gap-6">
+              <ActivityAppsRanking
+                timeline={timeline}
+                scheduleStart={scheduleStart}
+                scheduleEnd={scheduleEnd}
+                scheduleEnabled={scheduleEnabled}
+                workDays={workDays}
+              />
+            </div>
+
+            {/* Mapa de Calor Horario */}
             <ActivityHeatmap timeline={timelineWithinSchedule} date={selectedDate} />
           </div>
         )}
@@ -2097,6 +2026,173 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
           />
         )}
       </div>
+
+      {/* ── MODAL ELEGANTE DE CONFIGURACIÓN DE JORNADA LABORAL ── */}
+      {showScheduleModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4"
+          onClick={() => setShowScheduleModal(false)}
+        >
+          <div
+            className="w-full max-w-lg bg-card border border-border/80 rounded-2xl p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header del Modal */}
+            <div className="flex items-center justify-between pb-4 border-b border-border/60">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-violet-500/15 text-violet-400 border border-violet-500/30">
+                  <Settings className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-foreground">Ajustes de Jornada Laboral</h3>
+                  <p className="text-xs text-muted-foreground">Configuración oficial para medición y auditoría de tiempo</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowScheduleModal(false)}
+                className="h-8 w-8 rounded-xl bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground grid place-items-center transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Controles de Configuración */}
+            <div className="space-y-4 text-xs">
+              {/* 1. Switch Medición por Horario */}
+              <div className="p-3.5 rounded-xl bg-muted/30 border border-border/60 flex items-center justify-between">
+                <div>
+                  <span className="font-bold text-foreground block">Medición Restringida a Horario</span>
+                  <span className="text-muted-foreground text-[11px]">
+                    Si se activa, la actividad fuera de estas horas no se medirá.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleToggleSchedule(!scheduleEnabled)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                    scheduleEnabled
+                      ? "bg-violet-600 text-white shadow-xs"
+                      : "bg-background border border-border text-muted-foreground"
+                  }`}
+                >
+                  {scheduleEnabled ? "Activado" : "Desactivado (24h)"}
+                </button>
+              </div>
+
+              {/* 2. Días Laborables */}
+              <div className="space-y-2">
+                <span className="font-bold text-foreground block">Días Laborales Hábiles</span>
+                <div className="grid grid-cols-7 gap-1.5">
+                  {[
+                    { id: 1, label: "Lun", title: "Lunes" },
+                    { id: 2, label: "Mar", title: "Martes" },
+                    { id: 3, label: "Mié", title: "Miércoles" },
+                    { id: 4, label: "Jue", title: "Jueves" },
+                    { id: 5, label: "Vie", title: "Viernes" },
+                    { id: 6, label: "Sáb", title: "Sábado" },
+                    { id: 0, label: "Dom", title: "Domingo" },
+                  ].map((d) => {
+                    const active = workDays.includes(d.id);
+                    return (
+                      <button
+                        key={d.id}
+                        type="button"
+                        onClick={() => handleToggleDay(d.id)}
+                        className={`py-2 rounded-xl text-xs font-bold transition-all text-center ${
+                          active
+                            ? "bg-violet-600 text-white shadow-sm"
+                            : "bg-muted/40 border border-border text-muted-foreground hover:bg-muted"
+                        }`}
+                        title={d.title}
+                      >
+                        {d.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 3. Horas de Entrada y Salida */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <span className="font-bold text-foreground">Hora de Inicio</span>
+                  <input
+                    type="time"
+                    value={scheduleStart}
+                    onChange={(e) => handleScheduleChange(e.target.value, scheduleEnd, scheduleEnabled)}
+                    className="w-full px-3 py-2 rounded-xl border border-border bg-background font-mono text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <span className="font-bold text-foreground">Hora de Salida</span>
+                  <input
+                    type="time"
+                    value={scheduleEnd}
+                    onChange={(e) => handleScheduleChange(scheduleStart, e.target.value, scheduleEnabled)}
+                    className="w-full px-3 py-2 rounded-xl border border-border bg-background font-mono text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  />
+                </div>
+              </div>
+
+              {/* 4. Meta de Jornada Diaria Contratada */}
+              <div className="space-y-2">
+                <span className="font-bold text-foreground block">Meta de Horas Diarias Contratadas</span>
+                <div className="grid grid-cols-4 gap-2">
+                  {[8, 8.5, 9, 10].map((h) => (
+                    <button
+                      key={h}
+                      type="button"
+                      onClick={() => handleTargetDailyHoursChange(h)}
+                      className={`py-2 rounded-xl text-xs font-bold transition-all text-center ${
+                        targetDailyHours === h
+                          ? "bg-violet-600 text-white shadow-sm"
+                          : "bg-muted/40 border border-border text-muted-foreground hover:bg-muted"
+                      }`}
+                    >
+                      {h} horas
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Footer con Botón Guardar */}
+            <div className="pt-4 border-t border-border/60 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowScheduleModal(false)}
+                className="px-4 py-2 rounded-xl border border-border bg-background hover:bg-muted text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Cerrar
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  await saveScheduleToServer(scheduleStart, scheduleEnd, scheduleEnabled, workDays, targetDailyHours);
+                  toast.success("Jornada laboral actualizada con éxito en la base de datos.");
+                  setShowScheduleModal(false);
+                }}
+                disabled={savingSchedule}
+                className="px-5 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold transition-all shadow-md shadow-violet-600/25 flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {savingSchedule ? (
+                  <span>Guardando...</span>
+                ) : scheduleSavedNotice ? (
+                  <>
+                    <CheckCircle2 className="h-4 w-4 text-white" />
+                    <span>¡Guardado!</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="h-4 w-4" />
+                    <span>Guardar Cambios</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

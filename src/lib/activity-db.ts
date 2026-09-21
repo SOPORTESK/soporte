@@ -410,7 +410,58 @@ export async function getActivityMetrics(agentEmail: string, date: string) {
   const categoryEvents: Record<string, number> = {};
   const LUNCH_GAP_MS = 30 * 60 * 1000;
 
-  // 1. Recolectar intervalos activos reales (software y labores manuales)
+  // 1. Detectar rangos de pausas explícitas (Almuerzo, Descanso, Pausa personal/sanitaria)
+  interface PauseRange {
+    start: number;
+    end: number;
+    reason: string;
+  }
+  const pauseRanges: PauseRange[] = [];
+  let currentPauseStart: number | null = null;
+  let currentPauseReason = "";
+
+  for (const item of sorted) {
+    const act = (item.action || "").toLowerCase();
+    const cat = item.category || "";
+    const meta = (item.metadata || {}) as Record<string, any>;
+    const t = new Date(item.created_at!).getTime();
+
+    const isPauseTask =
+      cat === "Pausas y Descansos" ||
+      cat === "Descanso" ||
+      cat === "Pausa personal" ||
+      cat === "Pausa Sanitaria" ||
+      cat.toLowerCase().includes("pausa") ||
+      cat.toLowerCase().includes("descanso") ||
+      act.includes("almuerzo") ||
+      act.includes("descanso") ||
+      meta.task === "Almuerzo" ||
+      meta.subcategory === "Almuerzo";
+
+    const isPauseStart = (act.startsWith("inició:") || act.startsWith("inicio:")) && isPauseTask;
+    const isPauseEnd = (act.startsWith("terminó:") || act.startsWith("termino:")) && isPauseTask;
+
+    if (isPauseStart) {
+      currentPauseStart = t;
+      currentPauseReason = act;
+    } else if (isPauseEnd) {
+      if (currentPauseStart) {
+        pauseRanges.push({ start: currentPauseStart, end: t, reason: currentPauseReason || act });
+        currentPauseStart = null;
+      } else {
+        const discreteMs = Number(
+          item.duration_ms ||
+          (meta.duration_seconds ? meta.duration_seconds * 1000 : 0) ||
+          (meta.minutes ? meta.minutes * 60000 : 0)
+        ) || 0;
+        if (discreteMs > 0) {
+          pauseRanges.push({ start: t - discreteMs, end: t, reason: act });
+        }
+      }
+    }
+  }
+
+  // 2. Recolectar intervalos activos reales (software y labores manuales)
   interface ActiveInterval {
     start: number;
     end: number;
@@ -427,20 +478,47 @@ export async function getActivityMetrics(agentEmail: string, date: string) {
     const gap = Math.max(0, nextTime - currTime);
     const meta = (item.metadata || {}) as Record<string, any>;
     const act = (item.action || "").toLowerCase();
+    const catRaw = item.category || "";
+    const appStr = (meta.app || meta.app_name || "").toLowerCase();
 
-    const isExplicitPause = meta.reason === "lock_screen" || meta.reason === "suspend" || item.category === "Pausa personal" || item.category === "Pausa Sanitaria" || item.category === "Descanso";
+    // Comprobar si este evento cae dentro de una pausa explícita declarada (ej. Almuerzo)
+    const inDeclaredPause = pauseRanges.some((p) => currTime >= p.start && currTime < p.end);
+
+    // Detección estricta de salvapantallas / lock / inactividad
+    const isScreensaver =
+      act.includes(".scr") ||
+      act.includes("mystify") ||
+      act.includes("lockapp") ||
+      appStr.includes(".scr") ||
+      appStr.includes("mystify") ||
+      appStr.includes("lockapp");
+
+    const isExplicitPause =
+      inDeclaredPause ||
+      isScreensaver ||
+      meta.reason === "lock_screen" ||
+      meta.reason === "suspend" ||
+      catRaw === "Pausas y Descansos" ||
+      catRaw === "Descanso" ||
+      catRaw === "Pausa personal" ||
+      catRaw === "Pausa Sanitaria" ||
+      act.includes("almuerzo") ||
+      act.includes("descanso") ||
+      meta.task === "Almuerzo" ||
+      meta.subcategory === "Almuerzo";
+
     if (isExplicitPause) {
-      totalIdleMs += Math.min(gap, 60 * 60 * 1000);
+      totalIdleMs += Math.min(gap > 0 ? gap : 60000, 60 * 60 * 1000);
       continue;
     }
 
     const isManualStart = (act.startsWith("inició:") || act.startsWith("inicio:")) && (meta.manual || meta.task);
     const isManualEnd = (act.startsWith("terminó:") || act.startsWith("termino:")) && (meta.manual || meta.task);
-    const isJustification = Boolean(meta.justification || item.category === "Justificación" || act.startsWith("justificación:") || act.startsWith("justificacion:"));
+    const isJustification = Boolean(meta.justification || catRaw === "Justificación" || act.startsWith("justificación:") || act.startsWith("justificacion:"));
 
     if (isManualStart) {
       const dur = Math.min(gap, 4 * 60 * 60 * 1000);
-      const cat = item.category || meta.task || "Labores de Taller";
+      const cat = catRaw || meta.task || "Labores de Taller";
       rawIntervals.push({ start: currTime, end: currTime + dur, cat });
       categoryEvents[cat] = (categoryEvents[cat] || 0) + 1;
       continue;
@@ -457,7 +535,7 @@ export async function getActivityMetrics(agentEmail: string, date: string) {
       const prevWasStart = prev && (prevAct.startsWith("inició:") || prevAct.startsWith("inicio:"));
       if (!prevWasStart && discreteMs > 0) {
         const dur = Math.min(discreteMs, 4 * 60 * 60 * 1000);
-        const cat = item.category || meta.task || "Labores de Taller";
+        const cat = catRaw || meta.task || "Labores de Taller";
         const rStart = Math.max(firstEventMs, currTime - dur);
         rawIntervals.push({ start: rStart, end: currTime, cat });
         categoryEvents[cat] = (categoryEvents[cat] || 0) + 1;
@@ -465,7 +543,7 @@ export async function getActivityMetrics(agentEmail: string, date: string) {
       continue;
     }
 
-    let cat = item.category || "Operación Sekunet";
+    let cat = catRaw || "Operación Sekunet";
     if (cat === "Navegación" || cat === "Inactividad") {
       const page = meta.page || "";
       if (page.includes("soporte-avanzado")) cat = "Soporte Avanzado (N2)";

@@ -226,13 +226,118 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
     return parts;
   };
 
+  // 1. Detectar rangos de pausas explícitas (Almuerzo, Descanso, Pausa personal/sanitaria)
+  interface PauseRange {
+    start: number;
+    end: number;
+    reason: string;
+  }
+  const pauseRanges: PauseRange[] = [];
+  let currentPauseStart: number | null = null;
+  let currentPauseReason = "";
+
+  for (const item of sorted) {
+    const act = (item.action || "").toLowerCase();
+    const cat = item.category || "";
+    const meta = (item.metadata || {}) as Record<string, any>;
+    const t = new Date(item.created_at).getTime();
+
+    const isPauseTask =
+      cat === "Pausas y Descansos" ||
+      cat === "Descanso" ||
+      cat === "Pausa personal" ||
+      cat === "Pausa Sanitaria" ||
+      cat.toLowerCase().includes("pausa") ||
+      cat.toLowerCase().includes("descanso") ||
+      act.includes("almuerzo") ||
+      act.includes("descanso") ||
+      meta.task === "Almuerzo" ||
+      meta.subcategory === "Almuerzo";
+
+    const isPauseStart = (act.startsWith("inició:") || act.startsWith("inicio:")) && isPauseTask;
+    const isPauseEnd = (act.startsWith("terminó:") || act.startsWith("termino:")) && isPauseTask;
+
+    if (isPauseStart) {
+      currentPauseStart = t;
+      currentPauseReason = act;
+    } else if (isPauseEnd) {
+      if (currentPauseStart) {
+        pauseRanges.push({ start: currentPauseStart, end: t, reason: currentPauseReason || act });
+        currentPauseStart = null;
+      } else {
+        const discreteMs = Number(
+          item.duration_ms ||
+          (meta.duration_seconds ? meta.duration_seconds * 1000 : 0) ||
+          (meta.minutes ? meta.minutes * 60000 : 0)
+        ) || 0;
+        if (discreteMs > 0) {
+          pauseRanges.push({ start: t - discreteMs, end: t, reason: act });
+        }
+      }
+    }
+  }
+
   for (let i = 0; i < sorted.length; i++) {
     const item = sorted[i];
     const meta = (item.metadata || {}) as Record<string, any>;
     const currTime = new Date(item.created_at).getTime();
     const nextTime = i < sorted.length - 1 ? new Date(sorted[i + 1].created_at).getTime() : currTime + 60000;
+    const gap = Math.max(0, nextTime - currTime);
     const act = (item.action || "").toLowerCase();
-    const isJust = Boolean(meta.justification || item.category === "Justificación" || act.startsWith("justificación:") || act.startsWith("justificacion:"));
+    const catRaw = item.category || "";
+    const appStr = (meta.app || meta.app_name || "").toLowerCase();
+
+    const inDeclaredPause = pauseRanges.some((p) => currTime >= p.start && currTime < p.end);
+    const isScreensaver =
+      act.includes(".scr") ||
+      act.includes("mystify") ||
+      act.includes("lockapp") ||
+      appStr.includes(".scr") ||
+      appStr.includes("mystify") ||
+      appStr.includes("lockapp");
+
+    const isPauseTask =
+      catRaw === "Pausas y Descansos" ||
+      catRaw === "Descanso" ||
+      catRaw === "Pausa personal" ||
+      catRaw === "Pausa Sanitaria" ||
+      catRaw.toLowerCase().includes("pausa") ||
+      catRaw.toLowerCase().includes("descanso") ||
+      act.includes("almuerzo") ||
+      act.includes("descanso") ||
+      meta.task === "Almuerzo" ||
+      meta.subcategory === "Almuerzo";
+
+    // Si es pausa explícita, registrar en lagunas y NO sumar como tiempo activo
+    const isExplicitPause =
+      inDeclaredPause ||
+      isScreensaver ||
+      isPauseTask ||
+      meta.reason === "lock_screen" ||
+      meta.reason === "suspend";
+
+    if (isExplicitPause) {
+      const pauseDur = Math.min(gap > 0 ? gap : 60000, 60 * 60 * 1000);
+      if (pauseDur >= 60000) {
+        const dStart = new Date(currTime);
+        const dEnd = new Date(currTime + pauseDur);
+        detectedGaps.push({
+          id: `gap-${i}`,
+          dateStr: toYMD(dStart),
+          dateFormatted: dStart.toLocaleDateString("es-CR", { day: "numeric", month: "short", timeZone: "America/Costa_Rica" }),
+          startTime: dStart.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }),
+          endTime: dEnd.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }),
+          startTimeVal: toTimeVal(dStart),
+          endTimeVal: toTimeVal(dEnd),
+          durationMs: pauseDur,
+          minutes: Math.round(pauseDur / 60000),
+          reason: isScreensaver ? "Salvapantallas / Bloqueo de Pantalla" : (catRaw || "Pausa / Descanso"),
+        });
+      }
+      continue;
+    }
+
+    const isJust = Boolean(meta.justification || catRaw === "Justificación" || act.startsWith("justificación:") || act.startsWith("justificacion:"));
     if (isJust) {
       const justMs = Number(
         item.duration_ms ||
@@ -248,13 +353,12 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
       continue;
     }
 
-    const gap = Math.max(0, nextTime - currTime);
     const isManualStart = (act.startsWith("inició:") || act.startsWith("inicio:")) && (meta.manual || meta.task);
     const isManualEnd = (act.startsWith("terminó:") || act.startsWith("termino:")) && (meta.manual || meta.task);
 
     if (isManualStart) {
       const dur = Math.min(gap, 4 * 60 * 60 * 1000);
-      const cat = meta.task || item.category || "Labores de Taller";
+      const cat = meta.task || catRaw || "Labores de Taller";
       if (!categoryMap[cat]) categoryMap[cat] = { durationMs: 0, count: 0 };
       categoryMap[cat].durationMs += dur;
       categoryMap[cat].count++;
@@ -273,35 +377,11 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
           (meta.minutes ? meta.minutes * 60000 : 0)
         ) || 0;
         const dur = Math.min(discreteMs, 4 * 60 * 60 * 1000);
-        const cat = meta.task || item.category || "Labores de Taller";
+        const cat = meta.task || catRaw || "Labores de Taller";
         if (!categoryMap[cat]) categoryMap[cat] = { durationMs: 0, count: 0 };
         categoryMap[cat].durationMs += dur;
         categoryMap[cat].count++;
         totalActiveMs += dur;
-      }
-      continue;
-    }
-
-    // Es pausa real SOLO SI: fue bloqueo de pantalla explícito, suspensión o pausa personal
-    const isExplicitPause = meta.reason === "lock_screen" || meta.reason === "suspend" || item.category === "Pausa personal" || item.category === "Pausa Sanitaria";
-
-    if (isExplicitPause) {
-      const pauseDur = Math.min(gap, 60 * 60 * 1000);
-      if (pauseDur >= 60000) {
-        const dStart = new Date(currTime);
-        const dEnd = new Date(currTime + pauseDur);
-        detectedGaps.push({
-          id: `gap-${i}`,
-          dateStr: toYMD(dStart),
-          dateFormatted: dStart.toLocaleDateString("es-CR", { day: "numeric", month: "short", timeZone: "America/Costa_Rica" }),
-          startTime: dStart.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }),
-          endTime: dEnd.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }),
-          startTimeVal: toTimeVal(dStart),
-          endTimeVal: toTimeVal(dEnd),
-          durationMs: pauseDur,
-          minutes: Math.round(pauseDur / 60000),
-          reason: item.category || "Pausa explícita (Bloqueo / Suspensión)",
-        });
       }
       continue;
     }

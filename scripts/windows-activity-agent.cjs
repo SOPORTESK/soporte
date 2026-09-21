@@ -188,7 +188,19 @@ async function poll() {
     const title = win.Title || '';
     const now = Date.now();
 
-    if (procName === 'Idle' || procName === 'LockApp' || procName === 'ScreenClippingHost' || !title) {
+    const pLower = procName.toLowerCase();
+    const tLower = title.toLowerCase();
+
+    if (
+      procName === 'Idle' ||
+      procName === 'LockApp' ||
+      procName === 'ScreenClippingHost' ||
+      pLower.endsWith('.scr') ||
+      pLower.includes('mystify') ||
+      pLower.includes('scrnsave') ||
+      tLower.includes('mystify') ||
+      !title
+    ) {
       return;
     }
 
