@@ -72,44 +72,30 @@ function minutosLaborales(startMs: number, endMs: number): number {
   return total;
 }
 
-/** Calcula minutos de resolución REALES basados en sesiones activas de chat.
- *  Agrupa los mensajes en sesiones separadas por gaps de más de 2 horas.
- *  Solo suma la duración de cada sesión activa, ignorando el tiempo muerto. */
-function calculateRealMinutes(c: any): number {
-  const times: number[] = [];
-  for (const arr of [c.histcliente, c.histtecnico]) {
-    if (!Array.isArray(arr)) continue;
-    for (const msg of arr) {
-      const t = msg?.time || msg?.timestamp || msg?.created_at;
-      if (t) {
-        const d = new Date(t).getTime();
-        if (!isNaN(d)) times.push(d);
-      }
-    }
-  }
-  if (times.length < 2) {
-    // Solo 1 mensaje o ninguno: fallback a accepted_at → closed_at con tope de 60 min
-    const start = new Date(c.accepted_at);
-    const end = new Date(c.closed_at);
-    if (isNaN(start.getTime()) || isNaN(end.getTime())) return 0;
-    return Math.min(60, Math.round((end.getTime() - start.getTime()) / 60000));
-  }
-  times.sort((a, b) => a - b);
-  const GAP_MS = 2 * 60 * 60 * 1000; // 2 horas = nueva sesión
-  let totalMs = 0;
-  let sessionStart = times[0];
-  let prev = times[0];
-  for (let i = 1; i < times.length; i++) {
-    if (times[i] - prev > GAP_MS) {
-      // Cerrar sesión anterior y abrir una nueva
-      totalMs += prev - sessionStart;
-      sessionStart = times[i];
-    }
-    prev = times[i];
-  }
-  // Cerrar última sesión
-  totalMs += prev - sessionStart;
-  return Math.round(totalMs / 60000);
+/** Calcula los minutos de resolución real de un caso:
+ *  Mide desde la aceptación (o creación) hasta el último mensaje intercambiado en la conversación.
+ *  Si no hay mensajes en el chat, recurre a closed_at.
+ *  Evita falsos positivos por tickets que quedan abiertos horas o días después de terminar la atención. */
+function getMinutosResolucion(c: any): number | null {
+  const tStart = c.accepted_at ? new Date(c.accepted_at).getTime() : new Date(c.created_at).getTime();
+  if (isNaN(tStart)) return null;
+
+  const allMsgs = [
+    ...(Array.isArray(c.histcliente) ? c.histcliente : []),
+    ...(Array.isArray(c.histtecnico) ? c.histtecnico : [])
+  ];
+  const msgTimes = allMsgs
+    .map(m => m && m.time ? new Date(m.time).getTime() : 0)
+    .filter(t => !isNaN(t) && t > 0);
+
+  const tClosed = c.closed_at ? new Date(c.closed_at).getTime() : NaN;
+  const tLastMsg = msgTimes.length > 0 ? Math.max(...msgTimes) : tClosed;
+  const tEnd = !isNaN(tLastMsg) ? Math.max(tLastMsg, tStart) : tClosed;
+
+  if (isNaN(tEnd)) return null;
+  const min = Math.round((tEnd - tStart) / 60000);
+  if (min < 0) return null;
+  return min;
 }
 
 const MESES_NOMBRES = [
@@ -296,15 +282,12 @@ export default async function EstadisticasAtencionPage({
   const slaGt4h = tiemposTodos.filter(t => t > 240).length;
   const avgSlaGlobal = tiemposTodos.length > 0 ? Math.round(tiemposTodos.reduce((a, b) => a + b, 0) / tiemposTodos.length) : 0;
 
-  // ── Distribución de tiempo de resolución humana (tiempo reloj real de aceptación a cierre)
+  // ── Distribución de tiempo de resolución humana (tiempo real de conversación hasta el último mensaje)
   const casosResolucion = casosConAsig
     .filter(c => (c.estado === "resuelto" || c.estado === "cerrado" || (c as any).closed_at) && (c as any).closed_at)
     .map(c => {
-      const tStart = c.accepted_at ? new Date(c.accepted_at).getTime() : new Date(c.created_at).getTime();
-      const tEnd = new Date((c as any).closed_at).getTime();
-      if (isNaN(tStart) || isNaN(tEnd)) return null;
-      const min = Math.round((tEnd - tStart) / 60000);
-      if (min < 0) return null; // Inconsistencias de reloj van a sinDatosRes
+      const min = getMinutosResolucion(c);
+      if (min === null) return null; // Inconsistencias van a sinDatosRes
       return {
         id: c.id,
         title: c.title || "Caso sin título",
@@ -461,14 +444,9 @@ export default async function EstadisticasAtencionPage({
     if (caso.estado === "escalado") s.escalados++;
     if (caso.estado === "resuelto" || caso.estado === "cerrado" || (caso as any).closed_at) {
       s.resueltos++;
-      const closedAt = (caso as any).closed_at;
-      if (closedAt) {
-        const tStart = caso.accepted_at ? new Date(caso.accepted_at).getTime() : new Date(caso.created_at).getTime();
-        const tEnd = new Date(closedAt).getTime();
-        if (!isNaN(tStart) && !isNaN(tEnd)) {
-          const diff = Math.round((tEnd - tStart) / 60000);
-          if (diff > 0 && diff < 10080) s.tiemposResolucion.push(diff);
-        }
+      const minRes = getMinutosResolucion(caso);
+      if (minRes !== null && minRes >= 0 && minRes < 10080) {
+        s.tiemposResolucion.push(minRes);
       }
       const te = tiempoEfectivo((caso as any).histtecnico, (caso as any).histcliente, (caso as any).accepted_at);
       if (te > 0) s.tiemposEfectivos.push(te);
@@ -1024,7 +1002,7 @@ export default async function EstadisticasAtencionPage({
             </div>
             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Tiempo de Resolución</p>
             <p className="text-4xl font-black mt-1 tracking-tight tabular-nums text-emerald-500">{avgTiempoResolucionGlobal > 0 ? formatSLA(avgTiempoResolucionGlobal) : "—"}</p>
-            <p className="text-[11px] text-muted-foreground mt-1.5">promedio aceptación → cierre · {tiemposResolucionGlobal.length} casos{casosExcluidosResolucion > 0 ? ` · ${casosExcluidosResolucion} excluidos (+7d)` : ""}</p>
+            <p className="text-[11px] text-muted-foreground mt-1.5">promedio atención → fin conversación · {tiemposResolucionGlobal.length} casos{casosExcluidosResolucion > 0 ? ` · ${casosExcluidosResolucion} excluidos (+7d)` : ""}</p>
           </div>
         </div>
 
