@@ -31,6 +31,7 @@ import {
   UserPlus,
   Users,
   SlidersHorizontal,
+  Coffee,
 } from "lucide-react";
 import { toast } from "sonner";
 import { logActivity } from "@/lib/activity-client";
@@ -296,27 +297,36 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
       appStr.includes("mystify") ||
       appStr.includes("lockapp");
 
-    const isPauseTask =
+    const isSanitary =
+      catRaw === "Pausa Sanitaria" ||
+      catRaw === "Pausa personal" ||
+      act.includes("sanitaria") ||
+      act.includes("baño") ||
+      act.includes("bano");
+
+    const isBreak =
       catRaw === "Pausas y Descansos" ||
       catRaw === "Descanso" ||
-      catRaw === "Pausa personal" ||
-      catRaw === "Pausa Sanitaria" ||
-      catRaw.toLowerCase().includes("pausa") ||
-      catRaw.toLowerCase().includes("descanso") ||
       act.includes("almuerzo") ||
       act.includes("descanso") ||
+      act.includes("comida") ||
+      act.includes("café") ||
+      act.includes("cafe") ||
       meta.task === "Almuerzo" ||
       meta.subcategory === "Almuerzo";
 
-    // Si es pausa explícita, registrar en lagunas y NO sumar como tiempo activo
-    const isExplicitPause =
-      inDeclaredPause ||
+    // Si es pausa oficial autorizada (almuerzo, descanso, baño), es una pausa declarada y NO una laguna de inactividad
+    if (inDeclaredPause || isBreak || isSanitary) {
+      continue;
+    }
+
+    // Si es salvapantallas o bloqueo de pantalla explícito sin pausa declarada
+    const isLockOrScreensaver =
       isScreensaver ||
-      isPauseTask ||
       meta.reason === "lock_screen" ||
       meta.reason === "suspend";
 
-    if (isExplicitPause) {
+    if (isLockOrScreensaver) {
       const pauseDur = Math.min(gap > 0 ? gap : 60000, 60 * 60 * 1000);
       if (pauseDur >= 60000) {
         const dStart = new Date(currTime);
@@ -331,7 +341,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
           endTimeVal: toTimeVal(dEnd),
           durationMs: pauseDur,
           minutes: Math.round(pauseDur / 60000),
-          reason: isScreensaver ? "Salvapantallas / Bloqueo de Pantalla" : (catRaw || "Pausa / Descanso"),
+          reason: "Salvapantallas / Bloqueo de Pantalla",
         });
       }
       continue;
@@ -497,6 +507,14 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
   const officialIdleMs = (serverMetrics?.totalIdleMs !== undefined && (rangeMode === "hoy" || rangeMode === "custom"))
     ? serverMetrics.totalIdleMs
     : totalIdleMs;
+
+  const officialBreakMs = (serverMetrics?.totalBreakMs !== undefined && (rangeMode === "hoy" || rangeMode === "custom"))
+    ? serverMetrics.totalBreakMs
+    : 0;
+
+  const officialSanitaryMs = (serverMetrics?.totalSanitaryMs !== undefined && (rangeMode === "hoy" || rangeMode === "custom"))
+    ? serverMetrics.totalSanitaryMs
+    : 0;
 
   const officialCompliancePercent = targetMs > 0 ? Math.round((officialActiveMs / targetMs) * 100) : compliancePercent;
 
@@ -791,7 +809,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
             ) : (
               <div className="space-y-6">
                 {/* 1. Tarjetas KPI de la Jornada Base (10 horas) */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
                   <div className="p-3.5 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-2 shadow-sm">
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">
@@ -822,11 +840,56 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                       <p className="text-xl font-black text-emerald-400 tabular-nums whitespace-nowrap tracking-tight">
                         {formatMinHours(officialActiveMs)}
                       </p>
-                      <span className="text-[10px] text-emerald-500/80 font-medium">Actividad registrada</span>
+                      <span className="text-[10px] text-emerald-500/80 font-medium">Actividad productiva</span>
                     </div>
                   </div>
 
                   <div className="p-3.5 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-2 shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">
+                        Descanso / Almuerzo
+                      </span>
+                      <div className="h-7 w-7 rounded-lg bg-amber-500/15 text-amber-400 grid place-items-center shrink-0">
+                        <Coffee className="h-3.5 w-3.5" />
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xl font-black text-amber-400 tabular-nums whitespace-nowrap tracking-tight">
+                        {formatMinHours(officialBreakMs + officialSanitaryMs)}
+                      </p>
+                      <span className="text-[10px] text-amber-500/80 font-medium">Pausa oficial registrada</span>
+                    </div>
+                  </div>
+
+                  <div className="p-3.5 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-2 shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">
+                        Inactividad Real
+                      </span>
+                      <div className="h-7 w-7 rounded-lg bg-slate-500/15 text-slate-400 grid place-items-center shrink-0">
+                        <Clock className="h-3.5 w-3.5" />
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xl font-black text-slate-300 tabular-nums whitespace-nowrap tracking-tight">
+                        {formatMinHours(officialIdleMs)}
+                      </p>
+                      <div className="flex items-center justify-between mt-0.5">
+                        <span className="text-[10px] text-muted-foreground font-medium">Tolerancia: {toleranceMin} min</span>
+                        {officialIdleMs > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setActiveTab("justificar")}
+                            className="text-[10px] font-bold text-violet-400 hover:text-violet-300 underline underline-offset-2 transition-colors"
+                          >
+                            Justificar
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-3.5 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-2 shadow-sm col-span-2 sm:col-span-1">
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">
                         Tiempo Restante
@@ -842,34 +905,6 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                       <span className="text-[10px] text-sky-500/80 font-medium">
                         {officialDeficitMs > 0 ? "Para cumplir meta" : "¡Meta cumplida!"}
                       </span>
-                    </div>
-                  </div>
-
-                  <div className="p-3.5 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-2 shadow-sm">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">
-                        Inactividad / Pausas
-                      </span>
-                      <div className="h-7 w-7 rounded-lg bg-amber-500/15 text-amber-400 grid place-items-center shrink-0">
-                        <Clock className="h-3.5 w-3.5" />
-                      </div>
-                    </div>
-                    <div>
-                      <p className="text-xl font-black text-amber-400 tabular-nums whitespace-nowrap tracking-tight">
-                        {formatMinHours(officialIdleMs)}
-                      </p>
-                      <div className="flex items-center justify-between mt-0.5">
-                        <span className="text-[10px] text-amber-500/80 font-medium">Tolerancia: {toleranceMin} min</span>
-                        {officialIdleMs > 0 && (
-                          <button
-                            type="button"
-                            onClick={() => setActiveTab("justificar")}
-                            className="text-[10px] font-bold text-violet-400 hover:text-violet-300 underline underline-offset-2 transition-colors"
-                          >
-                            Justificar
-                          </button>
-                        )}
-                      </div>
                     </div>
                   </div>
                 </div>

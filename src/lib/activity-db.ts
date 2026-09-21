@@ -405,6 +405,8 @@ export async function getActivityMetrics(agentEmail: string, date: string) {
     .sort((a, b) => new Date(a.created_at!).getTime() - new Date(b.created_at!).getTime());
 
   let totalActiveMs = 0;
+  let totalBreakMs = 0;
+  let totalSanitaryMs = 0;
   let totalIdleMs = 0;
   const categoryTimeMs: Record<string, number> = {};
   const categoryEvents: Record<string, number> = {};
@@ -415,10 +417,12 @@ export async function getActivityMetrics(agentEmail: string, date: string) {
     start: number;
     end: number;
     reason: string;
+    type: "break" | "sanitary" | "idle";
   }
   const pauseRanges: PauseRange[] = [];
   let currentPauseStart: number | null = null;
   let currentPauseReason = "";
+  let currentPauseType: "break" | "sanitary" | "idle" = "break";
 
   for (const item of sorted) {
     const act = (item.action || "").toLowerCase();
@@ -426,27 +430,35 @@ export async function getActivityMetrics(agentEmail: string, date: string) {
     const meta = (item.metadata || {}) as Record<string, any>;
     const t = new Date(item.created_at!).getTime();
 
-    const isPauseTask =
+    const isSanitary =
+      cat === "Pausa Sanitaria" ||
+      cat === "Pausa personal" ||
+      act.includes("sanitaria") ||
+      act.includes("baño") ||
+      act.includes("bano");
+
+    const isBreak =
       cat === "Pausas y Descansos" ||
       cat === "Descanso" ||
-      cat === "Pausa personal" ||
-      cat === "Pausa Sanitaria" ||
-      cat.toLowerCase().includes("pausa") ||
-      cat.toLowerCase().includes("descanso") ||
       act.includes("almuerzo") ||
       act.includes("descanso") ||
+      act.includes("comida") ||
+      act.includes("café") ||
+      act.includes("cafe") ||
       meta.task === "Almuerzo" ||
       meta.subcategory === "Almuerzo";
 
-    const isPauseStart = (act.startsWith("inició:") || act.startsWith("inicio:")) && isPauseTask;
-    const isPauseEnd = (act.startsWith("terminó:") || act.startsWith("termino:")) && isPauseTask;
+    const isPauseStart = (act.startsWith("inició:") || act.startsWith("inicio:")) && (isSanitary || isBreak);
+    const isPauseEnd = (act.startsWith("terminó:") || act.startsWith("termino:")) && (isSanitary || isBreak);
 
     if (isPauseStart) {
       currentPauseStart = t;
       currentPauseReason = act;
+      currentPauseType = isSanitary ? "sanitary" : "break";
     } else if (isPauseEnd) {
+      const pType = isSanitary ? "sanitary" : "break";
       if (currentPauseStart) {
-        pauseRanges.push({ start: currentPauseStart, end: t, reason: currentPauseReason || act });
+        pauseRanges.push({ start: currentPauseStart, end: t, reason: currentPauseReason || act, type: currentPauseType });
         currentPauseStart = null;
       } else {
         const discreteMs = Number(
@@ -455,7 +467,7 @@ export async function getActivityMetrics(agentEmail: string, date: string) {
           (meta.minutes ? meta.minutes * 60000 : 0)
         ) || 0;
         if (discreteMs > 0) {
-          pauseRanges.push({ start: t - discreteMs, end: t, reason: act });
+          pauseRanges.push({ start: t - discreteMs, end: t, reason: act, type: pType });
         }
       }
     }
@@ -481,10 +493,18 @@ export async function getActivityMetrics(agentEmail: string, date: string) {
     const catRaw = item.category || "";
     const appStr = (meta.app || meta.app_name || "").toLowerCase();
 
-    // Comprobar si este evento cae dentro de una pausa explícita declarada (ej. Almuerzo)
-    const inDeclaredPause = pauseRanges.some((p) => currTime >= p.start && currTime < p.end);
+    // 2.1 Comprobar si cae dentro de una pausa explícita declarada (ej. Almuerzo, Baño)
+    const matchedPause = pauseRanges.find((p) => currTime >= p.start && currTime < p.end);
+    if (matchedPause) {
+      const dur = Math.min(gap > 0 ? gap : 60000, 60 * 60 * 1000);
+      if (matchedPause.type === "sanitary") {
+        totalSanitaryMs += dur;
+      } else {
+        totalBreakMs += dur;
+      }
+      continue;
+    }
 
-    // Detección estricta de salvapantallas / lock / inactividad
     const isScreensaver =
       act.includes(".scr") ||
       act.includes("mystify") ||
@@ -493,21 +513,35 @@ export async function getActivityMetrics(agentEmail: string, date: string) {
       appStr.includes("mystify") ||
       appStr.includes("lockapp");
 
-    const isExplicitPause =
-      inDeclaredPause ||
-      isScreensaver ||
-      meta.reason === "lock_screen" ||
-      meta.reason === "suspend" ||
+    const isSanitary =
+      catRaw === "Pausa Sanitaria" ||
+      catRaw === "Pausa personal" ||
+      act.includes("sanitaria") ||
+      act.includes("baño") ||
+      act.includes("bano");
+
+    const isBreak =
       catRaw === "Pausas y Descansos" ||
       catRaw === "Descanso" ||
-      catRaw === "Pausa personal" ||
-      catRaw === "Pausa Sanitaria" ||
       act.includes("almuerzo") ||
       act.includes("descanso") ||
+      act.includes("comida") ||
+      act.includes("café") ||
+      act.includes("cafe") ||
       meta.task === "Almuerzo" ||
       meta.subcategory === "Almuerzo";
 
-    if (isExplicitPause) {
+    if (isSanitary) {
+      totalSanitaryMs += Math.min(gap > 0 ? gap : 60000, 60 * 60 * 1000);
+      continue;
+    }
+
+    if (isBreak) {
+      totalBreakMs += Math.min(gap > 0 ? gap : 60000, 60 * 60 * 1000);
+      continue;
+    }
+
+    if (isScreensaver || meta.reason === "lock_screen" || meta.reason === "suspend") {
       totalIdleMs += Math.min(gap > 0 ? gap : 60000, 60 * 60 * 1000);
       continue;
     }
@@ -624,7 +658,11 @@ export async function getActivityMetrics(agentEmail: string, date: string) {
     isOvertimeApproved,
     overtimeStatus: otReq?.status || (rawOvertimeMs > 0 ? "pending" : "none"),
     totalIdleMs,
+    totalBreakMs,
+    totalSanitaryMs,
     totalActiveTime: formatDuration(activeDisplayMs),
+    totalBreakTime: formatDuration(totalBreakMs),
+    totalSanitaryTime: formatDuration(totalSanitaryMs),
     totalIdleTime: formatDuration(totalIdleMs),
     deficitTime: formatDuration(deficitMs),
     overtimeTime: formatDuration(rawOvertimeMs),

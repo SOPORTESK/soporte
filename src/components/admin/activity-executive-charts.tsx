@@ -213,24 +213,26 @@ function ActivityExecutiveChartsComponent({
       const nextTime = i < sorted.length - 1 ? new Date(sorted[i + 1].created_at!).getTime() : currTime + 60000;
       const gap = Math.max(0, nextTime - currTime);
 
-      // 1. Si es inicio de labor manual, computar el lapso hasta el siguiente evento
+      // 1. Si es inicio de labor manual o pausa
       if (isStart) {
         const dur = Math.min(gap, 4 * 3600 * 1000);
-        buckets.Productivo += dur;
+        buckets[masterCat] += dur;
 
-        const smartName = extractSmartAppName(it);
-        if (!taskMap[smartName]) {
-          taskMap[smartName] = { durationMs: 0, count: 1 };
-        } else {
-          taskMap[smartName].durationMs += dur;
-          taskMap[smartName].count++;
-        }
+        if (masterCat === "Productivo") {
+          const smartName = extractSmartAppName(it);
+          if (!taskMap[smartName]) {
+            taskMap[smartName] = { durationMs: 0, count: 1 };
+          } else {
+            taskMap[smartName].durationMs += dur;
+            taskMap[smartName].count++;
+          }
 
-        const d = new Date(it.created_at!);
-        const crHourStr = d.toLocaleString("en-US", { timeZone: "America/Costa_Rica", hour: "numeric", hour12: false });
-        const crHour = parseInt(crHourStr, 10) % 24;
-        if (hourIntervals[crHour] !== undefined) {
-          hourIntervals[crHour] = Math.min(60 * 60 * 1000, hourIntervals[crHour] + dur);
+          const d = new Date(it.created_at!);
+          const crHourStr = d.toLocaleString("en-US", { timeZone: "America/Costa_Rica", hour: "numeric", hour12: false });
+          const crHour = parseInt(crHourStr, 10) % 24;
+          if (hourIntervals[crHour] !== undefined) {
+            hourIntervals[crHour] = Math.min(60 * 60 * 1000, hourIntervals[crHour] + dur);
+          }
         }
         continue;
       }
@@ -330,16 +332,22 @@ function ActivityExecutiveChartsComponent({
     }
 
     // ── Consolidación unificada con la única fuente de verdad oficial ──
-    const officialActiveMs = compliance?.activeMinutes
-      ? compliance.activeMinutes * 60000
-      : (serverMetrics?.totalActiveMs || buckets.Productivo);
-
-    const officialIdleMs = serverMetrics?.totalIdleMs !== undefined
-      ? serverMetrics.totalIdleMs
-      : buckets.Inactivo;
-
-    buckets.Productivo = officialActiveMs;
-    buckets.Inactivo = officialIdleMs;
+    if (serverMetrics) {
+      if (serverMetrics.totalActiveMs !== undefined) {
+        buckets.Productivo = compliance?.activeMinutes ? compliance.activeMinutes * 60000 : serverMetrics.totalActiveMs;
+      }
+      if (serverMetrics.totalBreakMs !== undefined) {
+        buckets.Descanso = serverMetrics.totalBreakMs;
+      }
+      if (serverMetrics.totalSanitaryMs !== undefined) {
+        buckets["Pausa Sanitaria"] = serverMetrics.totalSanitaryMs;
+      }
+      if (serverMetrics.totalIdleMs !== undefined) {
+        buckets.Inactivo = serverMetrics.totalIdleMs;
+      }
+    } else if (compliance?.activeMinutes) {
+      buckets.Productivo = compliance.activeMinutes * 60000;
+    }
 
     const totalMs = Object.values(buckets).reduce((a, b) => a + b, 0) || 1;
 
