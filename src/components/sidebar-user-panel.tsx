@@ -205,7 +205,24 @@ export function SidebarUserPanel({
 
       if (subs.length === 0) continue;
 
-      const items = subs.map((sub: string) => {
+      // FILTRADO ESTRICTO: En "Tareas Físicas / Fuera de Estación" ÚNICAMENTE van labores manuales/físicas o pausas
+      const isBreakCat = (cat.id === "Pausas y Descansos" || cat.label === "Pausas y Descansos" || (cat.id || "").toLowerCase().includes("pausa"));
+      
+      const manualSubs = subs.filter((sub: string) => {
+        if (!sub) return false;
+        // 1. Marcadas explícitamente con (MANUAL)
+        if (/\(manual\)/i.test(sub) || /manual/i.test(sub)) return true;
+        // 2. Pausas y Descansos (físicas / fuera de pantalla)
+        if (isBreakCat) return true;
+        // 3. Tareas físicas fuera de pantalla específicas del taller
+        const sLower = sub.toLowerCase();
+        if (sLower === "reunión" || sLower === "reuniones" || sLower === "reuniones y charlas") return true;
+        return false;
+      });
+
+      if (manualSubs.length === 0) continue;
+
+      const items = manualSubs.map((sub: string) => {
         const cleanShort = sub.replace(/\s*\(manual\)\s*/i, "").trim();
         return {
           label: cleanShort,
