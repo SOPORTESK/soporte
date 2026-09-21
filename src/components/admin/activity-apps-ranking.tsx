@@ -69,6 +69,7 @@ export interface CategoryItem {
   bgBar: string;
   iconName: string;
   subcategories: string[];
+  is_manual?: boolean;
 }
 
 export const DEFAULT_CATEGORIES: CategoryItem[] = [
@@ -752,6 +753,8 @@ function ActivityAppsRankingComponent({
   const [newSubcatInput, setNewSubcatInput] = useState("");
   const [inlineAddSubcatCatId, setInlineAddSubcatCatId] = useState<string | null>(null);
   const [inlineSubcatValue, setInlineSubcatValue] = useState("");
+  const [inlineSubcatIsManual, setInlineSubcatIsManual] = useState(false);
+  const [formSubcatIsManual, setFormSubcatIsManual] = useState(false);
 
   // Helper para resolver la asignación completa (categoría + subcategoría) de una app
   const getAppAssignment = (appName: string, action?: string, category?: string) => {
@@ -903,9 +906,12 @@ function ActivityAppsRankingComponent({
   };
 
   // Agregar subcategoría rápida a una categoría existente
-  const handleAddSubcategory = async (catId: string, subcatName: string) => {
-    const trimmed = subcatName.trim();
+  const handleAddSubcategory = async (catId: string, subcatName: string, isManual: boolean = false) => {
+    let trimmed = subcatName.trim();
     if (!trimmed) return;
+    if (isManual && !/\(manual\)/i.test(trimmed)) {
+      trimmed = `${trimmed} (MANUAL)`;
+    }
     const updated = categories.map((cat) => {
       if (cat.id === catId) {
         const subs = cat.subcategories || [];
@@ -918,8 +924,57 @@ function ActivityAppsRankingComponent({
     saveCategoriesList(updated);
     setInlineAddSubcatCatId(null);
     setInlineSubcatValue("");
+    setInlineSubcatIsManual(false);
     setTreeNewSubcatCatId(null);
     setTreeNewSubcatInput("");
+  };
+
+  // Alternar si una subcategoría es Manual (botón en barra lateral) o Digital (PC)
+  const handleToggleSubcategoryManual = async (catId: string, subcatName: string) => {
+    const isCurrentlyManual = /\(manual\)/i.test(subcatName);
+    const cleanName = subcatName.replace(/\s*\(manual\)/i, "").trim();
+    const newName = isCurrentlyManual ? cleanName : `${cleanName} (MANUAL)`;
+
+    const updated = categories.map((cat) => {
+      if (cat.id === catId && cat.subcategories) {
+        return {
+          ...cat,
+          subcategories: cat.subcategories.map((s) => (s === subcatName ? newName : s)),
+        };
+      }
+      return cat;
+    });
+    saveCategoriesList(updated);
+
+    // Si había mapeos de aplicaciones apuntando a esta subcategoría, actualizarlos también
+    const newMap = { ...customCategories };
+    let changed = false;
+    for (const [app, val] of Object.entries(newMap)) {
+      if (typeof val === "object" && val && (val.category === catId || val.category === getCategoryUI(catId).label) && val.subcategory === subcatName) {
+        newMap[app] = { ...val, subcategory: newName };
+        changed = true;
+      }
+    }
+    if (changed) {
+      setCustomCategories(newMap);
+      try { localStorage.setItem("sek_app_categories", JSON.stringify(newMap)); } catch {}
+      fetch("/api/activity/app-categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ appMappings: newMap }),
+      }).catch(console.error);
+    }
+  };
+
+  // Alternar categoría completa como manual o digital
+  const handleToggleCategoryManual = async (catId: string) => {
+    const updated = categories.map((cat) => {
+      if (cat.id === catId) {
+        return { ...cat, is_manual: !cat.is_manual };
+      }
+      return cat;
+    });
+    saveCategoriesList(updated);
   };
 
   // Eliminar subcategoría de una categoría
@@ -1017,6 +1072,7 @@ function ActivityAppsRankingComponent({
             bgBar: preset.bgBar,
             iconName: formCatIcon,
             subcategories: formCatSubcategories,
+            is_manual: editingCategory.is_manual,
           };
         }
         return c;
@@ -1056,6 +1112,7 @@ function ActivityAppsRankingComponent({
         bgBar: preset.bgBar,
         iconName: formCatIcon,
         subcategories: formCatSubcategories,
+        is_manual: false,
       };
       saveCategoriesList([...categories, newCat]);
       setIsCreatingNew(false);
@@ -2211,11 +2268,25 @@ function ActivityAppsRankingComponent({
                                                   <span className="text-xs font-bold text-foreground leading-snug">
                                                     {cleanSubcatTitle}
                                                   </span>
-                                                  {isManual && (
-                                                    <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 shrink-0">
-                                                      MANUAL
-                                                    </span>
-                                                  )}
+                                                  <button
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      handleToggleSubcategoryManual(activeCat.id, subcat);
+                                                    }}
+                                                    className={`text-[9px] font-bold px-1.5 py-0.5 rounded transition-all cursor-pointer shrink-0 ${
+                                                      isManual
+                                                        ? "bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30"
+                                                        : "bg-muted text-muted-foreground hover:text-foreground border border-border/40"
+                                                    }`}
+                                                    title={
+                                                      isManual
+                                                        ? "Configurada como labor manual (botón en barra lateral). Clic para cambiar a digital/PC."
+                                                        : "Configurada como digital/PC. Clic para convertir en labor manual (botón en barra lateral)."
+                                                    }
+                                                  >
+                                                    {isManual ? "🛠 MANUAL" : "💻 PC"}
+                                                  </button>
                                                 </div>
 
                                                 <div className="flex items-center gap-1 shrink-0">
@@ -2712,27 +2783,52 @@ function ActivityAppsRankingComponent({
                       </div>
 
                       {formCatSubcategories.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5 p-2 rounded-lg bg-card/60 border border-border/50 max-h-24 overflow-y-auto">
-                          {formCatSubcategories.map((sub, sIdx) => (
-                            <span
-                              key={sIdx}
-                              className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-violet-500/15 border border-violet-500/30 text-violet-300 animate-in fade-in duration-100"
-                            >
-                              <span>{sub}</span>
-                              <button
-                                type="button"
-                                onClick={() => setFormCatSubcategories(formCatSubcategories.filter((_, i) => i !== sIdx))}
-                                className="text-violet-400 hover:text-rose-400 transition-colors p-0.5 cursor-pointer"
-                                title="Quitar subcategoría"
+                        <div className="flex flex-wrap gap-1.5 p-2 rounded-lg bg-card/60 border border-border/50 max-h-28 overflow-y-auto">
+                          {formCatSubcategories.map((sub, sIdx) => {
+                            const isMan = /\(manual\)/i.test(sub);
+                            const clean = sub.replace(/\s*\(manual\)/i, "").trim();
+                            return (
+                              <span
+                                key={sIdx}
+                                className={`inline-flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-lg border transition-all animate-in fade-in duration-100 ${
+                                  isMan
+                                    ? "bg-amber-500/15 border-amber-500/30 text-amber-300"
+                                    : "bg-violet-500/15 border-violet-500/30 text-violet-300"
+                                }`}
                               >
-                                <X className="h-2.5 w-2.5" />
-                              </button>
-                            </span>
-                          ))}
+                                <span className="font-medium">{clean}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const toggled = isMan ? clean : `${clean} (MANUAL)`;
+                                    const updated = [...formCatSubcategories];
+                                    updated[sIdx] = toggled;
+                                    setFormCatSubcategories(updated);
+                                  }}
+                                  className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase transition-all cursor-pointer ${
+                                    isMan
+                                      ? "bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30"
+                                      : "bg-muted text-muted-foreground hover:text-foreground border border-border/40"
+                                  }`}
+                                  title={isMan ? "Configurada como labor manual. Click para cambiar a digital/PC." : "Configurada como digital/PC. Click para marcar como labor manual."}
+                                >
+                                  {isMan ? "🛠 Manual" : "💻 PC"}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setFormCatSubcategories(formCatSubcategories.filter((_, i) => i !== sIdx))}
+                                  className="text-muted-foreground hover:text-rose-400 transition-colors p-0.5 cursor-pointer ml-0.5"
+                                  title="Quitar subcategoría"
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              </span>
+                            );
+                          })}
                         </div>
                       )}
 
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 items-center">
                         <input
                           type="text"
                           value={newSubcatInput}
@@ -2740,27 +2836,48 @@ function ActivityAppsRankingComponent({
                           onKeyDown={(e) => {
                             if (e.key === "Enter") {
                               e.preventDefault();
-                              const trimmed = newSubcatInput.trim();
-                              if (trimmed && !formCatSubcategories.includes(trimmed)) {
-                                setFormCatSubcategories([...formCatSubcategories, trimmed]);
-                                setNewSubcatInput("");
+                              let trimmed = newSubcatInput.trim();
+                              if (trimmed) {
+                                if (formSubcatIsManual && !/\(manual\)/i.test(trimmed)) {
+                                  trimmed = `${trimmed} (MANUAL)`;
+                                }
+                                if (!formCatSubcategories.includes(trimmed)) {
+                                  setFormCatSubcategories([...formCatSubcategories, trimmed]);
+                                  setNewSubcatInput("");
+                                  setFormSubcatIsManual(false);
+                                }
                               }
                             }
                           }}
-                          placeholder="Nueva subcategoría (ej: Informes, Facturación)..."
+                          placeholder="Nueva subcategoría (ej: Diagnóstico, Calidad)..."
                           className="flex-1 px-3 py-1.5 text-xs rounded-lg bg-card border border-border focus:outline-none focus:ring-2 focus:ring-violet-500 text-foreground"
                         />
+                        <label className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground cursor-pointer select-none px-1 shrink-0">
+                          <input
+                            type="checkbox"
+                            checked={formSubcatIsManual}
+                            onChange={(e) => setFormSubcatIsManual(e.target.checked)}
+                            className="rounded border-border accent-amber-500 h-3.5 w-3.5 cursor-pointer"
+                          />
+                          <span className={formSubcatIsManual ? "text-amber-400 font-bold" : ""}>Manual</span>
+                        </label>
                         <button
                           type="button"
                           onClick={() => {
-                            const trimmed = newSubcatInput.trim();
-                            if (trimmed && !formCatSubcategories.includes(trimmed)) {
-                              setFormCatSubcategories([...formCatSubcategories, trimmed]);
-                              setNewSubcatInput("");
+                            let trimmed = newSubcatInput.trim();
+                            if (trimmed) {
+                              if (formSubcatIsManual && !/\(manual\)/i.test(trimmed)) {
+                                trimmed = `${trimmed} (MANUAL)`;
+                              }
+                              if (!formCatSubcategories.includes(trimmed)) {
+                                setFormCatSubcategories([...formCatSubcategories, trimmed]);
+                                setNewSubcatInput("");
+                                setFormSubcatIsManual(false);
+                              }
                             }
                           }}
                           disabled={!newSubcatInput.trim()}
-                          className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-muted hover:bg-muted/80 text-foreground disabled:opacity-40 cursor-pointer"
+                          className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-muted hover:bg-muted/80 text-foreground disabled:opacity-40 cursor-pointer shrink-0"
                         >
                           + Añadir
                         </button>
@@ -2819,11 +2936,27 @@ function ActivityAppsRankingComponent({
                             {renderCategoryIcon(cat.iconName, "h-4 w-4")}
                           </div>
                           <div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <span className="font-bold text-xs text-foreground">{cat.label}</span>
                               <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted/80 text-muted-foreground font-mono">
                                 {cat.subcategories?.length || 0} subcat.
                               </span>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleCategoryManual(cat.id)}
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                                  cat.is_manual
+                                    ? "bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30"
+                                    : "bg-muted/60 text-muted-foreground hover:text-foreground border border-border/40"
+                                }`}
+                                title={
+                                  cat.is_manual
+                                    ? "Toda la categoría está configurada como manual (aparece en Labores Manuales). Clic para desmarcar."
+                                    : "Clic para marcar toda la categoría como manual (todos sus botones van a la barra lateral)."
+                                }
+                              >
+                                {cat.is_manual ? "🛠 Manual (Completa)" : "💻 Digital / PC"}
+                              </button>
                             </div>
                             <p className="text-[10px] text-muted-foreground">
                               {cat.id === "Actividad general" ? "Categoría por defecto" : "Categoría activa"}
@@ -2862,26 +2995,50 @@ function ActivityAppsRankingComponent({
                       {/* Subcategorías de la categoría con botón para agregar/eliminar en vivo */}
                       <div className="pt-2 border-t border-border/30">
                         <div className="flex flex-wrap items-center gap-1.5">
-                          {(cat.subcategories || []).map((sub) => (
-                            <span
-                              key={sub}
-                              className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-md bg-muted/60 border border-border/60 text-foreground group"
-                            >
-                              <span>{sub}</span>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteSubcategory(cat.id, sub)}
-                                className="text-muted-foreground hover:text-rose-400 transition-colors p-0.5 rounded cursor-pointer"
-                                title={`Eliminar subcategoría "${sub}"`}
+                          {(cat.subcategories || []).map((sub) => {
+                            const isManual = /\(manual\)/i.test(sub) || !!cat.is_manual;
+                            const cleanName = sub.replace(/\s*\(manual\)/i, "").trim();
+                            return (
+                              <span
+                                key={sub}
+                                className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-lg border transition-all ${
+                                  isManual
+                                    ? "bg-amber-500/10 border-amber-500/30 text-amber-300"
+                                    : "bg-muted/60 border-border/60 text-foreground"
+                                }`}
                               >
-                                <X className="h-2.5 w-2.5" />
-                              </button>
-                            </span>
-                          ))}
+                                <span className="font-semibold">{cleanName}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleSubcategoryManual(cat.id, sub)}
+                                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1 ${
+                                    isManual
+                                      ? "bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/40"
+                                      : "bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground border border-border/50"
+                                  }`}
+                                  title={
+                                    isManual
+                                      ? "Configurada como labor manual (aparece como botón en barra lateral). Clic para cambiar a digital/PC."
+                                      : "Configurada como digital/PC. Clic para convertir a labor manual (botón en barra lateral)."
+                                  }
+                                >
+                                  {isManual ? "🛠 Manual" : "💻 PC"}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteSubcategory(cat.id, sub)}
+                                  className="text-muted-foreground hover:text-rose-400 transition-colors p-0.5 rounded cursor-pointer ml-0.5"
+                                  title={`Eliminar subcategoría "${cleanName}"`}
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              </span>
+                            );
+                          })}
 
                           {/* Input inline para agregar subcategoría al instante */}
                           {inlineAddSubcatCatId === cat.id ? (
-                            <div className="inline-flex items-center gap-1">
+                            <div className="inline-flex items-center gap-2 p-1 rounded-lg bg-background border border-violet-500/50 shadow-xs">
                               <input
                                 type="text"
                                 autoFocus
@@ -2890,30 +3047,45 @@ function ActivityAppsRankingComponent({
                                 onKeyDown={(e) => {
                                   if (e.key === "Enter") {
                                     e.preventDefault();
-                                    handleAddSubcategory(cat.id, inlineSubcatValue);
+                                    handleAddSubcategory(cat.id, inlineSubcatValue, inlineSubcatIsManual);
                                   } else if (e.key === "Escape") {
                                     setInlineAddSubcatCatId(null);
                                     setInlineSubcatValue("");
+                                    setInlineSubcatIsManual(false);
                                   }
                                 }}
                                 placeholder="Nueva subcategoría..."
-                                className="text-[10px] px-2 py-0.5 rounded bg-background border border-violet-500 focus:outline-none text-foreground w-36"
+                                className="text-xs px-2.5 py-1 rounded bg-muted/30 border border-border focus:outline-none focus:border-violet-500 text-foreground w-40"
                               />
+                              <label className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground cursor-pointer select-none px-1">
+                                <input
+                                  type="checkbox"
+                                  checked={inlineSubcatIsManual}
+                                  onChange={(e) => setInlineSubcatIsManual(e.target.checked)}
+                                  className="rounded border-border accent-amber-500 h-3.5 w-3.5 cursor-pointer"
+                                />
+                                <span className={inlineSubcatIsManual ? "text-amber-400 font-bold" : ""}>Manual</span>
+                              </label>
                               <button
                                 type="button"
-                                onClick={() => handleAddSubcategory(cat.id, inlineSubcatValue)}
-                                className="p-1 rounded bg-violet-600 hover:bg-violet-700 text-white text-[10px] cursor-pointer"
+                                onClick={() => handleAddSubcategory(cat.id, inlineSubcatValue, inlineSubcatIsManual)}
+                                className="px-2 py-1 rounded bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold cursor-pointer flex items-center gap-1"
                                 title="Guardar subcategoría"
                               >
-                                <Check className="h-2.5 w-2.5" />
+                                <Check className="h-3 w-3" />
+                                <span>Agregar</span>
                               </button>
                               <button
                                 type="button"
-                                onClick={() => { setInlineAddSubcatCatId(null); setInlineSubcatValue(""); }}
-                                className="p-1 rounded hover:bg-muted text-muted-foreground text-[10px] cursor-pointer"
+                                onClick={() => {
+                                  setInlineAddSubcatCatId(null);
+                                  setInlineSubcatValue("");
+                                  setInlineSubcatIsManual(false);
+                                }}
+                                className="p-1 rounded hover:bg-muted text-muted-foreground text-xs cursor-pointer"
                                 title="Cancelar"
                               >
-                                <X className="h-2.5 w-2.5" />
+                                <X className="h-3.5 w-3.5" />
                               </button>
                             </div>
                           ) : (
@@ -2922,11 +3094,12 @@ function ActivityAppsRankingComponent({
                               onClick={() => {
                                 setInlineAddSubcatCatId(cat.id);
                                 setInlineSubcatValue("");
+                                setInlineSubcatIsManual(false);
                               }}
-                              className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md border border-dashed border-border hover:border-violet-500/60 hover:text-violet-300 text-muted-foreground transition-all cursor-pointer"
+                              className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg border border-dashed border-border hover:border-violet-500/60 hover:text-violet-300 text-muted-foreground transition-all cursor-pointer"
                             >
-                              <Plus className="h-2.5 w-2.5" />
-                              <span>Subcategoría</span>
+                              <Plus className="h-3 w-3" />
+                              <span>Nueva Subcategoría</span>
                             </button>
                           )}
                         </div>

@@ -225,16 +225,18 @@ export function SidebarUserPanel({
 
       if (subs.length === 0) continue;
 
-      // FILTRADO ESTRICTO: En "Tareas Físicas / Fuera de Estación" ÚNICAMENTE van labores manuales/físicas o pausas
+      // FILTRADO ESTRICTO: En "Labores Manuales" ÚNICAMENTE van labores configuradas como manuales o pausas
       const isBreakCat = (cat.id === "Pausas y Descansos" || cat.label === "Pausas y Descansos" || (cat.id || "").toLowerCase().includes("pausa"));
       
       const manualSubs = subs.filter((sub: string) => {
         if (!sub) return false;
-        // 1. Marcadas explícitamente con (MANUAL)
+        // 1. Marcadas explícitamente con (MANUAL) en la subcategoría
         if (/\(manual\)/i.test(sub) || /manual/i.test(sub)) return true;
-        // 2. Pausas y Descansos (físicas / fuera de pantalla)
+        // 2. Si la categoría completa está configurada como manual
+        if (cat.is_manual) return true;
+        // 3. Pausas y Descansos (físicas / fuera de pantalla)
         if (isBreakCat) return true;
-        // 3. Tareas físicas fuera de pantalla específicas del taller
+        // 4. Reuniones fuera de estación
         const sLower = sub.toLowerCase();
         if (sLower === "reunión" || sLower === "reuniones" || sLower === "reuniones y charlas") return true;
         return false;
@@ -806,12 +808,12 @@ export function SidebarUserPanel({
                 );
               })()}
 
-              {/* Tareas Físicas / Fuera de Estación Directas */}
+              {/* Labores Manuales Directas */}
               <div className="flex-1 overflow-y-auto px-3 py-2.5 space-y-3">
                 <div>
-                  <h4 className="text-xs font-black text-foreground tracking-tight">Tareas Físicas / Fuera de Estación</h4>
+                  <h4 className="text-xs font-black text-foreground tracking-tight">Labores Manuales</h4>
                   <p className="text-[10px] text-muted-foreground mt-0.5 mb-2">
-                    Selecciona una labor para pausar la recolección automática:
+                    Selecciona una labor para pausar el auto-tracking de pantalla:
                   </p>
                 </div>
 
