@@ -121,11 +121,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const userPerms = await getAgentGroupPermissions(currentAgent.rol);
   const isSuperadmin = currentAgent.rol === "superadmin";
   const canViewActivityTracker = isSuperadmin || (
-    (userPerms as any).activity?.subcategories?.panel_externo_visibilidad ?? 
-    ((userPerms as any).activity?.view || isAdmin)
+    (userPerms as any).activity?.subcategories?.panel_externo_visibilidad === true
   );
   const canViewAgenda = isSuperadmin || (
-    (userPerms as any).activity?.subcategories?.agenda_calendario ?? true
+    (userPerms as any).activity?.subcategories?.agenda_calendario === true
   );
 
   return (

@@ -67,7 +67,7 @@ export const DEFAULT_GROUPS: PermissionGroup[] = [
       team: { view: false, edit: false, create: false, delete: false, subcategories: { view_team_list: false, view_agent_profile: false, add_agent: false, edit_agent: false, reset_password: false, delete_agent: false, manage_groups: false } },
       inbox: { view: true, edit: true, create: true, delete: false, subcategories: { inbox_principal: true, smart_inbox: false, soporte_avanzado: true, mi_gestion: true, web_preview: false, ver_todos_casos: false, responder_mensajes: true, reasignar_casos: false, notas_internas: true, historial_cliente_drawer: true, cerrar_casos: true } },
       stats: { view: false, edit: false, create: false, delete: false, subcategories: { resumen_general: false, estadisticas_detalladas: false, estadisticas_atencion: false, volumen_mensajes: false, analitica_equipos_fallas: false, analitica_clientes: false, exportar_reportes: false } },
-      activity: { view: false, edit: false, create: false, delete: false, subcategories: { registro_actividad: false, auditoria_pantalla: false, ranking_apps_sitios: false, heatmap_intensidad: false, dictamen_ejecutivo_ia: false, panel_externo_visibilidad: true, panel_externo_gestion: false, agenda_calendario: true, agenda_gestion_global: false, gestion_horas_extras: false, auditoria_pausas_inactividad: false } },
+      activity: { view: false, edit: false, create: false, delete: false, subcategories: { registro_actividad: false, auditoria_pantalla: false, ranking_apps_sitios: false, heatmap_intensidad: false, dictamen_ejecutivo_ia: false, panel_externo_visibilidad: false, panel_externo_gestion: false, agenda_calendario: true, agenda_gestion_global: false, gestion_horas_extras: false, auditoria_pausas_inactividad: false } },
       inventory: { view: true, edit: false, create: false, delete: false, subcategories: { view_inventory: true, create_edit_models: false, bulk_upload: false, delete_models: false } },
       manuals: { view: true, edit: false, create: false, delete: false, subcategories: { view_manuals: true, upload_manuals: false, delete_manuals: false } },
       ai: { view: false, edit: false, create: false, delete: false, subcategories: { view_ai_panel: false, flujos_bot: false, toggle_ai_modes: false, train_prompt: false, restore_prompt_versions: false, ai_models_config: false } },
@@ -76,7 +76,11 @@ export const DEFAULT_GROUPS: PermissionGroup[] = [
   },
 ];
 
-import { cacheGetFresh, cacheSet } from "@/lib/supabase/cache";
+import { cacheGetFresh, cacheSet, cacheDelete } from "@/lib/supabase/cache";
+
+export function invalidatePermissionsCache(): void {
+  cacheDelete("app_permission_groups");
+}
 
 export async function getActiveGroups(): Promise<PermissionGroup[]> {
   const cached = cacheGetFresh("app_permission_groups", 60000); // 1 minuto de cache ultra-rápido

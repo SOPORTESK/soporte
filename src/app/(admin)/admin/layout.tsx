@@ -120,12 +120,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   if (!canAccessAdmin) redirect("/inbox");
 
   const canViewActivityTracker = isSuperadmin || (
-    (userPerms as any).activity?.subcategories?.panel_externo_visibilidad ?? 
-    ((userPerms as any).activity?.view || isAdmin)
+    (userPerms as any).activity?.subcategories?.panel_externo_visibilidad === true
   );
 
   const canViewAgenda = isSuperadmin || (
-    (userPerms as any).activity?.subcategories?.agenda_calendario ?? true
+    (userPerms as any).activity?.subcategories?.agenda_calendario === true
   );
 
   const fullName = [a.nombre, a.apellido].filter(Boolean).join(" ") || user.email!;
@@ -168,12 +167,12 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                 <ArrowLeft className="h-4 w-4" /> Volver a Bandeja
               </Link>
 
-              {(isSuperadmin || userPerms.stats?.view || (userPerms as any).activity?.view) && (
+              {(isSuperadmin || userPerms.stats?.subcategories?.resumen_general === true || (userPerms as any).activity?.subcategories?.registro_actividad === true) && (
                 <NavSection title="General">
-                  {(isSuperadmin || userPerms.stats?.view || userPerms.stats?.subcategories?.resumen_general) && (
+                  {(isSuperadmin || userPerms.stats?.subcategories?.resumen_general === true) && (
                     <SidebarLink href="/admin" icon={<LayoutDashboard className="h-4 w-4" />}>Resumen</SidebarLink>
                   )}
-                  {(isSuperadmin || (userPerms as any).activity?.view || (userPerms as any).activity?.subcategories?.registro_actividad) && (
+                  {(isSuperadmin || (userPerms as any).activity?.subcategories?.registro_actividad === true) && (
                     <SidebarLink href="/admin/actividad" icon={<Activity className="h-4 w-4" />}>Actividad</SidebarLink>
                   )}
                 </NavSection>

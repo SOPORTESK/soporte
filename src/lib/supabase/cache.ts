@@ -40,3 +40,7 @@ export function cacheSet(key: string, data: any): void {
   pruneOldest();
   store.set(key, { data, ts: Date.now() });
 }
+
+export function cacheDelete(key: string): void {
+  store.delete(key);
+}

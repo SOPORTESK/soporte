@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { ActivityTracker } from "@/components/admin/activity-tracker";
 import { getUserWithTimeout } from "@/lib/supabase/resilient";
+import { getAgentGroupPermissions } from "@/lib/permissions";
 import { LogoutButton } from "@/components/logout-button";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +17,14 @@ export default async function ActividadPage() {
     .select("email, nombre, apellido, rol")
     .ilike("email", email)
     .maybeSingle();
+
+  const isSuperadmin = agent?.rol === "superadmin";
+  const userPerms = await getAgentGroupPermissions(agent?.rol || "");
+  const canViewActividad = isSuperadmin || (userPerms as any).activity?.subcategories?.registro_actividad === true;
+
+  if (!canViewActividad) {
+    redirect("/inbox");
+  }
 
   const fullName = [agent?.nombre, agent?.apellido].filter(Boolean).join(" ") || "César Andrés Batista";
   const isAdmin = ["admin", "superadmin"].includes(agent?.rol || "");

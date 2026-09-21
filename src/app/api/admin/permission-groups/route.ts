@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { getActiveGroups } from "@/lib/permissions";
+import { getActiveGroups, invalidatePermissionsCache } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +54,13 @@ export async function POST(req: NextRequest) {
       }, { onConflict: "key" });
 
     if (error) throw error;
+
+    invalidatePermissionsCache();
+    try {
+      revalidatePath("/", "layout");
+      revalidatePath("/admin", "layout");
+      revalidatePath("/inbox", "layout");
+    } catch {}
 
     return NextResponse.json({ success: true, groups });
   } catch (e: any) {
