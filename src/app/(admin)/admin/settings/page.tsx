@@ -9,6 +9,7 @@ import { UnattendedModeToggle } from "@/components/admin/unattended-mode-toggle"
 import { EvolutionConfigPanel } from "@/components/admin/evolution-config-panel";
 import { WhatsAppQRConnect } from "@/components/admin/whatsapp-qr-connect";
 import { CompanySchedulePanel } from "@/components/admin/company-schedule-panel";
+import { AutoCloseConfigPanel } from "@/components/admin/auto-close-config-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -95,6 +96,9 @@ export default async function AdminSettingsPage() {
 
           {/* Horario y Jornada Laboral Oficial */}
           <CompanySchedulePanel />
+
+          {/* Auto-Cierre por Inactividad */}
+          <AutoCloseConfigPanel />
 
           {/* Edge Functions */}
           <section className="rounded-2xl border border-border/60 bg-card p-5">

@@ -171,6 +171,35 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ closed: 0, unattended: true }), { status: 200, headers: { "Content-Type": "application/json" } });
   }
 
+  // ── Leer Configuración Dinámica de Auto-Cierre desde sek_app_settings ──
+  const { data: configRow } = await db
+    .from("sek_app_settings")
+    .select("value")
+    .eq("key", "auto_close_config")
+    .maybeSingle();
+
+  let autoCloseConfig = {
+    enabled: true,
+    inactivity_minutes: INACTIVITY_MINUTES_DEFAULT,
+    close_message: CLOSE_MSG,
+  };
+
+  if (configRow?.value) {
+    try {
+      const parsed = typeof configRow.value === "string" ? JSON.parse(configRow.value) : configRow.value;
+      if (parsed) {
+        if (parsed.enabled !== undefined) autoCloseConfig.enabled = Boolean(parsed.enabled);
+        if (parsed.inactivity_minutes) autoCloseConfig.inactivity_minutes = Number(parsed.inactivity_minutes);
+        if (parsed.close_message) autoCloseConfig.close_message = parsed.close_message;
+      }
+    } catch (_e) {}
+  }
+
+  if (!autoCloseConfig.enabled) {
+    console.log("[auto-close] Auto-cierre desactivado globalmente por configuración, saliendo.");
+    return new Response(JSON.stringify({ closed: 0, disabled: true }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }
+
   const { data: casos, error } = await db
     .from("sek_cases")
     .select("id, canal, estado, histcliente, histtecnico, created_at, assigned_to, customer_phone, cliente, auto_close_paused, tags")
@@ -258,7 +287,7 @@ Deno.serve(async (req) => {
         continue;
       }
       console.log(`[auto-close] Caso ${caso.id} zombi (${Math.round(ageMs/3600000)}h sin assigned_to) → cerrando`);
-      const closeEntry = { role: "tecnico", content: CLOSE_MSG, time: new Date().toISOString(), author: "Soporte Sekunet" };
+      const closeEntry = { role: "tecnico", content: autoCloseConfig.close_message || CLOSE_MSG, time: new Date().toISOString(), author: "Soporte Sekunet" };
       await db.from("sek_cases").update({ estado: "cerrado", closed_at: new Date().toISOString(), histtecnico: [...(caso.histtecnico ?? []), closeEntry] })
         .eq("id", caso.id).not("estado", "in", '("cerrado","resuelto")');
       closed++;
@@ -291,9 +320,8 @@ Deno.serve(async (req) => {
     // Si el cliente escribió DESPUÉS del agente (o al mismo tiempo), el cliente espera → NO cerrar
     if (lastClientTime > lastAgentTime) continue;
 
-    // Umbral unificado a 10 min para todos los casos.
-    const isIA = caso.estado === "ia_atendiendo";
-    const threshold = (isIA ? INACTIVITY_MINUTES_IA : INACTIVITY_MINUTES_DEFAULT) * 60 * 1000;
+    // Umbral de inactividad configurable
+    const threshold = (autoCloseConfig.inactivity_minutes || 10) * 60 * 1000;
 
     // Cerrar si pasaron más de 10 min desde la última respuesta del agente sin que el cliente conteste
     const elapsed = now - lastAgentTime;
@@ -357,10 +385,10 @@ Deno.serve(async (req) => {
       continue;
     }
 
-    // Para canales no-WhatsApp: cierre directo con CLOSE_MSG
+    // Para canales no-WhatsApp: cierre directo con close_message
     const closeEntry = {
       role: "tecnico",
-      content: CLOSE_MSG,
+      content: autoCloseConfig.close_message || CLOSE_MSG,
       time: new Date().toISOString(),
       author: "Soporte Sekunet",
     };
