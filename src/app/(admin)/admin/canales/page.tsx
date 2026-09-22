@@ -14,7 +14,7 @@ export interface ChannelStatsSummary {
   avgResolutionMinutes: number;
 }
 
-export type AllChannelsStats = Record<"whatsapp" | "widget" | "messenger" | "telegram", ChannelStatsSummary>;
+export type AllChannelsStats = Record<"whatsapp" | "widget" | "messenger" | "telegram" | "instagram", ChannelStatsSummary>;
 
 function computeStatsForChannel(cases: any[], channelKey: string): ChannelStatsSummary {
   const channelCases = cases.filter(c => {
@@ -30,6 +30,9 @@ function computeStatsForChannel(cases: any[], channelKey: string): ChannelStatsS
     }
     if (channelKey === "telegram") {
       return rawCanal === "telegram";
+    }
+    if (channelKey === "instagram") {
+      return rawCanal === "instagram" || rawCanal === "ig";
     }
     return rawCanal === channelKey;
   });
@@ -96,6 +99,7 @@ export default async function AdminCanalesPage() {
     widget: computeStatsForChannel(rawCases, "widget"),
     messenger: computeStatsForChannel(rawCases, "messenger"),
     telegram: computeStatsForChannel(rawCases, "telegram"),
+    instagram: computeStatsForChannel(rawCases, "instagram"),
   };
 
   return (

@@ -6,6 +6,7 @@ import {
   MessageSquare, 
   Send, 
   Globe, 
+  Instagram,
   CheckCircle2, 
   Activity, 
   Clock, 
@@ -22,7 +23,9 @@ import {
   ShieldAlert,
   Terminal,
   Code,
-  Radio
+  Radio,
+  Server,
+  Link2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,7 +36,7 @@ import { WhatsAppQRConnect } from "@/components/admin/whatsapp-qr-connect";
 import type { SekChannel } from "@/lib/types";
 import type { AllChannelsStats, ChannelStatsSummary } from "@/app/(admin)/admin/canales/page";
 
-type ChannelTab = "whatsapp" | "widget" | "messenger" | "telegram";
+type ChannelTab = "whatsapp" | "widget" | "telegram" | "messenger" | "instagram";
 
 interface ChannelsClientProps {
   channels: SekChannel[];
@@ -44,7 +47,7 @@ export function ChannelsClient({ channels, stats }: ChannelsClientProps) {
   const [activeTab, setActiveTab] = React.useState<ChannelTab>("whatsapp");
   const [showLegacyChannels, setShowLegacyChannels] = React.useState(false);
 
-  // Tabs metadata
+  // Tabs metadata con los 5 canales
   const tabs = [
     {
       id: "whatsapp" as ChannelTab,
@@ -69,32 +72,43 @@ export function ChannelsClient({ channels, stats }: ChannelsClientProps) {
       stats: stats.widget,
     },
     {
+      id: "telegram" as ChannelTab,
+      label: "Telegram",
+      subtitle: "Vía Chatwoot / Bot",
+      badge: "Listo para sync",
+      badgeVariant: "default" as const,
+      icon: Send,
+      activeColor: "from-sky-500/15 via-sky-500/10 to-cyan-500/5 border-sky-500/40 text-sky-600 dark:text-sky-400 shadow-sm",
+      iconBg: "bg-sky-500/15 text-sky-600 dark:text-sky-400",
+      stats: stats.telegram,
+    },
+    {
       id: "messenger" as ChannelTab,
-      label: "Facebook Messenger",
-      subtitle: "Meta Graph API",
-      badge: "Prevista",
-      badgeVariant: "muted" as const,
+      label: "Messenger",
+      subtitle: "Vía Chatwoot / Meta",
+      badge: "Listo para sync",
+      badgeVariant: "default" as const,
       icon: MessageSquare,
       activeColor: "from-blue-500/15 via-blue-500/10 to-indigo-500/5 border-blue-500/40 text-blue-600 dark:text-blue-400 shadow-sm",
       iconBg: "bg-blue-500/15 text-blue-600 dark:text-blue-400",
       stats: stats.messenger,
     },
     {
-      id: "telegram" as ChannelTab,
-      label: "Telegram",
-      subtitle: "Bot API @BotFather",
-      badge: "Prevista",
-      badgeVariant: "muted" as const,
-      icon: Send,
-      activeColor: "from-sky-500/15 via-sky-500/10 to-cyan-500/5 border-sky-500/40 text-sky-600 dark:text-sky-400 shadow-sm",
-      iconBg: "bg-sky-500/15 text-sky-600 dark:text-sky-400",
-      stats: stats.telegram,
+      id: "instagram" as ChannelTab,
+      label: "Instagram",
+      subtitle: "Vía Chatwoot / DMs",
+      badge: "Listo para sync",
+      badgeVariant: "default" as const,
+      icon: Instagram,
+      activeColor: "from-fuchsia-500/15 via-pink-500/10 to-rose-500/5 border-pink-500/40 text-pink-600 dark:text-pink-400 shadow-sm",
+      iconBg: "bg-pink-500/15 text-pink-600 dark:text-pink-400",
+      stats: stats.instagram || { total: 0, active: 0, resolved: 0, resolutionRate: 0, today: 0, last7Days: 0, avgResolutionMinutes: 0 },
     },
   ];
 
   return (
     <div className="max-w-[1400px] mx-auto p-4 md:p-6 xl:p-8 space-y-6">
-      {/* ── HEADER PREMIUM SIN SOLAPAMIENTO ── */}
+      {/* ── HEADER PREMIUM ── */}
       <header className="relative overflow-hidden rounded-3xl border border-border/60 bg-gradient-to-br from-card via-card to-muted/20 p-6 lg:p-8">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
           <div className="space-y-1.5 max-w-3xl">
@@ -110,7 +124,7 @@ export function ChannelsClient({ channels, stats }: ChannelsClientProps) {
               Canales de Atención
             </h1>
             <p className="text-sm text-muted-foreground leading-relaxed">
-              Configuración técnica, monitoreo en tiempo real y analíticas de desempeño individualizadas por canal.
+              Configuración técnica, sincronización omnicanal con Chatwoot y analíticas de desempeño en tiempo real.
             </p>
           </div>
 
@@ -129,8 +143,8 @@ export function ChannelsClient({ channels, stats }: ChannelsClientProps) {
         </div>
       </header>
 
-      {/* ── PESTAÑAS PRINCIPALES DE CANALES (GRID 4 COLUMNAS BALANCEADO) ── */}
-      <nav className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      {/* ── PESTAÑAS PRINCIPALES (5 CANALES BALANCEADOS) ── */}
+      <nav className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         {tabs.map(tab => {
           const Icon = tab.icon;
           const isSelected = activeTab === tab.id;
@@ -138,26 +152,26 @@ export function ChannelsClient({ channels, stats }: ChannelsClientProps) {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`p-4 rounded-2xl border transition-all text-left flex items-start gap-3.5 relative overflow-hidden ${
+              className={`p-4 rounded-2xl border transition-all text-left flex items-start gap-3 relative overflow-hidden ${
                 isSelected
                   ? `bg-gradient-to-br ${tab.activeColor} border-2`
                   : "bg-card border-border/60 hover:border-border hover:bg-muted/30"
               }`}
             >
-              <div className={`h-10 w-10 rounded-xl grid place-items-center shrink-0 ${tab.iconBg}`}>
-                <Icon className="h-5 w-5" />
+              <div className={`h-9 w-9 rounded-xl grid place-items-center shrink-0 ${tab.iconBg}`}>
+                <Icon className="h-4 w-4" />
               </div>
               <div className="min-w-0 flex-1">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-bold text-sm text-foreground truncate">{tab.label}</span>
-                  <Badge variant={tab.badgeVariant} className="text-[10px] px-2 py-0 shrink-0">
+                <div className="flex items-center justify-between gap-1.5">
+                  <span className="font-bold text-xs sm:text-sm text-foreground truncate">{tab.label}</span>
+                  <Badge variant={tab.badgeVariant} className="text-[9px] px-1.5 py-0 shrink-0">
                     {tab.badge}
                   </Badge>
                 </div>
-                <p className="text-xs text-muted-foreground mt-0.5 truncate">{tab.subtitle}</p>
-                <div className="mt-2.5 pt-2 border-t border-border/40 flex items-center justify-between text-[11px] text-muted-foreground">
+                <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{tab.subtitle}</p>
+                <div className="mt-2 pt-1.5 border-t border-border/40 flex items-center justify-between text-[10px] text-muted-foreground">
                   <span>Registrados:</span>
-                  <span className="font-semibold text-foreground">{tab.stats.total} casos</span>
+                  <span className="font-semibold text-foreground">{tab.stats.total}</span>
                 </div>
               </div>
             </button>
@@ -165,7 +179,7 @@ export function ChannelsClient({ channels, stats }: ChannelsClientProps) {
         })}
       </nav>
 
-      {/* ── TAB CONTENT: WHATSAPP ── */}
+      {/* ── TAB CONTENT: WHATSAPP (INTOCABLE) ── */}
       {activeTab === "whatsapp" && (
         <section className="space-y-6">
           {/* Analytics Banner */}
@@ -179,7 +193,7 @@ export function ChannelsClient({ channels, stats }: ChannelsClientProps) {
             iconBg="bg-emerald-500/10 text-emerald-500"
           />
 
-          {/* 2 Columnas balanceadas (lado a lado desde md): QR Connect a la izquierda, Evolution Settings a la derecha */}
+          {/* 2 Columnas balanceadas lado a lado */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
             <WhatsAppQRConnect />
             <EvolutionConfigPanel />
@@ -243,14 +257,64 @@ export function ChannelsClient({ channels, stats }: ChannelsClientProps) {
         <WidgetChannelView stats={stats.widget} />
       )}
 
-      {/* ── TAB CONTENT: FACEBOOK MESSENGER ── */}
-      {activeTab === "messenger" && (
-        <MessengerChannelView stats={stats.messenger} />
+      {/* ── TAB CONTENT: TELEGRAM (VÍA CHATWOOT) ── */}
+      {activeTab === "telegram" && (
+        <ChatwootChannelView
+          channelKey="telegram"
+          channelName="Telegram Bot"
+          channelDescription="Atención al cliente y notificaciones automáticas por Telegram sincronizado con Chatwoot."
+          icon={Send}
+          iconBg="bg-sky-500/10 text-sky-500"
+          accentColor="text-sky-600 dark:text-sky-400"
+          btnBg="bg-sky-600 hover:bg-sky-700 text-white"
+          stats={stats.telegram}
+          guideSteps={[
+            "En Telegram, hable con @BotFather y cree su bot con el comando /newbot.",
+            "En su panel de Chatwoot: vaya a Ajustes → Bandejas → Nueva Bandeja → Seleccione 'Telegram'.",
+            "Pegue el Token del bot en Chatwoot. Chatwoot le asignará un Inbox ID (ej: 2).",
+            "En Chatwoot: Ajustes → Integraciones → Webhooks → Pegue el URL de Webhook de Sekunet.",
+          ]}
+        />
       )}
 
-      {/* ── TAB CONTENT: TELEGRAM ── */}
-      {activeTab === "telegram" && (
-        <TelegramChannelView stats={stats.telegram} />
+      {/* ── TAB CONTENT: FACEBOOK MESSENGER (VÍA CHATWOOT) ── */}
+      {activeTab === "messenger" && (
+        <ChatwootChannelView
+          channelKey="messenger"
+          channelName="Facebook Messenger"
+          channelDescription="Mensajería directa con tus páginas oficiales de Facebook sincronizado con Chatwoot."
+          icon={MessageSquare}
+          iconBg="bg-blue-500/10 text-blue-500"
+          accentColor="text-blue-600 dark:text-blue-400"
+          btnBg="bg-blue-600 hover:bg-blue-700 text-white"
+          stats={stats.messenger}
+          guideSteps={[
+            "En su panel de Chatwoot: vaya a Ajustes → Bandejas → Nueva Bandeja → Seleccione 'Facebook'.",
+            "Inicie sesión con su cuenta de Facebook y seleccione la Fan Page oficial.",
+            "Chatwoot creará la bandeja y le otorgará un Inbox ID (ej: 3).",
+            "En Chatwoot: Ajustes → Integraciones → Webhooks → Pegue el URL de Webhook de Sekunet para sincronizar.",
+          ]}
+        />
+      )}
+
+      {/* ── TAB CONTENT: INSTAGRAM (VÍA CHATWOOT) ── */}
+      {activeTab === "instagram" && (
+        <ChatwootChannelView
+          channelKey="instagram"
+          channelName="Instagram Direct"
+          channelDescription="Recepción y respuesta a mensajes directos (DMs) de Instagram sincronizado con Chatwoot."
+          icon={Instagram}
+          iconBg="bg-pink-500/10 text-pink-500"
+          accentColor="text-pink-600 dark:text-pink-400"
+          btnBg="bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-700 hover:to-rose-700 text-white"
+          stats={stats.instagram || { total: 0, active: 0, resolved: 0, resolutionRate: 0, today: 0, last7Days: 0, avgResolutionMinutes: 0 }}
+          guideSteps={[
+            "Asegúrese de que su cuenta de Instagram sea Profesional o Comercial y esté vinculada a su Fan Page de Facebook.",
+            "En Chatwoot: vaya a Ajustes → Bandejas → Nueva Bandeja → Seleccione 'Instagram' (o canal Facebook con DMs).",
+            "Autorice los permisos de mensajería y copie el Inbox ID generado.",
+            "En Chatwoot: Ajustes → Integraciones → Webhooks → Registre el Webhook de Sekunet.",
+          ]}
+        />
       )}
     </div>
   );
@@ -306,7 +370,7 @@ function ChannelAnalyticsHeader({
         </div>
       </div>
 
-      {/* 4 Analytics KPI Cards (Grid balanceado responsive) */}
+      {/* 4 Analytics KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Total Casos */}
         <div className="rounded-2xl border border-border/60 bg-card p-5 flex flex-col justify-between shadow-xs">
@@ -371,6 +435,240 @@ function ChannelAnalyticsHeader({
         </div>
       </div>
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COMPONENT: Universal Chatwoot Channel View (Telegram, Messenger, Instagram)
+// ─────────────────────────────────────────────────────────────────────────────
+interface ChatwootChannelViewProps {
+  channelKey: "telegram" | "messenger" | "instagram";
+  channelName: string;
+  channelDescription: string;
+  icon: React.ComponentType<{ className?: string }>;
+  iconBg: string;
+  accentColor: string;
+  btnBg: string;
+  stats: ChannelStatsSummary;
+  guideSteps: string[];
+}
+
+function ChatwootChannelView({
+  channelKey,
+  channelName,
+  channelDescription,
+  icon: Icon,
+  iconBg,
+  btnBg,
+  stats,
+  guideSteps,
+}: ChatwootChannelViewProps) {
+  const [config, setConfig] = React.useState({
+    chatwootUrl: "http://129.146.7.74:3000",
+    apiToken: "",
+    accountId: "1",
+    inboxId: "",
+  });
+  const [loading, setLoading] = React.useState(true);
+  const [saving, setSaving] = React.useState(false);
+  const [testing, setTesting] = React.useState(false);
+
+  React.useEffect(() => {
+    fetch(`/api/admin/channels/config?channel=${channelKey}`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.success && d.config && Object.keys(d.config).length > 0) {
+          setConfig(prev => ({ ...prev, ...d.config }));
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [channelKey]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const res = await fetch("/api/admin/channels/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channel: channelKey, config }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data?.error || "Error al guardar");
+      toast.success(`Parámetros de ${channelName} guardados correctamente.`);
+    } catch (e: any) {
+      toast.error(e?.message || "Error al guardar configuración");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleTestConnection = async () => {
+    setTesting(true);
+    try {
+      const res = await fetch("/api/admin/chatwoot/test-connection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: config.chatwootUrl,
+          apiToken: config.apiToken,
+          accountId: config.accountId,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data?.error || "No se pudo conectar con el servidor Chatwoot.");
+      }
+      toast.success("¡Conexión verificada con éxito con Chatwoot!");
+    } catch (e: any) {
+      toast.error(e?.message || "Error al conectar con Chatwoot");
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const webhookUrl = `${origin}/api/webhooks/chatwoot`;
+
+  return (
+    <section className="space-y-6">
+      <ChannelAnalyticsHeader
+        title={`${channelName} (vía Chatwoot)`}
+        description={channelDescription}
+        badge="Listo para Sincronizar"
+        badgeVariant="default"
+        stats={stats}
+        icon={Icon}
+        iconBg={iconBg}
+      />
+
+      {/* 2 Columnas balanceadas lado a lado */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
+        {/* Columna 1: Configuración de Chatwoot para este canal */}
+        <div className="rounded-2xl border border-border/60 bg-card p-6 space-y-5 h-full flex flex-col justify-between">
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="h-8 w-8 rounded-lg bg-primary/10 text-primary grid place-items-center">
+                  <Server className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold">Conexión con Chatwoot</h3>
+                  <p className="text-[11px] text-muted-foreground">Parámetros del servidor y bandeja para {channelName}.</p>
+                </div>
+              </div>
+              <Badge variant="default" className="text-[10px]">Auto-hospedado</Badge>
+            </div>
+
+            <div className="space-y-3.5">
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">
+                  URL del Servidor Chatwoot
+                </label>
+                <Input
+                  value={config.chatwootUrl}
+                  onChange={e => setConfig(prev => ({ ...prev, chatwootUrl: e.target.value }))}
+                  placeholder="http://129.146.7.74:3000 o https://chatwoot.tu-dominio.com"
+                  className="h-9 text-xs font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">
+                  Chatwoot User API Access Token
+                </label>
+                <Input
+                  type="password"
+                  value={config.apiToken}
+                  onChange={e => setConfig(prev => ({ ...prev, apiToken: e.target.value }))}
+                  placeholder="Token de Chatwoot (Ajustes de Perfil → Access Token)"
+                  className="h-9 text-xs font-mono"
+                />
+              </div>
+
+              <div className="grid sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">
+                    Account ID
+                  </label>
+                  <Input
+                    value={config.accountId}
+                    onChange={e => setConfig(prev => ({ ...prev, accountId: e.target.value }))}
+                    placeholder="1"
+                    className="h-9 text-xs font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">
+                    Inbox ID ({channelName})
+                  </label>
+                  <Input
+                    value={config.inboxId}
+                    onChange={e => setConfig(prev => ({ ...prev, inboxId: e.target.value }))}
+                    placeholder="Ej: 2"
+                    className="h-9 text-xs font-mono"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="pt-2 flex flex-col sm:flex-row gap-2.5">
+            <Button
+              onClick={handleSave}
+              disabled={saving || loading}
+              className={`flex-1 text-xs font-semibold gap-2 ${btnBg}`}
+            >
+              {saving ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+              {saving ? "Guardando..." : "Guardar Parámetros"}
+            </Button>
+            <Button
+              onClick={handleTestConnection}
+              disabled={testing || !config.chatwootUrl}
+              variant="outline"
+              className="text-xs font-semibold gap-2"
+            >
+              {testing ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Link2 className="h-3.5 w-3.5" />}
+              {testing ? "Probando..." : "Probar Conexión"}
+            </Button>
+          </div>
+        </div>
+
+        {/* Columna 2: Webhook de Sekunet & Guía de Activación */}
+        <div className="rounded-2xl border border-border/60 bg-card p-6 space-y-4 h-full flex flex-col justify-between">
+          <div className="space-y-4">
+            <div className="flex items-center gap-2.5">
+              <div className="h-8 w-8 rounded-lg bg-emerald-500/10 text-emerald-500 grid place-items-center">
+                <ShieldCheck className="h-4 w-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold">Webhook de Sekunet para Chatwoot</h3>
+                <p className="text-[11px] text-muted-foreground">Endpoint que recibirá los mensajes entrantes de {channelName}.</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              En tu panel de Chatwoot ve a <strong>Ajustes → Integraciones → Webhooks</strong> y registra esta URL:
+            </p>
+            <CopyableUrl url={webhookUrl} />
+
+            <div className="pt-2 space-y-2 text-xs text-muted-foreground">
+              <p className="font-semibold text-foreground">Pasos para dejarlo sincronizado en 2 minutos:</p>
+              <ol className="list-decimal list-inside space-y-1.5 pl-1 leading-relaxed">
+                {guideSteps.map((step, idx) => (
+                  <li key={idx}>{step}</li>
+                ))}
+              </ol>
+            </div>
+          </div>
+
+          <div className="p-3 rounded-xl bg-muted/40 border border-border/40 text-[11px] text-muted-foreground flex items-center justify-between">
+            <span>Flujo: Cliente → Chatwoot → Webhook Sekunet → Panel Agentes</span>
+            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -574,303 +872,6 @@ function WidgetChannelView({ stats }: { stats: ChannelStatsSummary }) {
               {saving ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
               {saving ? "Guardando..." : "Guardar Personalización"}
             </Button>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// COMPONENT: Facebook Messenger View & Config (2 Columnas)
-// ─────────────────────────────────────────────────────────────────────────────
-function MessengerChannelView({ stats }: { stats: ChannelStatsSummary }) {
-  const [config, setConfig] = React.useState({
-    pageId: "",
-    appId: "",
-    appSecret: "",
-    pageAccessToken: "",
-    verifyToken: "sekunet_fb_token_2026",
-  });
-  const [loading, setLoading] = React.useState(true);
-  const [saving, setSaving] = React.useState(false);
-
-  React.useEffect(() => {
-    fetch("/api/admin/channels/config?channel=messenger")
-      .then(r => r.json())
-      .then(d => {
-        if (d.success && d.config && Object.keys(d.config).length > 0) {
-          setConfig(prev => ({ ...prev, ...d.config }));
-        }
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
-
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      const res = await fetch("/api/admin/channels/config", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ channel: "messenger", config }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data?.error || "Error al guardar");
-      toast.success("Parámetros de Messenger guardados en la prevista.");
-    } catch (e: any) {
-      toast.error(e?.message || "Error al guardar");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const origin = typeof window !== "undefined" ? window.location.origin : "";
-  const webhookUrl = `${origin}/api/webhooks/messenger`;
-
-  return (
-    <section className="space-y-6">
-      <ChannelAnalyticsHeader
-        title="Facebook Messenger"
-        description="Canal previsto para integración directa con páginas oficiales vía Meta Graph API."
-        badge="Prevista · Próxima Activación"
-        badgeVariant="muted"
-        stats={stats}
-        icon={MessageSquare}
-        iconBg="bg-blue-500/10 text-blue-500"
-      />
-
-      {/* 2 Columnas balanceadas */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
-        {/* Columna 1: Formulario de credenciales */}
-        <div className="rounded-2xl border border-border/60 bg-card p-6 space-y-5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <div className="h-8 w-8 rounded-lg bg-blue-500/10 text-blue-500 grid place-items-center">
-                <Key className="h-4 w-4" />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold">Credenciales de Meta Graph API</h3>
-                <p className="text-[11px] text-muted-foreground">Configuración para vincular la página y recibir mensajes.</p>
-              </div>
-            </div>
-            <Badge variant="muted" className="text-[10px]">Prevista</Badge>
-          </div>
-
-          <div className="space-y-3.5">
-            <div>
-              <label className="text-xs font-medium text-muted-foreground block mb-1">Page ID de Facebook</label>
-              <Input
-                value={config.pageId}
-                onChange={e => setConfig(prev => ({ ...prev, pageId: e.target.value }))}
-                placeholder="Ej: 108273645892100"
-                className="h-9 text-xs font-mono"
-              />
-            </div>
-
-            <div className="grid sm:grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-medium text-muted-foreground block mb-1">App ID</label>
-                <Input
-                  value={config.appId}
-                  onChange={e => setConfig(prev => ({ ...prev, appId: e.target.value }))}
-                  placeholder="Ej: 987654321012345"
-                  className="h-9 text-xs font-mono"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-muted-foreground block mb-1">App Secret</label>
-                <Input
-                  type="password"
-                  value={config.appSecret}
-                  onChange={e => setConfig(prev => ({ ...prev, appSecret: e.target.value }))}
-                  placeholder="••••••••••••••••"
-                  className="h-9 text-xs font-mono"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="text-xs font-medium text-muted-foreground block mb-1">Page Access Token (Permanente)</label>
-              <Input
-                type="password"
-                value={config.pageAccessToken}
-                onChange={e => setConfig(prev => ({ ...prev, pageAccessToken: e.target.value }))}
-                placeholder="EAA..."
-                className="h-9 text-xs font-mono"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-medium text-muted-foreground block mb-1">Verify Token del Webhook</label>
-              <Input
-                value={config.verifyToken}
-                onChange={e => setConfig(prev => ({ ...prev, verifyToken: e.target.value }))}
-                placeholder="sekunet_verify_token"
-                className="h-9 text-xs font-mono"
-              />
-            </div>
-          </div>
-
-          <Button
-            onClick={handleSave}
-            disabled={saving || loading}
-            className="w-full text-xs font-semibold gap-2 mt-2 bg-blue-600 hover:bg-blue-700 text-white"
-          >
-            {saving ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-            {saving ? "Guardando..." : "Guardar Parámetros de Prevista"}
-          </Button>
-        </div>
-
-        {/* Columna 2: Webhook Callback & Guía */}
-        <div className="rounded-2xl border border-border/60 bg-card p-6 space-y-4">
-          <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-            <ShieldCheck className="h-3.5 w-3.5 text-blue-500" /> Webhook de Callback Previsto
-          </h4>
-          <p className="text-xs text-muted-foreground">
-            URL para registrar en Meta Developer Console al momento de activar el canal:
-          </p>
-          <CopyableUrl url={webhookUrl} />
-
-          <div className="pt-3 border-t border-border/50 space-y-2.5 text-xs text-muted-foreground">
-            <p className="font-semibold text-foreground">Pasos para la puesta en marcha:</p>
-            <ol className="list-decimal list-inside space-y-1.5 pl-1">
-              <li>Crear una App tipo "Negocios" en developers.facebook.com.</li>
-              <li>Agregar el producto Messenger y suscribir la página.</li>
-              <li>Pegar la URL del webhook y el Verify Token configurado.</li>
-              <li>Suscribirse a los eventos <code>messages</code> y <code>messaging_postbacks</code>.</li>
-            </ol>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// COMPONENT: Telegram View & Config (2 Columnas)
-// ─────────────────────────────────────────────────────────────────────────────
-function TelegramChannelView({ stats }: { stats: ChannelStatsSummary }) {
-  const [config, setConfig] = React.useState({
-    botToken: "",
-    botUsername: "",
-  });
-  const [loading, setLoading] = React.useState(true);
-  const [saving, setSaving] = React.useState(false);
-
-  React.useEffect(() => {
-    fetch("/api/admin/channels/config?channel=telegram")
-      .then(r => r.json())
-      .then(d => {
-        if (d.success && d.config && Object.keys(d.config).length > 0) {
-          setConfig(prev => ({ ...prev, ...d.config }));
-        }
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
-
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      const res = await fetch("/api/admin/channels/config", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ channel: "telegram", config }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data?.error || "Error al guardar");
-      toast.success("Parámetros de Telegram guardados en la prevista.");
-    } catch (e: any) {
-      toast.error(e?.message || "Error al guardar");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const origin = typeof window !== "undefined" ? window.location.origin : "";
-  const webhookUrl = `${origin}/api/webhooks/telegram`;
-
-  return (
-    <section className="space-y-6">
-      <ChannelAnalyticsHeader
-        title="Telegram Bot"
-        description="Canal previsto para soporte y notificaciones automáticas vía Telegram Bot API."
-        badge="Prevista · Próxima Activación"
-        badgeVariant="muted"
-        stats={stats}
-        icon={Send}
-        iconBg="bg-sky-500/10 text-sky-500"
-      />
-
-      {/* 2 Columnas balanceadas */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
-        {/* Columna 1: Formulario de credenciales */}
-        <div className="rounded-2xl border border-border/60 bg-card p-6 space-y-5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <div className="h-8 w-8 rounded-lg bg-sky-500/10 text-sky-500 grid place-items-center">
-                <Send className="h-4 w-4" />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold">Credenciales de Telegram Bot API</h3>
-                <p className="text-[11px] text-muted-foreground">Configuración para vincular el bot con Sekunet.</p>
-              </div>
-            </div>
-            <Badge variant="muted" className="text-[10px]">Prevista</Badge>
-          </div>
-
-          <div className="space-y-3.5">
-            <div>
-              <label className="text-xs font-medium text-muted-foreground block mb-1">Bot Token (de @BotFather)</label>
-              <Input
-                type="password"
-                value={config.botToken}
-                onChange={e => setConfig(prev => ({ ...prev, botToken: e.target.value }))}
-                placeholder="123456789:ABCdefGHIjklmNOPqrstUVWxyz"
-                className="h-9 text-xs font-mono"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-medium text-muted-foreground block mb-1">Nombre de Usuario del Bot (@username)</label>
-              <Input
-                value={config.botUsername}
-                onChange={e => setConfig(prev => ({ ...prev, botUsername: e.target.value }))}
-                placeholder="@SekunetSupportBot"
-                className="h-9 text-xs"
-              />
-            </div>
-          </div>
-
-          <Button
-            onClick={handleSave}
-            disabled={saving || loading}
-            className="w-full text-xs font-semibold gap-2 mt-2 bg-sky-600 hover:bg-sky-700 text-white"
-          >
-            {saving ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-            {saving ? "Guardando..." : "Guardar Parámetros de Telegram"}
-          </Button>
-        </div>
-
-        {/* Columna 2: Webhook Callback & Guía */}
-        <div className="rounded-2xl border border-border/60 bg-card p-6 space-y-4">
-          <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-            <ShieldCheck className="h-3.5 w-3.5 text-sky-500" /> Webhook de Callback Previsto
-          </h4>
-          <p className="text-xs text-muted-foreground">
-            Endpoint para registrar con <code>setWebhook</code> en Telegram Bot API:
-          </p>
-          <CopyableUrl url={webhookUrl} />
-
-          <div className="pt-3 border-t border-border/50 space-y-2 text-xs text-muted-foreground">
-            <p className="font-semibold text-foreground">Cómo crear tu bot en 1 minuto:</p>
-            <ol className="list-decimal list-inside space-y-1.5 pl-1">
-              <li>Abre Telegram y busca el contacto oficial <strong>@BotFather</strong>.</li>
-              <li>Envía el comando <code>/newbot</code> y sigue las instrucciones.</li>
-              <li>Copia el <strong>HTTP API Token</strong> generado y pégalo aquí.</li>
-              <li>El bot quedará registrado y listo para conectarse.</li>
-            </ol>
           </div>
         </div>
       </div>
