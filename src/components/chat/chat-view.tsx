@@ -1720,8 +1720,8 @@ export function ChatView({
         const surveyData = await surveyRes.json().catch(() => ({}));
         console.log("[confirmClose] start-survey response:", surveyRes.status, surveyData);
 
-        // Modo No Atendido: el endpoint cerró el caso sin encuesta
-        if (surveyData?.skipped === "unattended_mode") {
+        // Modo No Atendido o encuesta desactivada: el endpoint cerró el caso sin encuesta
+        if (surveyData?.skipped === "unattended_mode" || surveyData?.skipped === "survey_disabled") {
           modalShownRef.current = true;
           prevEstadoRef.current = "cerrado";
           setSekCase(prev => ({ ...prev, estado: "cerrado", cliente: updatedCliente }));

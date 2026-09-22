@@ -275,3 +275,11 @@ async function poll() {
 
 setInterval(poll, 3000);
 poll();
+
+// Motor autónomo de auto-cierre conectado a PM2 (respeta estrictamente la configuración del panel)
+const { runAutoClose } = require('./auto-close-engine.cjs');
+setInterval(() => {
+  runAutoClose().catch(err => console.error('[AutoClose Engine] Error:', err.message));
+}, 30000);
+// Ejecutar una pasada inicial
+runAutoClose().catch(() => {});

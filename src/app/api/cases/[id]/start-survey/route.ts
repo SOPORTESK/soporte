@@ -35,13 +35,43 @@ export async function POST(
     .eq("email", "system_prompt@sekunet.com")
     .maybeSingle();
   const modoNoAtendido = unattendedRow?.modo_no_atendido ?? false;
-  if (modoNoAtendido) {
-    console.log("[start-survey] Modo No Atendido ON — cerrando caso sin encuesta");
+
+  // ── Verificación de Configuración de Encuesta de Satisfacción ──
+  const { data: surveyRow } = await supabase
+    .from("sek_app_settings")
+    .select("value")
+    .eq("key", "survey_config")
+    .maybeSingle();
+
+  let surveyEnabled = false;
+  let customSurveyMsg: string | null = null;
+
+  if (surveyRow?.value) {
+    try {
+      const parsed = typeof surveyRow.value === "string" ? JSON.parse(surveyRow.value) : surveyRow.value;
+      if (parsed) {
+        surveyEnabled = Boolean(parsed.enabled);
+        if (parsed.message && typeof parsed.message === "string") {
+          customSurveyMsg = parsed.message.trim();
+        }
+      }
+    } catch (_e) {}
+  }
+
+  // Si la encuesta está deshabilitada por configuración o está activo el Modo No Atendido:
+  if (!surveyEnabled || modoNoAtendido) {
+    const reason = !surveyEnabled ? "survey_disabled" : "unattended_mode";
+    console.log(`[start-survey] Encuesta omitida (${reason}) — cerrando caso directamente`);
+    const now = new Date().toISOString();
     await supabase.from("sek_cases").update({
       estado: "cerrado",
-      closed_at: new Date().toISOString(),
+      closed_at: now,
     }).eq("id", caseId);
-    return NextResponse.json({ skipped: "unattended_mode", closed: true }, { status: 200 });
+
+    // Auto-extracción de IA 100% en backend (automática)
+    performAutoExtract(caseId).catch(e => console.warn("[start-survey] Auto-extract error:", e));
+
+    return NextResponse.json({ skipped: reason, closed: true, estado: "cerrado" }, { status: 200 });
   }
 
   // Resolver teléfono — limpiar sufijos @lid o @s.whatsapp.net
@@ -58,19 +88,24 @@ export async function POST(
     return NextResponse.json({ error: "Sin teléfono válido para enviar encuesta", phone_raw: caso.customer_phone }, { status: 400 });
   }
 
-  // Leer mensaje del flow config
-  const { data: flowRow } = await supabase
-    .from("sek_flow_configs")
-    .select("flow_data")
-    .limit(1)
-    .maybeSingle();
-  const nodes = flowRow?.flow_data?.nodes || [];
-  const findMsg = (nodeId: string, fallback: string) => {
-    const node = nodes.find((n: any) => n.id === nodeId);
-    return node?.data?.message || fallback;
-  };
-
-  const surveyMsg = findMsg("pedir_calificacion", "¿Cómo calificaría la atención recibida? Responda con un número del 1 al 5, donde 1 es muy mala y 5 es excelente.");
+  // Determinar mensaje de la encuesta (prioridad: plantilla personalizada de survey_config > nodo de flujo > default)
+  let surveyMsg: string = customSurveyMsg || "";
+  if (!surveyMsg) {
+    const { data: flowRow } = await supabase
+      .from("sek_flow_configs")
+      .select("flow_data")
+      .limit(1)
+      .maybeSingle();
+    const nodes = flowRow?.flow_data?.nodes || [];
+    const findMsg = (nodeId: string, fallback: string) => {
+      const node = nodes.find((n: any) => n.id === nodeId);
+      return (node?.data?.message as string) || fallback;
+    };
+    surveyMsg = findMsg("pedir_calificacion", "¿Cómo calificaría la atención recibida? Responda con un número del 1 al 5, donde 1 es muy mala y 5 es excelente.");
+  }
+  if (!surveyMsg) {
+    surveyMsg = "¿Cómo calificaría la atención recibida? Responda con un número del 1 al 5, donde 1 es muy mala y 5 es excelente.";
+  }
 
   // Enviar por Evolution API
   const evoCfg = await getEvolutionConfig();

@@ -23,6 +23,12 @@ const DEFAULT_DAILY_CLOSE = {
     "Estimado cliente, informamos que nuestra jornada de atención ha finalizado por hoy. Procedemos al cierre de esta sesión. Si requiere asistencia adicional, por favor escríbanos en nuestro horario habitual y con gusto le atenderemos.",
 };
 
+const DEFAULT_SURVEY = {
+  enabled: false,
+  message:
+    "¿Cómo calificaría la atención recibida? Responda con un número del 1 al 5, donde 1 es muy mala y 5 es excelente.",
+};
+
 function getSupabaseAdmin() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -42,13 +48,14 @@ export async function GET() {
     const { data: rows, error } = await supabase
       .from("sek_app_settings")
       .select("key, value")
-      .in("key", ["auto_close_config", "after_hours_config", "daily_close_config"]);
+      .in("key", ["auto_close_config", "after_hours_config", "daily_close_config", "survey_config"]);
 
     if (error) throw error;
 
     let config = { ...DEFAULT_CONFIG };
     let afterHours = { ...DEFAULT_AFTER_HOURS };
     let dailyClose = { ...DEFAULT_DAILY_CLOSE };
+    let survey = { ...DEFAULT_SURVEY };
 
     if (rows && rows.length > 0) {
       for (const row of rows) {
@@ -72,6 +79,11 @@ export async function GET() {
               close_time: parsed.close_time || DEFAULT_DAILY_CLOSE.close_time,
               message: parsed.message || DEFAULT_DAILY_CLOSE.message,
             };
+          } else if (row.key === "survey_config" && parsed) {
+            survey = {
+              enabled: Boolean(parsed.enabled),
+              message: parsed.message || DEFAULT_SURVEY.message,
+            };
           }
         } catch (_e) {}
       }
@@ -82,6 +94,7 @@ export async function GET() {
       config,
       after_hours: afterHours,
       daily_close: dailyClose,
+      survey,
     });
   } catch (error: any) {
     console.error("Error reading auto-close config:", error);
@@ -92,6 +105,7 @@ export async function GET() {
         config: DEFAULT_CONFIG,
         after_hours: DEFAULT_AFTER_HOURS,
         daily_close: DEFAULT_DAILY_CLOSE,
+        survey: DEFAULT_SURVEY,
       },
       { status: 500 }
     );
@@ -151,6 +165,21 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // Encuesta de Satisfacción (WhatsApp)
+    if (body.survey) {
+      const surveyToSave = {
+        enabled: Boolean(body.survey.enabled),
+        message: String(body.survey.message || DEFAULT_SURVEY.message).trim(),
+      };
+      upserts.push({
+        key: "survey_config",
+        value: JSON.stringify(surveyToSave),
+        updated_at: nowIso,
+        iv: "none",
+        tag: "none",
+      });
+    }
+
     const { error } = await supabase
       .from("sek_app_settings")
       .upsert(upserts, { onConflict: "key" });
@@ -162,6 +191,7 @@ export async function POST(req: NextRequest) {
       config: configToSave,
       after_hours: body.after_hours,
       daily_close: body.daily_close,
+      survey: body.survey,
     });
   } catch (error: any) {
     console.error("Error saving auto-close config:", error);

@@ -371,41 +371,41 @@ export function CompanySchedulePanel() {
               </div>
 
               {/* ── GESTIÓN DE TOLERANCIA OFICIAL (ACTIVITY TRACKER) ── */}
-              <div className="p-3.5 rounded-xl bg-muted/20 border border-border/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-                <div className="flex items-start gap-2.5">
-                  <div className="p-2 rounded-xl bg-amber-500/15 text-amber-500 shrink-0 mt-0.5 sm:mt-0">
-                    <SlidersHorizontal className="h-4 w-4" />
+              <div className="p-4 rounded-xl bg-muted/20 border border-border/60 flex flex-col md:flex-row md:items-center justify-between gap-4 text-xs sm:col-span-2 shadow-xs">
+                <div className="flex items-start sm:items-center gap-3 min-w-0">
+                  <div className="h-9 w-9 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-500 flex items-center justify-center shrink-0">
+                    <SlidersHorizontal className="h-4.5 w-4.5" />
                   </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-foreground text-xs">Tolerancia de Inactividad:</span>
-                      <span className="text-[10px] font-mono font-bold text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-bold text-foreground text-xs whitespace-nowrap">Tolerancia de Inactividad:</span>
+                      <span className="text-[10px] font-mono font-black text-amber-500 bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 rounded-full shrink-0">
                         {toleranceMinutes} min
                       </span>
                     </div>
-                    <p className="text-muted-foreground text-[11px] mt-0.5 max-w-sm">
+                    <p className="text-muted-foreground text-[11px] mt-0.5 leading-relaxed">
                       Pausas menores a este límite cuentan como trabajo activo dentro de la jornada laboral.
                     </p>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 self-end sm:self-center">
+                <div className="flex items-center gap-2.5 self-start sm:self-center shrink-0">
                   <div className="flex items-center rounded-xl border border-border bg-background p-0.5 shadow-xs">
                     <button
                       type="button"
                       onClick={() => setToleranceMinutes((prev) => Math.max(1, prev - 1))}
-                      className="h-7 w-7 rounded-lg hover:bg-muted active:bg-muted/80 flex items-center justify-center font-black text-sm text-muted-foreground hover:text-foreground transition-colors"
+                      className="h-7 w-7 rounded-lg hover:bg-muted active:bg-muted/80 flex items-center justify-center font-black text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
                       title="Bajar tolerancia en 1 minuto"
                     >
                       −
                     </button>
-                    <div className="px-2.5 font-mono font-black text-xs text-amber-500 min-w-[50px] text-center select-none">
+                    <div className="px-3 font-mono font-black text-xs text-amber-500 min-w-[55px] text-center select-none">
                       {toleranceMinutes} min
                     </div>
                     <button
                       type="button"
                       onClick={() => setToleranceMinutes((prev) => Math.min(60, prev + 1))}
-                      className="h-7 w-7 rounded-lg hover:bg-muted active:bg-muted/80 flex items-center justify-center font-black text-sm text-muted-foreground hover:text-foreground transition-colors"
+                      className="h-7 w-7 rounded-lg hover:bg-muted active:bg-muted/80 flex items-center justify-center font-black text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
                       title="Subir tolerancia en 1 minuto"
                     >
                       +
@@ -418,9 +418,9 @@ export function CompanySchedulePanel() {
                         key={preset}
                         type="button"
                         onClick={() => setToleranceMinutes(preset)}
-                        className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-all ${
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
                           toleranceMinutes === preset
-                            ? "bg-amber-500 text-white shadow-xs font-black"
+                            ? "bg-amber-500 text-white shadow-xs font-black ring-1 ring-amber-400"
                             : "bg-card border border-border text-muted-foreground hover:text-foreground hover:bg-muted"
                         }`}
                       >

@@ -11,6 +11,7 @@ import {
   Sparkles,
   Moon,
   LogOut,
+  Star,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -22,6 +23,9 @@ const DEFAULT_AFTER_HOURS_MSG =
 
 const DEFAULT_DAILY_CLOSE_MSG =
   "Estimado cliente, informamos que nuestra jornada de atención ha finalizado por hoy. Procedemos al cierre de esta sesión. Si requiere asistencia adicional, por favor escríbanos en nuestro horario habitual y con gusto le atenderemos.";
+
+const DEFAULT_SURVEY_MSG =
+  "¿Cómo calificaría la atención recibida? Responda con un número del 1 al 5, donde 1 es muy mala y 5 es excelente.";
 
 const TIME_PRESETS = [
   { label: "5 min", value: 5 },
@@ -52,6 +56,11 @@ export function AutoCloseConfigPanel() {
   const [dailyCloseMsg, setDailyCloseMsg] = useState<string>(DEFAULT_DAILY_CLOSE_MSG);
   const [showDailyCloseEditor, setShowDailyCloseEditor] = useState<boolean>(false);
 
+  // Sección 4: Encuesta de Satisfacción (WhatsApp)
+  const [surveyEnabled, setSurveyEnabled] = useState<boolean>(false);
+  const [surveyMsg, setSurveyMsg] = useState<string>(DEFAULT_SURVEY_MSG);
+  const [showSurveyEditor, setShowSurveyEditor] = useState<boolean>(false);
+
   // Estado general
   const [loading, setLoading] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
@@ -76,6 +85,10 @@ export function AutoCloseConfigPanel() {
             setDailyCloseEnabled(Boolean(data.daily_close.enabled));
             if (data.daily_close.close_time) setDailyCloseTime(data.daily_close.close_time);
             if (data.daily_close.message) setDailyCloseMsg(data.daily_close.message);
+          }
+          if (data.survey) {
+            setSurveyEnabled(Boolean(data.survey.enabled));
+            if (data.survey.message) setSurveyMsg(data.survey.message);
           }
         }
       })
@@ -124,6 +137,10 @@ export function AutoCloseConfigPanel() {
             close_time: dailyCloseTime,
             message: dailyCloseMsg,
           },
+          survey: {
+            enabled: surveyEnabled,
+            message: surveyMsg,
+          },
         }),
       });
 
@@ -133,7 +150,7 @@ export function AutoCloseConfigPanel() {
       }
 
       setHasChanges(false);
-      toast.success("Configuración de cierre y fuera de horario guardada exitosamente.");
+      toast.success("Configuración de cierre, fuera de horario y encuesta guardada exitosamente.");
     } catch (err: any) {
       toast.error(err.message || "Error al guardar configuración");
     } finally {
@@ -582,6 +599,135 @@ export function AutoCloseConfigPanel() {
             </div>
           )}
         </div>
+      </div>
+
+      <div className="h-px bg-border/50" />
+
+      {/* ─────────────────────────────────────────────────────────────
+          SECCIÓN 4: ENCUESTA DE SATISFACCIÓN (WHATSAPP)
+          ───────────────────────────────────────────────────────────── */}
+      <div>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div
+              className={`h-9 w-9 rounded-xl grid place-items-center shrink-0 transition-colors ${
+                surveyEnabled ? "bg-sky-500/10 text-sky-500" : "bg-muted text-muted-foreground"
+              }`}
+            >
+              <Star className="h-4 w-4" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-black tracking-tight">Encuesta de Satisfacción (WhatsApp)</h2>
+                <span
+                  className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                    surveyEnabled
+                      ? "bg-sky-500/15 text-sky-400 border border-sky-500/30"
+                      : "bg-muted text-muted-foreground border border-border"
+                  }`}
+                >
+                  {surveyEnabled ? "Activado" : "Apagado"}
+                </span>
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-0.5 max-w-lg">
+                {surveyEnabled
+                  ? "Envía automáticamente una encuesta de satisfacción (calificación 1 al 5) por WhatsApp al cliente al cerrarse un caso."
+                  : "Desactivado. Al cerrar un caso no se enviará encuesta y finalizará directamente sin esperar calificación."}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 self-end sm:self-center shrink-0">
+            <span className="text-xs font-bold text-muted-foreground">
+              {surveyEnabled ? "ON" : "OFF"}
+            </span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={surveyEnabled}
+              onClick={() => {
+                setSurveyEnabled((v) => !v);
+                setHasChanges(true);
+              }}
+              disabled={loading}
+              className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
+                surveyEnabled ? "bg-sky-500" : "bg-muted-foreground/30"
+              }`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                  surveyEnabled ? "translate-x-5" : "translate-x-0"
+                }`}
+              />
+            </button>
+          </div>
+        </div>
+
+        {/* Editor de plantilla de texto predeterminada para la encuesta */}
+        <div className="mt-3">
+          <button
+            type="button"
+            onClick={() => setShowSurveyEditor((v) => !v)}
+            className="flex items-center justify-between w-full text-left p-2.5 rounded-xl bg-muted/20 hover:bg-muted/40 border border-border/40 text-xs font-semibold text-foreground transition-colors group"
+          >
+            <div className="flex items-center gap-2">
+              <MessageSquare className="h-3.5 w-3.5 text-sky-400" />
+              <span>Plantilla de texto predeterminada para la encuesta</span>
+              <span className="text-[10px] text-muted-foreground font-normal">
+                ({surveyMsg.length} caracteres)
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground group-hover:text-foreground">
+              <span>{showSurveyEditor ? "Ocultar" : "Personalizar"}</span>
+              <ChevronDown
+                className={`h-3.5 w-3.5 transition-transform duration-200 ${
+                  showSurveyEditor ? "rotate-180" : ""
+                }`}
+              />
+            </div>
+          </button>
+
+          {showSurveyEditor && (
+            <div className="mt-2.5 p-3.5 rounded-xl bg-muted/30 border border-border/60 space-y-2.5 animate-in fade-in-50 duration-200">
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+                  Texto enviado solicitando la calificación del cliente (1 al 5):
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSurveyMsg(DEFAULT_SURVEY_MSG);
+                    setHasChanges(true);
+                    toast.info("Mensaje restablecido a la plantilla original");
+                  }}
+                  className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors px-2 py-0.5 rounded-md hover:bg-muted"
+                >
+                  <RotateCcw className="h-3 w-3" /> Restablecer
+                </button>
+              </div>
+
+              <textarea
+                value={surveyMsg}
+                onChange={(e) => {
+                  setSurveyMsg(e.target.value);
+                  setHasChanges(true);
+                }}
+                rows={3}
+                className="w-full text-xs rounded-lg border border-border bg-background p-2.5 focus:outline-none focus:ring-1 focus:ring-sky-500 resize-none leading-relaxed"
+                placeholder="Escriba el texto para solicitar la calificación..."
+              />
+            </div>
+          )}
+        </div>
+
+        {!surveyEnabled && (
+          <div className="mt-3 p-3 rounded-xl bg-muted/30 border border-border/60 flex items-center gap-2.5 text-muted-foreground">
+            <AlertCircle className="h-4 w-4 shrink-0 text-sky-500/70" />
+            <p className="text-xs font-medium">
+              La encuesta está apagada. Al cerrar los casos se finalizarán directamente sin solicitar calificación por WhatsApp.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* ─────────────────────────────────────────────────────────────
