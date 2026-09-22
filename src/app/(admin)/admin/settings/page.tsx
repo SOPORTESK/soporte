@@ -6,8 +6,6 @@ import { Badge } from "@/components/ui/avatar";
 import type { SekAgent } from "@/lib/types";
 import { IaModeToggle } from "@/components/admin/ia-mode-toggle";
 import { UnattendedModeToggle } from "@/components/admin/unattended-mode-toggle";
-import { EvolutionConfigPanel } from "@/components/admin/evolution-config-panel";
-import { WhatsAppQRConnect } from "@/components/admin/whatsapp-qr-connect";
 import { CompanySchedulePanel } from "@/components/admin/company-schedule-panel";
 import { AutoCloseConfigPanel } from "@/components/admin/auto-close-config-panel";
 
@@ -207,14 +205,6 @@ export default async function AdminSettingsPage() {
             <section>
               <UnattendedModeToggle initialValue={modoNoAtendido} />
             </section>
-          )}
-
-          {/* Evolution WhatsApp */}
-          {isAdmin && (
-            <>
-              <EvolutionConfigPanel />
-              <WhatsAppQRConnect />
-            </>
           )}
 
           {/* Canales */}
