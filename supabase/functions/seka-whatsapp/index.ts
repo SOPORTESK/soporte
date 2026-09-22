@@ -1115,9 +1115,28 @@ Deno.serve(async (req: Request) => {
     const flowConfig = await loadFlowConfig();
     console.log("[seka-whatsapp] Flow config loaded:", flowConfig ? `${flowConfig.nodes.length} nodos` : "no configurado");
 
-    // Fuera de horario: no se atiende, solo se informa el horario (sin importar el bot ON/OFF)
-    if (!isOpenNowCR()) {
-      const msgHorario = getFlowMessageById(flowConfig, "fuera_horario") || MSG_HORARIO;
+    // ── Fuera de horario: respeta el switch y plantilla de sek_app_settings (after_hours_config) ──
+    const { data: afterHoursRow } = await db
+      .from("sek_app_settings")
+      .select("value")
+      .eq("key", "after_hours_config")
+      .maybeSingle();
+
+    let afterHoursEnabled = false;
+    let msgHorario = getFlowMessageById(flowConfig, "fuera_horario") || MSG_HORARIO;
+
+    if (afterHoursRow?.value) {
+      try {
+        const parsed = typeof afterHoursRow.value === "string" ? JSON.parse(afterHoursRow.value) : afterHoursRow.value;
+        if (parsed) {
+          if (parsed.enabled !== undefined) afterHoursEnabled = Boolean(parsed.enabled);
+          if (parsed.message) msgHorario = parsed.message;
+        }
+      } catch (_e) {}
+    }
+
+    if (afterHoursEnabled && !isOpenNowCR()) {
+      console.log("[seka-whatsapp] Fuera de horario activo — enviando mensaje configurado y cerrando caso");
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: msgHorario };
       await appendTecnico(case_id, newMsg, { estado: "cerrado", closed_at: new Date().toISOString() });
       return new Response(JSON.stringify({ ok: true, reply: [msgHorario] }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });

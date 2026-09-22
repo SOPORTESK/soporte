@@ -143,7 +143,7 @@ export default async function AdminSettingsPage() {
           <CompanySchedulePanel />
         </div>
 
-        {/* Auto-Cierre por Inactividad */}
+        {/* Auto-Cierre por Inactividad & Gestión de Horarios de Cierre */}
         <div>
           <AutoCloseConfigPanel />
         </div>

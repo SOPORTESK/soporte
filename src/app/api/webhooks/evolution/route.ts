@@ -24,15 +24,36 @@ function isOpenNowCR(): boolean {
   return crMin >= 450 && crMin < 1020; // 7:30 = 450, 17:00 = 1020
 }
 
-// El mensaje de fuera de horario es editable desde el editor visual de flujos.
-async function getFueraHorarioMsg(supabase: any): Promise<string> {
+// El mensaje y activación de fuera de horario se gestionan desde sek_app_settings (after_hours_config)
+async function getFueraHorarioConfig(supabase: any): Promise<{ enabled: boolean; message: string }> {
   try {
-    const { data } = await supabase.from("sek_flow_configs").select("flow_data").eq("activo", true).maybeSingle();
-    const node = data?.flow_data?.nodes?.find((n: any) => n.id === "fuera_horario");
-    return node?.data?.message || MSG_HORARIO;
+    const { data: settingRow } = await supabase
+      .from("sek_app_settings")
+      .select("value")
+      .eq("key", "after_hours_config")
+      .maybeSingle();
+
+    if (settingRow?.value) {
+      const parsed = typeof settingRow.value === "string" ? JSON.parse(settingRow.value) : settingRow.value;
+      if (parsed) {
+        return {
+          enabled: Boolean(parsed.enabled),
+          message: parsed.message || MSG_HORARIO,
+        };
+      }
+    }
+
+    const { data: flowData } = await supabase.from("sek_flow_configs").select("flow_data").eq("activo", true).maybeSingle();
+    const node = flowData?.flow_data?.nodes?.find((n: any) => n.id === "fuera_horario");
+    return { enabled: false, message: node?.data?.message || MSG_HORARIO };
   } catch {
-    return MSG_HORARIO;
+    return { enabled: false, message: MSG_HORARIO };
   }
+}
+
+async function getFueraHorarioMsg(supabase: any): Promise<string> {
+  const cfg = await getFueraHorarioConfig(supabase);
+  return cfg.message;
 }
 
 // Map global para trackear mensajes procesados recientemente (evita duplicados)
@@ -1888,7 +1909,12 @@ export async function POST(req: NextRequest) {
               });
               console.log(`[evo-webhook] seka-whatsapp reply:`, iaData.reply ? (Array.isArray(iaData.reply) ? `${iaData.reply.length} mensajes` : "1 mensaje") : "ausente", "error:", iaData.error || "ninguno");
               if (iaData.reply) {
-                await sendWhatsAppMessages(phone || jid || "", iaData.reply, evoCfg, flowSettings);
+                const afterHoursCfg = await getFueraHorarioConfig(supabase);
+                if (!afterHoursCfg.enabled && !isOpenNowCR()) {
+                  console.log(`[evo-webhook] Respuesta de horario bloqueada porque el interruptor está en OFF`);
+                } else {
+                  await sendWhatsAppMessages(phone || jid || "", iaData.reply, evoCfg, flowSettings);
+                }
               } else {
                 console.warn(`[evo-webhook] seka-whatsapp no devolvió reply para caso ${existing.id}:`, iaData);
               }
@@ -1980,10 +2006,9 @@ export async function POST(req: NextRequest) {
 
       const hasKnownData = !!(knownClient.nombre || knownClient.correo || knownClient.cuenta);
 
-      // ── Fuera de horario: tiene prioridad sobre el Modo No Atendido ──
-      // Sin esta verificación, un cliente que escribe de madrugada recibía la
-      // bienvenida prometiendo un agente que no está disponible.
-      if (modoNoAtendido && !isOpenNowCR()) {
+      // ── Fuera de horario: configurable desde panel admin (after_hours_config) ──
+      const afterHoursCfg = await getFueraHorarioConfig(supabase);
+      if ((afterHoursCfg.enabled || modoNoAtendido) && !isOpenNowCR()) {
         const nowIso = new Date().toISOString();
         const horarioTitle = pushName ? `WhatsApp — ${pushName}` : (knownClient.nombre ? `WhatsApp — ${knownClient.nombre}` : `WhatsApp — ${contactPhone}`);
         const horarioPayload = {
@@ -2267,7 +2292,12 @@ export async function POST(req: NextRequest) {
           });
           console.log(`[evo-webhook] seka-whatsapp reply (nuevo caso):`, iaData.reply ? (Array.isArray(iaData.reply) ? `${iaData.reply.length} mensajes` : "1 mensaje") : "ausente", "error:", iaData.error || "ninguno");
           if (iaData.reply) {
-            await sendWhatsAppMessages(phone || jid || "", iaData.reply, evoCfg, flowSettings);
+            const afterHoursCfg = await getFueraHorarioConfig(supabase);
+            if (!afterHoursCfg.enabled && !isOpenNowCR()) {
+              console.log(`[evo-webhook] Respuesta de horario bloqueada (nuevo caso) porque el interruptor está en OFF`);
+            } else {
+              await sendWhatsAppMessages(phone || jid || "", iaData.reply, evoCfg, flowSettings);
+            }
           } else {
             console.warn(`[evo-webhook] seka-whatsapp no devolvió reply para nuevo caso ${nuevoCaseId}:`, iaData);
           }

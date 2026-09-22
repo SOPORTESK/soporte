@@ -1478,8 +1478,26 @@ Deno.serve(async (req) => {
     const isSimulator = caso.canal === "simulator";
 
     // Verificar horario de atención (se omite para cuentas de prueba y simulador)
-    if (!isWithinBusinessHours() && !isTestAccount && !isSimulator) {
-      const offMsg = "Gracias por contactar a Sekunet. Nuestro horario de atencion es de lunes a viernes de 7:30 a.m. a 5:00 p.m. En este momento no estamos disponibles. Con gusto le atendemos el proximo dia habil.";
+    const { data: afterHoursSetting } = await db
+      .from("sek_app_settings")
+      .select("value")
+      .eq("key", "after_hours_config")
+      .maybeSingle();
+
+    let afterHoursActive = false;
+    let offMsg = "Gracias por contactarnos.\n\nEn este momento nos encontramos fuera de nuestro horario de atención.\n\nLe invitamos a comunicarse con nosotros en nuestro horario de servicio, de lunes a viernes, de 7:30 a. m. a 5:00 p. m.";
+
+    if (afterHoursSetting?.value) {
+      try {
+        const parsed = typeof afterHoursSetting.value === "string" ? JSON.parse(afterHoursSetting.value) : afterHoursSetting.value;
+        if (parsed) {
+          if (parsed.enabled !== undefined) afterHoursActive = Boolean(parsed.enabled);
+          if (parsed.message) offMsg = parsed.message;
+        }
+      } catch (_e) {}
+    }
+
+    if (afterHoursActive && !isWithinBusinessHours() && !isTestAccount && !isSimulator) {
       const offEntry = { role: "assistant", author: "Asistente Virtual", time: new Date().toISOString(), content: offMsg };
       await db.from("sek_cases").update({ histcliente: [...histcliente, offEntry] }).eq("id", case_id);
       return new Response(JSON.stringify({ ok: true, response: offMsg, escalated: false, closed: false }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });

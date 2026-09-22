@@ -171,12 +171,11 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ closed: 0, unattended: true }), { status: 200, headers: { "Content-Type": "application/json" } });
   }
 
-  // ── Leer Configuración Dinámica de Auto-Cierre desde sek_app_settings ──
-  const { data: configRow } = await db
+  // ── Leer Configuración Dinámica de Auto-Cierre y Cierre Diario desde sek_app_settings ──
+  const { data: settingsRows } = await db
     .from("sek_app_settings")
-    .select("value")
-    .eq("key", "auto_close_config")
-    .maybeSingle();
+    .select("key, value")
+    .in("key", ["auto_close_config", "daily_close_config"]);
 
   let autoCloseConfig = {
     enabled: true,
@@ -184,19 +183,50 @@ Deno.serve(async (req) => {
     close_message: CLOSE_MSG,
   };
 
-  if (configRow?.value) {
-    try {
-      const parsed = typeof configRow.value === "string" ? JSON.parse(configRow.value) : configRow.value;
-      if (parsed) {
-        if (parsed.enabled !== undefined) autoCloseConfig.enabled = Boolean(parsed.enabled);
-        if (parsed.inactivity_minutes) autoCloseConfig.inactivity_minutes = Number(parsed.inactivity_minutes);
-        if (parsed.close_message) autoCloseConfig.close_message = parsed.close_message;
-      }
-    } catch (_e) {}
+  let dailyCloseConfig = {
+    enabled: false,
+    close_time: "18:00",
+    message: "Estimado cliente, informamos que nuestra jornada de atención ha finalizado por hoy. Procedemos al cierre de esta sesión. Si requiere asistencia adicional, por favor escríbanos en nuestro horario habitual y con gusto le atenderemos.",
+  };
+
+  if (settingsRows && settingsRows.length > 0) {
+    for (const row of settingsRows) {
+      if (!row.value) continue;
+      try {
+        const parsed = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
+        if (row.key === "auto_close_config" && parsed) {
+          if (parsed.enabled !== undefined) autoCloseConfig.enabled = Boolean(parsed.enabled);
+          if (parsed.inactivity_minutes) autoCloseConfig.inactivity_minutes = Number(parsed.inactivity_minutes);
+          if (parsed.close_message) autoCloseConfig.close_message = parsed.close_message;
+        } else if (row.key === "daily_close_config" && parsed) {
+          if (parsed.enabled !== undefined) dailyCloseConfig.enabled = Boolean(parsed.enabled);
+          if (parsed.close_time) dailyCloseConfig.close_time = parsed.close_time;
+          if (parsed.message) dailyCloseConfig.message = parsed.message;
+        }
+      } catch (_e) {}
+    }
   }
 
-  if (!autoCloseConfig.enabled) {
-    console.log("[auto-close] Auto-cierre desactivado globalmente por configuración, saliendo.");
+  // Evaluar ventana de cierre general al fin de jornada (hora Costa Rica UTC-6)
+  const nowObj = new Date();
+  const utcH = nowObj.getUTCHours();
+  const utcM = nowObj.getUTCMinutes();
+  let crH = utcH - 6;
+  if (crH < 0) crH += 24;
+  const currentCrMin = crH * 60 + utcM;
+
+  let isDailyCloseWindow = false;
+  if (dailyCloseConfig.enabled && dailyCloseConfig.close_time) {
+    const [dcH, dcM] = dailyCloseConfig.close_time.split(":").map(Number);
+    const dcMin = (dcH || 18) * 60 + (dcM || 0);
+    // Se activa desde la hora de corte diario en adelante (hasta las 04:59 am)
+    if (currentCrMin >= dcMin || crH < 5) {
+      isDailyCloseWindow = true;
+    }
+  }
+
+  if (!autoCloseConfig.enabled && !isDailyCloseWindow) {
+    console.log("[auto-close] Auto-cierre desactivado y fuera de ventana de corte diario, saliendo.");
     return new Response(JSON.stringify({ closed: 0, disabled: true }), { status: 200, headers: { "Content-Type": "application/json" } });
   }
 
@@ -292,6 +322,52 @@ Deno.serve(async (req) => {
         .eq("id", caso.id).not("estado", "in", '("cerrado","resuelto")');
       closed++;
       console.log(`[auto-close] Caso zombi ${caso.id} cerrado.`);
+      continue;
+    }
+
+    // ── CIERRE GENERAL AL FIN DE JORNADA (BARRIDO NOCTURNO) ──
+    if (isDailyCloseWindow) {
+      console.log(`[auto-close] Caso ${caso.id} seleccionado para cierre por fin de jornada (corte: ${dailyCloseConfig.close_time})`);
+      const canalLower = String(caso.canal || "").toLowerCase().trim();
+      const clienteObj = typeof caso.cliente === "object" ? caso.cliente : {};
+      const realPhone = clienteObj?.telefono_real || clienteObj?.telefono || caso.customer_phone || "";
+
+      const dailyCloseEntry = {
+        role: "tecnico",
+        content: dailyCloseConfig.message,
+        time: new Date().toISOString(),
+        author: "Soporte Sekunet",
+      };
+      const newHist = [...(caso.histtecnico ?? []), dailyCloseEntry];
+
+      const { data: closedDaily, error: dailyErr } = await db
+        .from("sek_cases")
+        .update({ estado: "cerrado", closed_at: new Date().toISOString(), histtecnico: newHist })
+        .eq("id", caso.id)
+        .not("estado", "in", '("cerrado","resuelto")')
+        .select("id");
+
+      if (dailyErr || !closedDaily || closedDaily.length === 0) {
+        continue;
+      }
+
+      if (canalLower === "whatsapp" && realPhone) {
+        await sendViaEvolution(realPhone, dailyCloseConfig.message);
+      }
+
+      learnFromCase(caso).catch(() => {});
+      fetch(`${SUPABASE_URL}/functions/v1/learn-case`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${SERVICE_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ case_id: caso.id }),
+      }).catch(() => {});
+
+      closed++;
+      continue;
+    }
+
+    // Si el auto-cierre por inactividad está desactivado, saltar evaluación por inactividad
+    if (!autoCloseConfig.enabled) {
       continue;
     }
 
