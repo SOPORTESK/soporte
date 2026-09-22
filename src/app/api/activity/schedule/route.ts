@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { agentEmail, custom, scheduleStart, scheduleEnd, scheduleEnabled, workDays, targetDailyHours } = body;
+    const { agentEmail, custom, scheduleStart, scheduleEnd, scheduleEnabled, workDays, targetDailyHours, toleranceMinutes } = body;
 
     if (agentEmail) {
       await saveAgentSchedule(agentEmail, {
@@ -40,6 +40,7 @@ export async function POST(req: NextRequest) {
       scheduleEnabled: scheduleEnabled !== undefined ? Boolean(scheduleEnabled) : true,
       workDays: Array.isArray(workDays) && workDays.length > 0 ? workDays : [1, 2, 3, 4, 5],
       targetDailyHours: Number(targetDailyHours) || 8,
+      toleranceMinutes: Number(toleranceMinutes) || 5,
     });
     return NextResponse.json({ success: true });
   } catch (err: any) {

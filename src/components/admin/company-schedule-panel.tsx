@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Clock, CheckCircle2, Calendar, ShieldCheck, AlertCircle, Sparkles, Briefcase } from "lucide-react";
+import { Clock, CheckCircle2, Calendar, ShieldCheck, AlertCircle, Sparkles, Briefcase, SlidersHorizontal } from "lucide-react";
 import { toast } from "sonner";
 
 const DAYS_LIST = [
@@ -20,6 +20,7 @@ export function CompanySchedulePanel() {
   const [scheduleEnabled, setScheduleEnabled] = useState<boolean>(true);
   const [workDays, setWorkDays] = useState<number[]>([1, 2, 3, 4, 5]);
   const [targetDailyHours, setTargetDailyHours] = useState<number>(10);
+  const [toleranceMinutes, setToleranceMinutes] = useState<number>(5);
   const [loading, setLoading] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
   const [savedSuccess, setSavedSuccess] = useState<boolean>(false);
@@ -34,6 +35,7 @@ export function CompanySchedulePanel() {
           if (data.scheduleEnabled !== undefined) setScheduleEnabled(Boolean(data.scheduleEnabled));
           if (Array.isArray(data.workDays) && data.workDays.length > 0) setWorkDays(data.workDays);
           if (data.targetDailyHours) setTargetDailyHours(Number(data.targetDailyHours));
+          if (data.toleranceMinutes) setToleranceMinutes(Number(data.toleranceMinutes));
         }
       })
       .catch((err) => console.error("Error loading schedule:", err))
@@ -86,6 +88,7 @@ export function CompanySchedulePanel() {
           scheduleEnabled,
           workDays,
           targetDailyHours,
+          toleranceMinutes,
         }),
       });
 
@@ -364,6 +367,67 @@ export function CompanySchedulePanel() {
                 </div>
                 <div className="h-10 w-10 rounded-2xl bg-violet-500/15 border border-violet-500/30 text-violet-400 grid place-items-center shrink-0">
                   <Sparkles className="h-5 w-5" />
+                </div>
+              </div>
+
+              {/* ── GESTIÓN DE TOLERANCIA OFICIAL (ACTIVITY TRACKER) ── */}
+              <div className="p-3.5 rounded-xl bg-muted/20 border border-border/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                <div className="flex items-start gap-2.5">
+                  <div className="p-2 rounded-xl bg-amber-500/15 text-amber-500 shrink-0 mt-0.5 sm:mt-0">
+                    <SlidersHorizontal className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-foreground text-xs">Tolerancia de Inactividad:</span>
+                      <span className="text-[10px] font-mono font-bold text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded">
+                        {toleranceMinutes} min
+                      </span>
+                    </div>
+                    <p className="text-muted-foreground text-[11px] mt-0.5 max-w-sm">
+                      Pausas menores a este límite cuentan como trabajo activo dentro de la jornada laboral.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 self-end sm:self-center">
+                  <div className="flex items-center rounded-xl border border-border bg-background p-0.5 shadow-xs">
+                    <button
+                      type="button"
+                      onClick={() => setToleranceMinutes((prev) => Math.max(1, prev - 1))}
+                      className="h-7 w-7 rounded-lg hover:bg-muted active:bg-muted/80 flex items-center justify-center font-black text-sm text-muted-foreground hover:text-foreground transition-colors"
+                      title="Bajar tolerancia en 1 minuto"
+                    >
+                      −
+                    </button>
+                    <div className="px-2.5 font-mono font-black text-xs text-amber-500 min-w-[50px] text-center select-none">
+                      {toleranceMinutes} min
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setToleranceMinutes((prev) => Math.min(60, prev + 1))}
+                      className="h-7 w-7 rounded-lg hover:bg-muted active:bg-muted/80 flex items-center justify-center font-black text-sm text-muted-foreground hover:text-foreground transition-colors"
+                      title="Subir tolerancia en 1 minuto"
+                    >
+                      +
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    {[3, 5, 10, 15].map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => setToleranceMinutes(preset)}
+                        className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-all ${
+                          toleranceMinutes === preset
+                            ? "bg-amber-500 text-white shadow-xs font-black"
+                            : "bg-card border border-border text-muted-foreground hover:text-foreground hover:bg-muted"
+                        }`}
+                      >
+                        {preset}m
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>

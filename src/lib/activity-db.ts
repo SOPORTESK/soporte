@@ -42,6 +42,7 @@ export interface WorkScheduleConfig {
   scheduleEnabled: boolean;
   workDays: number[]; // 1=Lun, 2=Mar, 3=Mié, 4=Jue, 5=Vie, 6=Sáb, 0=Dom
   targetDailyHours: number; // Meta oficial de jornada diaria en horas (por defecto 10 horas)
+  toleranceMinutes?: number; // Tolerancia oficial de pausas menores en minutos (por defecto 5 min)
   agentSchedules?: Record<string, AgentScheduleOverride>;
 }
 
@@ -79,6 +80,7 @@ export async function getWorkSchedule(): Promise<WorkScheduleConfig> {
         scheduleEnabled: parsed.scheduleEnabled !== undefined ? Boolean(parsed.scheduleEnabled) : true,
         workDays: Array.isArray(parsed.workDays) && parsed.workDays.length > 0 ? parsed.workDays : [1, 2, 3, 4, 5],
         targetDailyHours: Number(parsed.targetDailyHours) || 10,
+        toleranceMinutes: Number(parsed.toleranceMinutes) || 5,
         agentSchedules: parsed.agentSchedules && typeof parsed.agentSchedules === "object" ? parsed.agentSchedules : {},
       };
     }
@@ -86,7 +88,7 @@ export async function getWorkSchedule(): Promise<WorkScheduleConfig> {
     console.error("[getWorkSchedule] error:", err);
   }
 
-  return { scheduleStart: "06:00", scheduleEnd: "18:00", scheduleEnabled: true, workDays: [1, 2, 3, 4, 5], targetDailyHours: 10, agentSchedules: {} };
+  return { scheduleStart: "06:00", scheduleEnd: "18:00", scheduleEnabled: true, workDays: [1, 2, 3, 4, 5], targetDailyHours: 10, toleranceMinutes: 5, agentSchedules: {} };
 }
 
 export async function getAgentSchedule(agentEmail: string): Promise<WorkScheduleConfig & { isCustom: boolean; globalSchedule: Omit<WorkScheduleConfig, "agentSchedules"> }> {
@@ -131,6 +133,7 @@ export async function saveWorkSchedule(config: WorkScheduleConfig): Promise<void
     scheduleEnabled: Boolean(config.scheduleEnabled),
     workDays: Array.isArray(config.workDays) && config.workDays.length > 0 ? config.workDays : [1, 2, 3, 4, 5],
     targetDailyHours: Number(config.targetDailyHours) || 10,
+    toleranceMinutes: Math.max(1, Math.min(60, Number(config.toleranceMinutes) || 5)),
     agentSchedules: config.agentSchedules || existing.agentSchedules || {},
   });
 
