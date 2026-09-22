@@ -12,6 +12,7 @@ import {
   Moon,
   LogOut,
   Star,
+  SlidersHorizontal,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -158,583 +159,640 @@ export function AutoCloseConfigPanel() {
     }
   };
 
-  return (
-    <section className="rounded-2xl border border-border/60 bg-card p-5 lg:p-6 shadow-sm transition-all space-y-6">
-      {/* ─────────────────────────────────────────────────────────────
-          SECCIÓN 1: AUTO-CIERRE POR INACTIVIDAD
-          ───────────────────────────────────────────────────────────── */}
-      <div>
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <div
-              className={`h-9 w-9 rounded-xl grid place-items-center shrink-0 transition-colors ${
-                enabled ? "bg-emerald-500/10 text-emerald-500" : "bg-muted text-muted-foreground"
-              }`}
-            >
-              <Clock className="h-4 w-4" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-sm font-black tracking-tight">Auto-Cierre por Inactividad</h2>
-                <span
-                  className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${
-                    enabled
-                      ? "bg-emerald-500/15 text-emerald-500 border border-emerald-500/30"
-                      : "bg-muted text-muted-foreground border border-border"
-                  }`}
-                >
-                  {enabled ? "Activado" : "Apagado"}
-                </span>
-              </div>
-              <p className="text-[11px] text-muted-foreground mt-0.5 max-w-lg">
-                {enabled
-                  ? `Cierra automáticamente los chats que tengan más de ${inactivityMinutes} min sin respuesta del cliente.`
-                  : "El auto-cierre está apagado. Ningún chat se cerrará de manera automática."}
-              </p>
-            </div>
-          </div>
+  const activeRulesCount = [enabled, afterHoursEnabled, dailyCloseEnabled, surveyEnabled].filter(Boolean).length;
 
-          {/* Switch deslizante tipo iOS */}
-          <div className="flex items-center gap-3 self-end sm:self-center shrink-0">
-            <span className="text-xs font-bold text-muted-foreground">
-              {enabled ? "ON" : "OFF"}
-            </span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={enabled}
-              onClick={handleToggle}
-              disabled={loading}
-              className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
-                enabled ? "bg-emerald-500" : "bg-muted-foreground/30"
-              }`}
-            >
-              <span
-                className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
-                  enabled ? "translate-x-5" : "translate-x-0"
-                }`}
-              />
-            </button>
+  return (
+    <section className="rounded-2xl border border-border/60 bg-card p-5 lg:p-6 shadow-sm h-full flex flex-col justify-between space-y-5">
+      {/* ── HEADER MAESTRO (SIMÉTRICO CON EL PANEL DE HORARIOS) ── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border/60 pb-4">
+        <div className="flex items-center gap-3">
+          <div className="h-9 w-9 rounded-xl bg-brand-500/15 border border-brand-500/30 text-brand-400 grid place-items-center shrink-0">
+            <SlidersHorizontal className="h-4.5 w-4.5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-base font-black text-foreground">Automatizaciones & Cierres</h2>
+              <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-brand-500/15 text-brand-400 border border-brand-500/30">
+                Reglas del Chat
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Gestión independiente de auto-cierre, fuera de horario, fin de jornada y encuesta de satisfacción.
+            </p>
           </div>
         </div>
 
-        {/* Contenido si está activado */}
-        {enabled && (
-          <div className="mt-4 pt-3 border-t border-border/40 space-y-3">
-            {/* Presets + Input */}
-            <div>
-              <div className="flex items-center justify-between gap-2 mb-2">
-                <label className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">
-                  Tiempo de espera sin respuesta del cliente
-                </label>
-                <span className="text-xs font-black tabular-nums text-brand-500">
-                  {inactivityMinutes} min
-                </span>
-              </div>
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <span
+            className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition-all flex items-center gap-2 ${
+              activeRulesCount > 0
+                ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                : "bg-muted text-muted-foreground border-border/60"
+            }`}
+          >
+            <span
+              className={`h-2 w-2 rounded-full ${
+                activeRulesCount > 0 ? "bg-emerald-400 animate-pulse" : "bg-muted-foreground"
+              }`}
+            />
+            {activeRulesCount} de 4 {activeRulesCount === 1 ? "Regla Activa" : "Reglas Activas"}
+          </span>
+        </div>
+      </div>
 
-              <div className="flex flex-wrap items-center gap-2">
-                {TIME_PRESETS.map((preset) => (
-                  <button
-                    key={preset.value}
-                    type="button"
-                    onClick={() => handleSelectPreset(preset.value)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                      inactivityMinutes === preset.value
-                        ? "bg-brand-600 text-white shadow-sm ring-1 ring-brand-500"
-                        : "bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground border border-border/40"
+      {/* ── CONTENIDO PRINCIPAL: 4 HERRAMIENTAS MODULARES EN TARJETAS INDEPENDIENTES ── */}
+      <div className="space-y-4 flex-1 flex flex-col justify-between">
+        {/* ── TARJETA 1: AUTO-CIERRE POR INACTIVIDAD ── */}
+        <div
+          className={`p-4.5 rounded-xl border transition-all space-y-3.5 ${
+            enabled
+              ? "bg-muted/20 border-border/80 shadow-xs ring-1 ring-emerald-500/15"
+              : "bg-muted/10 border-border/40"
+          }`}
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div
+                className={`h-9 w-9 rounded-xl grid place-items-center shrink-0 transition-colors ${
+                  enabled ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30" : "bg-muted text-muted-foreground"
+                }`}
+              >
+                <Clock className="h-4 w-4" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-black tracking-tight text-foreground">
+                    Auto-Cierre por Inactividad
+                  </h3>
+                  <span
+                    className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                      enabled
+                        ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
+                        : "bg-muted text-muted-foreground border border-border"
                     }`}
                   >
-                    {preset.label}
-                  </button>
-                ))}
-
-                <div className="flex items-center gap-1.5 ml-auto">
-                  <span className="text-[11px] text-muted-foreground font-medium">Personalizado:</span>
-                  <input
-                    type="number"
-                    min="1"
-                    max="1440"
-                    value={inactivityMinutes || ""}
-                    onChange={handleMinutesChange}
-                    className="w-16 h-8 rounded-lg border border-border bg-background px-2 text-center text-xs font-bold tabular-nums focus:outline-none focus:ring-1 focus:ring-brand-500"
-                  />
-                  <span className="text-[11px] text-muted-foreground font-medium">min</span>
+                    {enabled ? "Activado" : "Apagado"}
+                  </span>
                 </div>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  {enabled
+                    ? `Cierra automáticamente los chats que tengan más de ${inactivityMinutes} min sin respuesta del cliente.`
+                    : "El auto-cierre está apagado. Ningún chat se cerrará de manera automática."}
+                </p>
               </div>
             </div>
 
-            {/* Mensaje de cierre */}
-            <div className="rounded-xl border border-border/40 bg-muted/20 overflow-hidden">
+            <div className="flex items-center gap-3 self-end sm:self-center shrink-0">
+              <span className="text-xs font-bold text-muted-foreground">
+                {enabled ? "ON" : "OFF"}
+              </span>
               <button
                 type="button"
-                onClick={() => setShowMessageEditor((prev) => !prev)}
-                className="w-full flex items-center justify-between px-3.5 py-2.5 text-xs font-bold text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+                role="switch"
+                aria-checked={enabled}
+                onClick={handleToggle}
+                disabled={loading}
+                className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
+                  enabled ? "bg-emerald-500" : "bg-muted-foreground/30"
+                }`}
               >
-                <div className="flex items-center gap-2">
-                  <MessageSquare className="h-3.5 w-3.5 text-brand-500" />
-                  <span>Mensaje de despedida enviado al cerrar el caso</span>
-                </div>
-                <ChevronDown
-                  className={`h-3.5 w-3.5 transition-transform duration-200 ${
-                    showMessageEditor ? "rotate-180 text-foreground" : ""
+                <span
+                  className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                    enabled ? "translate-x-5" : "translate-x-0"
                   }`}
                 />
               </button>
+            </div>
+          </div>
 
-              {showMessageEditor && (
-                <div className="p-3.5 pt-1 border-t border-border/30 space-y-2">
-                  <textarea
-                    value={closeMessage}
-                    onChange={(e) => {
-                      setCloseMessage(e.target.value);
-                      setHasChanges(true);
-                    }}
-                    rows={3}
-                    className="w-full rounded-lg border border-border bg-background p-2.5 text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none"
+          {/* Controles cuando está habilitado */}
+          {enabled && (
+            <div className="pt-3 border-t border-border/40 space-y-3">
+              <div>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <label className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">
+                    Tiempo de espera sin respuesta del cliente:
+                  </label>
+                  <span className="text-xs font-black tabular-nums text-emerald-400">
+                    {inactivityMinutes} min
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  {TIME_PRESETS.map((preset) => (
+                    <button
+                      key={preset.value}
+                      type="button"
+                      onClick={() => handleSelectPreset(preset.value)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                        inactivityMinutes === preset.value
+                          ? "bg-emerald-600 text-white shadow-xs ring-1 ring-emerald-500"
+                          : "bg-background/60 hover:bg-muted text-muted-foreground hover:text-foreground border border-border/40"
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+
+                  <div className="flex items-center gap-1.5 ml-auto">
+                    <span className="text-[11px] text-muted-foreground font-medium">Personalizado:</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="1440"
+                      value={inactivityMinutes || ""}
+                      onChange={handleMinutesChange}
+                      className="w-16 h-8 rounded-lg border border-border bg-background px-2 text-center text-xs font-bold tabular-nums focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    />
+                    <span className="text-[11px] text-muted-foreground font-medium">min</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Mensaje de despedida */}
+              <div className="rounded-xl border border-border/40 bg-background/60 overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setShowMessageEditor((prev) => !prev)}
+                  className="w-full flex items-center justify-between px-3.5 py-2.5 text-xs font-bold text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <MessageSquare className="h-3.5 w-3.5 text-emerald-400" />
+                    <span>Mensaje de despedida enviado al cerrar el caso</span>
+                    <span className="text-[10px] text-muted-foreground font-normal">
+                      ({closeMessage.length} caracteres)
+                    </span>
+                  </div>
+                  <ChevronDown
+                    className={`h-3.5 w-3.5 transition-transform duration-200 ${
+                      showMessageEditor ? "rotate-180 text-foreground" : ""
+                    }`}
                   />
-                  <div className="flex justify-end">
+                </button>
+
+                {showMessageEditor && (
+                  <div className="p-3.5 pt-1 border-t border-border/30 space-y-2">
+                    <textarea
+                      value={closeMessage}
+                      onChange={(e) => {
+                        setCloseMessage(e.target.value);
+                        setHasChanges(true);
+                      }}
+                      rows={3}
+                      className="w-full rounded-lg border border-border bg-background p-2.5 text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-emerald-500 resize-none"
+                    />
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCloseMessage(DEFAULT_CLOSE_MESSAGE);
+                          setHasChanges(true);
+                          toast.info("Mensaje restablecido al predeterminado");
+                        }}
+                        className="flex items-center gap-1 text-[10px] font-bold text-muted-foreground hover:text-foreground"
+                      >
+                        <RotateCcw className="h-2.5 w-2.5" />
+                        Restablecer mensaje original
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {!enabled && (
+            <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center gap-2 text-amber-500 text-xs">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>El sistema no cerrará tickets por inactividad. Los agentes deben cerrarlos manualmente.</span>
+            </div>
+          )}
+        </div>
+
+        {/* ── TARJETA 2: RESPUESTAS FUERA DE HORARIO ── */}
+        <div
+          className={`p-4.5 rounded-xl border transition-all space-y-3.5 ${
+            afterHoursEnabled
+              ? "bg-muted/20 border-border/80 shadow-xs ring-1 ring-indigo-500/15"
+              : "bg-muted/10 border-border/40"
+          }`}
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div
+                className={`h-9 w-9 rounded-xl grid place-items-center shrink-0 transition-colors ${
+                  afterHoursEnabled ? "bg-indigo-500/15 text-indigo-400 border border-indigo-500/30" : "bg-muted text-muted-foreground"
+                }`}
+              >
+                <Moon className="h-4 w-4" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-black tracking-tight text-foreground">
+                    Respuestas Fuera de Horario
+                  </h3>
+                  <span
+                    className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                      afterHoursEnabled
+                        ? "bg-indigo-500/15 text-indigo-400 border border-indigo-500/30"
+                        : "bg-muted text-muted-foreground border border-border"
+                    }`}
+                  >
+                    {afterHoursEnabled ? "Activado" : "Apagado"}
+                  </span>
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  {afterHoursEnabled
+                    ? "Envía un mensaje automático al cliente cuando escriba fuera de la ventana operativa."
+                    : "Desactivado. No se enviará respuesta automática si un cliente escribe fuera de horario."}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 self-end sm:self-center shrink-0">
+              <span className="text-xs font-bold text-muted-foreground">
+                {afterHoursEnabled ? "ON" : "OFF"}
+              </span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={afterHoursEnabled}
+                onClick={() => {
+                  setAfterHoursEnabled((v) => !v);
+                  setHasChanges(true);
+                }}
+                disabled={loading}
+                className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
+                  afterHoursEnabled ? "bg-indigo-500" : "bg-muted-foreground/30"
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                    afterHoursEnabled ? "translate-x-5" : "translate-x-0"
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+
+          {/* Editor de mensaje fuera de horario */}
+          <div className="rounded-xl border border-border/40 bg-background/60 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setShowAfterHoursEditor((v) => !v)}
+              className="flex items-center justify-between w-full text-left p-2.5 text-xs font-semibold text-foreground hover:bg-muted/40 transition-colors group"
+            >
+              <div className="flex items-center gap-2">
+                <MessageSquare className="h-3.5 w-3.5 text-indigo-400" />
+                <span>Mensaje automático para el cliente</span>
+                <span className="text-[10px] text-muted-foreground font-normal">
+                  ({afterHoursMsg.length} caracteres)
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground group-hover:text-foreground">
+                <span>{showAfterHoursEditor ? "Ocultar" : "Personalizar"}</span>
+                <ChevronDown
+                  className={`h-3.5 w-3.5 transition-transform duration-200 ${
+                    showAfterHoursEditor ? "rotate-180" : ""
+                  }`}
+                />
+              </div>
+            </button>
+
+            {showAfterHoursEditor && (
+              <div className="p-3.5 pt-1 border-t border-border/30 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                    Texto del mensaje al recibir chat fuera de turno:
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAfterHoursMsg(DEFAULT_AFTER_HOURS_MSG);
+                      setHasChanges(true);
+                      toast.info("Mensaje restablecido al predeterminado");
+                    }}
+                    className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors px-2 py-0.5 rounded-md hover:bg-muted"
+                  >
+                    <RotateCcw className="h-2.5 w-2.5" /> Restablecer
+                  </button>
+                </div>
+
+                <textarea
+                  value={afterHoursMsg}
+                  onChange={(e) => {
+                    setAfterHoursMsg(e.target.value);
+                    setHasChanges(true);
+                  }}
+                  rows={3}
+                  className="w-full text-xs rounded-lg border border-border bg-background p-2.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-none leading-relaxed"
+                  placeholder="Escriba el mensaje para el cliente..."
+                />
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── TARJETA 3: CIERRE GENERAL AL FIN DE JORNADA ── */}
+        <div
+          className={`p-4.5 rounded-xl border transition-all space-y-3.5 ${
+            dailyCloseEnabled
+              ? "bg-muted/20 border-border/80 shadow-xs ring-1 ring-amber-500/15"
+              : "bg-muted/10 border-border/40"
+          }`}
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div
+                className={`h-9 w-9 rounded-xl grid place-items-center shrink-0 transition-colors ${
+                  dailyCloseEnabled ? "bg-amber-500/15 text-amber-400 border border-amber-500/30" : "bg-muted text-muted-foreground"
+                }`}
+              >
+                <LogOut className="h-4 w-4" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-black tracking-tight text-foreground">
+                    Cierre General al Fin de Jornada
+                  </h3>
+                  <span
+                    className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                      dailyCloseEnabled
+                        ? "bg-amber-500/15 text-amber-400 border border-amber-500/30"
+                        : "bg-muted text-muted-foreground border border-border"
+                    }`}
+                  >
+                    {dailyCloseEnabled ? `Corte a las ${dailyCloseTime}` : "Apagado"}
+                  </span>
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  {dailyCloseEnabled
+                    ? `Cierra automáticamente los chats que sigan abiertos a las ${dailyCloseTime} y envía mensaje de cierre.`
+                    : "Desactivado. Los casos abiertos no se cerrarán masivamente al finalizar la jornada."}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 self-end sm:self-center shrink-0">
+              <span className="text-xs font-bold text-muted-foreground">
+                {dailyCloseEnabled ? "ON" : "OFF"}
+              </span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={dailyCloseEnabled}
+                onClick={() => {
+                  setDailyCloseEnabled((v) => !v);
+                  setHasChanges(true);
+                }}
+                disabled={loading}
+                className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
+                  dailyCloseEnabled ? "bg-amber-500" : "bg-muted-foreground/30"
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                    dailyCloseEnabled ? "translate-x-5" : "translate-x-0"
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+
+          {/* Configuración de hora y mensaje */}
+          <div className="space-y-2.5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-2.5 rounded-xl bg-background/60 border border-border/40">
+              <div className="flex items-center gap-2">
+                <Clock className="h-3.5 w-3.5 text-amber-500" />
+                <span className="text-xs font-bold">Hora de corte general:</span>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-1">
+                  {DAILY_TIME_PRESETS.map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => {
+                        setDailyCloseTime(t);
+                        setHasChanges(true);
+                      }}
+                      className={`px-2 py-0.5 text-[10px] font-bold rounded-md transition-colors ${
+                        dailyCloseTime === t
+                          ? "bg-amber-500 text-white shadow-xs"
+                          : "bg-muted hover:bg-muted/80 text-muted-foreground"
+                      }`}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+
+                <input
+                  type="time"
+                  value={dailyCloseTime}
+                  onChange={(e) => {
+                    setDailyCloseTime(e.target.value);
+                    setHasChanges(true);
+                  }}
+                  className="text-xs font-mono font-bold bg-background border border-border rounded-md px-2 py-1 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                />
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-border/40 bg-background/60 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setShowDailyCloseEditor((v) => !v)}
+                className="flex items-center justify-between w-full text-left p-2.5 text-xs font-semibold text-foreground hover:bg-muted/40 transition-colors group"
+              >
+                <div className="flex items-center gap-2">
+                  <MessageSquare className="h-3.5 w-3.5 text-amber-500" />
+                  <span>Mensaje enviado al cerrar los casos</span>
+                  <span className="text-[10px] text-muted-foreground font-normal">
+                    ({dailyCloseMsg.length} caracteres)
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground group-hover:text-foreground">
+                  <span>{showDailyCloseEditor ? "Ocultar" : "Personalizar"}</span>
+                  <ChevronDown
+                    className={`h-3.5 w-3.5 transition-transform duration-200 ${
+                      showDailyCloseEditor ? "rotate-180" : ""
+                    }`}
+                  />
+                </div>
+              </button>
+
+              {showDailyCloseEditor && (
+                <div className="p-3.5 pt-1 border-t border-border/30 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                      Texto del mensaje al cerrar los casos por fin de jornada:
+                    </label>
                     <button
                       type="button"
                       onClick={() => {
-                        setCloseMessage(DEFAULT_CLOSE_MESSAGE);
+                        setDailyCloseMsg(DEFAULT_DAILY_CLOSE_MSG);
                         setHasChanges(true);
                         toast.info("Mensaje restablecido al predeterminado");
                       }}
-                      className="flex items-center gap-1 text-[10px] font-bold text-muted-foreground hover:text-foreground"
+                      className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors px-2 py-0.5 rounded-md hover:bg-muted"
                     >
-                      <RotateCcw className="h-2.5 w-2.5" />
-                      Restablecer mensaje original
+                      <RotateCcw className="h-2.5 w-2.5" /> Restablecer
                     </button>
                   </div>
+
+                  <textarea
+                    value={dailyCloseMsg}
+                    onChange={(e) => {
+                      setDailyCloseMsg(e.target.value);
+                      setHasChanges(true);
+                    }}
+                    rows={3}
+                    className="w-full text-xs rounded-lg border border-border bg-background p-2.5 focus:outline-none focus:ring-1 focus:ring-amber-500 resize-none leading-relaxed"
+                    placeholder="Escriba el mensaje de fin de jornada..."
+                  />
                 </div>
               )}
             </div>
           </div>
-        )}
-
-        {!enabled && (
-          <div className="mt-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center gap-2.5 text-amber-500">
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            <p className="text-xs font-medium">
-              El sistema no cerrará ningún ticket por inactividad. Los técnicos deben cerrarlos manualmente.
-            </p>
-          </div>
-        )}
-      </div>
-
-      <div className="h-px bg-border/50" />
-
-      {/* ─────────────────────────────────────────────────────────────
-          SECCIÓN 2: RESPUESTAS FUERA DE HORARIO ("AQUÍ ABAJITO")
-          ───────────────────────────────────────────────────────────── */}
-      <div>
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <div
-              className={`h-9 w-9 rounded-xl grid place-items-center shrink-0 transition-colors ${
-                afterHoursEnabled ? "bg-indigo-500/10 text-indigo-500" : "bg-muted text-muted-foreground"
-              }`}
-            >
-              <Moon className="h-4 w-4" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-sm font-black tracking-tight">Respuestas Fuera de Horario</h2>
-                <span
-                  className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${
-                    afterHoursEnabled
-                      ? "bg-indigo-500/15 text-indigo-400 border border-indigo-500/30"
-                      : "bg-muted text-muted-foreground border border-border"
-                  }`}
-                >
-                  {afterHoursEnabled ? "Activado" : "Apagado"}
-                </span>
-              </div>
-              <p className="text-[11px] text-muted-foreground mt-0.5 max-w-lg">
-                {afterHoursEnabled
-                  ? "Envía un mensaje automático al cliente cuando escriba fuera de la ventana operativa."
-                  : "Desactivado. No se enviará respuesta automática si un cliente escribe fuera de horario."}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3 self-end sm:self-center shrink-0">
-            <span className="text-xs font-bold text-muted-foreground">
-              {afterHoursEnabled ? "ON" : "OFF"}
-            </span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={afterHoursEnabled}
-              onClick={() => {
-                setAfterHoursEnabled((v) => !v);
-                setHasChanges(true);
-              }}
-              disabled={loading}
-              className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
-                afterHoursEnabled ? "bg-indigo-500" : "bg-muted-foreground/30"
-              }`}
-            >
-              <span
-                className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
-                  afterHoursEnabled ? "translate-x-5" : "translate-x-0"
-                }`}
-              />
-            </button>
-          </div>
         </div>
 
-        {/* Editor de mensaje fuera de horario */}
-        <div className="mt-3">
-          <button
-            type="button"
-            onClick={() => setShowAfterHoursEditor((v) => !v)}
-            className="flex items-center justify-between w-full text-left p-2.5 rounded-xl bg-muted/20 hover:bg-muted/40 border border-border/40 text-xs font-semibold text-foreground transition-colors group"
-          >
-            <div className="flex items-center gap-2">
-              <MessageSquare className="h-3.5 w-3.5 text-indigo-400" />
-              <span>Mensaje automático para el cliente</span>
-              <span className="text-[10px] text-muted-foreground font-normal">
-                ({afterHoursMsg.length} caracteres)
-              </span>
-            </div>
-            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground group-hover:text-foreground">
-              <span>{showAfterHoursEditor ? "Ocultar" : "Personalizar"}</span>
-              <ChevronDown
-                className={`h-3.5 w-3.5 transition-transform duration-200 ${
-                  showAfterHoursEditor ? "rotate-180" : ""
+        {/* ── TARJETA 4: ENCUESTA DE SATISFACCIÓN (WHATSAPP) ── */}
+        <div
+          className={`p-4.5 rounded-xl border transition-all space-y-3.5 ${
+            surveyEnabled
+              ? "bg-muted/20 border-border/80 shadow-xs ring-1 ring-sky-500/15"
+              : "bg-muted/10 border-border/40"
+          }`}
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div
+                className={`h-9 w-9 rounded-xl grid place-items-center shrink-0 transition-colors ${
+                  surveyEnabled ? "bg-sky-500/15 text-sky-400 border border-sky-500/30" : "bg-muted text-muted-foreground"
                 }`}
-              />
-            </div>
-          </button>
-
-          {showAfterHoursEditor && (
-            <div className="mt-2.5 p-3.5 rounded-xl bg-muted/30 border border-border/60 space-y-2.5 animate-in fade-in-50 duration-200">
-              <div className="flex items-center justify-between">
-                <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
-                  Texto del mensaje al recibir chat fuera de turno:
-                </label>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAfterHoursMsg(DEFAULT_AFTER_HOURS_MSG);
-                    setHasChanges(true);
-                    toast.info("Mensaje restablecido al predeterminado");
-                  }}
-                  className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors px-2 py-0.5 rounded-md hover:bg-muted"
-                >
-                  <RotateCcw className="h-3 w-3" /> Restablecer
-                </button>
+              >
+                <Star className="h-4 w-4" />
               </div>
-
-              <textarea
-                value={afterHoursMsg}
-                onChange={(e) => {
-                  setAfterHoursMsg(e.target.value);
-                  setHasChanges(true);
-                }}
-                rows={3}
-                className="w-full text-xs rounded-lg border border-border bg-background p-2.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-none leading-relaxed"
-                placeholder="Escriba el mensaje para el cliente..."
-              />
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="h-px bg-border/50" />
-
-      {/* ─────────────────────────────────────────────────────────────
-          SECCIÓN 3: CIERRE GENERAL AL FIN DE JORNADA (2DO INTERRUPTOR)
-          ───────────────────────────────────────────────────────────── */}
-      <div>
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <div
-              className={`h-9 w-9 rounded-xl grid place-items-center shrink-0 transition-colors ${
-                dailyCloseEnabled ? "bg-amber-500/10 text-amber-500" : "bg-muted text-muted-foreground"
-              }`}
-            >
-              <LogOut className="h-4 w-4" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-sm font-black tracking-tight">Cierre General al Fin de Jornada</h2>
-                <span
-                  className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${
-                    dailyCloseEnabled
-                      ? "bg-amber-500/15 text-amber-400 border border-amber-500/30"
-                      : "bg-muted text-muted-foreground border border-border"
-                  }`}
-                >
-                  {dailyCloseEnabled ? `Corte a las ${dailyCloseTime}` : "Apagado"}
-                </span>
-              </div>
-              <p className="text-[11px] text-muted-foreground mt-0.5 max-w-lg">
-                {dailyCloseEnabled
-                  ? `Cierra automáticamente los chats que sigan abiertos a las ${dailyCloseTime} y envía mensaje de cierre.`
-                  : "Desactivado. Los casos abiertos no se cerrarán masivamente al finalizar la jornada."}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3 self-end sm:self-center shrink-0">
-            <span className="text-xs font-bold text-muted-foreground">
-              {dailyCloseEnabled ? "ON" : "OFF"}
-            </span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={dailyCloseEnabled}
-              onClick={() => {
-                setDailyCloseEnabled((v) => !v);
-                setHasChanges(true);
-              }}
-              disabled={loading}
-              className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
-                dailyCloseEnabled ? "bg-amber-500" : "bg-muted-foreground/30"
-              }`}
-            >
-              <span
-                className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
-                  dailyCloseEnabled ? "translate-x-5" : "translate-x-0"
-                }`}
-              />
-            </button>
-          </div>
-        </div>
-
-        {/* Configuración de hora y mensaje de cierre de jornada */}
-        <div className="mt-3 space-y-2.5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-2.5 rounded-xl bg-muted/20 border border-border/40">
-            <div className="flex items-center gap-2">
-              <Clock className="h-3.5 w-3.5 text-amber-500" />
-              <span className="text-xs font-bold">Hora de corte general:</span>
-            </div>
-
-            <div className="flex items-center gap-2 flex-wrap">
-              <div className="flex items-center gap-1">
-                {DAILY_TIME_PRESETS.map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => {
-                      setDailyCloseTime(t);
-                      setHasChanges(true);
-                    }}
-                    className={`px-2 py-0.5 text-[10px] font-bold rounded-md transition-colors ${
-                      dailyCloseTime === t
-                        ? "bg-amber-500 text-white shadow-xs"
-                        : "bg-muted hover:bg-muted/80 text-muted-foreground"
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-black tracking-tight text-foreground">
+                    Encuesta de Satisfacción (WhatsApp)
+                  </h3>
+                  <span
+                    className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                      surveyEnabled
+                        ? "bg-sky-500/15 text-sky-400 border border-sky-500/30"
+                        : "bg-muted text-muted-foreground border border-border"
                     }`}
                   >
-                    {t}
-                  </button>
-                ))}
+                    {surveyEnabled ? "Activado" : "Apagado"}
+                  </span>
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  {surveyEnabled
+                    ? "Envía automáticamente una encuesta de satisfacción (calificación 1 al 5) por WhatsApp al cliente al cerrarse un caso."
+                    : "Desactivado. Al cerrar un caso no se enviará encuesta y finalizará directamente sin esperar calificación."}
+                </p>
               </div>
-
-              <input
-                type="time"
-                value={dailyCloseTime}
-                onChange={(e) => {
-                  setDailyCloseTime(e.target.value);
-                  setHasChanges(true);
-                }}
-                className="text-xs font-mono font-bold bg-background border border-border rounded-md px-2 py-1 focus:outline-none focus:ring-1 focus:ring-amber-500"
-              />
             </div>
-          </div>
 
-          <button
-            type="button"
-            onClick={() => setShowDailyCloseEditor((v) => !v)}
-            className="flex items-center justify-between w-full text-left p-2.5 rounded-xl bg-muted/20 hover:bg-muted/40 border border-border/40 text-xs font-semibold text-foreground transition-colors group"
-          >
-            <div className="flex items-center gap-2">
-              <MessageSquare className="h-3.5 w-3.5 text-amber-500" />
-              <span>Mensaje enviado al cerrar los casos</span>
-              <span className="text-[10px] text-muted-foreground font-normal">
-                ({dailyCloseMsg.length} caracteres)
+            <div className="flex items-center gap-3 self-end sm:self-center shrink-0">
+              <span className="text-xs font-bold text-muted-foreground">
+                {surveyEnabled ? "ON" : "OFF"}
               </span>
-            </div>
-            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground group-hover:text-foreground">
-              <span>{showDailyCloseEditor ? "Ocultar" : "Personalizar"}</span>
-              <ChevronDown
-                className={`h-3.5 w-3.5 transition-transform duration-200 ${
-                  showDailyCloseEditor ? "rotate-180" : ""
-                }`}
-              />
-            </div>
-          </button>
-
-          {showDailyCloseEditor && (
-            <div className="p-3.5 rounded-xl bg-muted/30 border border-border/60 space-y-2.5 animate-in fade-in-50 duration-200">
-              <div className="flex items-center justify-between">
-                <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
-                  Texto del mensaje al cerrar los casos por fin de jornada:
-                </label>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDailyCloseMsg(DEFAULT_DAILY_CLOSE_MSG);
-                    setHasChanges(true);
-                    toast.info("Mensaje restablecido al predeterminado");
-                  }}
-                  className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors px-2 py-0.5 rounded-md hover:bg-muted"
-                >
-                  <RotateCcw className="h-3 w-3" /> Restablecer
-                </button>
-              </div>
-
-              <textarea
-                value={dailyCloseMsg}
-                onChange={(e) => {
-                  setDailyCloseMsg(e.target.value);
+              <button
+                type="button"
+                role="switch"
+                aria-checked={surveyEnabled}
+                onClick={() => {
+                  setSurveyEnabled((v) => !v);
                   setHasChanges(true);
                 }}
-                rows={3}
-                className="w-full text-xs rounded-lg border border-border bg-background p-2.5 focus:outline-none focus:ring-1 focus:ring-amber-500 resize-none leading-relaxed"
-                placeholder="Escriba el mensaje de fin de jornada..."
-              />
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="h-px bg-border/50" />
-
-      {/* ─────────────────────────────────────────────────────────────
-          SECCIÓN 4: ENCUESTA DE SATISFACCIÓN (WHATSAPP)
-          ───────────────────────────────────────────────────────────── */}
-      <div>
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <div
-              className={`h-9 w-9 rounded-xl grid place-items-center shrink-0 transition-colors ${
-                surveyEnabled ? "bg-sky-500/10 text-sky-500" : "bg-muted text-muted-foreground"
-              }`}
-            >
-              <Star className="h-4 w-4" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-sm font-black tracking-tight">Encuesta de Satisfacción (WhatsApp)</h2>
+                disabled={loading}
+                className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
+                  surveyEnabled ? "bg-sky-500" : "bg-muted-foreground/30"
+                }`}
+              >
                 <span
-                  className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${
-                    surveyEnabled
-                      ? "bg-sky-500/15 text-sky-400 border border-sky-500/30"
-                      : "bg-muted text-muted-foreground border border-border"
+                  className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                    surveyEnabled ? "translate-x-5" : "translate-x-0"
                   }`}
-                >
-                  {surveyEnabled ? "Activado" : "Apagado"}
-                </span>
-              </div>
-              <p className="text-[11px] text-muted-foreground mt-0.5 max-w-lg">
-                {surveyEnabled
-                  ? "Envía automáticamente una encuesta de satisfacción (calificación 1 al 5) por WhatsApp al cliente al cerrarse un caso."
-                  : "Desactivado. Al cerrar un caso no se enviará encuesta y finalizará directamente sin esperar calificación."}
-              </p>
+                />
+              </button>
             </div>
           </div>
 
-          <div className="flex items-center gap-3 self-end sm:self-center shrink-0">
-            <span className="text-xs font-bold text-muted-foreground">
-              {surveyEnabled ? "ON" : "OFF"}
-            </span>
+          {/* Plantilla de texto predeterminada para la encuesta */}
+          <div className="rounded-xl border border-border/40 bg-background/60 overflow-hidden">
             <button
               type="button"
-              role="switch"
-              aria-checked={surveyEnabled}
-              onClick={() => {
-                setSurveyEnabled((v) => !v);
-                setHasChanges(true);
-              }}
-              disabled={loading}
-              className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
-                surveyEnabled ? "bg-sky-500" : "bg-muted-foreground/30"
-              }`}
+              onClick={() => setShowSurveyEditor((v) => !v)}
+              className="flex items-center justify-between w-full text-left p-2.5 text-xs font-semibold text-foreground hover:bg-muted/40 transition-colors group"
             >
-              <span
-                className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
-                  surveyEnabled ? "translate-x-5" : "translate-x-0"
-                }`}
-              />
-            </button>
-          </div>
-        </div>
-
-        {/* Editor de plantilla de texto predeterminada para la encuesta */}
-        <div className="mt-3">
-          <button
-            type="button"
-            onClick={() => setShowSurveyEditor((v) => !v)}
-            className="flex items-center justify-between w-full text-left p-2.5 rounded-xl bg-muted/20 hover:bg-muted/40 border border-border/40 text-xs font-semibold text-foreground transition-colors group"
-          >
-            <div className="flex items-center gap-2">
-              <MessageSquare className="h-3.5 w-3.5 text-sky-400" />
-              <span>Plantilla de texto predeterminada para la encuesta</span>
-              <span className="text-[10px] text-muted-foreground font-normal">
-                ({surveyMsg.length} caracteres)
-              </span>
-            </div>
-            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground group-hover:text-foreground">
-              <span>{showSurveyEditor ? "Ocultar" : "Personalizar"}</span>
-              <ChevronDown
-                className={`h-3.5 w-3.5 transition-transform duration-200 ${
-                  showSurveyEditor ? "rotate-180" : ""
-                }`}
-              />
-            </div>
-          </button>
-
-          {showSurveyEditor && (
-            <div className="mt-2.5 p-3.5 rounded-xl bg-muted/30 border border-border/60 space-y-2.5 animate-in fade-in-50 duration-200">
-              <div className="flex items-center justify-between">
-                <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
-                  Texto enviado solicitando la calificación del cliente (1 al 5):
-                </label>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSurveyMsg(DEFAULT_SURVEY_MSG);
-                    setHasChanges(true);
-                    toast.info("Mensaje restablecido a la plantilla original");
-                  }}
-                  className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors px-2 py-0.5 rounded-md hover:bg-muted"
-                >
-                  <RotateCcw className="h-3 w-3" /> Restablecer
-                </button>
+              <div className="flex items-center gap-2">
+                <MessageSquare className="h-3.5 w-3.5 text-sky-400" />
+                <span>Plantilla de texto predeterminada para la encuesta</span>
+                <span className="text-[10px] text-muted-foreground font-normal">
+                  ({surveyMsg.length} caracteres)
+                </span>
               </div>
+              <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground group-hover:text-foreground">
+                <span>{showSurveyEditor ? "Ocultar" : "Personalizar"}</span>
+                <ChevronDown
+                  className={`h-3.5 w-3.5 transition-transform duration-200 ${
+                    showSurveyEditor ? "rotate-180" : ""
+                  }`}
+                />
+              </div>
+            </button>
 
-              <textarea
-                value={surveyMsg}
-                onChange={(e) => {
-                  setSurveyMsg(e.target.value);
-                  setHasChanges(true);
-                }}
-                rows={3}
-                className="w-full text-xs rounded-lg border border-border bg-background p-2.5 focus:outline-none focus:ring-1 focus:ring-sky-500 resize-none leading-relaxed"
-                placeholder="Escriba el texto para solicitar la calificación..."
-              />
+            {showSurveyEditor && (
+              <div className="p-3.5 pt-1 border-t border-border/30 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                    Texto enviado solicitando la calificación del cliente (1 al 5):
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSurveyMsg(DEFAULT_SURVEY_MSG);
+                      setHasChanges(true);
+                      toast.info("Mensaje restablecido a la plantilla original");
+                    }}
+                    className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors px-2 py-0.5 rounded-md hover:bg-muted"
+                  >
+                    <RotateCcw className="h-2.5 w-2.5" /> Restablecer
+                  </button>
+                </div>
+
+                <textarea
+                  value={surveyMsg}
+                  onChange={(e) => {
+                    setSurveyMsg(e.target.value);
+                    setHasChanges(true);
+                  }}
+                  rows={3}
+                  className="w-full text-xs rounded-lg border border-border bg-background p-2.5 focus:outline-none focus:ring-1 focus:ring-sky-500 resize-none leading-relaxed"
+                  placeholder="Escriba el texto para solicitar la calificación..."
+                />
+              </div>
+            )}
+          </div>
+
+          {!surveyEnabled && (
+            <div className="p-2.5 rounded-lg bg-muted/30 border border-border/40 flex items-center gap-2 text-muted-foreground text-xs">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0 text-sky-500/70" />
+              <span>La encuesta está apagada. Al cerrar los casos se finalizarán directamente sin solicitar calificación por WhatsApp.</span>
             </div>
           )}
         </div>
-
-        {!surveyEnabled && (
-          <div className="mt-3 p-3 rounded-xl bg-muted/30 border border-border/60 flex items-center gap-2.5 text-muted-foreground">
-            <AlertCircle className="h-4 w-4 shrink-0 text-sky-500/70" />
-            <p className="text-xs font-medium">
-              La encuesta está apagada. Al cerrar los casos se finalizarán directamente sin solicitar calificación por WhatsApp.
-            </p>
-          </div>
-        )}
       </div>
 
-      {/* ─────────────────────────────────────────────────────────────
-          FOOTER UNIFICADO: GUARDAR TODA LA CONFIGURACIÓN
-          ───────────────────────────────────────────────────────────── */}
-      <div className="pt-3 border-t border-border/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <p className="text-[10px] text-muted-foreground">
+      {/* ── FOOTER UNIFICADO (SIMÉTRICO CON EL PANEL DE HORARIOS) ── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-border/60 mt-auto">
+        <p className="text-[11px] text-muted-foreground">
           {hasChanges ? (
             <span className="flex items-center gap-1.5 text-amber-500 font-medium">
               <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
@@ -752,17 +810,17 @@ export function AutoCloseConfigPanel() {
           type="button"
           onClick={handleSave}
           disabled={saving || loading || !hasChanges}
-          className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-black transition-all ${
+          className={`flex items-center gap-1.5 px-5 py-2 rounded-xl text-xs font-bold transition-all shadow-md ${
             hasChanges
-              ? "bg-brand-600 hover:bg-brand-500 text-white shadow-md shadow-brand-500/20 ring-1 ring-brand-500 cursor-pointer"
+              ? "bg-brand-600 hover:bg-brand-500 text-white shadow-brand-500/20 cursor-pointer"
               : "bg-muted text-muted-foreground cursor-not-allowed opacity-60"
           }`}
         >
           {saving ? (
-            <span>Guardando...</span>
+            <span>Guardando cambios...</span>
           ) : (
             <>
-              <CheckCircle2 className="h-3.5 w-3.5" />
+              <CheckCircle2 className="h-4 w-4" />
               <span>Guardar Configuración</span>
             </>
           )}

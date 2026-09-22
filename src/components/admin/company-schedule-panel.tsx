@@ -113,7 +113,7 @@ export function CompanySchedulePanel() {
   };
 
   return (
-    <section className="rounded-2xl border border-border/60 bg-card p-5 lg:p-6 space-y-5">
+    <section className="rounded-2xl border border-border/60 bg-card p-5 lg:p-6 shadow-sm h-full flex flex-col justify-between space-y-5">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border/60 pb-4">
         <div className="flex items-center gap-3">
           <div className="h-9 w-9 rounded-xl bg-violet-500/15 border border-violet-500/30 text-violet-400 grid place-items-center">
@@ -149,7 +149,7 @@ export function CompanySchedulePanel() {
       {loading ? (
         <div className="py-6 text-center text-xs text-muted-foreground">Cargando configuración oficial...</div>
       ) : (
-        <div className="space-y-5">
+        <div className="space-y-5 flex-1 flex flex-col justify-between">
           {/* DÍAS LABORALES */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -434,7 +434,7 @@ export function CompanySchedulePanel() {
           </div>
 
           {/* BOTÓN DE GUARDADO */}
-          <div className="flex items-center justify-between pt-2 border-t border-border/40">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-border/60 mt-auto">
             <p className="text-[11px] text-muted-foreground">
               Esta delimitación horaria aplica a toda la telemetría del sistema y al Activity Tracker.
             </p>

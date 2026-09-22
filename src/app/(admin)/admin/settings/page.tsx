@@ -137,14 +137,14 @@ export default async function AdminSettingsPage() {
       )}
 
       {/* ── Cuadrícula Principal en 2 Columnas (Operación: Rango Horario + Auto-Cierre) ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
         {/* Rango de Horario Operativo (Activity Tracker) */}
-        <div>
+        <div className="flex flex-col h-full">
           <CompanySchedulePanel />
         </div>
 
         {/* Auto-Cierre por Inactividad & Gestión de Horarios de Cierre */}
-        <div>
+        <div className="flex flex-col h-full">
           <AutoCloseConfigPanel />
         </div>
       </div>
