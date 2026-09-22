@@ -72,8 +72,38 @@ function minutosLaborales(startMs: number, endMs: number): number {
   return total;
 }
 
+/** Detecta si un mensaje pertenece a la encuesta de satisfacción, auto-cierre, despedida o bot del sistema,
+ *  para que no altere el tiempo real de resolución técnica del caso. */
+function isNonTechnicalMsg(m: any): boolean {
+  if (!m) return true;
+  const role = String(m.role || "").toLowerCase();
+  const author = String(m.author || "").toLowerCase();
+  const text = String(m.content || m.text || "").trim().toLowerCase();
+
+  // Mensajes de IA o Sistema (bot, auto-cierre, encuestas)
+  if (role === "ia" || role === "sistema" || role === "system" || author.includes("sistema") || author.includes("asistente sekunet")) {
+    return true;
+  }
+  // Plantillas automáticas de encuesta o cierre de conversación
+  if (text.includes("cómo calificaría") || text.includes("calificaría la atención") || text.includes("gracias por su calificación")) {
+    return true;
+  }
+  if (text.includes("caso cerrado autom") || text.includes("al no haber recibido respuesta") || text.includes("no hemos recibido respuesta")) {
+    return true;
+  }
+  if (text.includes("ha sido un placer atenderle") || text.includes("ha sido un gusto atenderle")) {
+    return true;
+  }
+  // Respuesta del cliente a la encuesta de satisfacción (solo envía una nota del 1 al 5)
+  if (/^[1-5]$/.test(text)) {
+    return true;
+  }
+  return false;
+}
+
 /** Calcula los minutos de resolución real de un caso:
- *  Mide desde la aceptación (o creación) hasta el último mensaje intercambiado en la conversación.
+ *  Mide desde la aceptación (o creación) hasta el último mensaje técnico intercambiado en la conversación.
+ *  Ignora encuestas automáticas de satisfacción, despedidas de cierre y mensajes del sistema.
  *  Si no hay mensajes en el chat, recurre a closed_at.
  *  Evita falsos positivos por tickets que quedan abiertos horas o días después de terminar la atención. */
 function getMinutosResolucion(c: any): number | null {
@@ -84,7 +114,8 @@ function getMinutosResolucion(c: any): number | null {
     ...(Array.isArray(c.histcliente) ? c.histcliente : []),
     ...(Array.isArray(c.histtecnico) ? c.histtecnico : [])
   ];
-  const msgTimes = allMsgs
+  const realMsgs = allMsgs.filter(m => !isNonTechnicalMsg(m));
+  const msgTimes = realMsgs
     .map(m => m && m.time ? new Date(m.time).getTime() : 0)
     .filter(t => !isNaN(t) && t > 0);
 
