@@ -156,6 +156,11 @@ export function SidebarUserPanel({
   const supabase = createClient();
   const fullName = [profileNombre || safeAgent.nombre, profileApellido || safeAgent.apellido].filter(Boolean).join(" ") || safeAgent.email || "Usuario";
 
+  useEffect(() => {
+    if (safeAgent.nombre !== undefined) setProfileNombre(safeAgent.nombre || "");
+    if (safeAgent.apellido !== undefined) setProfileApellido(safeAgent.apellido || "");
+  }, [safeAgent.nombre, safeAgent.apellido]);
+
   const handleSaveProfile = async () => {
     if (!safeAgent.email) return;
     setSavingProfile(true);
