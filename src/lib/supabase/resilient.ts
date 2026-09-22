@@ -6,11 +6,36 @@
  */
 
 import { cacheGet, cacheGetFresh, cacheSet } from "./cache";
+import { cookies } from "next/headers";
 
-const AUTH_TIMEOUT_MS = 15000;
-const DATA_TIMEOUT_MS = 20000;
+const AUTH_TIMEOUT_MS = 10000;
+const DATA_TIMEOUT_MS = 15000;
+const USER_CACHE_TTL_MS = 30000; // 30s de caché en memoria por token
+
+const userMemoryCache = new Map<string, { user: any; ts: number }>();
+
+function getAuthTokenFromCookies(): string | null {
+  try {
+    const cookieStore = cookies();
+    const all = cookieStore.getAll();
+    for (const c of all) {
+      if (c.name.includes("auth-token") && c.value) {
+        return c.value;
+      }
+    }
+  } catch {}
+  return null;
+}
 
 export async function getUserWithTimeout(supabase: any): Promise<{ user: any; timedOut: boolean }> {
+  const token = getAuthTokenFromCookies();
+  if (token) {
+    const cached = userMemoryCache.get(token);
+    if (cached && Date.now() - cached.ts < USER_CACHE_TTL_MS) {
+      return { user: cached.user, timedOut: false };
+    }
+  }
+
   try {
     const result = await Promise.race([
       supabase.auth.getUser(),
@@ -18,9 +43,21 @@ export async function getUserWithTimeout(supabase: any): Promise<{ user: any; ti
         setTimeout(() => reject(new Error("auth_timeout")), AUTH_TIMEOUT_MS)
       ),
     ]);
-    return { user: result.data.user, timedOut: false };
+
+    const user = result?.data?.user || null;
+    if (user && token) {
+      if (userMemoryCache.size > 100) userMemoryCache.clear();
+      userMemoryCache.set(token, { user, ts: Date.now() });
+    }
+    return { user, timedOut: false };
   } catch (e) {
     console.warn("[resilient] getUser timeout/error:", (e as Error).message);
+    if (token) {
+      const fallbackCached = userMemoryCache.get(token);
+      if (fallbackCached?.user) {
+        return { user: fallbackCached.user, timedOut: false };
+      }
+    }
     // timedOut=true para que el layout sepa que NO debe redirigir a login
     return { user: null, timedOut: true };
   }

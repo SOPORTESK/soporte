@@ -309,7 +309,11 @@ export function InboxClient({
     if (!isPwa) {
       const url = new URL(window.location.href);
       url.searchParams.set("c", id);
-      router.replace(url.pathname + url.search, { scroll: false });
+      try {
+        window.history.replaceState(window.history.state, "", url.pathname + url.search);
+      } catch {
+        router.replace(url.pathname + url.search, { scroll: false });
+      }
     }
     // Las claves de grupo (tel:/case:) siempre provienen de la lista renderizada → seleccionar directo.
     // Solo se carga de Supabase cuando es un id real (numérico/uuid) aún no presente (ej. caso saliente nuevo).

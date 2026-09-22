@@ -23,7 +23,8 @@ export default async function SoporteAvanzadoPage({ searchParams }: { searchPara
         .limit(1500);
       return { data, error };
     },
-    []
+    [],
+    10000 // 10s fresh TTL para navegación instantánea
   );
   if (error) console.error("[soporte-avanzado] sek_cases error:", error);
   console.log(`[soporte-avanzado] Casos escalados sin agente: ${n2Cases?.length || 0}`);

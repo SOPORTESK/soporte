@@ -12,12 +12,13 @@ export default async function MiGestionPage({ searchParams }: { searchParams: { 
 
   const { data: agentConfig } = agentEmail
     ? await queryWithFallback(
-        "agent_config",
+        `agent_config_${agentEmail}`,
         async () => {
           const { data, error } = await supabase.from("sek_agent_config").select("nombre,apellido").ilike("email", agentEmail).maybeSingle();
           return { data, error };
         },
-        null
+        null,
+        60000 // 1 min TTL
       )
     : { data: null };
 
@@ -36,7 +37,7 @@ export default async function MiGestionPage({ searchParams }: { searchParams: { 
 
   const CASE_LIST_FIELDS = "id,estado,canal,cliente,assigned_to,last_message_at,last_message_preview,unread_count,created_at,updated_at,title,prioridad,tags,customer_phone,es_test";
   const { data: myCases, error: casesError } = await queryWithFallback(
-    "sek_cases",
+    `mi_gestion_cases_${agentEmail}`,
     async () => {
       const { data, error } = await supabase
         .from("sek_cases")
@@ -49,7 +50,8 @@ export default async function MiGestionPage({ searchParams }: { searchParams: { 
         .limit(1500);
       return { data, error };
     },
-    []
+    [],
+    10000 // 10s fresh TTL para navegación instantánea
   );
 
   if (casesError) console.error("[mi-gestion] sek_cases error:", casesError);

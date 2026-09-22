@@ -1,5 +1,6 @@
 import { createServiceClient } from "@/lib/supabase/service";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { cacheGetFresh, cacheSet, cacheDelete } from "@/lib/supabase/cache";
 
 export interface ActivityLog {
   id?: number;
@@ -64,6 +65,9 @@ const SCHEDULE_SETTING_KEY = "activity_work_schedule";
 const OVERTIME_SETTING_KEY = "activity_overtime_requests";
 
 export async function getWorkSchedule(): Promise<WorkScheduleConfig> {
+  const cached = cacheGetFresh("app_work_schedule", 60000);
+  if (cached) return cached;
+
   const supabase = getClient();
   try {
     const { data, error } = await supabase
@@ -74,7 +78,7 @@ export async function getWorkSchedule(): Promise<WorkScheduleConfig> {
 
     if (!error && data?.value) {
       const parsed = JSON.parse(data.value);
-      return {
+      const res: WorkScheduleConfig = {
         scheduleStart: parsed.scheduleStart || "06:00",
         scheduleEnd: parsed.scheduleEnd || "18:00",
         scheduleEnabled: parsed.scheduleEnabled !== undefined ? Boolean(parsed.scheduleEnabled) : true,
@@ -83,12 +87,16 @@ export async function getWorkSchedule(): Promise<WorkScheduleConfig> {
         toleranceMinutes: Number(parsed.toleranceMinutes) || 5,
         agentSchedules: parsed.agentSchedules && typeof parsed.agentSchedules === "object" ? parsed.agentSchedules : {},
       };
+      cacheSet("app_work_schedule", res);
+      return res;
     }
   } catch (err) {
     console.error("[getWorkSchedule] error:", err);
   }
 
-  return { scheduleStart: "06:00", scheduleEnd: "18:00", scheduleEnabled: true, workDays: [1, 2, 3, 4, 5], targetDailyHours: 10, toleranceMinutes: 5, agentSchedules: {} };
+  const def: WorkScheduleConfig = { scheduleStart: "06:00", scheduleEnd: "18:00", scheduleEnabled: true, workDays: [1, 2, 3, 4, 5], targetDailyHours: 10, toleranceMinutes: 5, agentSchedules: {} };
+  cacheSet("app_work_schedule", def);
+  return def;
 }
 
 export async function getAgentSchedule(agentEmail: string): Promise<WorkScheduleConfig & { isCustom: boolean; globalSchedule: Omit<WorkScheduleConfig, "agentSchedules"> }> {
@@ -152,6 +160,7 @@ export async function saveWorkSchedule(config: WorkScheduleConfig): Promise<void
     console.error("[saveWorkSchedule] error:", error);
     throw error;
   }
+  cacheDelete("app_work_schedule");
 }
 
 export async function saveAgentSchedule(
@@ -197,6 +206,7 @@ export async function saveAgentSchedule(
     console.error("[saveAgentSchedule] error:", error);
     throw error;
   }
+  cacheDelete("app_work_schedule");
 }
 
 export async function getOvertimeRequests(date?: string, agentEmail?: string): Promise<OvertimeRequest[]> {

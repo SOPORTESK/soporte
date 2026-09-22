@@ -22,7 +22,8 @@ export default async function SmartInboxPage({ searchParams }: { searchParams: {
         .limit(1500);
       return { data, error };
     },
-    []
+    [],
+    10000 // 10s fresh TTL para navegación instantánea
   );
   if (error) console.error("[smart-inbox] sek_cases error:", error);
 

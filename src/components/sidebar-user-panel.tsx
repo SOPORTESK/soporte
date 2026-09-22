@@ -424,10 +424,13 @@ export function SidebarUserPanel({
     };
     window.addEventListener("storage", handleStorage);
 
-    // Consulta de respaldo a la base de datos si no hay tarea en localStorage
-    if (!currentTask) {
+    // Consulta de respaldo a la base de datos solo si no hay tarea en localStorage y no se consultó recientemente
+    const lastChecked = typeof window !== "undefined" ? sessionStorage.getItem("sek_manual_task_checked") : null;
+    const shouldCheck = !currentTask && (!lastChecked || Date.now() - Number(lastChecked) > 5 * 60 * 1000);
+    if (shouldCheck) {
+      try { sessionStorage.setItem("sek_manual_task_checked", String(Date.now())); } catch {}
       const today = new Date().toISOString().split("T")[0];
-      fetch(`/api/activity/timeline?agent=${encodeURIComponent(agent.email)}&date=${today}`)
+      fetch(`/api/activity/timeline?agent=${encodeURIComponent(agent.email)}&date=${today}&lastMinutes=120`)
         .then((r) => r.json())
         .then((data) => {
           if (data?.timeline && Array.isArray(data.timeline)) {
