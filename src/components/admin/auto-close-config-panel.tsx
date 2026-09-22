@@ -164,38 +164,38 @@ export function AutoCloseConfigPanel() {
   return (
     <section className="rounded-2xl border border-border/60 bg-card p-5 lg:p-6 shadow-sm h-full flex flex-col justify-between space-y-5">
       {/* ── HEADER MAESTRO (SIMÉTRICO CON EL PANEL DE HORARIOS) ── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border/60 pb-4">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border/60 pb-4">
+        <div className="flex items-start gap-3 min-w-0 flex-1">
           <div className="h-9 w-9 rounded-xl bg-brand-500/15 border border-brand-500/30 text-brand-400 grid place-items-center shrink-0">
             <SlidersHorizontal className="h-4.5 w-4.5" />
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-base font-black text-foreground">Automatizaciones & Cierres</h2>
-              <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-brand-500/15 text-brand-400 border border-brand-500/30">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-base font-black text-foreground whitespace-nowrap">Automatizaciones & Cierres</h2>
+              <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-brand-500/15 text-brand-400 border border-brand-500/30 shrink-0 whitespace-nowrap">
                 Reglas del Chat
               </span>
             </div>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Gestión independiente de auto-cierre, fuera de horario, fin de jornada y encuesta de satisfacción.
+            <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+              Gestión centralizada de auto-cierre, fuera de horario, fin de jornada y encuesta.
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 self-start sm:self-auto">
+        <div className="shrink-0 self-start sm:self-center">
           <span
-            className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition-all flex items-center gap-2 ${
+            className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap shrink-0 ${
               activeRulesCount > 0
                 ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
                 : "bg-muted text-muted-foreground border-border/60"
             }`}
           >
             <span
-              className={`h-2 w-2 rounded-full ${
+              className={`h-2 w-2 rounded-full shrink-0 ${
                 activeRulesCount > 0 ? "bg-emerald-400 animate-pulse" : "bg-muted-foreground"
               }`}
             />
-            {activeRulesCount} de 4 {activeRulesCount === 1 ? "Regla Activa" : "Reglas Activas"}
+            {activeRulesCount} de 4 Activas
           </span>
         </div>
       </div>
@@ -220,12 +220,12 @@ export function AutoCloseConfigPanel() {
                 <Clock className="h-4 w-4" />
               </div>
               <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-black tracking-tight text-foreground">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-sm font-black tracking-tight text-foreground whitespace-nowrap">
                     Auto-Cierre por Inactividad
                   </h3>
                   <span
-                    className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                    className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full shrink-0 whitespace-nowrap ${
                       enabled
                         ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
                         : "bg-muted text-muted-foreground border border-border"
@@ -387,12 +387,12 @@ export function AutoCloseConfigPanel() {
                 <Moon className="h-4 w-4" />
               </div>
               <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-black tracking-tight text-foreground">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-sm font-black tracking-tight text-foreground whitespace-nowrap">
                     Respuestas Fuera de Horario
                   </h3>
                   <span
-                    className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                    className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full shrink-0 whitespace-nowrap ${
                       afterHoursEnabled
                         ? "bg-indigo-500/15 text-indigo-400 border border-indigo-500/30"
                         : "bg-muted text-muted-foreground border border-border"
@@ -511,12 +511,12 @@ export function AutoCloseConfigPanel() {
                 <LogOut className="h-4 w-4" />
               </div>
               <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-black tracking-tight text-foreground">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-sm font-black tracking-tight text-foreground whitespace-nowrap">
                     Cierre General al Fin de Jornada
                   </h3>
                   <span
-                    className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                    className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full shrink-0 whitespace-nowrap ${
                       dailyCloseEnabled
                         ? "bg-amber-500/15 text-amber-400 border border-amber-500/30"
                         : "bg-muted text-muted-foreground border border-border"
@@ -676,12 +676,12 @@ export function AutoCloseConfigPanel() {
                 <Star className="h-4 w-4" />
               </div>
               <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-black tracking-tight text-foreground">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-sm font-black tracking-tight text-foreground whitespace-nowrap">
                     Encuesta de Satisfacción (WhatsApp)
                   </h3>
                   <span
-                    className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                    className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full shrink-0 whitespace-nowrap ${
                       surveyEnabled
                         ? "bg-sky-500/15 text-sky-400 border border-sky-500/30"
                         : "bg-muted text-muted-foreground border border-border"

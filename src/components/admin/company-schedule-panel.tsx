@@ -114,36 +114,38 @@ export function CompanySchedulePanel() {
 
   return (
     <section className="rounded-2xl border border-border/60 bg-card p-5 lg:p-6 shadow-sm h-full flex flex-col justify-between space-y-5">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border/60 pb-4">
-        <div className="flex items-center gap-3">
-          <div className="h-9 w-9 rounded-xl bg-violet-500/15 border border-violet-500/30 text-violet-400 grid place-items-center">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border/60 pb-4">
+        <div className="flex items-start gap-3 min-w-0 flex-1">
+          <div className="h-9 w-9 rounded-xl bg-violet-500/15 border border-violet-500/30 text-violet-400 grid place-items-center shrink-0">
             <Clock className="h-4.5 w-4.5" />
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-base font-black text-foreground">Rango de Horario Operativo</h2>
-              <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/30">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-base font-black text-foreground whitespace-nowrap">Rango de Horario Operativo</h2>
+              <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/30 shrink-0 whitespace-nowrap">
                 Activity Tracker
               </span>
             </div>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Delimita la ventana de captura del Activity Tracker para evitar conteos de tiempo fantasma si quedan sesiones abiertas fuera de turno.
+            <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+              Delimita la ventana de captura del Activity Tracker para evitar conteos de tiempo fantasma.
             </p>
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setScheduleEnabled(!scheduleEnabled)}
-          className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition-all flex items-center gap-2 self-start sm:self-auto ${
-            scheduleEnabled
-              ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
-              : "bg-muted text-muted-foreground border-border/60"
-          }`}
-        >
-          <span className={`h-2 w-2 rounded-full ${scheduleEnabled ? "bg-emerald-400 animate-pulse" : "bg-muted-foreground"}`} />
-          {scheduleEnabled ? "Filtro Operativo Activo" : "Filtro Desactivado (24h)"}
-        </button>
+        <div className="shrink-0 self-start sm:self-center">
+          <button
+            type="button"
+            onClick={() => setScheduleEnabled(!scheduleEnabled)}
+            className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition-all flex items-center gap-2 shrink-0 whitespace-nowrap cursor-pointer ${
+              scheduleEnabled
+                ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                : "bg-muted text-muted-foreground border-border/60"
+            }`}
+          >
+            <span className={`h-2 w-2 rounded-full shrink-0 ${scheduleEnabled ? "bg-emerald-400 animate-pulse" : "bg-muted-foreground"}`} />
+            {scheduleEnabled ? "Filtro Operativo Activo" : "Filtro Desactivado (24h)"}
+          </button>
+        </div>
       </div>
 
       {loading ? (
