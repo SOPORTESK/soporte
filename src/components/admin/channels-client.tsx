@@ -554,21 +554,21 @@ function ChatwootChannelView({
                 </div>
                 <div>
                   <h3 className="text-sm font-bold">Conexión con Chatwoot</h3>
-                  <p className="text-[11px] text-muted-foreground">Parámetros del servidor y bandeja para {channelName}.</p>
+                  <p className="text-[11px] text-muted-foreground">Servidor en Oracle Cloud y bandeja de {channelName}.</p>
                 </div>
               </div>
-              <Badge variant="default" className="text-[10px]">Auto-hospedado</Badge>
+              <Badge variant="success" className="text-[10px]">Oracle Cloud</Badge>
             </div>
 
             <div className="space-y-3.5">
               <div>
                 <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">
-                  URL del Servidor Chatwoot
+                  URL del Servidor en Oracle Cloud
                 </label>
                 <Input
                   value={config.chatwootUrl}
                   onChange={e => setConfig(prev => ({ ...prev, chatwootUrl: e.target.value }))}
-                  placeholder="http://129.146.7.74:3000 o https://chatwoot.tu-dominio.com"
+                  placeholder="http://129.146.7.74:3000 o https://chatwoot.sekunet.com"
                   className="h-9 text-xs font-mono"
                 />
               </div>
