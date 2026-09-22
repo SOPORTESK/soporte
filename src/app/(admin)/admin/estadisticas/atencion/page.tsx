@@ -397,7 +397,8 @@ export default async function EstadisticasAtencionPage({
 
   // ── Modo mes: volumen del mes actual vs mes anterior
   const periodoModo = searchParams.periodo || "semana";
-  const mesActualDate = mesSeleccionado !== "all" ? new Date(mesSeleccionado + "-01") : new Date(now.getFullYear(), now.getMonth(), 1);
+  const tieneMesFiltro = Boolean(mesSeleccionado && mesSeleccionado !== "all");
+  const mesActualDate = tieneMesFiltro ? new Date(mesSeleccionado + "-01T00:00:00-06:00") : new Date(now.getFullYear(), now.getMonth(), 1);
   const mesAnteriorDate = new Date(mesActualDate.getFullYear(), mesActualDate.getMonth() - 1, 1);
   const mesActualEnd = new Date(mesActualDate.getFullYear(), mesActualDate.getMonth() + 1, 1);
   const casosMesActual_data = casos.filter(c => { const d = new Date(c.created_at); return d >= mesActualDate && d < mesActualEnd; });
@@ -545,12 +546,12 @@ export default async function EstadisticasAtencionPage({
     && csatCoberturaPct >= CSAT_MIN_COBERTURA_PCT;
 
   // ── Ventana de medición, para convertir volumen en ritmo por día hábil.
-  const mesInicioMs = mesSeleccionado !== "all"
+  const mesInicioMs = tieneMesFiltro
     ? new Date(mesSeleccionado + "-01T00:00:00-06:00").getTime() : 0;
-  const mesFinMs = mesSeleccionado !== "all"
+  const mesFinMs = tieneMesFiltro
     ? new Date(new Date(mesInicioMs).getUTCFullYear(), new Date(mesInicioMs).getUTCMonth() + 1, 1).getTime() : 0;
-  const ventanaFin = mesSeleccionado !== "all" ? Math.min(now.getTime(), mesFinMs) : now.getTime();
-  const ventanaInicio = mesSeleccionado !== "all"
+  const ventanaFin = tieneMesFiltro ? Math.min(now.getTime(), mesFinMs) : now.getTime();
+  const ventanaInicio = tieneMesFiltro
     ? mesInicioMs
     : Math.min(...casosConAsig.map(c => new Date(c.created_at).getTime()).filter(t => !isNaN(t)), now.getTime());
 
@@ -943,7 +944,7 @@ export default async function EstadisticasAtencionPage({
       <div className="flex justify-end">
         <StatsExportButton
           data={[{
-            Mes: mesSeleccionado !== "all" ? mesSeleccionado : "Todos",
+            Mes: tieneMesFiltro ? mesSeleccionado : "Todos",
             Total_Casos: totalCasos,
             Casos_Activos: totalActivos,
             Casos_Resueltos: totalResueltos,
@@ -965,7 +966,7 @@ export default async function EstadisticasAtencionPage({
             Agentes: rankingAgentes.length,
             Fecha_Reporte: nowStr,
           }]}
-          fileName={`Reporte_KPIs_Atencion_Sekunet_${mesSeleccionado !== "all" ? mesSeleccionado : new Date().toISOString().slice(0,10)}`}
+          fileName={`Reporte_KPIs_Atencion_Sekunet_${tieneMesFiltro ? mesSeleccionado : new Date().toISOString().slice(0,10)}`}
         />
       </div>
 
@@ -1119,7 +1120,7 @@ export default async function EstadisticasAtencionPage({
                 Volumen_7d: a.casos7d, Volumen_Promedio_Diario: (a as any).volumenDiario.toFixed(1),
                 Fecha_Reporte: nowStr
               }))}
-              fileName={`Reporte_Desempeño_Atencion_Sekunet_${mesSeleccionado !== "all" ? mesSeleccionado : new Date().toISOString().slice(0,10)}`}
+              fileName={`Reporte_Desempeño_Atencion_Sekunet_${tieneMesFiltro ? mesSeleccionado : new Date().toISOString().slice(0,10)}`}
             />
           </div>
 
