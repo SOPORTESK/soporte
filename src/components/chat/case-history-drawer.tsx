@@ -2,7 +2,7 @@
 import * as React from "react";
 import { X, History, ChevronDown, ChevronUp, Calendar, FolderOpen, MessageSquare, FileText } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { cn, formatTime, asText, clienteInfo, customerKey } from "@/lib/utils";
+import { cn, formatTime, formatFullTime, asText, clienteInfo, customerKey } from "@/lib/utils";
 import { Badge } from "@/components/ui/avatar";
 import type { SekCase, SekHistEntry } from "@/lib/types";
 
@@ -126,7 +126,7 @@ export function CaseHistoryDrawer({ isOpen, onClose, currentCase }: CaseHistoryD
               📎 {(e as any).fileName || "Archivo adjunto"}
             </a>
           )}
-          <span className="text-[10px] opacity-60 block mt-1 text-right">
+          <span className="text-[10px] opacity-60 block mt-1 text-right" title={formatFullTime(e.time)}>
             {formatTime(e.time)}
           </span>
         </div>

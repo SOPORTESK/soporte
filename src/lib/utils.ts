@@ -8,12 +8,22 @@ export function cn(...inputs: ClassValue[]) {
 export function formatTime(iso: string | null | undefined): string {
   if (!iso) return "";
   const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
   const now = new Date();
   const sameDay = d.toDateString() === now.toDateString();
-  if (sameDay) return d.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", hour12: false });
+  const timeStr = d.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/Costa_Rica" });
+  if (sameDay) return timeStr;
   const yesterday = new Date(now); yesterday.setDate(now.getDate() - 1);
-  if (d.toDateString() === yesterday.toDateString()) return `Ayer ${d.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", hour12: false })}`;
-  return d.toLocaleDateString("es-CR");
+  if (d.toDateString() === yesterday.toDateString()) return `Ayer ${timeStr}`;
+  const dateStr = d.toLocaleDateString("es-CR", { timeZone: "America/Costa_Rica" });
+  return `${dateStr} ${timeStr}`;
+}
+
+export function formatFullTime(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleString("es-CR", { timeZone: "America/Costa_Rica" });
 }
 
 /** Extrae info del campo cliente (que puede ser objeto, string o null) */

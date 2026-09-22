@@ -15,7 +15,7 @@ import { logActivity } from "@/lib/activity-client";
 import { Avatar, Badge } from "@/components/ui/avatar";
 import { Textarea } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { cn, formatTime, asText, clienteInfo } from "@/lib/utils";
+import { cn, formatTime, formatFullTime, asText, clienteInfo } from "@/lib/utils";
 import { toast } from "sonner";
 import { CaseHistoryDrawer } from "./case-history-drawer";
 import { TemplateManager } from "./template-manager";
@@ -3795,7 +3795,7 @@ function Bubble({ m, prev, next, clienteName, onImageClick, agentEmail, onMessag
             </button>
           </div>
           <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{m.content}</p>
-          <p className="text-[10px] mt-1 opacity-60 text-right" suppressHydrationWarning>{formatTime(m.time)}</p>
+          <p className="text-[10px] mt-1 opacity-60 text-right" suppressHydrationWarning title={formatFullTime(m.time)}>{formatTime(m.time)}</p>
         </div>
       </div>
     );
@@ -3942,7 +3942,7 @@ function Bubble({ m, prev, next, clienteName, onImageClick, agentEmail, onMessag
           "flex items-center gap-2 text-[10px] mt-1",
           isCliente ? "text-muted-foreground" : "text-white/75 justify-end"
         )}>
-          <span suppressHydrationWarning>{formatTime(m.time)}</span>
+          <span suppressHydrationWarning title={formatFullTime(m.time)}>{formatTime(m.time)}</span>
           {m.edited && <span className="italic opacity-60">· editado</span>}
             {isTecnico && m.status === "pending" && (
             <svg className="h-3.5 w-3.5 opacity-50" viewBox="0 0 16 16" fill="currentColor"><path d="M13.5 4L6.5 11 3 7.5" stroke="currentColor" strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>
