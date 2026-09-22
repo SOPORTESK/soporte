@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useMemo } from "react";
-import { Camera, Lock, Eye, EyeOff, Check, X, ChevronUp, Circle, LogOut, Activity as ActivityIcon, FileText, ChevronRight, X as XIcon, RefreshCw, Wrench, Coffee, Timer, BarChart3, Package, LayoutDashboard, ClipboardList, Sparkles, UserPlus, Briefcase, GraduationCap, Users, Utensils, Sandwich, Bath, Square, Trash2, Clock, CheckCircle2, Calendar, Maximize2, Plus } from "lucide-react";
+import { Camera, Lock, Eye, EyeOff, Check, X, ChevronUp, Circle, LogOut, Activity as ActivityIcon, FileText, ChevronRight, X as XIcon, RefreshCw, Wrench, Coffee, Timer, BarChart3, Package, LayoutDashboard, ClipboardList, Sparkles, UserPlus, Briefcase, GraduationCap, Users, Utensils, Sandwich, Bath, Square, Trash2, Clock, CheckCircle2, Calendar, Maximize2, Plus, UserCheck, Save } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -148,10 +148,31 @@ export function SidebarUserPanel({
   const [showPwdVal, setShowPwdVal] = useState(false);
   const [showPwd2Val, setShowPwd2Val] = useState(false);
   const [savingPwd, setSavingPwd] = useState(false);
+  const [profileNombre, setProfileNombre] = useState(safeAgent.nombre || "");
+  const [profileApellido, setProfileApellido] = useState(safeAgent.apellido || "");
+  const [savingProfile, setSavingProfile] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
   const supabase = createClient();
-  const fullName = [safeAgent.nombre, safeAgent.apellido].filter(Boolean).join(" ") || safeAgent.email || "Usuario";
+  const fullName = [profileNombre || safeAgent.nombre, profileApellido || safeAgent.apellido].filter(Boolean).join(" ") || safeAgent.email || "Usuario";
+
+  const handleSaveProfile = async () => {
+    if (!safeAgent.email) return;
+    setSavingProfile(true);
+    try {
+      const { error } = await supabase
+        .from("sek_agent_config")
+        .update({ nombre: profileNombre.trim(), apellido: profileApellido.trim() })
+        .ilike("email", safeAgent.email);
+      if (error) throw error;
+      toast.success("Perfil actualizado con éxito");
+      router.refresh();
+    } catch (e: any) {
+      toast.error(e.message || "Error al actualizar perfil");
+    } finally {
+      setSavingProfile(false);
+    }
+  };
   const [myMetrics, setMyMetrics] = useState<any>(null);
   const [showActivityModal, setShowActivityModal] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -687,10 +708,55 @@ export function SidebarUserPanel({
                 </div>
                 <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
                 <div className="text-center">
-                  <p className="font-semibold text-sm">{fullName}</p>
-                  <p className="text-xs text-muted-foreground capitalize">{agent.rol}</p>
-                  <p className="text-xs text-muted-foreground">{agent.email}</p>
+                  <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-brand-500/10 text-brand-400 border border-brand-500/20 inline-block">
+                    {safeAgent.rol}
+                  </span>
+                  <p className="text-[11px] text-muted-foreground font-mono mt-1">{safeAgent.email}</p>
                 </div>
+              </div>
+
+              {/* Formulario editable de Nombre y Apellido */}
+              <div className="p-3 rounded-xl bg-muted/20 border border-border/60 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                    <UserCheck className="h-3 w-3 text-brand-500" />
+                    Datos Personales
+                  </p>
+                  {(profileNombre !== (safeAgent.nombre || "") || profileApellido !== (safeAgent.apellido || "")) && (
+                    <span className="text-[9px] font-bold text-amber-500">Sin guardar</span>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] text-muted-foreground font-medium block mb-1">Nombre</label>
+                    <input
+                      type="text"
+                      value={profileNombre}
+                      onChange={(e) => setProfileNombre(e.target.value)}
+                      placeholder="Nombre"
+                      className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-border bg-background focus:outline-none focus:ring-1 focus:ring-violet-500 text-foreground"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-muted-foreground font-medium block mb-1">Apellido</label>
+                    <input
+                      type="text"
+                      value={profileApellido}
+                      onChange={(e) => setProfileApellido(e.target.value)}
+                      placeholder="Apellido"
+                      className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-border bg-background focus:outline-none focus:ring-1 focus:ring-violet-500 text-foreground"
+                    />
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSaveProfile}
+                  disabled={savingProfile}
+                  className="w-full py-1.5 px-3 rounded-lg bg-brand-600 hover:bg-brand-500 text-white text-xs font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+                >
+                  <Save className="h-3 w-3" />
+                  <span>{savingProfile ? "Guardando..." : "Guardar Perfil"}</span>
+                </button>
               </div>
 
               {/* Estado */}

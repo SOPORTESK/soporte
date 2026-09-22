@@ -1,5 +1,4 @@
 import { createClient } from "@/lib/supabase/server";
-import { ProfileForm } from "@/components/admin/profile-form";
 import { DangerZonePanel } from "@/components/admin/danger-zone-panel";
 import {
   Settings,
@@ -89,7 +88,7 @@ export default async function AdminSettingsPage() {
             </div>
             <h1 className="text-2xl lg:text-3xl font-black tracking-tight">Configuración del Sistema</h1>
             <p className="text-xs lg:text-sm text-muted-foreground mt-1 max-w-2xl">
-              Gestión centralizada de jornadas laborales, auto-cierre, credenciales del operador e infraestructura en la nube.
+              Gestión centralizada del rango operativo del tracker, auto-cierre de casos e infraestructura cloud.
             </p>
           </div>
 
@@ -130,138 +129,133 @@ export default async function AdminSettingsPage() {
         </div>
       )}
 
-      {/* ── Cuadrícula Principal Balanceada en 2 Columnas (Aprovechamiento 100% de Espacio) ── */}
+      {/* ── Cuadrícula Principal en 2 Columnas (Operación: Rango Horario + Auto-Cierre) ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-        {/* ── Columna 1: Horarios de Jornada + Perfil del Operador ── */}
-        <div className="space-y-6">
-          {/* Horario y Jornada Laboral Oficial */}
+        {/* Rango de Horario Operativo (Activity Tracker) */}
+        <div>
           <CompanySchedulePanel />
-
-          {/* Mi Perfil de Operador */}
-          <ProfileForm agent={agent as SekAgent} />
         </div>
 
-        {/* ── Columna 2: Políticas de Cierre + Infraestructura y Servicios ── */}
-        <div className="space-y-6">
-          {/* Auto-Cierre por Inactividad */}
+        {/* Auto-Cierre por Inactividad */}
+        <div>
           <AutoCloseConfigPanel />
-
-          {/* Infraestructura y Servidores en Nube */}
-          <section className="rounded-2xl border border-border/60 bg-card p-5 lg:p-6 shadow-xs space-y-4">
-            <div className="flex items-center justify-between gap-3 border-b border-border/50 pb-3">
-              <div className="flex items-center gap-3">
-                <div className="h-9 w-9 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-500 grid place-items-center shrink-0">
-                  <Database className="h-4.5 w-4.5" />
-                </div>
-                <div>
-                  <h2 className="text-sm font-black text-foreground">Infraestructura & Servidores en Nube</h2>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">
-                    Servicios activos, instancias cloud y pasarelas de mensajería.
-                  </p>
-                </div>
-              </div>
-              <Badge variant="success" className="text-[10px] font-bold shrink-0">
-                100% Operativo
-              </Badge>
-            </div>
-
-            {/* Grid 2x2 de componentes de infraestructura */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {/* Oracle Cloud VPS */}
-              <div className="p-3.5 rounded-xl bg-muted/25 border border-border/50 flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <div className="flex items-center gap-1.5">
-                      <Cloud className="h-3.5 w-3.5 text-amber-500" />
-                      <p className="text-xs font-bold">Oracle Cloud VPS</p>
-                    </div>
-                    <span className="text-[9px] font-mono font-bold text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded">
-                      129.146.7.74
-                    </span>
-                  </div>
-                  <p className="text-[10px] text-muted-foreground leading-relaxed">
-                    Instancia dedicada con Evolution API (puerto 7001) y Chatwoot (puerto 3000).
-                  </p>
-                </div>
-                <div className="mt-2.5 pt-2 border-t border-border/40 flex items-center justify-between text-[10px]">
-                  <span className="text-muted-foreground">Estado VPS:</span>
-                  <span className="font-bold text-emerald-500 flex items-center gap-1">
-                    <CheckCircle2 className="h-3 w-3" /> En línea
-                  </span>
-                </div>
-              </div>
-
-              {/* Supabase Database */}
-              <div className="p-3.5 rounded-xl bg-muted/25 border border-border/50 flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <div className="flex items-center gap-1.5">
-                      <Database className="h-3.5 w-3.5 text-emerald-500" />
-                      <p className="text-xs font-bold">Supabase Cloud</p>
-                    </div>
-                    <span className="text-[9px] font-mono font-bold text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded">
-                      PostgreSQL
-                    </span>
-                  </div>
-                  <p className="text-[10px] text-muted-foreground leading-relaxed">
-                    Almacenamiento relacional, autenticación SSR y base de vectores para RAG.
-                  </p>
-                </div>
-                <div className="mt-2.5 pt-2 border-t border-border/40 flex items-center justify-between text-[10px]">
-                  <span className="text-muted-foreground">Realtime & Presencia:</span>
-                  <span className="font-bold text-emerald-500 flex items-center gap-1">
-                    <CheckCircle2 className="h-3 w-3" /> Conectado
-                  </span>
-                </div>
-              </div>
-
-              {/* Webhooks de Entrada */}
-              <div className="p-3.5 rounded-xl bg-muted/25 border border-border/50 flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <div className="flex items-center gap-1.5">
-                      <Webhook className="h-3.5 w-3.5 text-violet-500" />
-                      <p className="text-xs font-bold">Pasarelas Webhooks</p>
-                    </div>
-                    <span className="text-[9px] font-bold text-violet-500 bg-violet-500/10 px-1.5 py-0.5 rounded">
-                      Next.js API
-                    </span>
-                  </div>
-                  <p className="text-[10px] text-muted-foreground leading-relaxed">
-                    Endpoints activos para WhatsApp (Evolution), Chatwoot y Widget Web en tiempo real.
-                  </p>
-                </div>
-                <div className="mt-2.5 pt-2 border-t border-border/40 flex items-center justify-between text-[10px]">
-                  <span className="text-muted-foreground">Enrutador:</span>
-                  <span className="font-mono font-bold text-foreground">/api/webhooks/*</span>
-                </div>
-              </div>
-
-              {/* Edge & Background Workers */}
-              <div className="p-3.5 rounded-xl bg-muted/25 border border-border/50 flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <div className="flex items-center gap-1.5">
-                      <Cpu className="h-3.5 w-3.5 text-sky-500" />
-                      <p className="text-xs font-bold">Procesos & IA</p>
-                    </div>
-                    <span className="text-[9px] font-bold text-sky-500 bg-sky-500/10 px-1.5 py-0.5 rounded">
-                      Serverless
-                    </span>
-                  </div>
-                  <p className="text-[10px] text-muted-foreground leading-relaxed">
-                    Gemini Flash Lite para inferencia, auto-cierre periódico y extracción de datos.
-                  </p>
-                </div>
-                <div className="mt-2.5 pt-2 border-t border-border/40 flex items-center justify-between text-[10px]">
-                  <span className="text-muted-foreground">Motor IA:</span>
-                  <span className="font-bold text-sky-500">Gemini 2.5 Flash</span>
-                </div>
-              </div>
-            </div>
-          </section>
         </div>
       </div>
+
+      {/* ── Infraestructura y Servidores en Nube ── */}
+      <section className="rounded-2xl border border-border/60 bg-card p-5 lg:p-6 shadow-xs space-y-4">
+        <div className="flex items-center justify-between gap-3 border-b border-border/50 pb-3">
+          <div className="flex items-center gap-3">
+            <div className="h-9 w-9 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-500 grid place-items-center shrink-0">
+              <Database className="h-4.5 w-4.5" />
+            </div>
+            <div>
+              <h2 className="text-sm font-black text-foreground">Infraestructura & Servidores en Nube</h2>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Servicios activos, instancias cloud y pasarelas de mensajería en producción.
+              </p>
+            </div>
+          </div>
+          <Badge variant="success" className="text-[10px] font-bold shrink-0">
+            100% Operativo
+          </Badge>
+        </div>
+
+        {/* Grid 4 columnas o 2x2 de componentes de infraestructura */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {/* Oracle Cloud VPS */}
+          <div className="p-3.5 rounded-xl bg-muted/25 border border-border/50 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center gap-1.5">
+                  <Cloud className="h-3.5 w-3.5 text-amber-500" />
+                  <p className="text-xs font-bold">Oracle Cloud VPS</p>
+                </div>
+                <span className="text-[9px] font-mono font-bold text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded">
+                  129.146.7.74
+                </span>
+              </div>
+              <p className="text-[10px] text-muted-foreground leading-relaxed">
+                Evolution API (puerto 7001) y Chatwoot (puerto 3000) auto-hospedados.
+              </p>
+            </div>
+            <div className="mt-2.5 pt-2 border-t border-border/40 flex items-center justify-between text-[10px]">
+              <span className="text-muted-foreground">Estado VPS:</span>
+              <span className="font-bold text-emerald-500 flex items-center gap-1">
+                <CheckCircle2 className="h-3 w-3" /> En línea
+              </span>
+            </div>
+          </div>
+
+          {/* Supabase Database */}
+          <div className="p-3.5 rounded-xl bg-muted/25 border border-border/50 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center gap-1.5">
+                  <Database className="h-3.5 w-3.5 text-emerald-500" />
+                  <p className="text-xs font-bold">Supabase Cloud</p>
+                </div>
+                <span className="text-[9px] font-mono font-bold text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded">
+                  PostgreSQL
+                </span>
+              </div>
+              <p className="text-[10px] text-muted-foreground leading-relaxed">
+                Almacenamiento relacional, autenticación SSR y vectores de RAG.
+              </p>
+            </div>
+            <div className="mt-2.5 pt-2 border-t border-border/40 flex items-center justify-between text-[10px]">
+              <span className="text-muted-foreground">Realtime & Presencia:</span>
+              <span className="font-bold text-emerald-500 flex items-center gap-1">
+                <CheckCircle2 className="h-3 w-3" /> Conectado
+              </span>
+            </div>
+          </div>
+
+          {/* Webhooks de Entrada */}
+          <div className="p-3.5 rounded-xl bg-muted/25 border border-border/50 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center gap-1.5">
+                  <Webhook className="h-3.5 w-3.5 text-violet-500" />
+                  <p className="text-xs font-bold">Pasarelas Webhooks</p>
+                </div>
+                <span className="text-[9px] font-bold text-violet-500 bg-violet-500/10 px-1.5 py-0.5 rounded">
+                  Next.js API
+                </span>
+              </div>
+              <p className="text-[10px] text-muted-foreground leading-relaxed">
+                Endpoints para WhatsApp (Evolution), Chatwoot y Widget Web.
+              </p>
+            </div>
+            <div className="mt-2.5 pt-2 border-t border-border/40 flex items-center justify-between text-[10px]">
+              <span className="text-muted-foreground">Rutas:</span>
+              <span className="font-mono font-bold text-foreground">/api/webhooks/*</span>
+            </div>
+          </div>
+
+          {/* Edge & Background Workers */}
+          <div className="p-3.5 rounded-xl bg-muted/25 border border-border/50 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center gap-1.5">
+                  <Cpu className="h-3.5 w-3.5 text-sky-500" />
+                  <p className="text-xs font-bold">Procesos & IA</p>
+                </div>
+                <span className="text-[9px] font-bold text-sky-500 bg-sky-500/10 px-1.5 py-0.5 rounded">
+                  Serverless
+                </span>
+              </div>
+              <p className="text-[10px] text-muted-foreground leading-relaxed">
+                Gemini Flash Lite para inferencia, auto-cierre y extracción.
+              </p>
+            </div>
+            <div className="mt-2.5 pt-2 border-t border-border/40 flex items-center justify-between text-[10px]">
+              <span className="text-muted-foreground">Motor IA:</span>
+              <span className="font-bold text-sky-500">Gemini 2.5 Flash</span>
+            </div>
+          </div>
+        </div>
+      </section>
 
       {/* ── Zona de Peligro — Solo Superadmin (Full Width al final) ── */}
       {isSuperadmin && (

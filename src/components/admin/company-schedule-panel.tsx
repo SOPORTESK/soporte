@@ -91,7 +91,7 @@ export function CompanySchedulePanel() {
 
       if (res.ok) {
         setSavedSuccess(true);
-        toast.success("Jornada y horarios laborales guardados con éxito en la base de datos");
+        toast.success("Rango de horario operativo guardado con éxito en el servidor");
         try {
           localStorage.setItem("sekunet_activity_schedule_start", scheduleStart);
           localStorage.setItem("sekunet_activity_schedule_end", scheduleEnd);
@@ -118,13 +118,13 @@ export function CompanySchedulePanel() {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-base font-black text-foreground">Gestión de Horarios y Jornada Laboral</h2>
+              <h2 className="text-base font-black text-foreground">Rango de Horario Operativo</h2>
               <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/30">
-                Oficial
+                Activity Tracker
               </span>
             </div>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Configura los días hábiles y el rango horario. Fuera de esta jornada, nada se mide ni se registra en el servidor.
+              Delimita la ventana de captura del Activity Tracker para evitar conteos de tiempo fantasma si quedan sesiones abiertas fuera de turno.
             </p>
           </div>
         </div>
@@ -139,7 +139,7 @@ export function CompanySchedulePanel() {
           }`}
         >
           <span className={`h-2 w-2 rounded-full ${scheduleEnabled ? "bg-emerald-400 animate-pulse" : "bg-muted-foreground"}`} />
-          {scheduleEnabled ? "Control Horario Activo" : "Filtro Desactivado (24h)"}
+          {scheduleEnabled ? "Filtro Operativo Activo" : "Filtro Desactivado (24h)"}
         </button>
       </div>
 
@@ -207,7 +207,7 @@ export function CompanySchedulePanel() {
             <div className="flex items-center justify-between">
               <label className="text-xs font-bold text-foreground flex items-center gap-1.5">
                 <Clock className="h-3.5 w-3.5 text-violet-400" />
-                Rango Horario de Jornada:
+                Ventana Horaria de Operación:
               </label>
               <div className="flex items-center gap-1 text-[11px]">
                 <span className="text-muted-foreground text-[10px] mr-1">Rápido:</span>
@@ -266,10 +266,10 @@ export function CompanySchedulePanel() {
               <div>
                 <label className="text-xs font-bold text-foreground flex items-center gap-1.5">
                   <Briefcase className="h-3.5 w-3.5 text-violet-400" />
-                  Jornada Laboral Diaria (Horas Hábiles / Efectivas Meta):
+                  Límite Diario de Medición (Horas Operativas Meta):
                 </label>
                 <p className="text-[11px] text-muted-foreground mt-0.5">
-                  Base matemática (100%) para medir productividad, cumplimiento diario y detectar déficit u horas extras.
+                  Base matemática para medir productividad y cortar el registro automático fuera de la ventana operativa.
                 </p>
               </div>
 
@@ -372,7 +372,7 @@ export function CompanySchedulePanel() {
           {/* BOTÓN DE GUARDADO */}
           <div className="flex items-center justify-between pt-2 border-t border-border/40">
             <p className="text-[11px] text-muted-foreground">
-              Esta configuración aplica a toda la telemetría del sistema y a la Suite de Auditoría.
+              Esta delimitación horaria aplica a toda la telemetría del sistema y al Activity Tracker.
             </p>
             <button
               type="button"
@@ -394,7 +394,7 @@ export function CompanySchedulePanel() {
               ) : (
                 <>
                   <ShieldCheck className="h-4 w-4" />
-                  <span>Guardar Horario Oficial</span>
+                  <span>Guardar Rango Operativo</span>
                 </>
               )}
             </button>
