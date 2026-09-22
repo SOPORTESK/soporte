@@ -2131,10 +2131,10 @@ export function ChatView({
               )}
               {ci.correo && <span className="hidden sm:inline-flex items-center gap-1"><Mail className="h-3 w-3" />{ci.correo}</span>}
               {ci.cuenta && <span className="inline-flex items-center gap-1"><Building2 className="h-3 w-3" />{ci.cuenta}</span>}
-              {(sekCase.estado === "cerrado" || sekCase.estado === "resuelto") && (
+              {(sekCase.estado === "cerrado" || sekCase.estado === "resuelto") && sekCase.assigned_to && (
                 <span className="inline-flex items-center gap-1 text-muted-foreground">
                   <UserCheck className="h-3 w-3" />
-                  {sekCase.assigned_to ? `Atendido por: ${sekCase.assigned_to}` : "Atendido por: IA"}
+                  Atendido por: {sekCase.assigned_to}
                 </span>
               )}
             </div>

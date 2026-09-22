@@ -344,7 +344,7 @@ export function ConversationList({
           const estadoLower = String(c.estado || "").toLowerCase();
           const lm = lastMessage(c);
           const isClosed = estadoLower === "cerrado" || estadoLower === "resuelto";
-          const attendedBy = isClosed ? (c.assigned_to ? `Atendido por: ${c.assigned_to}` : "Atendido por: IA") : null;
+          const attendedBy = isClosed && c.assigned_to ? `Atendido por: ${c.assigned_to}` : null;
           const cleanLastPreview = (() => {
             const p = asText(c.last_message_preview)?.trim() || "";
             if (p.startsWith("[Procesando") || p.startsWith("[Archivo adjunto:") || p === "[Video en optimización...]") {
