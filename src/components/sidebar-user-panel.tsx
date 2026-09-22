@@ -139,7 +139,26 @@ export function SidebarUserPanel({
   const [panelAgendaTab, setPanelAgendaTab] = useState<"tasks" | "events">("tasks");
   const [newQuickTaskTitle, setNewQuickTaskTitle] = useState("");
   const [creatingQuickTask, setCreatingQuickTask] = useState(false);
-  const [status, setStatus] = useState(safeAgent.status || "online");
+  const [status, setStatus] = useState(safeAgent.status === "busy" ? "busy" : "online");
+  const statusRef = useRef(status);
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
+
+  // Tolerancia oficial de inactividad configurada por los administradores (en minutos)
+  const [toleranceMin, setToleranceMin] = useState<number>(15);
+
+  useEffect(() => {
+    fetch("/api/activity/schedule")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.toleranceMinutes && Number(data.toleranceMinutes) > 0) {
+          setToleranceMin(Number(data.toleranceMinutes));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   const [avatarUrl, setAvatarUrl] = useState(safeAgent.avatar_url || null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [showPwd, setShowPwd] = useState(false);
@@ -547,9 +566,12 @@ export function SidebarUserPanel({
       .catch(() => {});
   };
 
-  // Marcar online al montar + auto-away por inactividad + heartbeat + registro de inicio de sesión
+  // Marcar online al montar + auto-away por inactividad con tolerancia oficial + heartbeat + registro de inicio de sesión
   useEffect(() => {
-    fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online", email: agent.email }) }).catch(() => {});
+    if (statusRef.current !== "busy") {
+      setStatus("online");
+      fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online", email: agent.email }) }).catch(() => {});
+    }
     
     // Registrar Inicio de Sesión si es la primera vez que se monta en el día
     try {
@@ -575,33 +597,29 @@ export function SidebarUserPanel({
       fetch("/api/profile/status", { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online", email: agent.email }) }).catch(() => {});
     }, 120000);
 
-    // Idle timer — auto switch to "away" after inactivity
+    // Idle timer — auto switch to "away" after inactivity based on official tolerance
+    const timeoutMs = (toleranceMin || 15) * 60 * 1000;
     let idleTimer: ReturnType<typeof setTimeout>;
-    let isIdle = false;
     const resetIdle = () => {
-      if (isIdle) {
-        isIdle = false;
-        // Only restore to online if we were auto-set to away
-        setStatus(prev => {
-          if (prev === "away") {
-            fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online", email: agent.email }) }).catch(() => {});
-            return "online";
-          }
-          return prev;
-        });
+      // Si el agente estaba ausente o desconectado, cualquier interacción humana lo reactiva a "En línea"
+      if (statusRef.current === "away" || statusRef.current === "offline") {
+        setStatus("online");
+        fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online", email: agent.email }) }).catch(() => {});
       }
       clearTimeout(idleTimer);
       idleTimer = setTimeout(() => {
-        setStatus(prev => {
-          if (prev === "online") {
-            isIdle = true;
-            fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "away", email: agent.email }) }).catch(() => {});
-            logActivity({ agent_email: agent.email, agent_name: fullName, action: `Sin actividad detectada por 5 minutos, estado cambiado automáticamente a "Ausente"`, category: "Inactividad", duration_ms: IDLE_TIMEOUT_MS });
-            return "away";
-          }
-          return prev;
-        });
-      }, IDLE_TIMEOUT_MS);
+        if (statusRef.current === "online") {
+          setStatus("away");
+          fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "away", email: agent.email }) }).catch(() => {});
+          logActivity({
+            agent_email: agent.email,
+            agent_name: fullName,
+            action: `Sin actividad detectada por ${toleranceMin} minutos, estado cambiado automáticamente a "Ausente"`,
+            category: "Inactividad",
+            duration_ms: timeoutMs,
+          });
+        }
+      }, timeoutMs);
     };
     const events = ["mousemove", "mousedown", "keydown", "touchstart", "scroll"] as const;
     events.forEach(e => window.addEventListener(e, resetIdle, { passive: true }));
@@ -613,7 +631,7 @@ export function SidebarUserPanel({
       clearTimeout(idleTimer);
       clearInterval(heartbeat);
     };
-  }, [agent.email, fullName]);
+  }, [agent.email, fullName, toleranceMin]);
 
   const handleStatusChange = async (s: string) => {
     setStatus(s);
