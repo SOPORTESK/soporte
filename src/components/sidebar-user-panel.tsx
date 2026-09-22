@@ -29,10 +29,10 @@ interface OnlineAgent {
 }
 
 const STATUS_LABELS: Record<string, { label: string; color: string; icon?: string }> = {
-  online:  { label: "En línea",      color: "bg-emerald-500" },
-  away:    { label: "Ausente",       color: "bg-amber-400" },
-  busy:    { label: "Ocupado",       color: "bg-rose-500" },
-  offline: { label: "Desconectado",  color: "bg-gray-400" },
+  online:  { label: "En línea",                 color: "bg-emerald-500" },
+  away:    { label: "Ausente",                  color: "bg-amber-400" },
+  busy:    { label: "Ocupado (Atendiendo)",    color: "bg-rose-500" },
+  offline: { label: "Desconectado",             color: "bg-gray-400" },
 };
 
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutos (tolerancia de taller)
@@ -174,6 +174,134 @@ export function SidebarUserPanel({
   const router = useRouter();
   const supabase = createClient();
   const fullName = [profileNombre || safeAgent.nombre, profileApellido || safeAgent.apellido].filter(Boolean).join(" ") || safeAgent.email || "Usuario";
+
+  // Gestión de agentes del equipo en tiempo real (para reflejar estados y ocultar desconectados)
+  const [teamAgents, setTeamAgents] = useState<OnlineAgent[]>(() => onlineAgents || []);
+
+  useEffect(() => {
+    if (Array.isArray(onlineAgents) && onlineAgents.length > 0) {
+      setTeamAgents((prev) => {
+        const map = new Map<string, OnlineAgent>();
+        onlineAgents.forEach(a => { if (a?.email) map.set(a.email.toLowerCase(), a); });
+        prev.forEach(a => { if (a?.email && !map.has(a.email.toLowerCase())) map.set(a.email.toLowerCase(), a); });
+        return Array.from(map.values());
+      });
+    }
+  }, [onlineAgents]);
+
+  useEffect(() => {
+    const fetchTeam = async () => {
+      try {
+        const { data, error } = await supabase
+          .from("sek_agent_config")
+          .select("email, nombre, apellido, avatar_url, status, last_seen_at, rol")
+          .not("rol", "in", "(bot,sistema)")
+          .not("email", "in", "(technician_assistant@sekunet.com,whatsapp_agent@sekunet.com,system_prompt@sekunet.com)");
+        if (!error && Array.isArray(data)) {
+          setTeamAgents(data);
+        }
+      } catch {}
+    };
+
+    fetchTeam();
+    const teamInterval = setInterval(fetchTeam, 15000);
+
+    const agentChannel = supabase
+      .channel("sidebar_team_agents_realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "sek_agent_config" },
+        (payload: any) => {
+          const updated = payload.new as any;
+          if (!updated || !updated.email) return;
+          setTeamAgents((prev) => {
+            const emailLower = updated.email.toLowerCase();
+            const existingIdx = prev.findIndex(a => a.email.toLowerCase() === emailLower);
+            if (existingIdx >= 0) {
+              const copy = [...prev];
+              copy[existingIdx] = { ...copy[existingIdx], ...updated };
+              return copy;
+            } else {
+              return [...prev, updated];
+            }
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      clearInterval(teamInterval);
+      supabase.removeChannel(agentChannel);
+    };
+  }, [supabase]);
+
+  // Conteo de casos abiertos en atención para auto-activar estado "Ocupado" (Rojo)
+  const [activeChatsCount, setActiveChatsCount] = useState<number>(0);
+  const activeChatsRef = useRef<number>(0);
+  useEffect(() => {
+    activeChatsRef.current = activeChatsCount;
+  }, [activeChatsCount]);
+
+  useEffect(() => {
+    if (!safeAgent.email) return;
+
+    const checkActiveChats = async () => {
+      try {
+        const { count, error } = await supabase
+          .from("sek_cases")
+          .select("id", { count: "exact", head: true })
+          .ilike("assigned_to", safeAgent.email)
+          .eq("estado", "abierto");
+
+        if (error) return;
+        const currentCount = count || 0;
+        setActiveChatsCount(currentCount);
+
+        // Si el agente tiene chats abiertos asignados:
+        // Debe estar en "busy" (Rojo: Ocupado - Atendiendo clientes), excepto si está en "away" o "offline"
+        if (currentCount > 0) {
+          if (statusRef.current === "online") {
+            setStatus("busy");
+            fetch("/api/profile/status", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ status: "busy", email: safeAgent.email }),
+            }).catch(() => {});
+          }
+        } else {
+          // Si ya no tiene chats abiertos asignados (count === 0) y estaba en "busy":
+          // Regresa automáticamente a "online" (Verde: En línea)
+          if (statusRef.current === "busy") {
+            setStatus("online");
+            fetch("/api/profile/status", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ status: "online", email: safeAgent.email }),
+            }).catch(() => {});
+          }
+        }
+      } catch {}
+    };
+
+    checkActiveChats();
+    const interval = setInterval(checkActiveChats, 10000);
+
+    const casesChannel = supabase
+      .channel("sidebar_active_chats_realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "sek_cases" },
+        () => {
+          checkActiveChats();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      clearInterval(interval);
+      supabase.removeChannel(casesChannel);
+    };
+  }, [safeAgent.email, supabase]);
 
   useEffect(() => {
     if (safeAgent.nombre !== undefined) setProfileNombre(safeAgent.nombre || "");
@@ -569,12 +697,15 @@ export function SidebarUserPanel({
       .catch(() => {});
   };
 
-  // Marcar online al montar + auto-away por inactividad con tolerancia oficial + heartbeat + registro de inicio de sesión
+  // Marcar estado al montar + auto-away por inactividad con tolerancia oficial + heartbeat + registro de inicio de sesión
   useEffect(() => {
-    if (statusRef.current !== "busy") {
-      setStatus("online");
-      fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online", email: agent.email }) }).catch(() => {});
-    }
+    const initialStatus = activeChatsRef.current > 0 ? "busy" : (statusRef.current === "busy" ? "busy" : "online");
+    setStatus(initialStatus);
+    fetch("/api/profile/status", { 
+      method: "POST", 
+      headers: { "Content-Type": "application/json" }, 
+      body: JSON.stringify({ status: initialStatus, email: agent.email }) 
+    }).catch(() => {});
     
     // Registrar Inicio de Sesión si es la primera vez que se monta en el día
     try {
@@ -595,25 +726,41 @@ export function SidebarUserPanel({
     const handleUnload = () => navigator.sendBeacon("/api/profile/status", JSON.stringify({ status: "offline", email: agent.email }));
     window.addEventListener("beforeunload", handleUnload);
 
-    // Heartbeat cada 2 minutos
+    // Heartbeat cada 2 minutos preservando el estado real actual (busy, online o away)
     const heartbeat = setInterval(() => {
-      fetch("/api/profile/status", { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online", email: agent.email }) }).catch(() => {});
+      fetch("/api/profile/status", { 
+        method: "POST", 
+        keepalive: true, 
+        headers: { "Content-Type": "application/json" }, 
+        body: JSON.stringify({ status: statusRef.current, email: agent.email }) 
+      }).catch(() => {});
     }, 120000);
 
     // Idle timer — auto switch to "away" after inactivity based on official tolerance
     const timeoutMs = (toleranceMin || 15) * 60 * 1000;
     let idleTimer: ReturnType<typeof setTimeout>;
     const resetIdle = () => {
-      // Si el agente estaba ausente o desconectado, cualquier interacción humana lo reactiva a "En línea"
+      // Si el agente estaba ausente o desconectado, cualquier interacción humana lo reactiva:
+      // Si tiene chats abiertos en atención -> vuelve a "busy" (Rojo)
+      // Si no tiene chats abiertos -> vuelve a "online" (Verde)
       if (statusRef.current === "away" || statusRef.current === "offline") {
-        setStatus("online");
-        fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online", email: agent.email }) }).catch(() => {});
+        const nextStatus = activeChatsRef.current > 0 ? "busy" : "online";
+        setStatus(nextStatus);
+        fetch("/api/profile/status", { 
+          method: "POST", 
+          headers: { "Content-Type": "application/json" }, 
+          body: JSON.stringify({ status: nextStatus, email: agent.email }) 
+        }).catch(() => {});
       }
       clearTimeout(idleTimer);
       idleTimer = setTimeout(() => {
-        if (statusRef.current === "online") {
+        if (statusRef.current === "online" || statusRef.current === "busy") {
           setStatus("away");
-          fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "away", email: agent.email }) }).catch(() => {});
+          fetch("/api/profile/status", { 
+            method: "POST", 
+            headers: { "Content-Type": "application/json" }, 
+            body: JSON.stringify({ status: "away", email: agent.email }) 
+          }).catch(() => {});
           logActivity({
             agent_email: agent.email,
             agent_name: fullName,
@@ -688,7 +835,24 @@ export function SidebarUserPanel({
     const no = String(a.nombre || "").toLowerCase();
     return ro === "bot" || ro === "sistema" || em.includes("agent") || em.includes("assistant") || em.includes("system_prompt") || no.includes("asistente") || no.includes("agente whatsapp");
   };
-  const others = (onlineAgents || []).filter(a => a && a.email && a.email !== safeAgent.email && a.status !== "offline" && !isBotAgent(a));
+
+  const isAgentOnlineOrActive = (a: any) => {
+    if (!a || !a.email) return false;
+    if (a.email.toLowerCase() === safeAgent.email.toLowerCase()) return false;
+    if (isBotAgent(a)) return false;
+    // Si el estado es offline / desconectado, desaparece su avatar para los demás
+    if (a.status === "offline") return false;
+    // Si no ha emitido actividad ni heartbeat en los últimos 4 minutos (240s)
+    if (a.last_seen_at) {
+      const diff = Date.now() - new Date(a.last_seen_at).getTime();
+      if (diff > 4 * 60 * 1000) return false;
+    }
+    return true;
+  };
+
+  const others = useMemo(() => {
+    return (teamAgents || []).filter(isAgentOnlineOrActive);
+  }, [teamAgents, safeAgent.email]);
 
   return (
     <div className="border-t border-border">
@@ -791,9 +955,9 @@ export function SidebarUserPanel({
                 <div className="grid grid-cols-2 gap-1.5">
                   {Object.entries(STATUS_LABELS).map(([key, { label, color }]) => (
                     <button key={key} onClick={() => handleStatusChange(key)}
-                      className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium border transition-all ${status === key ? "border-violet-500/50 bg-violet-500/10 text-foreground" : "border-border hover:bg-muted/50 text-muted-foreground"}`}>
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium border transition-all cursor-pointer ${status === key ? "border-violet-500/50 bg-violet-500/10 text-foreground font-semibold" : "border-border hover:bg-muted/50 text-muted-foreground"}`}>
                       <span className={`h-2 w-2 rounded-full shrink-0 ${color}`} />
-                      {label}
+                      <span className="truncate">{key === "busy" && activeChatsCount > 0 ? `Ocupado (${activeChatsCount})` : label}</span>
                     </button>
                   ))}
                 </div>
@@ -1264,32 +1428,37 @@ export function SidebarUserPanel({
 
       {/* Barra inferior siempre visible */}
       <div className="p-3 space-y-2">
-        <button onClick={() => setOpen(v => !v)} className="w-full flex items-center gap-2.5 px-2 py-2 rounded-xl hover:bg-muted/60 transition-colors group">
+        <button onClick={() => setOpen(v => !v)} className="w-full flex items-center gap-2.5 px-2 py-2 rounded-xl hover:bg-muted/60 transition-colors group cursor-pointer">
           <div className="relative shrink-0">
             <AvatarImg url={avatarUrl} name={fullName} size={36} />
             <span className={`absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-card ${st.color}`} />
           </div>
           <div className="min-w-0 flex-1 text-left">
             <p className="text-sm font-medium truncate leading-tight">{fullName}</p>
-            <p className="text-xs text-muted-foreground capitalize leading-tight">{safeAgent.rol || "agente"}</p>
+            <p className="text-xs text-muted-foreground capitalize leading-tight flex items-center gap-1.5">
+              <span>{safeAgent.rol || "agente"}</span>
+              <span className="text-[10px] opacity-75">
+                • {status === "busy" && activeChatsCount > 0 ? `Atendiendo (${activeChatsCount})` : st.label}
+              </span>
+            </p>
           </div>
           <ChevronUp className={`h-4 w-4 text-muted-foreground shrink-0 transition-transform ${open ? "" : "rotate-180"}`} />
         </button>
         <div className="flex items-center justify-between gap-1 px-1">
           <div className="flex items-center gap-1 flex-wrap min-w-0">
-            {/* Indicadores de agentes online */}
+            {/* Indicadores de agentes online (desaparecen automáticamente al desconectarse) */}
             {others.map(a => {
               const n = [a?.nombre, a?.apellido].filter(Boolean).join(" ") || a?.email || "Agente";
-              const s = STATUS_LABELS[a?.status || "offline"] || STATUS_LABELS.offline;
+              const s = STATUS_LABELS[a?.status || "online"] || STATUS_LABELS.online;
               return (
-                <div key={a?.email || Math.random().toString()} className="relative" title={`${n} — ${s.label}`}>
+                <div key={a?.email || Math.random().toString()} className="relative transition-all duration-300" title={`${n} — ${s.label}`}>
                   <AvatarImg url={a?.avatar_url} name={n} size={22} />
                   <span className={`absolute bottom-0 right-0 h-1.5 w-1.5 rounded-full border border-card ${s.color}`} />
                 </div>
               );
             })}
           </div>
-          <button onClick={handleLogout} title="Cerrar sesión" className="p-1.5 rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-colors">
+          <button onClick={handleLogout} title="Cerrar sesión" className="p-1.5 rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-colors cursor-pointer">
             <LogOut className="h-3.5 w-3.5" />
           </button>
         </div>
