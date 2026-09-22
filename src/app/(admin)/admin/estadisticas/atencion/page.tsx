@@ -103,6 +103,7 @@ function isNonTechnicalMsg(m: any): boolean {
 
 /** Calcula los minutos de resolución real de un caso:
  *  Mide desde la aceptación (o creación) hasta el último mensaje técnico intercambiado en la conversación.
+ *  Regla de tope al cierre original: nunca sobrepasa closed_at, e ignora recontactos posteriores en tickets ya cerrados.
  *  Ignora encuestas automáticas de satisfacción, despedidas de cierre y mensajes del sistema.
  *  Si no hay mensajes en el chat, recurre a closed_at.
  *  Evita falsos positivos por tickets que quedan abiertos horas o días después de terminar la atención. */
@@ -110,18 +111,39 @@ function getMinutosResolucion(c: any): number | null {
   const tStart = c.accepted_at ? new Date(c.accepted_at).getTime() : new Date(c.created_at).getTime();
   if (isNaN(tStart)) return null;
 
+  const tClosed = c.closed_at ? new Date(c.closed_at).getTime() : NaN;
+
   const allMsgs = [
     ...(Array.isArray(c.histcliente) ? c.histcliente : []),
     ...(Array.isArray(c.histtecnico) ? c.histtecnico : [])
   ];
-  const realMsgs = allMsgs.filter(m => !isNonTechnicalMsg(m));
+
+  // Filtrar mensajes no técnicos y mensajes enviados después de que el caso ya había sido cerrado
+  const realMsgs = allMsgs.filter(m => {
+    if (isNonTechnicalMsg(m)) return false;
+    if (!isNaN(tClosed)) {
+      const t = m && m.time ? new Date(m.time).getTime() : 0;
+      if (t > tClosed + 120000) return false; // Recontacto posterior al cierre
+    }
+    return true;
+  });
+
   const msgTimes = realMsgs
     .map(m => m && m.time ? new Date(m.time).getTime() : 0)
     .filter(t => !isNaN(t) && t > 0);
 
-  const tClosed = c.closed_at ? new Date(c.closed_at).getTime() : NaN;
-  const tLastMsg = msgTimes.length > 0 ? Math.max(...msgTimes) : tClosed;
-  const tEnd = !isNaN(tLastMsg) ? Math.max(tLastMsg, tStart) : tClosed;
+  // Si hay mensajes técnicos previos al cierre, tomamos el último; de lo contrario closed_at
+  let tEnd = msgTimes.length > 0 ? Math.max(...msgTimes) : tClosed;
+
+  // Tope al cierre original: nunca puede exceder la fecha de cierre registrada
+  if (!isNaN(tClosed) && tEnd > tClosed) {
+    tEnd = tClosed;
+  }
+
+  // Tope inferior: no puede ser anterior a la fecha de inicio de atención
+  if (!isNaN(tEnd) && tEnd < tStart) {
+    tEnd = tStart;
+  }
 
   if (isNaN(tEnd)) return null;
   const min = Math.round((tEnd - tStart) / 60000);
