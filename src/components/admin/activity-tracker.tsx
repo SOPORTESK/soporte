@@ -803,9 +803,6 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
       return 10;
     }
   });
-  const [savingSchedule, setSavingSchedule] = useState<boolean>(false);
-  const [scheduleSavedNotice, setScheduleSavedNotice] = useState<boolean>(false);
-  const [showScheduleModal, setShowScheduleModal] = useState<boolean>(false);
 
   // Solicitudes de horas extras (Overtime)
   const [overtimeRequests, setOvertimeRequests] = useState<any[]>([]);
@@ -859,83 +856,6 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
   const [timelineViewMode, setTimelineViewMode] = useState<"consolidated" | "logs">("consolidated");
   const [onlyManualFilter, setOnlyManualFilter] = useState<boolean>(false);
   const [serverMetrics, setServerMetrics] = useState<any>(null);
-
-  const saveScheduleToServer = async (
-    start: string,
-    end: string,
-    enabled: boolean,
-    days: number[] = workDays,
-    targetHours: number = targetDailyHours
-  ) => {
-    setSavingSchedule(true);
-    try {
-      const res = await fetch("/api/activity/schedule", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          scheduleStart: start,
-          scheduleEnd: end,
-          scheduleEnabled: enabled,
-          workDays: days,
-          targetDailyHours: targetHours,
-        }),
-      });
-      if (res.ok) {
-        setScheduleSavedNotice(true);
-        toast.success(`Jornada (${targetHours}h), horario (${start} - ${end}) y días guardados`);
-        try { localStorage.setItem("sekunet_activity_target_daily_hours", String(targetHours)); } catch {}
-        setTimeout(() => setScheduleSavedNotice(false), 2500);
-      }
-    } catch (err) {
-      console.error("Error saving work schedule:", err);
-      toast.error("Error al guardar horario");
-    } finally {
-      setSavingSchedule(false);
-    }
-  };
-
-  const handleTargetDailyHoursChange = (newHours: number) => {
-    const val = Math.max(1, Math.min(16, Math.round(newHours * 2) / 2));
-    setTargetDailyHours(val);
-    try { localStorage.setItem("sekunet_activity_target_daily_hours", String(val)); } catch {}
-    saveScheduleToServer(scheduleStart, scheduleEnd, scheduleEnabled, workDays, val);
-  };
-
-  const handleToggleDay = (dayId: number) => {
-    let nextDays: number[];
-    if (workDays.includes(dayId)) {
-      if (workDays.length <= 1) return; // Mantener al menos un día
-      nextDays = workDays.filter((d) => d !== dayId);
-    } else {
-      nextDays = [...workDays, dayId].sort((a, b) => a - b);
-    }
-    setWorkDays(nextDays);
-    saveScheduleToServer(scheduleStart, scheduleEnd, scheduleEnabled, nextDays);
-  };
-
-  const handleScheduleChange = (start: string, end: string, enabled = true) => {
-    setScheduleStart(start);
-    setScheduleEnd(end);
-    setScheduleEnabled(enabled);
-    try {
-      localStorage.setItem("sekunet_activity_schedule_start", start);
-      localStorage.setItem("sekunet_activity_schedule_end", end);
-      localStorage.setItem("sekunet_activity_schedule_enabled", enabled ? "true" : "false");
-    } catch {}
-    if (start && end && start.length === 5 && end.length === 5) {
-      saveScheduleToServer(start, end, enabled, workDays);
-    }
-  };
-
-  const handleToggleSchedule = (enabled: boolean) => {
-    setScheduleEnabled(enabled);
-    try {
-      localStorage.setItem("sekunet_activity_schedule_enabled", enabled ? "true" : "false");
-    } catch {}
-    saveScheduleToServer(scheduleStart, scheduleEnd, enabled, workDays);
-  };
-
-  // Cargar estado en vivo de agentes (soporta modo silencioso sin provocar re-renders)
   const fetchLive = useCallback(async () => {
     try {
       const res = await fetch("/api/activity/live");
@@ -1332,25 +1252,8 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
           </div>
         </div>
 
-        {/* Controles de jornada, fecha y refresco */}
+        {/* Controles de fecha y refresco */}
         <div className="flex flex-wrap items-center gap-2.5">
-          {/* Botón Ajustes de Jornada Laboral (Abre modal limpio) */}
-          <button
-            onClick={() => setShowScheduleModal(true)}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-border bg-background hover:bg-muted/70 shadow-xs text-xs font-semibold text-foreground transition-all"
-            title="Configurar horario laboral, días y meta contratada"
-          >
-            <Clock className="h-3.5 w-3.5 text-violet-500" />
-            <span className="text-muted-foreground">Jornada:</span>
-            <span className="font-mono font-bold text-violet-400">
-              {scheduleEnabled ? `${scheduleStart} a ${scheduleEnd}` : "24h"}
-            </span>
-            <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-violet-500/15 text-violet-300 font-bold border border-violet-500/30">
-              {targetDailyHours}h meta
-            </span>
-            <Settings className="h-3 w-3 text-muted-foreground ml-0.5 hover:text-foreground" />
-          </button>
-
           {/* Selector de fecha */}
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-border bg-background shadow-sm text-xs font-semibold">
             <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
@@ -2026,173 +1929,6 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
           />
         )}
       </div>
-
-      {/* ── MODAL ELEGANTE DE CONFIGURACIÓN DE JORNADA LABORAL ── */}
-      {showScheduleModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4"
-          onClick={() => setShowScheduleModal(false)}
-        >
-          <div
-            className="w-full max-w-lg bg-card border border-border/80 rounded-2xl p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-200"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Header del Modal */}
-            <div className="flex items-center justify-between pb-4 border-b border-border/60">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-xl bg-violet-500/15 text-violet-400 border border-violet-500/30">
-                  <Settings className="h-5 w-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-foreground">Ajustes de Jornada Laboral</h3>
-                  <p className="text-xs text-muted-foreground">Configuración oficial para medición y auditoría de tiempo</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowScheduleModal(false)}
-                className="h-8 w-8 rounded-xl bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground grid place-items-center transition-colors"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            {/* Controles de Configuración */}
-            <div className="space-y-4 text-xs">
-              {/* 1. Switch Medición por Horario */}
-              <div className="p-3.5 rounded-xl bg-muted/30 border border-border/60 flex items-center justify-between">
-                <div>
-                  <span className="font-bold text-foreground block">Medición Restringida a Horario</span>
-                  <span className="text-muted-foreground text-[11px]">
-                    Si se activa, la actividad fuera de estas horas no se medirá.
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => handleToggleSchedule(!scheduleEnabled)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                    scheduleEnabled
-                      ? "bg-violet-600 text-white shadow-xs"
-                      : "bg-background border border-border text-muted-foreground"
-                  }`}
-                >
-                  {scheduleEnabled ? "Activado" : "Desactivado (24h)"}
-                </button>
-              </div>
-
-              {/* 2. Días Laborables */}
-              <div className="space-y-2">
-                <span className="font-bold text-foreground block">Días Laborales Hábiles</span>
-                <div className="grid grid-cols-7 gap-1.5">
-                  {[
-                    { id: 1, label: "Lun", title: "Lunes" },
-                    { id: 2, label: "Mar", title: "Martes" },
-                    { id: 3, label: "Mié", title: "Miércoles" },
-                    { id: 4, label: "Jue", title: "Jueves" },
-                    { id: 5, label: "Vie", title: "Viernes" },
-                    { id: 6, label: "Sáb", title: "Sábado" },
-                    { id: 0, label: "Dom", title: "Domingo" },
-                  ].map((d) => {
-                    const active = workDays.includes(d.id);
-                    return (
-                      <button
-                        key={d.id}
-                        type="button"
-                        onClick={() => handleToggleDay(d.id)}
-                        className={`py-2 rounded-xl text-xs font-bold transition-all text-center ${
-                          active
-                            ? "bg-violet-600 text-white shadow-sm"
-                            : "bg-muted/40 border border-border text-muted-foreground hover:bg-muted"
-                        }`}
-                        title={d.title}
-                      >
-                        {d.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* 3. Horas de Entrada y Salida */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <span className="font-bold text-foreground">Hora de Inicio</span>
-                  <input
-                    type="time"
-                    value={scheduleStart}
-                    onChange={(e) => handleScheduleChange(e.target.value, scheduleEnd, scheduleEnabled)}
-                    className="w-full px-3 py-2 rounded-xl border border-border bg-background font-mono text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-violet-500"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <span className="font-bold text-foreground">Hora de Salida</span>
-                  <input
-                    type="time"
-                    value={scheduleEnd}
-                    onChange={(e) => handleScheduleChange(scheduleStart, e.target.value, scheduleEnabled)}
-                    className="w-full px-3 py-2 rounded-xl border border-border bg-background font-mono text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-violet-500"
-                  />
-                </div>
-              </div>
-
-              {/* 4. Meta de Jornada Diaria Contratada */}
-              <div className="space-y-2">
-                <span className="font-bold text-foreground block">Meta de Horas Diarias Contratadas</span>
-                <div className="grid grid-cols-4 gap-2">
-                  {[8, 8.5, 9, 10].map((h) => (
-                    <button
-                      key={h}
-                      type="button"
-                      onClick={() => handleTargetDailyHoursChange(h)}
-                      className={`py-2 rounded-xl text-xs font-bold transition-all text-center ${
-                        targetDailyHours === h
-                          ? "bg-violet-600 text-white shadow-sm"
-                          : "bg-muted/40 border border-border text-muted-foreground hover:bg-muted"
-                      }`}
-                    >
-                      {h} horas
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Footer con Botón Guardar */}
-            <div className="pt-4 border-t border-border/60 flex items-center justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setShowScheduleModal(false)}
-                className="px-4 py-2 rounded-xl border border-border bg-background hover:bg-muted text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors"
-              >
-                Cerrar
-              </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  await saveScheduleToServer(scheduleStart, scheduleEnd, scheduleEnabled, workDays, targetDailyHours);
-                  toast.success("Jornada laboral actualizada con éxito en la base de datos.");
-                  setShowScheduleModal(false);
-                }}
-                disabled={savingSchedule}
-                className="px-5 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold transition-all shadow-md shadow-violet-600/25 flex items-center gap-1.5 disabled:opacity-50"
-              >
-                {savingSchedule ? (
-                  <span>Guardando...</span>
-                ) : scheduleSavedNotice ? (
-                  <>
-                    <CheckCircle2 className="h-4 w-4 text-white" />
-                    <span>¡Guardado!</span>
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 className="h-4 w-4" />
-                    <span>Guardar Cambios</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
