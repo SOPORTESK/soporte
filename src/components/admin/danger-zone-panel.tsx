@@ -60,7 +60,7 @@ export function DangerZonePanel() {
       <div className="flex items-center gap-4 text-sm">
         <span className="text-muted-foreground">Datos a borrar:</span>
         <span className="font-black tabular-nums">
-          {counts === null ? "…" : `${counts.cases} chats · ${counts.clientes} clientes`}
+          {counts === null ? "…" : `${counts.cases} chats · ${counts.clientes} clientes únicos`}
         </span>
         <button
           onClick={fetchCounts}
