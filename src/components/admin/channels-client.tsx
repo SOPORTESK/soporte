@@ -179,8 +179,8 @@ export function ChannelsClient({ channels, stats }: ChannelsClientProps) {
             iconBg="bg-emerald-500/10 text-emerald-500"
           />
 
-          {/* 2 Columnas balanceadas: QR Connect a la izquierda, Evolution Settings a la derecha */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+          {/* 2 Columnas balanceadas (lado a lado desde md): QR Connect a la izquierda, Evolution Settings a la derecha */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
             <WhatsAppQRConnect />
             <EvolutionConfigPanel />
           </div>
@@ -433,7 +433,7 @@ function WidgetChannelView({ stats }: { stats: ChannelStatsSummary }) {
       />
 
       {/* 2 Columnas balanceadas */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
         {/* Columna 1: Código de instalación y API */}
         <div className="space-y-6">
           <div className="rounded-2xl border border-border/60 bg-card p-6 space-y-5">
@@ -641,7 +641,7 @@ function MessengerChannelView({ stats }: { stats: ChannelStatsSummary }) {
       />
 
       {/* 2 Columnas balanceadas */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
         {/* Columna 1: Formulario de credenciales */}
         <div className="rounded-2xl border border-border/60 bg-card p-6 space-y-5">
           <div className="flex items-center justify-between">
@@ -804,7 +804,7 @@ function TelegramChannelView({ stats }: { stats: ChannelStatsSummary }) {
       />
 
       {/* 2 Columnas balanceadas */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
         {/* Columna 1: Formulario de credenciales */}
         <div className="rounded-2xl border border-border/60 bg-card p-6 space-y-5">
           <div className="flex items-center justify-between">

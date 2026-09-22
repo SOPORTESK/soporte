@@ -116,86 +116,106 @@ export function WhatsAppQRConnect() {
   }, []);
 
   return (
-    <div className="mt-4 p-4 rounded-xl border border-border/60 bg-muted/20 space-y-4">
-      <div className="flex items-center gap-2">
-        <Smartphone className="h-4 w-4 text-emerald-500" />
-        <h3 className="text-sm font-bold">Conexión WhatsApp</h3>
-        <span className={`ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full ${
-          status === "open" ? "bg-emerald-500/15 text-emerald-600" :
-          status === "connecting" ? "bg-amber-500/15 text-amber-600" :
-          "bg-red-500/15 text-red-600"
-        }`}>
-          {status === "open" ? "CONECTADO" : status === "connecting" ? "CONECTANDO..." : "DESCONECTADO"}
-        </span>
-      </div>
-
-      <div className="space-y-2">
-        <input
-          value={evoUrl}
-          onChange={e => setEvoUrl(e.target.value)}
-          placeholder="URL Evolution"
-          className="w-full px-3 py-2 rounded-lg bg-muted/40 border border-border text-sm"
-        />
-        <input
-          value={instance}
-          onChange={e => setInstance(e.target.value)}
-          placeholder="Nombre instancia"
-          className="w-full px-3 py-2 rounded-lg bg-muted/40 border border-border text-sm"
-        />
-        <p className="text-[10px] text-muted-foreground">
-          La API Key está guardada cifrada en Supabase. No se muestra por seguridad.
-        </p>
-      </div>
-
-      <div className="flex gap-2">
-        <button
-          onClick={checkState}
-          disabled={checking}
-          className="px-3 py-2 rounded-lg text-sm font-medium border border-border hover:bg-muted transition-colors flex items-center gap-1.5"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${checking ? "animate-spin" : ""}`} />
-          Verificar estado
-        </button>
-        <button
-          onClick={logout}
-          className="px-3 py-2 rounded-lg text-sm font-medium border border-border hover:bg-red-50 text-red-600 transition-colors flex items-center gap-1.5"
-        >
-          <Unlink className="h-3.5 w-3.5" />
-          Desconectar
-        </button>
-        <button
-          onClick={fetchQR}
-          disabled={checking}
-          className="px-3 py-2 rounded-lg text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 transition-colors flex items-center gap-1.5"
-        >
-          <Smartphone className="h-3.5 w-3.5" />
-          Obtener QR
-        </button>
-      </div>
-
-      {status === "open" && (
-        <div className="flex items-center gap-2 text-emerald-600 text-sm font-medium p-2 bg-emerald-500/10 rounded-lg">
-          <CheckCircle className="h-4 w-4" />
-          WhatsApp conectado correctamente.
+    <section className="rounded-2xl border border-border/60 bg-card p-5 space-y-4 h-full flex flex-col justify-between">
+      <div className="space-y-4">
+        {/* Header */}
+        <div className="flex items-center gap-2.5">
+          <div className="h-7 w-7 rounded-lg bg-emerald-500/10 text-emerald-500 grid place-items-center">
+            <Smartphone className="h-3.5 w-3.5" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h2 className="text-sm font-black">Conexión WhatsApp</h2>
+            <p className="text-[10px] text-muted-foreground">Estado de vinculación e instancia activa</p>
+          </div>
+          <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full shrink-0 ${
+            status === "open" ? "bg-emerald-500/15 text-emerald-600 border border-emerald-500/30" :
+            status === "connecting" ? "bg-amber-500/15 text-amber-600 border border-amber-500/30" :
+            "bg-red-500/15 text-red-600 border border-red-500/30"
+          }`}>
+            {status === "open" ? "CONECTADO" : status === "connecting" ? "CONECTANDO..." : "DESCONECTADO"}
+          </span>
         </div>
-      )}
 
-      {lastResponse && (
-        <details className="text-xs">
-          <summary className="cursor-pointer text-muted-foreground hover:text-foreground font-medium">Ver respuesta de Evolution</summary>
-          <pre className="mt-1 p-2 bg-muted rounded-lg overflow-x-auto text-[10px] text-muted-foreground">{lastResponse}</pre>
-        </details>
-      )}
-
-      {qrCode && (
-        <div className="mt-4 p-4 flex flex-col items-center bg-white rounded-xl border border-border">
-          <p className="text-sm font-bold text-slate-800 mb-2">Escanee este código con WhatsApp</p>
-          <img src={qrCode} alt="WhatsApp QR Code" className="w-64 h-64 object-contain" />
-          <p className="text-xs text-slate-500 mt-2 text-center">
-            Vaya a Dispositivos Vinculados en su celular y escanee este código.
-          </p>
+        {/* Form fields */}
+        <div className="space-y-3">
+          <div>
+            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">
+              URL del Servidor
+            </label>
+            <input
+              value={evoUrl}
+              onChange={e => setEvoUrl(e.target.value)}
+              placeholder="http://localhost:7001"
+              className="w-full h-10 px-3 rounded-lg bg-muted/40 border border-border text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">
+              Nombre de Instancia
+            </label>
+            <input
+              value={instance}
+              onChange={e => setInstance(e.target.value)}
+              placeholder="sekunet"
+              className="w-full h-10 px-3 rounded-lg bg-muted/40 border border-border text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            />
+            <p className="text-[10px] text-muted-foreground mt-1">
+              La API Key está guardada cifrada en Supabase. No se muestra por seguridad.
+            </p>
+          </div>
         </div>
-      )}
-    </div>
+
+        {/* Actions */}
+        <div className="flex flex-wrap gap-2 pt-1">
+          <button
+            onClick={checkState}
+            disabled={checking}
+            className="px-3 py-2 rounded-lg text-xs font-semibold border border-border bg-muted/30 hover:bg-muted transition-colors flex items-center gap-1.5"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${checking ? "animate-spin" : ""}`} />
+            Verificar estado
+          </button>
+          <button
+            onClick={logout}
+            className="px-3 py-2 rounded-lg text-xs font-semibold border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 text-red-600 transition-colors flex items-center gap-1.5"
+          >
+            <Unlink className="h-3.5 w-3.5" />
+            Desconectar
+          </button>
+          <button
+            onClick={fetchQR}
+            disabled={checking}
+            className="px-3.5 py-2 rounded-lg text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 transition-colors flex items-center gap-1.5 ml-auto"
+          >
+            <Smartphone className="h-3.5 w-3.5" />
+            Obtener QR
+          </button>
+        </div>
+
+        {status === "open" && (
+          <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 text-xs font-semibold p-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
+            <CheckCircle className="h-4 w-4 shrink-0" />
+            WhatsApp conectado correctamente a la red de Meta.
+          </div>
+        )}
+
+        {lastResponse && (
+          <details className="text-xs pt-1">
+            <summary className="cursor-pointer text-muted-foreground hover:text-foreground font-medium">Ver respuesta de Evolution</summary>
+            <pre className="mt-1 p-2 bg-muted/60 border border-border/40 rounded-lg overflow-x-auto text-[10px] text-muted-foreground">{lastResponse}</pre>
+          </details>
+        )}
+
+        {qrCode && (
+          <div className="mt-2 p-4 flex flex-col items-center bg-white rounded-xl border border-border shadow-md">
+            <p className="text-xs font-bold text-slate-800 mb-2">Escanee este código con WhatsApp</p>
+            <img src={qrCode} alt="WhatsApp QR Code" className="w-56 h-56 object-contain" />
+            <p className="text-[11px] text-slate-500 mt-2 text-center">
+              Vaya a Dispositivos Vinculados en su celular y escanee este código.
+            </p>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }

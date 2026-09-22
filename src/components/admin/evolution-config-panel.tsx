@@ -82,18 +82,19 @@ export function EvolutionConfigPanel() {
   }
 
   return (
-    <section className="rounded-2xl border border-border/60 bg-card p-5">
-      <div className="flex items-center gap-2.5 mb-4">
-        <div className="h-7 w-7 rounded-lg bg-emerald-500/10 text-emerald-500 grid place-items-center">
-          <Smartphone className="h-3.5 w-3.5" />
+    <section className="rounded-2xl border border-border/60 bg-card p-5 h-full flex flex-col justify-between">
+      <div className="space-y-4">
+        <div className="flex items-center gap-2.5">
+          <div className="h-7 w-7 rounded-lg bg-emerald-500/10 text-emerald-500 grid place-items-center">
+            <Smartphone className="h-3.5 w-3.5" />
+          </div>
+          <div className="flex-1">
+            <h2 className="text-sm font-black">Evolution API (WhatsApp)</h2>
+            <p className="text-[10px] text-muted-foreground">Configuración de conexión con Evolution</p>
+          </div>
+          {status === "ok" && <CheckCircle className="h-4 w-4 text-emerald-500" />}
+          {status === "error" && <AlertTriangle className="h-4 w-4 text-rose-500" />}
         </div>
-        <div className="flex-1">
-          <h2 className="text-sm font-black">Evolution API (WhatsApp)</h2>
-          <p className="text-[10px] text-muted-foreground">Configuración de conexión con Evolution</p>
-        </div>
-        {status === "ok" && <CheckCircle className="h-4 w-4 text-emerald-500" />}
-        {status === "error" && <AlertTriangle className="h-4 w-4 text-rose-500" />}
-      </div>
 
       <div className="space-y-3">
         <div>
@@ -182,6 +183,7 @@ export function EvolutionConfigPanel() {
             ))}
           </div>
         )}
+      </div>
       </div>
 
       <div className="mt-4 p-3 rounded-xl bg-muted/30 border border-border/40 text-xs space-y-2">
