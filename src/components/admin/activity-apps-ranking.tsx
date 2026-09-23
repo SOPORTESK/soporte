@@ -144,16 +144,27 @@ export const DEFAULT_CATEGORIES: CategoryItem[] = [
     ],
   },
   {
-    id: "Pausas y Descansos",
-    label: "Pausas y Descansos",
+    id: "Descansos",
+    label: "Descansos",
     color: "text-amber-400 border-amber-500/30 bg-amber-500/15",
     bgBar: "bg-amber-500",
-    iconName: "Clock",
+    iconName: "Sandwich",
     subcategories: [
       "Tiempo de Descanso",
-      "Pausa Sanitaria",
       "Almuerzo",
+      "Café / Merienda",
       "Pausa Operativa",
+    ],
+  },
+  {
+    id: "Pausa Sanitaria",
+    label: "Pausa Sanitaria",
+    color: "text-emerald-400 border-emerald-500/30 bg-emerald-500/15",
+    bgBar: "bg-emerald-500",
+    iconName: "Bath",
+    subcategories: [
+      "Pausa Sanitaria",
+      "Baño",
     ],
   },
 ];

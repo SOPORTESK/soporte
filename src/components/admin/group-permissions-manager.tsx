@@ -155,7 +155,7 @@ export const COMPLETE_MODULE_DEFINITIONS: ModuleDef[] = [
     desc: "Canales de mensajería, categorías operativas, horarios de jornada, Google Drive, WhatsApp QR y base de datos",
     subcategories: [
       { key: "view_settings", label: "Configuración General (/admin/settings)", desc: "Ajustes de la aplicación y perfil corporativo" },
-      { key: "gestionar_categorias", label: "Gestor de Categorías y Labores Manuales", desc: "Configuración del árbol de 6 categorías operativas, subcategorías y selección de labores manuales de taller para la barra lateral" },
+      { key: "gestionar_categorias", label: "Gestor de Categorías y Labores Manuales", desc: "Configuración del árbol de categorías operativas, subcategorías y selección de labores manuales de taller para la barra lateral" },
       { key: "horarios_jornada", label: "Horarios Laborales & Jornada Laboral (/admin/settings)", desc: "Configuración de horarios de atención, días hábiles y meta de horas efectivas" },
       { key: "google_drive_backup", label: "Almacenamiento Google Drive & Respaldos", desc: "Conexión OAuth con Google Drive, cuota y sincronización automática" },
       { key: "manage_channels", label: "Canales de Atención (/admin/canales)", desc: "Parametrizar WhatsApp, Web Widget, etc." },

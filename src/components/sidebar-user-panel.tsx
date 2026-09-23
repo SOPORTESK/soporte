@@ -82,31 +82,42 @@ interface ManualTaskItem {
 
 const TAREAS_GROUPED: { group: string; color?: string; items: ManualTaskItem[] }[] = [
   {
-    group: "Operativa",
+    group: "Gestión del Taller",
     items: [
       { label: "Ir a Bodega", short: "Bodega", category: "Gestión del Taller", icon: Package },
       { label: "Exhibidores", short: "Exhibidores", category: "Gestión del Taller", icon: LayoutDashboard },
       { label: "Inventario y Actualización de Bodega GAR", short: "Inventario GAR", category: "Gestión del Taller", icon: ClipboardList },
       { label: "Limpieza de taller", short: "Limpieza", category: "Gestión del Taller", icon: Sparkles },
+    ]
+  },
+  {
+    group: "Servicio de Taller",
+    items: [
+      { label: "Iniciar Diagnóstico Físico", short: "Diagnóstico", category: "Servicio de Taller", icon: Wrench },
       { label: "Gestión de Residuos", short: "Residuos", category: "Gestión de Residuos", icon: Trash2 },
     ]
   },
   {
     group: "Soporte",
     items: [
-      { label: "Ir a Ventanilla", short: "Ventanilla", category: "Gestión del Taller", icon: UserPlus },
-      { label: "Iniciar Diagnóstico Físico", short: "Diagnóstico", category: "Servicio de Taller", icon: Wrench },
+      { label: "Ir a Ventanilla", short: "Ventanilla", category: "Soporte", icon: UserPlus },
       { label: "Soporte a Ventas", short: "Soporte Ventas", category: "Soporte", icon: Briefcase },
       { label: "Capacitacion de clientes", short: "Capacitar Cliente", category: "On-the-Job Training (OJT)", icon: GraduationCap },
+      { label: "Reunión", short: "Reunión", category: "Control Administrativo", icon: Users },
     ]
   },
   {
-    group: "Personal",
+    group: "Descansos",
     items: [
-      { label: "Tiempo de Descanso", short: "Descanso", category: "Pausas y Descansos", icon: Sandwich },
-      { label: "Pausa Sanitaria", short: "Pausa Sanitaria", category: "Pausas y Descansos", icon: Bath },
-      { label: "Reunión", short: "Reunión", category: "Control Administrativo", icon: Users },
-      { label: "Capacitacion de Personal", short: "Capacitar (Interno)", category: "On-the-Job Training (OJT)", icon: GraduationCap },
+      { label: "Tiempo de Descanso", short: "Descanso", category: "Descansos", icon: Sandwich },
+      { label: "Almuerzo", short: "Almuerzo", category: "Descansos", icon: Sandwich },
+    ]
+  },
+  {
+    group: "Pausa Sanitaria",
+    items: [
+      { label: "Pausa Sanitaria", short: "Pausa Sanitaria", category: "Pausa Sanitaria", icon: Bath },
+      { label: "Baño", short: "Baño", category: "Pausa Sanitaria", icon: Bath },
     ]
   }
 ];
@@ -692,13 +703,10 @@ export function SidebarUserPanel({
 
     for (const cat of categoriesConfig) {
       let subs: string[] = Array.isArray(cat.subcategories) ? [...cat.subcategories] : [];
-      if (subs.length === 0 && (cat.id === "Pausas y Descansos" || cat.label === "Pausas y Descansos")) {
-        subs = ["Tiempo de Descanso", "Pausa Sanitaria", "Almuerzo"];
-      }
-
       if (subs.length === 0) continue;
 
-      const isBreakCat = (cat.id === "Pausas y Descansos" || cat.label === "Pausas y Descansos" || (cat.id || "").toLowerCase().includes("pausa"));
+      const catLower = (cat.id || cat.label || "").toLowerCase();
+      const isBreakCat = catLower.includes("descanso") || catLower.includes("pausa") || catLower.includes("sanitaria");
 
       const catItems: { label: string; short: string; category: string; subcategory?: string; icon: any }[] = [];
       const seenLabels = new Set<string>();
