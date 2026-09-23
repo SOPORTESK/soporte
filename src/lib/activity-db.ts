@@ -454,6 +454,7 @@ export async function getActivityMetrics(agentEmail: string, date: string) {
       act.includes("bano");
 
     const isBreak =
+      cat === "Descansos" ||
       cat === "Pausas y Descansos" ||
       cat === "Descanso" ||
       act.includes("almuerzo") ||
@@ -537,6 +538,7 @@ export async function getActivityMetrics(agentEmail: string, date: string) {
       act.includes("bano");
 
     const isBreak =
+      catRaw === "Descansos" ||
       catRaw === "Pausas y Descansos" ||
       catRaw === "Descanso" ||
       act.includes("almuerzo") ||

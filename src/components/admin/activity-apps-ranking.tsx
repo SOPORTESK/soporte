@@ -324,23 +324,20 @@ export function getCategoryUI(catName: string) {
     return DEFAULT_CATEGORIES[5];
   }
 
-  // 7. Pausas y Descansos
+  // 7. Pausa Sanitaria
+  if (lower.includes("sanitaria") || lower.includes("baño") || lower.includes("bano")) {
+    return DEFAULT_CATEGORIES[7];
+  }
+
+  // 8. Descansos
   if (
     lower.includes("pausa") ||
     lower.includes("descanso") ||
     lower.includes("almuerzo") ||
     lower.includes("receso") ||
-    lower.includes("inactividad") ||
-    lower.includes("sanitaria")
+    lower.includes("inactividad")
   ) {
-    return DEFAULT_CATEGORIES[6] || {
-      id: "Pausas y Descansos",
-      label: "Pausas y Descansos",
-      color: "text-amber-400 border-amber-500/30 bg-amber-500/15",
-      bgBar: "bg-amber-500",
-      iconName: "Clock",
-      subcategories: ["Tiempo de Descanso", "Pausa Sanitaria", "Almuerzo", "Pausa Operativa"],
-    };
+    return DEFAULT_CATEGORIES[6];
   }
 
   return DEFAULT_CATEGORIES[0];
@@ -660,27 +657,39 @@ export function getDefaultCategoryForApp(appName: string, action: string = "", c
     return "Control Administrativo";
   }
 
-  // 6. Pausas y Descansos (Descansos, Almuerzo, Pausa Sanitaria, Inactividad del sistema)
+  // 6. Pausa Sanitaria (Baño, Higiene)
+  if (
+    name.includes("sanitaria") ||
+    name.includes("baño") ||
+    name.includes("bano") ||
+    act.includes("sanitaria") ||
+    act.includes("baño") ||
+    act.includes("bano") ||
+    cat.includes("sanitaria") ||
+    cat.includes("baño") ||
+    cat.includes("bano")
+  ) {
+    return "Pausa Sanitaria";
+  }
+
+  // 7. Descansos (Almuerzo, Café, Descanso programado, Inactividad)
   if (
     name.includes("descanso") ||
     name.includes("pausa") ||
     name.includes("almuerzo") ||
     name.includes("inactividad") ||
-    name.includes("sanitaria") ||
     name.includes("receso") ||
     act.includes("descanso") ||
     act.includes("pausa") ||
     act.includes("almuerzo") ||
     act.includes("inactividad") ||
-    act.includes("sanitaria") ||
     act.includes("receso") ||
     cat.includes("descanso") ||
     cat.includes("pausa") ||
     cat.includes("inactividad") ||
-    cat.includes("almuerzo") ||
-    cat.includes("sanitaria")
+    cat.includes("almuerzo")
   ) {
-    return "Pausas y Descansos";
+    return "Descansos";
   }
 
   // 7. Soporte (WhatsApp, Seka Chat, Linkus llamadas, Odoo Tickets, Casos, Atención directa)
@@ -1372,10 +1381,14 @@ function ActivityAppsRankingComponent({
           meta.reason === "lock_screen" ||
           meta.reason === "suspend" ||
           curr.category === "Inactividad" ||
+          effectiveCat === "Descansos" ||
+          effectiveCat === "Pausa Sanitaria" ||
           effectiveCat === "Pausas y Descansos";
 
         if (isExplicitPause) {
-          const pauseCat = "Pausas y Descansos";
+          const pauseCat = (appLower.includes("sanitaria") || appLower.includes("baño") || appLower.includes("bano") || (curr.action || "").toLowerCase().includes("baño"))
+            ? "Pausa Sanitaria"
+            : "Descansos";
           const pauseDuration = Math.min(gap, 60 * 60 * 1000);
           if (pauseDuration > 0) {
             const pauseName = appName && appName !== "Unknown" ? appName : "Tiempo de Descanso";
@@ -1409,7 +1422,7 @@ function ActivityAppsRankingComponent({
         // Si la ausencia entre eventos de software superó 15 minutos continuos sin estar en labor manual, registrar tiempo inactivo
         if (gap > 15 * 60 * 1000) {
           const excessPause = Math.min(gap - ACTIVE_GAP_LIMIT, 2 * 60 * 60 * 1000);
-          const pauseCat = "Pausas y Descansos";
+          const pauseCat = "Descansos";
           if (!appM["Tiempo de Descanso"]) appM["Tiempo de Descanso"] = { durationMs: 0, count: 0 };
           appM["Tiempo de Descanso"].durationMs += excessPause;
           appM["Tiempo de Descanso"].count++;

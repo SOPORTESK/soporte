@@ -302,6 +302,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
       act.includes("bano");
 
     const isBreak =
+      catRaw === "Descansos" ||
       catRaw === "Pausas y Descansos" ||
       catRaw === "Descanso" ||
       act.includes("almuerzo") ||

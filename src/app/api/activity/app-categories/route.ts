@@ -141,7 +141,7 @@ const DEFAULT_APP_MAPPINGS: Record<string, { category: string; subcategory: stri
   "Residuos electrónicos": { category: "Gestión de Residuos", subcategory: "Residuos electrónicos" },
   "Certificaciones oficiales": { category: "On-the-Job Training (OJT)", subcategory: "Certificaciones oficiales" },
   "Educación Continua": { category: "On-the-Job Training (OJT)", subcategory: "Educación Continua" },
-  "Tiempo de Descanso": { category: "Pausas y Descansos", subcategory: "Tiempo de Descanso" },
+  "Tiempo de Descanso": { category: "Descansos", subcategory: "Tiempo de Descanso" },
   "Pausa Sanitaria": { category: "Pausa Sanitaria", subcategory: "Pausa Sanitaria" },
   "Almuerzo": { category: "Descansos", subcategory: "Almuerzo" },
   "Pausa e Inactividad": { category: "Descansos", subcategory: "Pausa Operativa" },
