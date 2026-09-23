@@ -1470,81 +1470,57 @@ export function SidebarUserPanel({
 
           {tab === "activity" && hasActivityAccess && (
             <div className="flex flex-col" style={{ minHeight: "440px", maxHeight: "560px" }}>
-              {/* Header con gradiente y métricas con diseño amplio, sin textos cortados ni solapados */}
-              <div className="p-3 bg-gradient-to-br from-violet-500/15 via-indigo-500/5 to-transparent border-b border-border/50 space-y-2.5">
-                {/* Fila 1: Título de jornada + Estado/Entrada + Score */}
+              {/* Header con gradiente y métricas compactas */}
+              <div className="px-3 py-2 bg-gradient-to-br from-violet-500/15 via-indigo-500/5 to-transparent border-b border-border/50 space-y-1.5">
+                {/* Fila 1: Título + Score */}
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0">
-                    <div className="h-7 w-7 rounded-lg bg-violet-500/20 text-violet-400 grid place-items-center shrink-0 border border-violet-500/30">
-                      <ActivityIcon className="h-4 w-4" />
+                    <div className="h-6 w-6 rounded-md bg-violet-500/20 text-violet-400 grid place-items-center shrink-0 border border-violet-500/30">
+                      <ActivityIcon className="h-3.5 w-3.5" />
                     </div>
                     <div className="min-w-0">
-                      <span className="text-xs font-black tracking-tight text-foreground block leading-tight">
+                      <span className="text-[11px] font-black tracking-tight text-foreground block leading-tight">
                         JORNADA 10H
                       </span>
                       {myMetrics?.firstLoginTime && (
-                        <span className="text-[10px] text-muted-foreground font-mono leading-tight block">
+                        <span className="text-[9.5px] text-muted-foreground font-mono leading-tight block">
                           Entrada: {myMetrics.firstLoginTime}
                         </span>
                       )}
                     </div>
                   </div>
+                  <span className="text-[10.5px] font-black px-1.5 py-0.5 rounded-md bg-violet-500/15 text-violet-400 border border-violet-500/30 leading-tight shrink-0">
+                    {myMetrics?.productivityScore ?? 100}%
+                  </span>
+                </div>
 
-                  <div className="flex flex-col items-end shrink-0">
-                    <span className="text-[11px] font-black px-2 py-0.5 rounded-md bg-violet-500/15 text-violet-400 border border-violet-500/30 leading-tight">
-                      {myMetrics?.productivityScore ?? 100}%
-                    </span>
-                    <span className="text-[9px] uppercase font-bold tracking-wider text-muted-foreground mt-0.5">
-                      Efectividad
-                    </span>
+                {/* Fila 2: Métricas en línea compactas */}
+                <div className="flex items-center gap-2 pt-0.5 border-t border-border/40">
+                  <div className="flex-1 flex items-center gap-1.5 bg-card/80 border border-emerald-500/25 rounded-lg px-2 py-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                    <span className="text-[9.5px] font-bold text-muted-foreground uppercase">Activo</span>
+                    <span className="text-[11px] font-black text-emerald-400 ml-auto">{myMetrics?.totalActiveTime || "0m"}</span>
+                  </div>
+                  <div className="flex-1 flex items-center gap-1.5 bg-card/80 border border-sky-500/25 rounded-lg px-2 py-1">
+                    <Clock className="h-2.5 w-2.5 text-sky-400 shrink-0" />
+                    <span className="text-[9.5px] font-bold text-muted-foreground uppercase">Resta</span>
+                    <span className="text-[11px] font-black text-sky-400 ml-auto">{myMetrics?.deficitMs > 0 ? (myMetrics?.deficitTime || "0m") : "OK"}</span>
                   </div>
                 </div>
 
-                {/* Fila 2: Cuadrícula de métricas con tarjetas dedicadas para cero solapamientos */}
-                <div className="grid grid-cols-2 gap-2 pt-1 border-t border-border/40">
-                  <div className="bg-card/80 border border-emerald-500/25 rounded-xl p-2 flex flex-col justify-center">
-                    <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-                      <span className="truncate">Activo</span>
-                    </div>
-                    <p className="text-sm font-black text-emerald-400 mt-0.5 tracking-tight truncate">
-                      {myMetrics?.totalActiveTime || "0m"}
-                    </p>
-                  </div>
-
-                  <div className="bg-card/80 border border-sky-500/25 rounded-xl p-2 flex flex-col justify-center">
-                    <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                      <Clock className="h-2.5 w-2.5 text-sky-400 shrink-0" />
-                      <span className="truncate">Restante</span>
-                    </div>
-                    <p className="text-sm font-black text-sky-400 mt-0.5 tracking-tight truncate">
-                      {myMetrics?.deficitMs > 0 ? (myMetrics?.deficitTime || "0m") : "Cumplida"}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Fila 3: Barra de progreso con porcentaje visible y sin textos solapados */}
-                <div className="space-y-1 pt-0.5">
-                  <div className="flex items-center justify-between text-[10px] font-semibold text-muted-foreground">
-                    <span>Progreso</span>
-                    <span className="font-bold text-foreground">
-                      {Math.min(100, Math.round(((myMetrics?.totalActiveMs || 0) / (10 * 3600 * 1000)) * 100))}% de 10h
-                    </span>
-                  </div>
-                  <div className="h-2 w-full rounded-full bg-slate-800/80 overflow-hidden flex border border-border/40">
+                {/* Fila 3: Barra de progreso */}
+                <div className="flex items-center gap-2">
+                  <div className="h-1.5 flex-1 rounded-full bg-slate-800/80 overflow-hidden border border-border/40">
                     <div
                       className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-500 rounded-full"
                       style={{
                         width: `${Math.min(100, Math.round(((myMetrics?.totalActiveMs || 0) / (10 * 3600 * 1000)) * 100))}%`
                       }}
                     />
-                    <div
-                      className="h-full bg-slate-700/40 transition-all duration-500"
-                      style={{
-                        width: `${Math.max(0, 100 - Math.min(100, Math.round(((myMetrics?.totalActiveMs || 0) / (10 * 3600 * 1000)) * 100)))}%`
-                      }}
-                    />
                   </div>
+                  <span className="text-[9px] font-bold text-muted-foreground shrink-0">
+                    {Math.min(100, Math.round(((myMetrics?.totalActiveMs || 0) / (10 * 3600 * 1000)) * 100))}%
+                  </span>
                 </div>
               </div>
 
@@ -1552,67 +1528,52 @@ export function SidebarUserPanel({
               {manualTask && (() => {
                 const ActiveIcon = taskGroups.flatMap(g => g.items).find(i => i.label === manualTask.label)?.icon || Timer;
                 return (
-                  <div className="mx-3 mt-3 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 shadow-sm space-y-2.5 animate-in fade-in slide-in-from-top-1">
-                    {/* Fila superior: Ícono, Título y Cronómetro */}
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <div className="h-7 w-7 rounded-lg bg-amber-500/20 text-amber-400 grid place-items-center shrink-0 border border-amber-500/30">
-                          <ActiveIcon className="h-4 w-4" />
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-xs font-black text-amber-400 leading-snug truncate" title={manualTask.label}>
-                            {manualTask.label}
-                          </p>
-                          <p className="text-[10px] text-amber-500/80 font-medium leading-tight mt-0.5">
-                            Auto-tracking en pausa
-                          </p>
-                        </div>
+                  <div className="mx-3 mt-1.5 px-2.5 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 shadow-sm animate-in fade-in slide-in-from-top-1">
+                    <div className="flex items-center gap-2">
+                      <div className="h-6 w-6 rounded-md bg-amber-500/20 text-amber-400 grid place-items-center shrink-0 border border-amber-500/30">
+                        <ActiveIcon className="h-3 w-3" />
                       </div>
-                      <span className="text-xs font-mono font-black text-amber-300 tabular-nums px-2 py-0.5 rounded-lg bg-amber-500/20 border border-amber-500/30 shrink-0">
+                      <p className="text-[11px] font-black text-amber-400 leading-snug truncate flex-1 min-w-0" title={manualTask.label}>
+                        {manualTask.label}
+                      </p>
+                      <span className="text-[10.5px] font-mono font-black text-amber-300 tabular-nums px-1.5 py-0.5 rounded-md bg-amber-500/20 border border-amber-500/30 shrink-0">
                         {manualElapsed}
                       </span>
+                      <button
+                        type="button"
+                        onClick={stopManualTask}
+                        className="flex items-center gap-1 py-1 px-2 rounded-md bg-amber-600 hover:bg-amber-500 text-white font-bold text-[10px] shadow-sm transition-all active:scale-[0.98] shrink-0"
+                      >
+                        <Square className="h-2.5 w-2.5 fill-current" />
+                        <span>Detener</span>
+                      </button>
                     </div>
-
-                    {/* Fila inferior: Botón Detener a ancho completo */}
-                    <button
-                      type="button"
-                      onClick={stopManualTask}
-                      className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs shadow-sm shadow-amber-600/30 transition-all active:scale-[0.98]"
-                    >
-                      <Square className="h-3 w-3 fill-current" />
-                      <span>Detener labor</span>
-                    </button>
                   </div>
                 );
               })()}
 
               {/* Labores Manuales Directas con Selectores Dinámicos de Primer Nivel */}
-              <div className="flex-1 overflow-y-auto px-3 py-2.5 space-y-2.5">
+              <div className="flex-1 overflow-y-auto px-3 py-1.5 space-y-1.5">
                 {/* Cabecera y contador */}
                 <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="text-xs font-black text-foreground tracking-tight flex items-center gap-1.5">
-                      <Wrench className="h-3.5 w-3.5 text-violet-500" />
-                      <span>Labores Manuales</span>
-                    </h4>
-                    <p className="text-[10px] text-muted-foreground mt-0.5">
-                      Pausa el auto-tracking mientras realizas estas tareas:
-                    </p>
-                  </div>
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-500/10 text-violet-400 border border-violet-500/20 shrink-0">
-                    {totalAvailableTasks} labores
+                  <h4 className="text-xs font-black text-foreground tracking-tight flex items-center gap-1.5">
+                    <Wrench className="h-3.5 w-3.5 text-violet-500" />
+                    <span>Labores Manuales</span>
+                  </h4>
+                  <span className="text-[9.5px] font-bold px-1.5 py-0.5 rounded-full bg-violet-500/10 text-violet-400 border border-violet-500/20 shrink-0">
+                    {totalAvailableTasks}
                   </span>
                 </div>
 
                 {/* Buscador rápido integrado */}
                 <div className="relative">
-                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
                   <input
                     type="text"
                     value={manualSearchQuery}
                     onChange={(e) => setManualSearchQuery(e.target.value)}
-                    placeholder="Buscar labor rápida..."
-                    className="w-full text-xs pl-8 pr-7 py-1.5 rounded-xl border border-border/60 bg-muted/20 placeholder:text-muted-foreground/60 text-foreground focus:outline-none focus:ring-1 focus:ring-violet-500/70 transition-all"
+                    placeholder="Buscar..."
+                    className="w-full text-[11px] pl-7 pr-7 py-1 rounded-lg border border-border/60 bg-muted/20 placeholder:text-muted-foreground/60 text-foreground focus:outline-none focus:ring-1 focus:ring-violet-500/70 transition-all"
                   />
                   {manualSearchQuery && (
                     <button
@@ -1626,7 +1587,7 @@ export function SidebarUserPanel({
                 </div>
 
                 {/* Vista Drill-down (Navegación por Niveles) */}
-                <div className="space-y-2 pt-1">
+                <div className="space-y-1 pt-0.5">
                   {/* CASO A: Búsqueda activa global */}
                   {manualSearchQuery.trim() ? (
                     <div className="space-y-1.5">
@@ -1677,15 +1638,12 @@ export function SidebarUserPanel({
                                 </div>
                                 <div className="min-w-0 flex-1">
                                   <p
-                                    className={`text-[11.5px] font-semibold leading-tight truncate transition-colors ${
+                                    className={`text-[11px] font-semibold leading-tight truncate transition-colors ${
                                       isCurrent ? "text-amber-300" : "text-foreground group-hover:text-violet-400"
                                     }`}
                                     title={task.label}
                                   >
                                     {task.label}
-                                  </p>
-                                  <p className="text-[9.5px] text-muted-foreground/80 font-medium leading-none truncate mt-0.5">
-                                    {task.category} {task.subcategory && `• ${task.subcategory}`}
                                   </p>
                                 </div>
                               </div>
@@ -1708,37 +1666,32 @@ export function SidebarUserPanel({
                     </div>
                   ) : (
                     /* NIVEL DE CATEGORÍAS Y TAREAS CON TOGGLE EXCLUSIVO COMPACTO */
-                    <div className="space-y-1.5">
+                    <div className="space-y-1">
                       {/* Botón Maestro: Todas las labores */}
                       {taskGroups.length > 1 && (drillCategory === null || drillCategory === "all") && (
                         <div className="space-y-1">
                           <button
                             type="button"
                             onClick={() => setDrillCategory((prev) => (prev === "all" ? null : "all"))}
-                            className={`w-full flex items-center justify-between py-2 px-2.5 rounded-xl border transition-all text-left group cursor-pointer shadow-2xs ${
+                            className={`w-full flex items-center justify-between py-1.5 px-2.5 rounded-lg border transition-all text-left group cursor-pointer shadow-2xs ${
                               drillCategory === "all"
                                 ? "bg-violet-600 text-white border-violet-500 shadow-violet-600/30 ring-1 ring-violet-400/40"
                                 : "bg-gradient-to-r from-violet-600/10 via-indigo-600/5 to-transparent border-violet-500/30 hover:border-violet-500/60"
                             }`}
                           >
-                            <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="flex items-center gap-2 min-w-0">
                               <div
-                                className={`h-7 w-7 rounded-lg grid place-items-center shrink-0 shadow-2xs transition-transform group-hover:scale-105 ${
+                                className={`h-6 w-6 rounded-md grid place-items-center shrink-0 shadow-2xs transition-transform group-hover:scale-105 ${
                                   drillCategory === "all"
                                     ? "bg-white text-violet-700 font-bold"
                                     : "bg-violet-600 text-white shadow-violet-600/20"
                                 }`}
                               >
-                                <Layers className="h-3.5 w-3.5" />
+                                <Layers className="h-3 w-3" />
                               </div>
-                              <div className="min-w-0">
-                                <span className={`text-xs font-bold truncate block ${drillCategory === "all" ? "text-white" : "text-foreground group-hover:text-violet-400"}`}>
-                                  Todas las labores
-                                </span>
-                                <p className={`text-[9.5px] truncate ${drillCategory === "all" ? "text-white/80" : "text-muted-foreground"}`}>
-                                  {drillCategory === "all" ? "Toca para plegar" : `${totalAvailableTasks} labores en total`}
-                                </p>
-                              </div>
+                              <span className={`text-[11.5px] font-bold truncate ${drillCategory === "all" ? "text-white" : "text-foreground group-hover:text-violet-400"}`}>
+                                Todas las labores
+                              </span>
                             </div>
 
                             <div className="flex items-center gap-1.5 shrink-0">
@@ -1792,15 +1745,12 @@ export function SidebarUserPanel({
                                       </div>
                                       <div className="min-w-0 flex-1">
                                         <p
-                                          className={`text-[11.5px] font-semibold leading-tight truncate transition-colors ${
+                                          className={`text-[11px] font-semibold leading-tight truncate transition-colors ${
                                             isCurrent ? "text-amber-300" : "text-foreground group-hover:text-violet-400"
                                           }`}
                                           title={task.label}
                                         >
                                           {task.label}
-                                        </p>
-                                        <p className="text-[9.5px] text-muted-foreground/80 font-medium leading-none truncate mt-0.5">
-                                          {task.category} {task.subcategory && `• ${task.subcategory}`}
                                         </p>
                                       </div>
                                     </div>
@@ -1841,7 +1791,7 @@ export function SidebarUserPanel({
                             <button
                               type="button"
                               onClick={() => setDrillCategory((prev) => (prev === group.group ? null : group.group))}
-                              className={`w-full flex items-center justify-between py-2 px-2.5 rounded-xl border transition-all text-left group cursor-pointer shadow-2xs ${
+                              className={`w-full flex items-center justify-between py-1.5 px-2.5 rounded-lg border transition-all text-left group cursor-pointer shadow-2xs ${
                                 isCurrentActive
                                   ? "bg-violet-600 text-white border-violet-500 shadow-violet-600/30 ring-1 ring-violet-400/40"
                                   : hasActiveTask
@@ -1849,9 +1799,9 @@ export function SidebarUserPanel({
                                   : "bg-card/90 border-border/70 hover:bg-muted/50 hover:border-violet-500/40"
                               }`}
                             >
-                              <div className="flex items-center gap-2.5 min-w-0">
+                              <div className="flex items-center gap-2 min-w-0">
                                 <div
-                                  className={`h-7 w-7 rounded-lg grid place-items-center shrink-0 border transition-transform group-hover:scale-105 ${
+                                  className={`h-6 w-6 rounded-md grid place-items-center shrink-0 border transition-transform group-hover:scale-105 ${
                                     isCurrentActive
                                       ? "bg-white text-violet-700 font-bold border-white"
                                       : hasActiveTask
@@ -1859,38 +1809,24 @@ export function SidebarUserPanel({
                                       : "bg-muted/60 text-muted-foreground border-border/60 group-hover:bg-violet-500/15 group-hover:text-violet-400 group-hover:border-violet-500/30"
                                   }`}
                                 >
-                                  <Icon className="h-3.5 w-3.5" />
+                                  <Icon className="h-3 w-3" />
                                 </div>
-
-                                <div className="min-w-0">
-                                  <div className="flex items-center gap-1.5">
-                                    <span
-                                      className={`text-xs font-bold truncate transition-colors ${
-                                        isCurrentActive
-                                          ? "text-white"
-                                          : hasActiveTask
-                                          ? "text-amber-400"
-                                          : "text-foreground group-hover:text-violet-400"
-                                      }`}
-                                    >
-                                      {group.group}
-                                    </span>
-                                    {hasActiveTask && !isCurrentActive && (
-                                      <span className="text-[8.5px] font-black uppercase tracking-wider text-amber-400 bg-amber-500/15 px-1 py-0.2 rounded border border-amber-500/30">
-                                        En curso
-                                      </span>
-                                    )}
-                                  </div>
-                                  <p
-                                    className={`text-[9.5px] truncate ${
-                                      isCurrentActive ? "text-white/80" : "text-muted-foreground"
-                                    }`}
-                                  >
-                                    {isCurrentActive
-                                      ? "Toca para plegar"
-                                      : `${group.items.length} ${group.items.length === 1 ? "labor" : "labores"}`}
-                                  </p>
-                                </div>
+                                <span
+                                  className={`text-[11.5px] font-bold truncate transition-colors ${
+                                    isCurrentActive
+                                      ? "text-white"
+                                      : hasActiveTask
+                                      ? "text-amber-400"
+                                      : "text-foreground group-hover:text-violet-400"
+                                  }`}
+                                >
+                                  {group.group}
+                                </span>
+                                {hasActiveTask && !isCurrentActive && (
+                                  <span className="text-[8px] font-black uppercase text-amber-400 bg-amber-500/15 px-1 rounded border border-amber-500/30 shrink-0">
+                                    ●
+                                  </span>
+                                )}
                               </div>
 
                               <div className="flex items-center gap-1.5 shrink-0">
@@ -1951,15 +1887,12 @@ export function SidebarUserPanel({
 
                                         <div className="min-w-0 flex-1">
                                           <p
-                                            className={`text-[11.5px] font-semibold leading-tight truncate transition-colors ${
+                                            className={`text-[11px] font-semibold leading-tight truncate transition-colors ${
                                               isCurrent ? "text-amber-300" : "text-foreground group-hover:text-violet-400"
                                             }`}
                                             title={task.label}
                                           >
                                             {task.label}
-                                          </p>
-                                          <p className="text-[9.5px] text-muted-foreground/80 font-medium leading-none truncate mt-0.5">
-                                            {task.subcategory && task.subcategory !== task.label ? task.subcategory : task.category}
                                           </p>
                                         </div>
                                       </div>
