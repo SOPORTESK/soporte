@@ -343,20 +343,8 @@ export function getCategoryUI(catName: string) {
   return DEFAULT_CATEGORIES[0];
 }
 
-export const DEFAULT_KNOWN_MANUAL_TASKS = [
-  "Ir a Bodega",
-  "Exhibidores",
-  "Inventario y Actualización de Bodega GAR",
-  "Limpieza de taller",
-  "Ir a Ventanilla",
-  "Iniciar Diagnóstico Físico",
-  "Soporte a Ventas",
-  "Capacitacion de clientes",
-  "Tiempo de Descanso",
-  "Pausa Sanitaria",
-  "Reunión",
-  "Capacitacion de Personal",
-];
+export const DEFAULT_KNOWN_MANUAL_TASKS: string[] = [];
+
 
 function getAppIcon(appName: string) {
   const name = appName.toLowerCase();
@@ -500,7 +488,16 @@ export function extractSmartAppName(item: TimelineItem): string {
   }
 
   // 4. Apps de escritorio / externas explícitas
-  if (meta.app_name) return meta.app_name;
+  if (meta.app_name) {
+    if (meta.app_name.toLowerCase().includes("applicationframehost")) {
+      if (rawTitle) {
+        const cleanT = rawTitle.replace(/\s*[-–—|].*$/, "").trim();
+        if (cleanT && !cleanT.toLowerCase().includes("applicationframehost")) return cleanT;
+      }
+      return "";
+    }
+    return meta.app_name;
+  }
   if (meta.label && !meta.label.toLowerCase().startsWith("navegador web")) return meta.label;
 
   // 5. Labores físicas por contenido
@@ -1353,7 +1350,12 @@ function ActivityAppsRankingComponent({
         if (inManual) continue;
 
         const appName = extractSmartAppName(curr);
+        if (!appName || !appName.trim()) continue;
         const appLower = appName.toLowerCase();
+        const SYSTEM_HOST_PROCESSES = ["applicationframehost", "searchhost", "lockapp", "dwm", "shellexperiencehost", "startmenuexperiencehost", "systemidleprocess"];
+        if (SYSTEM_HOST_PROCESSES.some((proc) => appLower === proc || appLower === `${proc}.exe`)) {
+          continue;
+        }
         allAppsSet.add(appName);
         const effectiveCat = getAppAssignment(appName, curr.action, curr.category).category;
 
@@ -1460,7 +1462,7 @@ function ActivityAppsRankingComponent({
   // Lista de apps y labores para el modal de gestión
   const filteredModalApps = useMemo(() => {
     const combined = Array.from(
-      new Set([...allDetectedApps, ...Object.keys(customCategories), ...DEFAULT_KNOWN_MANUAL_TASKS])
+      new Set([...allDetectedApps, ...Object.keys(customCategories)])
     ).sort();
     if (!searchQuery.trim()) return combined;
     return combined.filter((app) => app.toLowerCase().includes(searchQuery.toLowerCase()));
