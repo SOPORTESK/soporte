@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect, useMemo } from "react";
-import { Camera, Lock, Eye, EyeOff, Check, X, ChevronUp, Circle, LogOut, Activity as ActivityIcon, FileText, ChevronRight, X as XIcon, RefreshCw, Wrench, Coffee, Timer, BarChart3, Package, LayoutDashboard, ClipboardList, Sparkles, UserPlus, Briefcase, GraduationCap, Users, Utensils, Sandwich, Bath, Square, Trash2, Clock, CheckCircle2, Calendar, Maximize2, Plus, UserCheck, Save } from "lucide-react";
+import { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import { Camera, Lock, Eye, EyeOff, Check, X, ChevronUp, Circle, LogOut, Activity as ActivityIcon, FileText, ChevronRight, X as XIcon, RefreshCw, Wrench, Coffee, Timer, BarChart3, Package, LayoutDashboard, ClipboardList, Sparkles, UserPlus, Briefcase, GraduationCap, Users, Utensils, Sandwich, Bath, Square, Trash2, Clock, CheckCircle2, Calendar, Maximize2, Plus, UserCheck, Save, MessageSquare } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -9,6 +9,8 @@ import { logActivity } from "@/lib/activity-client";
 import { ModalMyActivity } from "@/components/modal-my-activity";
 import { ModalAgenda } from "@/components/modal-agenda";
 import { AgendaEvent, AgendaTask } from "@/app/api/agenda/route";
+import { InternalChatView } from "@/components/internal-chat/internal-chat-view";
+import { buildDirectChannelId } from "@/lib/internal-chat-types";
 
 interface Agent {
   email: string;
@@ -26,6 +28,7 @@ interface OnlineAgent {
   apellido: string | null;
   avatar_url?: string | null;
   status?: string | null;
+  rol?: string | null;
 }
 
 const STATUS_LABELS: Record<string, { label: string; color: string; icon?: string }> = {
@@ -325,6 +328,71 @@ export function SidebarUserPanel({
       setSavingProfile(false);
     }
   };
+
+  // ── ESTADOS DE MENSAJERÍA INTERNA (DIRECTOS Y GRUPAL) ──
+  const [selectedChat, setSelectedChat] = useState<{
+    channelId: string;
+    channelName: string;
+    channelAvatar?: string | null;
+    channelStatus?: string | null;
+    isGroup?: boolean;
+  } | null>(null);
+  const [chatUnreadCounts, setChatUnreadCounts] = useState<Record<string, number>>({});
+  const [totalChatUnread, setTotalChatUnread] = useState<number>(0);
+
+  const loadChatConversations = useCallback(async () => {
+    try {
+      const res = await fetch("/api/internal-chat/conversations");
+      const data = await res.json();
+      if (data.success && Array.isArray(data.conversations)) {
+        const counts: Record<string, number> = {};
+        for (const c of data.conversations) {
+          counts[c.channelId] = c.unreadCount || 0;
+        }
+        setChatUnreadCounts(counts);
+        setTotalChatUnread(data.totalUnread || 0);
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    loadChatConversations();
+
+    const ch = supabase.channel("sek_internal_chat_sidebar");
+    ch.on("broadcast", { event: "new_internal_message" }, ({ payload }) => {
+      const msg = payload as any;
+      if (msg) {
+        if (!selectedChat || selectedChat.channelId !== msg.channelId) {
+          if (msg.senderEmail?.toLowerCase() !== (safeAgent.email || "").toLowerCase()) {
+            setChatUnreadCounts((prev) => ({
+              ...prev,
+              [msg.channelId]: (prev[msg.channelId] || 0) + 1,
+            }));
+            setTotalChatUnread((prev) => prev + 1);
+            toast.info(`Mensaje interno de ${msg.senderName}`, {
+              description: msg.content || (msg.mediaUrl ? "📎 Archivo adjunto" : ""),
+            });
+          }
+        }
+      }
+    }).subscribe();
+
+    return () => {
+      supabase.removeChannel(ch);
+    };
+  }, [loadChatConversations, selectedChat, safeAgent.email, supabase]);
+
+  const openInternalChat = (channelId: string, name: string, avatar?: string | null, status?: string | null, isGroup = false) => {
+    setSelectedChat({ channelId, channelName: name, channelAvatar: avatar, channelStatus: status, isGroup });
+    setChatUnreadCounts((prev) => {
+      const copy = { ...prev };
+      const current = copy[channelId] || 0;
+      delete copy[channelId];
+      setTotalChatUnread((t) => Math.max(0, t - current));
+      return copy;
+    });
+  };
+
   const [myMetrics, setMyMetrics] = useState<any>(null);
   const [showActivityModal, setShowActivityModal] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -862,8 +930,24 @@ export function SidebarUserPanel({
           {/* Tabs */}
           <div className="flex border-b border-border">
             <button onClick={() => setTab("profile")} className={`flex-1 text-xs font-semibold py-2.5 transition-colors ${tab === "profile" ? "text-foreground border-b-2 border-violet-500" : "text-muted-foreground hover:text-foreground"}`}>Mi Perfil</button>
-            <button onClick={() => setTab("team")} className={`flex-1 text-xs font-semibold py-2.5 transition-colors ${tab === "team" ? "text-foreground border-b-2 border-violet-500" : "text-muted-foreground hover:text-foreground"}`}>
-              Equipo {others.length > 0 && <span className="ml-1 px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 text-[10px]">{others.length}</span>}
+            <button
+              onClick={() => setTab("team")}
+              className={`flex-1 text-xs font-semibold py-2.5 transition-colors flex items-center justify-center gap-1.5 ${
+                tab === "team"
+                  ? "text-foreground border-b-2 border-violet-500"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <span>Equipo</span>
+              {totalChatUnread > 0 ? (
+                <span className="px-1.5 py-0.2 rounded-full bg-violet-600 text-white font-black text-[10px] animate-pulse shadow-sm">
+                  {totalChatUnread}
+                </span>
+              ) : others.length > 0 ? (
+                <span className="px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 text-[10px]">
+                  {others.length}
+                </span>
+              ) : null}
             </button>
             {hasActivityAccess && (
               <button onClick={() => setTab("activity")} className={`flex-1 text-xs font-semibold py-2.5 transition-colors flex items-center justify-center gap-1.5 ${tab === "activity" ? "text-violet-500 border-b-2 border-violet-500" : "text-muted-foreground hover:text-foreground"}`} title="Activity Tracker">
@@ -1000,28 +1084,129 @@ export function SidebarUserPanel({
             </div>
           )}
 
-          {tab === "team" && (
-            <div className="p-3 space-y-1 max-h-64 overflow-y-auto">
-              {others.length === 0 ? (
-                <p className="text-xs text-muted-foreground text-center py-4">No hay otros agentes conectados</p>
-              ) : (
-                others.map(a => {
-                  const n = [a.nombre, a.apellido].filter(Boolean).join(" ") || a.email;
-                  const s = STATUS_LABELS[a.status || "offline"] || STATUS_LABELS.offline;
-                  return (
-                    <div key={a.email} className="flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-muted/50 transition-colors">
-                      <div className="relative shrink-0">
-                        <AvatarImg url={a.avatar_url} name={n} size={30} />
-                        <span className={`absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-card ${s.color}`} />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-medium truncate">{n}</p>
-                        <p className="text-[10px] text-muted-foreground">{s.label}</p>
-                      </div>
+          {tab === "team" && selectedChat && (
+            <div className="flex flex-col" style={{ minHeight: "450px", maxHeight: "560px" }}>
+              <InternalChatView
+                channelId={selectedChat.channelId}
+                channelName={selectedChat.channelName}
+                channelAvatar={selectedChat.channelAvatar}
+                channelStatus={selectedChat.channelStatus}
+                isGroup={selectedChat.isGroup}
+                currentUserEmail={safeAgent.email}
+                currentUserName={fullName}
+                onBack={() => setSelectedChat(null)}
+                onNewMessageSent={() => loadChatConversations()}
+              />
+            </div>
+          )}
+
+          {tab === "team" && !selectedChat && (
+            <div className="p-3 space-y-3" style={{ minHeight: "380px", maxHeight: "560px", overflowY: "auto" }}>
+              {/* CANAL GENERAL DE EQUIPO (DESTACADO) */}
+              <div
+                onClick={() => openInternalChat("group_general", "Chat General del Equipo", null, null, true)}
+                className="p-3 rounded-2xl bg-gradient-to-r from-violet-600/15 via-indigo-600/10 to-violet-600/5 border border-violet-500/30 hover:border-violet-500/60 cursor-pointer transition-all shadow-xs group"
+              >
+                <div className="flex items-center justify-between gap-2.5">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="h-9 w-9 rounded-xl bg-violet-600 text-white grid place-items-center shrink-0 shadow-sm shadow-violet-600/30 group-hover:scale-105 transition-transform">
+                      <Users className="h-4.5 w-4.5" />
                     </div>
-                  );
-                })
-              )}
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-black text-foreground group-hover:text-violet-400 transition-colors truncate">
+                          # General (Equipo)
+                        </span>
+                        <span className="text-[9px] uppercase font-extrabold px-1.5 py-0.2 rounded bg-violet-500/20 text-violet-300 border border-violet-500/30">
+                          Grupal
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground truncate mt-0.5">
+                        Canal colaborativo de todo el equipo técnico
+                      </p>
+                    </div>
+                  </div>
+
+                  {(chatUnreadCounts["group_general"] || 0) > 0 && (
+                    <span className="px-2 py-0.5 rounded-full bg-violet-600 text-white text-[10px] font-black shrink-0 animate-pulse">
+                      {chatUnreadCounts["group_general"]}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* LISTA DE COMPAÑEROS PARA MENSAJERÍA DIRECTA */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between px-1 pt-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                    Mensajería Directa ({teamAgents.filter((a) => (a.email || "").toLowerCase() !== (safeAgent.email || "").toLowerCase()).length})
+                  </span>
+                </div>
+
+                {teamAgents.filter((a) => (a.email || "").toLowerCase() !== (safeAgent.email || "").toLowerCase()).length === 0 ? (
+                  <p className="text-xs text-muted-foreground text-center py-6">
+                    No hay otros compañeros registrados
+                  </p>
+                ) : (
+                  teamAgents
+                    .filter((a) => (a.email || "").toLowerCase() !== (safeAgent.email || "").toLowerCase())
+                    .sort((a, b) => {
+                      const scoreA = a.status === "online" ? 3 : a.status === "busy" ? 2 : a.status === "away" ? 1 : 0;
+                      const scoreB = b.status === "online" ? 3 : b.status === "busy" ? 2 : b.status === "away" ? 1 : 0;
+                      return scoreB - scoreA;
+                    })
+                    .map((a) => {
+                      const n = [a.nombre, a.apellido].filter(Boolean).join(" ") || a.email;
+                      const s = STATUS_LABELS[a.status || "offline"] || STATUS_LABELS.offline;
+                      const channelId = buildDirectChannelId(safeAgent.email, a.email);
+                      const unread = chatUnreadCounts[channelId] || 0;
+
+                      return (
+                        <div
+                          key={a.email}
+                          onClick={() => openInternalChat(channelId, n, a.avatar_url, a.status || "offline", false)}
+                          className="flex items-center justify-between gap-2.5 px-2.5 py-2 rounded-xl hover:bg-muted/60 border border-transparent hover:border-border/60 transition-all cursor-pointer group"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                            <div className="relative shrink-0">
+                              <AvatarImg url={a.avatar_url} name={n} size={32} />
+                              <span
+                                className={`absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-card ${s.color}`}
+                              />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5">
+                                <p className="text-xs font-bold text-foreground group-hover:text-violet-400 transition-colors truncate leading-tight">
+                                  {n}
+                                </p>
+                                {a.rol === "superadmin" && (
+                                  <span className="text-[8px] font-extrabold uppercase px-1 py-0.2 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                                    Admin
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[10px] text-muted-foreground leading-tight mt-0.5 truncate">
+                                {s.label}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            {unread > 0 ? (
+                              <span className="px-2 py-0.5 rounded-full bg-violet-600 text-white text-[10px] font-black animate-pulse shadow-sm">
+                                {unread}
+                              </span>
+                            ) : (
+                              <div className="h-7 w-7 rounded-lg text-muted-foreground group-hover:text-violet-400 group-hover:bg-violet-500/10 grid place-items-center transition-colors">
+                                <MessageSquare className="h-3.5 w-3.5" />
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                )}
+              </div>
             </div>
           )}
 
