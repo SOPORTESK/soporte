@@ -131,8 +131,37 @@ export async function getConversationsSummary(
   const normalizedUser = userEmail.trim().toLowerCase();
   const summaries: InternalConversationSummary[] = [];
 
+  const generalKey = getChannelSettingKey("group_general");
+  const agentKeyMap = new Map<string, string>();
+  const directKeys: string[] = [];
+
+  for (const agent of allAgents) {
+    if (agent.email.toLowerCase() === normalizedUser) continue;
+    const channelId = buildDirectChannelId(normalizedUser, agent.email);
+    const key = getChannelSettingKey(channelId);
+    agentKeyMap.set(agent.email.toLowerCase(), key);
+    directKeys.push(key);
+  }
+
+  const allKeys = [generalKey, ...directKeys];
+  const supabase = createServiceClient();
+  const { data: rows } = await supabase
+    .from("sek_app_settings")
+    .select("key, value")
+    .in("key", allKeys);
+
+  const messagesByKey = new Map<string, InternalMessage[]>();
+  if (Array.isArray(rows)) {
+    for (const r of rows) {
+      try {
+        const parsed = JSON.parse(r.value);
+        if (Array.isArray(parsed)) messagesByKey.set(r.key, parsed);
+      } catch {}
+    }
+  }
+
   // 1. Canal General (Siempre disponible para todo el equipo)
-  const generalMessages = await getChannelMessages("group_general");
+  const generalMessages = messagesByKey.get(generalKey) || [];
   const lastGeneral = generalMessages[generalMessages.length - 1] || null;
   const unreadGeneral = generalMessages.filter(
     (m) =>
@@ -150,10 +179,12 @@ export async function getConversationsSummary(
 
   // 2. Canales Directos con cada compañero de trabajo
   for (const agent of allAgents) {
-    if (agent.email.toLowerCase() === normalizedUser) continue;
+    const aEmail = agent.email.toLowerCase();
+    if (aEmail === normalizedUser) continue;
 
     const channelId = buildDirectChannelId(normalizedUser, agent.email);
-    const messages = await getChannelMessages(channelId);
+    const key = agentKeyMap.get(aEmail);
+    const messages = (key ? messagesByKey.get(key) : null) || [];
     const lastMsg = messages[messages.length - 1] || null;
     const unread = messages.filter(
       (m) =>

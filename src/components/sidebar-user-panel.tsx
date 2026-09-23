@@ -307,21 +307,26 @@ export function SidebarUserPanel({
       } catch {}
     };
 
+    let debounceTimer: any = null;
+    const debouncedCheck = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(checkActiveChats, 2500);
+    };
+
     checkActiveChats();
-    const interval = setInterval(checkActiveChats, 10000);
+    const interval = setInterval(checkActiveChats, 25000);
 
     const casesChannel = supabase
       .channel("sidebar_active_chats_realtime")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "sek_cases" },
-        () => {
-          checkActiveChats();
-        }
+        debouncedCheck
       )
       .subscribe();
 
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
       clearInterval(interval);
       supabase.removeChannel(casesChannel);
     };
@@ -456,7 +461,12 @@ export function SidebarUserPanel({
 
   useEffect(() => {
     loadChatConversations();
-    const pollInterval = setInterval(loadChatConversations, 3500);
+    // Polling ligero de respaldo (cada 45s), no satura la BD ni ralentiza la navegación
+    // Los mensajes en vivo se reciben instantáneamente mediante Supabase Realtime
+    const pollInterval = setInterval(loadChatConversations, 45000);
+
+    const handleFocus = () => loadChatConversations();
+    window.addEventListener("focus", handleFocus);
 
     const ch = supabase.channel("sek_internal_chat");
     ch.on("broadcast", { event: "new_internal_message" }, ({ payload }) => {
@@ -486,6 +496,7 @@ export function SidebarUserPanel({
 
     return () => {
       clearInterval(pollInterval);
+      window.removeEventListener("focus", handleFocus);
       supabase.removeChannel(ch);
       if (popupTimerRef.current) clearTimeout(popupTimerRef.current);
     };
