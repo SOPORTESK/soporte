@@ -199,7 +199,8 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
   const categoryMap: Record<string, { durationMs: number; count: number }> = {};
   let totalActiveMs = 0;
   let totalJustifiedMs = 0;
-  const ACTIVE_GAP_LIMIT = toleranceMin * 60 * 1000; // Tolerancia dinámica gestionable por el usuario (en minutos)
+  const effectiveToleranceMin = Math.max(15, toleranceMin || 15);
+  const ACTIVE_GAP_LIMIT = effectiveToleranceMin * 60 * 1000; // Tolerancia oficial (mínimo 15 minutos de ausencia real)
 
   interface DetectedGap {
     id: string;
@@ -409,9 +410,9 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
 
       const idlePartMs = gap - ACTIVE_GAP_LIMIT;
 
-      // Solo si la inactividad real después de la tolerancia (5 min) es de al menos 1 minuto completo
-      // Evita falsos positivos de microsegundos por latencia de red entre pings del tracker
-      if (idlePartMs >= 60000) {
+      // Solo si el lapso sin actividad superó el umbral de ausencia real (mínimo 15 minutos continuos)
+      // Evita falsos positivos de micro-pausas naturales (leer, pensar, pings del tracker)
+      if (gap >= 15 * 60 * 1000 && idlePartMs >= 60000) {
         const dStart = new Date(currTime + ACTIVE_GAP_LIMIT);
         const dEnd = new Date(nextTime);
         detectedGaps.push({
@@ -424,7 +425,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
           endTimeVal: toTimeVal(dEnd),
           durationMs: idlePartMs,
           minutes: Math.round(idlePartMs / 60000),
-          reason: `Inactividad prolongada (> ${toleranceMin} min tolerancia)`,
+          reason: `Ausencia prolongada (> ${effectiveToleranceMin} min)`,
         });
       }
     }
