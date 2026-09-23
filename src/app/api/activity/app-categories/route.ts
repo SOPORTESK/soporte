@@ -142,9 +142,9 @@ const DEFAULT_APP_MAPPINGS: Record<string, { category: string; subcategory: stri
   "Certificaciones oficiales": { category: "On-the-Job Training (OJT)", subcategory: "Certificaciones oficiales" },
   "Educación Continua": { category: "On-the-Job Training (OJT)", subcategory: "Educación Continua" },
   "Tiempo de Descanso": { category: "Pausas y Descansos", subcategory: "Tiempo de Descanso" },
-  "Pausa Sanitaria": { category: "Pausas y Descansos", subcategory: "Pausa Sanitaria" },
-  "Almuerzo": { category: "Pausas y Descansos", subcategory: "Almuerzo" },
-  "Pausa e Inactividad": { category: "Pausas y Descansos", subcategory: "Pausa Operativa" },
+  "Pausa Sanitaria": { category: "Pausa Sanitaria", subcategory: "Pausa Sanitaria" },
+  "Almuerzo": { category: "Descansos", subcategory: "Almuerzo" },
+  "Pausa e Inactividad": { category: "Descansos", subcategory: "Pausa Operativa" },
 };
 
 export async function GET() {
@@ -175,11 +175,32 @@ export async function GET() {
         try {
           const parsed = JSON.parse(row.value);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            // Asegurar que cada categoría tenga su array de subcategorías
-            categories = parsed.map((cat: any) => ({
-              ...cat,
-              subcategories: Array.isArray(cat.subcategories) ? cat.subcategories : [],
-            }));
+            // Migrar automáticamente si contiene el viejo "Pausas y Descansos"
+            const hasLegacyBreak = parsed.some((c: any) => c.id === "Pausas y Descansos" || c.label === "Pausas y Descansos");
+            if (hasLegacyBreak) {
+              const withoutLegacy = parsed.filter((c: any) => c.id !== "Pausas y Descansos" && c.label !== "Pausas y Descansos");
+              const descansoCat = DEFAULT_CATEGORIES.find((c) => c.id === "Descansos")!;
+              const sanitariaCat = DEFAULT_CATEGORIES.find((c) => c.id === "Pausa Sanitaria")!;
+              categories = [...withoutLegacy, descansoCat, sanitariaCat];
+              supabase
+                .from("sek_app_settings")
+                .upsert(
+                  {
+                    key: CATEGORIES_LIST_KEY,
+                    value: JSON.stringify(categories),
+                    iv: "none",
+                    tag: "none",
+                    updated_at: new Date().toISOString(),
+                  },
+                  { onConflict: "key" }
+                )
+                .then(() => {});
+            } else {
+              categories = parsed.map((cat: any) => ({
+                ...cat,
+                subcategories: Array.isArray(cat.subcategories) ? cat.subcategories : [],
+              }));
+            }
           }
         } catch {}
       }
