@@ -20,22 +20,32 @@ export async function GET(req: NextRequest) {
       return res;
     }
 
-    let timeline = await getActivityTimeline(agent, date, endDate);
-
-    // Filtrar últimos N minutos si se especifica
+    // Fast-path ultrarrápido para chequeos de sincronización (lastMinutes):
+    // Consulta directa de 100 registros con solo los campos necesarios en vez de 3500 filas pesadas
     if (lastMinutes) {
       const minutesAgo = parseInt(lastMinutes, 10);
       if (!isNaN(minutesAgo) && minutesAgo > 0) {
-        const cutoff = new Date(Date.now() - minutesAgo * 60 * 1000);
-        timeline = timeline.filter((e) => {
-          if (!e.created_at) return false;
-          return new Date(e.created_at) >= cutoff;
-        });
+        const cutoff = new Date(Date.now() - minutesAgo * 60 * 1000).toISOString();
+        const { createServiceClient } = await import("@/lib/supabase/service");
+        const supabase = createServiceClient();
+        let query = supabase
+          .from("activity_log")
+          .select("id, action, category, metadata, created_at")
+          .gte("created_at", cutoff)
+          .order("created_at", { ascending: false })
+          .limit(100);
+        if (agent) query = query.eq("agent_email", agent);
+        const { data } = await query;
+        const res = NextResponse.json({ timeline: data || [], metrics: null });
+        res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+        return res;
       }
     }
 
+    let timeline = await getActivityTimeline(agent, date, endDate);
+
     let metricsData = null;
-    if (agent) {
+    if (agent && metrics) {
       try {
         metricsData = await getActivityMetrics(agent, date);
       } catch (err) {
