@@ -8,7 +8,7 @@ export function SmartInboxBadge({ initialCount }: { initialCount: number }) {
   const [count, setCount] = React.useState(initialCount);
   const [seen, setSeen] = React.useState(false);
   const pathname = usePathname();
-  const supabase = createClient();
+  const supabase = React.useMemo(() => createClient(), []);
 
   React.useEffect(() => {
     if (pathname?.startsWith("/smart-inbox")) {

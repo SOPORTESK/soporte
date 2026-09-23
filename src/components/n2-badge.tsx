@@ -8,7 +8,7 @@ export function N2Badge({ initialCount }: { initialCount: number }) {
   const [count, setCount] = React.useState(initialCount);
   const [seen, setSeen] = React.useState(false);
   const pathname = usePathname();
-  const supabase = createClient();
+  const supabase = React.useMemo(() => createClient(), []);
 
   // Cuando el usuario entra a /soporte-avanzado, marcar como visto
   React.useEffect(() => {

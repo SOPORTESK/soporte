@@ -269,7 +269,7 @@ export function SidebarUserPanel({
   const [savingProfile, setSavingProfile] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const fullName = [profileNombre || safeAgent.nombre, profileApellido || safeAgent.apellido].filter(Boolean).join(" ") || safeAgent.email || "Usuario";
 
   // Gestión de agentes del equipo en tiempo real (para reflejar estados y ocultar desconectados)
