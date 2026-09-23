@@ -11,6 +11,8 @@ export interface InternalMessage {
   fileSize?: number | null;
   createdAt: string;
   readBy: string[]; // Emails que han leído este mensaje
+  replyTo?: { content: string; author: string } | null;
+  edited?: boolean;
 }
 
 export interface InternalConversationSummary {

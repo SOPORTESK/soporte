@@ -404,6 +404,57 @@ async function processRevokedMessage(supabase: any, messageId: string): Promise<
   return false;
 }
 
+// Procesar edición de mensajes in-place por parte del remitente (WhatsApp "editado")
+async function processEditedMessage(supabase: any, messageId: string, newContent: string): Promise<boolean> {
+  if (!messageId || !newContent) return false;
+  console.log("[evo-webhook] Procesando edición in-place de mensaje:", { messageId, newContent });
+  const { data: openCases } = await supabase
+    .from("sek_cases")
+    .select("id, histcliente, histtecnico")
+    .not("estado", "in", '("cerrado","resuelto")')
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  if (!openCases) return false;
+
+  for (const c of openCases) {
+    let updated = false;
+    const histCliente = Array.isArray(c.histcliente) ? [...c.histcliente] : [];
+    const idxCliente = histCliente.findIndex((m: any) => m.messageId === messageId);
+    if (idxCliente >= 0) {
+      histCliente[idxCliente] = {
+        ...histCliente[idxCliente],
+        content: newContent,
+        edited: true,
+        edited_at: new Date().toISOString(),
+      };
+      updated = true;
+    }
+
+    const histTecnico = Array.isArray(c.histtecnico) ? [...c.histtecnico] : [];
+    const idxTecnico = histTecnico.findIndex((m: any) => m.messageId === messageId);
+    if (idxTecnico >= 0) {
+      histTecnico[idxTecnico] = {
+        ...histTecnico[idxTecnico],
+        content: newContent,
+        edited: true,
+        edited_at: new Date().toISOString(),
+      };
+      updated = true;
+    }
+
+    if (updated) {
+      await supabase
+        .from("sek_cases")
+        .update({ histcliente: histCliente, histtecnico: histTecnico })
+        .eq("id", c.id);
+      console.log(`[evo-webhook] Mensaje ${messageId} editado in-place con éxito en caso ${c.id}`);
+      return true;
+    }
+  }
+  return false;
+}
+
 function inferMimeFromExt(ext: string): string {
   const map: Record<string, string> = {
     "xml": "text/xml",
@@ -1152,15 +1203,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
-  // 4. Interceptar mensaje eliminado por el usuario (protocolMessage con REVOKE)
+  // 4. Interceptar mensaje editado o eliminado por el usuario (protocolMessage)
   const protocolMsg = upsertMsgObj?.protocolMessage || payload?.data?.message?.protocolMessage || payload?.message?.protocolMessage;
   if (protocolMsg) {
     const targetMessageId = protocolMsg.key?.id || protocolMsg.keyId;
-    console.log("[evo-webhook] Recibido protocolMessage (eliminación de mensaje):", { targetMessageId, type: protocolMsg.type });
-    if (targetMessageId) {
-      await processRevokedMessage(supabase, targetMessageId);
+    const isEdit = protocolMsg.type === 14 || protocolMsg.type === "MESSAGE_EDIT" || !!protocolMsg.editedMessage;
+    console.log("[evo-webhook] Recibido protocolMessage:", { targetMessageId, type: protocolMsg.type, isEdit });
+
+    if (isEdit && targetMessageId) {
+      const edMsg = protocolMsg.editedMessage?.message || protocolMsg.editedMessage;
+      const editedContent = edMsg?.conversation || edMsg?.extendedTextMessage?.text || "";
+      if (editedContent) {
+        await processEditedMessage(supabase, targetMessageId, editedContent);
+        return NextResponse.json({ ok: true, edited: true });
+      }
     }
-    return NextResponse.json({ ok: true, revoked: true });
+
+    if (targetMessageId && (protocolMsg.type === 0 || protocolMsg.type === "REVOKE" || !isEdit)) {
+      await processRevokedMessage(supabase, targetMessageId);
+      return NextResponse.json({ ok: true, revoked: true });
+    }
   }
 
   // ANTI-BUCLE: si fromMe=true, es respuesta enviada por nosotros (ej. la IA) — salir de inmediato
@@ -1550,10 +1612,34 @@ export async function POST(req: NextRequest) {
       || msgObj?.ephemeralMessage?.message?.videoMessage?.contextInfo
       || msgObj?.contextInfo;
     if (ctx?.quotedMessage) {
-      const qm = ctx.quotedMessage;
-      const quotedText = qm.conversation || qm.extendedTextMessage?.text || qm.imageMessage?.caption || qm.videoMessage?.caption || qm.documentMessage?.caption || qm.documentWithCaptionMessage?.message?.caption || "";
+      let qm = ctx.quotedMessage;
+      // Desempaquetar si está envuelto en ephemeralMessage, viewOnceMessage o documentWithCaption
+      if (qm?.ephemeralMessage?.message) qm = qm.ephemeralMessage.message;
+      if (qm?.viewOnceMessage?.message) qm = qm.viewOnceMessage.message;
+      if (qm?.viewOnceMessageV2?.message) qm = qm.viewOnceMessageV2.message;
+      if (qm?.documentWithCaptionMessage?.message) qm = qm.documentWithCaptionMessage.message;
+
+      let quotedText = qm?.conversation
+        || qm?.extendedTextMessage?.text
+        || qm?.imageMessage?.caption
+        || qm?.videoMessage?.caption
+        || qm?.documentMessage?.caption
+        || qm?.documentMessage?.fileName
+        || "";
+
+      if (!quotedText) {
+        if (qm?.imageMessage) quotedText = "📷 Imagen";
+        else if (qm?.audioMessage) quotedText = "🎵 Nota de voz";
+        else if (qm?.videoMessage) quotedText = "📹 Video";
+        else if (qm?.documentMessage) quotedText = "📎 Documento";
+        else if (qm?.stickerMessage) quotedText = "👾 Sticker";
+        else if (qm?.contactMessage) quotedText = "👤 Contacto";
+        else if (qm?.locationMessage) quotedText = "📍 Ubicación";
+      }
+
       if (quotedText) {
-        const authorPhone = jidToPhone(ctx.participant) || ctx.participant || "Cliente";
+        const rawPart = ctx.participant || "";
+        const authorPhone = jidToPhone(rawPart) || rawPart.split("@")[0] || "Contacto";
         replyTo = { content: quotedText.slice(0, 200), author: authorPhone };
       }
     }

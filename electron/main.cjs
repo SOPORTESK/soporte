@@ -1,4 +1,4 @@
-﻿// ─── ELECTRON MAIN — Shell robusto para Sekunet Chat ───────────────────────────
+// ─── ELECTRON MAIN — Shell robusto para Sekunet Chat ───────────────────────────
 const { app, BrowserWindow, Notification, ipcMain, shell, Menu, session, dialog } = require('electron');
 const path = require('path');
 const fs   = require('fs');
@@ -273,6 +273,29 @@ ipcMain.on('notificar-modo-manual', () => {
     urgency: 'critical',
   });
   notif.on('click', () => { win?.show(); win?.focus(); });
+  notif.show();
+});
+
+ipcMain.on('notificar-mensaje-interno', (_, data) => {
+  if (win && (!win.isFocused() || win.isMinimized())) {
+    win.flashFrame(true);
+  }
+  if (!Notification.isSupported()) return;
+  const isGroup = data?.isGroup || data?.channelId === 'group_general';
+  const sender = data?.senderName || 'Compañero';
+  const notif = new Notification({
+    title  : isGroup ? `👥 MENSAJE GRUPAL: ${sender}` : `💬 MENSAJE DE: ${sender}`,
+    body   : data?.content || (data?.mediaUrl ? '📎 Archivo adjunto' : 'Nuevo mensaje interno'),
+    icon   : APP_ICON,
+  });
+  notif.on('click', () => {
+    if (win) {
+      if (win.isMinimized()) win.restore();
+      win.show();
+      win.focus();
+      win.flashFrame(false);
+    }
+  });
   notif.show();
 });
 

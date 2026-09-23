@@ -21,6 +21,7 @@ import {
   CheckCheck,
   Volume2,
   RotateCw,
+  CornerUpLeft,
 } from "lucide-react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
@@ -58,6 +59,7 @@ export function InternalChatView({
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [draft, setDraft] = useState("");
+  const [replyTo, setReplyTo] = useState<InternalMessage | null>(null);
   const [sending, setSending] = useState(false);
   const [uploadingFile, setUploadingFile] = useState(false);
   const [previewMedia, setPreviewMedia] = useState<{ url: string; type?: string; name?: string } | null>(null);
@@ -203,6 +205,10 @@ export function InternalChatView({
         body: JSON.stringify({
           channelId,
           content,
+          replyTo: replyTo ? {
+            content: replyTo.content || (replyTo.mediaUrl ? "📎 Archivo adjunto" : "Mensaje"),
+            author: replyTo.senderName || "Compañero",
+          } : null,
         }),
       });
 
@@ -212,6 +218,7 @@ export function InternalChatView({
       const saved: InternalMessage = data.message;
       setMessages((prev) => [...prev, saved]);
       setDraft("");
+      setReplyTo(null);
       setTimeout(() => scrollToBottom("smooth"), 80);
 
       // Notificar a otros clientes vía Broadcast
@@ -532,7 +539,7 @@ export function InternalChatView({
             return (
               <div
                 key={m.id}
-                className={`flex flex-col ${isMe ? "items-end" : "items-start"} space-y-1 animate-in fade-in duration-150`}
+                className={`flex flex-col ${isMe ? "items-end" : "items-start"} space-y-1 animate-in fade-in duration-150 group/row`}
               >
                 {!isMe && isGroup && (
                   <span className="text-[10px] font-bold text-violet-400 pl-1">
@@ -540,90 +547,121 @@ export function InternalChatView({
                   </span>
                 )}
 
-                <div
-                  className={`max-w-[85%] rounded-2xl p-2.5 text-xs shadow-xs space-y-1.5 ${
-                    isMe
-                      ? "bg-violet-600 text-white rounded-br-xs"
-                      : "bg-muted/70 border border-border/70 text-foreground rounded-bl-xs"
-                  }`}
-                >
-                  {/* IMAGEN ADJUNTA */}
-                  {isImage && m.mediaUrl && (
-                    <div
-                      onClick={() => setPreviewMedia({ url: m.mediaUrl!, type: "image", name: m.fileName || "Foto" })}
-                      className="cursor-pointer overflow-hidden rounded-xl border border-black/10 max-h-48 group relative"
-                    >
-                      <img
-                        src={m.mediaUrl}
-                        alt="Adjunto"
-                        className="w-full h-full object-cover transition-transform group-hover:scale-105"
-                      />
-                    </div>
-                  )}
-
-                  {/* VIDEO ADJUNTO */}
-                  {isVideo && m.mediaUrl && (
-                    <video
-                      src={m.mediaUrl}
-                      controls
-                      className="w-full rounded-xl max-h-48 bg-black/50"
-                    />
-                  )}
-
-                  {/* NOTA DE VOZ / AUDIO PLAYER */}
-                  {isAudio && m.mediaUrl && (
-                    <InternalAudioPlayer url={m.mediaUrl} isMe={isMe} />
-                  )}
-
-                  {/* DOCUMENTO / ARCHIVO ADJUNTO */}
-                  {m.mediaUrl && !isImage && !isVideo && !isAudio && (
-                    <a
-                      href={m.mediaUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={`flex items-center gap-2 p-2 rounded-xl border transition-colors ${
-                        isMe
-                          ? "bg-white/10 hover:bg-white/20 border-white/20 text-white"
-                          : "bg-background hover:bg-muted/80 border-border text-foreground"
-                      }`}
-                    >
-                      <FileText className="h-4 w-4 shrink-0 text-violet-400" />
-                      <div className="min-w-0 flex-1">
-                        <p className="font-bold text-[11px] truncate leading-tight">
-                          {m.fileName || "Documento adjunto"}
-                        </p>
-                        {m.fileSize && (
-                          <p className="text-[9px] opacity-75 leading-tight">
-                            {(m.fileSize / 1024).toFixed(0)} KB
-                          </p>
-                        )}
-                      </div>
-                      <Download className="h-3.5 w-3.5 shrink-0 opacity-80" />
-                    </a>
-                  )}
-
-                  {/* TEXTO DEL MENSAJE */}
-                  {m.content && (
-                    <p className="leading-relaxed whitespace-pre-wrap break-words text-xs">
-                      {m.content}
-                    </p>
-                  )}
-
-                  {/* HORA Y LEÍDO */}
+                <div className={`flex items-center gap-1.5 ${isMe ? "flex-row-reverse" : "flex-row"}`}>
                   <div
-                    className={`flex items-center justify-end gap-1 text-[9px] pt-0.5 ${
-                      isMe ? "text-white/70" : "text-muted-foreground"
+                    className={`max-w-[85%] rounded-2xl p-2.5 text-xs shadow-xs space-y-1.5 ${
+                      isMe
+                        ? "bg-violet-600 text-white rounded-br-xs"
+                        : "bg-muted/70 border border-border/70 text-foreground rounded-bl-xs"
                     }`}
                   >
-                    <span>{formatTime(m.createdAt)}</span>
-                    {isMe && (
-                      <CheckCheck
-                        className={`h-3 w-3 ${
-                          m.readBy && m.readBy.length > 1 ? "text-sky-300" : "text-white/60"
+                    {/* CITA / RESPUESTA PREVIA */}
+                    {m.replyTo && (
+                      <div
+                        className={`mb-1 px-2.5 py-1 rounded-xl border-l-2 text-[11px] leading-snug ${
+                          isMe
+                            ? "bg-black/20 border-white/60 text-white/90"
+                            : "bg-background/80 border-violet-500/80 text-foreground"
                         }`}
+                      >
+                        <p className={`font-bold text-[10px] ${isMe ? "text-white" : "text-violet-400"}`}>
+                          {m.replyTo.author}
+                        </p>
+                        <p className="truncate opacity-80">{m.replyTo.content}</p>
+                      </div>
+                    )}
+
+                    {/* IMAGEN ADJUNTA */}
+                    {isImage && m.mediaUrl && (
+                      <div
+                        onClick={() => setPreviewMedia({ url: m.mediaUrl!, type: "image", name: m.fileName || "Foto" })}
+                        className="cursor-pointer overflow-hidden rounded-xl border border-black/10 max-h-48 group relative"
+                      >
+                        <img
+                          src={m.mediaUrl}
+                          alt="Adjunto"
+                          className="w-full h-full object-cover transition-transform group-hover:scale-105"
+                        />
+                      </div>
+                    )}
+
+                    {/* VIDEO ADJUNTO */}
+                    {isVideo && m.mediaUrl && (
+                      <video
+                        src={m.mediaUrl}
+                        controls
+                        className="w-full rounded-xl max-h-48 bg-black/50"
                       />
                     )}
+
+                    {/* NOTA DE VOZ / AUDIO PLAYER */}
+                    {isAudio && m.mediaUrl && (
+                      <InternalAudioPlayer url={m.mediaUrl} isMe={isMe} />
+                    )}
+
+                    {/* DOCUMENTO / ARCHIVO ADJUNTO */}
+                    {m.mediaUrl && !isImage && !isVideo && !isAudio && (
+                      <a
+                        href={m.mediaUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={`flex items-center gap-2 p-2 rounded-xl border transition-colors ${
+                          isMe
+                            ? "bg-white/10 hover:bg-white/20 border-white/20 text-white"
+                            : "bg-background hover:bg-muted/80 border-border text-foreground"
+                        }`}
+                      >
+                        <FileText className="h-4 w-4 shrink-0 text-violet-400" />
+                        <div className="min-w-0 flex-1">
+                          <p className="font-bold text-[11px] truncate leading-tight">
+                            {m.fileName || "Documento adjunto"}
+                          </p>
+                          {m.fileSize && (
+                            <p className="text-[9px] opacity-75 leading-tight">
+                              {(m.fileSize / 1024).toFixed(0)} KB
+                            </p>
+                          )}
+                        </div>
+                        <Download className="h-3.5 w-3.5 shrink-0 opacity-80" />
+                      </a>
+                    )}
+
+                    {/* TEXTO DEL MENSAJE */}
+                    {m.content && (
+                      <p className="leading-relaxed whitespace-pre-wrap break-words text-xs">
+                        {m.content}
+                      </p>
+                    )}
+
+                    {/* HORA Y LEÍDO */}
+                    <div
+                      className={`flex items-center justify-end gap-1 text-[9px] pt-0.5 ${
+                        isMe ? "text-white/70" : "text-muted-foreground"
+                      }`}
+                    >
+                      <span>{formatTime(m.createdAt)}</span>
+                      {isMe && (
+                        <CheckCheck
+                          className={`h-3 w-3 ${
+                            m.readBy && m.readBy.length > 1 ? "text-sky-300" : "text-white/60"
+                          }`}
+                        />
+                      )}
+                    </div>
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReplyTo(m);
+                      const inp = document.querySelector<HTMLInputElement>('input[placeholder*="mensaje"]');
+                      inp?.focus();
+                    }}
+                    className="opacity-0 group-hover/row:opacity-100 p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-all cursor-pointer shrink-0"
+                    title="Responder a este mensaje"
+                  >
+                    <CornerUpLeft className="h-3.5 w-3.5" />
+                  </button>
                 </div>
               </div>
             );
@@ -708,6 +746,28 @@ export function InternalChatView({
               )}
             </button>
           </div>
+        </div>
+      )}
+
+      {/* ── BANNER DE RESPUESTA A MENSAJE (REPLY-TO) ── */}
+      {replyTo && (
+        <div className="px-3 py-1.5 bg-muted/80 border-t border-border/70 flex items-center justify-between gap-2 shrink-0 animate-in slide-in-from-bottom-2 duration-150">
+          <div className="border-l-2 border-violet-500 pl-2 text-xs min-w-0">
+            <p className="font-bold text-[10px] text-violet-400">
+              Respondiendo a {replyTo.senderName || "Compañero"}
+            </p>
+            <p className="truncate text-muted-foreground text-[11px]">
+              {replyTo.content || (replyTo.mediaUrl ? "📎 Archivo adjunto" : "Mensaje")}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setReplyTo(null)}
+            className="p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+            title="Cancelar respuesta"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
         </div>
       )}
 

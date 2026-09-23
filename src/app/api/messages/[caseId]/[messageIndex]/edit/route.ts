@@ -78,11 +78,12 @@ export async function POST(
     const fromMe = (entry as any).fromMe ?? (historyType === "histtecnico");
     try {
       console.log("[EDIT MSG API] Editando mensaje in-place en WhatsApp", { messageId, targetJid });
+      const cleanPhone = targetJid.split("@")[0].replace(/[^0-9]/g, "");
       const editRes = await fetch(`${evoCfg.url.replace(/\/$/, "")}/chat/updateMessage/${encodeURIComponent(evoCfg.instance)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", apikey: evoCfg.apiKey },
         body: JSON.stringify({
-          number: parseInt(targetJid.split("@")[0], 10),
+          number: cleanPhone,
           text: content,
           key: {
             remoteJid: targetJid,
@@ -93,65 +94,13 @@ export async function POST(
       });
       const editData = await editRes.json().catch(() => ({}));
       if (!editRes.ok) {
-        console.error("[EDIT MSG API] Error editando in-place:", editRes.status, editData);
-        // Fallback al método anterior: revocar + reenviar
-        console.log("[EDIT MSG API] Fallback: revocar + reenviar");
+        console.warn("[EDIT MSG API] WhatsApp updateMessage no completó in-place (ej. ventana de 15m expirada o no soportada):", editRes.status, editData);
       } else {
         editSucceeded = true;
-        console.log("[EDIT MSG API] Mensaje editado in-place OK");
+        console.log("[EDIT MSG API] Mensaje editado in-place OK en WhatsApp");
       }
     } catch (evoErr) {
       console.error("[EDIT MSG API] Error conectando con Evolution para editar:", evoErr);
-      // Continuar con fallback
-    }
-  }
-
-  // Fallback: si updateMessage falló, usar el método anterior (revocar + reenviar)
-  let newMessageId: string | undefined;
-  if (isWhatsApp && to && evoCfg?.url && evoCfg?.apiKey && evoCfg?.instance && !editSucceeded) {
-    const targetJid = to.includes("@") ? to : `${to.replace(/[^0-9]/g, "")}@s.whatsapp.net`;
-    const fromMe = (entry as any).fromMe ?? (historyType === "histtecnico");
-
-    // 1) Revocar el mensaje original
-    if (messageId) {
-      try {
-        console.log("[EDIT MSG API] Fallback: revocando mensaje original", { messageId, targetJid });
-        const delRes = await fetch(`${evoCfg.url.replace(/\/$/, "")}/chat/deleteMessageForEveryone/${encodeURIComponent(evoCfg.instance)}`, {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json", apikey: evoCfg.apiKey },
-          body: JSON.stringify({ id: messageId, remoteJid: targetJid, fromMe, participant: targetJid })
-        });
-        const delData = await delRes.json().catch(() => ({}));
-        if (!delRes.ok) {
-          console.error("[EDIT MSG API] Fallback: error revocando:", delRes.status, delData);
-        } else {
-          console.log("[EDIT MSG API] Fallback: mensaje revocado OK");
-        }
-      } catch (evoErr) {
-        console.error("[EDIT MSG API] Fallback: error revocando:", evoErr);
-      }
-    }
-
-    // 2) Enviar el nuevo texto
-    try {
-      console.log("[EDIT MSG API] Fallback: enviando texto editado", { targetJid, content: content.slice(0, 50) });
-      const sendRes = await fetch(`${evoCfg.url.replace(/\/$/, "")}/message/sendText/${encodeURIComponent(evoCfg.instance)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", apikey: evoCfg.apiKey },
-        body: JSON.stringify({
-          number: targetJid.split("@")[0],
-          text: content,
-        })
-      });
-      const sendData = await sendRes.json().catch(() => ({}));
-      if (!sendRes.ok) {
-        console.error("[EDIT MSG API] Fallback: error enviando:", sendRes.status, sendData);
-      } else {
-        newMessageId = sendData?.key?.id || sendData?.messageId || undefined;
-        console.log("[EDIT MSG API] Fallback: texto enviado OK, newMessageId:", newMessageId);
-      }
-    } catch (evoErr) {
-      console.error("[EDIT MSG API] Fallback: error enviando:", evoErr);
     }
   }
 
@@ -178,7 +127,6 @@ export async function POST(
       content: content,
       edited: true,
       edited_at: new Date().toISOString(),
-      ...(newMessageId ? { messageId: newMessageId, fromMe: true } : {}),
     };
 
     const { error: updateError } = await supabase
@@ -192,5 +140,5 @@ export async function POST(
     }
   }
 
-  return NextResponse.json({ ok: true, newMessageId });
+  return NextResponse.json({ ok: true, messageId });
 }

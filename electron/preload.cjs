@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   recargar        : () => ipcRenderer.send('recargar'),
   notificarN2     : (data) => ipcRenderer.send('notificar-n2', data),
   notificarModoManual: () => ipcRenderer.send('notificar-modo-manual'),
+  notificarMensajeInterno: (data) => ipcRenderer.send('notificar-mensaje-interno', data),
   abrirImpersonar    : (url, nombre) => ipcRenderer.send('abrir-impersonar', { url, nombre }),
   activityStart      : (email, name) => ipcRenderer.send('activity-start', { email, name }),
   activityStop       : () => ipcRenderer.send('activity-stop'),

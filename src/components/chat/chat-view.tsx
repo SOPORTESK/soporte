@@ -1245,7 +1245,7 @@ export function ChatView({
   async function uploadToDriveAndSend(fileToUpload: File, reason?: string) {
     const isWhatsApp = String(sekCase.canal || "").toLowerCase() === "whatsapp";
     setUploadingFile(true);
-    toast.info(reason ? `${reason}. Subiendo a Google Drive como respaldo...` : "Subiendo archivo a Google Drive...", {
+    toast.info(reason ? `${reason}. Subiendo a Google Drive para entrega inmediata...` : "Subiendo archivo a Google Drive...", {
       description: `"${fileToUpload.name}" (${(fileToUpload.size / 1024 / 1024).toFixed(1)} MB). Generando enlace de descarga...`,
     });
     try {
@@ -1356,7 +1356,10 @@ export function ChatView({
 
     const isWhatsApp = String(sekCase.canal || "").toLowerCase() === "whatsapp";
     const MAX_DRIVE_MB = 5120; // 5 GB tope para Google Drive
-    const WPP_MAX_SIZE = 2048 * 1024 * 1024; // 2 GB límite oficial de WhatsApp
+    const WPP_AUTO_DRIVE_THRESHOLD = 25 * 1024 * 1024; // 25 MB: umbral óptimo de entrega rápida
+    const BLOCKED_WPP_EXTENSIONS = ["exe", "msi", "bat", "cmd", "scr", "vbs", "ps1", "reg", "iso"];
+    const fileExt = (file.name.split(".").pop() || "").toLowerCase();
+    const isBlockedExt = BLOCKED_WPP_EXTENSIONS.includes(fileExt);
 
     if (file.size > MAX_DRIVE_MB * 1024 * 1024) {
       toast.error(`El archivo excede el límite máximo de ${MAX_DRIVE_MB / 1024} GB`, {
@@ -1366,9 +1369,14 @@ export function ChatView({
       return;
     }
 
-    // Si supera los 2 GB (límite físico insuperable de WhatsApp), va directamente a Google Drive
-    if (isWhatsApp && file.size > WPP_MAX_SIZE) {
-      await uploadToDriveAndSend(file, "El archivo supera los 2 GB de WhatsApp");
+    // Detección automática instantánea:
+    // Si supera 25 MB o es un ejecutable/instalador bloqueado por WhatsApp, va directamente a Google Drive
+    // sin perder tiempo en subidas intermedias ni en esperas de timeout de WhatsApp.
+    if (isWhatsApp && (file.size > WPP_AUTO_DRIVE_THRESHOLD || isBlockedExt)) {
+      const reason = isBlockedExt
+        ? `Formato (.${fileExt}) no admitido por WhatsApp directo`
+        : `Archivo pesado (${(file.size / 1024 / 1024).toFixed(1)} MB)`;
+      await uploadToDriveAndSend(file, reason);
       return;
     }
 

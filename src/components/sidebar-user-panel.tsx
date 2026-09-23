@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
-import { Camera, Lock, Eye, EyeOff, Check, X, ChevronUp, Circle, LogOut, Activity as ActivityIcon, FileText, ChevronRight, X as XIcon, RefreshCw, Wrench, Coffee, Timer, BarChart3, Package, LayoutDashboard, ClipboardList, Sparkles, UserPlus, Briefcase, GraduationCap, Users, Utensils, Sandwich, Bath, Square, Trash2, Clock, CheckCircle2, Calendar, Maximize2, Minimize2, Plus, UserCheck, Save, MessageSquare } from "lucide-react";
+import { Camera, Lock, Eye, EyeOff, Check, X, ChevronUp, ChevronDown, ChevronLeft, Circle, LogOut, Activity as ActivityIcon, FileText, ChevronRight, X as XIcon, RefreshCw, Wrench, Coffee, Timer, BarChart3, Package, LayoutDashboard, ClipboardList, Sparkles, UserPlus, Briefcase, GraduationCap, Users, Utensils, Sandwich, Bath, Square, Trash2, Clock, CheckCircle2, Calendar, Maximize2, Minimize2, Plus, UserCheck, Save, MessageSquare, Search, Play, Layers } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -57,6 +57,19 @@ function getTaskIcon(name: string) {
   if (lower.includes("correo") || lower.includes("mail")) return FileText;
   if (lower.includes("reloj") || lower.includes("pausa")) return Clock;
   return Timer;
+}
+
+function getCategoryIcon(name: string) {
+  const lower = (name || "").toLowerCase();
+  if (lower.includes("soporte") || lower.includes("atención")) return Briefcase;
+  if (lower.includes("servicio") || lower.includes("taller") && lower.includes("servicio")) return Wrench;
+  if (lower.includes("control") || lower.includes("admin")) return ClipboardList;
+  if (lower.includes("gestión del taller") || lower.includes("bodega")) return Package;
+  if (lower.includes("residuo") || lower.includes("desecho") || lower.includes("reciclaj")) return Trash2;
+  if (lower.includes("pausa") || lower.includes("descanso") || lower.includes("almuerzo")) return Sandwich;
+  if (lower.includes("limpieza")) return Sparkles;
+  if (lower.includes("capacita") || lower.includes("ojt")) return GraduationCap;
+  return LayoutDashboard;
 }
 
 interface ManualTaskItem {
@@ -131,7 +144,15 @@ export function SidebarUserPanel({
   canViewActivityTracker?: boolean; 
   canViewAgenda?: boolean;
 }) {
-  const safeAgent = agent || ({ rol: "tecnico", email: "agente@sekunet.com" } as Agent);
+  const safeAgent: Agent = {
+    nombre: agent?.nombre ?? null,
+    apellido: agent?.apellido ?? null,
+    phone: agent?.phone ?? null,
+    avatar_url: agent?.avatar_url ?? null,
+    status: agent?.status ?? "online",
+    rol: agent?.rol || "tecnico",
+    email: agent?.email || "agente@sekunet.com",
+  };
   const canAccessAdmin = ["admin", "superadmin"].includes(safeAgent.rol);
   const hasActivityAccess = canViewActivityTracker !== undefined ? canViewActivityTracker : canAccessAdmin;
   const [open, setOpen] = useState(false);
@@ -341,6 +362,53 @@ export function SidebarUserPanel({
   const [totalChatUnread, setTotalChatUnread] = useState<number>(0);
   const [teamChatExpanded, setTeamChatExpanded] = useState<boolean>(false);
 
+  // Popup flotante en el centro superior (6 segundos de duración, 100% visual)
+  const [incomingPopup, setIncomingPopup] = useState<{
+    channelId: string;
+    senderName: string;
+    senderAvatar?: string | null;
+    content: string;
+    isGroup: boolean;
+    channelStatus?: string | null;
+  } | null>(null);
+  const popupTimerRef = useRef<any>(null);
+
+  const chatUnreadCountsRef = useRef<Record<string, number>>({});
+  const totalChatUnreadRef = useRef<number>(0);
+
+  const triggerIncomingAlert = useCallback((data: {
+    channelId: string;
+    senderName: string;
+    senderAvatar?: string | null;
+    content?: string;
+    mediaUrl?: string | null;
+    isGroup?: boolean;
+    channelStatus?: string | null;
+  }) => {
+    // Alerta puramente visual (sin sonido)
+    try {
+      (window as any).electronAPI?.notificarMensajeInterno?.({
+        channelId: data.channelId,
+        senderName: data.senderName,
+        content: data.content || (data.mediaUrl ? "📎 Archivo adjunto" : ""),
+        isGroup: data.isGroup || data.channelId === "group_general",
+      });
+    } catch {}
+
+    if (popupTimerRef.current) clearTimeout(popupTimerRef.current);
+    setIncomingPopup({
+      channelId: data.channelId,
+      senderName: data.senderName,
+      senderAvatar: data.senderAvatar,
+      content: data.content || (data.mediaUrl ? "📎 Archivo adjunto" : "Nuevo mensaje interno"),
+      isGroup: data.isGroup || data.channelId === "group_general",
+      channelStatus: data.channelStatus,
+    });
+    popupTimerRef.current = setTimeout(() => {
+      setIncomingPopup(null);
+    }, 6000);
+  }, []);
+
   const loadChatConversations = useCallback(async () => {
     try {
       const res = await fetch("/api/internal-chat/conversations");
@@ -350,8 +418,38 @@ export function SidebarUserPanel({
         for (const c of data.conversations) {
           counts[c.channelId] = c.unreadCount || 0;
         }
-        setChatUnreadCounts(counts);
-        setTotalChatUnread(data.totalUnread || 0);
+        const newTotal = Number(data.totalUnread || 0);
+
+        // Comparación estricta para evitar re-renders y parpadeos innecesarios
+        const prevCounts = chatUnreadCountsRef.current;
+        const prevKeys = Object.keys(prevCounts);
+        const newKeys = Object.keys(counts);
+        const hasCountsChanged =
+          prevKeys.length !== newKeys.length ||
+          newKeys.some((k) => prevCounts[k] !== counts[k]);
+
+        if (hasCountsChanged) {
+          chatUnreadCountsRef.current = counts;
+          setChatUnreadCounts(counts);
+        }
+
+        if (totalChatUnreadRef.current !== newTotal) {
+          const prevTotal = totalChatUnreadRef.current;
+          totalChatUnreadRef.current = newTotal;
+          setTotalChatUnread(newTotal);
+
+          // Si incrementó el conteo de no leídos por polling, alerta visual en desktop
+          if (newTotal > prevTotal && prevTotal > 0) {
+            try {
+              (window as any).electronAPI?.notificarMensajeInterno?.({
+                channelId: "group_general",
+                senderName: "Equipo Sekunet",
+                content: `Tienes ${newTotal} mensajes internos sin leer`,
+                isGroup: true,
+              });
+            } catch {}
+          }
+        }
       }
     } catch {}
   }, []);
@@ -371,8 +469,14 @@ export function SidebarUserPanel({
               [msg.channelId]: (prev[msg.channelId] || 0) + 1,
             }));
             setTotalChatUnread((prev) => prev + 1);
-            toast.info(`Mensaje interno de ${msg.senderName}`, {
-              description: msg.content || (msg.mediaUrl ? "📎 Archivo adjunto" : ""),
+
+            triggerIncomingAlert({
+              channelId: msg.channelId,
+              senderName: msg.senderName,
+              senderAvatar: msg.senderAvatar,
+              content: msg.content,
+              mediaUrl: msg.mediaUrl,
+              isGroup: msg.channelId === "group_general" || msg.isGroup,
             });
           }
         }
@@ -383,8 +487,9 @@ export function SidebarUserPanel({
     return () => {
       clearInterval(pollInterval);
       supabase.removeChannel(ch);
+      if (popupTimerRef.current) clearTimeout(popupTimerRef.current);
     };
-  }, [loadChatConversations, selectedChat, safeAgent.email, supabase]);
+  }, [loadChatConversations, selectedChat, safeAgent.email, supabase, triggerIncomingAlert]);
 
   const openInternalChat = (channelId: string, name: string, avatar?: string | null, status?: string | null, isGroup = false) => {
     setSelectedChat({ channelId, channelName: name, channelAvatar: avatar, channelStatus: status, isGroup });
@@ -585,6 +690,36 @@ export function SidebarUserPanel({
 
     return groups.length > 0 ? groups : TAREAS_GROUPED;
   }, [categoriesConfig, appMappingsConfig]);
+
+  const [drillCategory, setDrillCategory] = useState<string | null>(null);
+  const [manualSearchQuery, setManualSearchQuery] = useState<string>("");
+
+  const totalAvailableTasks = useMemo(() => {
+    return taskGroups.reduce((acc, g) => acc + g.items.length, 0);
+  }, [taskGroups]);
+
+  // Búsqueda global si el usuario escribe en el buscador rápido
+  const searchResults = useMemo(() => {
+    const q = (manualSearchQuery || "").trim().toLowerCase();
+    if (!q) return [];
+    return taskGroups.flatMap((g) => g?.items || []).filter(
+      (item) =>
+        (item?.label || "").toLowerCase().includes(q) ||
+        (item?.subcategory ? String(item.subcategory).toLowerCase().includes(q) : false) ||
+        (item?.category ? String(item.category).toLowerCase().includes(q) : false)
+    );
+  }, [taskGroups, manualSearchQuery]);
+
+  // Labores de la categoría seleccionada en la vista Drill-down
+  const drillItems = useMemo(() => {
+    if (!drillCategory) return [];
+    if (drillCategory === "all") {
+      return taskGroups.flatMap((g) => g?.items || []);
+    }
+    const targetCat = (drillCategory || "").toLowerCase();
+    const found = taskGroups.find((g) => (g?.group || "").toLowerCase() === targetCat);
+    return found ? found.items || [] : [];
+  }, [taskGroups, drillCategory]);
 
   useEffect(() => {
     if (tab === "activity" && !hasActivityAccess) {
@@ -919,13 +1054,30 @@ export function SidebarUserPanel({
 
   const isAgentOnlineOrActive = (a: any) => {
     if (!a || !a.email) return false;
-    if (a.email.toLowerCase() === safeAgent.email.toLowerCase()) return false;
+    const safeMyEmail = (safeAgent?.email || "").toLowerCase();
+    if ((a.email || "").toLowerCase() === safeMyEmail) return false;
     if (isBotAgent(a)) return false;
     return getEffectiveAgentStatus(a) !== "offline";
   };
 
   const others = useMemo(() => {
     return (teamAgents || []).filter(isAgentOnlineOrActive);
+  }, [teamAgents, safeAgent?.email]);
+
+  const sortedDirectAgents = useMemo(() => {
+    const safeMyEmail = (safeAgent?.email || "").toLowerCase();
+    return (teamAgents || [])
+      .filter((a) => (a?.email || "").toLowerCase() !== safeMyEmail)
+      .sort((a, b) => {
+        const stA = getEffectiveAgentStatus(a);
+        const stB = getEffectiveAgentStatus(b);
+        const scoreA = stA === "online" ? 3 : stA === "busy" ? 2 : stA === "away" ? 1 : 0;
+        const scoreB = stB === "online" ? 3 : stB === "busy" ? 2 : stB === "away" ? 1 : 0;
+        if (scoreB !== scoreA) return scoreB - scoreA;
+        const nA = [a.nombre, a.apellido].filter(Boolean).join(" ") || a.email || "";
+        const nB = [b.nombre, b.apellido].filter(Boolean).join(" ") || b.email || "";
+        return nA.localeCompare(nB);
+      });
   }, [teamAgents, safeAgent.email]);
 
   return (
@@ -938,15 +1090,17 @@ export function SidebarUserPanel({
             <button onClick={() => setTab("profile")} className={`flex-1 text-xs font-semibold py-2.5 transition-colors ${tab === "profile" ? "text-foreground border-b-2 border-violet-500" : "text-muted-foreground hover:text-foreground"}`}>Mi Perfil</button>
             <button
               onClick={() => setTab("team")}
-              className={`flex-1 text-xs font-semibold py-2.5 transition-colors flex items-center justify-center gap-1.5 ${
+              className={`flex-1 text-xs font-semibold py-2.5 transition-all flex items-center justify-center gap-1.5 ${
                 tab === "team"
                   ? "text-foreground border-b-2 border-violet-500"
+                  : totalChatUnread > 0
+                  ? "text-violet-400 bg-violet-500/10 font-bold border-b-2 border-violet-500/70"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
               <span>Equipo</span>
               {totalChatUnread > 0 ? (
-                <span className="px-1.5 py-0.2 rounded-full bg-violet-600 text-white font-black text-[10px] animate-pulse shadow-sm">
+                <span className="px-1.5 py-0.2 rounded-full bg-violet-600 text-white font-black text-[10px] shadow-sm">
                   {totalChatUnread}
                 </span>
               ) : others.length > 0 ? (
@@ -1151,7 +1305,7 @@ export function SidebarUserPanel({
                   </div>
 
                   {(chatUnreadCounts["group_general"] || 0) > 0 && (
-                    <span className="px-2 py-0.5 rounded-full bg-violet-600 text-white text-[10px] font-black shrink-0 animate-pulse">
+                    <span className="px-2 py-0.5 rounded-full bg-violet-600 text-white text-[10px] font-black shrink-0 shadow-sm">
                       {chatUnreadCounts["group_general"]}
                     </span>
                   )}
@@ -1162,75 +1316,66 @@ export function SidebarUserPanel({
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between px-1 pt-1">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                    Mensajería Directa ({teamAgents.filter((a) => (a.email || "").toLowerCase() !== (safeAgent.email || "").toLowerCase()).length})
+                    Mensajería Directa ({sortedDirectAgents.length})
                   </span>
                 </div>
 
-                {teamAgents.filter((a) => (a.email || "").toLowerCase() !== (safeAgent.email || "").toLowerCase()).length === 0 ? (
+                {sortedDirectAgents.length === 0 ? (
                   <p className="text-xs text-muted-foreground text-center py-6">
                     No hay otros compañeros registrados
                   </p>
                 ) : (
-                  teamAgents
-                    .filter((a) => (a.email || "").toLowerCase() !== (safeAgent.email || "").toLowerCase())
-                    .sort((a, b) => {
-                      const stA = getEffectiveAgentStatus(a);
-                      const stB = getEffectiveAgentStatus(b);
-                      const scoreA = stA === "online" ? 3 : stA === "busy" ? 2 : stA === "away" ? 1 : 0;
-                      const scoreB = stB === "online" ? 3 : stB === "busy" ? 2 : stB === "away" ? 1 : 0;
-                      return scoreB - scoreA;
-                    })
-                    .map((a) => {
-                      const n = [a.nombre, a.apellido].filter(Boolean).join(" ") || a.email;
-                      const effectiveStatus = getEffectiveAgentStatus(a);
-                      const s = STATUS_LABELS[effectiveStatus] || STATUS_LABELS.offline;
-                      const channelId = buildDirectChannelId(safeAgent.email, a.email);
-                      const unread = chatUnreadCounts[channelId] || 0;
+                  sortedDirectAgents.map((a) => {
+                    const n = [a.nombre, a.apellido].filter(Boolean).join(" ") || a.email;
+                    const effectiveStatus = getEffectiveAgentStatus(a);
+                    const s = STATUS_LABELS[effectiveStatus] || STATUS_LABELS.offline;
+                    const channelId = buildDirectChannelId(safeAgent.email, a.email);
+                    const unread = chatUnreadCounts[channelId] || 0;
 
-                      return (
-                        <div
-                          key={a.email}
-                          onClick={() => openInternalChat(channelId, n, a.avatar_url, effectiveStatus, false)}
-                          className="flex items-center justify-between gap-2.5 px-2.5 py-2 rounded-xl hover:bg-muted/60 border border-transparent hover:border-border/60 transition-all cursor-pointer group"
-                        >
-                          <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                            <div className="relative shrink-0">
-                              <AvatarImg url={a.avatar_url} name={n} size={32} />
-                              <span
-                                className={`absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-card ${s.color}`}
-                              />
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-1.5">
-                                <p className="text-xs font-bold text-foreground group-hover:text-violet-400 transition-colors truncate leading-tight">
-                                  {n}
-                                </p>
-                                {a.rol === "superadmin" && (
-                                  <span className="text-[8px] font-extrabold uppercase px-1 py-0.2 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">
-                                    Admin
-                                  </span>
-                                )}
-                              </div>
-                              <p className="text-[10px] text-muted-foreground leading-tight mt-0.5 truncate">
-                                {s.label}
-                              </p>
-                            </div>
+                    return (
+                      <div
+                        key={a.email}
+                        onClick={() => openInternalChat(channelId, n, a.avatar_url, effectiveStatus, false)}
+                        className="flex items-center justify-between gap-2.5 px-2.5 py-2 rounded-xl hover:bg-muted/60 border border-transparent hover:border-border/60 transition-all cursor-pointer group"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                          <div className="relative shrink-0">
+                            <AvatarImg url={a.avatar_url} name={n} size={32} />
+                            <span
+                              className={`absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-card ${s.color}`}
+                            />
                           </div>
-
-                          <div className="flex items-center gap-2 shrink-0">
-                            {unread > 0 ? (
-                              <span className="px-2 py-0.5 rounded-full bg-violet-600 text-white text-[10px] font-black animate-pulse shadow-sm">
-                                {unread}
-                              </span>
-                            ) : (
-                              <div className="h-7 w-7 rounded-lg text-muted-foreground group-hover:text-violet-400 group-hover:bg-violet-500/10 grid place-items-center transition-colors">
-                                <MessageSquare className="h-3.5 w-3.5" />
-                              </div>
-                            )}
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <p className="text-xs font-bold text-foreground group-hover:text-violet-400 transition-colors truncate leading-tight">
+                                {n}
+                              </p>
+                              {a.rol === "superadmin" && (
+                                <span className="text-[8px] font-extrabold uppercase px-1 py-0.2 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                                  Admin
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[10px] text-muted-foreground leading-tight mt-0.5 truncate">
+                              {s.label}
+                            </p>
                           </div>
                         </div>
-                      );
-                    })
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          {unread > 0 ? (
+                            <span className="px-2 py-0.5 rounded-full bg-violet-600 text-white text-[10px] font-black shadow-sm">
+                              {unread}
+                            </span>
+                          ) : (
+                            <div className="h-7 w-7 rounded-lg text-muted-foreground group-hover:text-violet-400 group-hover:bg-violet-500/10 grid place-items-center transition-colors">
+                              <MessageSquare className="h-3.5 w-3.5" />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
                 )}
               </div>
             </div>
@@ -1325,10 +1470,10 @@ export function SidebarUserPanel({
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 min-w-0">
                         <div className="h-7 w-7 rounded-lg bg-amber-500/20 text-amber-400 grid place-items-center shrink-0 border border-amber-500/30">
-                          <ActiveIcon className="h-4 w-4 animate-pulse" />
+                          <ActiveIcon className="h-4 w-4" />
                         </div>
                         <div className="min-w-0">
-                          <p className="text-xs font-black text-amber-400 leading-snug break-words" title={manualTask.label}>
+                          <p className="text-xs font-black text-amber-400 leading-snug truncate" title={manualTask.label}>
                             {manualTask.label}
                           </p>
                           <p className="text-[10px] text-amber-500/80 font-medium leading-tight mt-0.5">
@@ -1354,45 +1499,406 @@ export function SidebarUserPanel({
                 );
               })()}
 
-              {/* Labores Manuales Directas */}
-              <div className="flex-1 overflow-y-auto px-3 py-2.5 space-y-3">
-                <div>
-                  <h4 className="text-xs font-black text-foreground tracking-tight">Labores Manuales</h4>
-                  <p className="text-[10px] text-muted-foreground mt-0.5 mb-2">
-                    Selecciona una labor para pausar el auto-tracking de pantalla:
-                  </p>
+              {/* Labores Manuales Directas con Selectores Dinámicos de Primer Nivel */}
+              <div className="flex-1 overflow-y-auto px-3 py-2.5 space-y-2.5">
+                {/* Cabecera y contador */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-xs font-black text-foreground tracking-tight flex items-center gap-1.5">
+                      <Wrench className="h-3.5 w-3.5 text-violet-500" />
+                      <span>Labores Manuales</span>
+                    </h4>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      Pausa el auto-tracking mientras realizas estas tareas:
+                    </p>
+                  </div>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-500/10 text-violet-400 border border-violet-500/20 shrink-0">
+                    {totalAvailableTasks} labores
+                  </span>
                 </div>
 
-                <div className="space-y-3 mt-1">
-                  {taskGroups.map((group) => (
-                    <div key={group.group}>
-                      <h5 className="text-[10px] font-bold text-muted-foreground/70 uppercase tracking-wider mb-1.5 pl-1">{group.group}</h5>
-                      <div className="grid grid-cols-2 gap-2">
-                        {group.items.map((task) => {
+                {/* Buscador rápido integrado */}
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                  <input
+                    type="text"
+                    value={manualSearchQuery}
+                    onChange={(e) => setManualSearchQuery(e.target.value)}
+                    placeholder="Buscar labor rápida..."
+                    className="w-full text-xs pl-8 pr-7 py-1.5 rounded-xl border border-border/60 bg-muted/20 placeholder:text-muted-foreground/60 text-foreground focus:outline-none focus:ring-1 focus:ring-violet-500/70 transition-all"
+                  />
+                  {manualSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setManualSearchQuery("")}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-0.5"
+                    >
+                      <XIcon className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Vista Drill-down (Navegación por Niveles) */}
+                <div className="space-y-2 pt-1">
+                  {/* CASO A: Búsqueda activa global */}
+                  {manualSearchQuery.trim() ? (
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between px-1 pb-1">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                          Resultados de búsqueda
+                        </span>
+                        <span className="text-[10px] font-bold text-violet-400">
+                          {searchResults.length} encontradas
+                        </span>
+                      </div>
+
+                      {searchResults.length === 0 ? (
+                        <div className="py-8 text-center text-muted-foreground">
+                          <p className="text-xs font-semibold">No se encontraron labores</p>
+                          <p className="text-[10px] mt-0.5 text-muted-foreground/70">
+                            Prueba con otro término o borra la búsqueda
+                          </p>
+                        </div>
+                      ) : (
+                        searchResults.map((task) => {
                           const isCurrent = manualTask?.label === task.label;
                           const Icon = task.icon;
                           return (
                             <button
                               key={task.label}
+                              type="button"
                               title={task.label}
                               onClick={() => {
                                 if (isCurrent) stopManualTask();
                                 else startManualTask(task.category, task.label, task.subcategory);
                               }}
-                              className={`px-3 py-2 rounded-xl font-medium transition-all flex items-center gap-2 text-left border min-h-[42px] cursor-pointer ${
+                              className={`w-full group flex items-center justify-between p-2.5 rounded-xl border transition-all duration-150 text-left cursor-pointer ${
                                 isCurrent
-                                  ? "bg-amber-500/15 border-amber-500/50 text-amber-400 shadow-sm"
-                                  : "bg-card border-border hover:bg-muted hover:border-muted-foreground/30 text-foreground"
+                                  ? "bg-amber-500/15 border-amber-500/50 text-amber-400 shadow-sm ring-1 ring-amber-500/30"
+                                  : "bg-card border-border/70 hover:bg-muted/60 hover:border-violet-500/30 hover:shadow-xs"
                               }`}
                             >
-                              {isCurrent ? <Timer className="h-4 w-4 animate-pulse shrink-0 text-amber-400" /> : <Icon className="h-4 w-4 shrink-0 opacity-70" />}
-                              <span className="text-[11px] font-medium leading-snug whitespace-normal break-words flex-1">{task.label}</span>
+                              <div className="flex items-center gap-2.5 min-w-0 flex-1 pr-2">
+                                <div
+                                  className={`h-8 w-8 rounded-xl grid place-items-center shrink-0 border transition-all duration-200 group-hover:scale-105 ${
+                                    isCurrent
+                                      ? "bg-amber-500/25 border-amber-500/40 text-amber-300"
+                                      : "bg-muted/60 border-border/60 text-muted-foreground group-hover:bg-violet-500/15 group-hover:text-violet-400 group-hover:border-violet-500/30"
+                                  }`}
+                                >
+                                  <Icon className="h-4 w-4" />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <p
+                                    className={`text-xs font-bold leading-snug truncate transition-colors ${
+                                      isCurrent ? "text-amber-300" : "text-foreground group-hover:text-violet-400"
+                                    }`}
+                                    title={task.label}
+                                  >
+                                    {task.label}
+                                  </p>
+                                  <p className="text-[10px] text-muted-foreground/80 font-medium leading-tight truncate mt-0.5">
+                                    {task.category} {task.subcategory && `• ${task.subcategory}`}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="shrink-0 flex items-center">
+                                {isCurrent ? (
+                                  <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-bold">
+                                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                                    <span>Activa</span>
+                                  </div>
+                                ) : (
+                                  <div className="h-6 w-6 rounded-lg bg-muted/40 group-hover:bg-violet-600 group-hover:text-white text-muted-foreground/60 grid place-items-center transition-all border border-border/40 group-hover:border-violet-600 shadow-2xs">
+                                    <Play className="h-2.5 w-2.5 fill-current ml-0.5" />
+                                  </div>
+                                )}
+                              </div>
                             </button>
                           );
-                        })}
-                      </div>
+                        })
+                      )}
                     </div>
-                  ))}
+                  ) : (
+                    /* NIVEL DE CATEGORÍAS Y TAREAS CON TOGGLE EXCLUSIVO */
+                    <div className="space-y-2">
+                      {/* Botón Maestro: Todas las labores */}
+                      {taskGroups.length > 1 && (drillCategory === null || drillCategory === "all") && (
+                        <div className="space-y-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setDrillCategory((prev) => (prev === "all" ? null : "all"))}
+                            className={`w-full flex items-center justify-between p-3 rounded-2xl border transition-all text-left group cursor-pointer shadow-xs ${
+                              drillCategory === "all"
+                                ? "bg-violet-600 text-white border-violet-500 shadow-violet-600/30 ring-2 ring-violet-400/40"
+                                : "bg-gradient-to-r from-violet-600/15 via-indigo-600/10 to-violet-600/5 border-violet-500/30 hover:border-violet-500/60"
+                            }`}
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div
+                                className={`h-9 w-9 rounded-xl grid place-items-center shrink-0 shadow-sm transition-transform group-hover:scale-105 ${
+                                  drillCategory === "all"
+                                    ? "bg-white text-violet-700 font-bold"
+                                    : "bg-violet-600 text-white shadow-violet-600/30"
+                                }`}
+                              >
+                                <Layers className="h-4.5 w-4.5" />
+                              </div>
+                              <div className="min-w-0">
+                                <span className={`text-xs font-black truncate block ${drillCategory === "all" ? "text-white" : "text-foreground group-hover:text-violet-400"}`}>
+                                  Todas las labores
+                                </span>
+                                <p className={`text-[10px] truncate mt-0.5 ${drillCategory === "all" ? "text-white/80" : "text-muted-foreground"}`}>
+                                  {drillCategory === "all" ? "Toca para cerrar y ver todas las categorías" : `Catálogo completo (${totalAvailableTasks} labores)`}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-black border ${
+                                  drillCategory === "all"
+                                    ? "bg-white/20 text-white border-white/40"
+                                    : "bg-violet-600/20 text-violet-300 border-violet-500/30"
+                                }`}
+                              >
+                                {totalAvailableTasks}
+                              </span>
+                              {drillCategory === "all" ? (
+                                <XIcon className="h-4 w-4 text-white" />
+                              ) : (
+                                <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-violet-400 group-hover:translate-x-0.5 transition-all" />
+                              )}
+                            </div>
+                          </button>
+
+                          {/* Tareas de "Todas" desplegadas debajo de su botón */}
+                          {drillCategory === "all" && (
+                            <div className="space-y-1.5 pt-1 animate-in fade-in-50 duration-200">
+                              {taskGroups.flatMap((g) => g.items).map((task) => {
+                                const isCurrent = manualTask?.label === task.label;
+                                const Icon = task.icon;
+                                return (
+                                  <button
+                                    key={task.label}
+                                    type="button"
+                                    title={task.label}
+                                    onClick={() => {
+                                      if (isCurrent) stopManualTask();
+                                      else startManualTask(task.category, task.label, task.subcategory);
+                                    }}
+                                    className={`w-full group flex items-center justify-between p-2.5 rounded-xl border transition-all duration-150 text-left cursor-pointer ${
+                                      isCurrent
+                                        ? "bg-amber-500/15 border-amber-500/50 text-amber-400 shadow-sm ring-1 ring-amber-500/30"
+                                        : "bg-card border-border/70 hover:bg-muted/60 hover:border-violet-500/30 hover:shadow-xs"
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-2.5 min-w-0 flex-1 pr-2">
+                                      <div
+                                        className={`h-8 w-8 rounded-xl grid place-items-center shrink-0 border transition-all duration-200 group-hover:scale-105 ${
+                                          isCurrent
+                                            ? "bg-amber-500/25 border-amber-500/40 text-amber-300"
+                                            : "bg-muted/60 border-border/60 text-muted-foreground group-hover:bg-violet-500/15 group-hover:text-violet-400 group-hover:border-violet-500/30"
+                                        }`}
+                                      >
+                                        <Icon className="h-4 w-4" />
+                                      </div>
+                                      <div className="min-w-0 flex-1">
+                                        <p
+                                          className={`text-xs font-bold leading-snug truncate transition-colors ${
+                                            isCurrent ? "text-amber-300" : "text-foreground group-hover:text-violet-400"
+                                          }`}
+                                          title={task.label}
+                                        >
+                                          {task.label}
+                                        </p>
+                                        <p className="text-[10px] text-muted-foreground/80 font-medium leading-tight truncate mt-0.5">
+                                          {task.category} {task.subcategory && `• ${task.subcategory}`}
+                                        </p>
+                                      </div>
+                                    </div>
+                                    <div className="shrink-0 flex items-center">
+                                      {isCurrent ? (
+                                        <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-bold">
+                                          <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                                          <span>Activa</span>
+                                        </div>
+                                      ) : (
+                                        <div className="h-6 w-6 rounded-lg bg-muted/40 group-hover:bg-violet-600 group-hover:text-white text-muted-foreground/60 grid place-items-center transition-all border border-border/40 group-hover:border-violet-600 shadow-2xs">
+                                          <Play className="h-2.5 w-2.5 fill-current ml-0.5" />
+                                        </div>
+                                      )}
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Botones de Categorías Individuales */}
+                      {taskGroups.map((group) => {
+                        // Si hay una categoría activa y NO es esta, SE ESCONDE este botón
+                        if (drillCategory !== null && drillCategory !== group.group) {
+                          return null;
+                        }
+
+                        const isCurrentActive = drillCategory === group.group;
+                        const Icon = getCategoryIcon(group.group);
+                        const hasActiveTask = manualTask && group.items.some((i) => i.label === manualTask.label);
+
+                        return (
+                          <div key={group.group} className="space-y-1.5">
+                            {/* El botón de la categoría */}
+                            <button
+                              type="button"
+                              onClick={() => setDrillCategory((prev) => (prev === group.group ? null : group.group))}
+                              className={`w-full flex items-center justify-between p-3 rounded-2xl border transition-all text-left group cursor-pointer shadow-xs ${
+                                isCurrentActive
+                                  ? "bg-violet-600 text-white border-violet-500 shadow-violet-600/30 ring-2 ring-violet-400/40"
+                                  : hasActiveTask
+                                  ? "bg-amber-500/10 border-amber-500/40 hover:border-amber-500/60 ring-1 ring-amber-500/20"
+                                  : "bg-card/90 border-border/70 hover:bg-muted/40 hover:border-violet-500/40"
+                              }`}
+                            >
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div
+                                  className={`h-9 w-9 rounded-xl grid place-items-center shrink-0 border transition-transform group-hover:scale-105 ${
+                                    isCurrentActive
+                                      ? "bg-white text-violet-700 font-bold border-white"
+                                      : hasActiveTask
+                                      ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
+                                      : "bg-muted/60 text-muted-foreground border-border/60 group-hover:bg-violet-500/15 group-hover:text-violet-400 group-hover:border-violet-500/30"
+                                  }`}
+                                >
+                                  <Icon className="h-4.5 w-4.5" />
+                                </div>
+
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-1.5">
+                                    <span
+                                      className={`text-xs font-bold truncate transition-colors ${
+                                        isCurrentActive
+                                          ? "text-white"
+                                          : hasActiveTask
+                                          ? "text-amber-400"
+                                          : "text-foreground group-hover:text-violet-400"
+                                      }`}
+                                    >
+                                      {group.group}
+                                    </span>
+                                    {hasActiveTask && !isCurrentActive && (
+                                      <span className="text-[9px] font-black uppercase tracking-wider text-amber-400 bg-amber-500/15 px-1.5 py-0.2 rounded border border-amber-500/30">
+                                        En curso
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p
+                                    className={`text-[10px] truncate mt-0.5 ${
+                                      isCurrentActive ? "text-white/80" : "text-muted-foreground"
+                                    }`}
+                                  >
+                                    {isCurrentActive
+                                      ? "Toca para cerrar y ver todas las categorías"
+                                      : `${group.items.length} ${group.items.length === 1 ? "labor disponible" : "labores disponibles"}`}
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2 shrink-0">
+                                <span
+                                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                                    isCurrentActive
+                                      ? "bg-white/20 text-white border-white/40"
+                                      : hasActiveTask
+                                      ? "bg-amber-500/20 text-amber-300 border-amber-500/30"
+                                      : "bg-muted/80 text-muted-foreground border-border/50"
+                                  }`}
+                                >
+                                  {group.items.length}
+                                </span>
+                                {isCurrentActive ? (
+                                  <XIcon className="h-4 w-4 text-white" />
+                                ) : (
+                                  <ChevronRight
+                                    className={`h-4 w-4 transition-all group-hover:translate-x-0.5 ${
+                                      hasActiveTask ? "text-amber-400" : "text-muted-foreground group-hover:text-violet-400"
+                                    }`}
+                                  />
+                                )}
+                              </div>
+                            </button>
+
+                            {/* Si se tocó este botón, APARECEN SUS TAREAS DEBAJO DE ÉL */}
+                            {isCurrentActive && (
+                              <div className="space-y-1.5 pt-1 animate-in fade-in-50 duration-200">
+                                {group.items.map((task) => {
+                                  const isCurrent = manualTask?.label === task.label;
+                                  const Icon = task.icon;
+                                  return (
+                                    <button
+                                      key={task.label}
+                                      type="button"
+                                      title={task.label}
+                                      onClick={() => {
+                                        if (isCurrent) stopManualTask();
+                                        else startManualTask(task.category, task.label, task.subcategory);
+                                      }}
+                                      className={`w-full group flex items-center justify-between p-2.5 rounded-xl border transition-all duration-150 text-left cursor-pointer ${
+                                        isCurrent
+                                          ? "bg-amber-500/15 border-amber-500/50 text-amber-400 shadow-sm ring-1 ring-amber-500/30"
+                                          : "bg-card border-border/70 hover:bg-muted/60 hover:border-violet-500/30 hover:shadow-xs"
+                                      }`}
+                                    >
+                                      <div className="flex items-center gap-2.5 min-w-0 flex-1 pr-2">
+                                        <div
+                                          className={`h-8 w-8 rounded-xl grid place-items-center shrink-0 border transition-all duration-200 group-hover:scale-105 ${
+                                            isCurrent
+                                              ? "bg-amber-500/25 border-amber-500/40 text-amber-300"
+                                              : "bg-muted/60 border-border/60 text-muted-foreground group-hover:bg-violet-500/15 group-hover:text-violet-400 group-hover:border-violet-500/30"
+                                          }`}
+                                        >
+                                          <Icon className="h-4 w-4" />
+                                        </div>
+
+                                        <div className="min-w-0 flex-1">
+                                          <p
+                                            className={`text-xs font-bold leading-snug truncate transition-colors ${
+                                              isCurrent ? "text-amber-300" : "text-foreground group-hover:text-violet-400"
+                                            }`}
+                                            title={task.label}
+                                          >
+                                            {task.label}
+                                          </p>
+                                          <p className="text-[10px] text-muted-foreground/80 font-medium leading-tight truncate mt-0.5">
+                                            {task.subcategory && task.subcategory !== task.label ? task.subcategory : task.category}
+                                          </p>
+                                        </div>
+                                      </div>
+
+                                      <div className="shrink-0 flex items-center">
+                                        {isCurrent ? (
+                                          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-bold">
+                                            <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                                            <span>Activa</span>
+                                          </div>
+                                        ) : (
+                                          <div className="h-6 w-6 rounded-lg bg-muted/40 group-hover:bg-violet-600 group-hover:text-white text-muted-foreground/60 grid place-items-center transition-all border border-border/40 group-hover:border-violet-600 shadow-2xs">
+                                            <Play className="h-2.5 w-2.5 fill-current ml-0.5" />
+                                          </div>
+                                        )}
+                                      </div>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1678,7 +2184,7 @@ export function SidebarUserPanel({
                     Canales & Compañeros
                   </span>
                   {totalChatUnread > 0 && (
-                    <span className="px-2 py-0.5 rounded-full bg-violet-600 text-white font-black text-[10px] animate-pulse">
+                    <span className="px-2 py-0.5 rounded-full bg-violet-600 text-white font-black text-[10px] shadow-sm">
                       {totalChatUnread} no leídos
                     </span>
                   )}
@@ -1715,7 +2221,7 @@ export function SidebarUserPanel({
                       </div>
 
                       {(chatUnreadCounts["group_general"] || 0) > 0 && (
-                        <span className="px-2 py-0.5 rounded-full bg-violet-600 text-white text-[10px] font-black shrink-0 animate-pulse">
+                        <span className="px-2 py-0.5 rounded-full bg-violet-600 text-white text-[10px] font-black shrink-0 shadow-sm">
                           {chatUnreadCounts["group_general"]}
                         </span>
                       )}
@@ -1725,59 +2231,50 @@ export function SidebarUserPanel({
                   {/* LISTA DE COMPAÑEROS PARA MENSAJERÍA DIRECTA */}
                   <div className="space-y-1">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-1">
-                      Mensajes Directos ({teamAgents.filter((a) => (a.email || "").toLowerCase() !== (safeAgent.email || "").toLowerCase()).length})
+                      Mensajes Directos ({sortedDirectAgents.length})
                     </span>
 
-                    {teamAgents
-                      .filter((a) => (a.email || "").toLowerCase() !== (safeAgent.email || "").toLowerCase())
-                      .sort((a, b) => {
-                        const stA = getEffectiveAgentStatus(a);
-                        const stB = getEffectiveAgentStatus(b);
-                        const scoreA = stA === "online" ? 3 : stA === "busy" ? 2 : stA === "away" ? 1 : 0;
-                        const scoreB = stB === "online" ? 3 : stB === "busy" ? 2 : stB === "away" ? 1 : 0;
-                        return scoreB - scoreA;
-                      })
-                      .map((a) => {
-                        const n = [a.nombre, a.apellido].filter(Boolean).join(" ") || a.email;
-                        const effectiveStatus = getEffectiveAgentStatus(a);
-                        const s = STATUS_LABELS[effectiveStatus] || STATUS_LABELS.offline;
-                        const channelId = buildDirectChannelId(safeAgent.email, a.email);
-                        const unread = chatUnreadCounts[channelId] || 0;
-                        const isSelected = selectedChat?.channelId === channelId;
+                    {sortedDirectAgents.map((a) => {
+                      const n = [a.nombre, a.apellido].filter(Boolean).join(" ") || a.email;
+                      const effectiveStatus = getEffectiveAgentStatus(a);
+                      const s = STATUS_LABELS[effectiveStatus] || STATUS_LABELS.offline;
+                      const channelId = buildDirectChannelId(safeAgent.email, a.email);
+                      const unread = chatUnreadCounts[channelId] || 0;
+                      const isSelected = selectedChat?.channelId === channelId;
 
-                        return (
-                          <div
-                            key={a.email}
-                            onClick={() => openInternalChat(channelId, n, a.avatar_url, effectiveStatus, false)}
-                            className={`flex items-center justify-between gap-2.5 px-3 py-2.5 rounded-2xl border transition-all cursor-pointer group ${
-                              isSelected
-                                ? "bg-violet-600/20 border-violet-500/60 shadow-xs"
-                                : "hover:bg-muted/60 border-transparent hover:border-border/60"
-                            }`}
-                          >
-                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                              <div className="relative shrink-0">
-                                <AvatarImg url={a.avatar_url} name={n} size={34} />
-                                <span className={`absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-card ${s.color}`} />
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <p className="text-xs font-bold text-foreground group-hover:text-violet-400 transition-colors truncate leading-tight">
-                                  {n}
-                                </p>
-                                <p className="text-[10px] text-muted-foreground truncate leading-tight mt-0.5">
-                                  {s.label}
-                                </p>
-                              </div>
+                      return (
+                        <div
+                          key={a.email}
+                          onClick={() => openInternalChat(channelId, n, a.avatar_url, effectiveStatus, false)}
+                          className={`flex items-center justify-between gap-2.5 px-3 py-2.5 rounded-2xl border transition-all cursor-pointer group ${
+                            isSelected
+                              ? "bg-violet-600/20 border-violet-500/60 shadow-xs"
+                              : "hover:bg-muted/60 border-transparent hover:border-border/60"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                            <div className="relative shrink-0">
+                              <AvatarImg url={a.avatar_url} name={n} size={34} />
+                              <span className={`absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-card ${s.color}`} />
                             </div>
-
-                            {unread > 0 && (
-                              <span className="px-2 py-0.5 rounded-full bg-violet-600 text-white text-[10px] font-black shrink-0 animate-pulse">
-                                {unread}
-                              </span>
-                            )}
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-bold text-foreground group-hover:text-violet-400 transition-colors truncate leading-tight">
+                                {n}
+                              </p>
+                              <p className="text-[10px] text-muted-foreground truncate leading-tight mt-0.5">
+                                {s.label}
+                              </p>
+                            </div>
                           </div>
-                        );
-                      })}
+
+                          {unread > 0 && (
+                            <span className="px-2 py-0.5 rounded-full bg-violet-600 text-white text-[10px] font-black shrink-0 shadow-sm">
+                              {unread}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
@@ -1843,9 +2340,52 @@ export function SidebarUserPanel({
         currentAgent={safeAgent}
       />
 
+      {/* Alerta visual persistente en barra lateral cuando hay mensajes de equipo sin leer */}
+      {totalChatUnread > 0 && !open && (
+        <div className="px-3 pt-2 pb-1">
+          <div
+            onClick={() => {
+              setOpen(true);
+              setTab("team");
+            }}
+            className="p-2.5 rounded-2xl bg-gradient-to-r from-violet-600/25 via-indigo-600/20 to-violet-600/15 border-2 border-violet-500 text-foreground flex items-center justify-between gap-2 shadow-lg shadow-violet-500/25 cursor-pointer hover:bg-violet-600/30 transition-all group"
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="relative shrink-0">
+                <div className="h-8 w-8 rounded-xl bg-violet-600 text-white grid place-items-center shadow-md">
+                  <MessageSquare className="h-4 w-4" />
+                </div>
+                <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-violet-400 ring-2 ring-card" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-violet-300 leading-tight">
+                  Mensajes de Equipo
+                </p>
+                <p className="text-[10px] text-muted-foreground truncate leading-tight mt-0.5">
+                  {totalChatUnread === 1 ? "1 nuevo mensaje sin leer" : `${totalChatUnread} mensajes sin leer`}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="px-2 py-0.5 rounded-full bg-violet-600 text-white font-black text-xs shadow-md">
+                {totalChatUnread}
+              </span>
+              <ChevronRight className="h-3.5 w-3.5 text-violet-400 group-hover:translate-x-0.5 transition-transform" />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Barra inferior siempre visible */}
       <div className="p-3 space-y-2">
-        <button onClick={() => setOpen(v => !v)} className="w-full flex items-center gap-2.5 px-2 py-2 rounded-xl hover:bg-muted/60 transition-colors group cursor-pointer">
+        <button
+          onClick={() => setOpen(v => !v)}
+          className={`w-full flex items-center gap-2.5 px-2 py-2 rounded-xl transition-all group cursor-pointer ${
+            totalChatUnread > 0 && !open
+              ? "border border-violet-500/60 bg-violet-500/10 hover:bg-violet-500/20 shadow-xs"
+              : "hover:bg-muted/60"
+          }`}
+        >
           <div className="relative shrink-0">
             <AvatarImg url={avatarUrl} name={fullName} size={36} />
             <span className={`absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-card ${st.color}`} />
@@ -1859,6 +2399,11 @@ export function SidebarUserPanel({
               </span>
             </p>
           </div>
+          {totalChatUnread > 0 && !open && (
+            <span className="px-2 py-0.5 rounded-full bg-violet-600 text-white font-black text-[10px] shadow-sm shrink-0">
+              {totalChatUnread}
+            </span>
+          )}
           <ChevronUp className={`h-4 w-4 text-muted-foreground shrink-0 transition-transform ${open ? "" : "rotate-180"}`} />
         </button>
         <div className="flex items-center justify-between gap-1 px-1">
@@ -1880,6 +2425,72 @@ export function SidebarUserPanel({
           </button>
         </div>
       </div>
+
+      {/* Notificación flotante de mensaje entrante ANCLADA A LA BARRA LATERAL (6s) */}
+      {incomingPopup && (
+        <div className="fixed bottom-20 left-3 z-[99999] w-[316px] animate-in fade-in slide-in-from-bottom-3 duration-200 pointer-events-auto shadow-2xl">
+          <div
+            onClick={() => {
+              setIncomingPopup(null);
+              setOpen(true);
+              setTab("team");
+              openInternalChat(
+                incomingPopup.channelId,
+                incomingPopup.isGroup ? "Chat General del Equipo" : incomingPopup.senderName,
+                incomingPopup.senderAvatar,
+                incomingPopup.channelStatus,
+                incomingPopup.isGroup
+              );
+            }}
+            className="bg-card/95 backdrop-blur-md border-2 border-violet-500 rounded-2xl p-3 shadow-2xl shadow-violet-500/30 text-foreground flex items-start gap-2.5 cursor-pointer hover:border-violet-400 transition-all group"
+          >
+            <div className="relative shrink-0 mt-0.5">
+              {incomingPopup.isGroup ? (
+                <div className="h-9 w-9 rounded-xl bg-violet-600 text-white grid place-items-center shadow-md">
+                  <Users className="h-4.5 w-4.5" />
+                </div>
+              ) : (
+                <AvatarImg url={incomingPopup.senderAvatar} name={incomingPopup.senderName} size={36} />
+              )}
+              <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-emerald-500 border-2 border-card" />
+            </div>
+
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between gap-1.5">
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[9px] font-black uppercase tracking-wider bg-violet-600/25 text-violet-300 border border-violet-500/40">
+                  {incomingPopup.isGroup ? "👥 MENSAJE GRUPAL" : "💬 MENSAJE DE AGENTE"}
+                </span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIncomingPopup(null);
+                  }}
+                  className="text-muted-foreground hover:text-foreground p-1 rounded-lg hover:bg-muted/80 transition-colors"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+
+              <p className="text-xs font-bold text-foreground mt-1 truncate">
+                {incomingPopup.senderName}
+              </p>
+              <p className="text-[11px] text-muted-foreground line-clamp-2 mt-0.5">
+                {incomingPopup.content}
+              </p>
+
+              <div className="mt-2 flex items-center justify-between gap-2">
+                <span className="text-[9px] text-violet-400/90 font-mono">
+                  Clic para abrir
+                </span>
+                <span className="px-2 py-0.5 text-[11px] font-bold rounded-lg bg-violet-600 group-hover:bg-violet-500 text-white shadow-sm transition-all">
+                  Ver Chat
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

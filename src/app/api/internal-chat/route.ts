@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
     const fullName = [agent?.nombre, agent?.apellido].filter(Boolean).join(" ") || user.email;
 
     const body = await req.json();
-    const { channelId, content, mediaUrl, mediaType, fileName, fileSize } = body;
+    const { channelId, content, mediaUrl, mediaType, fileName, fileSize, replyTo } = body;
 
     if (!channelId) {
       return NextResponse.json({ error: "channelId es obligatorio" }, { status: 400 });
@@ -71,6 +71,7 @@ export async function POST(req: NextRequest) {
       fileSize: fileSize || null,
       createdAt: new Date().toISOString(),
       readBy: [user.email.toLowerCase()],
+      replyTo: replyTo || null,
     };
 
     const saved = await saveChannelMessage(channelId, newMessage);
