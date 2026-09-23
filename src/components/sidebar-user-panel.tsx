@@ -904,18 +904,20 @@ export function SidebarUserPanel({
     return ro === "bot" || ro === "sistema" || em.includes("agent") || em.includes("assistant") || em.includes("system_prompt") || no.includes("asistente") || no.includes("agente whatsapp");
   };
 
+  const getEffectiveAgentStatus = (a: any): string => {
+    if (!a || !a.email) return "offline";
+    if (a.status === "offline") return "offline";
+    if (!a.last_seen_at) return "offline";
+    const diff = Date.now() - new Date(a.last_seen_at).getTime();
+    if (diff > 4 * 60 * 1000) return "offline";
+    return a.status || "online";
+  };
+
   const isAgentOnlineOrActive = (a: any) => {
     if (!a || !a.email) return false;
     if (a.email.toLowerCase() === safeAgent.email.toLowerCase()) return false;
     if (isBotAgent(a)) return false;
-    // Si el estado es offline / desconectado, desaparece su avatar para los demás
-    if (a.status === "offline") return false;
-    // Si no ha emitido actividad ni heartbeat en los últimos 4 minutos (240s)
-    if (a.last_seen_at) {
-      const diff = Date.now() - new Date(a.last_seen_at).getTime();
-      if (diff > 4 * 60 * 1000) return false;
-    }
-    return true;
+    return getEffectiveAgentStatus(a) !== "offline";
   };
 
   const others = useMemo(() => {
@@ -1151,20 +1153,23 @@ export function SidebarUserPanel({
                   teamAgents
                     .filter((a) => (a.email || "").toLowerCase() !== (safeAgent.email || "").toLowerCase())
                     .sort((a, b) => {
-                      const scoreA = a.status === "online" ? 3 : a.status === "busy" ? 2 : a.status === "away" ? 1 : 0;
-                      const scoreB = b.status === "online" ? 3 : b.status === "busy" ? 2 : b.status === "away" ? 1 : 0;
+                      const stA = getEffectiveAgentStatus(a);
+                      const stB = getEffectiveAgentStatus(b);
+                      const scoreA = stA === "online" ? 3 : stA === "busy" ? 2 : stA === "away" ? 1 : 0;
+                      const scoreB = stB === "online" ? 3 : stB === "busy" ? 2 : stB === "away" ? 1 : 0;
                       return scoreB - scoreA;
                     })
                     .map((a) => {
                       const n = [a.nombre, a.apellido].filter(Boolean).join(" ") || a.email;
-                      const s = STATUS_LABELS[a.status || "offline"] || STATUS_LABELS.offline;
+                      const effectiveStatus = getEffectiveAgentStatus(a);
+                      const s = STATUS_LABELS[effectiveStatus] || STATUS_LABELS.offline;
                       const channelId = buildDirectChannelId(safeAgent.email, a.email);
                       const unread = chatUnreadCounts[channelId] || 0;
 
                       return (
                         <div
                           key={a.email}
-                          onClick={() => openInternalChat(channelId, n, a.avatar_url, a.status || "offline", false)}
+                          onClick={() => openInternalChat(channelId, n, a.avatar_url, effectiveStatus, false)}
                           className="flex items-center justify-between gap-2.5 px-2.5 py-2 rounded-xl hover:bg-muted/60 border border-transparent hover:border-border/60 transition-all cursor-pointer group"
                         >
                           <div className="flex items-center gap-2.5 min-w-0 flex-1">
