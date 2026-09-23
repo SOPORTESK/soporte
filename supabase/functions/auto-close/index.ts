@@ -254,23 +254,63 @@ Deno.serve(async (req) => {
   let closed = 0;
 
   for (const caso of casos) {
-    // PROTECCIÓN: no cerrar si está pausado manualmente (excepto calificacion_pendiente en timeout)
+    const canalLower = String(caso.canal || "").toLowerCase().trim();
+    const clienteObj = typeof caso.cliente === "object" ? caso.cliente : {};
+    const realPhone = clienteObj?.telefono_real || clienteObj?.telefono || caso.customer_phone || "";
+    const casoTags: string[] = Array.isArray(caso.tags) ? caso.tags : [];
+    const isReopen = casoTags.some((t: string) => String(t).toLowerCase() === "re-open");
+    const isSaliente = casoTags.some((t: string) => String(t).toLowerCase() === "saliente");
+
+    // ── 1. CIERRE GENERAL AL FIN DE JORNADA (BARRIDO NOCTURNO: PRIORIDAD ABSOLUTA) ──
+    if (isDailyCloseWindow) {
+      console.log(`[auto-close] Caso ${caso.id} seleccionado para cierre por fin de jornada (corte: ${dailyCloseConfig.close_time})`);
+
+      const dailyCloseEntry = {
+        role: "tecnico",
+        content: dailyCloseConfig.message,
+        time: new Date().toISOString(),
+        author: "Soporte Sekunet",
+      };
+      const newHist = [...(caso.histtecnico ?? []), dailyCloseEntry];
+
+      const { data: closedDaily, error: dailyErr } = await db
+        .from("sek_cases")
+        .update({ estado: "cerrado", closed_at: new Date().toISOString(), histtecnico: newHist })
+        .eq("id", caso.id)
+        .not("estado", "in", '("cerrado","resuelto")')
+        .select("id");
+
+      if (dailyErr || !closedDaily || closedDaily.length === 0) {
+        continue;
+      }
+
+      if (canalLower === "whatsapp" && realPhone) {
+        await sendViaEvolution(realPhone, dailyCloseConfig.message);
+      }
+
+      learnFromCase(caso).catch(() => {});
+      fetch(`${SUPABASE_URL}/functions/v1/learn-case`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${SERVICE_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ case_id: caso.id }),
+      }).catch(() => {});
+
+      closed++;
+      continue;
+    }
+
+    // ── 2. PROTECCIÓN MANUAL DURANTE JORNADA ──
     if (caso.auto_close_paused && caso.estado !== "calificacion_pendiente") {
       console.log(`[auto-close] Caso ${caso.id} tiene auto_close_paused=true, saltando`);
       continue;
     }
 
-    // PROTECCIÓN: no cerrar casos salientes (iniciados por un agente humano)
-    // ni casos re-open (reabiertos manualmente por un agente).
-    const casoTags: string[] = Array.isArray(caso.tags) ? caso.tags : [];
-    if (casoTags.some((t: string) => ["saliente", "re-open"].includes(String(t).toLowerCase()))) {
-      console.log(`[auto-close] Caso ${caso.id} tiene tag protegido (${casoTags.join(",")}), saltando`);
+    if (isSaliente) {
+      console.log(`[auto-close] Caso ${caso.id} es saliente, saltando en jornada`);
       continue;
     }
 
     // ── CALIFICACION_PENDIENTE: timeout de encuesta ──
-    // Si el caso lleva demasiado tiempo en calificacion_pendiente sin respuesta del cliente,
-    // cerrarlo directamente. El cliente tuvo su oportunidad de calificar.
     if (caso.estado === "calificacion_pendiente") {
       const lastAgentMsg = (caso.histtecnico ?? []).filter((m: any) => m?.time && m?.role !== "nota");
       const lastAgentTime = lastAgentMsg.length > 0
@@ -307,11 +347,9 @@ Deno.serve(async (req) => {
     }
 
     // PROTECCIÓN: casos humanos (abierto) sin assigned_to son zombis si llevan más de 24h.
-    // Cerrarlos automáticamente. Si llevan menos de 24h, esperarlos (puede que el agente
-    // aún no haya respondido pero acaba de tomar el caso).
     if (caso.estado !== "ia_atendiendo" && !caso.assigned_to) {
       const ageMs = now - new Date(caso.created_at).getTime();
-      const ZOMBIE_THRESHOLD_MS = 24 * 60 * 60 * 1000; // 24 horas
+      const ZOMBIE_THRESHOLD_MS = 24 * 60 * 60 * 1000;
       if (ageMs < ZOMBIE_THRESHOLD_MS) {
         console.log(`[auto-close] Caso ${caso.id} sin assigned_to pero menor a 24h, saltando`);
         continue;
@@ -325,44 +363,34 @@ Deno.serve(async (req) => {
       continue;
     }
 
-    // ── CIERRE GENERAL AL FIN DE JORNADA (BARRIDO NOCTURNO) ──
-    if (isDailyCloseWindow) {
-      console.log(`[auto-close] Caso ${caso.id} seleccionado para cierre por fin de jornada (corte: ${dailyCloseConfig.close_time})`);
-      const canalLower = String(caso.canal || "").toLowerCase().trim();
-      const clienteObj = typeof caso.cliente === "object" ? caso.cliente : {};
-      const realPhone = clienteObj?.telefono_real || clienteObj?.telefono || caso.customer_phone || "";
+    // Si el caso está reabierto (re-open):
+    // Se le da mayor margen de atención durante la jornada (mínimo 60 min),
+    // pero si transcurre ese tiempo sin actividad, se auto-cierra para no quedar abandonado.
+    if (isReopen) {
+      const reopenGraceMs = Math.max((autoCloseConfig.inactivity_minutes || 10) * 2 * 60 * 1000, 60 * 60 * 1000);
+      const caseAcceptedTime = caso.accepted_at ? new Date(caso.accepted_at).getTime() : 0;
+      const clientMsgs = (caso.histcliente ?? []).filter((m: any) => m?.time && m?.role === "user");
+      const lastClientTime = clientMsgs.length > 0 ? Math.max(...clientMsgs.map((m: any) => new Date(m.time).getTime())) : 0;
+      const agentMsgs = (caso.histtecnico ?? []).filter((m: any) => m?.time && m?.role !== "nota");
+      const lastAgentTime = agentMsgs.length > 0 ? Math.max(...agentMsgs.map((m: any) => new Date(m.time).getTime())) : 0;
+      const lastAnyActivity = Math.max(lastAgentTime, lastClientTime, caseAcceptedTime);
 
-      const dailyCloseEntry = {
-        role: "tecnico",
-        content: dailyCloseConfig.message,
-        time: new Date().toISOString(),
-        author: "Soporte Sekunet",
-      };
-      const newHist = [...(caso.histtecnico ?? []), dailyCloseEntry];
-
-      const { data: closedDaily, error: dailyErr } = await db
-        .from("sek_cases")
-        .update({ estado: "cerrado", closed_at: new Date().toISOString(), histtecnico: newHist })
-        .eq("id", caso.id)
-        .not("estado", "in", '("cerrado","resuelto")')
-        .select("id");
-
-      if (dailyErr || !closedDaily || closedDaily.length === 0) {
-        continue;
+      if (lastAnyActivity > 0 && (now - lastAnyActivity) >= reopenGraceMs) {
+        console.log(`[auto-close] Caso reabierto ${caso.id} cerrado por inactividad prolongada`);
+        const closeEntry = { role: "tecnico", content: autoCloseConfig.close_message || CLOSE_MSG, time: new Date().toISOString(), author: "Soporte Sekunet" };
+        const newHist = [...(caso.histtecnico ?? []), closeEntry];
+        const { data: updated } = await db.from("sek_cases").update({
+          estado: "cerrado",
+          closed_at: new Date().toISOString(),
+          histtecnico: newHist
+        }).eq("id", caso.id).not("estado", "in", '("cerrado","resuelto")').select("id");
+        if (updated && updated.length > 0) {
+          closed++;
+          if (canalLower === "whatsapp" && realPhone) {
+            await sendViaEvolution(realPhone, autoCloseConfig.close_message || CLOSE_MSG);
+          }
+        }
       }
-
-      if (canalLower === "whatsapp" && realPhone) {
-        await sendViaEvolution(realPhone, dailyCloseConfig.message);
-      }
-
-      learnFromCase(caso).catch(() => {});
-      fetch(`${SUPABASE_URL}/functions/v1/learn-case`, {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${SERVICE_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ case_id: caso.id }),
-      }).catch(() => {});
-
-      closed++;
       continue;
     }
 

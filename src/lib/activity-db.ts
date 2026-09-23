@@ -110,6 +110,7 @@ export async function getAgentSchedule(agentEmail: string): Promise<WorkSchedule
     scheduleEnabled: global.scheduleEnabled,
     workDays: global.workDays,
     targetDailyHours: global.targetDailyHours,
+    toleranceMinutes: global.toleranceMinutes,
   };
 
   if (custom && custom.custom) {
@@ -119,6 +120,7 @@ export async function getAgentSchedule(agentEmail: string): Promise<WorkSchedule
       scheduleEnabled: custom.scheduleEnabled !== undefined ? Boolean(custom.scheduleEnabled) : global.scheduleEnabled,
       workDays: Array.isArray(custom.workDays) && custom.workDays.length > 0 ? custom.workDays : global.workDays,
       targetDailyHours: Number(custom.targetDailyHours) || global.targetDailyHours,
+      toleranceMinutes: global.toleranceMinutes,
       isCustom: true,
       globalSchedule,
     };
@@ -126,6 +128,7 @@ export async function getAgentSchedule(agentEmail: string): Promise<WorkSchedule
 
   return {
     ...global,
+    toleranceMinutes: global.toleranceMinutes,
     isCustom: false,
     globalSchedule,
   };

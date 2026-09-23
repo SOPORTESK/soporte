@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
-import { Camera, Lock, Eye, EyeOff, Check, X, ChevronUp, Circle, LogOut, Activity as ActivityIcon, FileText, ChevronRight, X as XIcon, RefreshCw, Wrench, Coffee, Timer, BarChart3, Package, LayoutDashboard, ClipboardList, Sparkles, UserPlus, Briefcase, GraduationCap, Users, Utensils, Sandwich, Bath, Square, Trash2, Clock, CheckCircle2, Calendar, Maximize2, Plus, UserCheck, Save, MessageSquare } from "lucide-react";
+import { Camera, Lock, Eye, EyeOff, Check, X, ChevronUp, Circle, LogOut, Activity as ActivityIcon, FileText, ChevronRight, X as XIcon, RefreshCw, Wrench, Coffee, Timer, BarChart3, Package, LayoutDashboard, ClipboardList, Sparkles, UserPlus, Briefcase, GraduationCap, Users, Utensils, Sandwich, Bath, Square, Trash2, Clock, CheckCircle2, Calendar, Maximize2, Minimize2, Plus, UserCheck, Save, MessageSquare } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -339,6 +339,7 @@ export function SidebarUserPanel({
   } | null>(null);
   const [chatUnreadCounts, setChatUnreadCounts] = useState<Record<string, number>>({});
   const [totalChatUnread, setTotalChatUnread] = useState<number>(0);
+  const [teamChatExpanded, setTeamChatExpanded] = useState<boolean>(false);
 
   const loadChatConversations = useCallback(async () => {
     try {
@@ -357,8 +358,9 @@ export function SidebarUserPanel({
 
   useEffect(() => {
     loadChatConversations();
+    const pollInterval = setInterval(loadChatConversations, 3500);
 
-    const ch = supabase.channel("sek_internal_chat_sidebar");
+    const ch = supabase.channel("sek_internal_chat");
     ch.on("broadcast", { event: "new_internal_message" }, ({ payload }) => {
       const msg = payload as any;
       if (msg) {
@@ -374,10 +376,12 @@ export function SidebarUserPanel({
             });
           }
         }
+        loadChatConversations();
       }
     }).subscribe();
 
     return () => {
+      clearInterval(pollInterval);
       supabase.removeChannel(ch);
     };
   }, [loadChatConversations, selectedChat, safeAgent.email, supabase]);
@@ -928,7 +932,7 @@ export function SidebarUserPanel({
     <div className="border-t border-border">
       {/* Panel expandible */}
       {open && (
-        <div className="border-b border-border bg-card overflow-y-auto" style={{ maxHeight: "70vh" }}>
+        <div className="border-b border-border bg-card overflow-y-auto overflow-x-hidden" style={{ maxHeight: "78vh" }}>
           {/* Tabs */}
           <div className="flex border-b border-border">
             <button onClick={() => setTab("profile")} className={`flex-1 text-xs font-semibold py-2.5 transition-colors ${tab === "profile" ? "text-foreground border-b-2 border-violet-500" : "text-muted-foreground hover:text-foreground"}`}>Mi Perfil</button>
@@ -1086,8 +1090,8 @@ export function SidebarUserPanel({
             </div>
           )}
 
-          {tab === "team" && selectedChat && (
-            <div className="flex flex-col" style={{ minHeight: "450px", maxHeight: "560px" }}>
+          {tab === "team" && selectedChat && !teamChatExpanded && (
+            <div className="flex flex-col w-full overflow-hidden" style={{ height: "520px", maxHeight: "calc(78vh - 45px)" }}>
               <InternalChatView
                 channelId={selectedChat.channelId}
                 channelName={selectedChat.channelName}
@@ -1098,12 +1102,29 @@ export function SidebarUserPanel({
                 currentUserName={fullName}
                 onBack={() => setSelectedChat(null)}
                 onNewMessageSent={() => loadChatConversations()}
+                isExpanded={false}
+                onToggleExpand={() => setTeamChatExpanded(true)}
               />
             </div>
           )}
 
-          {tab === "team" && !selectedChat && (
+          {tab === "team" && !selectedChat && !teamChatExpanded && (
             <div className="p-3 space-y-3" style={{ minHeight: "380px", maxHeight: "560px", overflowY: "auto" }}>
+              {/* Barra superior con botón para ampliar ventana */}
+              <div className="flex items-center justify-between pb-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                  Canales & Chats
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setTeamChatExpanded(true)}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-violet-600/10 hover:bg-violet-600/20 text-violet-400 border border-violet-500/25 text-[11px] font-bold transition-all cursor-pointer shadow-xs"
+                  title="Ampliar ventana de mensajes internos"
+                >
+                  <Maximize2 className="h-3 w-3" />
+                  <span>Ampliar ventana</span>
+                </button>
+              </div>
               {/* CANAL GENERAL DE EQUIPO (DESTACADO) */}
               <div
                 onClick={() => openInternalChat("group_general", "Chat General del Equipo", null, null, true)}
@@ -1589,6 +1610,212 @@ export function SidebarUserPanel({
               </button>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── MODAL FLOTANTE / EXPANDIDO: MENSAJERÍA INTERNA DE EQUIPO ── */}
+      {teamChatExpanded && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-2 sm:p-5 md:p-8 animate-in fade-in duration-150"
+          onClick={() => setTeamChatExpanded(false)}
+        >
+          <div
+            className="bg-card border border-border/80 rounded-3xl shadow-2xl w-full max-w-5xl h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150 ring-1 ring-border/50"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header del Modal Expandido */}
+            <div className="px-5 py-3.5 border-b border-border/70 flex items-center justify-between bg-muted/30 shrink-0">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="h-10 w-10 rounded-2xl bg-gradient-to-tr from-violet-600 to-indigo-600 text-white grid place-items-center shadow-md shadow-violet-600/25 shrink-0">
+                  <Users className="h-5 w-5" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h2 className="text-sm sm:text-base font-black text-foreground">Mensajería Interna de Equipo</h2>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-violet-500/20 text-violet-300 font-mono">
+                      Espacio Ampliado
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground truncate">
+                    Comunicación directa y grupal, notas de voz y archivos compartidos
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setTeamChatExpanded(false)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-border/80 hover:bg-muted text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                  title="Restaurar a la barra lateral"
+                >
+                  <Minimize2 className="h-4 w-4 text-violet-400" />
+                  <span className="hidden sm:inline">Minimizar</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTeamChatExpanded(false);
+                  }}
+                  className="p-1.5 rounded-xl hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                  title="Cerrar ventana"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Contenido en 2 columnas: Lista a la izquierda, Chat activo a la derecha */}
+            <div className="flex-1 flex overflow-hidden min-h-0 bg-background/30">
+              {/* Columna Izquierda: Conversaciones */}
+              <div
+                className={`w-full md:w-80 border-r border-border/70 flex flex-col bg-card/60 ${
+                  selectedChat ? "hidden md:flex" : "flex"
+                }`}
+              >
+                <div className="p-3 border-b border-border/60 flex items-center justify-between">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                    Canales & Compañeros
+                  </span>
+                  {totalChatUnread > 0 && (
+                    <span className="px-2 py-0.5 rounded-full bg-violet-600 text-white font-black text-[10px] animate-pulse">
+                      {totalChatUnread} no leídos
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-3 space-y-3">
+                  {/* CANAL GENERAL DE EQUIPO (DESTACADO) */}
+                  <div
+                    onClick={() => openInternalChat("group_general", "Chat General del Equipo", null, null, true)}
+                    className={`p-3 rounded-2xl border cursor-pointer transition-all shadow-xs group ${
+                      selectedChat?.channelId === "group_general"
+                        ? "bg-violet-600/20 border-violet-500 text-violet-200 ring-1 ring-violet-500/40"
+                        : "bg-gradient-to-r from-violet-600/15 via-indigo-600/10 to-violet-600/5 border-violet-500/30 hover:border-violet-500/60"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2.5">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="h-9 w-9 rounded-xl bg-violet-600 text-white grid place-items-center shrink-0 shadow-sm shadow-violet-600/30 group-hover:scale-105 transition-transform">
+                          <Users className="h-4.5 w-4.5" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-black text-foreground group-hover:text-violet-400 transition-colors truncate">
+                              # General (Equipo)
+                            </span>
+                            <span className="text-[9px] uppercase font-extrabold px-1.5 py-0.2 rounded bg-violet-500/20 text-violet-300 border border-violet-500/30">
+                              Grupal
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-muted-foreground truncate mt-0.5">
+                            Canal de todo el equipo
+                          </p>
+                        </div>
+                      </div>
+
+                      {(chatUnreadCounts["group_general"] || 0) > 0 && (
+                        <span className="px-2 py-0.5 rounded-full bg-violet-600 text-white text-[10px] font-black shrink-0 animate-pulse">
+                          {chatUnreadCounts["group_general"]}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* LISTA DE COMPAÑEROS PARA MENSAJERÍA DIRECTA */}
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-1">
+                      Mensajes Directos ({teamAgents.filter((a) => (a.email || "").toLowerCase() !== (safeAgent.email || "").toLowerCase()).length})
+                    </span>
+
+                    {teamAgents
+                      .filter((a) => (a.email || "").toLowerCase() !== (safeAgent.email || "").toLowerCase())
+                      .sort((a, b) => {
+                        const stA = getEffectiveAgentStatus(a);
+                        const stB = getEffectiveAgentStatus(b);
+                        const scoreA = stA === "online" ? 3 : stA === "busy" ? 2 : stA === "away" ? 1 : 0;
+                        const scoreB = stB === "online" ? 3 : stB === "busy" ? 2 : stB === "away" ? 1 : 0;
+                        return scoreB - scoreA;
+                      })
+                      .map((a) => {
+                        const n = [a.nombre, a.apellido].filter(Boolean).join(" ") || a.email;
+                        const effectiveStatus = getEffectiveAgentStatus(a);
+                        const s = STATUS_LABELS[effectiveStatus] || STATUS_LABELS.offline;
+                        const channelId = buildDirectChannelId(safeAgent.email, a.email);
+                        const unread = chatUnreadCounts[channelId] || 0;
+                        const isSelected = selectedChat?.channelId === channelId;
+
+                        return (
+                          <div
+                            key={a.email}
+                            onClick={() => openInternalChat(channelId, n, a.avatar_url, effectiveStatus, false)}
+                            className={`flex items-center justify-between gap-2.5 px-3 py-2.5 rounded-2xl border transition-all cursor-pointer group ${
+                              isSelected
+                                ? "bg-violet-600/20 border-violet-500/60 shadow-xs"
+                                : "hover:bg-muted/60 border-transparent hover:border-border/60"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                              <div className="relative shrink-0">
+                                <AvatarImg url={a.avatar_url} name={n} size={34} />
+                                <span className={`absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-card ${s.color}`} />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-xs font-bold text-foreground group-hover:text-violet-400 transition-colors truncate leading-tight">
+                                  {n}
+                                </p>
+                                <p className="text-[10px] text-muted-foreground truncate leading-tight mt-0.5">
+                                  {s.label}
+                                </p>
+                              </div>
+                            </div>
+
+                            {unread > 0 && (
+                              <span className="px-2 py-0.5 rounded-full bg-violet-600 text-white text-[10px] font-black shrink-0 animate-pulse">
+                                {unread}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Columna Derecha: Chat Activo */}
+              <div
+                className={`flex-1 flex flex-col min-w-0 ${
+                  !selectedChat ? "hidden md:flex items-center justify-center bg-card/30 p-8 text-center" : "flex"
+                }`}
+              >
+                {selectedChat ? (
+                  <InternalChatView
+                    channelId={selectedChat.channelId}
+                    channelName={selectedChat.channelName}
+                    channelAvatar={selectedChat.channelAvatar}
+                    channelStatus={selectedChat.channelStatus}
+                    isGroup={selectedChat.isGroup}
+                    currentUserEmail={safeAgent.email}
+                    currentUserName={fullName}
+                    onBack={() => setSelectedChat(null)}
+                    onNewMessageSent={() => loadChatConversations()}
+                    isExpanded={true}
+                    onToggleExpand={() => setTeamChatExpanded(false)}
+                  />
+                ) : (
+                  <div className="max-w-md mx-auto space-y-3 p-6 text-center">
+                    <div className="h-16 w-16 rounded-3xl bg-violet-600/15 border border-violet-500/30 text-violet-400 grid place-items-center mx-auto shadow-inner">
+                      <MessageSquare className="h-8 w-8" />
+                    </div>
+                    <h3 className="text-base font-bold text-foreground">Bandeja de Mensajes de Equipo</h3>
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      Selecciona el chat general o cualquier compañero en el panel de la izquierda para ver la conversación en pantalla completa.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

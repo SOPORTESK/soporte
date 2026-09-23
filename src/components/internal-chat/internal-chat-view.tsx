@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   ArrowLeft,
   Send,
@@ -20,6 +20,7 @@ import {
   Check,
   CheckCheck,
   Volume2,
+  RotateCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
@@ -35,6 +36,8 @@ interface InternalChatViewProps {
   currentUserName: string;
   onBack: () => void;
   onNewMessageSent?: (msg: InternalMessage) => void;
+  isExpanded?: boolean;
+  onToggleExpand?: () => void;
 }
 
 export function InternalChatView({
@@ -47,10 +50,13 @@ export function InternalChatView({
   currentUserName,
   onBack,
   onNewMessageSent,
+  isExpanded = false,
+  onToggleExpand,
 }: InternalChatViewProps) {
   const supabase = createClient();
   const [messages, setMessages] = useState<InternalMessage[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [uploadingFile, setUploadingFile] = useState(false);
@@ -65,11 +71,51 @@ export function InternalChatView({
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<any>(null);
 
+  const realtimeChannelRef = useRef<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
     messagesEndRef.current?.scrollIntoView({ behavior });
+  };
+
+  // Cargar mensajes en segundo plano (para polling y botón manual)
+  const fetchMessagesSilent = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/internal-chat?channelId=${encodeURIComponent(channelId)}`);
+      const data = await res.json();
+      if (data.success && Array.isArray(data.messages)) {
+        setMessages((prev) => {
+          if (
+            data.messages.length !== prev.length ||
+            (data.messages.length > 0 &&
+              prev.length > 0 &&
+              data.messages[data.messages.length - 1].id !== prev[prev.length - 1].id)
+          ) {
+            setTimeout(() => scrollToBottom("smooth"), 50);
+            return data.messages;
+          }
+          return prev;
+        });
+      }
+    } catch {}
+  }, [channelId]);
+
+  const fetchMessagesManual = async () => {
+    setRefreshing(true);
+    try {
+      const res = await fetch(`/api/internal-chat?channelId=${encodeURIComponent(channelId)}`);
+      const data = await res.json();
+      if (data.success && Array.isArray(data.messages)) {
+        setMessages(data.messages);
+        setTimeout(() => scrollToBottom("smooth"), 50);
+        toast.success("Mensajes actualizados");
+      }
+    } catch {
+      toast.error("Error al actualizar");
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   // Cargar mensajes iniciales
@@ -96,9 +142,16 @@ export function InternalChatView({
     };
   }, [channelId]);
 
-  // Escuchar mensajes en tiempo real vía Supabase Broadcast
+  // Polling automático cada 2.5s para garantizar entrega 100% confiable
+  useEffect(() => {
+    const interval = setInterval(fetchMessagesSilent, 2500);
+    return () => clearInterval(interval);
+  }, [fetchMessagesSilent]);
+
+  // Escuchar mensajes en tiempo real vía Supabase Broadcast (Canal persistente)
   useEffect(() => {
     const channel = supabase.channel("sek_internal_chat");
+    realtimeChannelRef.current = channel;
 
     channel
       .on("broadcast", { event: "new_internal_message" }, ({ payload }) => {
@@ -108,7 +161,7 @@ export function InternalChatView({
             if (prev.some((m) => m.id === msg.id)) return prev;
             return [...prev, msg];
           });
-          setTimeout(() => scrollToBottom("smooth"), 100);
+          setTimeout(() => scrollToBottom("smooth"), 80);
           // Marcar como leído
           fetch("/api/internal-chat/read", {
             method: "POST",
@@ -120,9 +173,21 @@ export function InternalChatView({
       .subscribe();
 
     return () => {
+      realtimeChannelRef.current = null;
       supabase.removeChannel(channel);
     };
   }, [channelId, supabase]);
+
+  // Función segura de emisión broadcast
+  const broadcastMessage = (msg: InternalMessage) => {
+    if (realtimeChannelRef.current) {
+      realtimeChannelRef.current.send({
+        type: "broadcast",
+        event: "new_internal_message",
+        payload: msg,
+      });
+    }
+  };
 
   // Envío de mensaje de texto
   const handleSendMessage = async (e?: React.FormEvent) => {
@@ -150,12 +215,7 @@ export function InternalChatView({
       setTimeout(() => scrollToBottom("smooth"), 80);
 
       // Notificar a otros clientes vía Broadcast
-      const channel = supabase.channel("sek_internal_chat");
-      channel.send({
-        type: "broadcast",
-        event: "new_internal_message",
-        payload: saved,
-      });
+      broadcastMessage(saved);
 
       if (onNewMessageSent) onNewMessageSent(saved);
     } catch (err: any) {
@@ -173,7 +233,6 @@ export function InternalChatView({
     setUploadingFile(true);
     const toastId = toast.loading(`Subiendo ${file.name}...`);
     try {
-      const fileExt = file.name.split(".").pop() || "bin";
       const cleanName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
       const path = `internal-chat/${channelId}/${Date.now()}_${cleanName}`;
 
@@ -208,12 +267,7 @@ export function InternalChatView({
       setMessages((prev) => [...prev, saved]);
       setTimeout(() => scrollToBottom("smooth"), 80);
 
-      const channel = supabase.channel("sek_internal_chat");
-      channel.send({
-        type: "broadcast",
-        event: "new_internal_message",
-        payload: saved,
-      });
+      broadcastMessage(saved);
 
       if (onNewMessageSent) onNewMessageSent(saved);
       toast.success("Archivo enviado con éxito", { id: toastId });
@@ -329,12 +383,7 @@ export function InternalChatView({
       cancelRecording();
       setTimeout(() => scrollToBottom("smooth"), 80);
 
-      const channel = supabase.channel("sek_internal_chat");
-      channel.send({
-        type: "broadcast",
-        event: "new_internal_message",
-        payload: saved,
-      });
+      broadcastMessage(saved);
 
       if (onNewMessageSent) onNewMessageSent(saved);
       toast.success("Nota de voz enviada", { id: toastId });
@@ -356,37 +405,37 @@ export function InternalChatView({
 
   return (
     <div className="flex flex-col h-full bg-card relative overflow-hidden">
-      {/* ── CABECERA DEL CHAT ── */}
-      <div className="p-3 bg-muted/40 border-b border-border/60 flex items-center justify-between gap-2 shrink-0">
-        <div className="flex items-center gap-2.5 min-w-0">
+      {/* ── CABECERA DEL CHAT (ESPACIO OPTIMIZADO) ── */}
+      <div className="px-2.5 py-2 bg-card/95 backdrop-blur-md border-b border-border/80 flex items-center justify-between gap-1.5 shrink-0">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
           <button
             type="button"
             onClick={onBack}
-            className="p-1.5 rounded-xl hover:bg-muted text-muted-foreground hover:text-foreground transition-colors shrink-0"
+            className="h-7 w-7 rounded-lg bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground flex items-center justify-center border border-border/50 transition-colors cursor-pointer shrink-0"
             title="Volver a la lista de equipo"
           >
-            <ArrowLeft className="h-4 w-4" />
+            <ArrowLeft className="h-3.5 w-3.5" />
           </button>
 
           <div className="relative shrink-0">
             {isGroup ? (
-              <div className="h-8 w-8 rounded-xl bg-violet-600/20 text-violet-400 border border-violet-500/30 grid place-items-center">
-                <Users className="h-4 w-4" />
+              <div className="h-7 w-7 rounded-full bg-violet-600 text-white flex items-center justify-center shadow-xs">
+                <Users className="h-3.5 w-3.5" />
               </div>
             ) : channelAvatar ? (
               <img
                 src={channelAvatar}
                 alt={channelName}
-                className="h-8 w-8 rounded-full object-cover border border-border"
+                className="h-7 w-7 rounded-full object-cover border border-border shadow-xs"
               />
             ) : (
-              <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center font-bold text-xs border border-border text-foreground">
+              <div className="h-7 w-7 rounded-full bg-muted flex items-center justify-center font-bold text-[10px] border border-border text-foreground shadow-xs">
                 {channelName.slice(0, 2).toUpperCase()}
               </div>
             )}
             {!isGroup && channelStatus && (
               <span
-                className={`absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-card ${
+                className={`absolute bottom-0 right-0 h-2 w-2 rounded-full border border-card ${
                   channelStatus === "online"
                     ? "bg-emerald-500"
                     : channelStatus === "away"
@@ -403,9 +452,9 @@ export function InternalChatView({
             <h3 className="text-xs font-black text-foreground truncate leading-tight">
               {channelName}
             </h3>
-            <p className="text-[10px] text-muted-foreground truncate leading-tight mt-0.5">
+            <p className="text-[10px] text-muted-foreground truncate leading-none mt-0.5">
               {isGroup
-                ? "Canal de equipo · Todos los técnicos"
+                ? "Canal de equipo"
                 : channelStatus === "online"
                 ? "En línea"
                 : channelStatus === "away"
@@ -416,23 +465,61 @@ export function InternalChatView({
             </p>
           </div>
         </div>
+
+        {/* Acciones de la derecha: Expandir prioritario + Sincronizar */}
+        <div className="flex items-center gap-1 shrink-0">
+          {onToggleExpand && (
+            <button
+              type="button"
+              onClick={onToggleExpand}
+              className={`h-7 px-2 rounded-lg text-[10px] font-bold flex items-center gap-1 border transition-all cursor-pointer ${
+                isExpanded
+                  ? "bg-muted/70 hover:bg-muted text-muted-foreground hover:text-foreground border-border/60"
+                  : "bg-violet-600/15 hover:bg-violet-600/30 text-violet-400 border-violet-500/30 shadow-xs"
+              }`}
+              title={isExpanded ? "Reducir a barra lateral" : "Ampliar chat a pantalla completa"}
+            >
+              {isExpanded ? (
+                <>
+                  <Minimize2 className="h-3 w-3 text-violet-400" />
+                  <span className="hidden sm:inline">Reducir</span>
+                </>
+              ) : (
+                <>
+                  <Maximize2 className="h-3 w-3" />
+                  <span>Ampliar</span>
+                </>
+              )}
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={fetchMessagesManual}
+            disabled={refreshing}
+            className="h-7 w-7 rounded-lg bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground flex items-center justify-center border border-border/50 transition-colors cursor-pointer"
+            title="Sincronizar mensajes"
+          >
+            <RotateCw className={`h-3 w-3 ${refreshing ? "animate-spin text-violet-400" : ""}`} />
+          </button>
+        </div>
       </div>
 
       {/* ── CUERPO DE MENSAJES (SCROLL) ── */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-3 min-h-0 bg-background/50">
+      <div className="flex-1 overflow-y-auto p-2.5 space-y-2.5 min-h-0 bg-background/50">
         {loading ? (
-          <div className="h-full flex flex-col items-center justify-center gap-2 py-8 text-muted-foreground">
+          <div className="h-full flex flex-col items-center justify-center gap-2 py-6 text-muted-foreground">
             <Loader2 className="h-5 w-5 animate-spin text-violet-500" />
             <span className="text-xs">Cargando mensajes...</span>
           </div>
         ) : messages.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center gap-2 py-10 text-center text-muted-foreground px-4">
-            <div className="p-3 rounded-2xl bg-muted/40 border border-border/60">
-              <Users className="h-6 w-6 text-violet-400" />
+          <div className="h-full flex flex-col items-center justify-center py-6 text-center text-muted-foreground px-4 my-auto">
+            <div className="h-10 w-10 rounded-2xl bg-violet-600/15 border border-violet-500/25 text-violet-400 flex items-center justify-center mb-2 shadow-inner">
+              <Users className="h-5 w-5" />
             </div>
-            <p className="text-xs font-bold text-foreground">Inicia la conversación</p>
-            <p className="text-[11px] text-muted-foreground max-w-xs">
-              Envía mensajes, notas de voz, imágenes o documentos de forma directa y segura.
+            <h4 className="text-xs font-bold text-foreground">Inicia la conversación</h4>
+            <p className="text-[10px] text-muted-foreground max-w-[220px] mt-0.5 leading-snug">
+              Envía mensajes, notas de voz o archivos en tiempo real.
             </p>
           </div>
         ) : (
@@ -545,36 +632,41 @@ export function InternalChatView({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* ── BARRA DE GRABACIÓN DE AUDIO (SI ESTÁ GRABANDO) ── */}
+      {/* ── BARRA DE GRABACIÓN DE AUDIO (SIMÉTRICA) ── */}
       {isRecording && (
-        <div className="p-3 bg-rose-500/10 border-t border-rose-500/30 flex items-center justify-between gap-3 animate-in fade-in duration-200">
-          <div className="flex items-center gap-2">
-            <span className="h-3 w-3 rounded-full bg-rose-500 animate-ping" />
-            <span className="text-xs font-mono font-bold text-rose-500">
-              {Math.floor(recordingTime / 60)}:
-              {String(recordingTime % 60).padStart(2, "0")}
-            </span>
-            <span className="text-[11px] text-rose-400 font-semibold hidden sm:inline">
-              Grabando nota de voz...
-            </span>
+        <div className="p-2.5 bg-card/95 border-t border-border/80 backdrop-blur-md flex items-center justify-between gap-2.5 shrink-0 animate-in fade-in duration-150">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="h-9 w-9 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-500 flex items-center justify-center shrink-0">
+              <span className="h-3 w-3 rounded-full bg-rose-500 animate-ping" />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-black text-rose-400 font-mono tracking-wider">
+                {Math.floor(recordingTime / 60)}:{String(recordingTime % 60).padStart(2, "0")}
+              </span>
+              <span className="text-[11px] text-muted-foreground hidden sm:inline">
+                Grabando nota de voz...
+              </span>
+            </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
               onClick={cancelRecording}
-              className="p-1.5 rounded-xl bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground text-xs font-bold transition-colors"
+              className="h-9 px-3 rounded-xl bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer border border-border/50"
               title="Cancelar grabación"
             >
-              <X className="h-4 w-4" />
+              <X className="h-3.5 w-3.5" />
+              <span>Cancelar</span>
             </button>
             <button
               type="button"
               onClick={stopRecording}
-              className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold flex items-center gap-1 shadow-sm transition-all"
+              className="h-9 px-3.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm shadow-rose-600/30 transition-all cursor-pointer active:scale-95"
+              title="Finalizar grabación"
             >
-              <Square className="h-3 w-3 fill-current" />
-              <span>Finalizar</span>
+              <Square className="h-3.5 w-3.5 fill-current" />
+              <span>Listo</span>
             </button>
           </div>
         </div>
@@ -582,10 +674,12 @@ export function InternalChatView({
 
       {/* ── PREVIEW DE AUDIO GRABADO ANTES DE ENVIAR ── */}
       {audioPreview && !isRecording && (
-        <div className="p-3 bg-muted/60 border-t border-border/80 flex items-center justify-between gap-3 animate-in fade-in duration-200">
-          <div className="flex items-center gap-2 min-w-0 flex-1">
-            <Volume2 className="h-4 w-4 text-violet-500 shrink-0" />
-            <audio src={audioPreview} controls className="h-8 max-w-[200px]" />
+        <div className="p-2.5 bg-card/95 border-t border-border/80 backdrop-blur-md flex items-center justify-between gap-3 shrink-0 animate-in fade-in duration-150">
+          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+            <div className="h-9 w-9 rounded-xl bg-violet-600/15 border border-violet-500/30 text-violet-400 flex items-center justify-center shrink-0">
+              <Volume2 className="h-4 w-4" />
+            </div>
+            <audio src={audioPreview} controls className="h-8 max-w-[220px] flex-1" />
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
@@ -593,7 +687,7 @@ export function InternalChatView({
               type="button"
               onClick={cancelRecording}
               disabled={uploadingFile}
-              className="p-2 rounded-xl bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground transition-colors"
+              className="h-9 w-9 rounded-xl bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors cursor-pointer border border-border/50"
               title="Descartar audio"
             >
               <X className="h-4 w-4" />
@@ -602,7 +696,7 @@ export function InternalChatView({
               type="button"
               onClick={sendAudioNote}
               disabled={uploadingFile}
-              className="px-3.5 py-1.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold flex items-center gap-1 shadow-sm shadow-violet-600/30 transition-all"
+              className="h-9 px-3.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm shadow-violet-600/30 transition-all cursor-pointer active:scale-95 disabled:opacity-50"
             >
               {uploadingFile ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -617,11 +711,11 @@ export function InternalChatView({
         </div>
       )}
 
-      {/* ── BARRA DE ENTRADA INFERIOR ── */}
+      {/* ── BARRA DE ENTRADA INFERIOR (COMPACTA Y ADAPTABLE) ── */}
       {!isRecording && !audioPreview && (
         <form
           onSubmit={handleSendMessage}
-          className="p-2.5 bg-card border-t border-border/60 flex items-center gap-1.5 shrink-0"
+          className="p-2 bg-card/95 border-t border-border/80 backdrop-blur-md flex items-center gap-1.5 shrink-0"
         >
           {/* Input oculto para adjuntar archivo */}
           <input
@@ -632,50 +726,84 @@ export function InternalChatView({
             accept="image/*,video/*,audio/*,.pdf,.xml,.xlsx,.xls,.doc,.docx,.txt"
           />
 
+          {/* Botón Adjuntar Archivo */}
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={uploadingFile}
-            className="p-2 rounded-xl hover:bg-muted text-muted-foreground hover:text-foreground transition-colors shrink-0 disabled:opacity-50"
+            className="h-8 w-8 rounded-lg bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground flex items-center justify-center border border-border/50 transition-all shrink-0 cursor-pointer disabled:opacity-50 active:scale-95 shadow-2xs"
             title="Adjuntar archivo, foto o documento"
           >
             {uploadingFile ? (
-              <Loader2 className="h-4 w-4 animate-spin text-violet-500" />
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-500" />
             ) : (
-              <Paperclip className="h-4 w-4" />
+              <Paperclip className="h-3.5 w-3.5" />
             )}
           </button>
 
-          <input
-            type="text"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder={`Escribe a ${channelName}...`}
-            className="flex-1 bg-muted/40 border border-border/70 rounded-xl px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-violet-500/50 transition-all"
-          />
+          {/* Campo de Texto Central con altura h-8 */}
+          <div className="flex-1 min-w-0 h-8 bg-muted/30 hover:bg-muted/50 focus-within:bg-muted/70 focus-within:ring-1 focus-within:ring-violet-500/30 focus-within:border-violet-500/50 border border-border/60 rounded-lg px-2.5 flex items-center transition-all">
+            <input
+              type="text"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder={isExpanded ? "Escribe un mensaje o presiona Enter..." : "Mensaje..."}
+              className="w-full bg-transparent text-xs text-foreground placeholder:text-muted-foreground/70 focus:outline-none"
+            />
+          </div>
 
-          <button
-            type="button"
-            onClick={startRecording}
-            disabled={uploadingFile || isRecording}
-            className="p-2 rounded-xl hover:bg-muted text-muted-foreground hover:text-foreground transition-colors shrink-0"
-            title="Grabar nota de voz"
-          >
-            <Mic className="h-4 w-4" />
-          </button>
+          {/* Si está en pantalla expandida, mostramos ambos (Mic y Send).
+              Si está en barra lateral angosta: switch dinámico inteligente (Mic cuando vacío, Send cuando hay texto)
+              para aprovechar el 100% del espacio sin cortar ningún botón. */}
+          {isExpanded ? (
+            <>
+              <button
+                type="button"
+                onClick={startRecording}
+                disabled={uploadingFile || isRecording}
+                className="h-8 w-8 rounded-lg bg-muted/40 hover:bg-muted text-muted-foreground hover:text-violet-400 flex items-center justify-center border border-border/50 transition-all shrink-0 cursor-pointer disabled:opacity-50 active:scale-95 shadow-2xs"
+                title="Grabar nota de voz"
+              >
+                <Mic className="h-3.5 w-3.5" />
+              </button>
 
-          <button
-            type="submit"
-            disabled={!draft.trim() || sending}
-            className="p-2 rounded-xl bg-violet-600 hover:bg-violet-500 text-white shadow-sm shadow-violet-600/30 transition-all disabled:opacity-40 disabled:hover:bg-violet-600 shrink-0"
-            title="Enviar mensaje"
-          >
-            {sending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Send className="h-4 w-4" />
-            )}
-          </button>
+              <button
+                type="submit"
+                disabled={!draft.trim() || sending}
+                className="h-8 w-8 rounded-lg bg-violet-600 hover:bg-violet-500 text-white flex items-center justify-center shadow-sm shadow-violet-600/30 transition-all shrink-0 cursor-pointer active:scale-95 disabled:opacity-30 disabled:pointer-events-none"
+                title="Enviar mensaje"
+              >
+                {sending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Send className="h-3.5 w-3.5" />
+                )}
+              </button>
+            </>
+          ) : draft.trim() ? (
+            <button
+              type="submit"
+              disabled={sending}
+              className="h-8 w-8 rounded-lg bg-violet-600 hover:bg-violet-500 text-white flex items-center justify-center shadow-sm shadow-violet-600/30 transition-all shrink-0 cursor-pointer active:scale-95"
+              title="Enviar mensaje"
+            >
+              {sending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Send className="h-3.5 w-3.5" />
+              )}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={startRecording}
+              disabled={uploadingFile || isRecording}
+              className="h-8 w-8 rounded-lg bg-muted/40 hover:bg-muted text-muted-foreground hover:text-violet-400 flex items-center justify-center border border-border/50 transition-all shrink-0 cursor-pointer disabled:opacity-50 active:scale-95 shadow-2xs"
+              title="Grabar nota de voz"
+            >
+              <Mic className="h-3.5 w-3.5" />
+            </button>
+          )}
         </form>
       )}
 

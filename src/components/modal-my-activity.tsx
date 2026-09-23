@@ -101,7 +101,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
   const ITEMS_PER_PAGE = 5;
 
   // Tolerancia oficial de inactividad configurada por los administradores (en minutos)
-  const [toleranceMin, setToleranceMin] = useState<number>(5);
+  const [toleranceMin, setToleranceMin] = useState<number>(3);
 
   useEffect(() => {
     fetch("/api/activity/schedule")
@@ -168,6 +168,9 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
       const schedData = await resSchedule.json();
       if (schedData?.targetDailyHours) {
         setTargetDailyHours(Number(schedData.targetDailyHours));
+      }
+      if (schedData?.toleranceMinutes) {
+        setToleranceMin(Number(schedData.toleranceMinutes));
       }
 
       const otData = await resOvertime.json();
@@ -429,10 +432,46 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
   // Ordenar lagunas de más reciente a más antigua
   detectedGaps.reverse();
 
-  // La inactividad real total es la suma exacta de las lagunas reales detectadas menos las ya justificadas
-  // Garantiza 100% de consistencia entre los minutos detectados y la lista con horas exactas
-  const rawGapsMs = detectedGaps.reduce((acc, g) => acc + g.durationMs, 0);
-  const totalIdleMs = Math.max(0, rawGapsMs - totalJustifiedMs);
+  // Descontar lagunas que coincidan con justificaciones existentes (por horario o compensadas)
+  const remainingGaps: DetectedGap[] = [];
+  let availableJustifiedMs = totalJustifiedMs;
+
+  for (const gap of detectedGaps) {
+    // 1. Coincidencia de horario con una justificación registrada
+    const isDirectlyCovered = sorted.some((item) => {
+      const meta = (item.metadata || {}) as Record<string, any>;
+      const isJust = Boolean(
+        meta.justification ||
+        item.category === "Justificación" ||
+        (item.action || "").toLowerCase().startsWith("justificación:") ||
+        (item.action || "").toLowerCase().startsWith("justificacion:")
+      );
+      if (!isJust) return false;
+      if (meta.date && meta.date === gap.dateStr) {
+        if (meta.start_time && meta.end_time) {
+          if (meta.start_time === gap.startTimeVal && meta.end_time === gap.endTimeVal) return true;
+        }
+      }
+      return false;
+    });
+
+    if (isDirectlyCovered) {
+      continue;
+    }
+
+    // 2. Compensación por minutos justificados acumulados en el período
+    if (availableJustifiedMs >= gap.durationMs) {
+      availableJustifiedMs -= gap.durationMs;
+      continue;
+    }
+
+    remainingGaps.push(gap);
+  }
+
+  // Las lagunas vigentes son únicamente las que no han sido justificadas
+  const activeDetectedGaps = remainingGaps;
+  const rawGapsMs = activeDetectedGaps.reduce((acc, g) => acc + g.durationMs, 0);
+  const totalIdleMs = rawGapsMs;
 
   // Cálculo de jornada base de 10 horas y tiempo perdido / tiempo extra
   const targetMs = targetDailyHours * 60 * 60 * 1000;
@@ -448,17 +487,17 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
       if (detectedLostMin > 0) {
         setJustMinutes(String(detectedLostMin));
       }
-      if (detectedGaps.length === 1 && !justStartTime) {
-        setJustDate(detectedGaps[0].dateStr);
-        setJustStartTime(detectedGaps[0].startTimeVal);
-        setJustEndTime(detectedGaps[0].endTimeVal);
-        setJustTimeRange(`${detectedGaps[0].startTime} a ${detectedGaps[0].endTime}`);
+      if (activeDetectedGaps.length === 1 && !justStartTime) {
+        setJustDate(activeDetectedGaps[0].dateStr);
+        setJustStartTime(activeDetectedGaps[0].startTimeVal);
+        setJustEndTime(activeDetectedGaps[0].endTimeVal);
+        setJustTimeRange(`${activeDetectedGaps[0].startTime} a ${activeDetectedGaps[0].endTime}`);
       } else if (!justDate) {
         const todayParts = new Date().toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
         setJustDate(todayParts);
       }
     }
-  }, [activeTab, detectedLostMin, detectedGaps.length]);
+  }, [activeTab, detectedLostMin, activeDetectedGaps.length]);
 
   const handleSelectGap = (gap: DetectedGap) => {
     setJustDate(gap.dateStr);
@@ -589,7 +628,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
         customCreatedAt = new Date(`${justDate}T${timePart}:00`).toISOString();
       }
 
-      logActivity({
+      const payload = {
         agent_email: agentEmail,
         agent_name: agentName,
         action: `Justificación: ${justReason}${detailText}${timeRangeText}${dateText} (${minVal} min)`,
@@ -607,7 +646,26 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
           minutes: minVal,
           task: justReason,
         },
+      };
+
+      const res = await fetch("/api/activity/log", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || "Error al registrar justificación");
+      }
+
+      // Actualización optimista inmediata en memoria para que no haya que recargar la página
+      const optimisticLog = {
+        ...payload,
+        id: Date.now(),
+        created_at: customCreatedAt || new Date().toISOString(),
+      };
+      setTimeline((prev) => [...prev, optimisticLog as any]);
 
       toast.success(`Justificación de ${minVal} min guardada para "${justReason}".`);
       setJustDetail("");
@@ -615,9 +673,11 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
       setJustStartTime("");
       setJustEndTime("");
       setActiveTab("resumen");
-      setTimeout(() => fetchMyData(rangeMode, customDate), 600);
+
+      // Refrescar métricas del servidor
+      await fetchMyData(rangeMode, customDate);
     } catch (e: any) {
-      toast.error("Error al registrar justificación");
+      toast.error(e.message || "Error al registrar justificación");
     } finally {
       setSavingJust(false);
     }
@@ -1041,8 +1101,8 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                       type="button"
                       onClick={() => {
                         setJustMinutes(String(detectedLostMin));
-                        if (detectedGaps.length === 1) {
-                          handleSelectGap(detectedGaps[0]);
+                        if (activeDetectedGaps.length === 1) {
+                          handleSelectGap(activeDetectedGaps[0]);
                         }
                       }}
                       className="px-5 py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs sm:text-sm transition-all flex items-center justify-center gap-2 shadow-md shadow-amber-500/25 active:scale-95 shrink-0 self-stretch sm:self-auto"
@@ -1056,22 +1116,22 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                   <div className="p-3.5 sm:p-4 rounded-2xl bg-black/40 border border-amber-500/30 flex items-start sm:items-center gap-3">
                     <AlertCircle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5 sm:mt-0" />
                     <p className="text-xs sm:text-sm text-amber-200 font-medium leading-relaxed">
-                      {detectedGaps.length === 1 ? (
+                      {activeDetectedGaps.length === 1 ? (
                         <>
                           <strong className="text-white">Hora exacta de la inactividad:</strong> de{" "}
                           <span className="font-mono font-bold text-amber-300 text-sm underline underline-offset-4">
-                            {detectedGaps[0].startTime}
+                            {activeDetectedGaps[0].startTime}
                           </span>{" "}
                           a{" "}
                           <span className="font-mono font-bold text-amber-300 text-sm underline underline-offset-4">
-                            {detectedGaps[0].endTime}
+                            {activeDetectedGaps[0].endTime}
                           </span>{" "}
-                          ({detectedGaps[0].minutes} min) el día {detectedGaps[0].dateFormatted}.
+                          ({activeDetectedGaps[0].minutes} min) el día {activeDetectedGaps[0].dateFormatted}.
                         </>
                       ) : (
                         <>
                           <strong className="text-white">Horarios detectados:</strong> Ocurrió en{" "}
-                          <span className="font-bold text-amber-300">{detectedGaps.length} momentos</span> durante la jornada. Selecciona una laguna de la lista abajo para justificarla con 1 clic.
+                          <span className="font-bold text-amber-300">{activeDetectedGaps.length} momentos</span> durante la jornada. Selecciona una laguna de la lista abajo para justificarla con 1 clic.
                         </>
                       )}
                     </p>
@@ -1080,13 +1140,13 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
               )}
 
               {/* Lagunas e Inactividad Detectadas por Hora (Diseño Espacioso, Sin Apelmazar) */}
-              {detectedGaps.length > 0 && (
+              {activeDetectedGaps.length > 0 && (
                 <div className="space-y-3 p-5 sm:p-6 rounded-3xl bg-muted/30 border border-border/80 shadow-sm">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 pb-2 border-b border-border/50">
                     <div className="flex items-center gap-2">
                       <Clock className="h-4 w-4 text-amber-400" />
                       <h4 className="text-sm font-bold text-foreground">
-                        Lagunas detectadas con fecha y hora exacta ({detectedGaps.length}):
+                        Lagunas detectadas con fecha y hora exacta ({activeDetectedGaps.length}):
                       </h4>
                     </div>
                     <span className="text-xs text-muted-foreground">
@@ -1095,7 +1155,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                   </div>
 
                   <div className="space-y-3 pt-1">
-                    {detectedGaps.map((gap) => {
+                    {activeDetectedGaps.map((gap) => {
                       const isSelected = justStartTime === gap.startTimeVal && justEndTime === gap.endTimeVal && justDate === gap.dateStr;
                       return (
                         <div

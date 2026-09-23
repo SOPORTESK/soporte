@@ -94,7 +94,7 @@ async function runAutoClose() {
 
     const { data: casos, error } = await supabase
       .from("sek_cases")
-      .select("id, canal, estado, histcliente, histtecnico, created_at, assigned_to, customer_phone, cliente, auto_close_paused, tags")
+      .select("id, canal, estado, histcliente, histtecnico, created_at, accepted_at, updated_at, assigned_to, customer_phone, cliente, auto_close_paused, tags")
       .in("estado", ["abierto", "ia_atendiendo"])
       .neq("canal", "simulator")
       .neq("es_test", true)
@@ -106,15 +106,14 @@ async function runAutoClose() {
     const thresholdMs = config.inactivity_minutes * 60 * 1000;
 
     for (const caso of casos) {
-      if (caso.auto_close_paused) continue;
-      const tags = Array.isArray(caso.tags) ? caso.tags : [];
-      if (tags.some(t => ["saliente", "re-open"].includes(String(t).toLowerCase()))) continue;
-
       const canalLower = String(caso.canal || "").toLowerCase().trim();
       const clienteObj = typeof caso.cliente === "object" ? caso.cliente : {};
       const realPhone = clienteObj?.telefono_real || clienteObj?.telefono || caso.customer_phone || "";
+      const tags = Array.isArray(caso.tags) ? caso.tags : [];
+      const isReopen = tags.some(t => String(t).toLowerCase() === "re-open");
+      const isSaliente = tags.some(t => String(t).toLowerCase() === "saliente");
 
-      // CIERRE POR FIN DE JORNADA
+      // 1. CIERRE POR FIN DE JORNADA (Prioridad absoluta: nadie queda abierto fuera del horario laboral)
       if (isDailyCloseWindow) {
         const msg = dailyClose.message;
         const entry = { role: "tecnico", content: msg, time: new Date().toISOString(), author: "Soporte Sekunet" };
@@ -141,7 +140,11 @@ async function runAutoClose() {
         continue;
       }
 
-      // CIERRE POR INACTIVIDAD SEGÚN TIEMPO CONFIGURADO EN EL PANEL
+      // 2. PROTECCIÓN DURANTE JORNADA LABORAL
+      if (caso.auto_close_paused) continue;
+      if (isSaliente) continue;
+
+      // 3. CIERRE POR INACTIVIDAD SEGÚN TIEMPO CONFIGURADO EN EL PANEL
       if (!config.enabled) continue;
 
       const clientMsgs = (caso.histcliente || []).filter(m => m?.time && m?.role === "user");
@@ -150,6 +153,43 @@ async function runAutoClose() {
       const agentMsgs = (caso.histtecnico || []).filter(m => m?.time && m?.role !== "nota");
       const lastAgentTime = agentMsgs.length > 0 ? Math.max(...agentMsgs.map(m => new Date(m.time).getTime())) : 0;
 
+      // Si es un caso reabierto (re-open):
+      // Se le da mayor margen de atención durante la jornada (mínimo 60 min),
+      // pero si transcurre ese tiempo sin actividad de ninguna parte, se auto-cierra para no quedar abandonado.
+      if (isReopen) {
+        const reopenGraceMs = Math.max(thresholdMs * 2, 60 * 60 * 1000);
+        const caseAcceptedTime = caso.accepted_at ? new Date(caso.accepted_at).getTime() : 0;
+        const lastAnyActivity = Math.max(lastAgentTime, lastClientTime, caseAcceptedTime);
+
+        if (lastAnyActivity > 0 && (now - lastAnyActivity) >= reopenGraceMs) {
+          const msg = config.close_message;
+          const entry = { role: "tecnico", content: msg, time: new Date().toISOString(), author: "Soporte Sekunet" };
+          const newHist = [...(caso.histtecnico || []), entry];
+
+          const { data: updated } = await supabase
+            .from("sek_cases")
+            .update({
+              estado: "cerrado",
+              closed_at: new Date().toISOString(),
+              histtecnico: newHist,
+              last_message_at: new Date().toISOString(),
+              last_message_preview: msg.slice(0, 200),
+            })
+            .eq("id", caso.id)
+            .eq("estado", caso.estado)
+            .select("id");
+
+          if (updated && updated.length > 0) {
+            console.log(`[auto-close] Caso reabierto ${caso.id} cerrado por inactividad (${Math.round((now - lastAnyActivity) / 60000)} min >= ${Math.round(reopenGraceMs / 60000)} min).`);
+            if (canalLower === "whatsapp" && realPhone) {
+              await sendWhatsApp(realPhone, msg);
+            }
+          }
+        }
+        continue;
+      }
+
+      // Caso regular:
       // Si el agente nunca respondió, no cerrar por inactividad de cliente
       if (lastAgentTime === 0) continue;
 

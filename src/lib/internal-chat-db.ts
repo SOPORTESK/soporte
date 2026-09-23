@@ -51,6 +51,8 @@ export async function saveChannelMessage(
     {
       key,
       value: JSON.stringify(updated),
+      iv: "none",
+      tag: "none",
       updated_at: new Date().toISOString(),
     },
     { onConflict: "key" }
@@ -74,6 +76,8 @@ export async function saveChannelMessage(
         {
           key: RECENT_CHATS_KEY,
           value: JSON.stringify(channels),
+          iv: "none",
+          tag: "none",
           updated_at: new Date().toISOString(),
         },
         { onConflict: "key" }
@@ -111,6 +115,8 @@ export async function markChannelMessagesAsRead(
       {
         key,
         value: JSON.stringify(updated),
+        iv: "none",
+        tag: "none",
         updated_at: new Date().toISOString(),
       },
       { onConflict: "key" }
