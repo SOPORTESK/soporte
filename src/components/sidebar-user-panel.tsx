@@ -111,6 +111,79 @@ const TAREAS_GROUPED: { group: string; color?: string; items: ManualTaskItem[] }
   }
 ];
 
+const MACRO_COLOR_PALETTE = [
+  {
+    bg: "bg-orange-500/15",
+    border: "border-orange-500/40",
+    hover: "hover:bg-orange-500/25 hover:border-orange-500/70",
+    text: "text-orange-950 dark:text-orange-200",
+    iconBg: "bg-orange-500/25 text-orange-600 dark:text-orange-300 border-orange-500/40",
+  },
+  {
+    bg: "bg-sky-500/15",
+    border: "border-sky-500/40",
+    hover: "hover:bg-sky-500/25 hover:border-sky-500/70",
+    text: "text-sky-950 dark:text-sky-200",
+    iconBg: "bg-sky-500/25 text-sky-600 dark:text-sky-300 border-sky-500/40",
+  },
+  {
+    bg: "bg-emerald-500/15",
+    border: "border-emerald-500/40",
+    hover: "hover:bg-emerald-500/25 hover:border-emerald-500/70",
+    text: "text-emerald-950 dark:text-emerald-200",
+    iconBg: "bg-emerald-500/25 text-emerald-600 dark:text-emerald-300 border-emerald-500/40",
+  },
+  {
+    bg: "bg-cyan-500/15",
+    border: "border-cyan-500/40",
+    hover: "hover:bg-cyan-500/25 hover:border-cyan-500/70",
+    text: "text-cyan-950 dark:text-cyan-200",
+    iconBg: "bg-cyan-500/25 text-cyan-600 dark:text-cyan-300 border-cyan-500/40",
+  },
+  {
+    bg: "bg-purple-500/15",
+    border: "border-purple-500/40",
+    hover: "hover:bg-purple-500/25 hover:border-purple-500/70",
+    text: "text-purple-950 dark:text-purple-200",
+    iconBg: "bg-purple-500/25 text-purple-600 dark:text-purple-300 border-purple-500/40",
+  },
+  {
+    bg: "bg-rose-500/15",
+    border: "border-rose-500/40",
+    hover: "hover:bg-rose-500/25 hover:border-rose-500/70",
+    text: "text-rose-950 dark:text-rose-200",
+    iconBg: "bg-rose-500/25 text-rose-600 dark:text-rose-300 border-rose-500/40",
+  },
+  {
+    bg: "bg-amber-500/15",
+    border: "border-amber-500/40",
+    hover: "hover:bg-amber-500/25 hover:border-amber-500/70",
+    text: "text-amber-950 dark:text-amber-200",
+    iconBg: "bg-amber-500/25 text-amber-600 dark:text-amber-300 border-amber-500/40",
+  },
+  {
+    bg: "bg-indigo-500/15",
+    border: "border-indigo-500/40",
+    hover: "hover:bg-indigo-500/25 hover:border-indigo-500/70",
+    text: "text-indigo-950 dark:text-indigo-200",
+    iconBg: "bg-indigo-500/25 text-indigo-600 dark:text-indigo-300 border-indigo-500/40",
+  },
+  {
+    bg: "bg-teal-500/15",
+    border: "border-teal-500/40",
+    hover: "hover:bg-teal-500/25 hover:border-teal-500/70",
+    text: "text-teal-950 dark:text-teal-200",
+    iconBg: "bg-teal-500/25 text-teal-600 dark:text-teal-300 border-teal-500/40",
+  },
+  {
+    bg: "bg-pink-500/15",
+    border: "border-pink-500/40",
+    hover: "hover:bg-pink-500/25 hover:border-pink-500/70",
+    text: "text-pink-950 dark:text-pink-200",
+    iconBg: "bg-pink-500/25 text-pink-600 dark:text-pink-300 border-pink-500/40",
+  },
+];
+
 function AvatarImg({ url, name, size = 36 }: { url?: string | null; name?: string | null; size?: number }) {
   const safeName = (typeof name === "string" ? name : "").trim() || "Usuario";
   const initials = safeName
@@ -1586,12 +1659,12 @@ export function SidebarUserPanel({
                   )}
                 </div>
 
-                {/* Vista Drill-down (Navegación por Niveles) */}
-                <div className="space-y-1 pt-0.5">
+                {/* Vista Cuadrícula Macro (Sin Desplegables) */}
+                <div className="pt-0.5">
                   {/* CASO A: Búsqueda activa global */}
                   {manualSearchQuery.trim() ? (
-                    <div className="space-y-1.5">
-                      <div className="flex items-center justify-between px-1 pb-1">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between px-1 pb-1 border-b border-border/40">
                         <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                           Resultados de búsqueda
                         </span>
@@ -1608,9 +1681,92 @@ export function SidebarUserPanel({
                           </p>
                         </div>
                       ) : (
-                        searchResults.map((task) => {
+                        <div className="grid grid-cols-2 gap-2">
+                          {searchResults.map((task, idx) => {
+                            const isCurrent = manualTask?.label === task.label;
+                            const Icon = task.icon;
+                            const color = MACRO_COLOR_PALETTE[idx % MACRO_COLOR_PALETTE.length];
+                            const displayLabel = (task as any).short && task.label.length > 20 ? (task as any).short : task.label;
+
+                            return (
+                              <button
+                                key={task.label}
+                                type="button"
+                                title={task.label}
+                                onClick={() => {
+                                  if (isCurrent) stopManualTask();
+                                  else startManualTask(task.category, task.label, task.subcategory);
+                                }}
+                                className={`group relative flex flex-col items-center justify-center p-2.5 rounded-2xl border text-center transition-all cursor-pointer shadow-xs active:scale-95 min-h-[74px] ${
+                                  isCurrent
+                                    ? "bg-amber-500/25 border-amber-500 ring-2 ring-amber-500/60 shadow-amber-500/20"
+                                    : `${color.bg} ${color.border} ${color.hover}`
+                                }`}
+                              >
+                                {isCurrent && (
+                                  <span className="absolute top-1.5 right-1.5 flex h-2 w-2">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                                  </span>
+                                )}
+                                <div
+                                  className={`h-7 w-7 rounded-xl grid place-items-center mb-1 transition-transform group-hover:scale-110 ${
+                                    isCurrent
+                                      ? "bg-amber-500/30 text-amber-300 border border-amber-500/40"
+                                      : color.iconBg
+                                  }`}
+                                >
+                                  <Icon className="h-3.5 w-3.5" />
+                                </div>
+                                <span
+                                  className={`text-[11px] font-bold leading-tight break-words text-center px-0.5 ${
+                                    isCurrent ? "text-amber-300 font-black" : color.text
+                                  }`}
+                                >
+                                  {displayLabel}
+                                </span>
+                                {isCurrent && (
+                                  <span className="text-[8px] font-black uppercase text-amber-400 mt-1 tracking-wider bg-amber-500/20 px-1.5 py-0.2 rounded-full border border-amber-500/30">
+                                    En curso
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  ) : drillCategory !== null ? (
+                    /* NIVEL 2: TAREAS DE LA CATEGORÍA SELECCIONADA EN BOTONES MACRO */
+                    <div className="space-y-2 animate-in fade-in-50 duration-150">
+                      {/* Cabecera con botón Volver */}
+                      <div className="flex items-center justify-between gap-2 pb-1.5 border-b border-border/40">
+                        <button
+                          type="button"
+                          onClick={() => setDrillCategory(null)}
+                          className="flex items-center gap-1 px-2 py-1 rounded-lg bg-muted/70 hover:bg-muted text-xs font-bold text-foreground border border-border/60 transition-all active:scale-95 cursor-pointer shadow-2xs"
+                        >
+                          <ChevronLeft className="h-3.5 w-3.5" />
+                          <span>Volver</span>
+                        </button>
+                        <div className="text-right min-w-0">
+                          <span className="text-xs font-black text-foreground truncate block">
+                            {drillCategory === "all" ? "Todas las labores" : drillCategory}
+                          </span>
+                          <span className="text-[9.5px] text-muted-foreground font-semibold">
+                            {drillItems.length} {drillItems.length === 1 ? "labor" : "labores"}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Cuadrícula de botones macro de tareas */}
+                      <div className="grid grid-cols-2 gap-2">
+                        {drillItems.map((task, idx) => {
                           const isCurrent = manualTask?.label === task.label;
                           const Icon = task.icon;
+                          const color = MACRO_COLOR_PALETTE[idx % MACRO_COLOR_PALETTE.length];
+                          const displayLabel = (task as any).short && task.label.length > 20 ? (task as any).short : task.label;
+
                           return (
                             <button
                               key={task.label}
@@ -1620,303 +1776,126 @@ export function SidebarUserPanel({
                                 if (isCurrent) stopManualTask();
                                 else startManualTask(task.category, task.label, task.subcategory);
                               }}
-                              className={`w-full group flex items-center justify-between py-1.5 px-2.5 rounded-lg border transition-all text-left cursor-pointer ${
+                              className={`group relative flex flex-col items-center justify-center p-2.5 rounded-2xl border text-center transition-all cursor-pointer shadow-xs active:scale-95 min-h-[74px] ${
                                 isCurrent
-                                  ? "bg-amber-500/15 border-amber-500/50 text-amber-400 shadow-xs ring-1 ring-amber-500/30"
-                                  : "bg-card border-border/70 hover:bg-muted/60 hover:border-violet-500/30 hover:shadow-xs"
+                                  ? "bg-amber-500/25 border-amber-500 ring-2 ring-amber-500/60 shadow-amber-500/20"
+                                  : `${color.bg} ${color.border} ${color.hover}`
                               }`}
                             >
-                              <div className="flex items-center gap-2 min-w-0 flex-1 pr-2">
-                                <div
-                                  className={`h-6 w-6 rounded-md grid place-items-center shrink-0 border transition-all ${
-                                    isCurrent
-                                      ? "bg-amber-500/25 border-amber-500/40 text-amber-300"
-                                      : "bg-muted/60 border-border/60 text-muted-foreground group-hover:bg-violet-500/15 group-hover:text-violet-400 group-hover:border-violet-500/30"
-                                  }`}
-                                >
-                                  <Icon className="h-3 w-3" />
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                  <p
-                                    className={`text-[11px] font-semibold leading-tight truncate transition-colors ${
-                                      isCurrent ? "text-amber-300" : "text-foreground group-hover:text-violet-400"
-                                    }`}
-                                    title={task.label}
-                                  >
-                                    {task.label}
-                                  </p>
-                                </div>
+                              {isCurrent && (
+                                <span className="absolute top-1.5 right-1.5 flex h-2 w-2">
+                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                                  <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                                </span>
+                              )}
+                              <div
+                                className={`h-7 w-7 rounded-xl grid place-items-center mb-1 transition-transform group-hover:scale-110 ${
+                                  isCurrent
+                                    ? "bg-amber-500/30 text-amber-300 border border-amber-500/40"
+                                    : color.iconBg
+                                }`}
+                              >
+                                <Icon className="h-3.5 w-3.5" />
                               </div>
-                              <div className="shrink-0 flex items-center">
-                                {isCurrent ? (
-                                  <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px] font-bold">
-                                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-                                    <span>Activa</span>
-                                  </div>
-                                ) : (
-                                  <div className="h-5 w-5 rounded-md bg-muted/40 group-hover:bg-violet-600 group-hover:text-white text-muted-foreground/60 grid place-items-center transition-all border border-border/40 group-hover:border-violet-600">
-                                    <Play className="h-2 w-2 fill-current ml-0.5" />
-                                  </div>
-                                )}
-                              </div>
+                              <span
+                                className={`text-[11px] font-bold leading-tight break-words text-center px-0.5 ${
+                                  isCurrent ? "text-amber-300 font-black" : color.text
+                                }`}
+                              >
+                                {displayLabel}
+                              </span>
+                              {isCurrent && (
+                                <span className="text-[8px] font-black uppercase text-amber-400 mt-1 tracking-wider bg-amber-500/20 px-1.5 py-0.2 rounded-full border border-amber-500/30">
+                                  En curso
+                                </span>
+                              )}
                             </button>
                           );
-                        })
-                      )}
+                        })}
+                      </div>
                     </div>
                   ) : (
-                    /* NIVEL DE CATEGORÍAS Y TAREAS CON TOGGLE EXCLUSIVO COMPACTO */
-                    <div className="space-y-1">
-                      {/* Botón Maestro: Todas las labores */}
-                      {taskGroups.length > 1 && (drillCategory === null || drillCategory === "all") && (
-                        <div className="space-y-1">
-                          <button
-                            type="button"
-                            onClick={() => setDrillCategory((prev) => (prev === "all" ? null : "all"))}
-                            className={`w-full flex items-center justify-between py-1.5 px-2.5 rounded-lg border transition-all text-left group cursor-pointer shadow-2xs ${
-                              drillCategory === "all"
-                                ? "bg-violet-600 text-white border-violet-500 shadow-violet-600/30 ring-1 ring-violet-400/40"
-                                : "bg-gradient-to-r from-violet-600/10 via-indigo-600/5 to-transparent border-violet-500/30 hover:border-violet-500/60"
-                            }`}
-                          >
-                            <div className="flex items-center gap-2 min-w-0">
-                              <div
-                                className={`h-6 w-6 rounded-md grid place-items-center shrink-0 shadow-2xs transition-transform group-hover:scale-105 ${
-                                  drillCategory === "all"
-                                    ? "bg-white text-violet-700 font-bold"
-                                    : "bg-violet-600 text-white shadow-violet-600/20"
-                                }`}
-                              >
-                                <Layers className="h-3 w-3" />
-                              </div>
-                              <span className={`text-[11.5px] font-bold truncate ${drillCategory === "all" ? "text-white" : "text-foreground group-hover:text-violet-400"}`}>
-                                Todas las labores
-                              </span>
-                            </div>
+                    /* NIVEL 1: SUBCATEGORÍAS / CATEGORÍAS EN BOTONES MACRO */
+                    <div className="space-y-2 animate-in fade-in-50 duration-150">
+                      <div className="flex items-center justify-between px-1 pb-1 border-b border-border/40">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                          Selecciona una categoría
+                        </span>
+                        <span className="text-[10px] font-bold text-violet-400">
+                          {totalAvailableTasks} labores
+                        </span>
+                      </div>
 
-                            <div className="flex items-center gap-1.5 shrink-0">
-                              <span
-                                className={`px-1.5 py-0.5 rounded-full text-[9.5px] font-black border ${
-                                  drillCategory === "all"
-                                    ? "bg-white/20 text-white border-white/40"
-                                    : "bg-violet-600/15 text-violet-300 border-violet-500/30"
-                                }`}
-                              >
-                                {totalAvailableTasks}
-                              </span>
-                              {drillCategory === "all" ? (
-                                <XIcon className="h-3.5 w-3.5 text-white" />
-                              ) : (
-                                <ChevronRight className="h-3.5 w-3.5 text-muted-foreground group-hover:text-violet-400 group-hover:translate-x-0.5 transition-all" />
-                              )}
-                            </div>
-                          </button>
+                      <div className="grid grid-cols-2 gap-2">
+                        {taskGroups.map((group, idx) => {
+                          const Icon = getCategoryIcon(group.group);
+                          const color = MACRO_COLOR_PALETTE[idx % MACRO_COLOR_PALETTE.length];
+                          const hasActiveTask = manualTask && group.items.some((i) => i.label === manualTask.label);
 
-                          {/* Tareas de "Todas" desplegadas debajo de su botón (los otros botones quedan ocultos) */}
-                          {drillCategory === "all" && (
-                            <div className="space-y-1 pt-1 animate-in fade-in-50 duration-150">
-                              {taskGroups.flatMap((g) => g.items).map((task) => {
-                                const isCurrent = manualTask?.label === task.label;
-                                const Icon = task.icon;
-                                return (
-                                  <button
-                                    key={task.label}
-                                    type="button"
-                                    title={task.label}
-                                    onClick={() => {
-                                      if (isCurrent) stopManualTask();
-                                      else startManualTask(task.category, task.label, task.subcategory);
-                                    }}
-                                    className={`w-full group flex items-center justify-between py-1.5 px-2.5 rounded-lg border transition-all text-left cursor-pointer ${
-                                      isCurrent
-                                        ? "bg-amber-500/15 border-amber-500/50 text-amber-400 shadow-xs ring-1 ring-amber-500/30"
-                                        : "bg-card border-border/70 hover:bg-muted/60 hover:border-violet-500/30 hover:shadow-xs"
-                                    }`}
-                                  >
-                                    <div className="flex items-center gap-2 min-w-0 flex-1 pr-2">
-                                      <div
-                                        className={`h-6 w-6 rounded-md grid place-items-center shrink-0 border transition-all ${
-                                          isCurrent
-                                            ? "bg-amber-500/25 border-amber-500/40 text-amber-300"
-                                            : "bg-muted/60 border-border/60 text-muted-foreground group-hover:bg-violet-500/15 group-hover:text-violet-400 group-hover:border-violet-500/30"
-                                        }`}
-                                      >
-                                        <Icon className="h-3 w-3" />
-                                      </div>
-                                      <div className="min-w-0 flex-1">
-                                        <p
-                                          className={`text-[11px] font-semibold leading-tight truncate transition-colors ${
-                                            isCurrent ? "text-amber-300" : "text-foreground group-hover:text-violet-400"
-                                          }`}
-                                          title={task.label}
-                                        >
-                                          {task.label}
-                                        </p>
-                                      </div>
-                                    </div>
-                                    <div className="shrink-0 flex items-center">
-                                      {isCurrent ? (
-                                        <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px] font-bold">
-                                          <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-                                          <span>Activa</span>
-                                        </div>
-                                      ) : (
-                                        <div className="h-5 w-5 rounded-md bg-muted/40 group-hover:bg-violet-600 group-hover:text-white text-muted-foreground/60 grid place-items-center transition-all border border-border/40 group-hover:border-violet-600">
-                                          <Play className="h-2 w-2 fill-current ml-0.5" />
-                                        </div>
-                                      )}
-                                    </div>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Botones de Categorías Individuales: Si una se abre, SE ESCONDEN LAS DEMÁS */}
-                      {taskGroups.map((group) => {
-                        // Si hay una categoría activa y NO es esta, SE ESCONDE este botón (NO SE VEN)
-                        if (drillCategory !== null && drillCategory !== group.group) {
-                          return null;
-                        }
-
-                        const isCurrentActive = drillCategory === group.group;
-                        const Icon = getCategoryIcon(group.group);
-                        const hasActiveTask = manualTask && group.items.some((i) => i.label === manualTask.label);
-
-                        return (
-                          <div key={group.group} className="space-y-1">
-                            {/* El botón de la categoría (Compacto y fácil de navegar) */}
+                          return (
                             <button
+                              key={group.group}
                               type="button"
-                              onClick={() => setDrillCategory((prev) => (prev === group.group ? null : group.group))}
-                              className={`w-full flex items-center justify-between py-1.5 px-2.5 rounded-lg border transition-all text-left group cursor-pointer shadow-2xs ${
-                                isCurrentActive
-                                  ? "bg-violet-600 text-white border-violet-500 shadow-violet-600/30 ring-1 ring-violet-400/40"
-                                  : hasActiveTask
-                                  ? "bg-amber-500/10 border-amber-500/40 hover:border-amber-500/60 ring-1 ring-amber-500/20"
-                                  : "bg-card/90 border-border/70 hover:bg-muted/50 hover:border-violet-500/40"
+                              onClick={() => setDrillCategory(group.group)}
+                              className={`group relative flex flex-col items-center justify-center p-2.5 rounded-2xl border text-center transition-all cursor-pointer shadow-xs active:scale-95 min-h-[78px] ${
+                                hasActiveTask
+                                  ? "bg-amber-500/20 border-amber-500 ring-2 ring-amber-500/50"
+                                  : `${color.bg} ${color.border} ${color.hover}`
                               }`}
                             >
-                              <div className="flex items-center gap-2 min-w-0">
-                                <div
-                                  className={`h-6 w-6 rounded-md grid place-items-center shrink-0 border transition-transform group-hover:scale-105 ${
-                                    isCurrentActive
-                                      ? "bg-white text-violet-700 font-bold border-white"
-                                      : hasActiveTask
-                                      ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
-                                      : "bg-muted/60 text-muted-foreground border-border/60 group-hover:bg-violet-500/15 group-hover:text-violet-400 group-hover:border-violet-500/30"
-                                  }`}
-                                >
-                                  <Icon className="h-3 w-3" />
-                                </div>
-                                <span
-                                  className={`text-[11.5px] font-bold truncate transition-colors ${
-                                    isCurrentActive
-                                      ? "text-white"
-                                      : hasActiveTask
-                                      ? "text-amber-400"
-                                      : "text-foreground group-hover:text-violet-400"
-                                  }`}
-                                >
-                                  {group.group}
+                              {hasActiveTask && (
+                                <span className="absolute top-1.5 right-1.5 flex h-2 w-2">
+                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                                  <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
                                 </span>
-                                {hasActiveTask && !isCurrentActive && (
-                                  <span className="text-[8px] font-black uppercase text-amber-400 bg-amber-500/15 px-1 rounded border border-amber-500/30 shrink-0">
-                                    ●
-                                  </span>
-                                )}
+                              )}
+                              <div
+                                className={`h-8 w-8 rounded-xl grid place-items-center mb-1 transition-transform group-hover:scale-110 ${
+                                  hasActiveTask
+                                    ? "bg-amber-500/30 text-amber-300 border border-amber-500/40"
+                                    : color.iconBg
+                                }`}
+                              >
+                                <Icon className="h-4 w-4" />
                               </div>
-
-                              <div className="flex items-center gap-1.5 shrink-0">
-                                <span
-                                  className={`px-1.5 py-0.5 rounded-full text-[9.5px] font-bold border ${
-                                    isCurrentActive
-                                      ? "bg-white/20 text-white border-white/40"
-                                      : hasActiveTask
-                                      ? "bg-amber-500/20 text-amber-300 border-amber-500/30"
-                                      : "bg-muted/80 text-muted-foreground border-border/50"
-                                  }`}
-                                >
-                                  {group.items.length}
+                              <span
+                                className={`text-[11.5px] font-bold leading-tight ${
+                                  hasActiveTask ? "text-amber-300 font-black" : color.text
+                                }`}
+                              >
+                                {group.group}
+                              </span>
+                              <span className="text-[9.5px] font-semibold text-muted-foreground mt-0.5">
+                                {group.items.length} {group.items.length === 1 ? "labor" : "labores"}
+                              </span>
+                              {hasActiveTask && (
+                                <span className="text-[8px] font-black uppercase text-amber-400 mt-1 tracking-wider bg-amber-500/20 px-1.5 py-0.2 rounded-full border border-amber-500/30">
+                                  En curso
                                 </span>
-                                {isCurrentActive ? (
-                                  <XIcon className="h-3.5 w-3.5 text-white" />
-                                ) : (
-                                  <ChevronRight
-                                    className={`h-3.5 w-3.5 transition-all group-hover:translate-x-0.5 ${
-                                      hasActiveTask ? "text-amber-400" : "text-muted-foreground group-hover:text-violet-400"
-                                    }`}
-                                  />
-                                )}
-                              </div>
+                              )}
                             </button>
+                          );
+                        })}
 
-                            {/* Al tocar la categoría, se despliegan sus tareas directamente debajo de ella */}
-                            {isCurrentActive && (
-                              <div className="space-y-1 pt-1 animate-in fade-in-50 duration-150">
-                                {group.items.map((task) => {
-                                  const isCurrent = manualTask?.label === task.label;
-                                  const Icon = task.icon;
-                                  return (
-                                    <button
-                                      key={task.label}
-                                      type="button"
-                                      title={task.label}
-                                      onClick={() => {
-                                        if (isCurrent) stopManualTask();
-                                        else startManualTask(task.category, task.label, task.subcategory);
-                                      }}
-                                      className={`w-full group flex items-center justify-between py-1.5 px-2.5 rounded-lg border transition-all text-left cursor-pointer ${
-                                        isCurrent
-                                          ? "bg-amber-500/15 border-amber-500/50 text-amber-400 shadow-xs ring-1 ring-amber-500/30"
-                                          : "bg-card border-border/70 hover:bg-muted/60 hover:border-violet-500/30 hover:shadow-xs"
-                                      }`}
-                                    >
-                                      <div className="flex items-center gap-2 min-w-0 flex-1 pr-2">
-                                        <div
-                                          className={`h-6 w-6 rounded-md grid place-items-center shrink-0 border transition-all ${
-                                            isCurrent
-                                              ? "bg-amber-500/25 border-amber-500/40 text-amber-300"
-                                              : "bg-muted/60 border-border/60 text-muted-foreground group-hover:bg-violet-500/15 group-hover:text-violet-400 group-hover:border-violet-500/30"
-                                          }`}
-                                        >
-                                          <Icon className="h-3 w-3" />
-                                        </div>
-
-                                        <div className="min-w-0 flex-1">
-                                          <p
-                                            className={`text-[11px] font-semibold leading-tight truncate transition-colors ${
-                                              isCurrent ? "text-amber-300" : "text-foreground group-hover:text-violet-400"
-                                            }`}
-                                            title={task.label}
-                                          >
-                                            {task.label}
-                                          </p>
-                                        </div>
-                                      </div>
-
-                                      <div className="shrink-0 flex items-center">
-                                        {isCurrent ? (
-                                          <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px] font-bold">
-                                            <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-                                            <span>Activa</span>
-                                          </div>
-                                        ) : (
-                                          <div className="h-5 w-5 rounded-md bg-muted/40 group-hover:bg-violet-600 group-hover:text-white text-muted-foreground/60 grid place-items-center transition-all border border-border/40 group-hover:border-violet-600">
-                                            <Play className="h-2 w-2 fill-current ml-0.5" />
-                                          </div>
-                                        )}
-                                      </div>
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
+                        {/* Botón Maestro: Todas las labores */}
+                        {taskGroups.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => setDrillCategory("all")}
+                            className="group relative flex flex-col items-center justify-center p-2.5 rounded-2xl border text-center transition-all cursor-pointer shadow-xs active:scale-95 min-h-[78px] bg-violet-500/15 border-violet-500/40 hover:bg-violet-500/25 hover:border-violet-500/70"
+                          >
+                            <div className="h-8 w-8 rounded-xl grid place-items-center mb-1 transition-transform group-hover:scale-110 bg-violet-500/25 text-violet-400 border border-violet-500/40">
+                              <Layers className="h-4 w-4" />
+                            </div>
+                            <span className="text-[11.5px] font-bold leading-tight text-violet-950 dark:text-violet-200">
+                              Todas
+                            </span>
+                            <span className="text-[9.5px] font-semibold text-muted-foreground mt-0.5">
+                              {totalAvailableTasks} labores
+                            </span>
+                          </button>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
