@@ -1136,13 +1136,6 @@ export function SidebarUserPanel({
             headers: { "Content-Type": "application/json" }, 
             body: JSON.stringify({ status: "away", email: agent.email }) 
           }).catch(() => {});
-          logActivity({
-            agent_email: agent.email,
-            agent_name: fullName,
-            action: `Sin actividad detectada por ${toleranceMin} minutos, estado cambiado automáticamente a "Ausente"`,
-            category: "Inactividad",
-            duration_ms: timeoutMs,
-          });
         }
       }, timeoutMs);
     };

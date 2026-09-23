@@ -521,22 +521,8 @@ export function extractSmartAppName(item: TimelineItem): string {
   if (action.includes("outlook") || action.includes("correo")) return "Correo / Outlook";
   if (action.includes("excel")) return "Microsoft Excel";
   if (action.includes("word")) return "Microsoft Word";
-  if (action.includes("atendió caso") || action.includes("atendiendo caso")) return "Atención de Casos / Chats";
-  if (action.includes("tomó el caso") || action.includes("gestión de casos")) return "Gestión y Asignación de Casos";
-
-  // 7. Por páginas y módulos del sistema
-  if (rawPath.includes("soporte-avanzado") || action.includes("soporte avanzado")) return "Soporte Avanzado (N2)";
-  if (rawPath.includes("smart-inbox") || action.includes("smart inbox")) return "Smart Inbox (IA & Casos)";
-  if (rawPath.includes("mi-gestion") || action.includes("mi bandeja de gestión")) return "Mi Bandeja de Gestión";
-  if (rawPath.includes("inventario") || action.includes("inventario")) return "Gestión de Inventario";
-  if (rawPath.includes("equipo") || action.includes("equipo")) return "Gestión de Equipo";
-  if (rawPath.includes("agente-ia") || action.includes("agente ia")) return "Configuración Agente IA";
-  if (rawPath.includes("actividad") || action.includes("activity tracker") || action.includes("auditoría")) return "Suite de Auditoría y Actividad";
-  if (rawPath.includes("estadisticas") || action.includes("estadística")) return "Estadísticas de Atención";
-  if (rawPath === "/admin" || action.includes("panel admin - resumen")) return "Panel de Administración";
-  if (rawPath.includes("inbox") || action.includes("bandeja de entrada")) return "Seka Chat (Bandeja)";
-
-  return "Seka Chat - Plataforma";
+  // 7. Todo lo que ocurre en la web/plataforma interna es Seka Chat
+  return "Seka Chat";
 }
 
 export function getDefaultCategoryForApp(appName: string, action: string = "", category: string = ""): string {

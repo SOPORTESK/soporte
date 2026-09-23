@@ -10,17 +10,17 @@ export async function GET(req: NextRequest) {
     const agent = searchParams.get("agent") || undefined;
     const date = searchParams.get("date") || new Date().toISOString().split("T")[0];
     const endDate = searchParams.get("endDate") || undefined;
-    const metrics = searchParams.get("metrics") === "true";
+    const metricsParam = searchParams.get("metrics");
     const lastMinutes = searchParams.get("lastMinutes");
 
-    if (metrics && agent) {
+    if (metricsParam === "only" && agent) {
       const m = await getActivityMetrics(agent, date);
       const res = NextResponse.json(m);
       res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
       return res;
     }
 
-    // Fast-path ultrarrápido para chequeos de sincronización (lastMinutes):
+    // Fast-path ultrarrápido para chequeos de sincronización de fondo (lastMinutes):
     // Consulta directa de 100 registros con solo los campos necesarios en vez de 3500 filas pesadas
     if (lastMinutes) {
       const minutesAgo = parseInt(lastMinutes, 10);
@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
     let timeline = await getActivityTimeline(agent, date, endDate);
 
     let metricsData = null;
-    if (agent && metrics) {
+    if (agent) {
       try {
         metricsData = await getActivityMetrics(agent, date);
       } catch (err) {
