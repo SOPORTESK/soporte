@@ -738,12 +738,14 @@ export function SidebarUserPanel({
     }
   }, [hasActivityAccess, tab]);
 
-  // Sincronización robusta de la labor manual al montar:
-  // 1) Lee localStorage
-  // 2) Escucha cambios entre pestañas vía evento 'storage'
-  // 3) Si está vacío, consulta la base de datos Supabase para recuperar la labor activa no finalizada
+  // Sincronización robusta y bidireccional de labor manual (Electron <-> Pestañas <-> Localhost):
+  // 1) Lee localStorage al montar
+  // 2) Sincroniza entre pestañas locales vía 'storage'
+  // 3) Sincroniza en tiempo real entre apps (Desktop y Web) vía Supabase Broadcast
+  // 4) Verifica con el timeline del servidor al montar, al recibir foco (focus) o al cambiar de pestaña (visibilitychange)
   useEffect(() => {
-    let currentTask: { type: string; label: string; start: number } | null = null;
+    // 1) Carga inicial de localStorage si es reciente (< 10h)
+    let currentTask: { type: string; label: string; subcategory?: string; start: number } | null = null;
     try {
       const saved = localStorage.getItem("sekunet_manual_task");
       if (saved) {
@@ -757,6 +759,7 @@ export function SidebarUserPanel({
       }
     } catch {}
 
+    // 2) Sincronización entre pestañas en el mismo origen
     const handleStorage = (e: StorageEvent) => {
       if (e.key === "sekunet_manual_task") {
         if (e.newValue) {
@@ -765,49 +768,102 @@ export function SidebarUserPanel({
           } catch {}
         } else {
           setManualTask(null);
+          setManualElapsed("");
         }
       }
     };
     window.addEventListener("storage", handleStorage);
 
-    // Consulta de respaldo a la base de datos solo si no hay tarea en localStorage y no se consultó recientemente
-    const lastChecked = typeof window !== "undefined" ? sessionStorage.getItem("sek_manual_task_checked") : null;
-    const shouldCheck = !currentTask && (!lastChecked || Date.now() - Number(lastChecked) > 5 * 60 * 1000);
-    if (shouldCheck) {
-      try { sessionStorage.setItem("sek_manual_task_checked", String(Date.now())); } catch {}
-      const today = new Date().toISOString().split("T")[0];
-      fetch(`/api/activity/timeline?agent=${encodeURIComponent(agent.email)}&date=${today}&lastMinutes=120`)
-        .then((r) => r.json())
-        .then((data) => {
-          if (data?.timeline && Array.isArray(data.timeline)) {
-            const sorted = [...data.timeline].filter((t: any) => Boolean(t.created_at));
-            // Buscar el último Inició manual
-            const lastStart = sorted.find((it: any) => {
-              const act = (it.action || "").toLowerCase();
-              return (act.startsWith("inició:") || act.startsWith("inicio:")) && (it.metadata?.manual || it.metadata?.task);
-            });
-            if (lastStart) {
-              const startMs = new Date(lastStart.created_at).getTime();
+    // 3) Canal Supabase Broadcast para sincronización instantánea entre Electron y Navegador
+    const syncChannel = supabase
+      .channel(`sek_manual_task_sync_${agent.email}`)
+      .on("broadcast", { event: "manual_task_change" }, (payload: any) => {
+        const data = payload?.payload;
+        if (!data) return;
+        if (data.action === "stop") {
+          setManualTask(null);
+          setManualElapsed("");
+          try { localStorage.removeItem("sekunet_manual_task"); } catch {}
+        } else if (data.action === "start" && data.task) {
+          setManualTask(data.task);
+          try { localStorage.setItem("sekunet_manual_task", JSON.stringify(data.task)); } catch {}
+        }
+      })
+      .subscribe();
+
+    // 4) Verificación autoritativa con el servidor (detecta si se finalizó en otra instancia)
+    const checkServerTimeline = async () => {
+      if (!agent.email) return;
+      try {
+        const today = new Date().toISOString().split("T")[0];
+        const res = await fetch(`/api/activity/timeline?agent=${encodeURIComponent(agent.email)}&date=${today}&lastMinutes=180&_t=${Date.now()}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data?.timeline && Array.isArray(data.timeline)) {
+          const sorted = [...data.timeline].filter((t: any) => Boolean(t.created_at));
+          // Buscar el último registro manual (sea Inició o Terminó)
+          const lastManual = sorted.find((it: any) => {
+            const act = (it.action || "").toLowerCase();
+            return (act.startsWith("inició:") || act.startsWith("inicio:") || act.startsWith("terminó:") || act.startsWith("termino:")) && (it.metadata?.manual || it.metadata?.task);
+          });
+
+          if (lastManual) {
+            const act = (lastManual.action || "").toLowerCase();
+            if (act.startsWith("terminó:") || act.startsWith("termino:")) {
+              // El último evento registrado fue que TERMINÓ la labor
+              setManualTask(null);
+              setManualElapsed("");
+              try { localStorage.removeItem("sekunet_manual_task"); } catch {}
+            } else if (act.startsWith("inició:") || act.startsWith("inicio:")) {
+              const startMs = new Date(lastManual.created_at).getTime();
+              // Verificar si ya existe un evento posterior que lo haya terminado
               const hasEnd = sorted.some((it: any) => {
-                const act = (it.action || "").toLowerCase();
-                return (act.startsWith("terminó:") || act.startsWith("termino:")) && new Date(it.created_at).getTime() > startMs;
+                const a = (it.action || "").toLowerCase();
+                return (a.startsWith("terminó:") || a.startsWith("termino:")) && new Date(it.created_at).getTime() > startMs;
               });
-              if (!hasEnd && (Date.now() - startMs < 10 * 60 * 60 * 1000)) {
-                const label = lastStart.metadata?.task || lastStart.metadata?.label || lastStart.action.replace(/^inici[oó]:\s*/i, "").trim();
-                const restored = { type: lastStart.category || "Labores manuales", label, start: startMs };
+              if (hasEnd || (Date.now() - startMs > 8 * 60 * 60 * 1000)) {
+                setManualTask(null);
+                setManualElapsed("");
+                try { localStorage.removeItem("sekunet_manual_task"); } catch {}
+              } else {
+                const label = lastManual.metadata?.task || lastManual.metadata?.label || lastManual.action.replace(/^inici[oó]:\s*/i, "").trim();
+                const restored = {
+                  type: lastManual.category || "Labores manuales",
+                  label,
+                  subcategory: lastManual.metadata?.subcategory,
+                  start: startMs,
+                };
                 setManualTask(restored);
                 try { localStorage.setItem("sekunet_manual_task", JSON.stringify(restored)); } catch {}
               }
             }
           }
-        })
-        .catch(() => {});
-    }
+        }
+      } catch {}
+    };
+
+    // Verificación inmediata al montar
+    checkServerTimeline();
+
+    // Verificación al volver a la ventana (p. ej. el usuario vuelve de almorzar o enfoca la app Electron)
+    const handleFocus = () => checkServerTimeline();
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") checkServerTimeline();
+    };
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    // Verificación periódica cada 25 segundos
+    const syncInterval = setInterval(checkServerTimeline, 25000);
 
     return () => {
       window.removeEventListener("storage", handleStorage);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibility);
+      clearInterval(syncInterval);
+      supabase.removeChannel(syncChannel);
     };
-  }, [agent.email]);
+  }, [agent.email, supabase]);
 
   useEffect(() => {
     if (tab !== "activity" || !open) return;
@@ -854,6 +910,16 @@ export function SidebarUserPanel({
     try {
       localStorage.setItem("sekunet_manual_task", JSON.stringify(taskObj));
     } catch {}
+
+    // Transmitir en tiempo real a las demás instancias abiertas (Electron / Web)
+    try {
+      supabase.channel(`sek_manual_task_sync_${agent.email}`).send({
+        type: "broadcast",
+        event: "manual_task_change",
+        payload: { action: "start", task: taskObj },
+      });
+    } catch {}
+
     logActivity({
       agent_email: agent.email,
       agent_name: fullName,
@@ -883,6 +949,16 @@ export function SidebarUserPanel({
     try {
       localStorage.removeItem("sekunet_manual_task");
     } catch {}
+
+    // Transmitir inmediatamente el cese de la labor a Electron y demás ventanas
+    try {
+      supabase.channel(`sek_manual_task_sync_${agent.email}`).send({
+        type: "broadcast",
+        event: "manual_task_change",
+        payload: { action: "stop" },
+      });
+    } catch {}
+
     fetchActivity();
   };
 
@@ -1583,45 +1659,45 @@ export function SidebarUserPanel({
                                 if (isCurrent) stopManualTask();
                                 else startManualTask(task.category, task.label, task.subcategory);
                               }}
-                              className={`w-full group flex items-center justify-between p-2.5 rounded-xl border transition-all duration-150 text-left cursor-pointer ${
+                              className={`w-full group flex items-center justify-between py-1.5 px-2.5 rounded-lg border transition-all text-left cursor-pointer ${
                                 isCurrent
-                                  ? "bg-amber-500/15 border-amber-500/50 text-amber-400 shadow-sm ring-1 ring-amber-500/30"
+                                  ? "bg-amber-500/15 border-amber-500/50 text-amber-400 shadow-xs ring-1 ring-amber-500/30"
                                   : "bg-card border-border/70 hover:bg-muted/60 hover:border-violet-500/30 hover:shadow-xs"
                               }`}
                             >
-                              <div className="flex items-center gap-2.5 min-w-0 flex-1 pr-2">
+                              <div className="flex items-center gap-2 min-w-0 flex-1 pr-2">
                                 <div
-                                  className={`h-8 w-8 rounded-xl grid place-items-center shrink-0 border transition-all duration-200 group-hover:scale-105 ${
+                                  className={`h-6 w-6 rounded-md grid place-items-center shrink-0 border transition-all ${
                                     isCurrent
                                       ? "bg-amber-500/25 border-amber-500/40 text-amber-300"
                                       : "bg-muted/60 border-border/60 text-muted-foreground group-hover:bg-violet-500/15 group-hover:text-violet-400 group-hover:border-violet-500/30"
                                   }`}
                                 >
-                                  <Icon className="h-4 w-4" />
+                                  <Icon className="h-3 w-3" />
                                 </div>
                                 <div className="min-w-0 flex-1">
                                   <p
-                                    className={`text-xs font-bold leading-snug truncate transition-colors ${
+                                    className={`text-[11.5px] font-semibold leading-tight truncate transition-colors ${
                                       isCurrent ? "text-amber-300" : "text-foreground group-hover:text-violet-400"
                                     }`}
                                     title={task.label}
                                   >
                                     {task.label}
                                   </p>
-                                  <p className="text-[10px] text-muted-foreground/80 font-medium leading-tight truncate mt-0.5">
+                                  <p className="text-[9.5px] text-muted-foreground/80 font-medium leading-none truncate mt-0.5">
                                     {task.category} {task.subcategory && `• ${task.subcategory}`}
                                   </p>
                                 </div>
                               </div>
                               <div className="shrink-0 flex items-center">
                                 {isCurrent ? (
-                                  <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-bold">
+                                  <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px] font-bold">
                                     <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
                                     <span>Activa</span>
                                   </div>
                                 ) : (
-                                  <div className="h-6 w-6 rounded-lg bg-muted/40 group-hover:bg-violet-600 group-hover:text-white text-muted-foreground/60 grid place-items-center transition-all border border-border/40 group-hover:border-violet-600 shadow-2xs">
-                                    <Play className="h-2.5 w-2.5 fill-current ml-0.5" />
+                                  <div className="h-5 w-5 rounded-md bg-muted/40 group-hover:bg-violet-600 group-hover:text-white text-muted-foreground/60 grid place-items-center transition-all border border-border/40 group-hover:border-violet-600">
+                                    <Play className="h-2 w-2 fill-current ml-0.5" />
                                   </div>
                                 )}
                               </div>
@@ -1631,61 +1707,61 @@ export function SidebarUserPanel({
                       )}
                     </div>
                   ) : (
-                    /* NIVEL DE CATEGORÍAS Y TAREAS CON TOGGLE EXCLUSIVO */
-                    <div className="space-y-2">
+                    /* NIVEL DE CATEGORÍAS Y TAREAS CON TOGGLE EXCLUSIVO COMPACTO */
+                    <div className="space-y-1.5">
                       {/* Botón Maestro: Todas las labores */}
                       {taskGroups.length > 1 && (drillCategory === null || drillCategory === "all") && (
-                        <div className="space-y-1.5">
+                        <div className="space-y-1">
                           <button
                             type="button"
                             onClick={() => setDrillCategory((prev) => (prev === "all" ? null : "all"))}
-                            className={`w-full flex items-center justify-between p-3 rounded-2xl border transition-all text-left group cursor-pointer shadow-xs ${
+                            className={`w-full flex items-center justify-between py-2 px-2.5 rounded-xl border transition-all text-left group cursor-pointer shadow-2xs ${
                               drillCategory === "all"
-                                ? "bg-violet-600 text-white border-violet-500 shadow-violet-600/30 ring-2 ring-violet-400/40"
-                                : "bg-gradient-to-r from-violet-600/15 via-indigo-600/10 to-violet-600/5 border-violet-500/30 hover:border-violet-500/60"
+                                ? "bg-violet-600 text-white border-violet-500 shadow-violet-600/30 ring-1 ring-violet-400/40"
+                                : "bg-gradient-to-r from-violet-600/10 via-indigo-600/5 to-transparent border-violet-500/30 hover:border-violet-500/60"
                             }`}
                           >
-                            <div className="flex items-center gap-3 min-w-0">
+                            <div className="flex items-center gap-2.5 min-w-0">
                               <div
-                                className={`h-9 w-9 rounded-xl grid place-items-center shrink-0 shadow-sm transition-transform group-hover:scale-105 ${
+                                className={`h-7 w-7 rounded-lg grid place-items-center shrink-0 shadow-2xs transition-transform group-hover:scale-105 ${
                                   drillCategory === "all"
                                     ? "bg-white text-violet-700 font-bold"
-                                    : "bg-violet-600 text-white shadow-violet-600/30"
+                                    : "bg-violet-600 text-white shadow-violet-600/20"
                                 }`}
                               >
-                                <Layers className="h-4.5 w-4.5" />
+                                <Layers className="h-3.5 w-3.5" />
                               </div>
                               <div className="min-w-0">
-                                <span className={`text-xs font-black truncate block ${drillCategory === "all" ? "text-white" : "text-foreground group-hover:text-violet-400"}`}>
+                                <span className={`text-xs font-bold truncate block ${drillCategory === "all" ? "text-white" : "text-foreground group-hover:text-violet-400"}`}>
                                   Todas las labores
                                 </span>
-                                <p className={`text-[10px] truncate mt-0.5 ${drillCategory === "all" ? "text-white/80" : "text-muted-foreground"}`}>
-                                  {drillCategory === "all" ? "Toca para cerrar y ver todas las categorías" : `Catálogo completo (${totalAvailableTasks} labores)`}
+                                <p className={`text-[9.5px] truncate ${drillCategory === "all" ? "text-white/80" : "text-muted-foreground"}`}>
+                                  {drillCategory === "all" ? "Toca para plegar" : `${totalAvailableTasks} labores en total`}
                                 </p>
                               </div>
                             </div>
 
-                            <div className="flex items-center gap-2 shrink-0">
+                            <div className="flex items-center gap-1.5 shrink-0">
                               <span
-                                className={`px-2 py-0.5 rounded-full text-[10px] font-black border ${
+                                className={`px-1.5 py-0.5 rounded-full text-[9.5px] font-black border ${
                                   drillCategory === "all"
                                     ? "bg-white/20 text-white border-white/40"
-                                    : "bg-violet-600/20 text-violet-300 border-violet-500/30"
+                                    : "bg-violet-600/15 text-violet-300 border-violet-500/30"
                                 }`}
                               >
                                 {totalAvailableTasks}
                               </span>
                               {drillCategory === "all" ? (
-                                <XIcon className="h-4 w-4 text-white" />
+                                <XIcon className="h-3.5 w-3.5 text-white" />
                               ) : (
-                                <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-violet-400 group-hover:translate-x-0.5 transition-all" />
+                                <ChevronRight className="h-3.5 w-3.5 text-muted-foreground group-hover:text-violet-400 group-hover:translate-x-0.5 transition-all" />
                               )}
                             </div>
                           </button>
 
-                          {/* Tareas de "Todas" desplegadas debajo de su botón */}
+                          {/* Tareas de "Todas" desplegadas debajo de su botón (los otros botones quedan ocultos) */}
                           {drillCategory === "all" && (
-                            <div className="space-y-1.5 pt-1 animate-in fade-in-50 duration-200">
+                            <div className="space-y-1 pt-1 animate-in fade-in-50 duration-150">
                               {taskGroups.flatMap((g) => g.items).map((task) => {
                                 const isCurrent = manualTask?.label === task.label;
                                 const Icon = task.icon;
@@ -1698,45 +1774,45 @@ export function SidebarUserPanel({
                                       if (isCurrent) stopManualTask();
                                       else startManualTask(task.category, task.label, task.subcategory);
                                     }}
-                                    className={`w-full group flex items-center justify-between p-2.5 rounded-xl border transition-all duration-150 text-left cursor-pointer ${
+                                    className={`w-full group flex items-center justify-between py-1.5 px-2.5 rounded-lg border transition-all text-left cursor-pointer ${
                                       isCurrent
-                                        ? "bg-amber-500/15 border-amber-500/50 text-amber-400 shadow-sm ring-1 ring-amber-500/30"
+                                        ? "bg-amber-500/15 border-amber-500/50 text-amber-400 shadow-xs ring-1 ring-amber-500/30"
                                         : "bg-card border-border/70 hover:bg-muted/60 hover:border-violet-500/30 hover:shadow-xs"
                                     }`}
                                   >
-                                    <div className="flex items-center gap-2.5 min-w-0 flex-1 pr-2">
+                                    <div className="flex items-center gap-2 min-w-0 flex-1 pr-2">
                                       <div
-                                        className={`h-8 w-8 rounded-xl grid place-items-center shrink-0 border transition-all duration-200 group-hover:scale-105 ${
+                                        className={`h-6 w-6 rounded-md grid place-items-center shrink-0 border transition-all ${
                                           isCurrent
                                             ? "bg-amber-500/25 border-amber-500/40 text-amber-300"
                                             : "bg-muted/60 border-border/60 text-muted-foreground group-hover:bg-violet-500/15 group-hover:text-violet-400 group-hover:border-violet-500/30"
                                         }`}
                                       >
-                                        <Icon className="h-4 w-4" />
+                                        <Icon className="h-3 w-3" />
                                       </div>
                                       <div className="min-w-0 flex-1">
                                         <p
-                                          className={`text-xs font-bold leading-snug truncate transition-colors ${
+                                          className={`text-[11.5px] font-semibold leading-tight truncate transition-colors ${
                                             isCurrent ? "text-amber-300" : "text-foreground group-hover:text-violet-400"
                                           }`}
                                           title={task.label}
                                         >
                                           {task.label}
                                         </p>
-                                        <p className="text-[10px] text-muted-foreground/80 font-medium leading-tight truncate mt-0.5">
+                                        <p className="text-[9.5px] text-muted-foreground/80 font-medium leading-none truncate mt-0.5">
                                           {task.category} {task.subcategory && `• ${task.subcategory}`}
                                         </p>
                                       </div>
                                     </div>
                                     <div className="shrink-0 flex items-center">
                                       {isCurrent ? (
-                                        <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-bold">
+                                        <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px] font-bold">
                                           <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
                                           <span>Activa</span>
                                         </div>
                                       ) : (
-                                        <div className="h-6 w-6 rounded-lg bg-muted/40 group-hover:bg-violet-600 group-hover:text-white text-muted-foreground/60 grid place-items-center transition-all border border-border/40 group-hover:border-violet-600 shadow-2xs">
-                                          <Play className="h-2.5 w-2.5 fill-current ml-0.5" />
+                                        <div className="h-5 w-5 rounded-md bg-muted/40 group-hover:bg-violet-600 group-hover:text-white text-muted-foreground/60 grid place-items-center transition-all border border-border/40 group-hover:border-violet-600">
+                                          <Play className="h-2 w-2 fill-current ml-0.5" />
                                         </div>
                                       )}
                                     </div>
@@ -1748,9 +1824,9 @@ export function SidebarUserPanel({
                         </div>
                       )}
 
-                      {/* Botones de Categorías Individuales */}
+                      {/* Botones de Categorías Individuales: Si una se abre, SE ESCONDEN LAS DEMÁS */}
                       {taskGroups.map((group) => {
-                        // Si hay una categoría activa y NO es esta, SE ESCONDE este botón
+                        // Si hay una categoría activa y NO es esta, SE ESCONDE este botón (NO SE VEN)
                         if (drillCategory !== null && drillCategory !== group.group) {
                           return null;
                         }
@@ -1760,22 +1836,22 @@ export function SidebarUserPanel({
                         const hasActiveTask = manualTask && group.items.some((i) => i.label === manualTask.label);
 
                         return (
-                          <div key={group.group} className="space-y-1.5">
-                            {/* El botón de la categoría */}
+                          <div key={group.group} className="space-y-1">
+                            {/* El botón de la categoría (Compacto y fácil de navegar) */}
                             <button
                               type="button"
                               onClick={() => setDrillCategory((prev) => (prev === group.group ? null : group.group))}
-                              className={`w-full flex items-center justify-between p-3 rounded-2xl border transition-all text-left group cursor-pointer shadow-xs ${
+                              className={`w-full flex items-center justify-between py-2 px-2.5 rounded-xl border transition-all text-left group cursor-pointer shadow-2xs ${
                                 isCurrentActive
-                                  ? "bg-violet-600 text-white border-violet-500 shadow-violet-600/30 ring-2 ring-violet-400/40"
+                                  ? "bg-violet-600 text-white border-violet-500 shadow-violet-600/30 ring-1 ring-violet-400/40"
                                   : hasActiveTask
                                   ? "bg-amber-500/10 border-amber-500/40 hover:border-amber-500/60 ring-1 ring-amber-500/20"
-                                  : "bg-card/90 border-border/70 hover:bg-muted/40 hover:border-violet-500/40"
+                                  : "bg-card/90 border-border/70 hover:bg-muted/50 hover:border-violet-500/40"
                               }`}
                             >
-                              <div className="flex items-center gap-3 min-w-0">
+                              <div className="flex items-center gap-2.5 min-w-0">
                                 <div
-                                  className={`h-9 w-9 rounded-xl grid place-items-center shrink-0 border transition-transform group-hover:scale-105 ${
+                                  className={`h-7 w-7 rounded-lg grid place-items-center shrink-0 border transition-transform group-hover:scale-105 ${
                                     isCurrentActive
                                       ? "bg-white text-violet-700 font-bold border-white"
                                       : hasActiveTask
@@ -1783,7 +1859,7 @@ export function SidebarUserPanel({
                                       : "bg-muted/60 text-muted-foreground border-border/60 group-hover:bg-violet-500/15 group-hover:text-violet-400 group-hover:border-violet-500/30"
                                   }`}
                                 >
-                                  <Icon className="h-4.5 w-4.5" />
+                                  <Icon className="h-3.5 w-3.5" />
                                 </div>
 
                                 <div className="min-w-0">
@@ -1800,26 +1876,26 @@ export function SidebarUserPanel({
                                       {group.group}
                                     </span>
                                     {hasActiveTask && !isCurrentActive && (
-                                      <span className="text-[9px] font-black uppercase tracking-wider text-amber-400 bg-amber-500/15 px-1.5 py-0.2 rounded border border-amber-500/30">
+                                      <span className="text-[8.5px] font-black uppercase tracking-wider text-amber-400 bg-amber-500/15 px-1 py-0.2 rounded border border-amber-500/30">
                                         En curso
                                       </span>
                                     )}
                                   </div>
                                   <p
-                                    className={`text-[10px] truncate mt-0.5 ${
+                                    className={`text-[9.5px] truncate ${
                                       isCurrentActive ? "text-white/80" : "text-muted-foreground"
                                     }`}
                                   >
                                     {isCurrentActive
-                                      ? "Toca para cerrar y ver todas las categorías"
-                                      : `${group.items.length} ${group.items.length === 1 ? "labor disponible" : "labores disponibles"}`}
+                                      ? "Toca para plegar"
+                                      : `${group.items.length} ${group.items.length === 1 ? "labor" : "labores"}`}
                                   </p>
                                 </div>
                               </div>
 
-                              <div className="flex items-center gap-2 shrink-0">
+                              <div className="flex items-center gap-1.5 shrink-0">
                                 <span
-                                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                                  className={`px-1.5 py-0.5 rounded-full text-[9.5px] font-bold border ${
                                     isCurrentActive
                                       ? "bg-white/20 text-white border-white/40"
                                       : hasActiveTask
@@ -1830,10 +1906,10 @@ export function SidebarUserPanel({
                                   {group.items.length}
                                 </span>
                                 {isCurrentActive ? (
-                                  <XIcon className="h-4 w-4 text-white" />
+                                  <XIcon className="h-3.5 w-3.5 text-white" />
                                 ) : (
                                   <ChevronRight
-                                    className={`h-4 w-4 transition-all group-hover:translate-x-0.5 ${
+                                    className={`h-3.5 w-3.5 transition-all group-hover:translate-x-0.5 ${
                                       hasActiveTask ? "text-amber-400" : "text-muted-foreground group-hover:text-violet-400"
                                     }`}
                                   />
@@ -1841,9 +1917,9 @@ export function SidebarUserPanel({
                               </div>
                             </button>
 
-                            {/* Si se tocó este botón, APARECEN SUS TAREAS DEBAJO DE ÉL */}
+                            {/* Al tocar la categoría, se despliegan sus tareas directamente debajo de ella */}
                             {isCurrentActive && (
-                              <div className="space-y-1.5 pt-1 animate-in fade-in-50 duration-200">
+                              <div className="space-y-1 pt-1 animate-in fade-in-50 duration-150">
                                 {group.items.map((task) => {
                                   const isCurrent = manualTask?.label === task.label;
                                   const Icon = task.icon;
@@ -1856,33 +1932,33 @@ export function SidebarUserPanel({
                                         if (isCurrent) stopManualTask();
                                         else startManualTask(task.category, task.label, task.subcategory);
                                       }}
-                                      className={`w-full group flex items-center justify-between p-2.5 rounded-xl border transition-all duration-150 text-left cursor-pointer ${
+                                      className={`w-full group flex items-center justify-between py-1.5 px-2.5 rounded-lg border transition-all text-left cursor-pointer ${
                                         isCurrent
-                                          ? "bg-amber-500/15 border-amber-500/50 text-amber-400 shadow-sm ring-1 ring-amber-500/30"
+                                          ? "bg-amber-500/15 border-amber-500/50 text-amber-400 shadow-xs ring-1 ring-amber-500/30"
                                           : "bg-card border-border/70 hover:bg-muted/60 hover:border-violet-500/30 hover:shadow-xs"
                                       }`}
                                     >
-                                      <div className="flex items-center gap-2.5 min-w-0 flex-1 pr-2">
+                                      <div className="flex items-center gap-2 min-w-0 flex-1 pr-2">
                                         <div
-                                          className={`h-8 w-8 rounded-xl grid place-items-center shrink-0 border transition-all duration-200 group-hover:scale-105 ${
+                                          className={`h-6 w-6 rounded-md grid place-items-center shrink-0 border transition-all ${
                                             isCurrent
                                               ? "bg-amber-500/25 border-amber-500/40 text-amber-300"
                                               : "bg-muted/60 border-border/60 text-muted-foreground group-hover:bg-violet-500/15 group-hover:text-violet-400 group-hover:border-violet-500/30"
                                           }`}
                                         >
-                                          <Icon className="h-4 w-4" />
+                                          <Icon className="h-3 w-3" />
                                         </div>
 
                                         <div className="min-w-0 flex-1">
                                           <p
-                                            className={`text-xs font-bold leading-snug truncate transition-colors ${
+                                            className={`text-[11.5px] font-semibold leading-tight truncate transition-colors ${
                                               isCurrent ? "text-amber-300" : "text-foreground group-hover:text-violet-400"
                                             }`}
                                             title={task.label}
                                           >
                                             {task.label}
                                           </p>
-                                          <p className="text-[10px] text-muted-foreground/80 font-medium leading-tight truncate mt-0.5">
+                                          <p className="text-[9.5px] text-muted-foreground/80 font-medium leading-none truncate mt-0.5">
                                             {task.subcategory && task.subcategory !== task.label ? task.subcategory : task.category}
                                           </p>
                                         </div>
@@ -1890,13 +1966,13 @@ export function SidebarUserPanel({
 
                                       <div className="shrink-0 flex items-center">
                                         {isCurrent ? (
-                                          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-bold">
+                                          <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px] font-bold">
                                             <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
                                             <span>Activa</span>
                                           </div>
                                         ) : (
-                                          <div className="h-6 w-6 rounded-lg bg-muted/40 group-hover:bg-violet-600 group-hover:text-white text-muted-foreground/60 grid place-items-center transition-all border border-border/40 group-hover:border-violet-600 shadow-2xs">
-                                            <Play className="h-2.5 w-2.5 fill-current ml-0.5" />
+                                          <div className="h-5 w-5 rounded-md bg-muted/40 group-hover:bg-violet-600 group-hover:text-white text-muted-foreground/60 grid place-items-center transition-all border border-border/40 group-hover:border-violet-600">
+                                            <Play className="h-2 w-2 fill-current ml-0.5" />
                                           </div>
                                         )}
                                       </div>

@@ -505,6 +505,9 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
     setJustEndTime(gap.endTimeVal);
     setJustTimeRange(`${gap.startTime} a ${gap.endTime}`);
     setJustMinutes(String(gap.minutes));
+    if (!justReason) {
+      setJustReason("Atención presencial en mostrador");
+    }
     toast.info(`Laguna seleccionada: ${gap.startTime} — ${gap.endTime} (${gap.minutes} min)`);
   };
 
@@ -537,9 +540,8 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
     ? serverMetrics.deficitMs
     : deficitMs;
 
-  const officialIdleMs = (serverMetrics?.totalIdleMs !== undefined && (rangeMode === "hoy" || rangeMode === "custom"))
-    ? serverMetrics.totalIdleMs
-    : totalIdleMs;
+  // Unificar con la inactividad real de lagunas para que la tarjeta superior y la pestaña muestren exactamente los mismos minutos
+  const officialIdleMs = totalIdleMs;
 
   const officialBreakMs = (serverMetrics?.totalBreakMs !== undefined && (rangeMode === "hoy" || rangeMode === "custom"))
     ? serverMetrics.totalBreakMs
@@ -604,9 +606,9 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
 
   const handleSendJustification = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    const reasonToUse = justReason.trim() || "Atención presencial en mostrador";
     if (!justReason.trim()) {
-      toast.error("Por favor seleccione o escriba un motivo.");
-      return;
+      setJustReason(reasonToUse);
     }
 
     setSavingJust(true);
@@ -619,8 +621,8 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
         : (justStartTime && justEndTime ? ` [${justStartTime} - ${justEndTime}]` : "");
       const dateText = justDate ? ` (${justDate})` : "";
 
-      const matchedPreset = WORKSHOP_JUSTIFY_PRESETS.find((p) => p.label === justReason);
-      const categoryToUse = matchedPreset?.cat || "Justificación";
+      const matchedPreset = WORKSHOP_JUSTIFY_PRESETS.find((p) => p.label === reasonToUse);
+      const categoryToUse = matchedPreset?.cat || "Gestión del Taller";
 
       let customCreatedAt: string | undefined = undefined;
       if (justDate) {
@@ -631,20 +633,20 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
       const payload = {
         agent_email: agentEmail,
         agent_name: agentName,
-        action: `Justificación: ${justReason}${detailText}${timeRangeText}${dateText} (${minVal} min)`,
+        action: `Justificación: ${reasonToUse}${detailText}${timeRangeText}${dateText} (${minVal} min)`,
         category: categoryToUse,
         duration_ms: durationMs,
         created_at: customCreatedAt,
         metadata: {
           justification: true,
-          reason: justReason,
+          reason: reasonToUse,
           detail: justDetail.trim(),
           time_range: justTimeRange.trim() || (justStartTime && justEndTime ? `${justStartTime} a ${justEndTime}` : undefined),
           date: justDate,
           start_time: justStartTime || undefined,
           end_time: justEndTime || undefined,
           minutes: minVal,
-          task: justReason,
+          task: reasonToUse,
         },
       };
 
@@ -1101,11 +1103,16 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                       type="button"
                       onClick={() => {
                         setJustMinutes(String(detectedLostMin));
-                        if (activeDetectedGaps.length === 1) {
-                          handleSelectGap(activeDetectedGaps[0]);
+                        if (!justReason) {
+                          setJustReason("Atención presencial en mostrador");
                         }
+                        if (activeDetectedGaps.length > 0) {
+                          handleSelectGap(activeDetectedGaps[0]);
+                          setJustMinutes(String(detectedLostMin));
+                        }
+                        toast.success(`${detectedLostMin} min seleccionados para justificar.`);
                       }}
-                      className="px-5 py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs sm:text-sm transition-all flex items-center justify-center gap-2 shadow-md shadow-amber-500/25 active:scale-95 shrink-0 self-stretch sm:self-auto"
+                      className="px-5 py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs sm:text-sm transition-all flex items-center justify-center gap-2 shadow-md shadow-amber-500/25 active:scale-95 shrink-0 self-stretch sm:self-auto cursor-pointer"
                     >
                       <Sparkles className="h-4 w-4" />
                       Usar {detectedLostMin} min detectados
@@ -1385,8 +1392,8 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                   </button>
                   <button
                     type="submit"
-                    disabled={savingJust || !justReason.trim()}
-                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold shadow-md shadow-violet-600/25 transition-all disabled:opacity-50 active:scale-95"
+                    disabled={savingJust}
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold shadow-md shadow-violet-600/25 transition-all disabled:opacity-50 active:scale-95 cursor-pointer"
                   >
                     <Send className="h-3.5 w-3.5" />
                     {savingJust ? "Guardando..." : `Guardar Justificación (${justMinutes} min)`}
