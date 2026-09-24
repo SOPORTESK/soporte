@@ -148,20 +148,51 @@ async function runAutoClose() {
       if (!config.enabled) continue;
 
       const clientMsgs = (caso.histcliente || []).filter(m => m?.time && m?.role === "user");
-      const lastClientTime = clientMsgs.length > 0 ? Math.max(...clientMsgs.map(m => new Date(m.time).getTime())) : 0;
-
       const agentMsgs = (caso.histtecnico || []).filter(m => m?.time && m?.role !== "nota");
-      const lastAgentTime = agentMsgs.length > 0 ? Math.max(...agentMsgs.map(m => new Date(m.time).getTime())) : 0;
+
+      // Si el agente nunca respondió, no cerrar por inactividad de cliente
+      if (agentMsgs.length === 0) continue;
+
+      // Unir y ordenar todos los mensajes conversacionales con el mismo criterio cronológico del chat (time + seq)
+      const allMsgs = [
+        ...clientMsgs.map(m => ({ ...m, isClient: true })),
+        ...agentMsgs.map(m => ({ ...m, isClient: false }))
+      ];
+
+      allMsgs.sort((a, b) => {
+        const ta = new Date(a.time).getTime();
+        const tb = new Date(b.time).getTime();
+        const va = isNaN(ta) ? 0 : ta;
+        const vb = isNaN(tb) ? 0 : tb;
+        const sa = typeof a.seq === "number" ? a.seq : undefined;
+        const sb = typeof b.seq === "number" ? b.seq : undefined;
+        if (sa !== undefined && sb !== undefined && Math.abs(va - vb) < 120000) {
+          return sa - sb;
+        }
+        return va - vb;
+      });
+
+      const lastMsg = allMsgs[allMsgs.length - 1];
+      if (!lastMsg) continue;
+
+      // Si el último mensaje fue del cliente, el cliente está esperando respuesta -> NO cerrar
+      if (lastMsg.isClient) continue;
+
+      // Debe haber al menos una respuesta del agente humano (no solo IA de bienvenida)
+      const hasHumanAgent = agentMsgs.some(m => m.role === "tecnico" && m.author !== "Soporte Sekunet");
+      if (!hasHumanAgent && caso.estado !== "ia_atendiendo") continue;
+
+      // Tiempo transcurrido desde el último mensaje del agente
+      const lastAgentTime = new Date(lastMsg.time).getTime();
+      const effectiveLastTime = Math.max(lastAgentTime, caso.accepted_at ? new Date(caso.accepted_at).getTime() : 0);
+      const elapsed = now - effectiveLastTime;
 
       // Si es un caso reabierto (re-open):
       // Se le da mayor margen de atención durante la jornada (mínimo 60 min),
       // pero si transcurre ese tiempo sin actividad de ninguna parte, se auto-cierra para no quedar abandonado.
       if (isReopen) {
         const reopenGraceMs = Math.max(thresholdMs * 2, 60 * 60 * 1000);
-        const caseAcceptedTime = caso.accepted_at ? new Date(caso.accepted_at).getTime() : 0;
-        const lastAnyActivity = Math.max(lastAgentTime, lastClientTime, caseAcceptedTime);
-
-        if (lastAnyActivity > 0 && (now - lastAnyActivity) >= reopenGraceMs) {
+        if (effectiveLastTime > 0 && elapsed >= reopenGraceMs) {
           const msg = config.close_message;
           const entry = { role: "tecnico", content: msg, time: new Date().toISOString(), author: "Soporte Sekunet" };
           const newHist = [...(caso.histtecnico || []), entry];
@@ -180,7 +211,7 @@ async function runAutoClose() {
             .select("id");
 
           if (updated && updated.length > 0) {
-            console.log(`[auto-close] Caso reabierto ${caso.id} cerrado por inactividad (${Math.round((now - lastAnyActivity) / 60000)} min >= ${Math.round(reopenGraceMs / 60000)} min).`);
+            console.log(`[auto-close] Caso reabierto ${caso.id} cerrado por inactividad (${Math.round(elapsed / 60000)} min >= ${Math.round(reopenGraceMs / 60000)} min).`);
             if (canalLower === "whatsapp" && realPhone) {
               await sendWhatsApp(realPhone, msg);
             }
@@ -189,15 +220,7 @@ async function runAutoClose() {
         continue;
       }
 
-      // Caso regular:
-      // Si el agente nunca respondió, no cerrar por inactividad de cliente
-      if (lastAgentTime === 0) continue;
-
-      // Si el cliente respondió después del agente, el cliente está esperando respuesta -> NO cerrar
-      if (lastClientTime > lastAgentTime) continue;
-
       // Respetar estrictamente los minutos configurados en el panel
-      const elapsed = now - lastAgentTime;
       if (elapsed < thresholdMs) continue;
 
       // CERRAR DIRECTAMENTE CON EL MENSAJE OFICIAL (SIN ENCUESTAS DE NINGÚN TIPO)

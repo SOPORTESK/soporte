@@ -406,29 +406,44 @@ Deno.serve(async (req) => {
      * - Si el cliente escribió DESPUÉS del agente → el cliente espera respuesta → NO cerrar.
      */
 
-    // Último mensaje del CLIENTE (histcliente, role: "user")
+    // Unir y ordenar todos los mensajes conversacionales con el mismo criterio cronológico del chat (time + seq)
     const clientMsgs = (caso.histcliente ?? []).filter((m: any) => m?.time && m?.role === "user");
-    const lastClientTime = clientMsgs.length > 0
-      ? Math.max(...clientMsgs.map((m: any) => new Date(m.time).getTime()))
-      : 0;
-
-    // Último mensaje del AGENTE/IA (histtecnico, excluyendo notas)
     const agentMsgs = (caso.histtecnico ?? []).filter((m: any) => m?.time && m?.role !== "nota");
-    const lastAgentTime = agentMsgs.length > 0
-      ? Math.max(...agentMsgs.map((m: any) => new Date(m.time).getTime()))
-      : 0;
 
     // Si nunca hubo respuesta del agente, no cerrar
-    if (lastAgentTime === 0) continue;
+    if (agentMsgs.length === 0) continue;
 
-    // Si el cliente escribió DESPUÉS del agente (o al mismo tiempo), el cliente espera → NO cerrar
-    if (lastClientTime > lastAgentTime) continue;
+    const allMsgs = [
+      ...clientMsgs.map((m: any) => ({ ...m, isClient: true })),
+      ...agentMsgs.map((m: any) => ({ ...m, isClient: false }))
+    ];
+
+    allMsgs.sort((a: any, b: any) => {
+      const ta = new Date(a.time).getTime();
+      const tb = new Date(b.time).getTime();
+      const va = isNaN(ta) ? 0 : ta;
+      const vb = isNaN(tb) ? 0 : tb;
+      const sa = typeof a.seq === "number" ? a.seq : undefined;
+      const sb = typeof b.seq === "number" ? b.seq : undefined;
+      if (sa !== undefined && sb !== undefined && Math.abs(va - vb) < 120000) {
+        return sa - sb;
+      }
+      return va - vb;
+    });
+
+    const lastMsg = allMsgs[allMsgs.length - 1];
+    if (!lastMsg) continue;
+
+    // Si el cliente escribió de último, el cliente espera respuesta → NO cerrar
+    if (lastMsg.isClient) continue;
 
     // Umbral de inactividad configurable
     const threshold = (autoCloseConfig.inactivity_minutes || 10) * 60 * 1000;
 
-    // Cerrar si pasaron más de 10 min desde la última respuesta del agente sin que el cliente conteste
-    const elapsed = now - lastAgentTime;
+    // Cerrar si pasaron más de los minutos configurados desde la última respuesta del agente
+    const lastAgentTime = new Date(lastMsg.time).getTime();
+    const effectiveLastTime = Math.max(lastAgentTime, caso.accepted_at ? new Date(caso.accepted_at).getTime() : 0);
+    const elapsed = now - effectiveLastTime;
     if (elapsed < threshold) continue;
 
     // ACTUALIZAR LA BD PRIMERO (atómico con condición de estado) para evitar race condition.
