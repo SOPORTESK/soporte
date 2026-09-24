@@ -1385,7 +1385,18 @@ function ActivityAppsRankingComponent({
       });
     }
 
-    return combined.sort();
+    // Deduplicar case-insensitively (evitar "AntiGravity" y "Antigravity")
+    const seenLower = new Set<string>();
+    const deduplicated: string[] = [];
+    for (const app of combined) {
+      const lower = app.toLowerCase();
+      if (!seenLower.has(lower)) {
+        seenLower.add(lower);
+        deduplicated.push(app);
+      }
+    }
+
+    return deduplicated.sort((a, b) => a.localeCompare(b));
   }, [allDetectedApps, customCategories, searchQuery, hideSystemNoise, appsCategoryFilter]);
 
   // Lista de apps y URLs pendientes de clasificar (sin subcategoría oficial asignada)
@@ -1648,7 +1659,7 @@ function ActivityAppsRankingComponent({
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div
             className={`w-full transition-all duration-300 ${
-              activeModalTab === "tree" ? "max-w-[96vw] xl:max-w-[1720px] h-[92vh]" : "max-w-3xl"
+              activeModalTab === "tree" ? "max-w-[96vw] xl:max-w-[1720px] h-[92vh]" : "max-w-4xl xl:max-w-5xl h-[90vh]"
             } rounded-3xl bg-[#0b0f19] border border-border/80 shadow-2xl p-6 space-y-4 max-h-[94vh] flex flex-col`}
             onClick={(e) => e.stopPropagation()}
           >
@@ -2642,11 +2653,6 @@ function ActivityAppsRankingComponent({
                                 <p className="font-semibold text-xs text-foreground truncate" title={appName}>
                                   {appName}
                                 </p>
-                                {isManual && (
-                                  <span className="text-[10px] text-violet-400 font-medium bg-violet-500/10 px-1.5 py-0.2 rounded border border-violet-500/20 shrink-0">
-                                    Manual
-                                  </span>
-                                )}
                               </div>
                             </div>
                           </div>
