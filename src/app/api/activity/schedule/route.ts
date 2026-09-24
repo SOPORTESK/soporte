@@ -6,12 +6,16 @@ export const runtime = "nodejs";
 export async function GET(req: NextRequest) {
   try {
     const agentEmail = req.nextUrl.searchParams.get("agentEmail");
+    const globalConfig = await getWorkSchedule();
     if (agentEmail) {
       const schedule = await getAgentSchedule(agentEmail);
-      return NextResponse.json({ success: true, ...schedule });
+      return NextResponse.json({
+        success: true,
+        ...schedule,
+        toleranceMinutes: globalConfig.toleranceMinutes || 15,
+      });
     }
-    const config = await getWorkSchedule();
-    return NextResponse.json({ success: true, ...config });
+    return NextResponse.json({ success: true, ...globalConfig });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
