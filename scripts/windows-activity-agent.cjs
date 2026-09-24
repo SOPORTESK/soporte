@@ -179,8 +179,131 @@ console.log(`[Windows Agent] Corriendo para ${AGENT_EMAIL} (${AGENT_NAME}) - Mod
 const MIN_SESSION_MS = 15000;       // Mínimo 15s para consolidar tarea completada
 const HEARTBEAT_INTERVAL = 300000;  // 5 minutos (300s) para puntos de control
 
+let _cachedSchedule = null;
+let _lastScheduleFetch = 0;
+
+async function getEffectiveSchedule(agentEmail) {
+  const now = Date.now();
+  if (_cachedSchedule && (now - _lastScheduleFetch < 60000)) {
+    return _cachedSchedule;
+  }
+  try {
+    const { data } = await supabase
+      .from('sek_app_settings')
+      .select('value')
+      .eq('key', 'app_work_schedule')
+      .maybeSingle();
+
+    if (data && data.value) {
+      const parsed = typeof data.value === 'string' ? JSON.parse(data.value) : data.value;
+      const normalizedEmail = (agentEmail || '').trim().toLowerCase();
+      const custom = parsed.agentSchedules ? parsed.agentSchedules[normalizedEmail] : null;
+
+      if (custom && custom.custom) {
+        _cachedSchedule = {
+          scheduleStart: custom.scheduleStart || parsed.scheduleStart || '08:00',
+          scheduleEnd: custom.scheduleEnd || parsed.scheduleEnd || '17:00',
+          scheduleEnabled: custom.scheduleEnabled !== undefined ? Boolean(custom.scheduleEnabled) : (parsed.scheduleEnabled !== false),
+          workDays: Array.isArray(custom.workDays) && custom.workDays.length > 0 ? custom.workDays : (parsed.workDays || [1, 2, 3, 4, 5]),
+          isCustom: true,
+        };
+      } else {
+        _cachedSchedule = {
+          scheduleStart: parsed.scheduleStart || '08:00',
+          scheduleEnd: parsed.scheduleEnd || '17:00',
+          scheduleEnabled: parsed.scheduleEnabled !== undefined ? Boolean(parsed.scheduleEnabled) : true,
+          workDays: Array.isArray(parsed.workDays) && parsed.workDays.length > 0 ? parsed.workDays : [1, 2, 3, 4, 5],
+          isCustom: false,
+        };
+      }
+      _lastScheduleFetch = now;
+      return _cachedSchedule;
+    }
+  } catch (err) {
+    console.error('[Windows Agent] Error fetching schedule:', err.message);
+  }
+  return {
+    scheduleStart: '08:00',
+    scheduleEnd: '17:00',
+    scheduleEnabled: true,
+    workDays: [1, 2, 3, 4, 5],
+    isCustom: false,
+  };
+}
+
+function isWithinSchedule(sched) {
+  if (!sched || !sched.scheduleEnabled) return true;
+  const nowCostaRica = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Costa_Rica' }));
+  const day = nowCostaRica.getDay();
+  if (Array.isArray(sched.workDays) && !sched.workDays.includes(day)) return false;
+
+  const [startH, startM] = (sched.scheduleStart || '08:00').split(':').map(Number);
+  const [endH, endM] = (sched.scheduleEnd || '17:00').split(':').map(Number);
+
+  const curMin = nowCostaRica.getHours() * 60 + nowCostaRica.getMinutes();
+  const startMin = startH * 60 + startM;
+  const endMin = endH * 60 + endM;
+
+  return curMin >= startMin && curMin <= endMin;
+}
+
+let _lastManualTaskCheck = 0;
+let _hasActiveManualTask = false;
+
+async function checkActiveManualTask(agentEmail) {
+  const now = Date.now();
+  if (now - _lastManualTaskCheck < 15000) return _hasActiveManualTask;
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    const { data } = await supabase
+      .from('activity_log')
+      .select('action, metadata, created_at')
+      .eq('agent_email', agentEmail)
+      .gte('created_at', `${today}T00:00:00`)
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    _lastManualTaskCheck = now;
+    if (!data || data.length === 0) {
+      _hasActiveManualTask = false;
+      return false;
+    }
+    for (const it of data) {
+      const act = (it.action || '').toLowerCase();
+      const meta = it.metadata || {};
+      const isEnd = act.startsWith('terminó:') || act.startsWith('termino:');
+      const isStart = (act.startsWith('inició:') || act.startsWith('inicio:')) && (meta.manual || meta.task);
+      if (isEnd) {
+        _hasActiveManualTask = false;
+        return false;
+      }
+      if (isStart) {
+        const startMs = new Date(it.created_at).getTime();
+        _hasActiveManualTask = (Date.now() - startMs < 10 * 3600 * 1000);
+        return _hasActiveManualTask;
+      }
+    }
+    _hasActiveManualTask = false;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 async function poll() {
   try {
+    // 1. Validar jerarquía de horario: Empleado individual -> Horario operativo global
+    const sched = await getEffectiveSchedule(AGENT_EMAIL);
+    if (!isWithinSchedule(sched)) {
+      return;
+    }
+
+    // 2. Si el agente tiene labor manual activa (almuerzo, taller, etc.), no registrar ventanas de PC
+    const hasManual = await checkActiveManualTask(AGENT_EMAIL);
+    if (hasManual) {
+      return;
+    }
+
     const win = await getActiveWindow();
     if (!win) return;
 

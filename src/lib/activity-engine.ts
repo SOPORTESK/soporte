@@ -247,6 +247,8 @@ export function computeUnifiedActivityMetrics(
   options: {
     targetDailyHours?: number;
     toleranceMinutes?: number;
+    scheduleStart?: string;
+    scheduleEnd?: string;
   } = {}
 ): UnifiedDayMetrics {
   const targetDailyHours = options.targetDailyHours || 10;
@@ -470,12 +472,32 @@ export function computeUnifiedActivityMetrics(
     }
 
     // Caso D: Trabajo estándar en PC
-    // Transición de día o fin de jornada laboral nocturna:
+    // Transición de día, fin de jornada laboral nocturna o fuera de horario asignado:
     const dCurrStr = new Date(currTime).toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
     const dNextStr = new Date(nextTime).toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
 
-    if (dCurrStr !== dNextStr || rawGap > 4 * 3600 * 1000) {
-      // Transición nocturna entre días o fuera de turno: se contabiliza el evento pero no la brecha inter-jornada
+    let isOutsideWorkingHours = false;
+    if (options.scheduleEnd) {
+      const [endH, endM] = options.scheduleEnd.split(":").map(Number);
+      const currCRDate = new Date(new Date(currTime).toLocaleString("en-US", { timeZone: "America/Costa_Rica" }));
+      const curMin = currCRDate.getHours() * 60 + currCRDate.getMinutes();
+      const endLimitMin = endH * 60 + endM;
+      if (curMin >= endLimitMin) {
+        isOutsideWorkingHours = true;
+      }
+    }
+    if (options.scheduleStart) {
+      const [startH, startM] = options.scheduleStart.split(":").map(Number);
+      const nextCRDate = new Date(new Date(nextTime).toLocaleString("en-US", { timeZone: "America/Costa_Rica" }));
+      const nextMin = nextCRDate.getHours() * 60 + nextCRDate.getMinutes();
+      const startLimitMin = startH * 60 + startM;
+      if (nextMin <= startLimitMin) {
+        isOutsideWorkingHours = true;
+      }
+    }
+
+    if (dCurrStr !== dNextStr || rawGap > 4 * 3600 * 1000 || isOutsideWorkingHours) {
+      // Transición nocturna entre días, fuera de turno o fuera de horario: se contabiliza el evento pero no la brecha
       const dur = 60000;
       opTimes[opCategory] = (opTimes[opCategory] || 0) + dur;
       if (!softTimes[itemName]) softTimes[itemName] = { durationMs: 0, count: 0, category: opCategory };

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { insertActivityLog, hasActiveManualTask, getWorkSchedule } from "@/lib/activity-db";
+import { insertActivityLog, hasActiveManualTask, getAgentSchedule } from "@/lib/activity-db";
 
 export const runtime = "nodejs";
 
@@ -51,9 +51,9 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // Si el horario laboral está activo, fuera de ese horario o día NADA se mide
+      // Jerarquía de Horario: Prioriza horario individual del empleado; si no tiene, usa el horario operativo global
       try {
-        const sched = await getWorkSchedule();
+        const sched = await getAgentSchedule(agent_email);
         if (sched.scheduleEnabled) {
           const nowCostaRica = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Costa_Rica" }));
           const dayOfWeek = nowCostaRica.getDay(); // 0 = Domingo, 1 = Lunes, ..., 6 = Sábado

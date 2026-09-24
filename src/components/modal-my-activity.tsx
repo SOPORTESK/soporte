@@ -106,6 +106,8 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
 
   // Tolerancia oficial de inactividad configurada por los administradores (en minutos)
   const [toleranceMin, setToleranceMin] = useState<number>(15);
+  const [scheduleStart, setScheduleStart] = useState<string>("07:00");
+  const [scheduleEnd, setScheduleEnd] = useState<string>("17:00");
   const [showManualJustify, setShowManualJustify] = useState(false);
 
   useEffect(() => {
@@ -177,6 +179,12 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
       if (schedData?.toleranceMinutes) {
         setToleranceMin(Number(schedData.toleranceMinutes));
       }
+      if (schedData?.scheduleStart) {
+        setScheduleStart(schedData.scheduleStart);
+      }
+      if (schedData?.scheduleEnd) {
+        setScheduleEnd(schedData.scheduleEnd);
+      }
 
       const otData = await resOvertime.json();
       if (otData?.requests && Array.isArray(otData.requests)) {
@@ -202,8 +210,10 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
     return computeUnifiedActivityMetrics(timeline, {
       targetDailyHours,
       toleranceMinutes: effectiveToleranceMin,
+      scheduleStart,
+      scheduleEnd,
     });
-  }, [timeline, targetDailyHours, effectiveToleranceMin]);
+  }, [timeline, targetDailyHours, effectiveToleranceMin, scheduleStart, scheduleEnd]);
 
   // Lagunas vigentes para justificar
   const activeDetectedGaps = metrics.detectedGaps;
