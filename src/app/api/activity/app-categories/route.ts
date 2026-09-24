@@ -175,7 +175,15 @@ export async function GET() {
     let hasCustomAppMappings = false;
 
     const junkPrefixes = ['navegador:', 'navegador web:', 'mystify', 'explorer', 'mi bandeja'];
-    const junkExact = ['navegación', 'navegacion', 'navegación web', 'navegacion web', 'inactividad', 'inactivo', 'pausa', 'operativa', 'actividad general'];
+    const junkExact = [
+      'navegación', 'navegacion', 'navegación web', 'navegacion web',
+      'navegador', 'navegador web',
+      'inactividad', 'inactivo', 'pausa', 'pausa operativa', 'pausa prolongada', 'pausa personal',
+      'descansos', 'descanso', 'tiempo de descanso', 'almuerzo', 'café', 'cafe', 'merienda',
+      'pausa sanitaria', 'baño', 'bano',
+      'operativa', 'actividad general', 'sin clasificar',
+      'control administrativo', 'soporte', 'servicio de taller', 'gestión del taller', 'gestión de residuos', 'on-the-job training (ojt)', 'utilidades'
+    ];
 
     for (const row of data || []) {
       if (row.key === APP_MAPPINGS_KEY && row.value) {
@@ -187,6 +195,7 @@ export async function GET() {
               const kl = k.toLowerCase().trim();
               if (junkPrefixes.some((p) => kl.startsWith(p))) continue;
               if (junkExact.includes(kl)) continue;
+              if (kl.includes("descanso") || kl.includes("sanitaria") || kl.includes("inactiv") || kl.includes("pausa")) continue;
               clean[k] = v;
             }
             appMappings = clean;
@@ -258,7 +267,15 @@ export async function GET() {
 
     delete appMappings["Formación de Usuarios"];
     // Fusionar siempre los mapeos oficiales por defecto con cualquier personalización guardada
-    const finalMappings = { ...DEFAULT_APP_MAPPINGS, ...appMappings };
+    const merged = { ...DEFAULT_APP_MAPPINGS, ...appMappings };
+    const finalMappings: Record<string, any> = {};
+    for (const [k, v] of Object.entries(merged)) {
+      const kl = k.toLowerCase().trim();
+      if (junkPrefixes.some((p) => kl.startsWith(p))) continue;
+      if (junkExact.includes(kl)) continue;
+      if (kl.includes("descanso") || kl.includes("sanitaria") || kl.includes("inactiv") || kl.includes("pausa")) continue;
+      finalMappings[k] = v;
+    }
     return NextResponse.json({ appMappings: finalMappings, categories });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

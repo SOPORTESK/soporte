@@ -134,6 +134,46 @@ export function formatTimeCR(dateStr: string): string {
   return d.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" });
 }
 
+export function isCategoryName(c: string): boolean {
+  const cl = (c || "").toLowerCase().trim();
+  return (
+    cl === "control administrativo" ||
+    cl === "soporte" ||
+    cl === "servicio de taller" ||
+    cl === "gestión del taller" ||
+    cl === "gestion del taller" ||
+    cl === "gestión de residuos" ||
+    cl === "gestion de residuos" ||
+    cl === "on-the-job training (ojt)" ||
+    cl === "ojt" ||
+    cl === "descansos" ||
+    cl === "descanso" ||
+    cl.includes("descanso") ||
+    cl.includes("almuerzo") ||
+    cl.includes("merienda") ||
+    cl === "pausa sanitaria" ||
+    cl.includes("sanitaria") ||
+    cl.includes("baño") ||
+    cl.includes("bano") ||
+    cl === "utilidades" ||
+    cl === "actividad general" ||
+    cl === "operativa" ||
+    cl === "sin clasificar" ||
+    cl === "inactividad" ||
+    cl === "inactivo" ||
+    cl === "pausa" ||
+    cl.includes("inactiv") ||
+    cl.includes("pausa") ||
+    cl === "navegación" ||
+    cl === "navegacion" ||
+    cl === "navegación web" ||
+    cl === "navegacion web" ||
+    cl === "navegador" ||
+    cl === "navegador web" ||
+    cl.startsWith("navegador:")
+  );
+}
+
 /**
  * Normaliza y extrae el nombre limpio del software o labor manual real
  */
@@ -142,9 +182,21 @@ export function extractCleanItemName(item: TimelineEntry): string {
   const act = (item.action || "").toLowerCase();
   const cat = (item.category || "").toLowerCase();
 
-  // 0. Si es inactividad o pausa del sistema, no es una aplicación
-  if (cat.includes("inactiv") || act.includes("sin actividad") || act.includes("pausa prolongada") || act.includes("pausa operativa")) {
-    return "Pausa / Inactividad del sistema";
+  // 0. Si es inactividad, descanso o pausa del sistema, no es una aplicación de software
+  if (
+    cat.includes("inactiv") ||
+    act.includes("sin actividad") ||
+    act.includes("pausa prolongada") ||
+    act.includes("pausa operativa") ||
+    cat.includes("descanso") ||
+    act.includes("descanso") ||
+    act.includes("almuerzo") ||
+    cat.includes("sanitaria") ||
+    act.includes("sanitaria") ||
+    act.includes("baño") ||
+    act.includes("bano")
+  ) {
+    return "Pausa / Descanso";
   }
 
   // 1. Si es labor manual explícita
@@ -239,18 +291,6 @@ export function extractCleanItemName(item: TimelineEntry): string {
   if (act.includes("hikvision") || rawTitle.includes("hikvision")) {
     return "Hikvision";
   }
-
-  const isCategoryName = (c: string) => {
-    const cl = (c || "").toLowerCase().trim();
-    return cl === "control administrativo" || cl === "soporte" || cl === "servicio de taller" ||
-           cl === "gestión del taller" || cl === "gestion del taller" || cl === "gestión de residuos" ||
-           cl === "gestion de residuos" || cl === "on-the-job training (ojt)" || cl === "ojt" ||
-           cl === "descansos" || cl === "pausa sanitaria" || cl === "utilidades" ||
-           cl === "actividad general" || cl === "operativa" || cl === "sin clasificar" ||
-           cl === "inactividad" || cl === "inactivo" || cl === "pausa" || cl.includes("inactiv") || cl.includes("pausa") ||
-           cl === "navegación" || cl === "navegacion" || cl === "navegación web" || cl === "navegacion web" ||
-           cl === "navegador" || cl === "navegador web" || cl.startsWith("navegador:");
-  };
 
   if (meta.app_name && meta.app_name !== "ApplicationFrameHost") {
     let clean = meta.app_name.trim();
@@ -508,13 +548,37 @@ export function computeUnifiedActivityMetrics(
     const itemName = extractCleanItemName(it);
     const opCategory = assignToOperationalCategory(itemName, it.action, it.category);
 
+    const recordSoftwareTime = (name: string, dur: number, cat: string) => {
+      const l = (name || "").toLowerCase().trim();
+      if (
+        l.length < 2 ||
+        isCategoryName(l) ||
+        l.includes("inactiv") ||
+        l.includes("pausa") ||
+        l.includes("descanso") ||
+        l.includes("almuerzo") ||
+        l.includes("merienda") ||
+        l.includes("sanitaria") ||
+        l.includes("baño") ||
+        l.includes("bano") ||
+        l.startsWith("navegador:") ||
+        l.startsWith("navegador web:") ||
+        l.startsWith("mi bandeja") ||
+        l === "explorer" ||
+        l.includes("mystify")
+      ) {
+        return;
+      }
+      if (!softTimes[name]) softTimes[name] = { durationMs: 0, count: 0, category: cat };
+      softTimes[name].durationMs += dur;
+      softTimes[name].count++;
+    };
+
     // Caso A: Tarea manual iniciada
     if (isManualStart) {
       const dur = Math.min(rawGap, 4 * 3600 * 1000);
       opTimes[opCategory] = (opTimes[opCategory] || 0) + dur;
-      if (!softTimes[itemName]) softTimes[itemName] = { durationMs: 0, count: 0, category: opCategory };
-      softTimes[itemName].durationMs += dur;
-      softTimes[itemName].count++;
+      recordSoftwareTime(itemName, dur, opCategory);
       const crHour =
         parseInt(
           new Date(currTime).toLocaleString("en-US", { timeZone: "America/Costa_Rica", hour: "numeric", hour12: false }),
@@ -539,9 +603,7 @@ export function computeUnifiedActivityMetrics(
         const dur = Math.min(discreteMs, 4 * 3600 * 1000);
         if (dur > 0) {
           opTimes[opCategory] = (opTimes[opCategory] || 0) + dur;
-          if (!softTimes[itemName]) softTimes[itemName] = { durationMs: 0, count: 0, category: opCategory };
-          softTimes[itemName].durationMs += dur;
-          softTimes[itemName].count++;
+          recordSoftwareTime(itemName, dur, opCategory);
           const crHour =
             parseInt(
               new Date(currTime).toLocaleString("en-US", { timeZone: "America/Costa_Rica", hour: "numeric", hour12: false }),
@@ -560,25 +622,15 @@ export function computeUnifiedActivityMetrics(
       continue;
     }
 
-    // Caso C2: Pausas / Descansos explícitos
+    // Caso C2: Pausas / Descansos explícitos (NO son software ni URLs, son tiempos de pausa laboral)
     if (opCategory === "Descansos") {
       const dur = Math.min(rawGap, 2 * 3600 * 1000);
       opTimes["Descansos"] = (opTimes["Descansos"] || 0) + dur;
-      if (!itemName.toLowerCase().includes("inactiv") && !itemName.toLowerCase().includes("pausa")) {
-        if (!softTimes[itemName]) softTimes[itemName] = { durationMs: 0, count: 0, category: "Descansos" };
-        softTimes[itemName].durationMs += dur;
-        softTimes[itemName].count++;
-      }
       continue;
     }
     if (opCategory === "Pausa Sanitaria") {
       const dur = Math.min(rawGap, 30 * 60 * 1000);
       opTimes["Pausa Sanitaria"] = (opTimes["Pausa Sanitaria"] || 0) + dur;
-      if (!itemName.toLowerCase().includes("inactiv") && !itemName.toLowerCase().includes("pausa")) {
-        if (!softTimes[itemName]) softTimes[itemName] = { durationMs: 0, count: 0, category: "Pausa Sanitaria" };
-        softTimes[itemName].durationMs += dur;
-        softTimes[itemName].count++;
-      }
       continue;
     }
 
@@ -611,18 +663,14 @@ export function computeUnifiedActivityMetrics(
       // Transición nocturna entre días, fuera de turno o fuera de horario: se contabiliza el evento pero no la brecha
       const dur = 60000;
       opTimes[opCategory] = (opTimes[opCategory] || 0) + dur;
-      if (!softTimes[itemName]) softTimes[itemName] = { durationMs: 0, count: 0, category: opCategory };
-      softTimes[itemName].durationMs += dur;
-      softTimes[itemName].count++;
+      recordSoftwareTime(itemName, dur, opCategory);
       continue;
     }
 
     if (rawGap <= TOLERANCE_GAP_MS) {
       const dur = rawGap > 0 ? rawGap : 60000;
       opTimes[opCategory] = (opTimes[opCategory] || 0) + dur;
-      if (!softTimes[itemName]) softTimes[itemName] = { durationMs: 0, count: 0, category: opCategory };
-      softTimes[itemName].durationMs += dur;
-      softTimes[itemName].count++;
+      recordSoftwareTime(itemName, dur, opCategory);
 
       const crHour =
         parseInt(
@@ -638,9 +686,7 @@ export function computeUnifiedActivityMetrics(
       if (effectiveIdleGap <= TOLERANCE_GAP_MS) {
         const dur = Math.min(effectiveIdleGap > 0 ? effectiveIdleGap : TOLERANCE_GAP_MS, rawGap);
         opTimes[opCategory] = (opTimes[opCategory] || 0) + dur;
-        if (!softTimes[itemName]) softTimes[itemName] = { durationMs: 0, count: 0, category: opCategory };
-        softTimes[itemName].durationMs += dur;
-        softTimes[itemName].count++;
+        recordSoftwareTime(itemName, dur, opCategory);
 
         const crHour =
           parseInt(

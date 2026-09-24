@@ -1297,31 +1297,6 @@ function ActivityAppsRankingComponent({
     return computeUnifiedActivityMetrics(timeline as any, { toleranceMinutes: 15 });
   }, [timeline]);
 
-  const allDetectedApps = useMemo(() => {
-    return metrics.topSoftware
-      .map((s) => s.name)
-      .filter((n) => {
-        const l = (n || "").toLowerCase();
-        return !l.includes("inactiv") && !l.includes("pausa");
-      });
-  }, [metrics]);
-
-  const currentTotal = metrics.totalDayMs;
-
-  const sortedItems: [string, { durationMs: number; count: number }][] = useMemo(() => {
-    if (viewMode === "categories") {
-      return metrics.operationalBuckets.map((b) => [
-        b.id,
-        { durationMs: b.durationMs, count: 1 },
-      ]);
-    } else {
-      return metrics.topSoftware.slice(0, 15).map((s) => [
-        s.name,
-        { durationMs: s.durationMs, count: s.count },
-      ]);
-    }
-  }, [viewMode, metrics]);
-
   const isPhantomCategory = (name: string) => {
     const l = (name || "").toLowerCase().trim();
     return (
@@ -1335,7 +1310,14 @@ function ActivityAppsRankingComponent({
       l === "on-the-job training (ojt)" ||
       l === "ojt" ||
       l === "descansos" ||
+      l === "descanso" ||
+      l.includes("descanso") ||
+      l.includes("almuerzo") ||
+      l.includes("merienda") ||
       l === "pausa sanitaria" ||
+      l.includes("sanitaria") ||
+      l.includes("baño") ||
+      l.includes("bano") ||
       l === "utilidades" ||
       l === "actividad general" ||
       l === "operativa" ||
@@ -1346,8 +1328,9 @@ function ActivityAppsRankingComponent({
       l.includes("inactiv") ||
       l === "pausa" ||
       l === "pausa operativa" ||
-      l.startsWith("pausa prolongada") ||
+      l.startsWith("pausa") ||
       l.includes("pausa / inactividad") ||
+      l.includes("pausa / descanso") ||
       l === "navegación" ||
       l === "navegacion" ||
       l === "navegación web" ||
@@ -1377,6 +1360,32 @@ function ActivityAppsRankingComponent({
       l.includes("mystify")
     );
   };
+
+  const allDetectedApps = useMemo(() => {
+    return metrics.topSoftware
+      .map((s) => s.name)
+      .filter((n) => !isPhantomCategory(n) && !isSystemNoise(n));
+  }, [metrics]);
+
+  const currentTotal = metrics.totalDayMs;
+
+  const sortedItems: [string, { durationMs: number; count: number }][] = useMemo(() => {
+    if (viewMode === "categories") {
+      return metrics.operationalBuckets.map((b) => [
+        b.id,
+        { durationMs: b.durationMs, count: 1 },
+      ]);
+    } else {
+      return metrics.topSoftware
+        .filter((s) => !isPhantomCategory(s.name) && !isSystemNoise(s.name))
+        .slice(0, 15)
+        .map((s) => [
+          s.name,
+          { durationMs: s.durationMs, count: s.count },
+        ]);
+    }
+  }, [viewMode, metrics]);
+
 
   const sanitizeAppName = (name: string): string => {
     let clean = (name || "").trim();
