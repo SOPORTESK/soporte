@@ -78,6 +78,19 @@ const DEFAULT_CATEGORIES = [
     ],
   },
   {
+    id: "Utilidades",
+    label: "Utilidades",
+    color: "text-slate-400 border-slate-500/30 bg-slate-500/15",
+    bgBar: "bg-slate-500",
+    iconName: "SlidersHorizontal",
+    subcategories: [
+      "Música y Ambiente",
+      "Herramientas del Sistema",
+      "Navegación General",
+      "Accesorios de Escritorio",
+    ],
+  },
+  {
     id: "Descansos",
     label: "Descansos",
     color: "text-amber-400 border-amber-500/30 bg-amber-500/15",
@@ -130,6 +143,12 @@ const DEFAULT_APP_MAPPINGS: Record<string, { category: string; subcategory: stri
   "Github": { category: "Control Administrativo", subcategory: "Optimización de Procesos" },
   "github.com": { category: "Control Administrativo", subcategory: "Optimización de Procesos" },
   "chatgpt.com": { category: "Control Administrativo", subcategory: "Optimización de Procesos" },
+  "Spotify": { category: "Utilidades", subcategory: "Música y Ambiente" },
+  "Program Manager": { category: "Utilidades", subcategory: "Herramientas del Sistema" },
+  "Calculadora": { category: "Utilidades", subcategory: "Accesorios de Escritorio" },
+  "Bloc de notas": { category: "Utilidades", subcategory: "Accesorios de Escritorio" },
+  "Explorador de Windows": { category: "Utilidades", subcategory: "Herramientas del Sistema" },
+  "Task Manager": { category: "Utilidades", subcategory: "Herramientas del Sistema" },
 };
 
 

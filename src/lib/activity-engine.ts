@@ -110,6 +110,7 @@ export const OFFICIAL_OPERATIONAL_CATEGORIES: {
   { id: "Gestión del Taller", label: "Gestión del Taller", color: "text-indigo-400 border-indigo-500/30 bg-indigo-500/15", bgBar: "bg-indigo-500", iconName: "Package", isProductive: true },
   { id: "Gestión de Residuos", label: "Gestión de Residuos", color: "text-rose-400 border-rose-500/30 bg-rose-500/15", bgBar: "bg-rose-500", iconName: "Trash2", isProductive: true },
   { id: "On-the-Job Training (OJT)", label: "On-the-Job Training (OJT)", color: "text-violet-400 border-violet-500/30 bg-violet-500/15", bgBar: "bg-violet-500", iconName: "GraduationCap", isProductive: true },
+  { id: "Utilidades", label: "Utilidades", color: "text-slate-400 border-slate-500/30 bg-slate-500/15", bgBar: "bg-slate-500", iconName: "SlidersHorizontal", isProductive: true },
   { id: "Descansos", label: "Descansos", color: "text-amber-400 border-amber-500/30 bg-amber-500/15", bgBar: "bg-amber-500", iconName: "Sandwich", isProductive: false },
   { id: "Pausa Sanitaria", label: "Pausa Sanitaria", color: "text-emerald-400 border-emerald-500/30 bg-emerald-500/15", bgBar: "bg-emerald-500", iconName: "Bath", isProductive: false },
 ];
@@ -233,6 +234,14 @@ export function assignToOperationalCategory(name: string, action: string = "", c
       n.includes("devin") || n.includes("github") || n.includes("nextime") || n.includes("chatgpt") ||
       c.includes("administrativo") || c.includes("optimización")) {
     return "Control Administrativo";
+  }
+
+  // Utilidades (Spotify, Program Manager, accesorios del SO, calculadoras, etc.)
+  if (n.includes("utilidad") || n.includes("spotify") || n.includes("program manager") ||
+      n.includes("progman") || n.includes("calculadora") || n.includes("notepad") ||
+      n.includes("bloc de notas") || n.includes("taskmgr") || n.includes("administrador de tareas") ||
+      c.includes("utilidades") || a.includes("spotify") || a.includes("program manager")) {
+    return "Utilidades";
   }
 
   // Soporte (por defecto para chats, llamadas, Linkus, WhatsApp, Odoo, tickets)
@@ -581,7 +590,8 @@ export function computeUnifiedActivityMetrics(
     (opTimes["Control Administrativo"] || 0) +
     (opTimes["Gestión del Taller"] || 0) +
     (opTimes["Gestión de Residuos"] || 0) +
-    (opTimes["On-the-Job Training (OJT)"] || 0);
+    (opTimes["On-the-Job Training (OJT)"] || 0) +
+    (opTimes["Utilidades"] || 0);
 
   const breakMs = opTimes["Descansos"] || 0;
   const sanitaryMs = opTimes["Pausa Sanitaria"] || 0;

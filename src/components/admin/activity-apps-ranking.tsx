@@ -145,6 +145,19 @@ export const DEFAULT_CATEGORIES: CategoryItem[] = [
     ],
   },
   {
+    id: "Utilidades",
+    label: "Utilidades",
+    color: "text-slate-400 border-slate-500/30 bg-slate-500/15",
+    bgBar: "bg-slate-500",
+    iconName: "SlidersHorizontal",
+    subcategories: [
+      "Música y Ambiente",
+      "Herramientas del Sistema",
+      "Navegación General",
+      "Accesorios de Escritorio",
+    ],
+  },
+  {
     id: "Descansos",
     label: "Descansos",
     color: "text-amber-400 border-amber-500/30 bg-amber-500/15",
@@ -325,12 +338,27 @@ export function getCategoryUI(catName: string) {
     return DEFAULT_CATEGORIES[5];
   }
 
-  // 7. Pausa Sanitaria
-  if (lower.includes("sanitaria") || lower.includes("baño") || lower.includes("bano")) {
-    return DEFAULT_CATEGORIES[7];
+  // 7. Utilidades
+  if (
+    lower.includes("utilidad") ||
+    lower.includes("spotify") ||
+    lower.includes("program manager") ||
+    lower.includes("calculadora") ||
+    lower.includes("notepad") ||
+    lower.includes("bloc de notas") ||
+    lower.includes("taskmgr")
+  ) {
+    const found = DEFAULT_CATEGORIES.find((c) => c.id === "Utilidades");
+    if (found) return found;
   }
 
-  // 8. Descansos
+  // 8. Pausa Sanitaria
+  if (lower.includes("sanitaria") || lower.includes("baño") || lower.includes("bano")) {
+    const found = DEFAULT_CATEGORIES.find((c) => c.id === "Pausa Sanitaria");
+    if (found) return found;
+  }
+
+  // 9. Descansos
   if (
     lower.includes("pausa") ||
     lower.includes("descanso") ||
@@ -338,7 +366,8 @@ export function getCategoryUI(catName: string) {
     lower.includes("receso") ||
     lower.includes("inactividad")
   ) {
-    return DEFAULT_CATEGORIES[6];
+    const found = DEFAULT_CATEGORIES.find((c) => c.id === "Descansos");
+    if (found) return found;
   }
 
   return DEFAULT_CATEGORIES[0];
