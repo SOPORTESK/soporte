@@ -456,6 +456,26 @@ export async function POST(req: NextRequest) {
           { onConflict: "key" }
         );
 
+      // Si se proporciona un logId, actualizar directamente el registro histórico en activity_log
+      if (body.logId) {
+        try {
+          await supabase
+            .from("activity_log")
+            .update({
+              category: (!category || category === "auto" || category === "Sin Clasificar") ? "Sin Clasificar" : category,
+              metadata: {
+                ...(body.existingMetadata || {}),
+                app_name: appName,
+                manual_category: category,
+                manual_subcategory: subcategory || null,
+              },
+            })
+            .eq("id", body.logId);
+        } catch (err) {
+          console.error("[app-categories] Error actualizando log individual:", err);
+        }
+      }
+
       if (error) throw error;
       return NextResponse.json({ success: true, appMappings: currentMap });
     }

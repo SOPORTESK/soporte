@@ -47,7 +47,7 @@ export async function GET(req: NextRequest) {
     let metricsData = null;
     if (agent) {
       try {
-        metricsData = await getActivityMetrics(agent, date);
+        metricsData = await getActivityMetrics(agent, date, timeline);
       } catch (err) {
         console.error("[activity/timeline] Error getting metrics:", err);
       }

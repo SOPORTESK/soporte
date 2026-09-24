@@ -165,6 +165,16 @@ export function extractCleanItemName(item: TimelineEntry): string {
   if (rawTitle.includes("conmutac") || act.includes("conmutac") || rawTitle.includes("task switching")) return "Conmutación de tareas";
   if (rawTitle.includes("google one") || rawApp.includes("google one") || act.includes("google one")) return "Google One";
   if (rawTitle.includes("supabase") || rawApp.includes("supabase") || act.includes("supabase")) return "Supabase";
+  if (rawTitle.includes("youtube") || rawApp.includes("youtube") || act.includes("youtube")) return "YouTube";
+  if (rawTitle.includes("google drive") || rawTitle.includes("drive.google") || rawApp.includes("drive")) return "Google Drive";
+  if (rawTitle.includes("google docs") || rawTitle.includes("docs.google")) return "Google Docs";
+  if (rawTitle.includes("google sheets") || rawTitle.includes("sheets.google")) return "Google Sheets";
+  if (rawTitle.includes("gmail") || rawTitle.includes("mail.google")) return "Gmail";
+  if (rawTitle.includes("mercadolibre") || rawTitle.includes("mercado libre")) return "Mercado Libre";
+  if (rawTitle.includes("winbox") || rawApp.includes("winbox") || act.includes("winbox")) return "MikroTik WinBox";
+  if (rawTitle.includes("mikrotik") || rawApp.includes("mikrotik")) return "MikroTik";
+  if (rawTitle.includes("ivms") || rawApp.includes("ivms")) return "iVMS-4200";
+  if (rawTitle.includes("sadp") || rawApp.includes("sadp")) return "Hikvision SADP";
   if (rawApp.includes("spotify") || rawTitle.includes("spotify") || act.includes("spotify")) return "Spotify";
   if (rawApp.includes("calc") || rawTitle.includes("calculadora")) return "Calculadora";
   if (rawApp.includes("notepad") || rawTitle.includes("bloc de notas")) return "Bloc de notas";
@@ -183,8 +193,30 @@ export function extractCleanItemName(item: TimelineEntry): string {
   if (rawApp.includes("tienda 3d") || rawTitle.includes("tienda 3d")) return "Tienda 3D";
   if (rawTitle.includes("hikvision") || rawApp.includes("hikvision")) return "Hikvision";
 
-  // 4. Todo lo que ocurre en la web/plataforma interna es Seka Chat
-  if (act.includes("chat") || act.includes("caso") || rawApp.includes("seka") || rawApp.includes("chrome") || rawApp.includes("edge")) {
+  // 4. Si es navegador web (Brave, Chrome, Edge, Firefox), extraer dominio o título limpio
+  const isBrowser = rawApp.includes("chrome") || rawApp.includes("brave") || rawApp.includes("edge") || rawApp.includes("firefox");
+  if (isBrowser) {
+    if (meta.domain) return meta.domain;
+    if (meta.url) {
+      try {
+        const u = new URL(meta.url.startsWith("http") ? meta.url : `https://${meta.url}`);
+        return u.hostname.replace(/^www\./, "");
+      } catch {}
+    }
+    const cleanWinTitle = (meta.window_title || meta.title || "")
+      .replace(/\s*[-–—]\s*(Brave|Google Chrome|Microsoft Edge|Firefox|Opera).*$/i, "")
+      .trim();
+    if (cleanWinTitle) {
+      const lowerClean = cleanWinTitle.toLowerCase();
+      if (lowerClean.includes("chat sekunet") || lowerClean.includes("atención al cliente")) {
+        return "Seka Chat";
+      }
+      return cleanWinTitle.length > 30 ? cleanWinTitle.substring(0, 30) + "..." : cleanWinTitle;
+    }
+  }
+
+  // 5. Todo lo que ocurre en la web/plataforma interna es Seka Chat
+  if (act.includes("chat") || act.includes("caso") || rawApp.includes("seka")) {
     return "Seka Chat";
   }
 

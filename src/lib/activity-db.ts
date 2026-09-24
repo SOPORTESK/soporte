@@ -415,8 +415,8 @@ export async function getActivitySummaries(
   return (data || []) as ActivitySummary[];
 }
 
-export async function getActivityMetrics(agentEmail: string, date: string) {
-  const timeline = await getActivityTimeline(agentEmail, date);
+export async function getActivityMetrics(agentEmail: string, date: string, existingTimeline?: ActivityLog[]) {
+  const timeline = existingTimeline || await getActivityTimeline(agentEmail, date);
   const schedule = await getWorkSchedule();
   const targetDailyHours = schedule.targetDailyHours || 10;
   const toleranceMinutes = schedule.toleranceMinutes || 15;

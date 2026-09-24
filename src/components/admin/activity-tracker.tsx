@@ -43,15 +43,17 @@ import {
   LogOut,
   XCircle,
   X,
+  SlidersHorizontal,
+  FolderTree,
 } from "lucide-react";
 import { Avatar } from "@/components/ui/avatar";
 import { ActivityLivePulse, type LiveAgent } from "./activity-live-pulse";
 import { ActivityHeatmap } from "./activity-heatmap";
-import { ActivityAppsRanking } from "./activity-apps-ranking";
+import { ActivityAppsRanking, DEFAULT_CATEGORIES } from "./activity-apps-ranking";
 import { ActivityScreenGallery } from "./activity-screen-gallery";
 import { ActivityAiBriefing } from "./activity-ai-briefing";
 import { ActivityExecutiveCharts } from "./activity-executive-charts";
-import { computeUnifiedActivityMetrics } from "@/lib/activity-engine";
+import { computeUnifiedActivityMetrics, extractCleanItemName } from "@/lib/activity-engine";
 
 interface TimelineEntry {
   id: number;
@@ -111,6 +113,9 @@ const CATEGORY_ICONS: Record<string, any> = {
   "Capacitación": GraduationCap,
   "Reunión interna": Users,
   "Justificación": ClipboardList,
+  "Utilidades": SlidersHorizontal,
+  "Descansos": Sandwich,
+  "Sin Clasificar": FolderTree,
   "Otros": Activity,
 };
 
@@ -121,6 +126,10 @@ const CATEGORY_COLORS: Record<string, string> = {
   "Gestión del Taller": "text-indigo-400 bg-indigo-500/10 border-indigo-500/20",
   "Gestión de Residuos": "text-rose-400 bg-rose-500/10 border-rose-500/20",
   "On-the-Job Training (OJT)": "text-violet-400 bg-violet-500/10 border-violet-500/20",
+  "Utilidades": "text-slate-400 bg-slate-500/10 border-slate-500/20",
+  "Descansos": "text-amber-400 bg-amber-500/10 border-amber-500/20",
+  "Pausa Sanitaria": "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
+  "Sin Clasificar": "text-zinc-400 bg-zinc-500/10 border-zinc-500/20",
   "Soporte Telefónico": "text-orange-400 bg-orange-500/10 border-orange-500/20",
   "Soporte Mensajería": "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
   "Atención telefónica": "text-orange-400 bg-orange-500/10 border-orange-500/20",
@@ -857,6 +866,8 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
   const [timelineViewMode, setTimelineViewMode] = useState<"consolidated" | "logs">("consolidated");
   const [onlyManualFilter, setOnlyManualFilter] = useState<boolean>(false);
   const [serverMetrics, setServerMetrics] = useState<any>(null);
+  const [visibleLogsCount, setVisibleLogsCount] = useState<number>(60);
+  const [reclassifyingId, setReclassifyingId] = useState<number | null>(null);
   const fetchLive = useCallback(async () => {
     try {
       const res = await fetch("/api/activity/live");
@@ -1034,6 +1045,98 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
 
     return list;
   }, [timelineWithinSchedule, onlyManualFilter, categoryFilter, searchFilter]);
+
+  // Reset de límite de eventos visibles al cambiar filtros o selección
+  useEffect(() => {
+    setVisibleLogsCount(60);
+  }, [selectedAgent, selectedDate, categoryFilter, searchFilter, onlyManualFilter]);
+
+  // Reclasificación directa e instantánea desde la fila de log con persistencia en BD
+  const handleReclassifyLog = async (
+    item: TimelineEntry,
+    newCategory: string,
+    newSubcategory?: string
+  ) => {
+    const cleanApp = extractCleanItemName(item as any);
+    setReclassifyingId(item.id);
+
+    // Actualización optimista inmediata en estado local
+    setTimeline((prev) =>
+      prev.map((t) => {
+        if (t.id === item.id) {
+          return {
+            ...t,
+            category: newCategory,
+            metadata: {
+              ...(t.metadata || {}),
+              app_name: cleanApp,
+              manual_category: newCategory,
+              manual_subcategory: newSubcategory || null,
+            },
+          };
+        }
+        return t;
+      })
+    );
+
+    try {
+      const res = await fetch("/api/activity/app-categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          appName: cleanApp,
+          category: newCategory,
+          subcategory: newSubcategory || "",
+          logId: item.id,
+          existingMetadata: item.metadata,
+        }),
+      });
+      const data = await res.json();
+      if (data?.success) {
+        toast.success(`"${cleanApp}" reclasificado a ${newCategory}${newSubcategory ? ` • ${newSubcategory}` : ""}`);
+      } else {
+        toast.error("No se pudo guardar la clasificación en base de datos");
+      }
+    } catch (err) {
+      console.error("[tracker] Error reclassifying log:", err);
+      toast.error("Error de conexión al reclasificar");
+    } finally {
+      setReclassifyingId(null);
+    }
+  };
+
+  // Bloques de 5 minutos memoizados para el resumen de la pestaña En Vivo
+  const liveConsolidatedBlocks = React.useMemo(() => {
+    return consolidateTimelineByBlocks(
+      timelineWithinSchedule,
+      5,
+      scheduleStart,
+      scheduleEnd,
+      scheduleEnabled,
+      workDays
+    );
+  }, [timelineWithinSchedule, scheduleStart, scheduleEnd, scheduleEnabled, workDays]);
+
+  // Bloques de 5 minutos memoizados para la pestaña Línea de Tiempo (respetando filtros)
+  const filteredConsolidatedBlocks = React.useMemo(() => {
+    return consolidateTimelineByBlocks(
+      filteredTimeline,
+      5,
+      scheduleStart,
+      scheduleEnd,
+      scheduleEnabled,
+      workDays
+    );
+  }, [filteredTimeline, scheduleStart, scheduleEnd, scheduleEnabled, workDays]);
+
+  // Lista de logs invertida y paginada para rendimiento ultra-rápido en modo Logs
+  const reversedLogs = React.useMemo(() => {
+    return [...filteredTimeline].reverse();
+  }, [filteredTimeline]);
+
+  const visibleLogs = React.useMemo(() => {
+    return reversedLogs.slice(0, visibleLogsCount);
+  }, [reversedLogs, visibleLogsCount]);
 
   // Medición oficial de cumplimiento de la Jornada Laboral (Horas hábiles / efectivas vs Meta)
   const agentDailyCompliance = React.useMemo(() => {
@@ -1465,7 +1568,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[400px] overflow-y-auto pr-1">
-                {consolidateTimelineByBlocks(timelineWithinSchedule, 5, scheduleStart, scheduleEnd, scheduleEnabled, workDays).slice(0, 8).map((block) => {
+                {liveConsolidatedBlocks.slice(0, 8).map((block) => {
                   const Icon = CATEGORY_ICONS[block.category] || Activity;
                   const colorClass = CATEGORY_COLORS[block.category] || "text-zinc-400 bg-zinc-500/10 border-zinc-500/20";
                   return (
@@ -1573,17 +1676,12 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
               </div>
 
               {timelineViewMode === "consolidated" ? (
-                (() => {
-                  const blocks = consolidateTimelineByBlocks(filteredTimeline, 5, scheduleStart, scheduleEnd, scheduleEnabled, workDays);
-                  return (
-                    <span className="text-xs text-muted-foreground font-semibold">
-                      Mostrando {blocks.length} informes narrados {scheduleEnabled && `(${scheduleStart} – ${scheduleEnd})`}
-                    </span>
-                  );
-                })()
+                <span className="text-xs text-muted-foreground font-semibold">
+                  Mostrando {filteredConsolidatedBlocks.length} informes narrados {scheduleEnabled && `(${scheduleStart} – ${scheduleEnd})`}
+                </span>
               ) : (
                 <span className="text-xs text-muted-foreground font-semibold">
-                  Mostrando {filteredTimeline.length} eventos registrados {scheduleEnabled && `(${scheduleStart} – ${scheduleEnd})`}
+                  Mostrando {Math.min(visibleLogs.length, filteredTimeline.length)} de {filteredTimeline.length} eventos registrados {scheduleEnabled && `(${scheduleStart} – ${scheduleEnd})`}
                 </span>
               )}
             </div>
@@ -1591,17 +1689,12 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
             {/* MODO 1: Lista Cronológica Consolidada en Bloques de 5 Minutos */}
             {timelineViewMode === "consolidated" && (
               <div className="space-y-3">
-                {(() => {
-                  const blocks = consolidateTimelineByBlocks(filteredTimeline, 5, scheduleStart, scheduleEnd, scheduleEnabled, workDays);
-                  if (blocks.length === 0) {
-                    return (
-                      <div className="p-12 text-center rounded-2xl bg-card border border-border/70 text-muted-foreground text-xs">
-                        No hay informes registrados para esta fecha, horario o filtros.
-                      </div>
-                    );
-                  }
-
-                  return blocks.map((block) => {
+                {filteredConsolidatedBlocks.length === 0 ? (
+                  <div className="p-12 text-center rounded-2xl bg-card border border-border/70 text-muted-foreground text-xs">
+                    No hay informes registrados para esta fecha, horario o filtros.
+                  </div>
+                ) : (
+                  filteredConsolidatedBlocks.map((block) => {
                     const Icon = CATEGORY_ICONS[block.category] || Activity;
                     const colorClass = CATEGORY_COLORS[block.category] || "text-zinc-400 bg-zinc-500/10 border-zinc-500/20";
 
@@ -1651,37 +1744,34 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                         </div>
                       </div>
                     );
-                  });
-                })()}
+                  })
+                )}
               </div>
             )}
 
-            {/* MODO 2: Registro Detallado de Eventos (Logs) */}
+            {/* MODO 2: Registro Detallado de Eventos (Logs) con Reclasificación Directa */}
             {timelineViewMode === "logs" && (
               <div className="space-y-2">
-                {filteredTimeline.length === 0 ? (
+                {visibleLogs.length === 0 ? (
                   <div className="p-12 text-center rounded-2xl bg-card border border-border/70 text-muted-foreground text-xs">
                     No hay eventos registrados para los filtros u horario seleccionados.
                   </div>
                 ) : (
-                  [...filteredTimeline].reverse().map((item, idx) => {
+                  visibleLogs.map((item, idx) => {
                     const itemDate = item.created_at ? new Date(item.created_at) : null;
                     const timeStr = itemDate
                       ? itemDate.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
                       : "--:--";
                     const meta = (item.metadata || {}) as Record<string, any>;
-                    const act = (item.action || "").toLowerCase();
-                    const isManual = Boolean(
-                      meta.manual ||
-                      meta.task ||
-                      meta.justification ||
-                      act.startsWith("inició:") ||
-                      act.startsWith("inicio:") ||
-                      act.startsWith("terminó:") ||
-                      act.startsWith("termino:") ||
-                      act.startsWith("justificación:") ||
-                      act.startsWith("justificacion:")
+                    const cleanApp = extractCleanItemName(item as any);
+                    const cleanTitle = cleanExecutiveTitle(meta.title || meta.window_title || "");
+                    const isManual = isManualEntry(item);
+
+                    const currentCat = item.category || "Sin Clasificar";
+                    const categoryDef = DEFAULT_CATEGORIES.find(
+                      (c) => c.id.toLowerCase() === currentCat.toLowerCase() || c.label.toLowerCase() === currentCat.toLowerCase()
                     );
+                    const currentSubcat = meta.manual_subcategory || meta.subcategory || "";
 
                     const Icon = CATEGORY_ICONS[item.category] || Activity;
                     const colorClass = CATEGORY_COLORS[item.category] || "text-zinc-400 bg-zinc-500/10 border-zinc-500/20";
@@ -1692,12 +1782,13 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                     return (
                       <div
                         key={item.id || `log-${idx}`}
-                        className={`p-3.5 rounded-2xl bg-card border transition-all flex items-center justify-between gap-4 text-xs ${
+                        className={`p-3.5 rounded-2xl bg-card border transition-all flex flex-col lg:flex-row lg:items-center justify-between gap-3 text-xs ${
                           isManual
                             ? "border-emerald-500/40 bg-emerald-500/5 hover:border-emerald-500/60"
-                            : "border-border/60 hover:border-border"
+                            : "border-border/60 hover:border-violet-500/30"
                         }`}
                       >
+                        {/* Lado Izquierdo: Software detectado, contexto y categoría actual */}
                         <div className="flex items-center gap-3 min-w-0 flex-1">
                           <div className={`p-2 rounded-xl border shrink-0 ${colorClass}`}>
                             <Icon className="h-4 w-4" />
@@ -1705,52 +1796,127 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
 
                           <div className="min-w-0 flex-1 space-y-0.5">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <p className="font-semibold text-foreground text-xs truncate">
-                                {item.action}
-                              </p>
+                              <span className="font-bold text-foreground text-sm tracking-tight truncate max-w-xs">
+                                {cleanApp}
+                              </span>
                               {isManual && (
                                 <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold flex items-center gap-1">
                                   <Wrench className="h-2.5 w-2.5" /> Labor Manual
                                 </span>
                               )}
-                              {meta.task && (
-                                <span className="px-2 py-0.5 rounded-md bg-violet-500/15 border border-violet-500/30 text-violet-300 text-[10px] font-medium">
+                              {meta.task && meta.task !== cleanApp && (
+                                <span className="px-2 py-0.5 rounded-md bg-violet-500/15 border border-violet-500/30 text-violet-300 text-[10px] font-medium truncate max-w-[180px]">
                                   {meta.task}
                                 </span>
                               )}
+                              <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${colorClass}`}>
+                                {item.category}
+                              </span>
                             </div>
 
-                            <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                              <span className="font-medium text-foreground/70">{item.category}</span>
-                              {meta.app && (
-                                <>
-                                  <span>•</span>
-                                  <span>{meta.app}</span>
-                                </>
-                              )}
-                              {meta.title && (
-                                <>
-                                  <span>•</span>
-                                  <span className="truncate max-w-xs">{cleanExecutiveTitle(meta.title)}</span>
-                                </>
+                            <div className="flex items-center gap-2 text-[11px] text-muted-foreground truncate">
+                              {cleanTitle && cleanTitle !== cleanApp ? (
+                                <span className="truncate max-w-md text-foreground/80 font-medium">
+                                  {cleanTitle}
+                                </span>
+                              ) : item.action && item.action !== cleanApp ? (
+                                <span className="truncate max-w-md">{item.action}</span>
+                              ) : null}
+                              {meta.source && (
+                                <span className="text-[10px] opacity-60">({meta.source})</span>
                               )}
                             </div>
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-3 shrink-0 font-mono text-[11px]">
-                          {durSeconds && durSeconds > 0 && (
-                            <span className="px-2 py-0.5 rounded-lg bg-muted/60 border border-border/40 font-bold text-foreground/90">
-                              {durSeconds >= 60 ? `${Math.floor(durSeconds / 60)}m ${durSeconds % 60}s` : `${durSeconds}s`}
+                        {/* Lado Derecho: Gestión Inmediata de Reclasificación + Duración + Hora */}
+                        <div className="flex items-center justify-between lg:justify-end gap-3 shrink-0 pt-2 lg:pt-0 border-t lg:border-t-0 border-border/40">
+                          {/* Controles de Reclasificación 1-Click */}
+                          <div className="flex items-center gap-1.5 flex-shrink-0">
+                            {/* Selector de Categoría */}
+                            <div className="flex items-center gap-1 bg-muted/40 hover:bg-muted/70 border border-border/50 rounded-xl px-2 py-1 transition-colors">
+                              <span className="text-[10px] uppercase font-bold text-muted-foreground/70">Cat:</span>
+                              <select
+                                value={categoryDef ? categoryDef.id : currentCat}
+                                disabled={reclassifyingId === item.id}
+                                onChange={(e) => {
+                                  const newCat = e.target.value;
+                                  const found = DEFAULT_CATEGORIES.find((c) => c.id === newCat);
+                                  const firstSub = found?.subcategories?.[0] || "";
+                                  handleReclassifyLog(item, newCat, firstSub);
+                                }}
+                                className="bg-transparent text-xs font-semibold text-foreground focus:outline-none cursor-pointer"
+                                title="Reclasificar categoría de este evento y guardar regla en el sistema"
+                              >
+                                {DEFAULT_CATEGORIES.map((cat) => (
+                                  <option key={cat.id} value={cat.id} className="bg-popover text-popover-foreground">
+                                    {cat.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                            {/* Selector de Subcategoría (dinámico) */}
+                            {categoryDef && categoryDef.subcategories && categoryDef.subcategories.length > 0 && (
+                              <div className="flex items-center gap-1 bg-muted/30 hover:bg-muted/60 border border-border/40 rounded-xl px-2 py-1 transition-colors">
+                                <span className="text-[10px] uppercase font-bold text-muted-foreground/60">Sub:</span>
+                                <select
+                                  value={currentSubcat || categoryDef.subcategories[0]}
+                                  disabled={reclassifyingId === item.id}
+                                  onChange={(e) => handleReclassifyLog(item, currentCat, e.target.value)}
+                                  className="bg-transparent text-xs text-muted-foreground hover:text-foreground focus:outline-none cursor-pointer max-w-[140px] truncate"
+                                  title="Reclasificar subcategoría"
+                                >
+                                  {categoryDef.subcategories.map((sub) => (
+                                    <option key={sub} value={sub} className="bg-popover text-popover-foreground">
+                                      {sub}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
+
+                            {reclassifyingId === item.id && (
+                              <RefreshCw className="h-3.5 w-3.5 animate-spin text-violet-400 shrink-0" />
+                            )}
+                          </div>
+
+                          {/* Duración y Hora */}
+                          <div className="flex items-center gap-2 font-mono text-[11px] shrink-0">
+                            {durSeconds && durSeconds > 0 ? (
+                              <span className="px-2 py-0.5 rounded-lg bg-muted/60 border border-border/40 font-bold text-foreground/90 whitespace-nowrap">
+                                {durSeconds >= 60 ? `${Math.floor(durSeconds / 60)}m ${durSeconds % 60}s` : `${durSeconds}s`}
+                              </span>
+                            ) : null}
+                            <span className="font-bold text-foreground text-xs whitespace-nowrap">
+                              {timeStr}
                             </span>
-                          )}
-                          <span className="font-bold text-foreground text-xs">
-                            {timeStr}
-                          </span>
+                          </div>
                         </div>
                       </div>
                     );
                   })
+                )}
+
+                {/* Botón de paginación para fluidez total del scroll */}
+                {reversedLogs.length > visibleLogsCount && (
+                  <div className="pt-3 pb-2 flex items-center justify-center gap-3">
+                    <button
+                      onClick={() => setVisibleLogsCount((prev) => prev + 60)}
+                      className="px-4 py-2 rounded-xl border border-border/70 bg-card hover:bg-muted text-xs font-bold text-foreground transition-colors shadow-sm flex items-center gap-2"
+                    >
+                      <span>Cargar más eventos (+60)</span>
+                      <span className="text-muted-foreground font-normal">
+                        ({visibleLogs.length} de {reversedLogs.length})
+                      </span>
+                    </button>
+                    <button
+                      onClick={() => setVisibleLogsCount(reversedLogs.length)}
+                      className="px-3 py-2 rounded-xl border border-border/50 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      Ver todos ({reversedLogs.length})
+                    </button>
+                  </div>
                 )}
               </div>
             )}
