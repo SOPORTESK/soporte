@@ -36,7 +36,13 @@ function categorizeWindow(processName, title) {
     context = t.replace(/\s*[-–]\s*(Brave|Google Chrome|Microsoft Edge|Firefox|Opera).*$/i, '').trim();
     context_type = 'web';
     if (t.includes('odoo')) return { category: 'Atención de tickets', label: 'Odoo ERP', context, context_type };
-    if (t.includes('tienda 3d') || t.includes('tienda3d') || t.includes('rma') || t.includes('garantía') || t.includes('garantia')) {
+    if (t.includes('google one') || t.includes('one.google')) {
+      return { category: 'Utilidades', label: 'Google One', context: 'Google One', context_type: 'web' };
+    }
+    if (t.includes('supabase')) {
+      return { category: 'Control Administrativo', label: 'Supabase', context: 'Supabase', context_type: 'web' };
+    }
+    if (t.includes('tienda 3d') || t.includes('tienda3d') || (t.includes('rma') && t.includes('garant'))) {
       return { category: 'Trámites de garantías', label: `Garantías Tienda 3D - ${title.substring(0, 40)}`, context, context_type };
     }
     if (t.includes('sekunet') || t.includes('seka chat') || t.includes('localhost:3100')) {
@@ -51,6 +57,15 @@ function categorizeWindow(processName, title) {
     }
     const cleanTitle = title.split(' - ')[0] || title;
     return { category: 'Navegación Web', label: `Navegador: ${cleanTitle.substring(0, 45)}`, context, context_type };
+  }
+  if (p.includes('spotify') || t.includes('spotify')) {
+    return { category: 'Utilidades', label: 'Spotify', context, context_type: 'music' };
+  }
+  if (p.includes('calc') || t.includes('calculadora')) {
+    return { category: 'Utilidades', label: 'Calculadora', context, context_type: 'app' };
+  }
+  if (p.includes('notepad') || t.includes('bloc de notas')) {
+    return { category: 'Utilidades', label: 'Bloc de notas', context, context_type: 'app' };
   }
   if (p.includes('excel')) {
     context = t.replace(/\s*[-–]\s*(Microsoft\s*)?Excel.*$/i, '').trim();
@@ -69,7 +84,13 @@ function categorizeWindow(processName, title) {
   }
   if (p.includes('odoo') || t.includes('odoo')) return { category: 'Atención de tickets', label: 'Odoo', context, context_type };
   if (p.includes('explorer')) {
-    return { category: 'Gestión de archivos', label: `Explorador: ${title.substring(0, 35)}`, context, context_type: 'folder' };
+    if (t.includes('program manager')) {
+      return { category: 'Utilidades', label: 'Escritorio de Windows', context: 'Escritorio', context_type: 'system' };
+    }
+    if (t.includes('conmutac') || t.includes('task switching')) {
+      return { category: 'Utilidades', label: 'Conmutación de tareas', context: 'Alt+Tab', context_type: 'system' };
+    }
+    return { category: 'Gestión de archivos', label: `Explorador de Windows: ${title.substring(0, 35)}`, context, context_type: 'folder' };
   }
   if (p.includes('anydesk') || p.includes('teamviewer') || p.includes('mstsc') || p.includes('rustdesk')) {
     return { category: 'Soporte remoto', label: `Soporte Remoto (${p})`, context, context_type };
@@ -332,8 +353,8 @@ async function poll() {
     if (label !== _lastLabel || (title !== _lastTitle && Math.abs(now - _enterTime) > 30000)) {
       const dwellMs = now - _enterTime;
       
-      // Registrar la sesión concluida si superó el mínimo (15s)
-      if (_lastLabel && dwellMs >= MIN_SESSION_MS) {
+      const minDwell = _lastContextType === 'system' ? 60000 : MIN_SESSION_MS;
+      if (_lastLabel && dwellMs >= minDwell) {
         const execAction = formatExecutiveAction(_lastCategory, _lastLabel, _lastContext, dwellMs);
         await supabase.from('activity_log').insert({
           agent_email: AGENT_EMAIL,

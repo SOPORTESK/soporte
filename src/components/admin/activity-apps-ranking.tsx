@@ -491,6 +491,8 @@ export function extractSmartAppName(item: TimelineItem): string {
     if (lowerTitle.includes("whatsapp")) return "web.whatsapp.com";
     if (lowerTitle.includes("odoo")) return "odoo.com";
     if (lowerTitle.includes("google drive") || lowerTitle.includes("drive - google") || lowerTitle.includes("drive.google")) return "drive.google.com";
+    if (lowerTitle.includes("google one") || lowerTitle.includes("one.google")) return "Google One";
+    if (lowerTitle.includes("supabase")) return "Supabase";
     if (lowerTitle.includes("youtube")) return "youtube.com";
     if (lowerTitle.includes("canva")) return "canva.com";
     if (lowerTitle.includes("chatgpt") || lowerTitle.includes("openai")) return "chatgpt.com";
@@ -519,6 +521,13 @@ export function extractSmartAppName(item: TimelineItem): string {
 
   // 4. Apps de escritorio / externas explícitas
   if (meta.app_name) {
+    const rawAppNameLower = meta.app_name.toLowerCase();
+    if (rawAppNameLower.includes("program manager") || rawTitle.toLowerCase().includes("program manager")) {
+      return "Escritorio de Windows";
+    }
+    if (rawAppNameLower.includes("conmutac") || rawTitle.toLowerCase().includes("conmutac") || rawTitle.toLowerCase().includes("task switching")) {
+      return "Conmutación de tareas";
+    }
     if (meta.app_name.toLowerCase().includes("applicationframehost")) {
       if (rawTitle) {
         const cleanT = rawTitle.replace(/\s*[-–—|].*$/, "").trim();
@@ -551,6 +560,18 @@ export function extractSmartAppName(item: TimelineItem): string {
   if (action.includes("outlook") || action.includes("correo")) return "Correo / Outlook";
   if (action.includes("excel")) return "Microsoft Excel";
   if (action.includes("word")) return "Microsoft Word";
+  
+  // Evitar nombres fantasma que sean idénticos a categorías
+  const isPhantom = (s: string) => {
+    const l = (s || "").toLowerCase().trim();
+    return l === "control administrativo" || l === "soporte" || l === "servicio de taller" ||
+           l === "gestión del taller" || l === "gestion del taller" || l === "gestión de residuos" ||
+           l === "gestion de residuos" || l === "on-the-job training (ojt)" || l === "ojt" ||
+           l === "descansos" || l === "pausa sanitaria" || l === "utilidades" ||
+           l === "actividad general" || l === "operativa" || l === "sin clasificar";
+  };
+  if (item.category && !isPhantom(item.category)) return item.category;
+
   // 7. Todo lo que ocurre en la web/plataforma interna es Seka Chat
   return "Seka Chat";
 }
@@ -705,8 +726,78 @@ export function getDefaultCategoryForApp(appName: string, action: string = "", c
     return "Descansos";
   }
 
-  // 7. Soporte (WhatsApp, Seka Chat, Linkus llamadas, Odoo Tickets, Casos, Atención directa)
+  // 8. Utilidades (Spotify, Program Manager, accesorios del SO, calculadoras, etc.)
+  if (
+    name.includes("utilidad") ||
+    name.includes("spotify") ||
+    name.includes("program manager") ||
+    name.includes("conmutac") ||
+    name.includes("task switching") ||
+    name.includes("escritorio") ||
+    name.includes("calculadora") ||
+    name.includes("calc") ||
+    name.includes("notepad") ||
+    name.includes("bloc de notas") ||
+    name.includes("taskmgr") ||
+    name.includes("administrador de tareas") ||
+    name.includes("google one") ||
+    act.includes("spotify") ||
+    act.includes("program manager") ||
+    act.includes("conmutac") ||
+    cat.includes("utilidad")
+  ) {
+    return "Utilidades";
+  }
+
+  // 9. Soporte (WhatsApp, Seka Chat, Linkus llamadas, Odoo Tickets, Casos, Atención directa)
   return "Soporte";
+}
+
+/**
+ * Deduce la subcategoría oficial adecuada según el software y su categoría principal
+ */
+export function getDefaultSubcategoryForApp(appName: string, category: string): string | null {
+  const name = (appName || "").toLowerCase();
+  if (category === "Utilidades") {
+    if (name.includes("spotify") || name.includes("música") || name.includes("musica")) return "Música y Ambiente";
+    if (name.includes("program manager") || name.includes("conmutac") || name.includes("escritorio") || name.includes("explorador") || name.includes("taskmgr")) return "Herramientas del Sistema";
+    if (name.includes("calculadora") || name.includes("notepad") || name.includes("bloc de notas")) return "Accesorios de Escritorio";
+    return "Navegación General";
+  }
+  if (category === "Soporte") {
+    if (name.includes("linkus") || name.includes("phone") || name.includes("llamada")) return "Telefónico";
+    if (name.includes("whatsapp") || name.includes("seka chat") || name.includes("chat")) return "Mensajería";
+    if (name.includes("anydesk") || name.includes("teamviewer") || name.includes("remoto") || name.includes("hikvision")) return "Remoto";
+    if (name.includes("odoo") || name.includes("ticket") || name.includes("presencial")) return "Presencial";
+  }
+  if (category === "Control Administrativo") {
+    if (name.includes("outlook") || name.includes("correo") || name.includes("mail")) return "Optimización de Procesos";
+    if (name.includes("nextime") || name.includes("antigravity") || name.includes("devin") || name.includes("github") || name.includes("chatgpt") || name.includes("supabase")) return "Optimización de Procesos";
+    if (name.includes("inventario")) return "Inventarios";
+    if (name.includes("garantía") || name.includes("garantia")) return "Gestión de Garantías";
+    if (name.includes("devoluci")) return "Devoluciones";
+    if (name.includes("seguimiento")) return "Seguimiento de Casos";
+  }
+  if (category === "Servicio de Taller") {
+    if (name.includes("diagnóst") || name.includes("diagnost")) return "Diagnóstico (MANUAL)";
+    if (name.includes("mantenimiento")) return "Mantenimiento (MANUAL)";
+    if (name.includes("prueba") || name.includes("validaci")) return "Pruebas y Validación (MANUAL)";
+    return "Reparación (MANUAL)";
+  }
+  if (category === "Gestión del Taller") {
+    if (name.includes("limpieza") || name.includes("orden")) return "Orden y Limpieza de Taller";
+    if (name.includes("acondicionamiento")) return "Acondicionamiento del Área";
+    return "Organización de Equipos";
+  }
+  if (category === "Descansos") {
+    if (name.includes("almuerzo")) return "Almuerzo";
+    if (name.includes("café") || name.includes("cafe") || name.includes("merienda")) return "Café / Merienda";
+    return "Tiempo de Descanso";
+  }
+  if (category === "Pausa Sanitaria") {
+    return "Pausa Sanitaria";
+  }
+  return null;
 }
 
 // Compatibilidad hacia atrás
@@ -745,6 +836,8 @@ function ActivityAppsRankingComponent({
   const [activeModalTab, setActiveModalTab] = useState<"tree" | "apps" | "categories">("tree");
   const [searchQuery, setSearchQuery] = useState("");
   const [savingApp, setSavingApp] = useState<string | null>(null);
+  const [hideSystemNoise, setHideSystemNoise] = useState(true);
+  const [appsCategoryFilter, setAppsCategoryFilter] = useState<string>("all");
 
   // Estados para agregar software o URL manual
   const [showAddCustomModal, setShowAddCustomModal] = useState(false);
@@ -831,9 +924,11 @@ function ActivityAppsRankingComponent({
         };
       }
     }
+    const defCat = getDefaultCategoryForApp(appName, action, category);
+    const defSub = getDefaultSubcategoryForApp(appName, defCat);
     return {
-      category: getDefaultCategoryForApp(appName, action, category),
-      subcategory: null,
+      category: defCat,
+      subcategory: defSub,
       isManual: false,
     };
   };
@@ -1228,14 +1323,70 @@ function ActivityAppsRankingComponent({
     }
   }, [viewMode, metrics]);
 
-  // Lista de apps y labores para el modal de gestión
+  // Lista de apps y labores para el modal de gestión (filtrando nombres de categorías y ruido de sistema)
+  const isPhantomCategory = (name: string) => {
+    const l = (name || "").toLowerCase().trim();
+    return (
+      l === "control administrativo" ||
+      l === "soporte" ||
+      l === "servicio de taller" ||
+      l === "gestión del taller" ||
+      l === "gestion del taller" ||
+      l === "gestión de residuos" ||
+      l === "gestion de residuos" ||
+      l === "on-the-job training (ojt)" ||
+      l === "ojt" ||
+      l === "descansos" ||
+      l === "pausa sanitaria" ||
+      l === "utilidades" ||
+      l === "actividad general" ||
+      l === "operativa" ||
+      l === "sin clasificar" ||
+      l === "formación de usuarios"
+    );
+  };
+
+  const isSystemNoise = (name: string) => {
+    const l = (name || "").toLowerCase();
+    return (
+      l.includes("program manager") ||
+      l.includes("conmutac") ||
+      l.includes("task switching") ||
+      l.includes("applicationframehost") ||
+      l === "explorador de windows" ||
+      l.startsWith("explorador:") ||
+      l === "escritorio de windows" ||
+      l === "conmutación de tareas" ||
+      l.includes("taskmgr")
+    );
+  };
+
   const filteredModalApps = useMemo(() => {
-    const combined = Array.from(
+    let combined = Array.from(
       new Set([...allDetectedApps, ...Object.keys(customCategories)])
-    ).sort();
-    if (!searchQuery.trim()) return combined;
-    return combined.filter((app) => app.toLowerCase().includes(searchQuery.toLowerCase()));
-  }, [allDetectedApps, customCategories, searchQuery]);
+    ).filter((appName) => !isPhantomCategory(appName));
+
+    if (hideSystemNoise) {
+      combined = combined.filter((appName) => !isSystemNoise(appName));
+    }
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      combined = combined.filter((app) => app.toLowerCase().includes(q));
+    }
+
+    if (appsCategoryFilter !== "all") {
+      combined = combined.filter((app) => {
+        const asg = getAppAssignment(app);
+        if (appsCategoryFilter === "unassigned") {
+          return !asg.subcategory;
+        }
+        return asg.category === appsCategoryFilter;
+      });
+    }
+
+    return combined.sort();
+  }, [allDetectedApps, customCategories, searchQuery, hideSystemNoise, appsCategoryFilter]);
 
   // Lista de apps y URLs pendientes de clasificar (sin subcategoría oficial asignada)
   const unassignedApps = useMemo(() => {
@@ -2304,30 +2455,81 @@ function ActivityAppsRankingComponent({
             {/* CONTENIDO PESTAÑA 2: MAPEO DE SOFTWARE Y LABORES */}
             {activeModalTab === "apps" && (
               <div className="flex-1 flex flex-col min-h-0 space-y-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="relative flex-1">
-                    <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                    <input
-                      type="text"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="Buscar software, URL o labor manual (ej: github.com, Odoo, WhatsApp)..."
-                      className="w-full pl-9 pr-4 py-2 text-xs rounded-xl bg-muted/40 border border-border focus:outline-none focus:ring-2 focus:ring-violet-500 text-foreground placeholder:text-muted-foreground"
-                    />
+                {/* Barra de búsqueda y botón agregar */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="relative flex-1">
+                      <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                      <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Buscar software o URL (ej: Odoo, WhatsApp, github.com)..."
+                        className="w-full pl-9 pr-4 py-2 text-xs rounded-xl bg-muted/40 border border-border focus:outline-none focus:ring-2 focus:ring-violet-500 text-foreground placeholder:text-muted-foreground"
+                      />
+                    </div>
+                    <button
+                      onClick={() => {
+                        setShowAddCustomModal(!showAddCustomModal);
+                        if (!newCustomItemCat && categories.length > 0) {
+                          setNewCustomItemCat(categories[0].id);
+                          setNewCustomItemSub(categories[0].subcategories?.[0] || "");
+                        }
+                      }}
+                      className="px-3 py-2 text-xs font-semibold rounded-xl bg-violet-600 hover:bg-violet-700 text-white flex items-center gap-1.5 transition-colors shrink-0 shadow-sm cursor-pointer"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      <span>Agregar Software / URL</span>
+                    </button>
                   </div>
-                  <button
-                    onClick={() => {
-                      setShowAddCustomModal(!showAddCustomModal);
-                      if (!newCustomItemCat && categories.length > 0) {
-                        setNewCustomItemCat(categories[0].id);
-                        setNewCustomItemSub(categories[0].subcategories?.[0] || "");
-                      }
-                    }}
-                    className="px-3 py-2 text-xs font-bold rounded-xl bg-violet-600 hover:bg-violet-700 text-white flex items-center gap-1.5 transition-colors shrink-0 shadow-sm cursor-pointer"
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                    <span>Agregar Software o URL</span>
-                  </button>
+
+                  {/* Filtros rápidos por Categoría y Toggle de Ruido de Sistema */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-border/40">
+                    <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => setAppsCategoryFilter("all")}
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer ${
+                          appsCategoryFilter === "all" ? "bg-violet-600 text-white" : "bg-muted/30 hover:bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        Todas ({filteredModalApps.length})
+                      </button>
+                      {categories.map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => setAppsCategoryFilter(appsCategoryFilter === c.id ? "all" : c.id)}
+                          className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                            appsCategoryFilter === c.id ? "bg-violet-600 text-white" : "bg-muted/30 hover:bg-muted text-muted-foreground"
+                          }`}
+                        >
+                          {c.label}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => setAppsCategoryFilter(appsCategoryFilter === "unassigned" ? "all" : "unassigned")}
+                        className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                          appsCategoryFilter === "unassigned"
+                            ? "bg-amber-500/25 text-amber-300 border border-amber-500/40"
+                            : "bg-muted/30 hover:bg-muted text-amber-400/80"
+                        }`}
+                      >
+                        Sin Subcategoría
+                      </button>
+                    </div>
+
+                    <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer select-none hover:text-foreground">
+                      <input
+                        type="checkbox"
+                        checked={hideSystemNoise}
+                        onChange={(e) => setHideSystemNoise(e.target.checked)}
+                        className="rounded border-border text-violet-600 focus:ring-violet-500 h-3.5 w-3.5"
+                      />
+                      <span>Ocultar procesos de sistema (Alt+Tab, Escritorio)</span>
+                    </label>
+                  </div>
                 </div>
 
                 {/* Formulario desplegable para agregar Software o URL manual */}
@@ -2379,7 +2581,7 @@ function ActivityAppsRankingComponent({
                           onChange={(e) => setNewCustomItemSub(e.target.value)}
                           className="w-full px-2.5 py-1.5 text-xs rounded-lg bg-background border border-border focus:ring-2 focus:ring-violet-500 text-foreground cursor-pointer"
                         >
-                          <option value="">(Sin subcategoría)</option>
+                          <option value="">-- General --</option>
                           {(categories.find((c) => c.id === newCustomItemCat)?.subcategories || []).map((s) => (
                             <option key={s} value={s}>{s}</option>
                           ))}
@@ -2409,10 +2611,11 @@ function ActivityAppsRankingComponent({
                   </div>
                 )}
 
-                <div className="flex-1 overflow-y-auto space-y-2 pr-1 min-h-[260px] max-h-[350px]">
+                {/* Lista compacta de software mapeado */}
+                <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 min-h-[260px] max-h-[380px]">
                   {filteredModalApps.length === 0 ? (
                     <div className="p-8 text-center text-xs text-muted-foreground">
-                      No se encontraron aplicaciones con ese nombre.
+                      No se encontraron aplicaciones ni URLs con ese filtro.
                     </div>
                   ) : (
                     filteredModalApps.map((appName) => {
@@ -2428,35 +2631,32 @@ function ActivityAppsRankingComponent({
                       return (
                         <div
                           key={appName}
-                          className="p-2.5 rounded-xl bg-muted/20 border border-border/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-muted/30 transition-colors"
+                          className="p-2 px-3 rounded-lg bg-card/60 hover:bg-muted/30 border border-border/40 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 transition-colors group"
                         >
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            {icon}
+                          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                            <div className="p-1 rounded-md bg-muted/40 shrink-0 text-muted-foreground group-hover:text-foreground transition-colors">
+                              {icon}
+                            </div>
                             <div className="min-w-0">
-                              <p className="font-bold text-xs text-foreground truncate" title={appName}>
-                                {appName}
-                              </p>
-                              <p className="text-[10px] text-muted-foreground flex items-center gap-1.5 flex-wrap">
-                                {isManual ? (
-                                  <span className="text-violet-400 font-semibold">● Asignación manual</span>
-                                ) : (
-                                  <span>Asignación automática</span>
-                                )}
-                                {currentSub && (
-                                  <span className="text-foreground/80 font-medium px-1.5 py-0.2 bg-muted/60 rounded border border-border/50">
-                                    {currentSub}
+                              <div className="flex items-center gap-2">
+                                <p className="font-semibold text-xs text-foreground truncate" title={appName}>
+                                  {appName}
+                                </p>
+                                {isManual && (
+                                  <span className="text-[10px] text-violet-400 font-medium bg-violet-500/10 px-1.5 py-0.2 rounded border border-violet-500/20 shrink-0">
+                                    Manual
                                   </span>
                                 )}
-                              </p>
+                              </div>
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                          <div className="flex items-center gap-2 shrink-0">
                             {/* Selector de Categoría Principal */}
                             <select
                               value={currentCat}
                               onChange={(e) => handleSetCategory(appName, e.target.value, null)}
-                              className="text-xs font-bold px-2.5 py-1.5 rounded-lg bg-card border border-border focus:outline-none focus:ring-2 focus:ring-violet-500 text-foreground cursor-pointer max-w-[160px]"
+                              className="text-xs font-medium px-2 py-1 rounded-md bg-muted/30 border border-border/60 hover:border-border text-foreground cursor-pointer max-w-[160px]"
                               title="Categoría Principal"
                             >
                               {categories.map((cat) => (
@@ -2471,10 +2671,14 @@ function ActivityAppsRankingComponent({
                               <select
                                 value={currentSub || ""}
                                 onChange={(e) => handleSetCategory(appName, currentCat, e.target.value || null)}
-                                className="text-xs font-medium px-2 py-1.5 rounded-lg bg-card border border-border focus:outline-none focus:ring-2 focus:ring-violet-500 text-foreground cursor-pointer max-w-[150px]"
+                                className={`text-xs px-2 py-1 rounded-md border cursor-pointer max-w-[170px] ${
+                                  currentSub
+                                    ? "bg-muted/30 border-border/60 text-foreground font-normal"
+                                    : "bg-amber-500/10 border-amber-500/30 text-amber-300 font-medium"
+                                }`}
                                 title="Subcategoría"
                               >
-                                <option value="">(Sin subcategoría)</option>
+                                <option value="">-- General --</option>
                                 {availableSubcats.map((sub) => (
                                   <option key={sub} value={sub}>
                                     {sub}
@@ -2487,9 +2691,9 @@ function ActivityAppsRankingComponent({
                               <button
                                 onClick={() => handleSetCategory(appName, null, null)}
                                 title="Restablecer a automático"
-                                className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-amber-400 transition-colors cursor-pointer"
+                                className="p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-amber-400 transition-colors cursor-pointer"
                               >
-                                <RotateCcw className="h-3.5 w-3.5" />
+                                <RotateCcw className="h-3 w-3" />
                               </button>
                             )}
                           </div>

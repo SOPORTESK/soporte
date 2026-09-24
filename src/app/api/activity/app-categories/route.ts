@@ -145,10 +145,18 @@ const DEFAULT_APP_MAPPINGS: Record<string, { category: string; subcategory: stri
   "chatgpt.com": { category: "Control Administrativo", subcategory: "Optimización de Procesos" },
   "Spotify": { category: "Utilidades", subcategory: "Música y Ambiente" },
   "Program Manager": { category: "Utilidades", subcategory: "Herramientas del Sistema" },
+  "Explorador: Program Manager": { category: "Utilidades", subcategory: "Herramientas del Sistema" },
+  "Escritorio de Windows": { category: "Utilidades", subcategory: "Herramientas del Sistema" },
+  "Explorador: Conmutación de tareas": { category: "Utilidades", subcategory: "Herramientas del Sistema" },
+  "Explorador: Conmutacin de tareas": { category: "Utilidades", subcategory: "Herramientas del Sistema" },
+  "Conmutación de tareas": { category: "Utilidades", subcategory: "Herramientas del Sistema" },
   "Calculadora": { category: "Utilidades", subcategory: "Accesorios de Escritorio" },
   "Bloc de notas": { category: "Utilidades", subcategory: "Accesorios de Escritorio" },
   "Explorador de Windows": { category: "Utilidades", subcategory: "Herramientas del Sistema" },
   "Task Manager": { category: "Utilidades", subcategory: "Herramientas del Sistema" },
+  "Google One": { category: "Utilidades", subcategory: "Navegación General" },
+  "Garantías - Google One Confirmation Page": { category: "Utilidades", subcategory: "Navegación General" },
+  "Supabase": { category: "Control Administrativo", subcategory: "Optimización de Procesos" },
 };
 
 
@@ -206,13 +214,40 @@ export async function GET() {
                 subcategories: Array.isArray(cat.subcategories) ? cat.subcategories : [],
               }));
             }
+
+            // Asegurar que la categoría "Utilidades" esté siempre presente
+            const hasUtilidades = categories.some((c: any) => c.id === "Utilidades" || c.label === "Utilidades");
+            if (!hasUtilidades) {
+              const utilCat = DEFAULT_CATEGORIES.find((c) => c.id === "Utilidades")!;
+              // Insertar antes de Descansos
+              const breakIdx = categories.findIndex((c: any) => c.id === "Descansos");
+              if (breakIdx !== -1) {
+                categories.splice(breakIdx, 0, utilCat);
+              } else {
+                categories.push(utilCat);
+              }
+              supabase
+                .from("sek_app_settings")
+                .upsert(
+                  {
+                    key: CATEGORIES_LIST_KEY,
+                    value: JSON.stringify(categories),
+                    iv: "none",
+                    tag: "none",
+                    updated_at: new Date().toISOString(),
+                  },
+                  { onConflict: "key" }
+                )
+                .then(() => {});
+            }
           }
         } catch {}
       }
     }
 
     delete appMappings["Formación de Usuarios"];
-    const finalMappings = hasCustomAppMappings ? appMappings : DEFAULT_APP_MAPPINGS;
+    // Fusionar siempre los mapeos oficiales por defecto con cualquier personalización guardada
+    const finalMappings = { ...DEFAULT_APP_MAPPINGS, ...appMappings };
     return NextResponse.json({ appMappings: finalMappings, categories });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

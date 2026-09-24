@@ -160,6 +160,15 @@ export function extractCleanItemName(item: TimelineEntry): string {
   const rawApp = (meta.app_name || meta.app || "").toLowerCase();
   const rawTitle = (meta.window_title || meta.title || "").toLowerCase();
 
+  // Herramientas del sistema y accesorios
+  if (rawTitle.includes("program manager") || act.includes("program manager") || rawApp.includes("program manager")) return "Escritorio de Windows";
+  if (rawTitle.includes("conmutac") || act.includes("conmutac") || rawTitle.includes("task switching")) return "Conmutación de tareas";
+  if (rawTitle.includes("google one") || rawApp.includes("google one") || act.includes("google one")) return "Google One";
+  if (rawTitle.includes("supabase") || rawApp.includes("supabase") || act.includes("supabase")) return "Supabase";
+  if (rawApp.includes("spotify") || rawTitle.includes("spotify") || act.includes("spotify")) return "Spotify";
+  if (rawApp.includes("calc") || rawTitle.includes("calculadora")) return "Calculadora";
+  if (rawApp.includes("notepad") || rawTitle.includes("bloc de notas")) return "Bloc de notas";
+
   if (rawApp.includes("linkus") || act.includes("linkus")) return "Linkus";
   if (rawApp.includes("whatsapp") || act.includes("whatsapp") || rawTitle.includes("whatsapp")) return "WhatsApp";
   if (rawApp.includes("odoo") || rawTitle.includes("odoo") || act.includes("odoo")) return "Odoo ERP";
@@ -179,8 +188,17 @@ export function extractCleanItemName(item: TimelineEntry): string {
     return "Seka Chat";
   }
 
-  if (meta.app_name && meta.app_name !== "ApplicationFrameHost") return meta.app_name;
-  if (item.category && item.category !== "Actividad general" && item.category !== "Operativa") return item.category;
+  const isCategoryName = (c: string) => {
+    const cl = (c || "").toLowerCase().trim();
+    return cl === "control administrativo" || cl === "soporte" || cl === "servicio de taller" ||
+           cl === "gestión del taller" || cl === "gestion del taller" || cl === "gestión de residuos" ||
+           cl === "gestion de residuos" || cl === "on-the-job training (ojt)" || cl === "ojt" ||
+           cl === "descansos" || cl === "pausa sanitaria" || cl === "utilidades" ||
+           cl === "actividad general" || cl === "operativa" || cl === "sin clasificar";
+  };
+
+  if (meta.app_name && meta.app_name !== "ApplicationFrameHost" && !isCategoryName(meta.app_name)) return meta.app_name;
+  if (item.category && !isCategoryName(item.category)) return item.category;
 
   return "Seka Chat";
 }
@@ -240,7 +258,10 @@ export function assignToOperationalCategory(name: string, action: string = "", c
   if (n.includes("utilidad") || n.includes("spotify") || n.includes("program manager") ||
       n.includes("progman") || n.includes("calculadora") || n.includes("notepad") ||
       n.includes("bloc de notas") || n.includes("taskmgr") || n.includes("administrador de tareas") ||
-      c.includes("utilidades") || a.includes("spotify") || a.includes("program manager")) {
+      n.includes("escritorio") || n.includes("conmutac") || n.includes("task switching") ||
+      n.includes("google one") ||
+      c.includes("utilidades") || a.includes("spotify") || a.includes("program manager") ||
+      a.includes("conmutac") || a.includes("escritorio") || a.includes("google one")) {
     return "Utilidades";
   }
 
