@@ -144,18 +144,16 @@ const DEFAULT_APP_MAPPINGS: Record<string, { category: string; subcategory: stri
   "github.com": { category: "Control Administrativo", subcategory: "Optimización de Procesos" },
   "chatgpt.com": { category: "Control Administrativo", subcategory: "Optimización de Procesos" },
   "Spotify": { category: "Utilidades", subcategory: "Música y Ambiente" },
-  "Program Manager": { category: "Utilidades", subcategory: "Herramientas del Sistema" },
-  "Explorador: Program Manager": { category: "Utilidades", subcategory: "Herramientas del Sistema" },
   "Escritorio de Windows": { category: "Utilidades", subcategory: "Herramientas del Sistema" },
-  "Explorador: Conmutación de tareas": { category: "Utilidades", subcategory: "Herramientas del Sistema" },
-  "Explorador: Conmutacin de tareas": { category: "Utilidades", subcategory: "Herramientas del Sistema" },
   "Conmutación de tareas": { category: "Utilidades", subcategory: "Herramientas del Sistema" },
   "Calculadora": { category: "Utilidades", subcategory: "Accesorios de Escritorio" },
   "Bloc de notas": { category: "Utilidades", subcategory: "Accesorios de Escritorio" },
-  "Explorador de Windows": { category: "Utilidades", subcategory: "Herramientas del Sistema" },
   "Task Manager": { category: "Utilidades", subcategory: "Herramientas del Sistema" },
   "Google One": { category: "Utilidades", subcategory: "Navegación General" },
-  "Garantías - Google One Confirmation Page": { category: "Utilidades", subcategory: "Navegación General" },
+  "Búsqueda en Google": { category: "Utilidades", subcategory: "Navegación General" },
+  "Google Drive": { category: "Utilidades", subcategory: "Navegación General" },
+  "Portal Hikvision": { category: "Soporte", subcategory: "Remoto" },
+  "Hikvision": { category: "Soporte", subcategory: "Remoto" },
   "Supabase": { category: "Control Administrativo", subcategory: "Optimización de Procesos" },
 };
 
@@ -176,12 +174,25 @@ export async function GET() {
     let categories = DEFAULT_CATEGORIES;
     let hasCustomAppMappings = false;
 
+    const junkPrefixes = ['navegador:', 'navegador web:', 'mystify', 'explorer', 'mi bandeja'];
+    const junkExact = ['navegación', 'navegacion', 'navegación web', 'navegacion web', 'inactividad', 'inactivo', 'pausa', 'operativa', 'actividad general'];
+
     for (const row of data || []) {
       if (row.key === APP_MAPPINGS_KEY && row.value) {
         try {
-          appMappings = JSON.parse(row.value);
-          if (appMappings && typeof appMappings === "object" && Object.keys(appMappings).length > 0) {
-            hasCustomAppMappings = true;
+          const raw = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
+          if (raw && typeof raw === "object") {
+            const clean: Record<string, any> = {};
+            for (const [k, v] of Object.entries(raw)) {
+              const kl = k.toLowerCase().trim();
+              if (junkPrefixes.some((p) => kl.startsWith(p))) continue;
+              if (junkExact.includes(kl)) continue;
+              clean[k] = v;
+            }
+            appMappings = clean;
+            if (Object.keys(clean).length > 0) {
+              hasCustomAppMappings = true;
+            }
           }
         } catch {}
       } else if (row.key === CATEGORIES_LIST_KEY && row.value) {

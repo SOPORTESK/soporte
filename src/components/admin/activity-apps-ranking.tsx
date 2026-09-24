@@ -1347,7 +1347,18 @@ function ActivityAppsRankingComponent({
       l === "pausa" ||
       l === "pausa operativa" ||
       l.startsWith("pausa prolongada") ||
-      l.includes("pausa / inactividad")
+      l.includes("pausa / inactividad") ||
+      l === "navegación" ||
+      l === "navegacion" ||
+      l === "navegación web" ||
+      l === "navegacion web" ||
+      l === "navegador" ||
+      l === "navegador web" ||
+      l.startsWith("navegador:") ||
+      l.startsWith("navegador web:") ||
+      l.startsWith("mi bandeja") ||
+      l === "explorer" ||
+      l.includes("mystify")
     );
   };
 
@@ -1362,14 +1373,45 @@ function ActivityAppsRankingComponent({
       l.startsWith("explorador:") ||
       l === "escritorio de windows" ||
       l === "conmutación de tareas" ||
-      l.includes("taskmgr")
+      l.includes("taskmgr") ||
+      l.includes("mystify")
     );
   };
 
+  const sanitizeAppName = (name: string): string => {
+    let clean = (name || "").trim();
+    if (clean.toLowerCase().startsWith("navegador web:")) {
+      clean = clean.replace(/^navegador web:\s*/i, "").trim();
+    }
+    if (clean.toLowerCase().startsWith("navegador:")) {
+      clean = clean.replace(/^navegador:\s*/i, "").trim();
+    }
+    if (clean.toLowerCase().includes("buscar con google") || clean.toLowerCase().includes("google search")) {
+      return "Búsqueda en Google";
+    }
+    if (clean.toLowerCase().includes("hik-connect") || clean.toLowerCase().includes("hikvision")) {
+      return "Portal Hikvision";
+    }
+    return clean;
+  };
+
   const filteredModalApps = useMemo(() => {
-    let combined = Array.from(
+    const rawList = Array.from(
       new Set([...allDetectedApps, ...Object.keys(customCategories)])
-    ).filter((appName) => !isPhantomCategory(appName));
+    );
+
+    const sanitizedMap = new Map<string, string>();
+    for (const raw of rawList) {
+      if (isPhantomCategory(raw) || isSystemNoise(raw)) continue;
+      const sanitized = sanitizeAppName(raw);
+      if (isPhantomCategory(sanitized) || isSystemNoise(sanitized)) continue;
+      if (sanitized.length < 2) continue;
+      if (!sanitizedMap.has(sanitized.toLowerCase())) {
+        sanitizedMap.set(sanitized.toLowerCase(), sanitized);
+      }
+    }
+
+    let combined = Array.from(sanitizedMap.values());
 
     if (hideSystemNoise) {
       combined = combined.filter((appName) => !isSystemNoise(appName));
@@ -1390,18 +1432,7 @@ function ActivityAppsRankingComponent({
       });
     }
 
-    // Deduplicar case-insensitively (evitar "AntiGravity" y "Antigravity")
-    const seenLower = new Set<string>();
-    const deduplicated: string[] = [];
-    for (const app of combined) {
-      const lower = app.toLowerCase();
-      if (!seenLower.has(lower)) {
-        seenLower.add(lower);
-        deduplicated.push(app);
-      }
-    }
-
-    return deduplicated.sort((a, b) => a.localeCompare(b));
+    return combined.sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }));
   }, [allDetectedApps, customCategories, searchQuery, hideSystemNoise, appsCategoryFilter]);
 
   // Lista de apps y URLs pendientes de clasificar (sin subcategoría oficial asignada)

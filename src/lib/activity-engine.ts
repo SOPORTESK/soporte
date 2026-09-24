@@ -216,13 +216,28 @@ export function extractCleanItemName(item: TimelineEntry): string {
       if (lowerClean.includes("chat sekunet") || lowerClean.includes("atención al cliente")) {
         return "Seka Chat";
       }
-      return cleanWinTitle.length > 30 ? cleanWinTitle.substring(0, 30) + "..." : cleanWinTitle;
+      if (lowerClean.includes("buscar con google") || lowerClean.includes("google search")) {
+        return "Búsqueda en Google";
+      }
+      if (lowerClean.includes("hik-connect") || lowerClean.includes("hikvision") || lowerClean.includes("cloudsso")) {
+        return "Hikvision";
+      }
+      const stripped = cleanWinTitle.replace(/^Navegador:\s*/i, "").trim();
+      return stripped.length > 30 ? stripped.substring(0, 30) + "..." : stripped;
     }
   }
 
   // 5. Todo lo que ocurre en la web/plataforma interna es Seka Chat
   if (act.includes("chat") || act.includes("caso") || rawApp.includes("seka")) {
     return "Seka Chat";
+  }
+
+  // 6. Si es búsqueda de Google o Hikvision en la acción registrada
+  if (act.includes("buscar con google") || act.includes("google search")) {
+    return "Búsqueda en Google";
+  }
+  if (act.includes("hikvision") || rawTitle.includes("hikvision")) {
+    return "Hikvision";
   }
 
   const isCategoryName = (c: string) => {
@@ -232,10 +247,22 @@ export function extractCleanItemName(item: TimelineEntry): string {
            cl === "gestion de residuos" || cl === "on-the-job training (ojt)" || cl === "ojt" ||
            cl === "descansos" || cl === "pausa sanitaria" || cl === "utilidades" ||
            cl === "actividad general" || cl === "operativa" || cl === "sin clasificar" ||
-           cl === "inactividad" || cl === "inactivo" || cl === "pausa" || cl.includes("inactiv") || cl.includes("pausa");
+           cl === "inactividad" || cl === "inactivo" || cl === "pausa" || cl.includes("inactiv") || cl.includes("pausa") ||
+           cl === "navegación" || cl === "navegacion" || cl === "navegación web" || cl === "navegacion web" ||
+           cl === "navegador" || cl === "navegador web" || cl.startsWith("navegador:");
   };
 
-  if (meta.app_name && meta.app_name !== "ApplicationFrameHost" && !isCategoryName(meta.app_name)) return meta.app_name;
+  if (meta.app_name && meta.app_name !== "ApplicationFrameHost") {
+    let clean = meta.app_name.trim();
+    if (clean.toLowerCase().startsWith("navegador:")) {
+      clean = clean.replace(/^navegador:\s*/i, "").trim();
+    }
+    if (clean.toLowerCase().includes("buscar con google") || clean.toLowerCase().includes("google search")) {
+      return "Búsqueda en Google";
+    }
+    if (!isCategoryName(clean)) return clean;
+  }
+
   if (item.category && !isCategoryName(item.category)) return item.category;
 
   return "Seka Chat";

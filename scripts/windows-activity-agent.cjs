@@ -48,15 +48,21 @@ function categorizeWindow(processName, title) {
     if (t.includes('sekunet') || t.includes('seka chat') || t.includes('localhost:3100')) {
       return { category: 'Operativa', label: 'Seka Chat', context, context_type };
     }
-    if (t.includes('youtube')) return { category: 'No Laboral', label: `YouTube - ${title.substring(0, 40)}`, context, context_type };
+    if (t.includes('youtube')) return { category: 'No Laboral', label: 'YouTube', context, context_type };
     if (t.includes('facebook') || t.includes('instagram') || t.includes('tiktok') || t.includes('twitter') || t.includes('x.com')) {
-      return { category: 'No Laboral', label: `Redes Sociales - ${title.substring(0, 30)}`, context, context_type };
+      return { category: 'No Laboral', label: 'Redes Sociales', context, context_type };
     }
     if (t.includes('github') || t.includes('stackoverflow') || t.includes('docs.') || t.includes('developer') || t.includes('npmjs')) {
-      return { category: 'Investigación y desarrollo', label: `Documentación - ${title.substring(0, 40)}`, context, context_type };
+      return { category: 'Investigación y desarrollo', label: 'Documentación / GitHub', context, context_type };
+    }
+    if (t.includes('buscar con google') || t.includes('google search') || t.includes('google.com/search')) {
+      return { category: 'Utilidades', label: 'Búsqueda en Google', context, context_type };
+    }
+    if (t.includes('hikvision') || t.includes('hik-partner') || t.includes('cloudsso')) {
+      return { category: 'Soporte', label: 'Hikvision', context, context_type };
     }
     const cleanTitle = title.split(' - ')[0] || title;
-    return { category: 'Navegación Web', label: `Navegador: ${cleanTitle.substring(0, 45)}`, context, context_type };
+    return { category: 'Utilidades', label: cleanTitle.substring(0, 45).trim(), context, context_type };
   }
   if (p.includes('spotify') || t.includes('spotify')) {
     return { category: 'Utilidades', label: 'Spotify', context, context_type: 'music' };
