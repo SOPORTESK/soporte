@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   X,
   Clock,
@@ -32,9 +32,12 @@ import {
   Users,
   SlidersHorizontal,
   Coffee,
+  Sandwich,
+  Bath,
 } from "lucide-react";
 import { toast } from "sonner";
 import { logActivity } from "@/lib/activity-client";
+import { computeUnifiedActivityMetrics, formatDurationMs } from "@/lib/activity-engine";
 import { extractSmartAppName } from "@/components/admin/activity-apps-ranking";
 
 interface Props {
@@ -98,7 +101,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
   const [overtimeInfo, setOvertimeInfo] = useState<any>(null);
   const [serverMetrics, setServerMetrics] = useState<any>(null);
   const [catPage, setCatPage] = useState(1);
-  const ITEMS_PER_PAGE = 5;
+  const ITEMS_PER_PAGE = 8;
 
   // Tolerancia oficial de inactividad configurada por los administradores (en minutos)
   const [toleranceMin, setToleranceMin] = useState<number>(3);
@@ -191,298 +194,33 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
     }
   }, [isOpen, agentEmail, rangeMode, customDate]);
 
-  // ─── CALCULAR MÉTRICAS CALIBRADAS ───
-  const sorted = [...timeline]
-    .filter((t) => Boolean(t.created_at))
-    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-
-  const categoryMap: Record<string, { durationMs: number; count: number }> = {};
-  let totalActiveMs = 0;
-  let totalJustifiedMs = 0;
+  // ─── MOTOR UNIFICADO DE JORNADA (Single Source of Truth) ───
   const effectiveToleranceMin = Math.max(15, toleranceMin || 15);
-  const ACTIVE_GAP_LIMIT = effectiveToleranceMin * 60 * 1000; // Tolerancia oficial (mínimo 15 minutos de ausencia real)
-
-  interface DetectedGap {
-    id: string;
-    dateStr: string;
-    dateFormatted: string;
-    startTime: string;
-    endTime: string;
-    startTimeVal: string;
-    endTimeVal: string;
-    durationMs: number;
-    minutes: number;
-    reason: string;
-  }
-  const detectedGaps: DetectedGap[] = [];
-
-  const toTimeVal = (d: Date) => {
-    const parts = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }).split(":");
-    return `${parts[0]}:${parts[1]}`;
-  };
-  const toYMD = (d: Date) => {
-    const parts = d.toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
-    return parts;
-  };
-
-  // 1. Detectar rangos de pausas explícitas (Almuerzo, Descanso, Pausa personal/sanitaria)
-  interface PauseRange {
-    start: number;
-    end: number;
-    reason: string;
-  }
-  const pauseRanges: PauseRange[] = [];
-  let currentPauseStart: number | null = null;
-  let currentPauseReason = "";
-
-  for (const item of sorted) {
-    const act = (item.action || "").toLowerCase();
-    const cat = item.category || "";
-    const meta = (item.metadata || {}) as Record<string, any>;
-    const t = new Date(item.created_at).getTime();
-
-    const isPauseTask =
-      cat === "Pausas y Descansos" ||
-      cat === "Descanso" ||
-      cat === "Pausa personal" ||
-      cat === "Pausa Sanitaria" ||
-      cat.toLowerCase().includes("pausa") ||
-      cat.toLowerCase().includes("descanso") ||
-      act.includes("almuerzo") ||
-      act.includes("descanso") ||
-      meta.task === "Almuerzo" ||
-      meta.subcategory === "Almuerzo";
-
-    const isPauseStart = (act.startsWith("inició:") || act.startsWith("inicio:")) && isPauseTask;
-    const isPauseEnd = (act.startsWith("terminó:") || act.startsWith("termino:")) && isPauseTask;
-
-    if (isPauseStart) {
-      currentPauseStart = t;
-      currentPauseReason = act;
-    } else if (isPauseEnd) {
-      if (currentPauseStart) {
-        pauseRanges.push({ start: currentPauseStart, end: t, reason: currentPauseReason || act });
-        currentPauseStart = null;
-      } else {
-        const discreteMs = Number(
-          item.duration_ms ||
-          (meta.duration_seconds ? meta.duration_seconds * 1000 : 0) ||
-          (meta.minutes ? meta.minutes * 60000 : 0)
-        ) || 0;
-        if (discreteMs > 0) {
-          pauseRanges.push({ start: t - discreteMs, end: t, reason: act });
-        }
-      }
-    }
-  }
-
-  for (let i = 0; i < sorted.length; i++) {
-    const item = sorted[i];
-    const meta = (item.metadata || {}) as Record<string, any>;
-    const currTime = new Date(item.created_at).getTime();
-    const nextTime = i < sorted.length - 1 ? new Date(sorted[i + 1].created_at).getTime() : currTime + 60000;
-    const gap = Math.max(0, nextTime - currTime);
-    const act = (item.action || "").toLowerCase();
-    const catRaw = item.category || "";
-    const appStr = (meta.app || meta.app_name || "").toLowerCase();
-
-    const inDeclaredPause = pauseRanges.some((p) => currTime >= p.start && currTime < p.end);
-    const isScreensaver =
-      act.includes(".scr") ||
-      act.includes("mystify") ||
-      act.includes("lockapp") ||
-      appStr.includes(".scr") ||
-      appStr.includes("mystify") ||
-      appStr.includes("lockapp");
-
-    const isSanitary =
-      catRaw === "Pausa Sanitaria" ||
-      catRaw === "Pausa personal" ||
-      act.includes("sanitaria") ||
-      act.includes("baño") ||
-      act.includes("bano");
-
-    const isBreak =
-      catRaw === "Descansos" ||
-      catRaw === "Pausas y Descansos" ||
-      catRaw === "Descanso" ||
-      act.includes("almuerzo") ||
-      act.includes("descanso") ||
-      act.includes("comida") ||
-      act.includes("café") ||
-      act.includes("cafe") ||
-      meta.task === "Almuerzo" ||
-      meta.subcategory === "Almuerzo";
-
-    // Si es pausa oficial autorizada (almuerzo, descanso, baño), es una pausa declarada y NO una laguna de inactividad
-    if (inDeclaredPause || isBreak || isSanitary) {
-      continue;
-    }
-
-    // Si es salvapantallas o bloqueo de pantalla explícito sin pausa declarada
-    const isLockOrScreensaver =
-      isScreensaver ||
-      meta.reason === "lock_screen" ||
-      meta.reason === "suspend";
-
-    if (isLockOrScreensaver) {
-      const pauseDur = Math.min(gap > 0 ? gap : 60000, 60 * 60 * 1000);
-      if (pauseDur >= 60000) {
-        const dStart = new Date(currTime);
-        const dEnd = new Date(currTime + pauseDur);
-        detectedGaps.push({
-          id: `gap-${i}`,
-          dateStr: toYMD(dStart),
-          dateFormatted: dStart.toLocaleDateString("es-CR", { day: "numeric", month: "short", timeZone: "America/Costa_Rica" }),
-          startTime: dStart.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }),
-          endTime: dEnd.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }),
-          startTimeVal: toTimeVal(dStart),
-          endTimeVal: toTimeVal(dEnd),
-          durationMs: pauseDur,
-          minutes: Math.round(pauseDur / 60000),
-          reason: "Salvapantallas / Bloqueo de Pantalla",
-        });
-      }
-      continue;
-    }
-
-    const isJust = Boolean(meta.justification || catRaw === "Justificación" || act.startsWith("justificación:") || act.startsWith("justificacion:"));
-    if (isJust) {
-      const justMs = Number(
-        item.duration_ms ||
-        (meta.minutes ? meta.minutes * 60000 : 0) ||
-        (meta.duration_seconds ? meta.duration_seconds * 1000 : 0)
-      ) || 0;
-      const cat = extractSmartAppName(item);
-      if (!categoryMap[cat]) categoryMap[cat] = { durationMs: 0, count: 0 };
-      categoryMap[cat].durationMs += justMs;
-      categoryMap[cat].count++;
-      totalActiveMs += justMs;
-      totalJustifiedMs += justMs;
-      continue;
-    }
-
-    const isManualStart = (act.startsWith("inició:") || act.startsWith("inicio:")) && (meta.manual || meta.task);
-    const isManualEnd = (act.startsWith("terminó:") || act.startsWith("termino:")) && (meta.manual || meta.task);
-
-    if (isManualStart) {
-      const dur = Math.min(gap, 4 * 60 * 60 * 1000);
-      const cat = meta.task || catRaw || "Labores de Taller";
-      if (!categoryMap[cat]) categoryMap[cat] = { durationMs: 0, count: 0 };
-      categoryMap[cat].durationMs += dur;
-      categoryMap[cat].count++;
-      totalActiveMs += dur;
-      continue;
-    }
-
-    if (isManualEnd) {
-      const prev = i > 0 ? sorted[i - 1] : null;
-      const prevAct = (prev?.action || "").toLowerCase();
-      const prevWasStart = prev && (prevAct.startsWith("inició:") || prevAct.startsWith("inicio:"));
-      if (!prevWasStart) {
-        const discreteMs = Number(
-          item.duration_ms ||
-          (meta.duration_seconds ? meta.duration_seconds * 1000 : 0) ||
-          (meta.minutes ? meta.minutes * 60000 : 0)
-        ) || 0;
-        const dur = Math.min(discreteMs, 4 * 60 * 60 * 1000);
-        const cat = meta.task || catRaw || "Labores de Taller";
-        if (!categoryMap[cat]) categoryMap[cat] = { durationMs: 0, count: 0 };
-        categoryMap[cat].durationMs += dur;
-        categoryMap[cat].count++;
-        totalActiveMs += dur;
-      }
-      continue;
-    }
-
-    let cat = extractSmartAppName(item);
-
-    if (gap <= ACTIVE_GAP_LIMIT) {
-      if (!categoryMap[cat]) categoryMap[cat] = { durationMs: 0, count: 0 };
-      categoryMap[cat].durationMs += gap;
-      categoryMap[cat].count++;
-      totalActiveMs += gap;
-    } else {
-      if (!categoryMap[cat]) categoryMap[cat] = { durationMs: 0, count: 0 };
-      categoryMap[cat].durationMs += ACTIVE_GAP_LIMIT;
-      categoryMap[cat].count++;
-      totalActiveMs += ACTIVE_GAP_LIMIT;
-
-      const idlePartMs = gap - ACTIVE_GAP_LIMIT;
-
-      // Solo si el lapso sin actividad superó el umbral de ausencia real (mínimo 15 minutos continuos)
-      // Evita falsos positivos de micro-pausas naturales (leer, pensar, pings del tracker)
-      if (gap >= 15 * 60 * 1000 && idlePartMs >= 60000) {
-        const dStart = new Date(currTime + ACTIVE_GAP_LIMIT);
-        const dEnd = new Date(nextTime);
-        detectedGaps.push({
-          id: `gap-${i}`,
-          dateStr: toYMD(dStart),
-          dateFormatted: dStart.toLocaleDateString("es-CR", { day: "numeric", month: "short", timeZone: "America/Costa_Rica" }),
-          startTime: dStart.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }),
-          endTime: dEnd.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }),
-          startTimeVal: toTimeVal(dStart),
-          endTimeVal: toTimeVal(dEnd),
-          durationMs: idlePartMs,
-          minutes: Math.round(idlePartMs / 60000),
-          reason: `Ausencia prolongada (> ${effectiveToleranceMin} min)`,
-        });
-      }
-    }
-  }
-
-  // Ordenar lagunas de más reciente a más antigua
-  detectedGaps.reverse();
-
-  // Descontar lagunas que coincidan con justificaciones existentes (por horario o compensadas)
-  const remainingGaps: DetectedGap[] = [];
-  let availableJustifiedMs = totalJustifiedMs;
-
-  for (const gap of detectedGaps) {
-    // 1. Coincidencia de horario con una justificación registrada
-    const isDirectlyCovered = sorted.some((item) => {
-      const meta = (item.metadata || {}) as Record<string, any>;
-      const isJust = Boolean(
-        meta.justification ||
-        item.category === "Justificación" ||
-        (item.action || "").toLowerCase().startsWith("justificación:") ||
-        (item.action || "").toLowerCase().startsWith("justificacion:")
-      );
-      if (!isJust) return false;
-      if (meta.date && meta.date === gap.dateStr) {
-        if (meta.start_time && meta.end_time) {
-          if (meta.start_time === gap.startTimeVal && meta.end_time === gap.endTimeVal) return true;
-        }
-      }
-      return false;
+  const metrics = useMemo(() => {
+    return computeUnifiedActivityMetrics(timeline, {
+      targetDailyHours,
+      toleranceMinutes: effectiveToleranceMin,
     });
+  }, [timeline, targetDailyHours, effectiveToleranceMin]);
 
-    if (isDirectlyCovered) {
-      continue;
-    }
+  // Lagunas vigentes para justificar
+  const activeDetectedGaps = metrics.detectedGaps;
+  const officialIdleMs = metrics.masterBuckets.Inactivo.durationMs;
+  const detectedLostMin = Math.round(officialIdleMs / 60000);
 
-    // 2. Compensación por minutos justificados acumulados en el período
-    if (availableJustifiedMs >= gap.durationMs) {
-      availableJustifiedMs -= gap.durationMs;
-      continue;
-    }
-
-    remainingGaps.push(gap);
-  }
-
-  // Las lagunas vigentes son únicamente las que no han sido justificadas
-  const activeDetectedGaps = remainingGaps;
-  const rawGapsMs = activeDetectedGaps.reduce((acc, g) => acc + g.durationMs, 0);
-  const totalIdleMs = rawGapsMs;
-
-  // Cálculo de jornada base de 10 horas y tiempo perdido / tiempo extra
   const targetMs = targetDailyHours * 60 * 60 * 1000;
+  const officialActiveMs = metrics.masterBuckets.Productivo.durationMs;
+  const officialBreakMs = metrics.masterBuckets.Descanso.durationMs;
+  const officialSanitaryMs = metrics.masterBuckets["Pausa Sanitaria"].durationMs;
+  const officialDeficitMs = Math.max(0, targetMs - officialActiveMs);
+  const officialCompliancePercent = metrics.compliancePercent;
+  const firstLoginTime = metrics.firstLoginTime;
+  const lastLogoutTime = metrics.lastLogoutTime;
   const isOvertimeApproved = overtimeInfo?.status === "approved";
-  const rawOvertimeMs = Math.max(0, totalActiveMs - targetMs);
-  const deficitMs = Math.max(0, targetMs - totalActiveMs);
+  const rawOvertimeMs = Math.max(0, officialActiveMs - targetMs);
 
-  // Inactividad real detectada (NUNCA usar deficitMs como tiempo perdido)
-  const detectedLostMin = Math.max(0, Math.round(totalIdleMs / 60000));
+  // Modo de visualización en la pestaña Resumen (Por Categorías oficiales vs Por Software/Labor)
+  const [categoryViewMode, setCategoryViewMode] = useState<"categories" | "software">("categories");
 
   useEffect(() => {
     if (activeTab === "justificar") {
@@ -501,7 +239,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
     }
   }, [activeTab, detectedLostMin, activeDetectedGaps.length]);
 
-  const handleSelectGap = (gap: DetectedGap) => {
+  const handleSelectGap = (gap: any) => {
     setJustDate(gap.dateStr);
     setJustStartTime(gap.startTimeVal);
     setJustEndTime(gap.endTimeVal);
@@ -528,70 +266,39 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
     }
   };
 
-  // Si no está aprobado el tiempo extra, topar la visualización en 10 horas
-  const activeDisplayMs = (rawOvertimeMs > 0 && !isOvertimeApproved) ? targetMs : totalActiveMs;
-  const compliancePercent = targetMs > 0 ? Math.round((activeDisplayMs / targetMs) * 100) : 0;
-
-  // ── Consolidación con la Única Fuente de Verdad (Métricas Oficiales) ──
-  // Si el servidor provee métricas consolidadas sin solapamiento, las usamos para alineación perfecta con los otros paneles
-  const officialActiveMs = (serverMetrics?.totalActiveMs !== undefined && (rangeMode === "hoy" || rangeMode === "custom"))
-    ? serverMetrics.totalActiveMs
-    : activeDisplayMs;
-
-  const officialDeficitMs = (serverMetrics?.deficitMs !== undefined && (rangeMode === "hoy" || rangeMode === "custom"))
-    ? serverMetrics.deficitMs
-    : deficitMs;
-
-  // Unificar con la inactividad real de lagunas para que la tarjeta superior y la pestaña muestren exactamente los mismos minutos
-  const officialIdleMs = totalIdleMs;
-
-  const officialBreakMs = (serverMetrics?.totalBreakMs !== undefined && (rangeMode === "hoy" || rangeMode === "custom"))
-    ? serverMetrics.totalBreakMs
-    : 0;
-
-  const officialSanitaryMs = (serverMetrics?.totalSanitaryMs !== undefined && (rangeMode === "hoy" || rangeMode === "custom"))
-    ? serverMetrics.totalSanitaryMs
-    : 0;
-
-  const officialCompliancePercent = targetMs > 0 ? Math.round((officialActiveMs / targetMs) * 100) : compliancePercent;
-
-  // Detectar primer evento del día (hora real de entrada) y último evento
-  let firstLoginTime: string | null = null;
-  let lastLogoutTime: string | null = null;
-  if (sorted.length > 0) {
-    const firstEvt = sorted[0];
-    if (firstEvt?.created_at) {
-      const d = new Date(firstEvt.created_at);
-      firstLoginTime = isNaN(d.getTime()) ? null : d.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" });
+  // Lista unificada para la tabla de Resumen
+  const categoriesList = useMemo(() => {
+    if (categoryViewMode === "categories") {
+      return metrics.operationalBuckets.map((b) => ({
+        category: b.label,
+        durationMs: b.durationMs,
+        count: 1,
+        percentage: b.percentage,
+        color: b.color,
+        bgBar: b.bgBar,
+        iconName: b.iconName,
+        isCategory: true,
+      }));
+    } else {
+      return metrics.topSoftware.map((s) => ({
+        category: s.name,
+        durationMs: s.durationMs,
+        count: s.count,
+        percentage: s.percentage,
+        color: "text-foreground",
+        bgBar: "bg-violet-500",
+        iconName: "Monitor",
+        isCategory: false,
+      }));
     }
-
-    const lastEvt = sorted[sorted.length - 1];
-    if (lastEvt?.created_at) {
-      const d = new Date(lastEvt.created_at);
-      lastLogoutTime = isNaN(d.getTime()) ? null : d.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" });
-    }
-  }
-
-  // Ordenar categorías por mayor tiempo acumulado y paginar
-  const categoriesList: CategoryUsage[] = Object.entries(categoryMap)
-    .map(([cat, val]) => ({
-      category: cat,
-      durationMs: val.durationMs,
-      count: val.count,
-      percentage: totalActiveMs > 0 ? Math.round((val.durationMs / totalActiveMs) * 100) : 0,
-    }))
-    .sort((a, b) => b.durationMs - a.durationMs);
+  }, [categoryViewMode, metrics]);
 
   const totalCatPages = Math.max(1, Math.ceil(categoriesList.length / ITEMS_PER_PAGE));
   const currentCatPage = Math.min(Math.max(1, catPage), totalCatPages);
   const paginatedCategories = categoriesList.slice((currentCatPage - 1) * ITEMS_PER_PAGE, currentCatPage * ITEMS_PER_PAGE);
 
   const formatMinHours = (ms: number) => {
-    const min = Math.round(ms / 60000);
-    const h = Math.floor(min / 60);
-    const m = min % 60;
-    if (h > 0) return `${h}h ${m}m`;
-    return `${m}m`;
+    return formatDurationMs(ms);
   };
 
   const getCategoryIcon = (cat: string) => {
@@ -602,6 +309,8 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
     if (c.includes("servicio") || c.includes("diagnóst") || c.includes("diagnost") || c.includes("garant") || c.includes("rma") || c.includes("tienda 3d")) return <Wrench className="h-4 w-4 text-amber-400" />;
     if (c.includes("control") || c.includes("admin") || c.includes("correo") || c.includes("mail") || c.includes("excel") || c.includes("word") || c.includes("informe")) return <TrendingUp className="h-4 w-4 text-blue-400" />;
     if (c.includes("gestión del taller") || c.includes("gestion del taller") || c.includes("bodega") || c.includes("inventario") || c.includes("ventanilla") || c.includes("mostrador") || c.includes("limpieza") || c.includes("exhibidor")) return <Package className="h-4 w-4 text-indigo-400" />;
+    if (c.includes("descanso") || c.includes("almuerzo") || c.includes("café") || c.includes("cafe")) return <Sandwich className="h-4 w-4 text-amber-400" />;
+    if (c.includes("sanitaria") || c.includes("baño") || c.includes("bano")) return <Bath className="h-4 w-4 text-emerald-400" />;
     if (c.includes("justificación")) return <CheckCircle2 className="h-4 w-4 text-cyan-400" />;
     return <Globe className="h-4 w-4 text-muted-foreground" />;
   };
@@ -968,14 +677,48 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
 
                 {/* 2. Desglose por Categorías de Tiempo */}
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-xs font-black uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
                       <BarChart3 className="h-4 w-4 text-violet-400" />
-                      Distribución de Tiempo por Categorías
-                    </h3>
-                    <span className="text-[11px] font-medium text-muted-foreground">
-                      {categoriesList.length} {categoriesList.length === 1 ? "categoría" : "categorías"}
-                    </span>
+                      <h3 className="text-xs font-black uppercase tracking-wider text-muted-foreground">
+                        Distribución de Tiempo
+                      </h3>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="flex bg-muted/60 p-0.5 rounded-lg border border-border/50 text-[10px] font-bold">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCategoryViewMode("categories");
+                            setCatPage(1);
+                          }}
+                          className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                            categoryViewMode === "categories"
+                              ? "bg-background text-foreground shadow-sm"
+                              : "text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          Por Categoría (8 Oficiales)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCategoryViewMode("software");
+                            setCatPage(1);
+                          }}
+                          className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                            categoryViewMode === "software"
+                              ? "bg-background text-foreground shadow-sm"
+                              : "text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          Por Software / Tarea
+                        </button>
+                      </div>
+                      <span className="text-[11px] font-mono text-muted-foreground">
+                        {categoriesList.length} {categoriesList.length === 1 ? "registro" : "registros"}
+                      </span>
+                    </div>
                   </div>
 
                   {categoriesList.length === 0 ? (
@@ -1009,7 +752,9 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
 
                             <div className="h-1.5 w-full rounded-full bg-muted/60 overflow-hidden">
                               <div
-                                className="h-full bg-gradient-to-r from-violet-500 to-indigo-500 rounded-full transition-all duration-500"
+                                className={`h-full rounded-full transition-all duration-500 ${
+                                  (cat as any).bgBar || "bg-gradient-to-r from-violet-500 to-indigo-500"
+                                }`}
                                 style={{ width: `${cat.percentage}%` }}
                               />
                             </div>

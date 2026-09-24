@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
+import { computeUnifiedActivityMetrics } from "@/lib/activity-engine";
 import {
   Monitor,
   Phone,
@@ -1173,277 +1174,30 @@ function ActivityAppsRankingComponent({
     });
   };
 
-  // Consolidar tiempo por app/categoría usando intervalos cronológicos reales y rangos de horario
-  const { appMap, catMap, totalActiveTime, allDetectedApps } = useMemo(() => {
-    const appM: Record<string, { durationMs: number; count: number }> = {};
-    const catM: Record<string, { durationMs: number; count: number }> = {};
-    const allAppsSet = new Set<string>();
-    let totalTime = 0;
+  // ── MOTOR UNIFICADO: Única Fuente de Verdad para distribución de tiempos ────
+  const metrics = useMemo(() => {
+    return computeUnifiedActivityMetrics(timeline as any, { toleranceMinutes: 15 });
+  }, [timeline]);
 
-    if (timeline && timeline.length > 0) {
-      const sorted = [...timeline]
-        .filter((t) => Boolean(t.created_at))
-        .sort((a, b) => new Date(a.created_at!).getTime() - new Date(b.created_at!).getTime());
+  const allDetectedApps = useMemo(() => {
+    return metrics.topSoftware.map((s) => s.name);
+  }, [metrics]);
 
-      const ACTIVE_GAP_LIMIT = 5 * 60 * 1000;
-      const parseTimeToMinutes = (t: string) => {
-        if (!t) return 0;
-        const parts = t.split(":");
-        return (parseInt(parts[0], 10) || 0) * 60 + (parseInt(parts[1], 10) || 0);
-      };
+  const currentTotal = metrics.totalDayMs;
 
-      const startMin = parseTimeToMinutes(scheduleStart || "08:00");
-      const endMin = parseTimeToMinutes(scheduleEnd || "17:00");
-
-      // 1. Identificar intervalos manuales discretos (inicio/fin)
-      interface ManualInterval {
-        startMs: number;
-        endMs: number;
-        appName: string;
-        effectiveCat: string;
-      }
-      const manualIntervals: ManualInterval[] = [];
-
-      for (let i = 0; i < sorted.length; i++) {
-        const it = sorted[i];
-        const meta = (it.metadata || {}) as Record<string, any>;
-        const act = (it.action || "").toLowerCase();
-        const isEnd = act.startsWith("terminó:") || act.startsWith("termino:");
-        const isJust = act.startsWith("justificación:") || act.startsWith("justificacion:") || meta.justification;
-
-        if (isEnd || isJust) {
-          const endMs = new Date(it.created_at!).getTime();
-          const discreteMs = Number(
-            it.duration_ms ||
-            (meta.duration_seconds ? meta.duration_seconds * 1000 : 0) ||
-            (meta.minutes ? meta.minutes * 60000 : 0)
-          ) || 0;
-          // Máximo 4 horas por olvido
-          const durMs = Math.min(discreteMs, 4 * 3600 * 1000);
-          let startMs = endMs - durMs;
-
-          // Si existe un evento "Inició: <labor>" previo coincidente, sincronizar con su timestamp exacto
-          const taskName = (meta.task || extractSmartAppName(it)).toLowerCase();
-          for (let j = i - 1; j >= 0; j--) {
-            const prev = sorted[j];
-            const pAct = (prev.action || "").toLowerCase();
-            if ((pAct.startsWith("inició:") || pAct.startsWith("inicio:")) && pAct.includes(taskName)) {
-              const pStart = new Date(prev.created_at!).getTime();
-              if (pStart <= endMs && (endMs - pStart) <= 5 * 3600 * 1000) {
-                startMs = Math.min(startMs, pStart);
-              }
-              break;
-            }
-          }
-
-          const appName = extractSmartAppName(it);
-          allAppsSet.add(appName);
-          const effectiveCat = getAppAssignment(appName, it.action, it.category).category;
-
-          if (endMs > startMs) {
-            manualIntervals.push({
-              startMs,
-              endMs,
-              appName,
-              effectiveCat,
-            });
-          }
-        }
-      }
-
-      // Detectar labor manual actualmente abierta/en curso (Inició sin Terminó)
-      for (let i = sorted.length - 1; i >= 0; i--) {
-        const it = sorted[i];
-        const meta = (it.metadata || {}) as Record<string, any>;
-        const act = (it.action || "").toLowerCase();
-        const isStart = (act.startsWith("inició:") || act.startsWith("inicio:")) && (meta.manual || meta.task);
-        if (isStart) {
-          const startMs = new Date(it.created_at!).getTime();
-          const hasEndLater = sorted.slice(i + 1).some((after) => {
-            const afterAct = (after.action || "").toLowerCase();
-            return (afterAct.startsWith("terminó:") || afterAct.startsWith("termino:")) && new Date(after.created_at!).getTime() > startMs;
-          });
-
-          if (!hasEndLater) {
-            const appName = extractSmartAppName(it);
-            allAppsSet.add(appName);
-            const effectiveCat = getAppAssignment(appName, it.action, it.category).category;
-
-            const nowMs = Date.now();
-            if (nowMs > startMs) {
-              manualIntervals.push({
-                startMs,
-                endMs: nowMs,
-                appName,
-                effectiveCat,
-              });
-            }
-          }
-          break;
-        }
-      }
-
-      // Sumar los intervalos manuales una única vez
-      for (const m of manualIntervals) {
-        const dur = m.endMs - m.startMs;
-        if (dur > 0) {
-          if (!appM[m.appName]) appM[m.appName] = { durationMs: 0, count: 0 };
-          appM[m.appName].durationMs += dur;
-          appM[m.appName].count++;
-
-          if (!catM[m.effectiveCat]) catM[m.effectiveCat] = { durationMs: 0, count: 0 };
-          catM[m.effectiveCat].durationMs += dur;
-          catM[m.effectiveCat].count++;
-
-          totalTime += dur;
-        }
-      }
-
-      // 2. Procesar eventos de software secuenciales no solapados con labores manuales
-      for (let i = 0; i < sorted.length; i++) {
-        const curr = sorted[i];
-        const meta = (curr.metadata || {}) as Record<string, any>;
-        const act = (curr.action || "").toLowerCase();
-        const currTime = new Date(curr.created_at!).getTime();
-        const currDate = new Date(currTime);
-
-        // Omitir inmediatamente eventos de registro manual (ya están medidos en manualIntervals)
-        const isManualEvt =
-          act.startsWith("inició:") ||
-          act.startsWith("inicio:") ||
-          act.startsWith("terminó:") ||
-          act.startsWith("termino:") ||
-          act.startsWith("justificación:") ||
-          act.startsWith("justificacion:") ||
-          meta.manual ||
-          meta.task;
-        if (isManualEvt) continue;
-
-        // Si el horario laboral está activo, verificar si está dentro del horario y días laborales
-        if (scheduleEnabled) {
-          const dayOfWeek = currDate.getDay();
-          if (!workDays.includes(dayOfWeek)) {
-            continue; // Fuera de días laborales: NADA se mide
-          }
-          const currMinOfDay = currDate.getHours() * 60 + currDate.getMinutes();
-          if (currMinOfDay < startMin || currMinOfDay >= endMin) {
-            continue; // Fuera de horario laboral: NADA se mide
-          }
-        }
-
-        // Si este instante de tiempo cae dentro de un intervalo de labor manual, omitir
-        const inManual = manualIntervals.some((m) => currTime >= (m.startMs - 5000) && currTime <= (m.endMs + 5000));
-        if (inManual) continue;
-
-        const appName = extractSmartAppName(curr);
-        if (!appName || !appName.trim()) continue;
-        const appLower = appName.toLowerCase();
-        const SYSTEM_HOST_PROCESSES = ["applicationframehost", "searchhost", "lockapp", "dwm", "shellexperiencehost", "startmenuexperiencehost", "systemidleprocess"];
-        if (SYSTEM_HOST_PROCESSES.some((proc) => appLower === proc || appLower === `${proc}.exe`)) {
-          continue;
-        }
-        allAppsSet.add(appName);
-        const effectiveCat = getAppAssignment(appName, curr.action, curr.category).category;
-
-        const nextTime = i < sorted.length - 1 ? new Date(sorted[i + 1].created_at!).getTime() : currTime + 60000;
-        let clampedNext = nextTime;
-
-        if (scheduleEnabled) {
-          const dayEndMs = new Date(currDate).setHours(Math.floor(endMin / 60), endMin % 60, 0, 0);
-          clampedNext = Math.min(nextTime, dayEndMs);
-        }
-
-        let gap = Math.max(0, clampedNext - currTime);
-
-        // El gap jamás debe sobrepasar el inicio de una labor manual próxima
-        for (const m of manualIntervals) {
-          if (m.startMs > currTime && m.startMs < currTime + gap) {
-            gap = m.startMs - currTime;
-          }
-        }
-
-        // Pausas explícitas (salvapantallas, bloqueo, inactividad registrada o asignada a Pausas y Descansos)
-        const isExplicitPause =
-          appLower.includes(".scr") ||
-          appLower.includes("mystify") ||
-          meta.reason === "lock_screen" ||
-          meta.reason === "suspend" ||
-          curr.category === "Inactividad" ||
-          effectiveCat === "Descansos" ||
-          effectiveCat === "Pausa Sanitaria" ||
-          effectiveCat === "Pausas y Descansos";
-
-        if (isExplicitPause) {
-          const pauseCat = (appLower.includes("sanitaria") || appLower.includes("baño") || appLower.includes("bano") || (curr.action || "").toLowerCase().includes("baño"))
-            ? "Pausa Sanitaria"
-            : "Descansos";
-          const pauseDuration = Math.min(gap, 60 * 60 * 1000);
-          if (pauseDuration > 0) {
-            const pauseName = appName && appName !== "Unknown" ? appName : "Tiempo de Descanso";
-            if (!appM[pauseName]) appM[pauseName] = { durationMs: 0, count: 0 };
-            appM[pauseName].durationMs += pauseDuration;
-            appM[pauseName].count++;
-
-            if (!catM[pauseCat]) catM[pauseCat] = { durationMs: 0, count: 0 };
-            catM[pauseCat].durationMs += pauseDuration;
-            catM[pauseCat].count++;
-
-            totalTime += pauseDuration;
-          }
-          continue;
-        }
-
-        const effectiveDuration = Math.min(gap, ACTIVE_GAP_LIMIT);
-
-        if (effectiveDuration > 0) {
-          if (!appM[appName]) appM[appName] = { durationMs: 0, count: 0 };
-          appM[appName].durationMs += effectiveDuration;
-          appM[appName].count++;
-
-          if (!catM[effectiveCat]) catM[effectiveCat] = { durationMs: 0, count: 0 };
-          catM[effectiveCat].durationMs += effectiveDuration;
-          catM[effectiveCat].count++;
-
-          totalTime += effectiveDuration;
-        }
-
-        // Si la ausencia entre eventos de software superó 15 minutos continuos sin estar en labor manual, registrar tiempo inactivo
-        if (gap > 15 * 60 * 1000) {
-          const excessPause = Math.min(gap - ACTIVE_GAP_LIMIT, 2 * 60 * 60 * 1000);
-          const pauseCat = "Descansos";
-          if (!appM["Tiempo de Descanso"]) appM["Tiempo de Descanso"] = { durationMs: 0, count: 0 };
-          appM["Tiempo de Descanso"].durationMs += excessPause;
-          appM["Tiempo de Descanso"].count++;
-
-          if (!catM[pauseCat]) catM[pauseCat] = { durationMs: 0, count: 0 };
-          catM[pauseCat].durationMs += excessPause;
-          catM[pauseCat].count++;
-
-          totalTime += excessPause;
-        }
-      }
+  const sortedItems: [string, { durationMs: number; count: number }][] = useMemo(() => {
+    if (viewMode === "categories") {
+      return metrics.operationalBuckets.map((b) => [
+        b.id,
+        { durationMs: b.durationMs, count: 1 },
+      ]);
+    } else {
+      return metrics.topSoftware.slice(0, 15).map((s) => [
+        s.name,
+        { durationMs: s.durationMs, count: s.count },
+      ]);
     }
-
-    // Asegurar que todas las categorías oficiales existan en catMap
-    categories.forEach((c) => {
-      if (!catM[c.id]) {
-        catM[c.id] = { durationMs: 0, count: 0 };
-      }
-    });
-
-    return {
-      appMap: appM,
-      catMap: catM,
-      totalActiveTime: totalTime,
-      allDetectedApps: Array.from(allAppsSet),
-    };
-  }, [timeline, customCategories, categories, scheduleStart, scheduleEnd, scheduleEnabled, workDays]);
-
-  const activeMap = viewMode === "categories" ? catMap : appMap;
-  const currentTotal = Math.max(1, Object.values(activeMap).reduce((acc, it) => acc + it.durationMs, 0));
-  const sortedItems = Object.entries(activeMap)
-    .sort((a, b) => b[1].durationMs - a[1].durationMs)
-    .slice(0, 10);
+  }, [viewMode, metrics]);
 
   // Lista de apps y labores para el modal de gestión
   const filteredModalApps = useMemo(() => {

@@ -27,6 +27,8 @@ import {
 } from "lucide-react";
 import { extractSmartAppName } from "./activity-apps-ranking";
 
+import { computeUnifiedActivityMetrics } from "@/lib/activity-engine";
+
 interface TimelineEntry {
   id?: number;
   agent_email: string;
@@ -67,61 +69,6 @@ const MASTER_COLORS: Record<MasterCategory, { hex: string; bg: string; text: str
   Descanso:          { hex: "#f59e0b", bg: "bg-amber-500", text: "text-amber-400" },
   "Pausa Sanitaria": { hex: "#10b981", bg: "bg-emerald-500", text: "text-emerald-400" },
 };
-
-function classifyToMasterCategory(item: TimelineEntry): MasterCategory {
-  const cat = (item.category || "").toLowerCase();
-  const act = (item.action || "").toLowerCase();
-  const meta = (item.metadata || {}) as Record<string, any>;
-  const rawApp = (meta.app_name || meta.app || "").toLowerCase();
-
-  // 1. Pausa Sanitaria / Pausa personal
-  if (
-    cat.includes("baño") ||
-    cat.includes("bano") ||
-    cat.includes("sanitaria") ||
-    cat.includes("pausa personal") ||
-    act.includes("baño") ||
-    act.includes("bano") ||
-    act.includes("sanitaria") ||
-    act.includes("sanitario") ||
-    act.includes("servicio") ||
-    rawApp.includes("baño") ||
-    rawApp.includes("sanitaria")
-  ) {
-    return "Pausa Sanitaria";
-  }
-
-  // 2. Descanso / Almuerzo / Café
-  if (
-    cat.includes("descanso") ||
-    cat.includes("almuerzo") ||
-    cat.includes("comida") ||
-    act.includes("descanso") ||
-    act.includes("almuerzo") ||
-    act.includes("café") ||
-    act.includes("cafe") ||
-    act.includes("comida") ||
-    rawApp.includes("almuerzo")
-  ) {
-    return "Descanso";
-  }
-
-  // 3. Inactividad / Pausa prolongada / Sin actividad
-  if (
-    cat.includes("inactividad") ||
-    act.includes("pausa prolongada") ||
-    act.includes("sin actividad detectada") ||
-    act.includes("inactividad") ||
-    act.includes("ausente") ||
-    rawApp.includes("mystify") ||
-    rawApp.includes(".scr")
-  ) {
-    return "Inactivo";
-  }
-
-  // 4. Todo lo demás es Productivo
-  return "Productivo";
-}
 
 function getTaskIcon(name: string) {
   const lower = name.toLowerCase();
@@ -178,214 +125,28 @@ function ActivityExecutiveChartsComponent({
     }
   };
 
-  // ── 1. Procesar datos en las 4 CATEGORÍAS EXACTAS SOLICITADAS ──────────────
+  // ── 1. MOTOR UNIFICADO: Única Fuente de Verdad para métricas de jornada ──────
+  const metrics = useMemo(() => {
+    return computeUnifiedActivityMetrics(timeline as any, { toleranceMinutes: 15 });
+  }, [timeline]);
+
   const { effectiveness, topTasks, hourlyTrend, totalCalculatedMs, productivoPct } = useMemo(() => {
-    const sorted = [...timeline]
-      .filter((t) => Boolean(t.created_at))
-      .sort((a, b) => new Date(a.created_at!).getTime() - new Date(b.created_at!).getTime());
+    const effData = metrics.masterList.map((cat) => ({
+      id: cat.id,
+      label: cat.label,
+      color: cat.hex,
+      ms: cat.durationMs,
+      pct: cat.percentage,
+    }));
 
-    const IDLE_GAP_MS = 15 * 60 * 1000;
+    const tasksArr = metrics.topSoftware.slice(0, 5).map((s) => ({
+      name: s.name,
+      durationMs: s.durationMs,
+      hours: Number((s.durationMs / 3600000).toFixed(2)),
+      timeFormatted: s.formattedTime,
+    }));
 
-    const buckets: Record<MasterCategory, number> = {
-      Productivo: 0,
-      Inactivo: 0,
-      Descanso: 0,
-      "Pausa Sanitaria": 0,
-    };
-
-    const taskMap: Record<string, { durationMs: number; count: number }> = {};
-    const hourIntervals: Record<number, number> = {};
-
-    for (let h = 6; h <= 19; h++) {
-      hourIntervals[h] = 0;
-    }
-
-    for (let i = 0; i < sorted.length; i++) {
-      const it = sorted[i];
-      const masterCat = classifyToMasterCategory(it);
-      const meta = (it.metadata || {}) as Record<string, any>;
-      const act = (it.action || "").toLowerCase();
-      const isJust = Boolean(meta.justification || it.category === "Justificación" || act.startsWith("justificación:") || act.startsWith("justificacion:"));
-      const isStart = (act.startsWith("inició:") || act.startsWith("inicio:")) && (meta.manual || meta.task);
-      const isEnd = (act.startsWith("terminó:") || act.startsWith("termino:")) && (meta.manual || meta.task);
-
-      const currTime = new Date(it.created_at!).getTime();
-      const nextTime = i < sorted.length - 1 ? new Date(sorted[i + 1].created_at!).getTime() : currTime + 60000;
-      const gap = Math.max(0, nextTime - currTime);
-
-      // 1. Si es inicio de labor manual o pausa
-      if (isStart) {
-        const dur = Math.min(gap, 4 * 3600 * 1000);
-        buckets[masterCat] += dur;
-
-        if (masterCat === "Productivo") {
-          const smartName = extractSmartAppName(it);
-          if (!taskMap[smartName]) {
-            taskMap[smartName] = { durationMs: 0, count: 1 };
-          } else {
-            taskMap[smartName].durationMs += dur;
-            taskMap[smartName].count++;
-          }
-
-          const d = new Date(it.created_at!);
-          const crHourStr = d.toLocaleString("en-US", { timeZone: "America/Costa_Rica", hour: "numeric", hour12: false });
-          const crHour = parseInt(crHourStr, 10) % 24;
-          if (hourIntervals[crHour] !== undefined) {
-            hourIntervals[crHour] = Math.min(60 * 60 * 1000, hourIntervals[crHour] + dur);
-          }
-        }
-        continue;
-      }
-
-      // 2. Si es fin de labor manual o justificación declarada
-      if (isJust || isEnd) {
-        const prev = i > 0 ? sorted[i - 1] : null;
-        const prevAct = (prev?.action || "").toLowerCase();
-        const prevWasStart = prev && (prevAct.startsWith("inició:") || prevAct.startsWith("inicio:"));
-
-        if (!prevWasStart) {
-          const discreteMs = Number(
-            it.duration_ms ||
-            (meta.duration_seconds ? meta.duration_seconds * 1000 : 0) ||
-            (meta.minutes ? meta.minutes * 60000 : 0)
-          ) || 0;
-          const durClamped = Math.min(discreteMs, 4 * 3600 * 1000);
-
-          if (durClamped > 0) {
-            buckets[masterCat] += durClamped;
-
-            const smartName = extractSmartAppName(it);
-            if (!taskMap[smartName]) {
-              taskMap[smartName] = { durationMs: durClamped, count: 1 };
-            } else {
-              taskMap[smartName].durationMs += durClamped;
-              taskMap[smartName].count++;
-            }
-
-            const endMs = currTime;
-            const startMs = Math.max(endMs - Math.min(durClamped, 12 * 3600 * 1000), 0);
-            let cursor = startMs;
-            while (cursor < endMs) {
-              const dt = new Date(cursor);
-              const crHourStr = dt.toLocaleString("en-US", { timeZone: "America/Costa_Rica", hour: "numeric", hour12: false });
-              const crHour = parseInt(crHourStr, 10) % 24;
-              const nextHour = new Date(cursor);
-              nextHour.setMinutes(60, 0, 0);
-              nextHour.setMilliseconds(0);
-              const chunkEnd = Math.min(endMs, nextHour.getTime());
-              const chunkDur = chunkEnd - cursor;
-              if (hourIntervals[crHour] !== undefined) {
-                hourIntervals[crHour] = Math.min(60 * 60 * 1000, hourIntervals[crHour] + chunkDur);
-              }
-              cursor = chunkEnd;
-            }
-          }
-        }
-        continue;
-      }
-
-      // 3. Categorías explícitas de pausa o inactividad
-      if (masterCat === "Pausa Sanitaria") {
-        buckets["Pausa Sanitaria"] += Math.min(gap, 30 * 60 * 1000);
-        continue;
-      }
-      if (masterCat === "Descanso") {
-        buckets.Descanso += Math.min(gap, 60 * 60 * 1000);
-        continue;
-      }
-      if (masterCat === "Inactivo") {
-        buckets.Inactivo += Math.min(gap, 60 * 60 * 1000);
-        continue;
-      }
-
-      // 4. Actividad estándar en PC (Productivo):
-      // Lapsos de hasta 5 minutos entre eventos se consideran 100% productivos;
-      // el exceso de tiempo sin eventos pasa a inactividad.
-      const ACTIVE_GAP_LIMIT = 5 * 60 * 1000;
-      const activePart = Math.min(gap > 0 ? gap : 60000, ACTIVE_GAP_LIMIT);
-      const idlePart = gap > ACTIVE_GAP_LIMIT ? Math.min(gap - ACTIVE_GAP_LIMIT, 60 * 60 * 1000) : 0;
-
-      buckets.Productivo += activePart;
-      if (idlePart > 0) {
-        buckets.Inactivo += idlePart;
-      }
-
-      // Desglose de tareas individuales
-      const smartName = extractSmartAppName(it);
-      const nameLower = smartName.toLowerCase();
-      if (!nameLower.includes(".scr") && !nameLower.includes("mystify") && !nameLower.includes("lockapp")) {
-        if (!taskMap[smartName]) {
-          taskMap[smartName] = { durationMs: activePart, count: 1 };
-        } else {
-          taskMap[smartName].durationMs += activePart;
-          taskMap[smartName].count++;
-        }
-      }
-
-      // Intervalo horario para tendencia (hora de Costa Rica)
-      const d = new Date(it.created_at!);
-      const crHourStr = d.toLocaleString("en-US", { timeZone: "America/Costa_Rica", hour: "numeric", hour12: false });
-      const crHour = parseInt(crHourStr, 10) % 24;
-      if (hourIntervals[crHour] !== undefined) {
-        hourIntervals[crHour] = Math.min(60 * 60 * 1000, hourIntervals[crHour] + activePart);
-      }
-    }
-
-    // ── Consolidación unificada con la única fuente de verdad oficial ──
-    if (serverMetrics) {
-      if (serverMetrics.totalActiveMs !== undefined) {
-        buckets.Productivo = compliance?.activeMinutes ? compliance.activeMinutes * 60000 : serverMetrics.totalActiveMs;
-      }
-      if (serverMetrics.totalBreakMs !== undefined) {
-        buckets.Descanso = serverMetrics.totalBreakMs;
-      }
-      if (serverMetrics.totalSanitaryMs !== undefined) {
-        buckets["Pausa Sanitaria"] = serverMetrics.totalSanitaryMs;
-      }
-      if (serverMetrics.totalIdleMs !== undefined) {
-        buckets.Inactivo = serverMetrics.totalIdleMs;
-      }
-    } else if (compliance?.activeMinutes) {
-      buckets.Productivo = compliance.activeMinutes * 60000;
-    }
-
-    const totalMs = Object.values(buckets).reduce((a, b) => a + b, 0) || 1;
-
-    // Construir lista con las 4 categorías estrictas
-    const masterList: MasterCategory[] = ["Productivo", "Inactivo", "Descanso", "Pausa Sanitaria"];
-    const effData = masterList.map((cat) => {
-      const ms = buckets[cat];
-      const pct = Math.round((ms / totalMs) * 100);
-      return {
-        id: cat,
-        label: cat,
-        color: MASTER_COLORS[cat].hex,
-        ms,
-        pct,
-      };
-    });
-
-    // Ajuste de porcentaje si redondeo difiere de 100%
-    const sumPct = effData.reduce((acc, c) => acc + c.pct, 0);
-    if (sumPct > 0 && sumPct !== 100) {
-      effData[0].pct += (100 - sumPct);
-    }
-
-    const prodPct = effData[0]?.pct || 0;
-
-    // Top 5 tareas más demandantes
-    const tasksArr = Object.entries(taskMap)
-      .map(([name, data]) => ({
-        name,
-        durationMs: data.durationMs,
-        hours: Number((data.durationMs / 3600000).toFixed(2)),
-        timeFormatted: formatHoursMinutes(data.durationMs),
-      }))
-      .sort((a, b) => b.durationMs - a.durationMs)
-      .slice(0, 5);
-
-    // Curva de tendencia
-    const trendPoints = Object.entries(hourIntervals)
+    const trendPoints = Object.entries(metrics.hourlyTrend)
       .map(([hStr, ms]) => {
         const hour = parseInt(hStr, 10);
         const hoursFraction = Math.min(1.0, Number((ms / 3600000).toFixed(2)));
@@ -404,10 +165,10 @@ function ActivityExecutiveChartsComponent({
       effectiveness: effData,
       topTasks: tasksArr,
       hourlyTrend: trendPoints,
-      totalCalculatedMs: totalMs,
-      productivoPct: prodPct,
+      totalCalculatedMs: metrics.totalDayMs,
+      productivoPct: metrics.masterBuckets.Productivo.percentage,
     };
-  }, [timeline, compliance, serverMetrics]);
+  }, [metrics]);
 
   // ── 2. Donut SVG Amplio con viewBox holgado (CERO RECORTES LATERALES) ────────
   const donutSegments = useMemo(() => {
