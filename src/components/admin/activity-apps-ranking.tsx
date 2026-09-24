@@ -706,21 +706,15 @@ export function getDefaultCategoryForApp(appName: string, action: string = "", c
     return "Pausa Sanitaria";
   }
 
-  // 7. Descansos (Almuerzo, Café, Descanso programado, Inactividad)
+  // 7. Descansos (Almuerzo, Café, Descanso programado)
   if (
     name.includes("descanso") ||
-    name.includes("pausa") ||
     name.includes("almuerzo") ||
-    name.includes("inactividad") ||
     name.includes("receso") ||
     act.includes("descanso") ||
-    act.includes("pausa") ||
     act.includes("almuerzo") ||
-    act.includes("inactividad") ||
     act.includes("receso") ||
     cat.includes("descanso") ||
-    cat.includes("pausa") ||
-    cat.includes("inactividad") ||
     cat.includes("almuerzo")
   ) {
     return "Descansos";
@@ -1304,7 +1298,12 @@ function ActivityAppsRankingComponent({
   }, [timeline]);
 
   const allDetectedApps = useMemo(() => {
-    return metrics.topSoftware.map((s) => s.name);
+    return metrics.topSoftware
+      .map((s) => s.name)
+      .filter((n) => {
+        const l = (n || "").toLowerCase();
+        return !l.includes("inactiv") && !l.includes("pausa");
+      });
   }, [metrics]);
 
   const currentTotal = metrics.totalDayMs;
@@ -1323,7 +1322,6 @@ function ActivityAppsRankingComponent({
     }
   }, [viewMode, metrics]);
 
-  // Lista de apps y labores para el modal de gestión (filtrando nombres de categorías y ruido de sistema)
   const isPhantomCategory = (name: string) => {
     const l = (name || "").toLowerCase().trim();
     return (
@@ -1342,7 +1340,14 @@ function ActivityAppsRankingComponent({
       l === "actividad general" ||
       l === "operativa" ||
       l === "sin clasificar" ||
-      l === "formación de usuarios"
+      l === "formación de usuarios" ||
+      l === "inactividad" ||
+      l === "inactivo" ||
+      l.includes("inactiv") ||
+      l === "pausa" ||
+      l === "pausa operativa" ||
+      l.startsWith("pausa prolongada") ||
+      l.includes("pausa / inactividad")
     );
   };
 

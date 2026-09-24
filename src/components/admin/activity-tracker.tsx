@@ -1773,6 +1773,13 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                     );
                     const currentSubcat = meta.manual_subcategory || meta.subcategory || "";
 
+                    const isSystemState = item.category === "Inactividad" || 
+                                          cleanApp.toLowerCase().includes("inactiv") || 
+                                          cleanApp.toLowerCase().includes("pausa operativa") || 
+                                          (item.action && item.action.toLowerCase().includes("sin actividad")) ||
+                                          (item.action && item.action.toLowerCase().includes("inicio de sesión")) ||
+                                          (item.action && item.action.toLowerCase().includes("cierre de sesión"));
+
                     const Icon = CATEGORY_ICONS[item.category] || Activity;
                     const colorClass = CATEGORY_COLORS[item.category] || "text-zinc-400 bg-zinc-500/10 border-zinc-500/20";
                     const durSeconds = item.duration_ms
@@ -1785,6 +1792,8 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                         className={`p-3.5 rounded-2xl bg-card border transition-all flex flex-col lg:flex-row lg:items-center justify-between gap-3 text-xs ${
                           isManual
                             ? "border-emerald-500/40 bg-emerald-500/5 hover:border-emerald-500/60"
+                            : isSystemState
+                            ? "border-border/40 bg-muted/10 opacity-80"
                             : "border-border/60 hover:border-violet-500/30"
                         }`}
                       >
@@ -1831,55 +1840,61 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
 
                         {/* Lado Derecho: Gestión Inmediata de Reclasificación + Duración + Hora */}
                         <div className="flex items-center justify-between lg:justify-end gap-3 shrink-0 pt-2 lg:pt-0 border-t lg:border-t-0 border-border/40">
-                          {/* Controles de Reclasificación 1-Click */}
-                          <div className="flex items-center gap-1.5 flex-shrink-0">
-                            {/* Selector de Categoría */}
-                            <div className="flex items-center gap-1 bg-muted/40 hover:bg-muted/70 border border-border/50 rounded-xl px-2 py-1 transition-colors">
-                              <span className="text-[10px] uppercase font-bold text-muted-foreground/70">Cat:</span>
-                              <select
-                                value={categoryDef ? categoryDef.id : currentCat}
-                                disabled={reclassifyingId === item.id}
-                                onChange={(e) => {
-                                  const newCat = e.target.value;
-                                  const found = DEFAULT_CATEGORIES.find((c) => c.id === newCat);
-                                  const firstSub = found?.subcategories?.[0] || "";
-                                  handleReclassifyLog(item, newCat, firstSub);
-                                }}
-                                className="bg-transparent text-xs font-semibold text-foreground focus:outline-none cursor-pointer"
-                                title="Reclasificar categoría de este evento y guardar regla en el sistema"
-                              >
-                                {DEFAULT_CATEGORIES.map((cat) => (
-                                  <option key={cat.id} value={cat.id} className="bg-popover text-popover-foreground">
-                                    {cat.label}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-
-                            {/* Selector de Subcategoría (dinámico) */}
-                            {categoryDef && categoryDef.subcategories && categoryDef.subcategories.length > 0 && (
-                              <div className="flex items-center gap-1 bg-muted/30 hover:bg-muted/60 border border-border/40 rounded-xl px-2 py-1 transition-colors">
-                                <span className="text-[10px] uppercase font-bold text-muted-foreground/60">Sub:</span>
+                          {/* Controles de Reclasificación 1-Click (Solo para apps y tareas, nunca para inactividad) */}
+                          {isSystemState ? (
+                            <span className="px-2.5 py-1 rounded-xl bg-zinc-500/10 border border-zinc-500/20 text-zinc-400 font-semibold text-[11px] flex items-center gap-1.5 shrink-0">
+                              <Clock className="h-3 w-3 text-zinc-400" /> Evento de Sistema
+                            </span>
+                          ) : (
+                            <div className="flex items-center gap-1.5 flex-shrink-0">
+                              {/* Selector de Categoría */}
+                              <div className="flex items-center gap-1 bg-muted/40 hover:bg-muted/70 border border-border/50 rounded-xl px-2 py-1 transition-colors">
+                                <span className="text-[10px] uppercase font-bold text-muted-foreground/70">Cat:</span>
                                 <select
-                                  value={currentSubcat || categoryDef.subcategories[0]}
+                                  value={categoryDef ? categoryDef.id : currentCat}
                                   disabled={reclassifyingId === item.id}
-                                  onChange={(e) => handleReclassifyLog(item, currentCat, e.target.value)}
-                                  className="bg-transparent text-xs text-muted-foreground hover:text-foreground focus:outline-none cursor-pointer max-w-[140px] truncate"
-                                  title="Reclasificar subcategoría"
+                                  onChange={(e) => {
+                                    const newCat = e.target.value;
+                                    const found = DEFAULT_CATEGORIES.find((c) => c.id === newCat);
+                                    const firstSub = found?.subcategories?.[0] || "";
+                                    handleReclassifyLog(item, newCat, firstSub);
+                                  }}
+                                  className="bg-transparent text-xs font-semibold text-foreground focus:outline-none cursor-pointer"
+                                  title="Reclasificar categoría de este evento y guardar regla en el sistema"
                                 >
-                                  {categoryDef.subcategories.map((sub) => (
-                                    <option key={sub} value={sub} className="bg-popover text-popover-foreground">
-                                      {sub}
+                                  {DEFAULT_CATEGORIES.map((cat) => (
+                                    <option key={cat.id} value={cat.id} className="bg-popover text-popover-foreground">
+                                      {cat.label}
                                     </option>
                                   ))}
                                 </select>
                               </div>
-                            )}
 
-                            {reclassifyingId === item.id && (
-                              <RefreshCw className="h-3.5 w-3.5 animate-spin text-violet-400 shrink-0" />
-                            )}
-                          </div>
+                              {/* Selector de Subcategoría (dinámico) */}
+                              {categoryDef && categoryDef.subcategories && categoryDef.subcategories.length > 0 && (
+                                <div className="flex items-center gap-1 bg-muted/30 hover:bg-muted/60 border border-border/40 rounded-xl px-2 py-1 transition-colors">
+                                  <span className="text-[10px] uppercase font-bold text-muted-foreground/60">Sub:</span>
+                                  <select
+                                    value={currentSubcat || categoryDef.subcategories[0]}
+                                    disabled={reclassifyingId === item.id}
+                                    onChange={(e) => handleReclassifyLog(item, currentCat, e.target.value)}
+                                    className="bg-transparent text-xs text-muted-foreground hover:text-foreground focus:outline-none cursor-pointer max-w-[140px] truncate"
+                                    title="Reclasificar subcategoría"
+                                  >
+                                    {categoryDef.subcategories.map((sub) => (
+                                      <option key={sub} value={sub} className="bg-popover text-popover-foreground">
+                                        {sub}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                              )}
+
+                              {reclassifyingId === item.id && (
+                                <RefreshCw className="h-3.5 w-3.5 animate-spin text-violet-400 shrink-0" />
+                              )}
+                            </div>
+                          )}
 
                           {/* Duración y Hora */}
                           <div className="flex items-center gap-2 font-mono text-[11px] shrink-0">

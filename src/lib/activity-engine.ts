@@ -142,6 +142,11 @@ export function extractCleanItemName(item: TimelineEntry): string {
   const act = (item.action || "").toLowerCase();
   const cat = (item.category || "").toLowerCase();
 
+  // 0. Si es inactividad o pausa del sistema, no es una aplicación
+  if (cat.includes("inactiv") || act.includes("sin actividad") || act.includes("pausa prolongada") || act.includes("pausa operativa")) {
+    return "Pausa / Inactividad del sistema";
+  }
+
   // 1. Si es labor manual explícita
   if (meta.task) return meta.task;
   if (meta.manual && meta.label) return meta.label;
@@ -226,7 +231,8 @@ export function extractCleanItemName(item: TimelineEntry): string {
            cl === "gestión del taller" || cl === "gestion del taller" || cl === "gestión de residuos" ||
            cl === "gestion de residuos" || cl === "on-the-job training (ojt)" || cl === "ojt" ||
            cl === "descansos" || cl === "pausa sanitaria" || cl === "utilidades" ||
-           cl === "actividad general" || cl === "operativa" || cl === "sin clasificar";
+           cl === "actividad general" || cl === "operativa" || cl === "sin clasificar" ||
+           cl === "inactividad" || cl === "inactivo" || cl === "pausa" || cl.includes("inactiv") || cl.includes("pausa");
   };
 
   if (meta.app_name && meta.app_name !== "ApplicationFrameHost" && !isCategoryName(meta.app_name)) return meta.app_name;
@@ -242,6 +248,11 @@ export function assignToOperationalCategory(name: string, action: string = "", c
   const n = (name || "").toLowerCase();
   const a = (action || "").toLowerCase();
   const c = (category || "").toLowerCase();
+
+  // Inactividad del sistema (NO es un descanso ni una aplicación)
+  if (c.includes("inactiv") || n.includes("inactiv") || a.includes("inactiv") || a.includes("sin actividad") || a.includes("pausa prolongada")) {
+    return "Inactividad";
+  }
 
   // Pausa Sanitaria
   if (n.includes("baño") || n.includes("bano") || n.includes("sanitaria") || n.includes("sanitario") ||
@@ -515,21 +526,32 @@ export function computeUnifiedActivityMetrics(
       continue;
     }
 
-    // Caso C: Pausas / Descansos explícitos
+    // Caso C: Inactividad del sistema (NO es software ni descanso)
+    if (opCategory === "Inactividad") {
+      const dur = Math.min(rawGap, 2 * 3600 * 1000);
+      idleTotalMs += dur;
+      continue;
+    }
+
+    // Caso C2: Pausas / Descansos explícitos
     if (opCategory === "Descansos") {
       const dur = Math.min(rawGap, 2 * 3600 * 1000);
       opTimes["Descansos"] = (opTimes["Descansos"] || 0) + dur;
-      if (!softTimes[itemName]) softTimes[itemName] = { durationMs: 0, count: 0, category: "Descansos" };
-      softTimes[itemName].durationMs += dur;
-      softTimes[itemName].count++;
+      if (!itemName.toLowerCase().includes("inactiv") && !itemName.toLowerCase().includes("pausa")) {
+        if (!softTimes[itemName]) softTimes[itemName] = { durationMs: 0, count: 0, category: "Descansos" };
+        softTimes[itemName].durationMs += dur;
+        softTimes[itemName].count++;
+      }
       continue;
     }
     if (opCategory === "Pausa Sanitaria") {
       const dur = Math.min(rawGap, 30 * 60 * 1000);
       opTimes["Pausa Sanitaria"] = (opTimes["Pausa Sanitaria"] || 0) + dur;
-      if (!softTimes[itemName]) softTimes[itemName] = { durationMs: 0, count: 0, category: "Pausa Sanitaria" };
-      softTimes[itemName].durationMs += dur;
-      softTimes[itemName].count++;
+      if (!itemName.toLowerCase().includes("inactiv") && !itemName.toLowerCase().includes("pausa")) {
+        if (!softTimes[itemName]) softTimes[itemName] = { durationMs: 0, count: 0, category: "Pausa Sanitaria" };
+        softTimes[itemName].durationMs += dur;
+        softTimes[itemName].count++;
+      }
       continue;
     }
 
