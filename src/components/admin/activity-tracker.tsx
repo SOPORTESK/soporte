@@ -51,6 +51,7 @@ import { ActivityAppsRanking } from "./activity-apps-ranking";
 import { ActivityScreenGallery } from "./activity-screen-gallery";
 import { ActivityAiBriefing } from "./activity-ai-briefing";
 import { ActivityExecutiveCharts } from "./activity-executive-charts";
+import { computeUnifiedActivityMetrics } from "@/lib/activity-engine";
 
 interface TimelineEntry {
   id: number;
@@ -1071,95 +1072,16 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
       };
     }
 
-    let activeMinutes = 0;
-
-    // Calcular el tiempo activo real consolidando las horas de timelineWithinSchedule sin solapamiento
-    // (exactamente igual que el Mapa de Intensidad para garantizar consistencia total)
-    if (timelineWithinSchedule && timelineWithinSchedule.length > 0) {
-      const sorted = [...timelineWithinSchedule]
-        .filter((t) => Boolean(t.created_at))
-        .sort((a, b) => new Date(a.created_at!).getTime() - new Date(b.created_at!).getTime());
-
-      const IDLE_GAP_MS = 15 * 60 * 1000;
-      const hourBuckets: Record<number, number> = {};
-
-      for (let i = 0; i < sorted.length; i++) {
-        const item = sorted[i];
-        const act = (item.action || "").toLowerCase();
-        const cat = (item.category || "").toLowerCase();
-        const meta = (item.metadata || {}) as Record<string, any>;
-        const appStr = (meta.app || meta.app_name || "").toLowerCase();
-
-        const isPauseOrIdle =
-          cat === "inactividad" ||
-          cat === "pausas y descansos" ||
-          cat === "descanso" ||
-          cat === "pausa personal" ||
-          cat === "pausa sanitaria" ||
-          cat.includes("pausa") ||
-          cat.includes("descanso") ||
-          act.includes("almuerzo") ||
-          act.includes("descanso") ||
-          act.includes(".scr") ||
-          act.includes("mystify") ||
-          act.includes("lockapp") ||
-          appStr.includes(".scr") ||
-          appStr.includes("mystify") ||
-          meta.task === "Almuerzo" ||
-          meta.subcategory === "Almuerzo";
-
-        if (isPauseOrIdle) continue;
-
-        const currTime = new Date(item.created_at!).getTime();
-        const nextTime = i < sorted.length - 1 ? new Date(sorted[i + 1].created_at!).getTime() : currTime + 60000;
-        const gap = Math.max(0, nextTime - currTime);
-
-        const rawDur = Number(item.duration_ms || (item.metadata?.duration_seconds ? item.metadata.duration_seconds * 1000 : 0)) || 0;
-        const isManual = !isPauseOrIdle && ((item.category || "").toLowerCase().includes("manual") || (item.category || "").toLowerCase().includes("taller") || (item.category || "").toLowerCase().includes("capacitaci") || (act.startsWith("terminó:") || act.startsWith("termino:")));
-
-        if (rawDur > 0 && isManual) {
-          // Distribuir la labor manual a lo largo de las horas reales en que se ejecutó
-          const endMs = currTime;
-          const startMs = Math.max(endMs - Math.min(rawDur, 12 * 3600 * 1000), 0);
-          let cursor = startMs;
-          while (cursor < endMs) {
-            const d = new Date(cursor);
-            const h = d.getHours();
-            const nextHour = new Date(cursor);
-            nextHour.setMinutes(60, 0, 0);
-            nextHour.setMilliseconds(0);
-            const chunkEnd = Math.min(endMs, nextHour.getTime());
-            const chunkDur = chunkEnd - cursor;
-            hourBuckets[h] = Math.min(60 * 60 * 1000, (hourBuckets[h] || 0) + chunkDur);
-            cursor = chunkEnd;
-          }
-        } else {
-          const effectiveDuration = Math.min(gap, IDLE_GAP_MS);
-          const d = new Date(item.created_at!);
-          const h = d.getHours();
-          hourBuckets[h] = Math.min(60 * 60 * 1000, (hourBuckets[h] || 0) + effectiveDuration);
-        }
-      }
-
-      for (const h in hourBuckets) {
-        activeMinutes += Math.min(60, Math.round(hourBuckets[h] / 60000));
-      }
-    }
-
-    // Fallback si no hay eventos en timeline pero el reporte live tiene minutos
-    if (activeMinutes === 0 && currentAgentObj?.activeMinutes) {
-      activeMinutes = currentAgentObj.activeMinutes;
-    }
-
-    // Tope diario de cordura: en un solo día nadie puede trabajar más de 24 horas (1440 min)
-    const rawActiveMinutes = Math.min(activeMinutes, 24 * 60);
-
+    const computed = computeUnifiedActivityMetrics((timeline || []) as any[], {
+      targetDailyHours,
+    });
+    const productiveMs = computed.masterBuckets.Productivo.durationMs;
+    const rawActiveMinutes = Math.round(productiveMs / 60000);
     const targetMinutes = Math.round(targetDailyHours * 60);
     const diffMinutes = rawActiveMinutes - targetMinutes;
     const rawOvertimeMinutes = diffMinutes > 0 ? diffMinutes : 0;
     const deficitMinutes = diffMinutes < 0 ? Math.abs(diffMinutes) : 0;
 
-    // Verificar si el tiempo extra está autorizado por un administrador
     const currentOtReq = overtimeRequests.find(
       (r) => r.agent_email?.toLowerCase() === (selectedAgent || "").toLowerCase()
     );
@@ -1167,48 +1089,11 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
     const isOvertimePending = currentOtReq?.status === "pending";
     const isOvertimeRejected = currentOtReq?.status === "rejected";
 
-    // Si hay tiempo extra (> targetDailyHours):
-    // - Si está aprobado: se muestra el tiempo completo con sus horas extras
-    // - Si NO está aprobado (pendiente o rechazado o sin autorizar): SE TOPA estrictamente a la meta (10 horas)
     const activeMinutesDisplay = (rawOvertimeMinutes > 0 && !isOvertimeApproved)
       ? targetMinutes
       : rawActiveMinutes;
 
     const percent = targetMinutes > 0 ? Math.round((activeMinutesDisplay / targetMinutes) * 100) : 0;
-
-    // Detectar Hora de Inicio de Sesión y Hora de Cierre / Último Evento
-    let firstLoginTime: string | null = null;
-    let lastLogoutTime: string | null = null;
-
-    if (timeline && timeline.length > 0) {
-      const sortedAll = [...timeline]
-        .filter((t) => Boolean(t.created_at))
-        .sort((a, b) => new Date(a.created_at!).getTime() - new Date(b.created_at!).getTime());
-
-      // 1. Primer evento o primer login
-      const loginEvt = sortedAll.find((t) => {
-        const act = (t.action || "").toLowerCase();
-        const meta = (t.metadata || {}) as Record<string, any>;
-        return act.includes("inicio de sesión") || meta.type === "auth_login";
-      });
-      if (loginEvt) {
-        firstLoginTime = formatTime(loginEvt.created_at);
-      } else if (sortedAll.length > 0) {
-        firstLoginTime = formatTime(sortedAll[0].created_at);
-      }
-
-      // 2. Último logout o último evento
-      const logoutEvt = [...sortedAll].reverse().find((t) => {
-        const act = (t.action || "").toLowerCase();
-        const meta = (t.metadata || {}) as Record<string, any>;
-        return act.includes("cierre de sesión") || meta.type === "auth_logout";
-      });
-      if (logoutEvt) {
-        lastLogoutTime = formatTime(logoutEvt.created_at);
-      } else if (sortedAll.length > 0) {
-        lastLogoutTime = formatTime(sortedAll[sortedAll.length - 1].created_at);
-      }
-    }
 
     return {
       rawActiveMinutes,
@@ -1224,10 +1109,10 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
       isOvertimePending,
       isOvertimeRejected,
       currentOtReq,
-      firstLoginTime,
-      lastLogoutTime,
+      firstLoginTime: computed.firstLoginTime,
+      lastLogoutTime: computed.lastLogoutTime,
     };
-  }, [serverMetrics, timelineWithinSchedule, currentAgentObj?.activeMinutes, targetDailyHours, overtimeRequests, selectedAgent, timeline]);
+  }, [serverMetrics, timeline, targetDailyHours, overtimeRequests, selectedAgent]);
 
   const categoriesAvailable = Array.from(new Set(timeline.map((t) => t.category).filter(Boolean)));
 

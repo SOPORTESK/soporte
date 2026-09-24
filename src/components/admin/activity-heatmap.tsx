@@ -1,7 +1,8 @@
 "use client";
 
-import React from "react";
+import React, { useMemo } from "react";
 import { Clock, Flame, Info } from "lucide-react";
+import { computeUnifiedActivityMetrics } from "@/lib/activity-engine";
 
 interface TimelineItem {
   id?: number;
@@ -20,65 +21,32 @@ interface Props {
 const HOURS = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
 
 function ActivityHeatmapComponent({ timeline, date }: Props) {
+  const unifiedMetrics = useMemo(() => {
+    return computeUnifiedActivityMetrics(timeline as any[]);
+  }, [timeline]);
+
   // Organizar eventos por hora (06:00 a 19:00) y por bloques continuos
   const hourBuckets: Record<number, { activeMs: number; idleMs: number; count: number; apps: Set<string> }> = {};
 
   HOURS.forEach((h) => {
-    hourBuckets[h] = { activeMs: 0, idleMs: 0, count: 0, apps: new Set() };
+    const activeMs = unifiedMetrics.hourlyTrend[h] || 0;
+    hourBuckets[h] = { activeMs, idleMs: 0, count: 0, apps: new Set() };
   });
 
   const sorted = [...timeline]
     .filter((t) => Boolean(t.created_at))
     .sort((a, b) => new Date(a.created_at!).getTime() - new Date(b.created_at!).getTime());
 
-  const IDLE_GAP_MS = 15 * 60 * 1000;
-
   for (let i = 0; i < sorted.length; i++) {
     const item = sorted[i];
-    const currTime = new Date(item.created_at!).getTime();
-    const nextTime = i < sorted.length - 1 ? new Date(sorted[i + 1].created_at!).getTime() : currTime + 60000;
-    const gap = Math.max(0, nextTime - currTime);
     const d = new Date(item.created_at!);
     const h = d.getHours();
 
-    if (item.category === "Inactividad" || item.category === "Pausa personal") {
-      if (hourBuckets[h]) {
-        hourBuckets[h].idleMs += Math.min(gap, 60 * 60 * 1000);
-      }
-    } else {
-      const rawDur = Number(item.duration_ms || (item.metadata?.duration_seconds ? item.metadata.duration_seconds * 1000 : 0)) || 0;
-      const isManual = (item.category || "").toLowerCase().includes("manual") || (item.category || "").toLowerCase().includes("taller") || (item.category || "").toLowerCase().includes("capacitaci") || (item.action || "").toLowerCase().startsWith("terminó:") || (item.action || "").toLowerCase().startsWith("termino:");
-
-      if (rawDur > 0 && isManual) {
-        const endMs = currTime;
-        const startMs = Math.max(endMs - Math.min(rawDur, 12 * 3600 * 1000), 0);
-        let cursor = startMs;
-        while (cursor < endMs) {
-          const dt = new Date(cursor);
-          const ch = dt.getHours();
-          const nextHour = new Date(cursor);
-          nextHour.setMinutes(60, 0, 0);
-          nextHour.setMilliseconds(0);
-          const chunkEnd = Math.min(endMs, nextHour.getTime());
-          const chunkDur = chunkEnd - cursor;
-          if (hourBuckets[ch]) {
-            hourBuckets[ch].activeMs = Math.min(60 * 60 * 1000, hourBuckets[ch].activeMs + chunkDur);
-            hourBuckets[ch].count++;
-            const meta = item.metadata || {};
-            if (meta.task || item.action) hourBuckets[ch].apps.add(meta.task || item.action);
-          }
-          cursor = chunkEnd;
-        }
-      } else if (hourBuckets[h]) {
-        const effectiveDuration = Math.min(gap, IDLE_GAP_MS);
-        hourBuckets[h].activeMs = Math.min(60 * 60 * 1000, hourBuckets[h].activeMs + effectiveDuration);
-        hourBuckets[h].count++;
-        const meta = item.metadata || {};
-        if (meta.app_name) hourBuckets[h].apps.add(meta.app_name);
-        if (gap > IDLE_GAP_MS) {
-          hourBuckets[h].idleMs += (gap - IDLE_GAP_MS);
-        }
-      }
+    if (hourBuckets[h]) {
+      hourBuckets[h].count++;
+      const meta = item.metadata || {};
+      const app = meta.app_name || meta.task || item.action || "";
+      if (app) hourBuckets[h].apps.add(app);
     }
   }
 
@@ -107,7 +75,7 @@ function ActivityHeatmapComponent({ timeline, date }: Props) {
         {HOURS.map((h) => {
           const b = hourBuckets[h];
           const activeMin = Math.round(b.activeMs / 60000);
-          const idleMin = Math.round(b.idleMs / 60000);
+          const idleMin = b.count > 0 || activeMin > 0 ? Math.max(0, 60 - activeMin) : 0;
           const totalMin = activeMin + idleMin;
 
           let blockBg = "bg-muted/30 border-border/40 text-muted-foreground/50";

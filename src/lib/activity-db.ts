@@ -1,6 +1,7 @@
 import { createServiceClient } from "@/lib/supabase/service";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { cacheGetFresh, cacheSet, cacheDelete } from "@/lib/supabase/cache";
+import { computeUnifiedActivityMetrics } from "@/lib/activity-engine";
 
 export interface ActivityLog {
   id?: number;
@@ -416,283 +417,59 @@ export async function getActivitySummaries(
 
 export async function getActivityMetrics(agentEmail: string, date: string) {
   const timeline = await getActivityTimeline(agentEmail, date);
-  const sorted = [...timeline]
-    .filter((t) => Boolean(t.created_at))
-    .sort((a, b) => new Date(a.created_at!).getTime() - new Date(b.created_at!).getTime());
-
-  let totalActiveMs = 0;
-  let totalBreakMs = 0;
-  let totalSanitaryMs = 0;
-  let totalIdleMs = 0;
-  const categoryTimeMs: Record<string, number> = {};
-  const categoryEvents: Record<string, number> = {};
-  const LUNCH_GAP_MS = 30 * 60 * 1000;
-
-  // 1. Detectar rangos de pausas explícitas (Almuerzo, Descanso, Pausa personal/sanitaria)
-  interface PauseRange {
-    start: number;
-    end: number;
-    reason: string;
-    type: "break" | "sanitary" | "idle";
-  }
-  const pauseRanges: PauseRange[] = [];
-  let currentPauseStart: number | null = null;
-  let currentPauseReason = "";
-  let currentPauseType: "break" | "sanitary" | "idle" = "break";
-
-  for (const item of sorted) {
-    const act = (item.action || "").toLowerCase();
-    const cat = item.category || "";
-    const meta = (item.metadata || {}) as Record<string, any>;
-    const t = new Date(item.created_at!).getTime();
-
-    const isSanitary =
-      cat === "Pausa Sanitaria" ||
-      cat === "Pausa personal" ||
-      act.includes("sanitaria") ||
-      act.includes("baño") ||
-      act.includes("bano");
-
-    const isBreak =
-      cat === "Descansos" ||
-      cat === "Pausas y Descansos" ||
-      cat === "Descanso" ||
-      act.includes("almuerzo") ||
-      act.includes("descanso") ||
-      act.includes("comida") ||
-      act.includes("café") ||
-      act.includes("cafe") ||
-      meta.task === "Almuerzo" ||
-      meta.subcategory === "Almuerzo";
-
-    const isPauseStart = (act.startsWith("inició:") || act.startsWith("inicio:")) && (isSanitary || isBreak);
-    const isPauseEnd = (act.startsWith("terminó:") || act.startsWith("termino:")) && (isSanitary || isBreak);
-
-    if (isPauseStart) {
-      currentPauseStart = t;
-      currentPauseReason = act;
-      currentPauseType = isSanitary ? "sanitary" : "break";
-    } else if (isPauseEnd) {
-      const pType = isSanitary ? "sanitary" : "break";
-      if (currentPauseStart) {
-        pauseRanges.push({ start: currentPauseStart, end: t, reason: currentPauseReason || act, type: currentPauseType });
-        currentPauseStart = null;
-      } else {
-        const discreteMs = Number(
-          item.duration_ms ||
-          (meta.duration_seconds ? meta.duration_seconds * 1000 : 0) ||
-          (meta.minutes ? meta.minutes * 60000 : 0)
-        ) || 0;
-        if (discreteMs > 0) {
-          pauseRanges.push({ start: t - discreteMs, end: t, reason: act, type: pType });
-        }
-      }
-    }
-  }
-
-  // 2. Recolectar intervalos activos reales (software y labores manuales)
-  interface ActiveInterval {
-    start: number;
-    end: number;
-    cat: string;
-  }
-  const rawIntervals: ActiveInterval[] = [];
-
-  const firstEventMs = sorted.length > 0 ? new Date(sorted[0].created_at!).getTime() : 0;
-
-  for (let i = 0; i < sorted.length; i++) {
-    const item = sorted[i];
-    const currTime = new Date(item.created_at!).getTime();
-    const nextTime = i < sorted.length - 1 ? new Date(sorted[i + 1].created_at!).getTime() : currTime + 60000;
-    const gap = Math.max(0, nextTime - currTime);
-    const meta = (item.metadata || {}) as Record<string, any>;
-    const act = (item.action || "").toLowerCase();
-    const catRaw = item.category || "";
-    const appStr = (meta.app || meta.app_name || "").toLowerCase();
-
-    // 2.1 Comprobar si cae dentro de una pausa explícita declarada (ej. Almuerzo, Baño)
-    const matchedPause = pauseRanges.find((p) => currTime >= p.start && currTime < p.end);
-    if (matchedPause) {
-      const dur = Math.min(gap > 0 ? gap : 60000, 60 * 60 * 1000);
-      if (matchedPause.type === "sanitary") {
-        totalSanitaryMs += dur;
-      } else {
-        totalBreakMs += dur;
-      }
-      continue;
-    }
-
-    const isScreensaver =
-      act.includes(".scr") ||
-      act.includes("mystify") ||
-      act.includes("lockapp") ||
-      appStr.includes(".scr") ||
-      appStr.includes("mystify") ||
-      appStr.includes("lockapp");
-
-    const isSanitary =
-      catRaw === "Pausa Sanitaria" ||
-      catRaw === "Pausa personal" ||
-      act.includes("sanitaria") ||
-      act.includes("baño") ||
-      act.includes("bano");
-
-    const isBreak =
-      catRaw === "Descansos" ||
-      catRaw === "Pausas y Descansos" ||
-      catRaw === "Descanso" ||
-      act.includes("almuerzo") ||
-      act.includes("descanso") ||
-      act.includes("comida") ||
-      act.includes("café") ||
-      act.includes("cafe") ||
-      meta.task === "Almuerzo" ||
-      meta.subcategory === "Almuerzo";
-
-    if (isSanitary) {
-      totalSanitaryMs += Math.min(gap > 0 ? gap : 60000, 60 * 60 * 1000);
-      continue;
-    }
-
-    if (isBreak) {
-      totalBreakMs += Math.min(gap > 0 ? gap : 60000, 60 * 60 * 1000);
-      continue;
-    }
-
-    if (isScreensaver || meta.reason === "lock_screen" || meta.reason === "suspend") {
-      totalIdleMs += Math.min(gap > 0 ? gap : 60000, 60 * 60 * 1000);
-      continue;
-    }
-
-    const isManualStart = (act.startsWith("inició:") || act.startsWith("inicio:")) && (meta.manual || meta.task);
-    const isManualEnd = (act.startsWith("terminó:") || act.startsWith("termino:")) && (meta.manual || meta.task);
-    const isJustification = Boolean(meta.justification || catRaw === "Justificación" || act.startsWith("justificación:") || act.startsWith("justificacion:"));
-
-    if (isManualStart) {
-      const dur = Math.min(gap, 4 * 60 * 60 * 1000);
-      const cat = catRaw || meta.task || "Labores de Taller";
-      rawIntervals.push({ start: currTime, end: currTime + dur, cat });
-      categoryEvents[cat] = (categoryEvents[cat] || 0) + 1;
-      continue;
-    }
-
-    if (isManualEnd || isJustification) {
-      const discreteMs = Number(
-        item.duration_ms ||
-        (meta.duration_seconds ? meta.duration_seconds * 1000 : 0) ||
-        (meta.minutes ? meta.minutes * 60000 : 0)
-      ) || 0;
-      const prev = i > 0 ? sorted[i - 1] : null;
-      const prevAct = (prev?.action || "").toLowerCase();
-      const prevWasStart = prev && (prevAct.startsWith("inició:") || prevAct.startsWith("inicio:"));
-      if (!prevWasStart && discreteMs > 0) {
-        const dur = Math.min(discreteMs, 4 * 60 * 60 * 1000);
-        const cat = catRaw || meta.task || "Labores de Taller";
-        const rStart = Math.max(firstEventMs, currTime - dur);
-        rawIntervals.push({ start: rStart, end: currTime, cat });
-        categoryEvents[cat] = (categoryEvents[cat] || 0) + 1;
-      }
-      continue;
-    }
-
-    let cat = catRaw || "Operación Sekunet";
-    if (cat === "Navegación" || cat === "Inactividad") {
-      const page = meta.page || "";
-      if (page.includes("soporte-avanzado")) cat = "Soporte Avanzado (N2)";
-      else if (page.includes("smart-inbox")) cat = "Smart Inbox & Casos";
-      else if (page.includes("mi-gestion")) cat = "Mi Bandeja de Gestión";
-      else if (page.includes("admin")) cat = "Panel de Administración";
-      else if (page.includes("inbox")) cat = "Seka Chat (Bandeja)";
-      else cat = "Operación Sekunet";
-    }
-
-    const ACTIVE_GAP_LIMIT = 5 * 60 * 1000;
-    const dur = Math.min(gap > 0 ? gap : 60000, ACTIVE_GAP_LIMIT);
-    rawIntervals.push({ start: currTime, end: currTime + dur, cat });
-    if (gap > ACTIVE_GAP_LIMIT) {
-      totalIdleMs += (gap - ACTIVE_GAP_LIMIT);
-    }
-    categoryEvents[cat] = (categoryEvents[cat] || 0) + 1;
-  }
-
-  // 2. Consolidar intervalos activos sin duplicación ni solapamiento
-  rawIntervals.sort((a, b) => a.start - b.start);
-  const mergedIntervals: { start: number; end: number }[] = [];
-  for (const interval of rawIntervals) {
-    const dur = interval.end - interval.start;
-    categoryTimeMs[interval.cat] = (categoryTimeMs[interval.cat] || 0) + dur;
-
-    if (mergedIntervals.length === 0) {
-      mergedIntervals.push({ start: interval.start, end: interval.end });
-    } else {
-      const last = mergedIntervals[mergedIntervals.length - 1];
-      if (interval.start <= last.end) {
-        last.end = Math.max(last.end, interval.end);
-      } else {
-        mergedIntervals.push({ start: interval.start, end: interval.end });
-      }
-    }
-  }
-
-  totalActiveMs = mergedIntervals.reduce((sum, int) => sum + (int.end - int.start), 0);
-
-  const totalDayMs = totalActiveMs + totalIdleMs;
-  const productivityScore = totalDayMs > 0 ? Math.round((totalActiveMs / totalDayMs) * 100) : 100;
-
-  // Jornada y Horas extras
   const schedule = await getWorkSchedule();
   const targetDailyHours = schedule.targetDailyHours || 10;
+  const toleranceMinutes = schedule.toleranceMinutes || 15;
+
+  const computed = computeUnifiedActivityMetrics(timeline as any[], {
+    toleranceMinutes,
+    targetDailyHours,
+  });
+
+  const productiveMs = computed.masterBuckets.Productivo.durationMs;
+  const idleMs = computed.masterBuckets.Inactivo.durationMs;
+  const breakMs = computed.masterBuckets.Descanso.durationMs;
+  const sanitaryMs = computed.masterBuckets["Pausa Sanitaria"].durationMs;
+
   const targetMs = targetDailyHours * 60 * 60 * 1000;
   const overtimeRequests = await getOvertimeRequests(date, agentEmail);
   const otReq = overtimeRequests[0] || null;
   const isOvertimeApproved = otReq?.status === "approved";
-  const rawOvertimeMs = Math.max(0, totalActiveMs - targetMs);
-  const deficitMs = Math.max(0, targetMs - totalActiveMs);
-  const activeDisplayMs = (rawOvertimeMs > 0 && !isOvertimeApproved) ? targetMs : totalActiveMs;
+  const rawOvertimeMs = Math.max(0, productiveMs - targetMs);
+  const deficitMs = Math.max(0, targetMs - productiveMs);
+  const activeDisplayMs = (rawOvertimeMs > 0 && !isOvertimeApproved) ? targetMs : productiveMs;
 
-  // Primer evento del día (hora real de entrada) y último evento
-  let firstLoginTime: string | null = null;
-  let lastLogoutTime: string | null = null;
-  if (sorted.length > 0) {
-    const firstEvt = sorted[0];
-    if (firstEvt?.created_at) {
-      const d = new Date(firstEvt.created_at);
-      firstLoginTime = isNaN(d.getTime()) ? null : d.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" });
-    }
-
-    const lastEvt = sorted[sorted.length - 1];
-    if (lastEvt?.created_at) {
-      const d = new Date(lastEvt.created_at);
-      lastLogoutTime = isNaN(d.getTime()) ? null : d.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" });
-    }
-  }
+  const categoryTimeMs: Record<string, number> = {};
+  computed.operationalBuckets.forEach((b) => {
+    categoryTimeMs[b.label || b.id] = b.durationMs;
+  });
 
   return {
     totalActiveMs: activeDisplayMs,
-    rawActiveMs: totalActiveMs,
+    rawActiveMs: productiveMs,
     targetDailyHours,
     deficitMs,
     rawOvertimeMs,
     isOvertimeApproved,
     overtimeStatus: otReq?.status || (rawOvertimeMs > 0 ? "pending" : "none"),
-    totalIdleMs,
-    totalBreakMs,
-    totalSanitaryMs,
+    totalIdleMs: idleMs,
+    totalBreakMs: breakMs,
+    totalSanitaryMs: sanitaryMs,
     totalActiveTime: formatDuration(activeDisplayMs),
-    totalBreakTime: formatDuration(totalBreakMs),
-    totalSanitaryTime: formatDuration(totalSanitaryMs),
-    totalIdleTime: formatDuration(totalIdleMs),
+    totalBreakTime: formatDuration(breakMs),
+    totalSanitaryTime: formatDuration(sanitaryMs),
+    totalIdleTime: formatDuration(idleMs),
     deficitTime: formatDuration(deficitMs),
     overtimeTime: formatDuration(rawOvertimeMs),
-    firstLoginTime,
-    lastLogoutTime,
-    productivityScore,
+    firstLoginTime: computed.firstLoginTime,
+    lastLogoutTime: computed.lastLogoutTime,
+    productivityScore: computed.productivityScore,
     totalEvents: timeline.length,
-    activeEvents: sorted.length,
+    activeEvents: timeline.length,
     idleEvents: 0,
-    categories: categoryEvents,
+    categories: {},
     categoryTimeMs,
-    trackingStatus: totalActiveMs > 0 ? "ACTIVE" : "IDLE",
+    trackingStatus: productiveMs > 0 ? "ACTIVE" : "IDLE",
   };
 }
 

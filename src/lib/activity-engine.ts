@@ -324,6 +324,8 @@ export function computeUnifiedActivityMetrics(
       if (!softTimes[itemName]) softTimes[itemName] = { durationMs: 0, count: 0, category: opCategory };
       softTimes[itemName].durationMs += dur;
       softTimes[itemName].count++;
+      const crHour = parseInt(new Date(currTime).toLocaleString("en-US", { timeZone: "America/Costa_Rica", hour: "numeric", hour12: false }), 10) % 24;
+      if (hourlyTrend[crHour] !== undefined) hourlyTrend[crHour] += dur;
       continue;
     }
 
@@ -344,6 +346,8 @@ export function computeUnifiedActivityMetrics(
           if (!softTimes[itemName]) softTimes[itemName] = { durationMs: 0, count: 0, category: opCategory };
           softTimes[itemName].durationMs += dur;
           softTimes[itemName].count++;
+          const crHour = parseInt(new Date(currTime).toLocaleString("en-US", { timeZone: "America/Costa_Rica", hour: "numeric", hour12: false }), 10) % 24;
+          if (hourlyTrend[crHour] !== undefined) hourlyTrend[crHour] += dur;
         }
       }
       continue;
@@ -387,6 +391,9 @@ export function computeUnifiedActivityMetrics(
       if (!softTimes[itemName]) softTimes[itemName] = { durationMs: 0, count: 0, category: opCategory };
       softTimes[itemName].durationMs += productivePart;
       softTimes[itemName].count++;
+
+      const crHour = parseInt(new Date(currTime).toLocaleString("en-US", { timeZone: "America/Costa_Rica", hour: "numeric", hour12: false }), 10) % 24;
+      if (hourlyTrend[crHour] !== undefined) hourlyTrend[crHour] += productivePart;
 
       idleTotalMs += idlePart;
 

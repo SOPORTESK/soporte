@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { generateText } from "@/lib/ai/config";
+import { computeUnifiedActivityMetrics } from "@/lib/activity-engine";
 
 export const dynamic = "force-dynamic";
 
@@ -119,48 +120,46 @@ export async function POST(req: NextRequest) {
       agentMap[a.email.toLowerCase()] = [a.nombre, a.apellido].filter(Boolean).join(" ") || a.email;
     });
 
-    // 3. Métricas agregadas calibradas con intervalos cronológicos reales
+    // 3. Métricas agregadas calibradas con el motor unificado oficial
+    const userGroups: Record<string, any[]> = {};
+    for (const l of logs) {
+      const email = (l.agent_email || "desconocido").toLowerCase();
+      if (!userGroups[email]) userGroups[email] = [];
+      userGroups[email].push(l);
+    }
+
     let totalActiveMs = 0;
     let totalIdleMs = 0;
     const userStats: Record<string, { name: string; activeMs: number; idleMs: number; events: number; apps: Set<string>; cases: Set<string> }> = {};
     const appUsageMs: Record<string, number> = {};
 
-    const IDLE_GAP_MS = 15 * 60 * 1000;
+    for (const [email, uLogs] of Object.entries(userGroups)) {
+      const userName = uLogs[0]?.agent_name || agentMap[email] || email;
+      const computed = computeUnifiedActivityMetrics(uLogs);
+      const uActiveMs = computed.masterBuckets.Productivo.durationMs;
+      const uIdleMs = computed.masterBuckets.Inactivo.durationMs;
 
-    for (let i = 0; i < logs.length; i++) {
-      const l = logs[i];
-      const email = (l.agent_email || "desconocido").toLowerCase();
-      const userName = l.agent_name || agentMap[email] || email;
+      totalActiveMs += uActiveMs;
+      totalIdleMs += uIdleMs;
 
-      const currTime = new Date(l.created_at).getTime();
-      const nextTime = i < logs.length - 1 ? new Date(logs[i + 1].created_at).getTime() : currTime + 60000;
-      const gap = Math.max(0, nextTime - currTime);
-
-      if (!userStats[email]) {
-        userStats[email] = { name: userName, activeMs: 0, idleMs: 0, events: 0, apps: new Set(), cases: new Set() };
+      const appSet = new Set<string>();
+      const caseSet = new Set<string>();
+      for (const l of uLogs) {
+        if (l.case_id) caseSet.add(l.case_id);
       }
-      userStats[email].events++;
-      if (l.case_id) userStats[email].cases.add(l.case_id);
-
-      if (l.category === "Inactividad") {
-        totalIdleMs += gap;
-        userStats[email].idleMs += gap;
-      } else {
-        const effectiveDur = Math.min(gap, IDLE_GAP_MS);
-        totalActiveMs += effectiveDur;
-        userStats[email].activeMs += effectiveDur;
-
-        const meta = (l.metadata || {}) as Record<string, any>;
-        const app = meta.app_name || meta.label || (l.category === "Navegación" ? (meta.page || "Seka Chat") : l.category) || "Plataforma Sekunet";
-        appUsageMs[app] = (appUsageMs[app] || 0) + effectiveDur;
-        userStats[email].apps.add(app);
-
-        if (gap > IDLE_GAP_MS) {
-          const idleGap = gap - IDLE_GAP_MS;
-          totalIdleMs += idleGap;
-          userStats[email].idleMs += idleGap;
-        }
+      for (const s of computed.topSoftware) {
+        appSet.add(s.name);
+        appUsageMs[s.name] = (appUsageMs[s.name] || 0) + s.durationMs;
       }
+
+      userStats[email] = {
+        name: userName,
+        activeMs: uActiveMs,
+        idleMs: uIdleMs,
+        events: uLogs.length,
+        apps: appSet,
+        cases: caseSet,
+      };
     }
 
     const activeMin = Math.round(totalActiveMs / 60000);

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { computeUnifiedActivityMetrics } from "@/lib/activity-engine";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -43,81 +44,10 @@ export async function GET(_req: NextRequest) {
       const todayLogs = agLogs.filter((l) => l.created_at && l.created_at.startsWith(todayStr));
       const sortedLogs = [...todayLogs].sort((a, b) => new Date(a.created_at!).getTime() - new Date(b.created_at!).getTime());
 
-      let activeMs = 0;
-      let idleMs = 0;
-
-      // Recolectar intervalos y fusionar solapamientos
-      const rawIntervals: { start: number; end: number }[] = [];
-      const firstEventMs = sortedLogs.length > 0 ? new Date(sortedLogs[0].created_at!).getTime() : 0;
-
-      for (let i = 0; i < sortedLogs.length; i++) {
-        const item = sortedLogs[i];
-        const currTime = new Date(item.created_at!).getTime();
-        const nextTime = i < sortedLogs.length - 1 ? new Date(sortedLogs[i + 1].created_at!).getTime() : currTime + 60000;
-        const gap = Math.max(0, nextTime - currTime);
-        const meta = (item.metadata || {}) as Record<string, any>;
-        const act = (item.action || "").toLowerCase();
-
-        const isExplicitPause = meta.reason === "lock_screen" || meta.reason === "suspend" || item.category === "Pausa personal" || item.category === "Pausa Sanitaria" || item.category === "Descanso";
-        if (isExplicitPause) {
-          idleMs += Math.min(gap, 60 * 60 * 1000);
-          continue;
-        }
-
-        const isManualStart = (act.startsWith("inició:") || act.startsWith("inicio:")) && (meta.manual || meta.task);
-        const isManualEnd = (act.startsWith("terminó:") || act.startsWith("termino:")) && (meta.manual || meta.task);
-        const isJustification = Boolean(meta.justification || item.category === "Justificación" || act.startsWith("justificación:") || act.startsWith("justificacion:"));
-
-        if (isManualStart) {
-          const dur = Math.min(gap, 4 * 60 * 60 * 1000);
-          rawIntervals.push({ start: currTime, end: currTime + dur });
-          continue;
-        }
-
-        if (isManualEnd || isJustification) {
-          const discreteMs = Number(
-            item.duration_ms ||
-            (meta.duration_seconds ? meta.duration_seconds * 1000 : 0) ||
-            (meta.minutes ? meta.minutes * 60000 : 0)
-          ) || 0;
-          const prev = i > 0 ? sortedLogs[i - 1] : null;
-          const prevAct = (prev?.action || "").toLowerCase();
-          const prevWasStart = prev && (prevAct.startsWith("inició:") || prevAct.startsWith("inicio:"));
-          if (!prevWasStart && discreteMs > 0) {
-            const dur = Math.min(discreteMs, 4 * 60 * 60 * 1000);
-            const rStart = Math.max(firstEventMs, currTime - dur);
-            rawIntervals.push({ start: rStart, end: currTime });
-          }
-          continue;
-        }
-
-        const ACTIVE_GAP_LIMIT = 5 * 60 * 1000;
-        const dur = Math.min(gap > 0 ? gap : 60000, ACTIVE_GAP_LIMIT);
-        rawIntervals.push({ start: currTime, end: currTime + dur });
-        if (gap > ACTIVE_GAP_LIMIT) {
-          idleMs += (gap - ACTIVE_GAP_LIMIT);
-        }
-      }
-
-      // Consolidar intervalos sin duplicación ni solapamiento
-      rawIntervals.sort((a, b) => a.start - b.start);
-      const mergedIntervals: { start: number; end: number }[] = [];
-      for (const interval of rawIntervals) {
-        if (mergedIntervals.length === 0) {
-          mergedIntervals.push({ start: interval.start, end: interval.end });
-        } else {
-          const last = mergedIntervals[mergedIntervals.length - 1];
-          if (interval.start <= last.end) {
-            last.end = Math.max(last.end, interval.end);
-          } else {
-            mergedIntervals.push({ start: interval.start, end: interval.end });
-          }
-        }
-      }
-      activeMs = mergedIntervals.reduce((sum, int) => sum + (int.end - int.start), 0);
-
-      const totalMs = activeMs + idleMs;
-      const productivityScore = totalMs > 0 ? Math.round((activeMs / totalMs) * 100) : 100;
+      const computed = computeUnifiedActivityMetrics(todayLogs as any[]);
+      const activeMs = computed.masterBuckets.Productivo.durationMs;
+      const idleMs = computed.masterBuckets.Inactivo.durationMs;
+      const productivityScore = computed.productivityScore;
 
       // Calcular estado online/away/offline
       let status: "active" | "away" | "idle" | "offline" = "offline";

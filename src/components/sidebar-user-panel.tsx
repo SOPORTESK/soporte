@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { logActivity } from "@/lib/activity-client";
+import { computeUnifiedActivityMetrics, formatDurationMs } from "@/lib/activity-engine";
 import { ModalMyActivity } from "@/components/modal-my-activity";
 import { ModalAgenda } from "@/components/modal-agenda";
 import { AgendaEvent, AgendaTask } from "@/app/api/agenda/route";
@@ -946,14 +947,39 @@ export function SidebarUserPanel({
     };
   }, [agent.email, supabase]);
 
+  const fetchActivity = useCallback(() => {
+    if (!agent.email) return;
+    fetch(`/api/activity/timeline?agent=${encodeURIComponent(agent.email)}&date=${new Date().toISOString().split("T")[0]}&metrics=true&_t=${Date.now()}`)
+      .then(r => r.json())
+      .then(d => {
+        const timeline = Array.isArray(d?.timeline) ? d.timeline : [];
+        if (timeline.length > 0) {
+          const computed = computeUnifiedActivityMetrics(timeline, { toleranceMinutes: toleranceMin });
+          const targetDailyHours = computed.targetDailyHours || 10;
+          const targetMs = targetDailyHours * 3600 * 1000;
+          const productiveMs = computed.masterBuckets.Productivo.durationMs;
+          const deficitMs = Math.max(0, targetMs - productiveMs);
+          setMyMetrics({
+            totalActiveMs: productiveMs,
+            totalActiveTime: computed.masterBuckets.Productivo.formattedTime,
+            rawActiveMs: productiveMs,
+            targetDailyHours,
+            deficitMs,
+            deficitTime: formatDurationMs(deficitMs),
+            firstLoginTime: computed.firstLoginTime,
+            lastLogoutTime: computed.lastLogoutTime,
+            productivityScore: computed.productivityScore,
+            compliancePercent: computed.compliancePercent,
+          });
+        } else if (d?.metrics) {
+          setMyMetrics(d.metrics);
+        }
+      })
+      .catch(() => {});
+  }, [agent.email, toleranceMin]);
+
   useEffect(() => {
     if (tab !== "activity" || !open) return;
-    const fetchActivity = () => {
-      fetch(`/api/activity/timeline?agent=${encodeURIComponent(agent.email)}&date=${new Date().toISOString().split("T")[0]}&metrics=true&_t=${Date.now()}`)
-        .then(r => r.json())
-        .then(d => setMyMetrics(d))
-        .catch(() => {});
-    };
     fetchActivity();
     setLastUpdate(new Date());
     const interval = setInterval(() => {
@@ -961,7 +987,7 @@ export function SidebarUserPanel({
       setLastUpdate(new Date());
     }, 20000);
     return () => { clearInterval(interval); };
-  }, [tab, open, agent.email]);
+  }, [tab, open, fetchActivity]);
 
   // Ticker separado: actualiza los textos "hace Xs" y el contador de la tarea manual activa
   useEffect(() => {
@@ -1063,13 +1089,6 @@ export function SidebarUserPanel({
     } finally {
       setSyncing(false);
     }
-  };
-
-  const fetchActivity = () => {
-    fetch(`/api/activity/timeline?agent=${encodeURIComponent(agent.email)}&date=${new Date().toISOString().split("T")[0]}&metrics=true&_t=${Date.now()}`)
-      .then(r => r.json())
-      .then(d => setMyMetrics(d))
-      .catch(() => {});
   };
 
   // Marcar estado al montar + auto-away por inactividad con tolerancia oficial + heartbeat + registro de inicio de sesión
