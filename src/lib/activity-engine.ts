@@ -250,7 +250,7 @@ export function computeUnifiedActivityMetrics(
   } = {}
 ): UnifiedDayMetrics {
   const targetDailyHours = options.targetDailyHours || 10;
-  const toleranceMin = Math.max(15, options.toleranceMinutes || 15);
+  const toleranceMin = Math.max(1, options.toleranceMinutes ?? 15);
   const TOLERANCE_GAP_MS = toleranceMin * 60 * 1000;
 
   // 1. Filtrar y ordenar cronológicamente
@@ -290,9 +290,84 @@ export function computeUnifiedActivityMetrics(
   const firstLoginTime = formatTimeCR(sorted[0].created_at);
   const lastLogoutTime = formatTimeCR(sorted[sorted.length - 1].created_at);
 
+  // Pre-escaneo de intervalos de labores manuales, descansos y justificaciones legítimas
+  interface ActiveInterval {
+    startMs: number;
+    endMs: number;
+    category: string;
+    label: string;
+  }
+  const manualIntervals: ActiveInterval[] = [];
+
+  for (let i = 0; i < sorted.length; i++) {
+    const it = sorted[i];
+    const act = (it.action || "").toLowerCase();
+    const meta = (it.metadata || {}) as Record<string, any>;
+    const tMs = new Date(it.created_at).getTime();
+
+    const isStart = (act.startsWith("inició:") || act.startsWith("inicio:")) && (meta.manual || meta.task);
+    const isEnd = (act.startsWith("terminó:") || act.startsWith("termino:")) && (meta.manual || meta.task);
+
+    if (isStart) {
+      const taskLabel = meta.task || it.action.replace(/^inici[oó]:\s*/i, "").trim();
+      let foundEndMs = 0;
+      for (let j = i + 1; j < sorted.length; j++) {
+        const nextIt = sorted[j];
+        const nextAct = (nextIt.action || "").toLowerCase();
+        const nextMeta = (nextIt.metadata || {}) as Record<string, any>;
+        if (
+          (nextAct.startsWith("terminó:") || nextAct.startsWith("termino:")) &&
+          (nextMeta.task === taskLabel || nextAct.includes(taskLabel.toLowerCase()))
+        ) {
+          foundEndMs = new Date(nextIt.created_at).getTime();
+          break;
+        }
+      }
+      if (foundEndMs > tMs) {
+        manualIntervals.push({
+          startMs: tMs,
+          endMs: foundEndMs,
+          category: it.category || "Descansos",
+          label: taskLabel,
+        });
+      }
+    } else if (isEnd) {
+      const durSec = Number(meta.duration_seconds || (meta.duration_ms ? meta.duration_ms / 1000 : 0));
+      if (durSec > 0) {
+        const startMs = tMs - durSec * 1000;
+        const alreadyCovered = manualIntervals.some(
+          (inv) => Math.abs(inv.endMs - tMs) < 15000 && Math.abs(inv.startMs - startMs) < 15000
+        );
+        if (!alreadyCovered) {
+          const taskLabel = meta.task || it.action.replace(/^termin[oó]:\s*/i, "").split("(")[0].trim();
+          manualIntervals.push({
+            startMs,
+            endMs: tMs,
+            category: it.category || "Descansos",
+            label: taskLabel,
+          });
+        }
+      }
+    }
+  }
+
+  const getCoveredOverlap = (gapStart: number, gapEnd: number) => {
+    let overlapMs = 0;
+    for (const inv of manualIntervals) {
+      const s = Math.max(gapStart, inv.startMs);
+      const e = Math.min(gapEnd, inv.endMs);
+      if (e > s) {
+        overlapMs += e - s;
+      }
+    }
+    return overlapMs;
+  };
+
   // Acumuladores de tiempo
   const opTimes: Record<string, number> = {};
-  OFFICIAL_OPERATIONAL_CATEGORIES.forEach((c) => { opTimes[c.id] = 0; });
+  OFFICIAL_OPERATIONAL_CATEGORIES.forEach((c) => {
+    opTimes[c.id] = 0;
+  });
 
   const softTimes: Record<string, { durationMs: number; count: number; category: string }> = {};
   const hourlyTrend: Record<number, number> = {};
@@ -305,14 +380,28 @@ export function computeUnifiedActivityMetrics(
   for (let i = 0; i < sorted.length; i++) {
     const it = sorted[i];
     const currTime = new Date(it.created_at).getTime();
-    const nextTime = i < sorted.length - 1 ? new Date(sorted[i + 1].created_at).getTime() : currTime + 60000;
+
+    if (i === sorted.length - 1) {
+      const dur = 60000;
+      const itemName = extractCleanItemName(it);
+      const opCategory = assignToOperationalCategory(itemName, it.action, it.category);
+      opTimes[opCategory] = (opTimes[opCategory] || 0) + dur;
+      break;
+    }
+
+    const nextTime = new Date(sorted[i + 1].created_at).getTime();
     const rawGap = Math.max(0, nextTime - currTime);
 
     const meta = (it.metadata || {}) as Record<string, any>;
     const act = (it.action || "").toLowerCase();
     const isManualStart = (act.startsWith("inició:") || act.startsWith("inicio:")) && (meta.manual || meta.task);
     const isManualEnd = (act.startsWith("terminó:") || act.startsWith("termino:")) && (meta.manual || meta.task);
-    const isJustification = Boolean(meta.justification || it.category === "Justificación" || act.startsWith("justificación:") || act.startsWith("justificacion:"));
+    const isJustification = Boolean(
+      meta.justification ||
+        it.category === "Justificación" ||
+        act.startsWith("justificación:") ||
+        act.startsWith("justificacion:")
+    );
 
     const itemName = extractCleanItemName(it);
     const opCategory = assignToOperationalCategory(itemName, it.action, it.category);
@@ -324,7 +413,11 @@ export function computeUnifiedActivityMetrics(
       if (!softTimes[itemName]) softTimes[itemName] = { durationMs: 0, count: 0, category: opCategory };
       softTimes[itemName].durationMs += dur;
       softTimes[itemName].count++;
-      const crHour = parseInt(new Date(currTime).toLocaleString("en-US", { timeZone: "America/Costa_Rica", hour: "numeric", hour12: false }), 10) % 24;
+      const crHour =
+        parseInt(
+          new Date(currTime).toLocaleString("en-US", { timeZone: "America/Costa_Rica", hour: "numeric", hour12: false }),
+          10
+        ) % 24;
       if (hourlyTrend[crHour] !== undefined) hourlyTrend[crHour] += dur;
       continue;
     }
@@ -335,18 +428,23 @@ export function computeUnifiedActivityMetrics(
       const prevAct = (prev?.action || "").toLowerCase();
       const prevWasStart = prev && (prevAct.startsWith("inició:") || prevAct.startsWith("inicio:"));
       if (!prevWasStart) {
-        const discreteMs = Number(
-          it.duration_ms ||
-          (meta.minutes ? meta.minutes * 60000 : 0) ||
-          (meta.duration_seconds ? meta.duration_seconds * 1000 : 0)
-        ) || 0;
+        const discreteMs =
+          Number(
+            it.duration_ms ||
+              (meta.minutes ? meta.minutes * 60000 : 0) ||
+              (meta.duration_seconds ? meta.duration_seconds * 1000 : 0)
+          ) || 0;
         const dur = Math.min(discreteMs, 4 * 3600 * 1000);
         if (dur > 0) {
           opTimes[opCategory] = (opTimes[opCategory] || 0) + dur;
           if (!softTimes[itemName]) softTimes[itemName] = { durationMs: 0, count: 0, category: opCategory };
           softTimes[itemName].durationMs += dur;
           softTimes[itemName].count++;
-          const crHour = parseInt(new Date(currTime).toLocaleString("en-US", { timeZone: "America/Costa_Rica", hour: "numeric", hour12: false }), 10) % 24;
+          const crHour =
+            parseInt(
+              new Date(currTime).toLocaleString("en-US", { timeZone: "America/Costa_Rica", hour: "numeric", hour12: false }),
+              10
+            ) % 24;
           if (hourlyTrend[crHour] !== undefined) hourlyTrend[crHour] += dur;
         }
       }
@@ -372,7 +470,20 @@ export function computeUnifiedActivityMetrics(
     }
 
     // Caso D: Trabajo estándar en PC
-    // Si la brecha hasta el próximo evento es normal (<= tolerancia), todo es tiempo productivo continuo
+    // Transición de día o fin de jornada laboral nocturna:
+    const dCurrStr = new Date(currTime).toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
+    const dNextStr = new Date(nextTime).toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
+
+    if (dCurrStr !== dNextStr || rawGap > 4 * 3600 * 1000) {
+      // Transición nocturna entre días o fuera de turno: se contabiliza el evento pero no la brecha inter-jornada
+      const dur = 60000;
+      opTimes[opCategory] = (opTimes[opCategory] || 0) + dur;
+      if (!softTimes[itemName]) softTimes[itemName] = { durationMs: 0, count: 0, category: opCategory };
+      softTimes[itemName].durationMs += dur;
+      softTimes[itemName].count++;
+      continue;
+    }
+
     if (rawGap <= TOLERANCE_GAP_MS) {
       const dur = rawGap > 0 ? rawGap : 60000;
       opTimes[opCategory] = (opTimes[opCategory] || 0) + dur;
@@ -380,37 +491,64 @@ export function computeUnifiedActivityMetrics(
       softTimes[itemName].durationMs += dur;
       softTimes[itemName].count++;
 
-      const crHour = parseInt(new Date(currTime).toLocaleString("en-US", { timeZone: "America/Costa_Rica", hour: "numeric", hour12: false }), 10) % 24;
+      const crHour =
+        parseInt(
+          new Date(currTime).toLocaleString("en-US", { timeZone: "America/Costa_Rica", hour: "numeric", hour12: false }),
+          10
+        ) % 24;
       if (hourlyTrend[crHour] !== undefined) hourlyTrend[crHour] += dur;
     } else {
-      // Hubo una ausencia prolongada que superó la tolerancia oficial (ej: >= 15 min)
-      const productivePart = TOLERANCE_GAP_MS;
-      const idlePart = Math.min(rawGap - TOLERANCE_GAP_MS, 4 * 3600 * 1000);
+      // Verificar si la brecha está cubierta por tarea manual o descanso activo (como Almuerzo)
+      const coveredMs = getCoveredOverlap(currTime, nextTime);
+      const effectiveIdleGap = Math.max(0, rawGap - coveredMs);
 
-      opTimes[opCategory] = (opTimes[opCategory] || 0) + productivePart;
-      if (!softTimes[itemName]) softTimes[itemName] = { durationMs: 0, count: 0, category: opCategory };
-      softTimes[itemName].durationMs += productivePart;
-      softTimes[itemName].count++;
+      if (effectiveIdleGap <= TOLERANCE_GAP_MS) {
+        const dur = Math.min(effectiveIdleGap > 0 ? effectiveIdleGap : TOLERANCE_GAP_MS, rawGap);
+        opTimes[opCategory] = (opTimes[opCategory] || 0) + dur;
+        if (!softTimes[itemName]) softTimes[itemName] = { durationMs: 0, count: 0, category: opCategory };
+        softTimes[itemName].durationMs += dur;
+        softTimes[itemName].count++;
 
-      const crHour = parseInt(new Date(currTime).toLocaleString("en-US", { timeZone: "America/Costa_Rica", hour: "numeric", hour12: false }), 10) % 24;
-      if (hourlyTrend[crHour] !== undefined) hourlyTrend[crHour] += productivePart;
+        const crHour =
+          parseInt(
+            new Date(currTime).toLocaleString("en-US", { timeZone: "America/Costa_Rica", hour: "numeric", hour12: false }),
+            10
+          ) % 24;
+        if (hourlyTrend[crHour] !== undefined) hourlyTrend[crHour] += dur;
+      } else {
+        // Brecha no cubierta que supera la tolerancia oficial
+        const productivePart = TOLERANCE_GAP_MS;
+        const idlePart = Math.min(effectiveIdleGap - TOLERANCE_GAP_MS, 4 * 3600 * 1000);
 
-      idleTotalMs += idlePart;
+        opTimes[opCategory] = (opTimes[opCategory] || 0) + productivePart;
+        if (!softTimes[itemName]) softTimes[itemName] = { durationMs: 0, count: 0, category: opCategory };
+        softTimes[itemName].durationMs += productivePart;
+        softTimes[itemName].count++;
 
-      const dStart = new Date(currTime + TOLERANCE_GAP_MS);
-      const dEnd = new Date(nextTime);
-      detectedGaps.push({
-        id: `gap-${i}`,
-        dateStr: dStart.toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" }),
-        dateFormatted: dStart.toLocaleDateString("es-CR", { day: "numeric", month: "short", timeZone: "America/Costa_Rica" }),
-        startTime: formatTimeCR(dStart.toISOString()),
-        endTime: formatTimeCR(dEnd.toISOString()),
-        startTimeVal: dStart.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }),
-        endTimeVal: dEnd.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }),
-        durationMs: idlePart,
-        minutes: Math.round(idlePart / 60000),
-        reason: `Ausencia prolongada (> ${toleranceMin} min)`,
-      });
+        const crHour =
+          parseInt(
+            new Date(currTime).toLocaleString("en-US", { timeZone: "America/Costa_Rica", hour: "numeric", hour12: false }),
+            10
+          ) % 24;
+        if (hourlyTrend[crHour] !== undefined) hourlyTrend[crHour] += productivePart;
+
+        idleTotalMs += idlePart;
+
+        const dStart = new Date(currTime + TOLERANCE_GAP_MS + coveredMs);
+        const dEnd = new Date(nextTime);
+        detectedGaps.push({
+          id: `gap-${i}`,
+          dateStr: dStart.toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" }),
+          dateFormatted: dStart.toLocaleDateString("es-CR", { day: "numeric", month: "short", timeZone: "America/Costa_Rica" }),
+          startTime: formatTimeCR(dStart.toISOString()),
+          endTime: formatTimeCR(dEnd.toISOString()),
+          startTimeVal: dStart.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }),
+          endTimeVal: dEnd.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }),
+          durationMs: idlePart,
+          minutes: Math.round(idlePart / 60000),
+          reason: `Ausencia prolongada (> ${toleranceMin} min)`,
+        });
+      }
     }
   }
 
