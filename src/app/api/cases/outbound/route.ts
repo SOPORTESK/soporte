@@ -26,7 +26,7 @@ async function fetchWhatsAppProfileName(cleanPhone: string): Promise<string> {
 
 export async function POST(req: NextRequest) {
   try {
-    const { channel, phone } = await req.json();
+    const { channel, phone, forceNew, clientName, clientAccount } = await req.json();
 
     if (!channel || !["whatsapp", "widget"].includes(channel)) {
       return NextResponse.json({ error: "Canal inválido" }, { status: 400 });
@@ -56,39 +56,52 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Número inválido" }, { status: 400 });
     }
 
-    // ── 1. Buscar caso EXISTENTE por número (sincronizar en vez de duplicar) ──
+    // ── 1. Buscar caso más reciente por número para ver si está ACTIVO o para heredar datos ──
     const { data: existing } = await serviceClient
       .from("sek_cases")
-      .select("id, assigned_to, canal")
+      .select("id, assigned_to, canal, estado, cliente, title")
       .neq("canal", "simulator")
       .ilike("customer_phone", `%${cleanPhone}%`)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    if (existing) {
-      // Tomar el caso si aún no tiene agente asignado; no robar casos de otros.
+    const isExistingActive = existing && !["cerrado", "resuelto"].includes(String(existing.estado || "").toLowerCase());
+
+    // Si ya tiene un caso ACTIVO y no se solicitó forzar uno nuevo, redirigir al activo
+    if (isExistingActive && !forceNew) {
       if (!existing.assigned_to) {
         await serviceClient
           .from("sek_cases")
           .update({ assigned_to: agent.email })
           .eq("id", existing.id);
       }
-      return NextResponse.json({ ok: true, case_id: existing.id, phone: cleanPhone, existing: true });
+      return NextResponse.json({ ok: true, case_id: existing.id, phone: cleanPhone, existing: true, isNew: false });
     }
 
-    // ── 2. Número NUEVO: crear caso con datos vacíos (o nombre de perfil WhatsApp) ──
+    // ── 2. Caso NUEVO (porque no hay caso previo, el previo está cerrado/resuelto, o se forzó nuevo) ──
+    const prevCliente = (existing?.cliente && typeof existing.cliente === "object")
+      ? (existing.cliente as Record<string, unknown>)
+      : {};
+
     let profileName = "";
-    if (channel === "whatsapp") {
+    const nameToUse = String(clientName || prevCliente.nombre || "").trim();
+    if (!nameToUse && channel === "whatsapp") {
       profileName = await fetchWhatsAppProfileName(cleanPhone);
     }
-    const displayName = profileName || `+${cleanPhone}`;
+
+    const finalName = nameToUse || profileName;
+    const displayName = finalName || `+${cleanPhone}`;
+    const accountToUse = String(clientAccount || prevCliente.cuenta || "").trim();
+    const emailToUse = String(prevCliente.correo || "").trim();
 
     const cliente: Record<string, unknown> = {
-      nombre: profileName || "",
-      correo: "",
+      nombre: finalName || "",
+      correo: emailToUse,
       telefono: cleanPhone,
-      cuenta: "",
+      cuenta: accountToUse,
+      ...(prevCliente.cedula ? { cedula: prevCliente.cedula } : {}),
+      ...(prevCliente.telefono_real ? { telefono_real: prevCliente.telefono_real } : {}),
     };
 
     const now = new Date().toISOString();
@@ -104,6 +117,7 @@ export async function POST(req: NextRequest) {
         customer_phone: cleanPhone,
         assigned_to: agent.email,
         accepted_at: channel === "whatsapp" ? now : null,
+        created_at: now,
         tags: ["saliente"],
         histcliente: [],
         histtecnico: [],
@@ -112,11 +126,11 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (createError || !newCase) {
-      console.error("[outbound] Error creando caso:", createError);
+      console.error("[outbound] Error creando caso nuevo:", createError);
       return NextResponse.json({ error: createError?.message || "Error creando caso" }, { status: 500 });
     }
 
-    return NextResponse.json({ ok: true, case_id: newCase.id, phone: cleanPhone, existing: false });
+    return NextResponse.json({ ok: true, case_id: newCase.id, phone: cleanPhone, existing: false, isNew: true });
   } catch (e: any) {
     console.error("[outbound] error:", e.message);
     return NextResponse.json({ error: e?.message || "Error inesperado" }, { status: 500 });

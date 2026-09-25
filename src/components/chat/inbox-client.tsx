@@ -345,10 +345,18 @@ export function InboxClient({
       // No está en lista: marcar pendiente y cargarlo desde Supabase
       setPendingSelectId(id);
       supabase.from("sek_cases").select("*").eq("id", id).maybeSingle().then(({ data }) => {
-        if (data) setCases(p => {
-          if (p.some(c => String(c.id) === String(data.id))) return p;
-          return [data as any, ...p];
-        });
+        if (data) {
+          setCases(p => {
+            if (p.some(c => String(c.id) === String(data.id))) return p;
+            return [data as any, ...p];
+          });
+          setAllCases(p => {
+            if (p.some(c => String(c.id) === String(data.id))) return p;
+            return [data as any, ...p];
+          });
+          setSelectedId(id);
+          setPendingSelectId(null);
+        }
       });
     }
   }, [router, supabase]);

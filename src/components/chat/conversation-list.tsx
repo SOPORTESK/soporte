@@ -1,12 +1,13 @@
 "use client";
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Search, MessageSquarePlus, Star, Clock, Trash2, Smartphone, Globe, Loader2, X, Send, Pin, User } from "lucide-react";
+import { Search, MessageSquarePlus, Star, Clock, Trash2, Smartphone, Globe, Loader2, X, Send, Pin, User, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Avatar, Badge } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { cn, formatTime, asText, clienteInfo } from "@/lib/utils";
 import type { SekCase, ChannelKind, SekHistEntry } from "@/lib/types";
+import { createClient } from "@/lib/supabase/client";
 
 type ChannelFilter = "all" | "whatsapp" | "web";
 
@@ -171,6 +172,56 @@ export function ConversationList({
   const cleanDigits = phone.replace(/[^0-9]/g, "");
   const isPhoneNumber = cleanDigits.length >= 8 && /^[0-9+ \-]+$/.test(phone.trim());
 
+  const supabase = React.useMemo(() => createClient(), []);
+  const [remoteMatches, setRemoteMatches] = React.useState<Array<{
+    id: string;
+    name: string;
+    phone: string;
+    account: string;
+    estado: string;
+    canal: string;
+  }>>([]);
+
+  // Búsqueda remota en Supabase por si el cliente no está en la bandeja actual
+  React.useEffect(() => {
+    const term = phone.trim().toLowerCase();
+    if (!open || term.length < 2) {
+      setRemoteMatches([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const { data } = await supabase
+          .from("sek_cases")
+          .select("id, cliente, customer_phone, estado, canal, title")
+          .neq("canal", "simulator")
+          .or(`customer_phone.ilike.%${term}%,title.ilike.%${term}%`)
+          .order("created_at", { ascending: false })
+          .limit(8);
+
+        if (data && data.length > 0) {
+          const mapped = data.map(c => {
+            const ci = clienteInfo(c.cliente);
+            const cName = ci.nombre || asText(c.title) || "";
+            const cPhone = c.customer_phone || ci.telefono || "";
+            return {
+              id: String(c.id),
+              name: cName || cPhone || "Cliente sin nombre",
+              phone: cPhone,
+              account: ci.cuenta || "",
+              estado: String(c.estado || "cerrado"),
+              canal: String(c.canal || "whatsapp"),
+            };
+          });
+          setRemoteMatches(mapped);
+        }
+      } catch (err) {
+        console.error("Error buscando contactos remotos:", err);
+      }
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [phone, open, supabase]);
+
   const existingMatches = React.useMemo(() => {
     const term = phone.trim().toLowerCase();
     if (!term || term.length < 2) return [];
@@ -184,6 +235,7 @@ export function ConversationList({
     }> = [];
     const seen = new Set<string>();
 
+    // 1. Coincidencias de casos locales
     for (const c of cases) {
       const ci = clienteInfo(c.cliente);
       const cName = ci.nombre || asText(c.title) || "";
@@ -195,7 +247,7 @@ export function ConversationList({
       const matchesAccount = cAccount.toLowerCase().includes(term);
 
       if (matchesName || matchesPhone || matchesAccount) {
-        const key = cPhone || String(c.id);
+        const key = cPhone.replace(/[^0-9]/g, "") || String(c.id);
         if (!seen.has(key)) {
           seen.add(key);
           res.push({
@@ -210,21 +262,88 @@ export function ConversationList({
         }
       }
     }
+
+    // 2. Coincidencias remotas de Supabase
+    for (const r of remoteMatches) {
+      const key = r.phone.replace(/[^0-9]/g, "") || r.id;
+      if (!seen.has(key)) {
+        seen.add(key);
+        res.push(r);
+        if (res.length >= 10) break;
+      }
+    }
+
     return res;
-  }, [cases, phone, cleanDigits]);
+  }, [cases, phone, cleanDigits, remoteMatches]);
+
+  const startNewChat = async (opts: { phone: string; name?: string; account?: string; forceNew?: boolean }) => {
+    const rawDigits = opts.phone.replace(/[^0-9]/g, "");
+    if (rawDigits.length < 8) {
+      toast.error("Número telefónico incompleto o no disponible");
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch("/api/cases/outbound", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          channel,
+          phone: rawDigits,
+          forceNew: opts.forceNew ?? true,
+          clientName: opts.name,
+          clientAccount: opts.account,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Error al abrir la conversación");
+
+      setOpen(false);
+      setPhone("");
+
+      const cid = String(data.case_id);
+      if (data.isNew) {
+        toast.success(`Nuevo caso creado para ${opts.name || rawDigits}`);
+      } else {
+        toast.success(`Conversación abierta para ${opts.name || rawDigits}`);
+      }
+
+      // Si no estamos en Mi Gestión, navegar allí para que el caso aparezca en la bandeja activa asignada
+      if (containerType && containerType !== "mi-gestion") {
+        router.push(`/mi-gestion?c=${cid}`);
+      } else {
+        onSelect(cid);
+        router.replace(`?c=${cid}`, { scroll: false });
+      }
+    } catch (e: any) {
+      toast.error("No se pudo iniciar la conversación", { description: e?.message });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!phone.trim()) return;
 
-    // Si escribió un nombre y hay coincidencias, abrir la primera coincidencia
+    // Si escribió un nombre y hay coincidencias
     if (!isPhoneNumber && existingMatches.length > 0) {
       const target = existingMatches[0];
-      onSelect(target.id);
-      router.replace(`?c=${target.id}`, { scroll: false });
-      setOpen(false);
-      setPhone("");
-      toast.success(`Abriendo conversación de ${target.name}`);
+      const isClosed = ["cerrado", "resuelto"].includes(target.estado.toLowerCase());
+      if (isClosed) {
+        await startNewChat({
+          phone: target.phone,
+          name: target.name,
+          account: target.account,
+          forceNew: true,
+        });
+      } else {
+        onSelect(target.id);
+        router.replace(`?c=${target.id}`, { scroll: false });
+        setOpen(false);
+        setPhone("");
+        toast.success(`Abriendo conversación activa de ${target.name}`);
+      }
       return;
     }
 
@@ -235,28 +354,10 @@ export function ConversationList({
       return;
     }
 
-    setLoading(true);
-    try {
-      const res = await fetch("/api/cases/outbound", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ channel, phone: cleanDigits }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Error al abrir la conversación");
-      toast.success(data.existing ? "Conversación existente abierta" : "Conversación creada");
-      setOpen(false);
-      setPhone("");
-      if (data.case_id) {
-        const cid = String(data.case_id);
-        onSelect(cid);
-        router.replace(`?c=${cid}`, { scroll: false });
-      }
-    } catch (e: any) {
-      toast.error("No se pudo abrir la conversación", { description: e?.message });
-    } finally {
-      setLoading(false);
-    }
+    await startNewChat({
+      phone: cleanDigits,
+      forceNew: true,
+    });
   };
 
   const filtered = React.useMemo(() => {
@@ -667,42 +768,92 @@ export function ConversationList({
                 <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
                   Contactos existentes encontrados ({existingMatches.length}):
                 </p>
-                <div className="space-y-1">
-                  {existingMatches.map(m => (
-                    <div
-                      key={m.id}
-                      onClick={() => {
-                        onSelect(m.id);
-                        router.replace(`?c=${m.id}`, { scroll: false });
-                        setOpen(false);
-                        setPhone("");
-                        toast.success(`Abriendo conversación de ${m.name}`);
-                      }}
-                      className="flex items-center justify-between p-2.5 rounded-xl border border-border/70 bg-muted/40 hover:bg-muted/80 cursor-pointer transition-colors group"
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <div className="h-8 w-8 rounded-full bg-brand-500/10 text-brand-500 flex items-center justify-center shrink-0">
-                          <User className="h-4 w-4" />
+                <div className="space-y-1.5">
+                  {existingMatches.map(m => {
+                    const isClosed = ["cerrado", "resuelto"].includes(m.estado.toLowerCase());
+                    return (
+                      <div
+                        key={m.id}
+                        className="flex items-center justify-between p-2.5 rounded-xl border border-border/70 bg-muted/40 hover:bg-muted/70 transition-colors group gap-2"
+                      >
+                        <div
+                          className="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer"
+                          onClick={() => {
+                            if (isClosed) {
+                              startNewChat({ phone: m.phone, name: m.name, account: m.account, forceNew: true });
+                            } else {
+                              onSelect(m.id);
+                              router.replace(`?c=${m.id}`, { scroll: false });
+                              setOpen(false);
+                              setPhone("");
+                              toast.success(`Abriendo conversación activa de ${m.name}`);
+                            }
+                          }}
+                        >
+                          <div className="h-8 w-8 rounded-full bg-brand-500/10 text-brand-500 flex items-center justify-center shrink-0">
+                            <User className="h-4 w-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold truncate group-hover:text-brand-500 transition-colors">
+                              {m.name}
+                            </p>
+                            <p className="text-[11px] text-muted-foreground truncate">
+                              {m.phone ? `📞 ${m.phone}` : "Sin teléfono"} {m.account ? `· ${m.account}` : ""}
+                            </p>
+                          </div>
                         </div>
-                        <div className="min-w-0">
-                          <p className="text-xs font-semibold truncate group-hover:text-brand-500 transition-colors">
-                            {m.name}
-                          </p>
-                          <p className="text-[11px] text-muted-foreground truncate">
-                            {m.phone ? `📞 ${m.phone}` : "Sin teléfono"} {m.account ? `· ${m.account}` : ""}
-                          </p>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {isClosed ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onSelect(m.id);
+                                  router.replace(`?c=${m.id}`, { scroll: false });
+                                  setOpen(false);
+                                  setPhone("");
+                                  toast.info(`Viendo caso cerrado anterior de ${m.name}`);
+                                }}
+                                className="text-[10px] px-2 py-1 rounded-md border border-border bg-background hover:bg-muted text-muted-foreground transition-colors"
+                                title="Ver conversación anterior cerrada"
+                              >
+                                Ver anterior
+                              </button>
+                              <button
+                                type="button"
+                                disabled={loading}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  startNewChat({ phone: m.phone, name: m.name, account: m.account, forceNew: true });
+                                }}
+                                className="text-[10px] font-semibold px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1 shadow-sm transition-colors"
+                                title="Crear un nuevo caso con contador en 0m hoy"
+                              >
+                                <Plus className="h-3 w-3" /> Nuevo caso
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onSelect(m.id);
+                                router.replace(`?c=${m.id}`, { scroll: false });
+                                setOpen(false);
+                                setPhone("");
+                                toast.success(`Abriendo conversación activa de ${m.name}`);
+                              }}
+                              className="text-[10px] font-medium px-2 py-1 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 transition-colors"
+                            >
+                              Activo · Abrir
+                            </button>
+                          )}
                         </div>
                       </div>
-                      <span className={cn(
-                        "text-[10px] font-medium px-2 py-0.5 rounded-full capitalize shrink-0 ml-2",
-                        m.estado === "abierto" ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" :
-                        m.estado === "escalado" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400" :
-                        "bg-muted text-muted-foreground"
-                      )}>
-                        {m.estado}
-                      </span>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
