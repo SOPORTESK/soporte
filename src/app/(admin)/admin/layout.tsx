@@ -178,13 +178,16 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                 </NavSection>
               )}
 
-              {(isSuperadmin || userPerms.team?.view || userPerms.inventory?.view || userPerms.manuals?.view) && (
+              {(isSuperadmin || isAdmin || userPerms.team?.view || userPerms.inventory?.view || userPerms.manuals?.view) && (
                 <NavSection title="Gestión">
                   {(isSuperadmin || userPerms.team?.view) && (
                     <SidebarLink href="/admin/equipo" icon={<Users className="h-4 w-4" />}>Equipo</SidebarLink>
                   )}
                   {(isSuperadmin || userPerms.inventory?.view) && (
                     <SidebarLink href="/admin/inventario" icon={<Package className="h-4 w-4" />}>Inventario</SidebarLink>
+                  )}
+                  {(isSuperadmin || isAdmin) && (
+                    <SidebarLink href="/admin/garantias" icon={<ShieldCheck className="h-4 w-4" />}>Garantías</SidebarLink>
                   )}
                   {(isSuperadmin || userPerms.manuals?.view) && (
                     <SidebarLink href="/admin/manuales" icon={<BookOpen className="h-4 w-4" />}>Manuales</SidebarLink>

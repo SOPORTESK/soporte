@@ -21,6 +21,7 @@ export function MobileNav({ isAdmin = true, isTecnico = false }: { isAdmin?: boo
       { href: "/admin/equipo", label: "Equipo", icon: Users },
       ...(isAdmin ? [
         { href: "/admin/inventario", label: "Inventario", icon: Package },
+        { href: "/admin/garantias", label: "Garantías", icon: ShieldCheck },
         { href: "/admin/manuales", label: "Manuales", icon: BookOpen },
       ] : []),
     ]},
