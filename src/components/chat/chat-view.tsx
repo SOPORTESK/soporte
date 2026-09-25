@@ -8,7 +8,8 @@ import {
   XCircle, Image as ImageIcon, FileText, Music, Video,
   Download, X, ChevronDown, ChevronUp, History, HandMetal, Star, Tag, AlertTriangle,
   Mic, Play, Pause, Square, Smile, Trash2, UserCheck,
-  Info, Copy, Forward, Pin, Edit, Clock, RotateCcw, Search, Globe, Loader2
+  Info, Copy, Forward, Pin, Edit, Clock, RotateCcw, Search, Globe, Loader2,
+  FileArchive, FileCode, FileSpreadsheet, Eye
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { logActivity } from "@/lib/activity-client";
@@ -3407,6 +3408,87 @@ function AudioPlayer({ url }: { url: string }) {
   );
 }
 
+function getFileInfo(name?: string, url?: string, type?: string) {
+  const raw = name || url || "";
+  const cleanUrl = raw.split("?")[0];
+  const parts = cleanUrl.split(".");
+  const ext = parts.length > 1 ? parts.pop()!.toLowerCase() : "";
+
+  const isXml = ext === "xml" || (type || "").includes("xml");
+  const isZip = ["zip", "rar", "7z", "tar", "gz"].includes(ext) || (type || "").includes("zip") || (type || "").includes("compressed");
+  const isPdf = ext === "pdf" || (type || "").includes("pdf");
+  const isSpreadsheet = ["xls", "xlsx", "csv"].includes(ext) || (type || "").includes("spreadsheet") || (type || "").includes("excel") || (type || "").includes("csv");
+  const isWord = ["doc", "docx"].includes(ext) || (type || "").includes("word") || (type || "").includes("document");
+  const isText = ["txt", "json", "log", "sql", "yaml", "yml", "html", "htm"].includes(ext) || (type || "").startsWith("text/");
+
+  let badge = ext ? ext.toUpperCase() : "DOC";
+  let label = "Archivo adjunto";
+  let cardBg = "from-slate-900/90 to-slate-950/90 border-slate-700/60";
+  let badgeColor = "bg-slate-700/80 text-slate-200 border-slate-600";
+  let iconColor = "text-slate-300";
+  let Icon = FileText;
+  let canPreview = false;
+
+  if (isXml) {
+    badge = "XML";
+    label = "Documento XML";
+    cardBg = "from-amber-950/60 to-neutral-950/80 border-amber-500/40";
+    badgeColor = "bg-amber-500/20 text-amber-300 border-amber-500/40";
+    iconColor = "text-amber-400";
+    Icon = FileCode;
+    canPreview = true;
+  } else if (isZip) {
+    badge = ext ? ext.toUpperCase() : "ZIP";
+    label = `Comprimido (${badge})`;
+    cardBg = "from-purple-950/60 to-neutral-950/80 border-purple-500/40";
+    badgeColor = "bg-purple-500/20 text-purple-300 border-purple-500/40";
+    iconColor = "text-purple-400";
+    Icon = FileArchive;
+    canPreview = false;
+  } else if (isPdf) {
+    badge = "PDF";
+    label = "Documento PDF";
+    cardBg = "from-rose-950/60 to-neutral-950/80 border-rose-500/40";
+    badgeColor = "bg-rose-500/20 text-rose-300 border-rose-500/40";
+    iconColor = "text-rose-400";
+    Icon = FileText;
+    canPreview = true;
+  } else if (isSpreadsheet) {
+    badge = ext === "csv" ? "CSV" : "EXCEL";
+    label = ext === "csv" ? "Archivo CSV" : "Hoja de Cálculo";
+    cardBg = "from-emerald-950/60 to-neutral-950/80 border-emerald-500/40";
+    badgeColor = "bg-emerald-500/20 text-emerald-300 border-emerald-500/40";
+    iconColor = "text-emerald-400";
+    Icon = FileSpreadsheet;
+    canPreview = ext === "csv";
+  } else if (isWord) {
+    badge = "WORD";
+    label = "Documento Word";
+    cardBg = "from-blue-950/60 to-neutral-950/80 border-blue-500/40";
+    badgeColor = "bg-blue-500/20 text-blue-300 border-blue-500/40";
+    iconColor = "text-blue-400";
+    Icon = FileText;
+    canPreview = false;
+  } else if (isText) {
+    badge = ext ? ext.toUpperCase() : "TXT";
+    label = `Archivo ${badge}`;
+    cardBg = "from-sky-950/60 to-neutral-950/80 border-sky-500/40";
+    badgeColor = "bg-sky-500/20 text-sky-300 border-sky-500/40";
+    iconColor = "text-sky-400";
+    Icon = FileCode;
+    canPreview = true;
+  }
+
+  // Si el nombre es un timestamp interno (ej. 1790365525045_50687025143.xml), formatearlo legiblemente
+  let displayName = name || "archivo";
+  if (name && /^\d{10,14}_\d+/.test(name)) {
+    const tail = name.length > 22 ? "..." + name.slice(-16) : name;
+    displayName = `${label} (${tail})`;
+  }
+
+  return { ext, badge, label, cardBg, badgeColor, iconColor, Icon, canPreview, displayName };
+}
+
 function MediaPreview({ url, type, name, onImageClick }: { url: string; type?: string; name?: string; onImageClick?: (url: string, type?: string, name?: string) => void }) {
   if (!url) return null;
   const ext = (name || url).split("?")[0].split(".").pop()?.toLowerCase() ?? "";
@@ -3414,7 +3496,7 @@ function MediaPreview({ url, type, name, onImageClick }: { url: string; type?: s
   const videoExts = ["mp4", "mov", "webm", "mkv"];
   const imageExts = ["jpg", "jpeg", "png", "gif", "webp", "svg"];
   // Si el type es genérico, inferir por extensión
-  const isGeneric = !type || type === "application/octet-stream" || type === "application/octet-stream";
+  const isGeneric = !type || type === "application/octet-stream";
   const t = (!isGeneric ? type : "")
     || (audioExts.includes(ext) ? `audio/${ext === "mp3" ? "mpeg" : ext}` : "")
     || (videoExts.includes(ext) ? `video/${ext}` : "")
@@ -3457,8 +3539,8 @@ function MediaPreview({ url, type, name, onImageClick }: { url: string; type?: s
   if (t.startsWith("audio/")) {
     return <AudioPlayer url={url} />;
   }
-  const Icon = ext === "xml" || ext === "csv" || ext === "txt" ? FileText
-    : ext === "pdf" ? FileText : Download;
+
+  const { badge, label, cardBg, badgeColor, iconColor, Icon, canPreview, displayName } = getFileInfo(name, url, t);
     
   const handleDownload = async (e: React.MouseEvent<HTMLAnchorElement>) => {
     e.preventDefault();
@@ -3468,7 +3550,7 @@ function MediaPreview({ url, type, name, onImageClick }: { url: string; type?: s
       const blobUrl = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = blobUrl;
-      a.download = name || "archivo";
+      a.download = name || `archivo.${ext || "bin"}`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -3479,14 +3561,61 @@ function MediaPreview({ url, type, name, onImageClick }: { url: string; type?: s
   };
 
   return (
-    <a
-      href={url} onClick={handleDownload} target="_blank" rel="noopener noreferrer" download={name}
-      className="mt-1 inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white/15 hover:bg-white/25 transition-colors text-xs font-medium cursor-pointer"
-    >
-      <Icon className="h-4 w-4 shrink-0" />
-      <span className="truncate max-w-[160px]">{name || "Archivo"}</span>
-      <Download className="h-3 w-3 shrink-0 opacity-70" />
-    </a>
+    <div className={cn(
+      "mt-1.5 flex flex-col rounded-xl border p-2.5 min-w-[240px] max-w-[320px] shadow-md transition-all bg-gradient-to-br",
+      cardBg
+    )}>
+      <div className="flex items-center gap-2.5">
+        <div className={cn(
+          "h-11 w-11 rounded-xl flex flex-col items-center justify-center shrink-0 border shadow-inner",
+          badgeColor
+        )}>
+          <Icon className={cn("h-5 w-5", iconColor)} />
+          <span className="text-[8px] font-black tracking-tight leading-none mt-0.5 uppercase">{badge}</span>
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-semibold text-white truncate" title={name || displayName}>
+            {displayName}
+          </p>
+          <div className="flex items-center gap-1.5 mt-0.5">
+            <span className={cn("text-[9px] font-extrabold px-1.5 py-0.5 rounded border uppercase", badgeColor)}>
+              {badge}
+            </span>
+            <span className="text-[11px] text-white/60 truncate">{label}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Botones de acción: Vista Previa y Descargar */}
+      <div className="flex items-center gap-1.5 mt-2.5 pt-2 border-t border-white/10">
+        {canPreview && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onImageClick?.(url, t, name || displayName);
+            }}
+            className="flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 active:scale-[0.98] transition text-xs font-medium text-white shadow-sm"
+          >
+            <Eye className="h-3.5 w-3.5 text-amber-300" />
+            <span>Vista previa</span>
+          </button>
+        )}
+        <a
+          href={url}
+          onClick={handleDownload}
+          download={name || `archivo.${ext || "bin"}`}
+          className={cn(
+            "flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 active:scale-[0.98] transition text-xs font-medium text-white shadow-sm",
+            canPreview ? "flex-1" : "w-full"
+          )}
+        >
+          <Download className="h-3.5 w-3.5 text-emerald-300" />
+          <span>Descargar</span>
+        </a>
+      </div>
+    </div>
   );
 }
 

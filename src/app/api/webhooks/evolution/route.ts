@@ -1280,7 +1280,12 @@ export async function POST(req: NextRequest) {
       else if (docMime.startsWith("image/")) mediaType = "image";
       else if (docMime.startsWith("audio/")) mediaType = "audio";
       else mediaType = "document";
-      originalFileName = u.documentMessage.fileName || u.documentMessage.title || "";
+      originalFileName = 
+        u.documentMessage.fileName || 
+        u.documentMessage.title || 
+        u.documentWithCaptionMessage?.message?.documentMessage?.fileName ||
+        u.documentWithCaptionMessage?.message?.documentMessage?.title ||
+        "";
     }
     else if (u.stickerMessage) mediaType = "sticker";
     else {
@@ -1426,6 +1431,10 @@ export async function POST(req: NextRequest) {
       mediaDebug.docMsgKeys = msgObj?.documentMessage ? Object.keys(msgObj.documentMessage) : [];
       mediaDebug.fileLength = mediaInfo?.fileLength;
 
+      if (!originalFileName && mediaInfo?.fileName) {
+        originalFileName = mediaInfo.fileName;
+      }
+
       let directDecryptedBuffer: Buffer | null = null;
 
       // Umbral para derivar al sidecar en VPS (25 MB)
@@ -1447,7 +1456,8 @@ export async function POST(req: NextRequest) {
         else if (mediaType === "audio") { ext = "ogg"; }
         else if (mediaType === "image") { ext = "jpg"; }
         else if (mediaType === "document") { ext = "pdf"; }
-        fileName = `${Date.now()}_${phone || "media"}.${ext}`;
+        const storageKey = `${Date.now()}_${phone || "media"}.${ext}`;
+        fileName = originalFileName || storageKey;
         finalMediaType = mediaInfo?.mimetype || (mediaType === "video" ? "video/mp4" : mediaType === "audio" ? "audio/ogg" : mediaType === "image" ? "image/jpeg" : "application/octet-stream");
         if (text === `[Archivo adjunto: ${mediaType}]` || text?.startsWith("[Procesando")) {
           text = "";
@@ -1546,7 +1556,8 @@ export async function POST(req: NextRequest) {
         }
 
         let uploadBuffer = directDecryptedBuffer || Buffer.from(dataStr, "base64");
-        fileName = `${Date.now()}_${phone || "media"}.${finalExt}`;
+        const storageKey = `${Date.now()}_${phone || "media"}.${finalExt}`;
+        fileName = originalFileName || storageKey;
 
         // Si el buffer supera 25MB, delegarlo al sidecar de la VPS para no saturar Supabase ni Vercel
         if (uploadBuffer.length >= 25 * 1024 * 1024) {
@@ -1558,20 +1569,20 @@ export async function POST(req: NextRequest) {
             text = "";
           }
         } else {
-          // Archivo estándar (< 25MB): subida directa a Supabase Storage
+          // Archivo estándar (< 25MB): subida directa a Supabase Storage con storageKey único
           const { data: uploadData, error: uploadErr } = await supabase.storage
             .from("attachments")
-            .upload(`cases/evolution/${fileName}`, uploadBuffer, { contentType: mime, upsert: true });
+            .upload(`cases/evolution/${storageKey}`, uploadBuffer, { contentType: mime, upsert: true });
 
           if (uploadErr) {
             console.error("[evo-webhook] Error subiendo media a Supabase", uploadErr.message || uploadErr);
           }
           if (!uploadErr && uploadData) {
-            const { data: urlData } = supabase.storage.from("attachments").getPublicUrl(`cases/evolution/${fileName}`);
+            const { data: urlData } = supabase.storage.from("attachments").getPublicUrl(`cases/evolution/${storageKey}`);
             mediaUrl = urlData.publicUrl;
             finalMediaType = mime;
             if (text === `[Archivo adjunto: ${mediaType}]`) text = ""; // Limpiar el placeholder si se subió con éxito
-            console.log("[evo-webhook] media subida OK a Supabase", { mediaUrl, mime, fileName });
+            console.log("[evo-webhook] media subida OK a Supabase", { mediaUrl, mime, fileName, storageKey });
           }
         }
       }
