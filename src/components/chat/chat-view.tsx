@@ -3479,12 +3479,7 @@ function getFileInfo(name?: string, url?: string, type?: string) {
     canPreview = true;
   }
 
-  // Si el nombre es un timestamp interno (ej. 1790365525045_50687025143.xml), formatearlo legiblemente
-  let displayName = name || "archivo";
-  if (name && /^\d{10,14}_\d+/.test(name)) {
-    const tail = name.length > 22 ? "..." + name.slice(-16) : name;
-    displayName = `${label} (${tail})`;
-  }
+  const displayName = name || (cleanUrl.split("/").pop()) || "archivo";
 
   return { ext, badge, label, cardBg, badgeColor, iconColor, Icon, canPreview, displayName };
 }
@@ -3550,7 +3545,7 @@ function MediaPreview({ url, type, name, onImageClick }: { url: string; type?: s
       const blobUrl = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = blobUrl;
-      a.download = name || `archivo.${ext || "bin"}`;
+      a.download = displayName;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -3562,41 +3557,41 @@ function MediaPreview({ url, type, name, onImageClick }: { url: string; type?: s
 
   return (
     <div className={cn(
-      "mt-1.5 flex flex-col rounded-xl border p-2.5 min-w-[240px] max-w-[320px] shadow-md transition-all bg-gradient-to-br",
+      "mt-1.5 flex flex-col rounded-xl border p-3 min-w-[280px] max-w-[460px] w-full shadow-md transition-all bg-gradient-to-br",
       cardBg
     )}>
-      <div className="flex items-center gap-2.5">
+      <div className="flex items-start gap-3">
         <div className={cn(
-          "h-11 w-11 rounded-xl flex flex-col items-center justify-center shrink-0 border shadow-inner",
+          "h-11 w-11 rounded-xl flex flex-col items-center justify-center shrink-0 border shadow-inner mt-0.5",
           badgeColor
         )}>
           <Icon className={cn("h-5 w-5", iconColor)} />
           <span className="text-[8px] font-black tracking-tight leading-none mt-0.5 uppercase">{badge}</span>
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-semibold text-white truncate" title={name || displayName}>
+          <p className="text-xs font-semibold text-white break-all leading-snug select-text" title={displayName}>
             {displayName}
           </p>
-          <div className="flex items-center gap-1.5 mt-0.5">
+          <div className="flex items-center gap-1.5 mt-1">
             <span className={cn("text-[9px] font-extrabold px-1.5 py-0.5 rounded border uppercase", badgeColor)}>
               {badge}
             </span>
-            <span className="text-[11px] text-white/60 truncate">{label}</span>
+            <span className="text-[11px] text-white/70">{label}</span>
           </div>
         </div>
       </div>
 
       {/* Botones de acción: Vista Previa y Descargar */}
-      <div className="flex items-center gap-1.5 mt-2.5 pt-2 border-t border-white/10">
+      <div className="flex items-center gap-2 mt-3 pt-2.5 border-t border-white/10">
         {canPreview && (
           <button
             type="button"
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              onImageClick?.(url, t, name || displayName);
+              onImageClick?.(url, t, displayName);
             }}
-            className="flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 active:scale-[0.98] transition text-xs font-medium text-white shadow-sm"
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 active:scale-[0.98] transition text-xs font-medium text-white shadow-sm"
           >
             <Eye className="h-3.5 w-3.5 text-amber-300" />
             <span>Vista previa</span>
@@ -3605,9 +3600,9 @@ function MediaPreview({ url, type, name, onImageClick }: { url: string; type?: s
         <a
           href={url}
           onClick={handleDownload}
-          download={name || `archivo.${ext || "bin"}`}
+          download={displayName}
           className={cn(
-            "flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 active:scale-[0.98] transition text-xs font-medium text-white shadow-sm",
+            "flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 active:scale-[0.98] transition text-xs font-medium text-white shadow-sm",
             canPreview ? "flex-1" : "w-full"
           )}
         >
