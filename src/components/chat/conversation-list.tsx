@@ -20,6 +20,13 @@ function getChannelIcon(canal: string | null | undefined) {
 }
 
 function lastMessage(c: SekCase): { content: string; time: string } | null {
+  if (c.last_message_preview || c.last_message_at) {
+    let content = asText(c.last_message_preview)?.trim() || "";
+    if (content.startsWith("[Procesando") || content.startsWith("[Archivo adjunto:") || content === "[Video en optimización...]") {
+      content = "📹 Video";
+    }
+    return { content: content || "Sin mensajes", time: c.last_message_at || c.updated_at || c.created_at };
+  }
   const all: SekHistEntry[] = [];
   if (Array.isArray(c.histcliente)) all.push(...c.histcliente);
   if (Array.isArray(c.histtecnico)) all.push(...c.histtecnico);
@@ -72,6 +79,18 @@ export function ConversationList({
   }, []);
 
   const [pinningId, setPinningId] = React.useState<string | null>(null);
+  const [visibleLimit, setVisibleLimit] = React.useState(60);
+
+  React.useEffect(() => {
+    setVisibleLimit(60);
+  }, [query, channelFilter]);
+
+  const handleScroll = (e: React.UIEvent<HTMLUListElement>) => {
+    const el = e.currentTarget;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 350) {
+      setVisibleLimit(prev => (prev < filtered.length ? prev + 40 : prev));
+    }
+  };
 
   const isCasePinnedInScope = React.useCallback((c: SekCase) => {
     const tags: string[] = Array.isArray(c.tags) ? c.tags.map(t => String(t).toLowerCase()) : [];
@@ -328,13 +347,13 @@ export function ConversationList({
         </div>
       </div>
 
-      <ul className="flex-1 overflow-y-auto scrollbar-none px-safe" role="listbox">
+      <ul onScroll={handleScroll} className="flex-1 overflow-y-auto scrollbar-none px-safe" role="listbox">
         {filtered.length === 0 && (
           <li className="p-8 text-center text-sm text-muted-foreground">
             {emptyMsg}
           </li>
         )}
-        {filtered.map(c => {
+        {filtered.slice(0, visibleLimit).map(c => {
           const id = String(c.id);
           const active = id === selectedId;
           const canalKind = (c.canal as ChannelKind) || "otros";

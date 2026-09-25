@@ -12,20 +12,31 @@ export const dynamic = "force-dynamic";
 export default async function EstadisticasClientePage() {
   const supabase = createClient();
 
-  // Intentar con columnas nuevas; si fallan (aún no migradas), usar columnas base
-  let { data: casos, error: casosErr } = await supabase
-    .from("sek_cases")
-    .select("id, estado, cliente, created_at, updated_at, closed_at, canal, title, tags, prioridad, assigned_to, marca, modelo, resolucion, problema")
-    .order("created_at", { ascending: false });
-  if (casosErr) {
-    console.error("[estadisticas] Error consulta completa:", casosErr.message);
-    const { data: casosFallback, error: fallbackErr } = await supabase
+  // Cargar todos los casos paginados sin el tope de 1000 de PostgREST
+  const loadedCasos: any[] = [];
+  let pageOffset = 0;
+  const PAGE_SIZE = 1000;
+  while (true) {
+    let { data, error } = await supabase
       .from("sek_cases")
-      .select("id, estado, cliente, created_at, updated_at, closed_at, canal, title, tags, prioridad, assigned_to")
-      .order("created_at", { ascending: false });
-    if (fallbackErr) console.error("[estadisticas] Error fallback:", fallbackErr.message);
-    casos = casosFallback as any;
+      .select("id, estado, cliente, created_at, updated_at, closed_at, canal, title, tags, prioridad, assigned_to, marca, modelo, resolucion, problema")
+      .order("created_at", { ascending: false })
+      .range(pageOffset, pageOffset + PAGE_SIZE - 1);
+
+    if (error) {
+      const { data: fbData } = await supabase
+        .from("sek_cases")
+        .select("id, estado, cliente, created_at, updated_at, closed_at, canal, title, tags, prioridad, assigned_to")
+        .order("created_at", { ascending: false })
+        .range(pageOffset, pageOffset + PAGE_SIZE - 1);
+      data = fbData as any;
+    }
+    if (!data || data.length === 0) break;
+    loadedCasos.push(...data);
+    if (data.length < PAGE_SIZE) break;
+    pageOffset += PAGE_SIZE;
   }
+  let casos = loadedCasos;
 
   // Cargar marcas del inventario para validar títulos de casos (RLS staff)
   const { data: inventario } = await supabase.from("sek_inventario").select("marca").limit(1000);

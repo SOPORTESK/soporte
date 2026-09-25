@@ -51,7 +51,7 @@ export default async function AdminEquipoPage() {
         while (true) {
           const { data, error } = await supabase
             .from("sek_cases")
-            .select("id, assigned_to, created_at, updated_at, closed_at, estado, cliente, canal, accepted_at, escalado_at, histtecnico, histcliente, es_test")
+            .select("id, assigned_to, created_at, updated_at, closed_at, estado, cliente, canal, accepted_at, escalado_at")
             .neq("canal", "simulator")
             .neq("es_test", true)
             .order("created_at", { ascending: false })
@@ -64,7 +64,7 @@ export default async function AdminEquipoPage() {
         return { data: loaded, error: null };
       },
       [],
-      30000
+      120000 // 2 min fresh cache para navegación instantánea
     )
   ]);
 
@@ -112,11 +112,7 @@ export default async function AdminEquipoPage() {
           startTimestamp = c.created_at;
           endTimestamp = c.escalado_at || (c as any).closed_at;
         } else {
-          startTimestamp = c.accepted_at;
-          if (!startTimestamp && Array.isArray(c.histtecnico)) {
-            const firstMsg = c.histtecnico.find((h: any) => h.role === "tecnico");
-            if (firstMsg) startTimestamp = firstMsg.time;
-          }
+          startTimestamp = c.accepted_at || c.created_at;
         }
         
         const start = startTimestamp ? new Date(startTimestamp as string) : new Date(c.created_at);
@@ -179,8 +175,7 @@ export default async function AdminEquipoPage() {
   const allTiemposGlobal = allResueltos
     .filter(c => (c as any).closed_at)
     .map(c => {
-      let st = c.accepted_at;
-      if (!st && Array.isArray(c.histtecnico)) { const fm = c.histtecnico.find((h: any) => h.role === "tecnico"); if (fm) st = fm.time; }
+      const st = c.accepted_at || c.created_at;
       const start = st ? new Date(st as string) : new Date(c.created_at);
       const end = new Date((c as any).closed_at);
       if (isNaN(start.getTime()) || isNaN(end.getTime())) return 0;

@@ -9,6 +9,7 @@ import { GodModeButton } from "@/components/admin/god-mode-button";
 import { GodModeBanner } from "@/components/admin/god-mode-banner";
 import { AgentCasesHistory } from "@/components/admin/agent-cases-history";
 import { AgentScheduleCard } from "@/components/admin/agent-schedule-card";
+import { getUserWithTimeout, queryWithFallback } from "@/lib/supabase/resilient";
 
 export const dynamic = "force-dynamic";
 
@@ -19,36 +20,64 @@ export default async function AgentProfilePage({
 }) {
   const supabase = createClient();
 
-  const { data: { user } } = await supabase.auth.getUser();
-  const { data: currentAgent } = await supabase
-    .from("sek_agent_config")
-    .select("rol")
-    .ilike("email", user?.email || "")
-    .maybeSingle();
+  const { user } = await getUserWithTimeout(supabase);
+  const targetEmail = searchParams.email;
+  if (!targetEmail) redirect("/admin/equipo");
 
+  const [currentAgentRes, agentRes, casosRes] = await Promise.all([
+    queryWithFallback(
+      `agent_config_${user?.email || ""}`,
+      async () => {
+        const { data, error } = await supabase
+          .from("sek_agent_config")
+          .select("rol")
+          .ilike("email", user?.email || "")
+          .maybeSingle();
+        return { data, error };
+      },
+      { rol: "admin" },
+      60000
+    ),
+    queryWithFallback(
+      `agent_full_${targetEmail}`,
+      async () => {
+        const { data, error } = await supabase
+          .from("sek_agent_config")
+          .select("*")
+          .ilike("email", targetEmail)
+          .maybeSingle();
+        return { data, error };
+      },
+      null,
+      60000
+    ),
+    queryWithFallback(
+      `agent_casos_${targetEmail}`,
+      async () => {
+        const { data, error } = await supabase
+          .from("sek_cases")
+          .select("id, estado, calificacion, created_at, updated_at, closed_at, title, canal, cat, last_message_at, cliente, customer_phone")
+          .ilike("assigned_to", targetEmail)
+          .neq("canal", "simulator")
+          .neq("es_test", true)
+          .order("created_at", { ascending: false })
+          .limit(1000);
+        return { data: data || [], error };
+      },
+      [],
+      60000
+    )
+  ]);
+
+  const currentAgent = currentAgentRes.data;
   const isAdmin = ["admin", "superadmin"].includes(currentAgent?.rol);
   const isSuperadmin = currentAgent?.rol === "superadmin";
   if (!isAdmin) redirect("/admin/equipo");
 
-  const targetEmail = searchParams.email;
-  if (!targetEmail) redirect("/admin/equipo");
-
-  const { data: agent } = await supabase
-    .from("sek_agent_config")
-    .select("*")
-    .ilike("email", targetEmail)
-    .maybeSingle();
-
+  const agent = agentRes.data;
   if (!agent) redirect("/admin/equipo");
 
-  // Stats del agente
-  const { data: casos } = await supabase
-    .from("sek_cases")
-    .select("id, estado, calificacion, created_at, updated_at, closed_at, title, canal, cat, last_message_at, cliente, customer_phone")
-    .ilike("assigned_to", targetEmail)
-    .neq("canal", "simulator")
-    .neq("es_test", true)
-    .order("created_at", { ascending: false });
+  const casos = casosRes.data || [];
 
   const resueltos = (casos || []).filter(c => c.estado === "resuelto" || c.estado === "cerrado" || (c as any).closed_at);
   const abiertos  = (casos || []).filter(c => c.estado === "abierto" || c.estado === "asignado" || c.estado === "pendiente");

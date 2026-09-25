@@ -204,7 +204,7 @@ const AGENT_NAME = getArg('name') || process.env.ADMIN_DEFAULT_NAME || 'César A
 console.log(`[Windows Agent] Corriendo para ${AGENT_EMAIL} (${AGENT_NAME}) - Modo Informe Ejecutivo (5 min)`);
 
 const MIN_SESSION_MS = 15000;       // Mínimo 15s para consolidar tarea completada
-const HEARTBEAT_INTERVAL = 300000;  // 5 minutos (300s) para puntos de control
+const HEARTBEAT_INTERVAL = 60000;   // 1 minuto (60s) para puntos de control continuo
 
 let _cachedSchedule = null;
 let _lastScheduleFetch = 0;
@@ -218,7 +218,7 @@ async function getEffectiveSchedule(agentEmail) {
     const { data } = await supabase
       .from('sek_app_settings')
       .select('value')
-      .eq('key', 'app_work_schedule')
+      .eq('key', 'activity_work_schedule')
       .maybeSingle();
 
     if (data && data.value) {
@@ -232,6 +232,8 @@ async function getEffectiveSchedule(agentEmail) {
           scheduleEnd: custom.scheduleEnd || parsed.scheduleEnd || '17:00',
           scheduleEnabled: custom.scheduleEnabled !== undefined ? Boolean(custom.scheduleEnabled) : (parsed.scheduleEnabled !== false),
           workDays: Array.isArray(custom.workDays) && custom.workDays.length > 0 ? custom.workDays : (parsed.workDays || [1, 2, 3, 4, 5]),
+          useMixedSchedule: Boolean(custom.useMixedSchedule !== undefined ? custom.useMixedSchedule : parsed.useMixedSchedule),
+          daySchedules: custom.daySchedules || parsed.daySchedules || undefined,
           isCustom: true,
         };
       } else {
@@ -240,6 +242,8 @@ async function getEffectiveSchedule(agentEmail) {
           scheduleEnd: parsed.scheduleEnd || '17:00',
           scheduleEnabled: parsed.scheduleEnabled !== undefined ? Boolean(parsed.scheduleEnabled) : true,
           workDays: Array.isArray(parsed.workDays) && parsed.workDays.length > 0 ? parsed.workDays : [1, 2, 3, 4, 5],
+          useMixedSchedule: Boolean(parsed.useMixedSchedule),
+          daySchedules: parsed.daySchedules || undefined,
           isCustom: false,
         };
       }
@@ -264,14 +268,27 @@ function isWithinSchedule(sched) {
   const day = nowCostaRica.getDay();
   if (Array.isArray(sched.workDays) && !sched.workDays.includes(day)) return false;
 
-  const [startH, startM] = (sched.scheduleStart || '08:00').split(':').map(Number);
-  const [endH, endM] = (sched.scheduleEnd || '17:00').split(':').map(Number);
+  let sStart = sched.scheduleStart || '08:00';
+  let sEnd = sched.scheduleEnd || '17:00';
+
+  if (sched.useMixedSchedule && sched.daySchedules && sched.daySchedules[day]) {
+    const ds = sched.daySchedules[day];
+    if (ds.start) sStart = ds.start;
+    if (ds.end) sEnd = ds.end;
+  }
+
+  const [startH, startM] = sStart.split(':').map(Number);
+  const [endH, endM] = sEnd.split(':').map(Number);
 
   const curMin = nowCostaRica.getHours() * 60 + nowCostaRica.getMinutes();
   const startMin = startH * 60 + startM;
   const endMin = endH * 60 + endM;
 
-  return curMin >= startMin && curMin <= endMin;
+  if (startMin <= endMin) {
+    return curMin >= startMin && curMin <= endMin;
+  }
+  // Turno nocturno que cruza la medianoche (ej: 22:00 a 05:00)
+  return curMin >= startMin || curMin <= endMin;
 }
 
 let _lastManualTaskCheck = 0;

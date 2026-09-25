@@ -108,7 +108,7 @@ export default async function AdminDashboardPage() {
         while (true) {
           const { data, error } = await supabase
             .from("sek_cases")
-            .select("id, estado, created_at, updated_at, closed_at, cliente, assigned_to, accepted_at, escalado_at, histtecnico")
+            .select("id, estado, created_at, updated_at, closed_at, cliente, assigned_to, accepted_at, escalado_at")
             .neq("canal", "simulator")
             .neq("es_test", true)
             .order("created_at", { ascending: false })
@@ -166,12 +166,8 @@ export default async function AdminDashboardPage() {
     } else {
       // Humano: accepted_at → closed_at (con fallback consistente con /admin/equipo)
       if (c.estado === "resuelto" || c.estado === "cerrado") {
-        let startTimestamp = c.accepted_at;
-        if (!startTimestamp && Array.isArray(c.histtecnico)) {
-          const firstMsg = c.histtecnico.find((h: any) => h.role === "tecnico");
-          if (firstMsg) startTimestamp = firstMsg.time;
-        }
-        const start = startTimestamp ? new Date(startTimestamp) : new Date(c.created_at);
+        const startTimestamp = c.accepted_at || c.created_at;
+        const start = new Date(startTimestamp);
         const endTimestamp = c.closed_at || c.updated_at;
         if (endTimestamp) {
           const end = new Date(endTimestamp);

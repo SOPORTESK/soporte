@@ -35,6 +35,7 @@ import {
   Sandwich,
   Bath,
   Plus,
+  Monitor,
 } from "lucide-react";
 import { toast } from "sonner";
 import { logActivity } from "@/lib/activity-client";
@@ -173,17 +174,29 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
       }
 
       const schedData = await resSchedule.json();
-      if (schedData?.targetDailyHours) {
-        setTargetDailyHours(Number(schedData.targetDailyHours));
+      let dayTarget = schedData?.targetDailyHours ? Number(schedData.targetDailyHours) : 10;
+      let dayStart = schedData?.scheduleStart || "08:00";
+      let dayEnd = schedData?.scheduleEnd || "17:00";
+
+      if (schedData?.useMixedSchedule && schedData?.daySchedules) {
+        const parts = (start || "").split("-").map(Number);
+        if (parts.length === 3) {
+          const dObj = new Date(parts[0], parts[1] - 1, parts[2]);
+          const dayId = dObj.getDay();
+          const dayConfig = schedData.daySchedules[dayId];
+          if (dayConfig) {
+            if (dayConfig.start) dayStart = dayConfig.start;
+            if (dayConfig.end) dayEnd = dayConfig.end;
+            if (dayConfig.targetHours) dayTarget = Number(dayConfig.targetHours);
+          }
+        }
       }
+
+      setTargetDailyHours(dayTarget);
+      setScheduleStart(dayStart);
+      setScheduleEnd(dayEnd);
       if (schedData?.toleranceMinutes) {
         setToleranceMin(Number(schedData.toleranceMinutes));
-      }
-      if (schedData?.scheduleStart) {
-        setScheduleStart(schedData.scheduleStart);
-      }
-      if (schedData?.scheduleEnd) {
-        setScheduleEnd(schedData.scheduleEnd);
       }
 
       const otData = await resOvertime.json();
@@ -218,7 +231,11 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
   // Lagunas vigentes para justificar
   const activeDetectedGaps = metrics.detectedGaps;
   const officialIdleMs = metrics.masterBuckets.Inactivo.durationMs;
-  const detectedLostMin = Math.round(officialIdleMs / 60000);
+  // Paridad matemática estricta: El total debe corresponder exactamente a la suma de las lagunas individuales mostradas
+  const detectedLostMin =
+    activeDetectedGaps.length > 0
+      ? activeDetectedGaps.reduce((acc, g) => acc + g.minutes, 0)
+      : Math.round(officialIdleMs / 60000);
 
   const targetMs = targetDailyHours * 60 * 60 * 1000;
   const officialActiveMs = metrics.masterBuckets.Productivo.durationMs;
@@ -233,17 +250,34 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
 
   // Modo de visualización en la pestaña Resumen (Por Categorías oficiales vs Por Software/Labor)
   const [categoryViewMode, setCategoryViewMode] = useState<"categories" | "software">("categories");
+  const [selectedGapId, setSelectedGapId] = useState<string>("all");
+
+  const handleSelectAllGaps = () => {
+    setSelectedGapId("all");
+    setJustMinutes(String(detectedLostMin));
+    setJustTimeRange(`Total acumulado del día (${detectedLostMin} min)`);
+    setJustStartTime("");
+    setJustEndTime("");
+    if (activeDetectedGaps.length > 0) {
+      setJustDate(activeDetectedGaps[0].dateStr);
+    }
+    if (!justReason) {
+      setJustReason("Atención presencial en mostrador");
+    }
+    toast.info(`Seleccionados ${detectedLostMin} min para justificar todo de una vez.`);
+  };
 
   useEffect(() => {
     if (activeTab === "justificar") {
       if (detectedLostMin > 0) {
         setJustMinutes(String(detectedLostMin));
+        setSelectedGapId("all");
+        setJustTimeRange(`Total acumulado del día (${detectedLostMin} min)`);
+        setJustStartTime("");
+        setJustEndTime("");
       }
-      if (activeDetectedGaps.length === 1 && !justStartTime) {
+      if (activeDetectedGaps.length > 0) {
         setJustDate(activeDetectedGaps[0].dateStr);
-        setJustStartTime(activeDetectedGaps[0].startTimeVal);
-        setJustEndTime(activeDetectedGaps[0].endTimeVal);
-        setJustTimeRange(`${activeDetectedGaps[0].startTime} a ${activeDetectedGaps[0].endTime}`);
       } else if (!justDate) {
         const todayParts = new Date().toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
         setJustDate(todayParts);
@@ -252,6 +286,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
   }, [activeTab, detectedLostMin, activeDetectedGaps.length]);
 
   const handleSelectGap = (gap: any) => {
+    setSelectedGapId(gap.id);
     setJustDate(gap.dateStr);
     setJustStartTime(gap.startTimeVal);
     setJustEndTime(gap.endTimeVal);
@@ -345,7 +380,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
       const dateText = justDate ? ` (${justDate})` : "";
 
       const matchedPreset = WORKSHOP_JUSTIFY_PRESETS.find((p) => p.label === reasonToUse);
-      const categoryToUse = matchedPreset?.cat || "Gestión del Taller";
+      const categoryToUse = "Justificación Manual";
 
       let customCreatedAt: string | undefined = undefined;
       if (justDate) {
@@ -356,7 +391,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
       const payload = {
         agent_email: agentEmail,
         agent_name: agentName,
-        action: `Justificación: ${reasonToUse}${detailText}${timeRangeText}${dateText} (${minVal} min)`,
+        action: `Justificación Manual: ${reasonToUse}${detailText}${timeRangeText}${dateText} (${minVal} min)`,
         category: categoryToUse,
         duration_ms: durationMs,
         created_at: customCreatedAt,
@@ -370,6 +405,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
           end_time: justEndTime || undefined,
           minutes: minVal,
           task: reasonToUse,
+          original_category: matchedPreset?.cat || "Gestión del Taller",
         },
       };
 
@@ -530,8 +566,8 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
               </div>
             ) : (
               <div className="space-y-6">
-                {/* 1. Tarjetas KPI de la Jornada Base (10 horas) */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                {/* 1. Tarjetas KPI de la Jornada con separación limpia de Trabajo en PC y Justificación Manual */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                   <div className="p-3.5 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-2 shadow-sm">
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">
@@ -552,17 +588,34 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                   <div className="p-3.5 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-2 shadow-sm">
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">
-                        Tiempo Activo
+                        Trabajo en PC
                       </span>
                       <div className="h-7 w-7 rounded-lg bg-emerald-500/15 text-emerald-400 grid place-items-center shrink-0">
-                        <Clock className="h-3.5 w-3.5" />
+                        <Monitor className="h-3.5 w-3.5" />
                       </div>
                     </div>
                     <div>
                       <p className="text-xl font-black text-emerald-400 tabular-nums whitespace-nowrap tracking-tight">
-                        {formatMinHours(officialActiveMs)}
+                        {metrics.pcWorkTime}
                       </p>
-                      <span className="text-[10px] text-emerald-500/80 font-medium">Actividad productiva</span>
+                      <span className="text-[10px] text-emerald-500/80 font-medium">Actividad en pantalla</span>
+                    </div>
+                  </div>
+
+                  <div className="p-3.5 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-2 shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">
+                        Justificación Manual
+                      </span>
+                      <div className="h-7 w-7 rounded-lg bg-cyan-500/15 text-cyan-400 grid place-items-center shrink-0">
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xl font-black text-cyan-400 tabular-nums whitespace-nowrap tracking-tight">
+                        {metrics.manualJustificationTime}
+                      </p>
+                      <span className="text-[10px] text-cyan-500/80 font-medium">Labores fuera de PC</span>
                     </div>
                   </div>
 
@@ -577,7 +630,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                     </div>
                     <div>
                       <p className="text-xl font-black text-amber-400 tabular-nums whitespace-nowrap tracking-tight">
-                        {formatMinHours(officialBreakMs + officialSanitaryMs)}
+                        {(officialBreakMs + officialSanitaryMs) >= 60000 ? formatMinHours(officialBreakMs + officialSanitaryMs) : "0m"}
                       </p>
                       <span className="text-[10px] text-amber-500/80 font-medium">Pausa oficial registrada</span>
                     </div>
@@ -586,7 +639,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                   <div className="p-3.5 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-2 shadow-sm">
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">
-                        Inactividad Real
+                        Inactividad
                       </span>
                       <div className="h-7 w-7 rounded-lg bg-slate-500/15 text-slate-400 grid place-items-center shrink-0">
                         <Clock className="h-3.5 w-3.5" />
@@ -594,15 +647,17 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                     </div>
                     <div>
                       <p className="text-xl font-black text-slate-300 tabular-nums whitespace-nowrap tracking-tight">
-                        {formatMinHours(officialIdleMs)}
+                        {officialIdleMs >= 60000 ? formatMinHours(officialIdleMs) : "0m"}
                       </p>
-                      <div className="flex items-center justify-between mt-0.5">
-                        <span className="text-[10px] text-muted-foreground font-medium">Tolerancia: {toleranceMin} min</span>
-                        {officialIdleMs > 0 && (
+                      <div className="flex items-center justify-between mt-1 text-[10px] gap-1">
+                        <span className="text-muted-foreground font-medium truncate">
+                          Tolerancia: {toleranceMin}m
+                        </span>
+                        {officialIdleMs >= 60000 && activeDetectedGaps.length > 0 && (
                           <button
                             type="button"
                             onClick={() => setActiveTab("justificar")}
-                            className="text-[10px] font-bold text-violet-400 hover:text-violet-300 underline underline-offset-2 transition-colors"
+                            className="font-bold text-violet-400 hover:text-violet-300 underline underline-offset-2 transition-colors cursor-pointer shrink-0"
                           >
                             Justificar
                           </button>
@@ -611,7 +666,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                     </div>
                   </div>
 
-                  <div className="p-3.5 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-2 shadow-sm col-span-2 sm:col-span-1">
+                  <div className="p-3.5 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-2 shadow-sm">
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">
                         Tiempo Restante
@@ -828,7 +883,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                           {getDateRange(rangeMode, customDate).label}
                         </span>
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-muted text-muted-foreground">
-                          Tolerancia: {toleranceMin} min
+                          Tolerancia: {toleranceMin}m
                         </span>
                       </div>
                       <p className="text-xs text-muted-foreground leading-relaxed">
@@ -862,7 +917,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                             {getDateRange(rangeMode, customDate).label}
                           </span>
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-muted/60 text-muted-foreground">
-                            Tolerancia: {toleranceMin} min
+                            Tolerancia: {toleranceMin}m
                           </span>
                         </div>
                         <p className="text-xl font-bold text-foreground font-mono mt-0.5">
@@ -873,21 +928,11 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
 
                     <button
                       type="button"
-                      onClick={() => {
-                        setJustMinutes(String(detectedLostMin));
-                        if (!justReason) {
-                          setJustReason("Atención presencial en mostrador");
-                        }
-                        if (activeDetectedGaps.length > 0) {
-                          handleSelectGap(activeDetectedGaps[0]);
-                          setJustMinutes(String(detectedLostMin));
-                        }
-                        toast.success(`${detectedLostMin} min seleccionados para justificar.`);
-                      }}
+                      onClick={handleSelectAllGaps}
                       className="px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-xs transition-all flex items-center justify-center gap-1.5 shadow-xs active:scale-95 shrink-0 cursor-pointer"
                     >
                       <Sparkles className="h-3.5 w-3.5" />
-                      Usar {detectedLostMin} min detectados
+                      Usar {detectedLostMin} min detectados (Todo en 1 clic)
                     </button>
                   </div>
 
@@ -904,11 +949,39 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
 
               {/* Lista de Lagunas si hay más de 1 */}
               {activeDetectedGaps.length > 1 && (
-                <div className="space-y-2 p-3.5 rounded-xl bg-muted/20 border border-border/80">
-                  <span className="text-xs font-bold text-foreground">Selecciona la laguna que deseas justificar:</span>
+                <div className="space-y-2.5 p-3.5 rounded-xl bg-muted/20 border border-border/80">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-foreground">¿Cómo deseas justificar?</span>
+                    <span className="text-[11px] text-muted-foreground font-medium">Puedes justificar todo junto o por partes</span>
+                  </div>
+
+                  {/* Opción 1: Todo junto en 1 solo paso */}
+                  <div
+                    onClick={handleSelectAllGaps}
+                    className={`p-3 rounded-xl border transition-all cursor-pointer flex items-center justify-between text-xs ${
+                      selectedGapId === "all"
+                        ? "bg-violet-600/20 border-violet-500 text-violet-200 ring-2 ring-violet-500/50 font-bold"
+                        : "bg-card border-border hover:bg-muted/70 text-foreground"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className="h-7 w-7 rounded-lg bg-violet-600/30 text-violet-300 grid place-items-center shrink-0">
+                        <Sparkles className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <p className="font-bold">Justificar TODO el tiempo detectado en 1 solo paso</p>
+                        <p className="text-[10px] text-muted-foreground font-normal">Cubre las {activeDetectedGaps.length} lagunas detectadas del día sin hacerlo de a poquitos</p>
+                      </div>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-lg bg-violet-600 text-white font-bold font-mono text-xs shrink-0">
+                      {detectedLostMin} min
+                    </span>
+                  </div>
+
+                  <span className="text-[11px] font-semibold text-muted-foreground block pt-1">O selecciona una laguna individual si fue una labor distinta:</span>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {activeDetectedGaps.map((gap) => {
-                      const isSelected = justStartTime === gap.startTimeVal && justEndTime === gap.endTimeVal && justDate === gap.dateStr;
+                      const isSelected = selectedGapId === gap.id;
                       return (
                         <div
                           key={gap.id}
@@ -947,30 +1020,45 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                         className="w-full h-8 px-2.5 py-1 rounded-lg border border-border bg-background text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-violet-500"
                       />
                     </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-muted-foreground flex items-center gap-1 uppercase tracking-wider">
-                        <Clock className="h-3 w-3 text-violet-400" />
-                        Hora Inicio:
-                      </label>
-                      <input
-                        type="time"
-                        value={justStartTime}
-                        onChange={(e) => handleTimeChange(e.target.value, justEndTime)}
-                        className="w-full h-8 px-2.5 py-1 rounded-lg border border-border bg-background text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-violet-500"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-muted-foreground flex items-center gap-1 uppercase tracking-wider">
-                        <Clock className="h-3 w-3 text-violet-400" />
-                        Hora Fin:
-                      </label>
-                      <input
-                        type="time"
-                        value={justEndTime}
-                        onChange={(e) => handleTimeChange(justStartTime, e.target.value)}
-                        className="w-full h-8 px-2.5 py-1 rounded-lg border border-border bg-background text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-violet-500"
-                      />
-                    </div>
+                    {selectedGapId === "all" ? (
+                      <div className="sm:col-span-2 space-y-1">
+                        <label className="text-[10px] font-bold text-muted-foreground flex items-center gap-1 uppercase tracking-wider">
+                          <Clock className="h-3 w-3 text-violet-400" />
+                          Lapso a Cubrir:
+                        </label>
+                        <div className="w-full h-8 px-2.5 py-1 rounded-lg border border-border/60 bg-muted/40 text-xs font-semibold text-foreground flex items-center justify-between">
+                          <span>Todas las lagunas pendientes de la jornada</span>
+                          <span className="font-mono font-bold text-violet-400">{justMinutes} min</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-muted-foreground flex items-center gap-1 uppercase tracking-wider">
+                            <Clock className="h-3 w-3 text-violet-400" />
+                            Hora Inicio:
+                          </label>
+                          <input
+                            type="time"
+                            value={justStartTime}
+                            onChange={(e) => handleTimeChange(e.target.value, justEndTime)}
+                            className="w-full h-8 px-2.5 py-1 rounded-lg border border-border bg-background text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-violet-500"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-muted-foreground flex items-center gap-1 uppercase tracking-wider">
+                            <Clock className="h-3 w-3 text-violet-400" />
+                            Hora Fin:
+                          </label>
+                          <input
+                            type="time"
+                            value={justEndTime}
+                            onChange={(e) => handleTimeChange(justStartTime, e.target.value)}
+                            className="w-full h-8 px-2.5 py-1 rounded-lg border border-border bg-background text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-violet-500"
+                          />
+                        </div>
+                      </>
+                    )}
                   </div>
 
                   {/* Labores Manuales Elegibles: Botones Compactos de 1 Línea */}

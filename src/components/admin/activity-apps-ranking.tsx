@@ -61,6 +61,7 @@ interface Props {
   scheduleEnd?: string;
   scheduleEnabled?: boolean;
   workDays?: number[];
+  toleranceMinutes?: number;
 }
 
 export interface CategoryItem {
@@ -821,6 +822,7 @@ function ActivityAppsRankingComponent({
   scheduleEnd = "17:00",
   scheduleEnabled = true,
   workDays = [1, 2, 3, 4, 5],
+  toleranceMinutes = 3,
 }: Props) {
   const [viewMode, setViewMode] = useState<"categories" | "apps">("categories");
   const [categories, setCategories] = useState<CategoryItem[]>(DEFAULT_CATEGORIES);
@@ -1294,8 +1296,12 @@ function ActivityAppsRankingComponent({
 
   // ── MOTOR UNIFICADO: Única Fuente de Verdad para distribución de tiempos ────
   const metrics = useMemo(() => {
-    return computeUnifiedActivityMetrics(timeline as any, { toleranceMinutes: 15 });
-  }, [timeline]);
+    return computeUnifiedActivityMetrics(timeline as any, {
+      toleranceMinutes,
+      scheduleStart,
+      scheduleEnd,
+    });
+  }, [timeline, toleranceMinutes, scheduleStart, scheduleEnd]);
 
   const isPhantomCategory = (name: string) => {
     const l = (name || "").toLowerCase().trim();

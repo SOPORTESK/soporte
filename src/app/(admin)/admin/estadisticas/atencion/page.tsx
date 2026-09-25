@@ -628,7 +628,14 @@ export default async function EstadisticasAtencionPage({
 
     const tasaEsc = s.totalAtendidos > 0 ? Math.round((s.escalados / s.totalAtendidos) * 100) : 0;
     return { ...s, avgCalificacionCliente: avgCal > 0 && s.calificaciones.length >= MIN_CALS_AGENTE ? avgCal.toFixed(1) : "N/A", avgSLA, tasa: Math.round(tasa), score, scoreValido, tasaEsc, avgEfectivo, avgEspera, avgResolucion, volumenDiario, calificacionesCount: s.calificaciones.length };
-  }).sort((a, b) => (Number(b.scoreValido) - Number(a.scoreValido)) || (b.score - a.score));
+  }).sort((a, b) => 
+    (Number(b.scoreValido) - Number(a.scoreValido)) ||
+    (b.score - a.score) ||
+    (b.casos7d - a.casos7d) ||
+    (b.totalAtendidos - a.totalAtendidos) ||
+    (b.volumenDiario - a.volumenDiario) ||
+    (a.avgSLA - b.avgSLA)
+  );
 
   // ── Casos concurrentes: promedio de casos activos simultáneos
   // Para cada caso, el intervalo activo va desde created_at hasta closed_at (o updated_at, o now si sigue abierto)

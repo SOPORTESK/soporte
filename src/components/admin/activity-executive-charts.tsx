@@ -51,6 +51,7 @@ interface Props {
   scheduleEnd?: string;
   compliance?: any;
   serverMetrics?: any;
+  toleranceMinutes?: number;
 }
 
 function formatHoursMinutes(ms: number): string {
@@ -103,6 +104,7 @@ function ActivityExecutiveChartsComponent({
   scheduleEnd = "19:30",
   compliance,
   serverMetrics,
+  toleranceMinutes = 3,
 }: Props) {
   const [periodPreset, setPeriodPreset] = useState<"hoy" | "este_mes" | "este_ano">("hoy");
 
@@ -127,8 +129,12 @@ function ActivityExecutiveChartsComponent({
 
   // ── 1. MOTOR UNIFICADO: Única Fuente de Verdad para métricas de jornada ──────
   const metrics = useMemo(() => {
-    return computeUnifiedActivityMetrics(timeline as any, { toleranceMinutes: 15 });
-  }, [timeline]);
+    return computeUnifiedActivityMetrics(timeline as any, {
+      toleranceMinutes,
+      scheduleStart,
+      scheduleEnd,
+    });
+  }, [timeline, toleranceMinutes, scheduleStart, scheduleEnd]);
 
   const { effectiveness, topTasks, hourlyTrend, totalCalculatedMs, productivoPct } = useMemo(() => {
     const effData = metrics.masterList.map((cat) => ({

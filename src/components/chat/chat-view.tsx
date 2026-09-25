@@ -173,6 +173,7 @@ let cachedPersonalPlantillasMap: Record<string, any[]> = {};
 let cachedAgentsList: any[] | null = null;
 let cachedAgentUser: { email: string; name: string; role: string } | null = null;
 let cachedModoNoAtendido: boolean | null = null;
+const caseHistoryCache = new Map<string, { sekCase: SekCase; timestamp: number }>();
 
 export function ChatView({
   sekCase: initialCase,
@@ -187,8 +188,21 @@ export function ChatView({
 }) {
   const router = useRouter();
   const supabase = React.useMemo(() => createClient(), []);
-  const [sekCase, setSekCase] = React.useState<SekCase>(initialCase);
-  const [messages, setMessages] = React.useState<UnifiedMessage[]>([]);
+  const cacheKey = String(initialCase._group?.targetCaseId || initialCase.id);
+  const [sekCase, setSekCase] = React.useState<SekCase>(() => {
+    const cached = caseHistoryCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp < 180000)) {
+      return cached.sekCase;
+    }
+    return initialCase;
+  });
+  const [messages, setMessages] = React.useState<UnifiedMessage[]>(() => {
+    const cached = caseHistoryCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp < 180000)) {
+      return unifyMessages(cached.sekCase);
+    }
+    return unifyMessages(initialCase);
+  });
   const [draft, setDraft] = React.useState("");
   const [sending, setSending] = React.useState(false);
   const sendingRef = React.useRef(false);
@@ -253,29 +267,9 @@ export function ChatView({
     const ci = clienteInfo(sekCase.cliente);
     let name = ci.displayName || ci.nombre || ci.whatsapp_name || ci.telefono || asText(sekCase.title) || "Cliente";
     name = name.replace(/^whatsapp\s*—\s*/i, "").trim() || "Cliente";
-    const targetTitle = `${name} — Chat Sekunet`;
-
-    document.title = targetTitle;
-
-    let observer: MutationObserver | null = null;
-    const titleEl = document.querySelector("title");
-
-    const enforceTitle = () => {
-      if (document.title !== targetTitle) {
-        document.title = targetTitle;
-      }
-    };
-
-    if (titleEl && typeof MutationObserver !== "undefined") {
-      observer = new MutationObserver(enforceTitle);
-      observer.observe(titleEl, { subtree: true, characterData: true, childList: true });
-    }
-
-    const interval = setInterval(enforceTitle, 500);
+    document.title = `${name} — Chat Sekunet`;
 
     return () => {
-      if (observer) observer.disconnect();
-      clearInterval(interval);
       document.title = "Chat Sekunet - Atención al cliente";
     };
   }, [sekCase.id, sekCase.cliente, sekCase.title]);
@@ -530,9 +524,15 @@ export function ChatView({
   const initialCaseRef = React.useRef(initialCase);
   React.useEffect(() => { initialCaseRef.current = initialCase; }, [initialCase]);
   React.useEffect(() => {
-    historyLoadedRef.current = false;
-    setSekCase(initialCase);
-  }, [initialCase?.id]);
+    const cached = caseHistoryCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp < 180000)) {
+      setSekCase(cached.sekCase);
+      historyLoadedRef.current = true;
+    } else {
+      historyLoadedRef.current = false;
+      setSekCase(initialCase);
+    }
+  }, [initialCase?.id, cacheKey]);
   const skipUnifyRef = React.useRef(false);
   React.useEffect(() => {
     if (skipUnifyRef.current) {
@@ -540,7 +540,6 @@ export function ChatView({
       return;
     }
     const unified = unifyMessages(sekCase);
-    debugLogMessages(unified, sekCase.id);
     setMessages(unified);
   }, [sekCase]);
 
@@ -595,21 +594,29 @@ export function ChatView({
      casos hermanos abiertos del mismo teléfono. */
   const reloadCaseFromDb = React.useCallback(async (baseCase: SekCase, fallbackId: string | number) => {
     const HIST_FIELDS = "id,estado,canal,cliente,assigned_to,customer_phone,created_at,updated_at,last_message_at,last_message_preview,histcliente,histtecnico,accepted_at,closed_at,tags,prioridad,title";
-    const ids = baseCase._group?.caseIds?.length ? baseCase._group.caseIds : [fallbackId];
+    const ids = baseCase._group?.openCaseIds?.length
+      ? baseCase._group.openCaseIds
+      : (baseCase._group?.caseIds?.length ? baseCase._group.caseIds : [fallbackId]);
     const { data } = await supabase.from("sek_cases").select(HIST_FIELDS).in("id", ids);
     if (!data || data.length === 0) return null;
-    return buildMergedCase(baseCase, data as unknown as SekCase[]);
+    const merged = buildMergedCase(baseCase, data as unknown as SekCase[]);
+    const k = String(baseCase._group?.targetCaseId || baseCase.id);
+    caseHistoryCache.set(k, { sekCase: merged, timestamp: Date.now() });
+    return merged;
   }, [supabase, buildMergedCase]);
 
   /* Cargar historial completo si el caso llegó en modo ligero (sin histcliente/histtecnico) */
   React.useEffect(() => {
     let mounted = true;
     (async () => {
-      const hasFullHistory = (Array.isArray(initialCase.histcliente) && initialCase.histcliente.length > 0) &&
-                             (Array.isArray(initialCase.histtecnico) && initialCase.histtecnico.length > 0);
-      if (hasFullHistory) return;
+      const cached = caseHistoryCache.get(cacheKey);
+      const isFreshInCache = cached && (Date.now() - cached.timestamp < 90000);
+      if (isFreshInCache && historyLoadedRef.current) return;
+
       try {
-        const ids = initialCase._group?.caseIds?.length ? initialCase._group.caseIds : [initialCase.id];
+        const ids = initialCase._group?.openCaseIds?.length
+          ? initialCase._group.openCaseIds
+          : (initialCase._group?.caseIds?.length ? initialCase._group.caseIds : [initialCase.id]);
         const { data } = await supabase
           .from("sek_cases")
           .select("id,estado,canal,cliente,assigned_to,customer_phone,created_at,updated_at,last_message_at,last_message_preview,histcliente,histtecnico")
@@ -618,6 +625,7 @@ export function ChatView({
         const merged = buildMergedCase(initialCase, data as SekCase[]);
         if (mounted) {
           setSekCase(merged);
+          caseHistoryCache.set(cacheKey, { sekCase: merged, timestamp: Date.now() });
           historyLoadedRef.current = true;
         }
       } catch (e) {
@@ -625,7 +633,7 @@ export function ChatView({
       }
     })();
     return () => { mounted = false; };
-  }, [initialCase?.id, supabase, buildMergedCase]);
+  }, [cacheKey, supabase, buildMergedCase]);
 
   /* Cargar plantillas */
   React.useEffect(() => {
@@ -778,16 +786,20 @@ export function ChatView({
         filter: `id=eq.${targetId}`
       }, async (payload) => {
 
-        // Para chats agrupados, el payload solo trae el caso objetivo; recargar el historial completo del grupo
-        // para no perder mensajes de otros casos del mismo cliente.
-        if (isGrouped && initialCaseRef.current._group?.caseIds?.length) {
+        // Para chats agrupados, recargar solo los casos activos del grupo
+        const groupIds = initialCaseRef.current._group?.openCaseIds?.length
+          ? initialCaseRef.current._group.openCaseIds
+          : (initialCaseRef.current._group?.caseIds?.length ? initialCaseRef.current._group.caseIds : [targetId]);
+        if (isGrouped && groupIds.length) {
           try {
             const { data } = await supabase
               .from("sek_cases")
               .select("id,estado,canal,cliente,assigned_to,customer_phone,created_at,updated_at,last_message_at,last_message_preview,histcliente,histtecnico")
-              .in("id", initialCaseRef.current._group.caseIds);
+              .in("id", groupIds);
             if (data && mounted) {
-              setSekCase(buildMergedCase(initialCaseRef.current, data as SekCase[]));
+              const merged = buildMergedCase(initialCaseRef.current, data as SekCase[]);
+              setSekCase(merged);
+              caseHistoryCache.set(cacheKey, { sekCase: merged, timestamp: Date.now() });
             }
           } catch (e) {
             console.error("[chat-view] realtime reload group error:", e);
@@ -813,7 +825,9 @@ export function ChatView({
           if (prev.estado === "escalado" && update.estado && ["ia_atendiendo", "pendiente"].includes(update.estado)) {
             delete update.estado;
           }
-          return { ...prev, ...update };
+          const next = { ...prev, ...update };
+          caseHistoryCache.set(cacheKey, { sekCase: next, timestamp: Date.now() });
+          return next;
         });
       })
       .subscribe((status, err) => {
@@ -841,14 +855,19 @@ export function ChatView({
       if (pollInFlight) return;
       pollInFlight = true;
       try {
-        if (isGrouped && initialCaseRef.current._group?.caseIds?.length) {
-          // Para chats agrupados, recargar el historial completo de todos los casos
+        const pollGroupIds = initialCaseRef.current._group?.openCaseIds?.length
+          ? initialCaseRef.current._group.openCaseIds
+          : (initialCaseRef.current._group?.caseIds?.length ? initialCaseRef.current._group.caseIds : [targetId]);
+        if (isGrouped && pollGroupIds.length) {
+          // Para chats agrupados, recargar el historial de los casos activos
           const { data } = await supabase
             .from("sek_cases")
             .select("id,estado,canal,cliente,assigned_to,customer_phone,created_at,updated_at,last_message_at,last_message_preview,histcliente,histtecnico")
-            .in("id", initialCaseRef.current._group.caseIds);
+            .in("id", pollGroupIds);
           if (data && mounted) {
-            setSekCase(buildMergedCase(initialCaseRef.current, data as SekCase[]));
+            const merged = buildMergedCase(initialCaseRef.current, data as SekCase[]);
+            setSekCase(merged);
+            caseHistoryCache.set(cacheKey, { sekCase: merged, timestamp: Date.now() });
           }
           return;
         }
@@ -3419,11 +3438,18 @@ function MediaPreview({ url, type, name, onImageClick }: { url: string; type?: s
     return (
       <div
         onClick={() => onImageClick?.(url, t, name)}
-        className="block mt-1 cursor-pointer relative group"
+        className="block mt-1 cursor-pointer relative group rounded-xl overflow-hidden bg-neutral-900/90 border border-white/15 max-w-[260px] p-3 hover:bg-neutral-800 transition-all shadow-sm active:scale-[0.98]"
       >
-        <video src={url} preload="metadata" className="max-w-[240px] rounded-lg pointer-events-none" />
-        <div className="absolute inset-0 flex items-center justify-center bg-black/20 rounded-lg group-hover:bg-black/30 transition-colors">
-          <Play className="h-8 w-8 text-white/90 drop-shadow-lg" />
+        <div className="flex items-center gap-3">
+          <div className="h-11 w-11 rounded-xl bg-violet-600/30 text-violet-400 border border-violet-500/30 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform shadow-md">
+            <Play className="h-5 w-5 fill-violet-400 ml-0.5" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold text-white truncate">{name || "Video adjunto"}</p>
+            <p className="text-[11px] text-white/60 mt-0.5 flex items-center gap-1">
+              <span>▶ Clic para reproducir</span>
+            </p>
+          </div>
         </div>
       </div>
     );

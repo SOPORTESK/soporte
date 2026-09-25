@@ -187,15 +187,6 @@ export function useActivityTracker(agentEmail: string, agentName: string, enable
       clearTimeout(idleTimer);
       idleTimer = setTimeout(() => {
         isIdleRef.current = true;
-        const pageLabel = pathnameToLabel(lastPathRef.current);
-        logActivity({
-          agent_email: agentEmail,
-          agent_name: agentName,
-          action: `Pausa prolongada de 15 minutos sin interacción en "${pageLabel}"`,
-          category: "Inactividad",
-          duration_ms: IDLE_THRESHOLD,
-          metadata: { page: lastPathRef.current },
-        });
       }, IDLE_THRESHOLD);
     };
 

@@ -29,6 +29,12 @@ function getClient(): SupabaseClient {
   return createServiceClient();
 }
 
+export interface DayScheduleRule {
+  start: string;
+  end: string;
+  targetHours: number;
+}
+
 export interface AgentScheduleOverride {
   scheduleStart: string;
   scheduleEnd: string;
@@ -36,6 +42,8 @@ export interface AgentScheduleOverride {
   workDays: number[];
   targetDailyHours: number;
   custom: boolean;
+  useMixedSchedule?: boolean;
+  daySchedules?: Record<number, DayScheduleRule>;
 }
 
 export interface WorkScheduleConfig {
@@ -45,6 +53,8 @@ export interface WorkScheduleConfig {
   workDays: number[]; // 1=Lun, 2=Mar, 3=Mié, 4=Jue, 5=Vie, 6=Sáb, 0=Dom
   targetDailyHours: number; // Meta oficial de jornada diaria en horas (por defecto 10 horas)
   toleranceMinutes?: number; // Tolerancia oficial de pausas menores en minutos (por defecto 5 min)
+  useMixedSchedule?: boolean;
+  daySchedules?: Record<number, DayScheduleRule>;
   agentSchedules?: Record<string, AgentScheduleOverride>;
 }
 
@@ -86,6 +96,8 @@ export async function getWorkSchedule(): Promise<WorkScheduleConfig> {
         workDays: Array.isArray(parsed.workDays) && parsed.workDays.length > 0 ? parsed.workDays : [1, 2, 3, 4, 5],
         targetDailyHours: Number(parsed.targetDailyHours) || 10,
         toleranceMinutes: Number(parsed.toleranceMinutes) || 5,
+        useMixedSchedule: Boolean(parsed.useMixedSchedule),
+        daySchedules: parsed.daySchedules && typeof parsed.daySchedules === "object" ? parsed.daySchedules : undefined,
         agentSchedules: parsed.agentSchedules && typeof parsed.agentSchedules === "object" ? parsed.agentSchedules : {},
       };
       cacheSet("app_work_schedule", res);
@@ -112,6 +124,8 @@ export async function getAgentSchedule(agentEmail: string): Promise<WorkSchedule
     workDays: global.workDays,
     targetDailyHours: global.targetDailyHours,
     toleranceMinutes: global.toleranceMinutes,
+    useMixedSchedule: global.useMixedSchedule,
+    daySchedules: global.daySchedules,
   };
 
   if (custom && custom.custom) {
@@ -122,6 +136,8 @@ export async function getAgentSchedule(agentEmail: string): Promise<WorkSchedule
       workDays: Array.isArray(custom.workDays) && custom.workDays.length > 0 ? custom.workDays : global.workDays,
       targetDailyHours: Number(custom.targetDailyHours) || global.targetDailyHours,
       toleranceMinutes: global.toleranceMinutes,
+      useMixedSchedule: Boolean(custom.useMixedSchedule),
+      daySchedules: custom.daySchedules || global.daySchedules,
       isCustom: true,
       globalSchedule,
     };
@@ -146,6 +162,8 @@ export async function saveWorkSchedule(config: WorkScheduleConfig): Promise<void
     workDays: Array.isArray(config.workDays) && config.workDays.length > 0 ? config.workDays : [1, 2, 3, 4, 5],
     targetDailyHours: Number(config.targetDailyHours) || 10,
     toleranceMinutes: Math.max(1, Math.min(60, Number(config.toleranceMinutes) || 5)),
+    useMixedSchedule: Boolean(config.useMixedSchedule),
+    daySchedules: config.daySchedules || existing.daySchedules || undefined,
     agentSchedules: config.agentSchedules || existing.agentSchedules || {},
   });
 
@@ -183,6 +201,8 @@ export async function saveAgentSchedule(
       scheduleEnabled: schedule.scheduleEnabled !== undefined ? Boolean(schedule.scheduleEnabled) : true,
       workDays: Array.isArray(schedule.workDays) && schedule.workDays.length > 0 ? schedule.workDays : existing.workDays || [1, 2, 3, 4, 5],
       targetDailyHours: Number(schedule.targetDailyHours) || existing.targetDailyHours || 10,
+      useMixedSchedule: Boolean(schedule.useMixedSchedule),
+      daySchedules: schedule.daySchedules || undefined,
       custom: true,
     };
   } else {
@@ -417,13 +437,33 @@ export async function getActivitySummaries(
 
 export async function getActivityMetrics(agentEmail: string, date: string, existingTimeline?: ActivityLog[]) {
   const timeline = existingTimeline || await getActivityTimeline(agentEmail, date);
-  const schedule = await getWorkSchedule();
-  const targetDailyHours = schedule.targetDailyHours || 10;
-  const toleranceMinutes = schedule.toleranceMinutes || 15;
+  const schedule = agentEmail ? await getAgentSchedule(agentEmail) : await getWorkSchedule();
+  let targetDailyHours = schedule.targetDailyHours || 10;
+  let scheduleStart = schedule.scheduleStart || "08:00";
+  let scheduleEnd = schedule.scheduleEnd || "17:00";
+  const toleranceMinutes = schedule.toleranceMinutes || 5;
+
+  if (schedule.useMixedSchedule && schedule.daySchedules && date) {
+    const parts = date.split("-").map(Number);
+    if (parts.length === 3) {
+      const dObj = new Date(parts[0], parts[1] - 1, parts[2]);
+      const dayOfWeek = dObj.getDay();
+      const dayRule = schedule.daySchedules[dayOfWeek];
+      if (dayRule) {
+        if (dayRule.targetHours) targetDailyHours = Number(dayRule.targetHours);
+        if (dayRule.start) scheduleStart = dayRule.start;
+        if (dayRule.end) scheduleEnd = dayRule.end;
+      }
+    }
+  }
 
   const computed = computeUnifiedActivityMetrics(timeline as any[], {
     toleranceMinutes,
     targetDailyHours,
+    scheduleStart,
+    scheduleEnd,
+    useMixedSchedule: schedule.useMixedSchedule,
+    daySchedules: schedule.daySchedules,
   });
 
   const productiveMs = computed.masterBuckets.Productivo.durationMs;
@@ -467,6 +507,11 @@ export async function getActivityMetrics(agentEmail: string, date: string, exist
     totalEvents: timeline.length,
     activeEvents: timeline.length,
     idleEvents: 0,
+    pcWorkMs: computed.pcWorkMs,
+    pcWorkTime: computed.pcWorkTime,
+    manualJustificationMs: computed.manualJustificationMs,
+    manualJustificationTime: computed.manualJustificationTime,
+    detectedGaps: computed.detectedGaps,
     categories: {},
     categoryTimeMs,
     trackingStatus: productiveMs > 0 ? "ACTIVE" : "IDLE",

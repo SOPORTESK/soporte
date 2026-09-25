@@ -134,6 +134,7 @@ function mergeGroups(rawCases: SekCase[]): SekCase[] {
       unread_count: sorted.reduce((s, c) => s + (c.unread_count || 0), 0),
       _group: {
         caseIds: sorted.map(c => c.id),
+        openCaseIds: openCases.length > 0 ? openCases.map(c => c.id) : [target.id],
         targetCaseId: target.id,
         targetHisttecnico: Array.isArray(target.histtecnico) ? target.histtecnico : [],
         targetEstado: target.estado ?? null,
@@ -178,13 +179,30 @@ async function fetchCasesMeta(supabase: any, limit = 1500, agentEmail?: string) 
   return (data || []) as SekCase[];
 }
 
+let sharedAudioCtx: AudioContext | null = null;
+function getSharedAudioContext(): AudioContext | null {
+  if (typeof window === "undefined") return null;
+  try {
+    if (!sharedAudioCtx || sharedAudioCtx.state === "closed") {
+      sharedAudioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+    if (sharedAudioCtx.state === "suspended") {
+      sharedAudioCtx.resume().catch(() => {});
+    }
+    return sharedAudioCtx;
+  } catch {
+    return null;
+  }
+}
+
 let lastNotifAudio = 0;
 function playNotif() {
   const now = Date.now();
   if (now - lastNotifAudio < 1500) return;
   lastNotifAudio = now;
   try {
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const ctx = getSharedAudioContext();
+    if (!ctx) return;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.connect(gain); gain.connect(ctx.destination);
@@ -202,7 +220,8 @@ function playN2Alert() {
   if (now - lastN2Audio < 1500) return;
   lastN2Audio = now;
   try {
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const ctx = getSharedAudioContext();
+    if (!ctx) return;
     // Tres tonos ascendentes para alerta importante
     [523, 659, 784].forEach((freq, i) => {
       const osc = ctx.createOscillator();
@@ -223,7 +242,8 @@ function playEscaladoAlert() {
   if (now - lastEscaladoAudio < 2000) return;
   lastEscaladoAudio = now;
   try {
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const ctx = getSharedAudioContext();
+    if (!ctx) return;
     // Cinco tonos urgentes y repetitivos a mayor volumen
     [880, 660, 880, 660, 880].forEach((freq, i) => {
       const osc = ctx.createOscillator();
@@ -416,203 +436,232 @@ export function InboxClient({
       .channel("cases-list")
       .on("postgres_changes", { event: "*", schema: "public", table: "sek_cases" },
         (payload) => {
-          if (debounceTimer) clearTimeout(debounceTimer);
-          debounceTimer = setTimeout(async () => {
-            let filteredNewCases: SekCase[] = [];
-            let newMerged: SekCase[] = [];
-            try {
-              // Para Mi Gestión, fetchar solo casos del agente
-              const fetchEmail = containerType === "mi-gestion" ? (agentEmail || undefined) : undefined;
-              const newCases = await fetchCasesMeta(supabase, 1500, fetchEmail);
-              if (!newCases) return;
-              // allCases siempre sin filtrar para el banner de escalados
-              if (!fetchEmail) setAllCases(newCases);
-              else {
-                // Si fetcheamos por agente, actualizar allCases por separado
-                const allNew = await fetchCasesMeta(supabase, 1500);
-                setAllCases(allNew);
-              }
-              filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail, agentName);
-              // Si es Mi Gestion y aún no tenemos agentEmail, no sobrescribir los casos del servidor
-              if (containerType === "mi-gestion" && !agentEmail) {
-                return;
-              }
-            // Si el caso seleccionado ya no está en el filtro (ej: soporte-avanzado y el estado cambió),
-            // preservarlo en la lista para que el chat no desaparezca mientras el agente lo tiene abierto
-            const currentSelected = selectedId ? (
-              newCases.find(c => String(c.id) === selectedId) ||
-              newCases.find(c => c._group?.caseIds?.some(cid => String(cid) === selectedId)) ||
-              (selectedId.startsWith("tel:") ? newCases.find(c => {
-                const tel = selectedId.substring(4);
-                return c.customer_phone?.includes(tel) || (c.cliente as any)?.telefono?.includes(tel);
-              }) : null) ||
-              null
-            ) : null;
-            if (currentSelected && !filteredNewCases.some(c => String(c.id) === String(currentSelected.id))) {
-              filteredNewCases = [currentSelected, ...filteredNewCases];
-            }
-            setCases(filteredNewCases);
-
-            /* Detectar mensajes nuevos comparando los GRUPOS de cliente (filtrados) */
-            newMerged = mergeGroups(filteredNewCases);
-          } catch (e) {
-            console.error("[inbox] realtime fetchCasesMeta error:", e);
-            return;
-          }
-          /* IGNORAR: eventos DELETE (eliminación de casos) y eventos que no agregan mensajes del cliente */
-          if (payload.eventType !== "DELETE") {
-            const currentSelId = selectedIdRef.current;
-            const changed = newMerged.find(ng => {
-              if (String(ng.id) === currentSelId) return false;
-              const prev = prevMergedRef.current.find(p => String(p.id) === String(ng.id));
-              const prevUnread = prev?.unread_count || 0;
-              const newUnread = ng.unread_count || 0;
-              // Solo notificar si aumentaron los mensajes no leídos
-              if (newUnread <= prevUnread) return false;
-              // Verificar que el last_message_at cambió (mensaje realmente nuevo)
-              return ng.last_message_at !== prev?.last_message_at;
-            });
-
-            if (changed) {
-              const msgTime = changed.last_message_at ? new Date(changed.last_message_at).getTime() : 0;
-              const isRecent = (Date.now() - msgTime) < 5 * 60 * 1000;
-              const alertKey = `msg-${changed.id}-${changed.last_message_at}`;
-              const now = Date.now();
-              const lastAlert = alertedCasesRef.current.get(alertKey) || 0;
-
-              if (isRecent && (now - lastAlert > 5000)) {
-                alertedCasesRef.current.set(alertKey, now);
-                playNotif();
-                const ci = clienteInfo(changed.cliente);
-                const name = ci.nombre || ci.telefono || asText(changed.title) || "Cliente";
-                const estadoC = String(changed.estado || "").toLowerCase();
-                const esIa = estadoC === "ia_atendiendo";
-                toast.info(esIa ? `🤖 Nuevo caso en Smart Inbox: ${name}` : `💬 Nuevo mensaje de ${name}`, {
-                  id: `toast-msg-${changed.id}`,
-                  description: asText(changed.last_message_preview).slice(0, 80),
-                  duration: 10000,
-                  action: { label: "Ver", onClick: () => {
-                    if (esIa) router.push("/smart-inbox");
-                    selectCase(String(changed.id));
-                  }}
-                });
-                setUnreadTotal(p => p + 1);
-              }
-            }
-          }
-
-          /* 🔔 Nuevo caso creado directamente (INSERT) */
-          if (payload.eventType === "INSERT") {
-            const insCase = payload.new as SekCase;
-            const insEstado = String(insCase?.estado || "").toLowerCase();
-            if (insEstado === "ia_atendiendo" && insCase?.id) {
-              const insertKey = `insert-${insCase.id}`;
-              const now = Date.now();
-              const lastAlert = alertedCasesRef.current.get(insertKey) || 0;
-              if (now - lastAlert > 10000) {
-                alertedCasesRef.current.set(insertKey, now);
-                const ci = clienteInfo(insCase.cliente);
-                const name = ci.nombre || ci.telefono || asText(insCase.title) || "Cliente";
-                playNotif();
-                toast.info(`🤖 Nuevo caso en Smart Inbox: ${name}`, {
-                  id: `toast-insert-${insCase.id}`,
-                  description: "La IA está recopilando la información del cliente.",
-                  duration: 10000,
-                  action: { label: "Ver", onClick: () => router.push("/smart-inbox") }
-                });
-              }
-            }
-          }
-
-          /* 🔔 Alerta para caso escalado por IA */
+          // Ignorar updates triviales donde no cambiaron metadatos de lista
           if (payload.eventType === "UPDATE") {
-            const updCase = payload.new as SekCase;
-            const nuevoEstado = String(updCase?.estado || "").toLowerCase();
-
-            // Comprobar contra el estado que teníamos previamente en memoria (prevCasesRef)
-            const prevInList = prevCasesRef.current.find(c => String(c.id) === String(updCase?.id));
-            const prevEstadoInList = String(prevInList?.estado || "").toLowerCase();
-            const wasAlreadyEscalated = prevEstadoInList === "escalado";
-
-            if (nuevoEstado === "escalado" && !wasAlreadyEscalated && updCase?.id) {
-              const escKey = `escalado-${updCase.id}`;
-              const now = Date.now();
-              const lastAlert = alertedCasesRef.current.get(escKey) || 0;
-              if (now - lastAlert > 15000) {
-                alertedCasesRef.current.set(escKey, now);
-                const ci3 = clienteInfo(updCase.cliente);
-                const name3 = ci3.nombre || ci3.telefono || asText(updCase.title) || "Cliente";
-                const equipo3 = (updCase.cliente as any)?.equipo || "";
-                
-                playEscaladoAlert();
-                toast.warning(`Nueva conversación: ${name3}`, {
-                  id: `toast-escalado-${updCase.id}`,
-                  description: equipo3 ? `Equipo: ${equipo3} · Requiere atención` : "Requiere atención de un agente",
-                  duration: 30000,
-                  action: { label: "Atender", onClick: () => selectCase(String(updCase.id)) }
-                });
-              }
+            const upd = payload.new as any;
+            const old = payload.old as any;
+            if (upd && old &&
+                upd.last_message_at === old.last_message_at &&
+                upd.estado === old.estado &&
+                upd.assigned_to === old.assigned_to &&
+                upd.unread_count === old.unread_count &&
+                upd.prioridad === old.prioridad &&
+                upd.title === old.title &&
+                JSON.stringify(upd.tags) === JSON.stringify(old.tags)) {
+              return;
             }
           }
 
-          /* 🔔 Alerta especial para Soporte Avanzado: nuevo caso con etiqueta n2 */
-          if (containerType === "soporte-avanzado" && payload.eventType === "UPDATE") {
-            const newCase = payload.new as SekCase;
-            const oldCase = payload.old as SekCase;
-            const newTags = Array.isArray(newCase?.tags) ? newCase.tags : [];
-            const oldTags = Array.isArray(oldCase?.tags) ? oldCase.tags : [];
-            
-            // Verificar si se agregó etiqueta n2
-            const hasN2Now = newTags.some((t: string) => t.toLowerCase() === "n2" || t.toLowerCase() === "soporte-n2");
-            const hadN2Before = oldTags.some((t: string) => t.toLowerCase() === "n2" || t.toLowerCase() === "soporte-n2");
-            
-            if (hasN2Now && !hadN2Before && newCase?.id) {
-              const n2Key = `n2-${newCase.id}`;
-              const now = Date.now();
-              const lastAlert = alertedCasesRef.current.get(n2Key) || 0;
-              if (now - lastAlert > 10000) {
-                alertedCasesRef.current.set(n2Key, now);
-                // Alerta visual y sonora especial
-                playN2Alert();
-                const ci2 = clienteInfo(newCase.cliente);
-                const name2 = ci2.nombre || ci2.telefono || asText(newCase.title) || "Cliente";
-                
-                toast.success("🔧 Nueva solicitud de soporte avanzado", {
-                  id: `toast-n2-${newCase.id}`,
-                  description: `${name2} ha sido etiquetado como N2`,
-                  duration: 8000,
-                  action: { 
-                    label: "Ver caso", 
-                    onClick: () => selectCase(String(newCase.id)) 
+          if (debounceTimer) clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(() => {
+            setAllCases(prevAll => {
+              let nextAll = [...prevAll];
+              if (payload.eventType === "INSERT") {
+                const ins = payload.new as SekCase;
+                if (ins && ins.canal !== "simulator" && !(ins as any).es_test) {
+                  nextAll = [ins, ...nextAll.filter(c => String(c.id) !== String(ins.id))];
+                }
+              } else if (payload.eventType === "UPDATE") {
+                const upd = payload.new as SekCase;
+                if (upd && upd.canal !== "simulator" && !(upd as any).es_test) {
+                  const idx = nextAll.findIndex(c => String(c.id) === String(upd.id));
+                  if (idx !== -1) {
+                    nextAll[idx] = { ...nextAll[idx], ...upd };
+                  } else {
+                    nextAll = [upd, ...nextAll];
                   }
-                });
+                }
+              } else if (payload.eventType === "DELETE") {
+                const oldId = (payload.old as any)?.id;
+                if (oldId) {
+                  nextAll = nextAll.filter(c => String(c.id) !== String(oldId));
+                }
               }
-            }
-          }
 
-          prevCasesRef.current = filteredNewCases;
-          prevMergedRef.current = newMerged;
-        }, 300);
-      })
+              // Ordenar por última actividad
+              nextAll.sort((a, b) => {
+                const tA = new Date(a.last_message_at || a.updated_at || a.created_at).getTime();
+                const tB = new Date(b.last_message_at || b.updated_at || b.created_at).getTime();
+                return tB - tA;
+              });
+
+              // Si es Mi Gestión y aún no tenemos agentEmail, no filtrar
+              if (containerType === "mi-gestion" && !agentEmail) {
+                return nextAll;
+              }
+
+              let filteredNewCases = filterCasesByContainer(nextAll, containerType, agentEmail, agentName);
+
+              // Preservar caso seleccionado si está abierto
+              const curSel = selectedIdRef.current;
+              if (curSel) {
+                const currentSelected =
+                  nextAll.find(c => String(c.id) === curSel) ||
+                  nextAll.find(c => c._group?.caseIds?.some(cid => String(cid) === curSel)) ||
+                  (curSel.startsWith("tel:") ? nextAll.find(c => {
+                    const tel = curSel.substring(4);
+                    return c.customer_phone?.includes(tel) || (c.cliente as any)?.telefono?.includes(tel);
+                  }) : null) ||
+                  null;
+                if (currentSelected && !filteredNewCases.some(c => String(c.id) === String(currentSelected.id))) {
+                  filteredNewCases = [currentSelected, ...filteredNewCases];
+                }
+              }
+
+              setCases(filteredNewCases);
+              const newMerged = mergeGroups(filteredNewCases);
+
+              /* Detectar mensajes nuevos comparando los GRUPOS de cliente (filtrados) */
+              if (payload.eventType !== "DELETE") {
+                const currentSelId = selectedIdRef.current;
+                const changed = newMerged.find(ng => {
+                  if (String(ng.id) === currentSelId) return false;
+                  const prev = prevMergedRef.current.find(p => String(p.id) === String(ng.id));
+                  const prevUnread = prev?.unread_count || 0;
+                  const newUnread = ng.unread_count || 0;
+                  if (newUnread <= prevUnread) return false;
+                  return ng.last_message_at !== prev?.last_message_at;
+                });
+
+                if (changed) {
+                  const msgTime = changed.last_message_at ? new Date(changed.last_message_at).getTime() : 0;
+                  const isRecent = (Date.now() - msgTime) < 5 * 60 * 1000;
+                  const alertKey = `msg-${changed.id}-${changed.last_message_at}`;
+                  const now = Date.now();
+                  const lastAlert = alertedCasesRef.current.get(alertKey) || 0;
+
+                  if (isRecent && (now - lastAlert > 5000)) {
+                    alertedCasesRef.current.set(alertKey, now);
+                    playNotif();
+                    const ci = clienteInfo(changed.cliente);
+                    const name = ci.nombre || ci.telefono || asText(changed.title) || "Cliente";
+                    const estadoC = String(changed.estado || "").toLowerCase();
+                    const esIa = estadoC === "ia_atendiendo";
+                    toast.info(esIa ? `🤖 Nuevo caso en Smart Inbox: ${name}` : `💬 Nuevo mensaje de ${name}`, {
+                      id: `toast-msg-${changed.id}`,
+                      description: asText(changed.last_message_preview).slice(0, 80),
+                      duration: 10000,
+                      action: { label: "Ver", onClick: () => {
+                        if (esIa) router.push("/smart-inbox");
+                        selectCase(String(changed.id));
+                      }}
+                    });
+                    setUnreadTotal(p => p + 1);
+                  }
+                }
+              }
+
+              /* 🔔 Nuevo caso creado directamente (INSERT) */
+              if (payload.eventType === "INSERT") {
+                const insCase = payload.new as SekCase;
+                const insEstado = String(insCase?.estado || "").toLowerCase();
+                if (insEstado === "ia_atendiendo" && insCase?.id) {
+                  const insertKey = `insert-${insCase.id}`;
+                  const now = Date.now();
+                  const lastAlert = alertedCasesRef.current.get(insertKey) || 0;
+                  if (now - lastAlert > 10000) {
+                    alertedCasesRef.current.set(insertKey, now);
+                    const ci = clienteInfo(insCase.cliente);
+                    const name = ci.nombre || ci.telefono || asText(insCase.title) || "Cliente";
+                    playNotif();
+                    toast.info(`🤖 Nuevo caso en Smart Inbox: ${name}`, {
+                      id: `toast-insert-${insCase.id}`,
+                      description: "La IA está recopilando la información del cliente.",
+                      duration: 10000,
+                      action: { label: "Ver", onClick: () => router.push("/smart-inbox") }
+                    });
+                  }
+                }
+              }
+
+              /* 🔔 Alerta para caso escalado por IA */
+              if (payload.eventType === "UPDATE") {
+                const updCase = payload.new as SekCase;
+                const nuevoEstado = String(updCase?.estado || "").toLowerCase();
+                const prevInList = prevCasesRef.current.find(c => String(c.id) === String(updCase?.id));
+                const prevEstadoInList = String(prevInList?.estado || "").toLowerCase();
+                const wasAlreadyEscalated = prevEstadoInList === "escalado";
+
+                if (nuevoEstado === "escalado" && !wasAlreadyEscalated && updCase?.id) {
+                  const escKey = `escalado-${updCase.id}`;
+                  const now = Date.now();
+                  const lastAlert = alertedCasesRef.current.get(escKey) || 0;
+                  if (now - lastAlert > 15000) {
+                    alertedCasesRef.current.set(escKey, now);
+                    const ci3 = clienteInfo(updCase.cliente);
+                    const name3 = ci3.nombre || ci3.telefono || asText(updCase.title) || "Cliente";
+                    const equipo3 = (updCase.cliente as any)?.equipo || "";
+                    
+                    playEscaladoAlert();
+                    toast.warning(`Nueva conversación: ${name3}`, {
+                      id: `toast-escalado-${updCase.id}`,
+                      description: equipo3 ? `Equipo: ${equipo3} · Requiere atención` : "Requiere atención de un agente",
+                      duration: 30000,
+                      action: { label: "Atender", onClick: () => selectCase(String(updCase.id)) }
+                    });
+                  }
+                }
+              }
+
+              /* 🔔 Alerta especial para Soporte Avanzado: nuevo caso con etiqueta n2 */
+              if (containerType === "soporte-avanzado" && payload.eventType === "UPDATE") {
+                const newCase = payload.new as SekCase;
+                const oldCase = payload.old as SekCase;
+                const newTags = Array.isArray(newCase?.tags) ? newCase.tags : [];
+                const oldTags = Array.isArray(oldCase?.tags) ? oldCase.tags : [];
+                const hasN2Now = newTags.some((t: string) => t.toLowerCase() === "n2" || t.toLowerCase() === "soporte-n2");
+                const hadN2Before = oldTags.some((t: string) => t.toLowerCase() === "n2" || t.toLowerCase() === "soporte-n2");
+                
+                if (hasN2Now && !hadN2Before && newCase?.id) {
+                  const n2Key = `n2-${newCase.id}`;
+                  const now = Date.now();
+                  const lastAlert = alertedCasesRef.current.get(n2Key) || 0;
+                  if (now - lastAlert > 10000) {
+                    alertedCasesRef.current.set(n2Key, now);
+                    playN2Alert();
+                    const ci2 = clienteInfo(newCase.cliente);
+                    const name2 = ci2.nombre || ci2.telefono || asText(newCase.title) || "Cliente";
+                    
+                    toast.success("🔧 Nueva solicitud de soporte avanzado", {
+                      id: `toast-n2-${newCase.id}`,
+                      description: `${name2} ha sido etiquetado como N2`,
+                      duration: 8000,
+                      action: { 
+                        label: "Ver caso", 
+                        onClick: () => selectCase(String(newCase.id)) 
+                      }
+                    });
+                  }
+                }
+              }
+
+              prevCasesRef.current = filteredNewCases;
+              prevMergedRef.current = newMerged;
+
+              return nextAll;
+            });
+          }, 150);
+        }
+      )
       .subscribe();
-    /* Polling de respaldo cada 60s con metadatos ligeros */
+
+    /* Polling de respaldo cada 120s con metadatos ligeros (máx 300 casos) */
     const poll = setInterval(async () => {
       try {
-        // Guard: no sobrescribir casos si agentEmail no está listo (Mi Gestión)
         if (containerType === "mi-gestion" && !agentEmail) return;
         const fetchEmail = containerType === "mi-gestion" ? (agentEmail || undefined) : undefined;
-        const newCases = await fetchCasesMeta(supabase, 1500, fetchEmail);
+        const newCases = await fetchCasesMeta(supabase, 300, fetchEmail);
         setAllCases(newCases);
         const filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail, agentName);
-        // Preservar caso seleccionado aunque no pase el filtro (ej: caso outbound nuevo sin assigned_to aún)
-        const currentSelected = selectedId ? (
-          newCases.find(c => String(c.id) === selectedId) ||
-          newCases.find(c => c._group?.caseIds?.some(cid => String(cid) === selectedId)) ||
-          (selectedId.startsWith("tel:") ? newCases.find(c => {
-            const tel = selectedId.substring(4);
+        const curSel = selectedIdRef.current;
+        const currentSelected = curSel ? (
+          newCases.find(c => String(c.id) === curSel) ||
+          newCases.find(c => c._group?.caseIds?.some(cid => String(cid) === curSel)) ||
+          (curSel.startsWith("tel:") ? newCases.find(c => {
+            const tel = curSel.substring(4);
             return c.customer_phone?.includes(tel) || (c.cliente as any)?.telefono?.includes(tel);
           }) : null) ||
-          cases.find(c => String(c.id) === selectedId) ||
+          casesRef.current.find(c => String(c.id) === curSel) ||
           null
         ) : null;
         if (currentSelected && !filteredNewCases.some(c => String(c.id) === String(currentSelected.id))) {
@@ -628,16 +677,16 @@ export function InboxClient({
           prevMergedRef.current = mergeGroups(filteredNewCases);
         }
       } catch (e) {
-        console.error("[inbox] fetchCasesMeta error:", e);
+        console.error("[inbox] fetchCasesMeta poll error:", e);
       }
-    }, 60000);
+    }, 120000);
 
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer);
       clearInterval(poll);
       supabase.removeChannel(channel);
     };
-  }, [supabase, selectedId, containerType, agentEmail, agentName, selectCase]);
+  }, [supabase, containerType, agentEmail, agentName, selectCase]);
 
   const selected =
     mergedCases.find(c => String(c.id) === selectedId)

@@ -81,6 +81,7 @@ export interface SekCase {
   /** Metadatos del agrupamiento por cliente (varios casos como un solo chat) */
   _group?: {
     caseIds: Array<string | number>;
+    openCaseIds?: Array<string | number>;
     targetCaseId: string | number;
     targetHisttecnico: SekHistEntry[];
     targetEstado: string | null;

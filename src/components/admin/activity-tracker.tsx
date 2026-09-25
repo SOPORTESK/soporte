@@ -363,20 +363,27 @@ function formatExecutiveDisplay(rawAction: string, category: string, meta: Recor
     };
   }
 
-  // 14. Justificaciones de tiempo presencial
-  if (meta.justification || lower.startsWith("justificación:") || lower.startsWith("justificacion:")) {
-    const reason = meta.reason || action.replace(/^justificaci[oó]n:\s*/i, "").split("(")[0].trim();
+  // 14. Justificaciones de tiempo presencial / manual
+  if (
+    meta.justification ||
+    category === "Justificación Manual" ||
+    lower.startsWith("justificación manual:") ||
+    lower.startsWith("justificacion manual:") ||
+    lower.startsWith("justificación:") ||
+    lower.startsWith("justificacion:")
+  ) {
+    const reason = meta.reason || action.replace(/^justificaci[oó]n(\s+manual)?:\s*/i, "").split("(")[0].trim();
     return {
-      title: `Justificación de tiempo: ${reason}`,
-      subtitle: meta.minutes ? `Tiempo justificado: ${meta.minutes} min` : "Justificación de labor presencial",
+      title: `Justificación Manual: ${reason}`,
+      subtitle: meta.minutes ? `Tiempo justificado: ${meta.minutes} min` : (meta.time_range ? `Lapso: ${meta.time_range}` : "Justificación de labor manual"),
     };
   }
 
-  // 15. Pausas e Inactividad
+  // 15. Inactividad
   if (category === "Inactividad" || lower.includes("sin actividad") || lower.includes("pausa prolongada") || lower.includes("bloqueada")) {
     return {
-      title: "Pausa operativa / Período sin interacción activa en la estación",
-      subtitle: cleanTitle ? `Última aplicación en pantalla: ${cleanTitle}` : "Pausa del sistema",
+      title: "Inactividad",
+      subtitle: cleanTitle ? `Última aplicación en pantalla: ${cleanTitle}` : "Período sin interacción en la estación",
     };
   }
 
@@ -814,6 +821,16 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
     }
   });
 
+  const [toleranceMinutes, setToleranceMinutes] = useState<number>(() => {
+    if (typeof window === "undefined") return 3;
+    try {
+      const saved = localStorage.getItem("sekunet_activity_tolerance_minutes");
+      return saved ? Number(saved) : 3;
+    } catch {
+      return 3;
+    }
+  });
+
   // Solicitudes de horas extras (Overtime)
   const [overtimeRequests, setOvertimeRequests] = useState<any[]>([]);
   const [reviewingOvertime, setReviewingOvertime] = useState<boolean>(false);
@@ -857,6 +874,10 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
           if (data.targetDailyHours) {
             setTargetDailyHours(Number(data.targetDailyHours));
             try { localStorage.setItem("sekunet_activity_target_daily_hours", String(data.targetDailyHours)); } catch {}
+          }
+          if (data.toleranceMinutes) {
+            setToleranceMinutes(Number(data.toleranceMinutes));
+            try { localStorage.setItem("sekunet_activity_tolerance_minutes", String(data.toleranceMinutes)); } catch {}
           }
         }
       })
@@ -1417,10 +1438,10 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                 </div>
               </div>
 
-              {/* Marcas de Entrada/Salida y Control de Horas Extras */}
-              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border/40 text-xs">
-                {/* 1. Registro explícito de Entrada y Salida */}
-                <div className="flex items-center gap-3 font-mono">
+              {/* Marcas de Entrada/Salida, Desglose Operativo y Control de Horas Extras */}
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-border/40 text-xs">
+                {/* 1. Registro explícito de Entrada, Salida y Desglose Operativo */}
+                <div className="flex items-center gap-2 font-mono flex-wrap">
                   <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
                     <LogIn className="h-3.5 w-3.5" />
                     <span className="text-[10px] uppercase font-sans font-bold text-emerald-500/80">Entrada:</span>
@@ -1428,8 +1449,24 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                   </div>
                   <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-500/10 border border-slate-500/20 text-slate-300">
                     <LogOut className="h-3.5 w-3.5" />
-                    <span className="text-[10px] uppercase font-sans font-bold text-slate-400">Salida / Última marca:</span>
+                    <span className="text-[10px] uppercase font-sans font-bold text-slate-400">Salida:</span>
                     <span className="font-bold">{agentDailyCompliance.lastLogoutTime || "--:--"}</span>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-muted/60 border border-border text-foreground">
+                    <Monitor className="h-3.5 w-3.5 text-emerald-400" />
+                    <span className="text-[10px] uppercase font-sans font-bold text-muted-foreground">PC:</span>
+                    <span className="font-bold">{serverMetrics?.pcWorkTime || "--"}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    <span className="text-[10px] uppercase font-sans font-bold text-cyan-500/80">Justificación Manual:</span>
+                    <span className="font-bold">{serverMetrics?.manualJustificationTime || "0m"}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300">
+                    <Clock className="h-3.5 w-3.5" />
+                    <span className="text-[10px] uppercase font-sans font-bold text-rose-400/80">Inactividad:</span>
+                    <span className="font-bold">{serverMetrics?.totalIdleTime || "0m"}</span>
                   </div>
                 </div>
 
@@ -1967,6 +2004,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
               scheduleEnd={scheduleEnd}
               compliance={agentDailyCompliance}
               serverMetrics={serverMetrics}
+              toleranceMinutes={toleranceMinutes}
             />
 
             <div className="grid grid-cols-1 gap-6">
@@ -1976,6 +2014,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                 scheduleEnd={scheduleEnd}
                 scheduleEnabled={scheduleEnabled}
                 workDays={workDays}
+                toleranceMinutes={toleranceMinutes}
               />
             </div>
 
