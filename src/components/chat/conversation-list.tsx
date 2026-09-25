@@ -1,7 +1,7 @@
 "use client";
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Search, MessageSquarePlus, Star, Clock, Trash2, Smartphone, Globe, Loader2, X, Send, Pin } from "lucide-react";
+import { Search, MessageSquarePlus, Star, Clock, Trash2, Smartphone, Globe, Loader2, X, Send, Pin, User } from "lucide-react";
 import { toast } from "sonner";
 import { Avatar, Badge } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
@@ -168,15 +168,79 @@ export function ConversationList({
     }
   };
 
+  const cleanDigits = phone.replace(/[^0-9]/g, "");
+  const isPhoneNumber = cleanDigits.length >= 8 && /^[0-9+ \-]+$/.test(phone.trim());
+
+  const existingMatches = React.useMemo(() => {
+    const term = phone.trim().toLowerCase();
+    if (!term || term.length < 2) return [];
+    const res: Array<{
+      id: string;
+      name: string;
+      phone: string;
+      account: string;
+      estado: string;
+      canal: string;
+    }> = [];
+    const seen = new Set<string>();
+
+    for (const c of cases) {
+      const ci = clienteInfo(c.cliente);
+      const cName = ci.nombre || asText(c.title) || "";
+      const cPhone = c.customer_phone || ci.telefono || "";
+      const cAccount = ci.cuenta || "";
+
+      const matchesName = cName.toLowerCase().includes(term);
+      const matchesPhone = cleanDigits.length >= 3 && cPhone.replace(/[^0-9]/g, "").includes(cleanDigits);
+      const matchesAccount = cAccount.toLowerCase().includes(term);
+
+      if (matchesName || matchesPhone || matchesAccount) {
+        const key = cPhone || String(c.id);
+        if (!seen.has(key)) {
+          seen.add(key);
+          res.push({
+            id: String(c.id),
+            name: cName || cPhone || "Cliente sin nombre",
+            phone: cPhone,
+            account: cAccount,
+            estado: String(c.estado || "abierto"),
+            canal: String(c.canal || "whatsapp"),
+          });
+          if (res.length >= 8) break;
+        }
+      }
+    }
+    return res;
+  }, [cases, phone, cleanDigits]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!phone.trim()) return;
+
+    // Si escribió un nombre y hay coincidencias, abrir la primera coincidencia
+    if (!isPhoneNumber && existingMatches.length > 0) {
+      const target = existingMatches[0];
+      onSelect(target.id);
+      router.replace(`?c=${target.id}`, { scroll: false });
+      setOpen(false);
+      setPhone("");
+      toast.success(`Abriendo conversación de ${target.name}`);
+      return;
+    }
+
+    if (cleanDigits.length < 8) {
+      toast.error("Número telefónico incompleto", {
+        description: "Ingresa al menos 8 dígitos numéricos o selecciona un cliente existente de la lista."
+      });
+      return;
+    }
+
     setLoading(true);
     try {
       const res = await fetch("/api/cases/outbound", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ channel, phone }),
+        body: JSON.stringify({ channel, phone: cleanDigits }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Error al abrir la conversación");
@@ -569,20 +633,79 @@ export function ConversationList({
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-muted-foreground mb-1">Número de teléfono</label>
-              <Input
-                value={phone}
-                onChange={e => setPhone(e.target.value)}
-                placeholder="50688886666"
-                required
-                autoFocus
-                className="h-11 text-base"
-                onKeyDown={e => { if (e.key === "Enter" && phone.trim() && !loading) handleSubmit(e as any); }}
-              />
+              <label className="block text-xs font-medium text-muted-foreground mb-1">
+                Nombre de cliente o número de teléfono
+              </label>
+              <div className="relative">
+                <Input
+                  value={phone}
+                  onChange={e => setPhone(e.target.value)}
+                  placeholder="Buscar por nombre (ej: Jonathan Alvarado) o número..."
+                  required
+                  autoFocus
+                  className="h-11 text-base pr-8"
+                  onKeyDown={e => { if (e.key === "Enter" && phone.trim() && !loading) handleSubmit(e as any); }}
+                />
+                {phone && (
+                  <button
+                    type="button"
+                    onClick={() => setPhone("")}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-1"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
               <p className="text-[11px] text-muted-foreground mt-1.5">
-                Si el número ya existe, se abre su conversación. Si es nuevo, se crea y se etiqueta como <strong>Saliente</strong>.
+                Escribe un nombre para buscar clientes existentes, o escribe un número nuevo para iniciar un chat <strong>Saliente</strong>.
               </p>
             </div>
+
+            {/* Lista de coincidencias encontradas en tiempo real */}
+            {existingMatches.length > 0 && (
+              <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1 -mt-1">
+                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                  Contactos existentes encontrados ({existingMatches.length}):
+                </p>
+                <div className="space-y-1">
+                  {existingMatches.map(m => (
+                    <div
+                      key={m.id}
+                      onClick={() => {
+                        onSelect(m.id);
+                        router.replace(`?c=${m.id}`, { scroll: false });
+                        setOpen(false);
+                        setPhone("");
+                        toast.success(`Abriendo conversación de ${m.name}`);
+                      }}
+                      className="flex items-center justify-between p-2.5 rounded-xl border border-border/70 bg-muted/40 hover:bg-muted/80 cursor-pointer transition-colors group"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="h-8 w-8 rounded-full bg-brand-500/10 text-brand-500 flex items-center justify-center shrink-0">
+                          <User className="h-4 w-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold truncate group-hover:text-brand-500 transition-colors">
+                            {m.name}
+                          </p>
+                          <p className="text-[11px] text-muted-foreground truncate">
+                            {m.phone ? `📞 ${m.phone}` : "Sin teléfono"} {m.account ? `· ${m.account}` : ""}
+                          </p>
+                        </div>
+                      </div>
+                      <span className={cn(
+                        "text-[10px] font-medium px-2 py-0.5 rounded-full capitalize shrink-0 ml-2",
+                        m.estado === "abierto" ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" :
+                        m.estado === "escalado" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400" :
+                        "bg-muted text-muted-foreground"
+                      )}>
+                        {m.estado}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="flex items-center gap-2 pt-1">
               <button
