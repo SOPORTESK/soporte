@@ -95,7 +95,7 @@ export async function getWorkSchedule(): Promise<WorkScheduleConfig> {
         scheduleEnabled: parsed.scheduleEnabled !== undefined ? Boolean(parsed.scheduleEnabled) : true,
         workDays: Array.isArray(parsed.workDays) && parsed.workDays.length > 0 ? parsed.workDays : [1, 2, 3, 4, 5],
         targetDailyHours: Number(parsed.targetDailyHours) || 10,
-        toleranceMinutes: Number(parsed.toleranceMinutes) || 5,
+        toleranceMinutes: Number(parsed.toleranceMinutes) || 15,
         useMixedSchedule: Boolean(parsed.useMixedSchedule),
         daySchedules: parsed.daySchedules && typeof parsed.daySchedules === "object" ? parsed.daySchedules : undefined,
         agentSchedules: parsed.agentSchedules && typeof parsed.agentSchedules === "object" ? parsed.agentSchedules : {},
@@ -107,7 +107,7 @@ export async function getWorkSchedule(): Promise<WorkScheduleConfig> {
     console.error("[getWorkSchedule] error:", err);
   }
 
-  const def: WorkScheduleConfig = { scheduleStart: "06:00", scheduleEnd: "18:00", scheduleEnabled: true, workDays: [1, 2, 3, 4, 5], targetDailyHours: 10, toleranceMinutes: 5, agentSchedules: {} };
+  const def: WorkScheduleConfig = { scheduleStart: "06:00", scheduleEnd: "18:00", scheduleEnabled: true, workDays: [1, 2, 3, 4, 5], targetDailyHours: 10, toleranceMinutes: 15, agentSchedules: {} };
   cacheSet("app_work_schedule", def);
   return def;
 }
@@ -398,23 +398,39 @@ export async function getActivityTimeline(
   endDate?: string
 ): Promise<ActivityLog[]> {
   const supabase = getClient();
-  let query = supabase
-    .from("activity_log")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .limit(3500);
+  const all: ActivityLog[] = [];
+  let from = 0;
+  const batchSize = 1000;
+  const maxRecords = 8000;
 
-  if (agentEmail) query = query.eq("agent_email", agentEmail);
-  if (date) {
-    const start = `${date}T00:00:00`;
-    const finalDate = endDate || date;
-    const end = `${finalDate}T23:59:59`;
-    query = query.gte("created_at", start).lte("created_at", end);
+  while (from < maxRecords) {
+    let query = supabase
+      .from("activity_log")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (agentEmail) query = query.eq("agent_email", agentEmail);
+    if (date) {
+      const start = `${date}T00:00:00`;
+      const finalDate = endDate || date;
+      const end = `${finalDate}T23:59:59`;
+      query = query.gte("created_at", start).lte("created_at", end);
+    }
+
+    const { data, error } = await query.range(from, from + batchSize - 1);
+    if (error) {
+      console.error("[activity-db] timeline error:", error.message);
+      break;
+    }
+    const batch = (data || []) as ActivityLog[];
+    all.push(...batch);
+    if (batch.length < batchSize) {
+      break;
+    }
+    from += batchSize;
   }
 
-  const { data, error } = await query;
-  if (error) console.error("[activity-db] timeline error:", error.message);
-  return (data || []) as ActivityLog[];
+  return all;
 }
 
 export async function getActivitySummaries(
@@ -441,7 +457,7 @@ export async function getActivityMetrics(agentEmail: string, date: string, exist
   let targetDailyHours = schedule.targetDailyHours || 10;
   let scheduleStart = schedule.scheduleStart || "08:00";
   let scheduleEnd = schedule.scheduleEnd || "17:00";
-  const toleranceMinutes = schedule.toleranceMinutes || 5;
+  const toleranceMinutes = schedule.toleranceMinutes || 15;
 
   if (schedule.useMixedSchedule && schedule.daySchedules && date) {
     const parts = date.split("-").map(Number);
