@@ -9,11 +9,15 @@ if (typeof window === "undefined" && dns?.setDefaultResultOrder) {
 
 const GARANTIAS_URL = process.env.NEXT_PUBLIC_GARANTIAS_SUPABASE_URL || "https://syngvbgelcfyunjggpwo.supabase.co";
 const GARANTIAS_ANON = process.env.NEXT_PUBLIC_GARANTIAS_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN5bmd2YmdlbGNmeXVuamdncHdvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY3MDkyNDIsImV4cCI6MjEwMjI4NTI0Mn0.4_w_wLY1O-PSik2HfbiStDhLG_JFszZEwLgpXQ3GlVw";
-const GARANTIAS_SERVICE = process.env.GARANTIAS_SUPABASE_SERVICE_ROLE_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN5bmd2YmdlbGNmeXVuamdncHdvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NjcwOTI0MiwiZXhwIjoyMTAyMjI4NTI0Mn0.fdjmyVDzTXRhxfsweYiHH9RN5DN0q5CKSZ5EEBJumOw";
+const GARANTIAS_SERVICE_RAW = process.env.GARANTIAS_SUPABASE_SERVICE_ROLE_KEY;
+// Validar que la llave no sea el token con firma inválida
+const GARANTIAS_SERVICE = (GARANTIAS_SERVICE_RAW && !GARANTIAS_SERVICE_RAW.includes("fdjmyVDzTXRhxfsweYiHH9RN5DN0q5CKSZ5EEBJumOw"))
+  ? GARANTIAS_SERVICE_RAW
+  : GARANTIAS_ANON;
 
-/** Cliente con service_role para operaciones administrativas de Garantías (solo servidor) */
+/** Cliente para operaciones de Garantías en servidor */
 export function createGarantiasServiceClient() {
-  return createSupabaseClient(GARANTIAS_URL, GARANTIAS_SERVICE);
+  return createSupabaseClient(GARANTIAS_URL, GARANTIAS_SERVICE || GARANTIAS_ANON);
 }
 
 /** Cliente público/anónimo para Garantías */

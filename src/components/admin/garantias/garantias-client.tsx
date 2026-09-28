@@ -60,6 +60,7 @@ import {
   ESTATUS_CERRADOS,
   SEDES,
   formatTimeElapsed,
+  formatDateSafe,
 } from "./garantias-types";
 import { GarantiasEditModal } from "./garantias-edit-modal";
 
@@ -117,7 +118,8 @@ export function GarantiasClient({
   // State for records
   const [records, setRecords] = React.useState<GarantiaRecord[]>(initialRecords);
   const [loading, setLoading] = React.useState(false);
-  const [lastUpdate, setLastUpdate] = React.useState<string>(() => new Date().toLocaleString("es-CR"));
+  const [lastUpdate, setLastUpdate] = React.useState<string>("");
+  const [mounted, setMounted] = React.useState(false);
 
   // Filters state (General)
   const [search, setSearch] = React.useState("");
@@ -211,6 +213,9 @@ export function GarantiasClient({
 
   // Initial load, periodic auto-refresh (every 30s), and window focus trigger
   React.useEffect(() => {
+    setMounted(true);
+    setLastUpdate(new Date().toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
+
     if (!initialRecords || initialRecords.length === 0) {
       loadRecords();
     }
@@ -1263,7 +1268,7 @@ export function GarantiasClient({
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
             </span>
-            <span className="text-foreground font-mono font-bold">{lastUpdate}</span>
+            <span suppressHydrationWarning className="text-foreground font-mono font-bold">{lastUpdate || "—"}</span>
             <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">• En vivo</span>
           </div>
 
@@ -1710,7 +1715,7 @@ export function GarantiasClient({
                                 <div className="mt-2 text-[10px] text-muted-foreground flex items-center justify-between">
                                   <span>
                                     Registrado por <strong>{r.registrado_por || "—"}</strong> el{" "}
-                                    {r.fecha_creacion ? new Date(r.fecha_creacion).toLocaleString("es-CR") : "—"}
+                                    <span suppressHydrationWarning>{formatDateSafe(r.fecha_creacion)}</span>
                                   </span>
                                   {r.modificado_por && (
                                     <span>
@@ -1985,6 +1990,7 @@ export function GarantiasClient({
                                 )}
                               </td>
                               <td
+                                suppressHydrationWarning
                                 className={`p-2.5 font-mono font-semibold whitespace-nowrap ${
                                   esCerrado ? "text-emerald-500" : "text-foreground"
                                 }`}
@@ -2397,7 +2403,7 @@ export function GarantiasClient({
           <div className="p-3.5 rounded-xl border border-border bg-card shadow-sm flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs text-muted-foreground">Última actualización:</span>
-              <span className="font-mono text-xs font-bold text-foreground">{lastUpdate}</span>
+              <span suppressHydrationWarning className="font-mono text-xs font-bold text-foreground">{lastUpdate || "—"}</span>
               <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/15 text-emerald-600 border border-emerald-500/25 flex items-center gap-1.5">
                 <span className="relative flex h-2 w-2">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
