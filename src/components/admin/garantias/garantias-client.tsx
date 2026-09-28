@@ -186,26 +186,50 @@ export function GarantiasClient({
   // Active chart instances
   const chartInstances = React.useRef<Record<string, ChartJS>>({});
 
-  // Load all records
-  const loadRecords = React.useCallback(async () => {
-    setLoading(true);
+  // State for silent refresh indicator
+  const [isRefreshing, setIsRefreshing] = React.useState(false);
+
+  // Load all records with optional silent mode
+  const loadRecords = React.useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    else setIsRefreshing(true);
     try {
-      const res = await fetch("/api/admin/garantias?limit=1000");
+      const res = await fetch("/api/admin/garantias?limit=1000", { cache: "no-store" });
       if (!res.ok) throw new Error("Error al consultar las garantías");
       const data = await res.json();
-      setRecords(data.records || []);
-      setLastUpdate(new Date().toLocaleString("es-CR"));
+      if (Array.isArray(data.records)) {
+        setRecords(data.records);
+        setLastUpdate(new Date().toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
+      }
     } catch (err: any) {
-      toast.error("Error al cargar garantías", { description: err.message });
+      if (!silent) toast.error("Error al cargar garantías", { description: err.message });
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
+      else setIsRefreshing(false);
     }
   }, []);
 
+  // Initial load, periodic auto-refresh (every 30s), and window focus trigger
   React.useEffect(() => {
     if (!initialRecords || initialRecords.length === 0) {
       loadRecords();
     }
+
+    // Auto-actualización silenciosa cada 30 segundos
+    const interval = setInterval(() => {
+      loadRecords(true);
+    }, 30000);
+
+    // Al regresar a la pestaña del navegador, sincronizar de inmediato
+    const onFocus = () => {
+      loadRecords(true);
+    };
+    window.addEventListener("focus", onFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("focus", onFocus);
+    };
   }, [loadRecords, initialRecords]);
 
   // Reset page when filters change
@@ -1046,6 +1070,7 @@ export function GarantiasClient({
     setRecords((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
     setEditingRecord(null);
     toast.success("Garantía actualizada", { description: updated.boleta || `ID: ${updated.id}` });
+    loadRecords(true);
   };
 
   // Clear filters
@@ -1219,13 +1244,22 @@ export function GarantiasClient({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-card text-[11px] font-medium text-muted-foreground" title="Sincronización en vivo con Supabase">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+            <span className="text-foreground font-mono font-bold">{lastUpdate}</span>
+            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">• En vivo</span>
+          </div>
+
           <button
-            onClick={loadRecords}
-            disabled={loading}
+            onClick={() => loadRecords(false)}
+            disabled={loading || isRefreshing}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-card hover:bg-muted text-xs font-medium text-foreground transition-colors disabled:opacity-50"
-            title="Recargar datos desde Supabase"
+            title="Recargar datos desde Supabase ahora"
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+            <RefreshCw className={`h-3.5 w-3.5 ${loading || isRefreshing ? "animate-spin text-brand-500" : ""}`} />
             <span>Actualizar</span>
           </button>
 
@@ -2331,12 +2365,24 @@ export function GarantiasClient({
         <div className="space-y-6">
           {/* Header de Auditoría */}
           <div className="p-3.5 rounded-xl border border-border bg-card shadow-sm flex items-center justify-between flex-wrap gap-2">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs text-muted-foreground">Última actualización:</span>
               <span className="font-mono text-xs font-bold text-foreground">{lastUpdate}</span>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/15 text-emerald-600 border border-emerald-500/25 flex items-center gap-1">
-                ✓ VERIFICADO
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/15 text-emerald-600 border border-emerald-500/25 flex items-center gap-1.5">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                <span>✓ EN VIVO (Auto 30s)</span>
               </span>
+              <button
+                onClick={() => loadRecords(false)}
+                disabled={loading || isRefreshing}
+                className="p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                title="Actualizar datos ahora"
+              >
+                <RefreshCw className={`h-3 w-3 ${loading || isRefreshing ? "animate-spin text-brand-500" : ""}`} />
+              </button>
             </div>
             <button
               onClick={exportFullAuditToExcel}
