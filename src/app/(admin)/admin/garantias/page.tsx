@@ -24,9 +24,15 @@ export default async function AdminGarantiasPage() {
 
   const { data: currentAgent } = await supabase
     .from("sek_agent_config")
-    .select("rol")
+    .select("nombre, apellido, rol")
     .ilike("email", user.email || "")
     .maybeSingle();
+
+  const currentUser = {
+    email: user.email || "",
+    nombre: currentAgent?.nombre || "",
+    apellido: currentAgent?.apellido || "",
+  };
 
   const isAdmin = currentAgent?.rol === "admin" || currentAgent?.rol === "superadmin";
   const isSuperadmin = currentAgent?.rol === "superadmin";
@@ -91,6 +97,7 @@ export default async function AdminGarantiasPage() {
       <GarantiasClient
         initialRecords={initialRecords}
         initialStats={initialStats}
+        currentUser={currentUser}
         isAdmin={isAdmin}
         isSuperadmin={isSuperadmin}
       />
