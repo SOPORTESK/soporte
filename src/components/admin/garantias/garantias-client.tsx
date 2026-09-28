@@ -280,17 +280,31 @@ export function GarantiasClient({
     const cat = (r.categoria || "").toLowerCase();
     const tipo = (r.tipo || "").toLowerCase();
     const esNC = cat.includes("nota") || cat.includes("credito") || cat.includes("nc");
-    const es1pct = cat.includes("garantia_1");
     const esDefinitiva = tipo === "salida_definitiva";
     const esTemporal = tipo === "salida_temporal";
 
-    if (esNC && esDefinitiva) return ["fecha_dev", "dev"];
+    // Salidas Definitivas: si tiene dev-, está aprobada.
+    // Si es definitiva y es NC y no tiene dev-, requiere dev.
+    if (esDefinitiva) {
+      const devVal = (r.dev || "").toString().trim();
+      const hasDev = devVal !== "" && devVal !== "—";
+      if (hasDev) return [];
+      if (esNC) return ["dev"];
+      return [];
+    }
+
+    // Salidas Temporales: se mantienen intactas
     if (esNC && esTemporal) return ["dev"];
-    if (es1pct && esDefinitiva) return ["fecha_dev"];
     return [];
   };
 
   const estaPorAprobar = (r: GarantiaRecord): boolean => {
+    const tipo = (r.tipo || "").toLowerCase();
+    if (tipo === "salida_definitiva") {
+      const devVal = (r.dev || "").toString().trim();
+      const hasDev = devVal !== "" && devVal !== "—";
+      if (hasDev) return false;
+    }
     const reqs = requisitosAprobacion(r);
     if (!reqs.length) return false;
     return reqs.some((k) => {
@@ -378,7 +392,7 @@ export function GarantiasClient({
         const hasDev = devVal !== "" && devVal !== "—";
         if (filterDevStatus === "sin_dev" && hasDev) return false;
         if (filterDevStatus === "aprobado" && !hasDev) return false;
-        if (filterDevStatus === "pendiente" && (hasDev || !requisitosAprobacion(r).includes("dev"))) {
+        if (filterDevStatus === "pendiente" && (hasDev || !estaPorAprobar(r))) {
           return false;
         }
       }
