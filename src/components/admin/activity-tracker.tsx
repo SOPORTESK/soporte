@@ -831,6 +831,18 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
     }
   });
 
+  const [useMixedSchedule, setUseMixedSchedule] = useState<boolean>(false);
+  const [daySchedules, setDaySchedules] = useState<Record<number, any> | undefined>(undefined);
+  const [appMappings, setAppMappings] = useState<Record<string, any>>(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      const saved = localStorage.getItem("sek_app_categories");
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
   // Solicitudes de horas extras (Overtime)
   const [overtimeRequests, setOvertimeRequests] = useState<any[]>([]);
   const [reviewingOvertime, setReviewingOvertime] = useState<boolean>(false);
@@ -850,28 +862,74 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
     }
   }, [selectedDate]);
 
+  // Cargar horario específico del agente seleccionado
+  useEffect(() => {
+    if (!selectedAgent) return;
+    fetch(`/api/activity/schedule?agentEmail=${encodeURIComponent(selectedAgent)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.success) {
+          if (data.scheduleStart) setScheduleStart(data.scheduleStart);
+          if (data.scheduleEnd) setScheduleEnd(data.scheduleEnd);
+          if (data.scheduleEnabled !== undefined) setScheduleEnabled(Boolean(data.scheduleEnabled));
+          if (Array.isArray(data.workDays) && data.workDays.length > 0) setWorkDays(data.workDays);
+          if (data.targetDailyHours) setTargetDailyHours(Number(data.targetDailyHours));
+          if (data.toleranceMinutes) setToleranceMinutes(Number(data.toleranceMinutes));
+          setUseMixedSchedule(Boolean(data.useMixedSchedule));
+          setDaySchedules(data.daySchedules || undefined);
+        }
+      })
+      .catch((e) => console.error("[tracker] error fetching agent schedule:", e));
+  }, [selectedAgent]);
+
+  // Cargar mapeos de procesos y aplicaciones
+  useEffect(() => {
+    fetch("/api/activity/app-categories")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.appMappings) {
+          setAppMappings(data.appMappings);
+          try { localStorage.setItem("sek_app_categories", JSON.stringify(data.appMappings)); } catch {}
+        }
+      })
+      .catch(() => {});
+
+    const handler = (e: any) => {
+      if (e.detail) {
+        setAppMappings(e.detail);
+      } else {
+        try {
+          const stored = localStorage.getItem("sek_app_categories");
+          if (stored) setAppMappings(JSON.parse(stored));
+        } catch {}
+      }
+    };
+    window.addEventListener("sek_app_categories_updated", handler);
+    return () => window.removeEventListener("sek_app_categories_updated", handler);
+  }, []);
+
   // Cargar horario oficial y días guardados en base de datos al montar
   useEffect(() => {
     fetch("/api/activity/schedule")
       .then((r) => r.json())
       .then((data) => {
         if (data?.success) {
-          if (data.scheduleStart) {
+          if (data.scheduleStart && !selectedAgent) {
             setScheduleStart(data.scheduleStart);
             try { localStorage.setItem("sekunet_activity_schedule_start", data.scheduleStart); } catch {}
           }
-          if (data.scheduleEnd) {
+          if (data.scheduleEnd && !selectedAgent) {
             setScheduleEnd(data.scheduleEnd);
             try { localStorage.setItem("sekunet_activity_schedule_end", data.scheduleEnd); } catch {}
           }
-          if (data.scheduleEnabled !== undefined) {
+          if (data.scheduleEnabled !== undefined && !selectedAgent) {
             setScheduleEnabled(Boolean(data.scheduleEnabled));
             try { localStorage.setItem("sekunet_activity_schedule_enabled", String(data.scheduleEnabled)); } catch {}
           }
-          if (Array.isArray(data.workDays) && data.workDays.length > 0) {
+          if (Array.isArray(data.workDays) && data.workDays.length > 0 && !selectedAgent) {
             setWorkDays(data.workDays);
           }
-          if (data.targetDailyHours) {
+          if (data.targetDailyHours && !selectedAgent) {
             setTargetDailyHours(Number(data.targetDailyHours));
             try { localStorage.setItem("sekunet_activity_target_daily_hours", String(data.targetDailyHours)); } catch {}
           }
@@ -882,7 +940,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
         }
       })
       .catch(() => {});
-  }, []);
+  }, [selectedAgent]);
 
   const [timelineViewMode, setTimelineViewMode] = useState<"consolidated" | "logs">("consolidated");
   const [onlyManualFilter, setOnlyManualFilter] = useState<boolean>(false);
@@ -973,12 +1031,20 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
         if (isManualEntry(entry)) return true;
 
         if (!entry.created_at) return false;
-        const d = new Date(entry.created_at);
-        if (isNaN(d.getTime())) return false;
-        const dayOfWeek = d.getDay();
+        const dCR = new Date(new Date(entry.created_at).toLocaleString("en-US", { timeZone: "America/Costa_Rica" }));
+        if (isNaN(dCR.getTime())) return false;
+        const dayOfWeek = dCR.getDay();
         if (!workDays.includes(dayOfWeek)) return false;
-        const minOfDay = d.getHours() * 60 + d.getMinutes();
-        return minOfDay >= startMin && minOfDay < endMin;
+
+        let effectiveStartMin = startMin;
+        let effectiveEndMin = endMin;
+        if (useMixedSchedule && daySchedules && daySchedules[dayOfWeek]) {
+          if (daySchedules[dayOfWeek].start) effectiveStartMin = parseTimeToMinutes(daySchedules[dayOfWeek].start);
+          if (daySchedules[dayOfWeek].end) effectiveEndMin = parseTimeToMinutes(daySchedules[dayOfWeek].end);
+        }
+
+        const minOfDay = dCR.getHours() * 60 + dCR.getMinutes();
+        return minOfDay >= effectiveStartMin && minOfDay < effectiveEndMin;
       });
     }
 
@@ -1198,6 +1264,12 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
 
     const computed = computeUnifiedActivityMetrics((timeline || []) as any[], {
       targetDailyHours,
+      toleranceMinutes,
+      scheduleStart,
+      scheduleEnd,
+      useMixedSchedule,
+      daySchedules,
+      appMappings,
     });
     const productiveMs = computed.masterBuckets.Productivo.durationMs;
     const rawActiveMinutes = Math.round(productiveMs / 60000);
@@ -1236,7 +1308,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
       firstLoginTime: computed.firstLoginTime,
       lastLogoutTime: computed.lastLogoutTime,
     };
-  }, [serverMetrics, timeline, targetDailyHours, overtimeRequests, selectedAgent]);
+  }, [serverMetrics, timeline, targetDailyHours, toleranceMinutes, scheduleStart, scheduleEnd, useMixedSchedule, daySchedules, appMappings, overtimeRequests, selectedAgent]);
 
   const categoriesAvailable = Array.from(new Set(timeline.map((t) => t.category).filter(Boolean)));
 
@@ -2005,6 +2077,9 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
               compliance={agentDailyCompliance}
               serverMetrics={serverMetrics}
               toleranceMinutes={toleranceMinutes}
+              useMixedSchedule={useMixedSchedule}
+              daySchedules={daySchedules}
+              appMappings={appMappings}
             />
 
             <div className="grid grid-cols-1 gap-6">
@@ -2015,6 +2090,9 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                 scheduleEnabled={scheduleEnabled}
                 workDays={workDays}
                 toleranceMinutes={toleranceMinutes}
+                useMixedSchedule={useMixedSchedule}
+                daySchedules={daySchedules}
+                onAppMappingsChange={(newMap) => setAppMappings(newMap)}
               />
             </div>
 

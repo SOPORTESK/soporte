@@ -451,9 +451,29 @@ export async function getActivitySummaries(
   return (data || []) as ActivitySummary[];
 }
 
+export async function getAppMappings(): Promise<Record<string, any>> {
+  try {
+    const supabase = createServiceClient();
+    const { data } = await supabase
+      .from("sek_app_settings")
+      .select("value")
+      .eq("key", "activity_app_categories")
+      .maybeSingle();
+    if (data?.value) {
+      return typeof data.value === "string" ? JSON.parse(data.value) : data.value;
+    }
+  } catch (err) {
+    console.error("[activity-db] Error getting app mappings:", err);
+  }
+  return {};
+}
+
 export async function getActivityMetrics(agentEmail: string, date: string, existingTimeline?: ActivityLog[]) {
-  const timeline = existingTimeline || await getActivityTimeline(agentEmail, date);
-  const schedule = agentEmail ? await getAgentSchedule(agentEmail) : await getWorkSchedule();
+  const [timeline, schedule, appMappings] = await Promise.all([
+    existingTimeline || getActivityTimeline(agentEmail, date),
+    agentEmail ? getAgentSchedule(agentEmail) : getWorkSchedule(),
+    getAppMappings(),
+  ]);
   let targetDailyHours = schedule.targetDailyHours || 10;
   let scheduleStart = schedule.scheduleStart || "08:00";
   let scheduleEnd = schedule.scheduleEnd || "17:00";
@@ -480,6 +500,7 @@ export async function getActivityMetrics(agentEmail: string, date: string, exist
     scheduleEnd,
     useMixedSchedule: schedule.useMixedSchedule,
     daySchedules: schedule.daySchedules,
+    appMappings,
   });
 
   const productiveMs = computed.masterBuckets.Productivo.durationMs;

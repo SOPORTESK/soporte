@@ -181,7 +181,7 @@ export function isCategoryName(c: string): boolean {
 /**
  * Normaliza y extrae el nombre limpio del software o labor manual real
  */
-export function extractCleanItemName(item: TimelineEntry): string {
+export function extractCleanItemName(item: TimelineEntry, appMappings?: Record<string, any>): string {
   const meta = (item.metadata || {}) as Record<string, any>;
   const act = (item.action || "").toLowerCase();
   const cat = (item.category || "").toLowerCase();
@@ -201,6 +201,42 @@ export function extractCleanItemName(item: TimelineEntry): string {
     act.includes("bano")
   ) {
     return "Pausa / Descanso";
+  }
+
+  // 0.1 Mapeos de procesos y aplicaciones configurados por el usuario
+  if (appMappings && typeof appMappings === "object") {
+    const rawApp = (meta.app_name || meta.app || meta.process || "").trim();
+    const rawTitle = (meta.window_title || meta.title || meta.context || "").trim();
+    const taskName = (meta.task || meta.label || "").trim();
+    const rawAct = item.action || "";
+
+    // A. Coincidencia exacta de clave configurada
+    for (const key of Object.keys(appMappings)) {
+      const kl = key.toLowerCase().trim();
+      if (!kl || kl === "sin clasificar" || kl === "unassigned") continue;
+      if (
+        kl === rawApp.toLowerCase() ||
+        kl === rawTitle.toLowerCase() ||
+        kl === taskName.toLowerCase() ||
+        kl === rawAct.toLowerCase()
+      ) {
+        return key;
+      }
+    }
+
+    // B. Coincidencia por inclusión (subcadena significativa)
+    for (const key of Object.keys(appMappings)) {
+      const kl = key.toLowerCase().trim();
+      if (!kl || kl.length < 3 || kl === "sin clasificar" || kl === "unassigned") continue;
+      if (
+        (rawApp && rawApp.toLowerCase().includes(kl)) ||
+        (rawTitle && rawTitle.toLowerCase().includes(kl)) ||
+        (taskName && taskName.toLowerCase().includes(kl)) ||
+        (rawAct && rawAct.toLowerCase().includes(kl))
+      ) {
+        return key;
+      }
+    }
   }
 
   // 1. Si es labor manual explícita
@@ -320,8 +356,15 @@ export function extractCleanItemName(item: TimelineEntry): string {
 
 /**
  * Asigna una labor o software a una de las 8 Categorías Operativas oficiales
+ * respetando prioritariamente los mapeos personalizados configurados por el usuario
  */
-export function assignToOperationalCategory(name: string, action: string = "", category: string = ""): string {
+export function assignToOperationalCategory(
+  name: string,
+  action: string = "",
+  category: string = "",
+  metadata?: Record<string, any> | null,
+  appMappings?: Record<string, any>
+): string {
   const n = (name || "").toLowerCase();
   const a = (action || "").toLowerCase();
   const c = (category || "").toLowerCase();
@@ -344,7 +387,19 @@ export function assignToOperationalCategory(name: string, action: string = "", c
     return "Inactividad";
   }
 
-  // Justificación Manual
+  // Pausa Sanitaria del sistema o evento explícito
+  if (n.includes("baño") || n.includes("bano") || n.includes("sanitaria") || n.includes("sanitario") ||
+      a.includes("baño") || a.includes("bano") || a.includes("sanitaria") || a.includes("sanitario")) {
+    return "Pausa Sanitaria";
+  }
+
+  // Descansos explícitos del sistema
+  if (n.includes("descanso") || n.includes("almuerzo") || n.includes("café") || n.includes("cafe") || n.includes("comida") ||
+      a.includes("descanso") || a.includes("almuerzo") || a.includes("comida")) {
+    return "Descansos";
+  }
+
+  // Justificación Manual explícita
   if (
     c === "justificación manual" ||
     c === "justificacion manual" ||
@@ -354,21 +409,58 @@ export function assignToOperationalCategory(name: string, action: string = "", c
     a.startsWith("justificación manual") ||
     a.startsWith("justificacion manual") ||
     a.startsWith("justificación:") ||
-    a.startsWith("justificacion:")
+    a.startsWith("justificacion:") ||
+    metadata?.justification
   ) {
     return "Justificación Manual";
   }
 
-  // Pausa Sanitaria
-  if (n.includes("baño") || n.includes("bano") || n.includes("sanitaria") || n.includes("sanitario") ||
-      a.includes("baño") || a.includes("bano") || a.includes("sanitaria") || a.includes("sanitario")) {
-    return "Pausa Sanitaria";
-  }
+  // ── PRIORIDAD ABSOLUTA: MAPEOS DE PROCESOS Y APLICACIONES DEL USUARIO ──
+  if (appMappings && typeof appMappings === "object") {
+    let mappedVal = appMappings[name];
+    if (!mappedVal) {
+      const meta = metadata || {};
+      const rawApp = (meta.app_name || meta.app || meta.process || "").toLowerCase().trim();
+      const rawTitle = (meta.window_title || meta.title || meta.context || "").toLowerCase().trim();
+      const taskName = (meta.task || meta.label || "").toLowerCase().trim();
+      const actLower = a.trim();
+      const nameLower = n.trim();
 
-  // Descansos
-  if (n.includes("descanso") || n.includes("almuerzo") || n.includes("café") || n.includes("cafe") || n.includes("comida") ||
-      a.includes("descanso") || a.includes("almuerzo") || a.includes("comida")) {
-    return "Descansos";
+      // Buscar coincidencia exacta o por subcadena en las claves de mapeo
+      for (const [key, val] of Object.entries(appMappings)) {
+        const kl = key.toLowerCase().trim();
+        if (!kl || kl === "sin clasificar" || kl === "unassigned") continue;
+        if (
+          kl === nameLower ||
+          kl === taskName ||
+          kl === rawApp ||
+          kl === rawTitle ||
+          (kl.length >= 3 && (
+            nameLower.includes(kl) ||
+            (rawApp && rawApp.includes(kl)) ||
+            (rawTitle && rawTitle.includes(kl)) ||
+            (taskName && taskName.includes(kl)) ||
+            (actLower && actLower.includes(kl))
+          ))
+        ) {
+          mappedVal = val;
+          break;
+        }
+      }
+    }
+
+    if (mappedVal) {
+      const catCandidate = typeof mappedVal === "object" ? mappedVal.category : mappedVal;
+      if (catCandidate && catCandidate !== "Sin Clasificar" && catCandidate !== "unassigned") {
+        const foundOfficial = OFFICIAL_OPERATIONAL_CATEGORIES.find(
+          (cat) => cat.id.toLowerCase() === catCandidate.toLowerCase() || cat.label.toLowerCase() === catCandidate.toLowerCase()
+        );
+        if (foundOfficial) {
+          return foundOfficial.id;
+        }
+        return catCandidate;
+      }
+    }
   }
 
   // Servicio de Taller
@@ -429,6 +521,7 @@ export function computeUnifiedActivityMetrics(
     scheduleEnd?: string;
     useMixedSchedule?: boolean;
     daySchedules?: Record<number, { start?: string; end?: string; targetHours?: number }>;
+    appMappings?: Record<string, any>;
   } = {}
 ): UnifiedDayMetrics {
   let targetDailyHours = options.targetDailyHours || 10;
@@ -638,26 +731,28 @@ export function computeUnifiedActivityMetrics(
         const coveredDelayMs = getCoveredOverlap(schedStartMs, firstEventMs);
         const effectiveDelayMs = Math.max(0, rawDelayMs - coveredDelayMs);
 
-        // Horario programado es ley: CERO tolerancia para hora de entrada. Cualquier tardanza >= 1 min es inactividad a justificar.
-        if (effectiveDelayMs >= 60000) {
-          const excessMs = effectiveDelayMs;
+        // La tolerancia configurada aplica a la hora de entrada: solo si el retraso excede la tolerancia oficial es inactividad
+        if (effectiveDelayMs > TOLERANCE_GAP_MS) {
+          const excessMs = effectiveDelayMs - TOLERANCE_GAP_MS;
           const excessMin = Math.round(excessMs / 60000);
-          idleTotalMs += excessMs;
+          if (excessMin >= 1) {
+            idleTotalMs += excessMs;
 
-          const dStart = new Date(schedStartMs + coveredDelayMs);
-          const dEnd = new Date(firstEventMs);
-          detectedGaps.push({
-            id: "gap-inicio-tardio",
-            dateStr: crDateStr,
-            dateFormatted: dStart.toLocaleDateString("es-CR", { day: "numeric", month: "short", timeZone: "America/Costa_Rica" }),
-            startTime: formatTimeCR(dStart.toISOString()),
-            endTime: formatTimeCR(dEnd.toISOString()),
-            startTimeVal: dStart.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }),
-            endTimeVal: dEnd.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }),
-            durationMs: excessMs,
-            minutes: excessMin,
-            reason: `Inicio tardío respecto a horario programado (${sStart})`,
-          });
+            const dStart = new Date(schedStartMs + coveredDelayMs + TOLERANCE_GAP_MS);
+            const dEnd = new Date(firstEventMs);
+            detectedGaps.push({
+              id: "gap-inicio-tardio",
+              dateStr: crDateStr,
+              dateFormatted: dStart.toLocaleDateString("es-CR", { day: "numeric", month: "short", timeZone: "America/Costa_Rica" }),
+              startTime: formatTimeCR(dStart.toISOString()),
+              endTime: formatTimeCR(dEnd.toISOString()),
+              startTimeVal: dStart.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }),
+              endTimeVal: dEnd.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }),
+              durationMs: excessMs,
+              minutes: excessMin,
+              reason: `Inicio tardío respecto a horario programado (${sStart}) — excede tolerancia (${toleranceMin} min) en ${excessMin} min`,
+            });
+          }
         }
       }
     }
@@ -733,8 +828,8 @@ export function computeUnifiedActivityMetrics(
       if (!isJustification) {
         const isManualEnd = (act.startsWith("terminó:") || act.startsWith("termino:")) && (meta.manual || meta.task);
         const dur = (isManualEnd || it.duration_ms) ? Number(it.duration_ms) : 60000;
-        const itemName = extractCleanItemName(it);
-        const opCategory = assignToOperationalCategory(itemName, it.action, it.category);
+        const itemName = extractCleanItemName(it, options.appMappings);
+        const opCategory = assignToOperationalCategory(itemName, it.action, it.category, meta, options.appMappings);
         opTimes[opCategory] = (opTimes[opCategory] || 0) + dur;
       }
       break;
@@ -758,8 +853,8 @@ export function computeUnifiedActivityMetrics(
         act.startsWith("justificacion manual")
     );
 
-    const itemName = extractCleanItemName(it);
-    const opCategory = assignToOperationalCategory(itemName, it.action, it.category);
+    const itemName = extractCleanItemName(it, options.appMappings);
+    const opCategory = assignToOperationalCategory(itemName, it.action, it.category, meta, options.appMappings);
 
     // Caso C: Inactividad del sistema (NO es software ni descanso)
     if (opCategory === "Inactividad") {
@@ -1039,26 +1134,28 @@ export function computeUnifiedActivityMetrics(
         const coveredEarlyMs = getCoveredOverlap(lastEventMs, schedEndMs);
         const effectiveEarlyMs = Math.max(0, rawEarlyMs - coveredEarlyMs);
 
-        // Horario programado es ley: CERO tolerancia para salida anticipada. Salir >= 1 min antes es inactividad a justificar.
-        if (effectiveEarlyMs >= 60000) {
-          const excessMs = effectiveEarlyMs;
+        // La tolerancia configurada aplica a la salida: solo si el retiro anticipado excede la tolerancia oficial es inactividad
+        if (effectiveEarlyMs > TOLERANCE_GAP_MS) {
+          const excessMs = effectiveEarlyMs - TOLERANCE_GAP_MS;
           const excessMin = Math.round(excessMs / 60000);
-          idleTotalMs += excessMs;
+          if (excessMin >= 1) {
+            idleTotalMs += excessMs;
 
-          const dStart = new Date(lastEventMs + coveredEarlyMs);
-          const dEnd = new Date(schedEndMs);
-          detectedGaps.push({
-            id: "gap-salida-anticipada",
-            dateStr: crDateStr,
-            dateFormatted: dStart.toLocaleDateString("es-CR", { day: "numeric", month: "short", timeZone: "America/Costa_Rica" }),
-            startTime: formatTimeCR(dStart.toISOString()),
-            endTime: formatTimeCR(dEnd.toISOString()),
-            startTimeVal: dStart.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }),
-            endTimeVal: dEnd.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }),
-            durationMs: excessMs,
-            minutes: excessMin,
-            reason: `Salida anticipada respecto a horario programado (${sEnd})`,
-          });
+            const dStart = new Date(lastEventMs + coveredEarlyMs);
+            const dEnd = new Date(schedEndMs - TOLERANCE_GAP_MS);
+            detectedGaps.push({
+              id: "gap-salida-anticipada",
+              dateStr: crDateStr,
+              dateFormatted: dStart.toLocaleDateString("es-CR", { day: "numeric", month: "short", timeZone: "America/Costa_Rica" }),
+              startTime: formatTimeCR(dStart.toISOString()),
+              endTime: formatTimeCR(dEnd.toISOString()),
+              startTimeVal: dStart.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }),
+              endTimeVal: dEnd.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }),
+              durationMs: excessMs,
+              minutes: excessMin,
+              reason: `Salida anticipada respecto a horario programado (${sEnd}) — excede tolerancia (${toleranceMin} min) en ${excessMin} min`,
+            });
+          }
         }
       }
     }

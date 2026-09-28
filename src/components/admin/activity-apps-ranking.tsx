@@ -62,6 +62,9 @@ interface Props {
   scheduleEnabled?: boolean;
   workDays?: number[];
   toleranceMinutes?: number;
+  useMixedSchedule?: boolean;
+  daySchedules?: Record<number, { start?: string; end?: string; targetHours?: number }>;
+  onAppMappingsChange?: (newMap: Record<string, any>) => void;
 }
 
 export interface CategoryItem {
@@ -823,6 +826,9 @@ function ActivityAppsRankingComponent({
   scheduleEnabled = true,
   workDays = [1, 2, 3, 4, 5],
   toleranceMinutes = 3,
+  useMixedSchedule = false,
+  daySchedules,
+  onAppMappingsChange,
 }: Props) {
   const [viewMode, setViewMode] = useState<"categories" | "apps">("categories");
   const [categories, setCategories] = useState<CategoryItem[]>(DEFAULT_CATEGORIES);
@@ -1300,8 +1306,11 @@ function ActivityAppsRankingComponent({
       toleranceMinutes,
       scheduleStart,
       scheduleEnd,
+      useMixedSchedule,
+      daySchedules,
+      appMappings: customCategories,
     });
-  }, [timeline, toleranceMinutes, scheduleStart, scheduleEnd]);
+  }, [timeline, toleranceMinutes, scheduleStart, scheduleEnd, useMixedSchedule, daySchedules, customCategories]);
 
   const isPhantomCategory = (name: string) => {
     const l = (name || "").toLowerCase().trim();

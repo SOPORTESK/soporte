@@ -52,6 +52,9 @@ interface Props {
   compliance?: any;
   serverMetrics?: any;
   toleranceMinutes?: number;
+  useMixedSchedule?: boolean;
+  daySchedules?: Record<number, { start?: string; end?: string; targetHours?: number }>;
+  appMappings?: Record<string, any>;
 }
 
 function formatHoursMinutes(ms: number): string {
@@ -105,8 +108,38 @@ function ActivityExecutiveChartsComponent({
   compliance,
   serverMetrics,
   toleranceMinutes = 3,
+  useMixedSchedule = false,
+  daySchedules,
+  appMappings: propAppMappings,
 }: Props) {
   const [periodPreset, setPeriodPreset] = useState<"hoy" | "este_mes" | "este_ano">("hoy");
+  const [localAppMappings, setLocalAppMappings] = useState<Record<string, any>>(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      const stored = localStorage.getItem("sek_app_categories");
+      return stored ? JSON.parse(stored) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  // Sincronizar dinámicamente si el usuario actualiza mapeos en la otra pestaña
+  React.useEffect(() => {
+    const handler = (e: any) => {
+      if (e.detail) {
+        setLocalAppMappings(e.detail);
+      } else {
+        try {
+          const stored = localStorage.getItem("sek_app_categories");
+          if (stored) setLocalAppMappings(JSON.parse(stored));
+        } catch {}
+      }
+    };
+    window.addEventListener("sek_app_categories_updated", handler);
+    return () => window.removeEventListener("sek_app_categories_updated", handler);
+  }, []);
+
+  const activeAppMappings = propAppMappings || localAppMappings;
 
   const handleSelectPreset = (preset: "hoy" | "este_mes" | "este_ano") => {
     setPeriodPreset(preset);
@@ -133,8 +166,11 @@ function ActivityExecutiveChartsComponent({
       toleranceMinutes,
       scheduleStart,
       scheduleEnd,
+      useMixedSchedule,
+      daySchedules,
+      appMappings: activeAppMappings,
     });
-  }, [timeline, toleranceMinutes, scheduleStart, scheduleEnd]);
+  }, [timeline, toleranceMinutes, scheduleStart, scheduleEnd, useMixedSchedule, daySchedules, activeAppMappings]);
 
   const { effectiveness, topTasks, hourlyTrend, totalCalculatedMs, productivoPct } = useMemo(() => {
     const effData = metrics.masterList.map((cat) => ({

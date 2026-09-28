@@ -217,6 +217,27 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
     }
   }, [isOpen, agentEmail, rangeMode, customDate]);
 
+  const [appMappings, setAppMappings] = useState<Record<string, any>>(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      const stored = localStorage.getItem("sek_app_categories");
+      return stored ? JSON.parse(stored) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  useEffect(() => {
+    fetch("/api/activity/app-categories")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.appMappings) {
+          setAppMappings(data.appMappings);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   // ─── MOTOR UNIFICADO DE JORNADA (Single Source of Truth) ───
   const effectiveToleranceMin = Math.max(1, toleranceMin || 5);
   const metrics = useMemo(() => {
@@ -225,8 +246,9 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
       toleranceMinutes: effectiveToleranceMin,
       scheduleStart,
       scheduleEnd,
+      appMappings,
     });
-  }, [timeline, targetDailyHours, effectiveToleranceMin, scheduleStart, scheduleEnd]);
+  }, [timeline, targetDailyHours, effectiveToleranceMin, scheduleStart, scheduleEnd, appMappings]);
 
   // Lagunas vigentes para justificar
   const activeDetectedGaps = metrics.detectedGaps;
