@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createGarantiasServiceClient } from "@/lib/supabase-garantias";
 import { GarantiasClient } from "@/components/admin/garantias/garantias-client";
 import { redirect } from "next/navigation";
+import { getUserWithTimeout, queryWithFallback } from "@/lib/supabase/resilient";
 
 export const dynamic = "force-dynamic";
 
@@ -13,20 +14,26 @@ export const metadata = {
 export default async function AdminGarantiasPage() {
   const supabase = createClient();
 
-  // Verificar autenticación y rol
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Verificar autenticación y rol de manera ultra-rápida (con cache de token en memoria)
+  const { user } = await getUserWithTimeout(supabase);
 
   if (!user) {
     redirect("/login");
   }
 
-  const { data: currentAgent } = await supabase
-    .from("sek_agent_config")
-    .select("nombre, apellido, rol")
-    .ilike("email", user.email || "")
-    .maybeSingle();
+  const { data: currentAgent } = await queryWithFallback(
+    `agent_config_${user.email || ""}`,
+    async () => {
+      const { data, error } = await supabase
+        .from("sek_agent_config")
+        .select("nombre, apellido, rol")
+        .ilike("email", user.email || "")
+        .maybeSingle();
+      return { data, error };
+    },
+    null,
+    60000
+  );
 
   const currentUser = {
     email: user.email || "",
@@ -43,14 +50,22 @@ export default async function AdminGarantiasPage() {
   try {
     const garantiasClient = createGarantiasServiceClient();
 
-    // Consultar los registros de garantías
-    const { data: recordsData, error: recordsError } = await garantiasClient
-      .from("garantias")
-      .select("*")
-      .order("fecha_creacion", { ascending: false })
-      .limit(1000);
+    // Consultar los registros de garantías con cache de alta velocidad (20s TTL)
+    const { data: recordsData } = await queryWithFallback(
+      "admin_garantias_records",
+      async () => {
+        const { data, error } = await garantiasClient
+          .from("garantias")
+          .select("*")
+          .order("fecha_creacion", { ascending: false })
+          .limit(1000);
+        return { data, error };
+      },
+      [],
+      20000 // 20s TTL para navegación instantánea
+    );
 
-    if (!recordsError && recordsData) {
+    if (recordsData && Array.isArray(recordsData)) {
       initialRecords = recordsData;
     }
 

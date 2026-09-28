@@ -190,11 +190,13 @@ export function GarantiasClient({
 
   // State for silent refresh indicator
   const [isRefreshing, setIsRefreshing] = React.useState(false);
+  const lastFetchRef = React.useRef<number>(Date.now());
 
   // Load all records with optional silent mode
   const loadRecords = React.useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     else setIsRefreshing(true);
+    lastFetchRef.current = Date.now();
     try {
       const res = await fetch("/api/admin/garantias?limit=1000", { cache: "no-store" });
       if (!res.ok) throw new Error("Error al consultar las garantías");
@@ -225,9 +227,11 @@ export function GarantiasClient({
       loadRecords(true);
     }, 30000);
 
-    // Al regresar a la pestaña del navegador, sincronizar de inmediato
+    // Al regresar a la pestaña del navegador, sincronizar solo si han pasado más de 30 segundos
     const onFocus = () => {
-      loadRecords(true);
+      if (Date.now() - lastFetchRef.current >= 30000) {
+        loadRecords(true);
+      }
     };
     window.addEventListener("focus", onFocus);
 

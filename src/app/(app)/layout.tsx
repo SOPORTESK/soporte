@@ -134,6 +134,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         {canAccessAdmin ? (
           <Link
             href={adminHref}
+            prefetch={false}
             className="group relative px-5 py-5 flex items-center gap-3 border-b border-border overflow-hidden hover:bg-muted/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             title="Abrir Panel de Administración"
           >

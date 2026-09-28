@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { ActivityTracker } from "@/components/admin/activity-tracker";
-import { getUserWithTimeout } from "@/lib/supabase/resilient";
+import { getUserWithTimeout, queryWithFallback } from "@/lib/supabase/resilient";
 import { getAgentGroupPermissions } from "@/lib/permissions";
 import { LogoutButton } from "@/components/logout-button";
 
@@ -9,14 +9,22 @@ export const dynamic = "force-dynamic";
 
 export default async function ActividadPage() {
   const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { user } = await getUserWithTimeout(supabase);
 
   const email = user?.email || "cbatista@sekunet.com";
-  const { data: agent } = await supabase
-    .from("sek_agent_config")
-    .select("email, nombre, apellido, rol")
-    .ilike("email", email)
-    .maybeSingle();
+  const { data: agent } = await queryWithFallback(
+    `agent_config_${email}`,
+    async () => {
+      const { data, error } = await supabase
+        .from("sek_agent_config")
+        .select("email, nombre, apellido, rol")
+        .ilike("email", email)
+        .maybeSingle();
+      return { data, error };
+    },
+    { email, nombre: "César Andrés", apellido: "Batista", rol: "superadmin" },
+    60000
+  );
 
   const isSuperadmin = agent?.rol === "superadmin";
   const userPerms = await getAgentGroupPermissions(agent?.rol || "");

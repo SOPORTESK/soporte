@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createGarantiasServiceClient } from "@/lib/supabase-garantias";
 import { createClient } from "@/lib/supabase/server";
+import { cacheDelete } from "@/lib/supabase/cache";
 
 export const dynamic = "force-dynamic";
 
@@ -114,6 +115,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       }
     }
 
+    cacheDelete("admin_garantias_records");
     return NextResponse.json({ ok: true, record: updated });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "Error al actualizar" }, { status: 500 });
@@ -137,6 +139,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    cacheDelete("admin_garantias_records");
     return NextResponse.json({ ok: true });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "Error al eliminar" }, { status: 500 });

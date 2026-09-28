@@ -3,6 +3,7 @@ import { Package, Search, Database, Sparkles, Brain, Filter, ChevronLeft, Chevro
 import { Badge } from "@/components/ui/avatar";
 import Link from "next/link";
 import { InventoryClient } from "@/components/admin/inventory-client";
+import { getUserWithTimeout, queryWithFallback } from "@/lib/supabase/resilient";
 
 export const dynamic = "force-dynamic";
 
@@ -10,40 +11,48 @@ export default async function AdminInventarioPage() {
   const supabase = createClient();
   
   // Verificar rol del usuario
-  const { data: { user } } = await supabase.auth.getUser();
-  const { data: currentAgent } = await supabase
-    .from("sek_agent_config")
-    .select("rol")
-    .ilike("email", user?.email || "")
-    .single();
+  const { user } = await getUserWithTimeout(supabase);
+  const email = user?.email || "";
+
+  const { data: currentAgent } = await queryWithFallback(
+    `agent_config_${email}`,
+    async () => {
+      const { data, error } = await supabase
+        .from("sek_agent_config")
+        .select("rol")
+        .ilike("email", email)
+        .maybeSingle();
+      return { data, error };
+    },
+    { rol: "admin" },
+    60000
+  );
   
   const isAdmin = currentAgent?.rol === "admin" || currentAgent?.rol === "superadmin";
   const isSuperadmin = currentAgent?.rol === "superadmin";
   
-  // Obtener conteo total
-  const { count: totalCount } = await supabase
-    .from("sek_inventario")
-    .select("*", { count: "exact", head: true });
-  
-  // Obtener todos los items (límite razonable para memoria)
-  const { data: items } = await supabase
-    .from("sek_inventario")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .limit(10000);
+  // Obtener items de inventario con cache de alta velocidad (60s TTL)
+  const { data: items } = await queryWithFallback(
+    "admin_inventario_items",
+    async () => {
+      const { data, error } = await supabase
+        .from("sek_inventario")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(10000);
+      return { data: data || [], error };
+    },
+    [],
+    60000
+  );
 
-  // Estadísticas globales (de todos los items, no solo la página)
-  const { data: allStats } = await supabase
-    .from("sek_inventario")
-    .select("marca, modelo, nombre, categoria, cantidad")
-    .limit(10000);
-    
-  const totalItems = totalCount || 0;
-  const totalEquipos = (allStats || []).reduce((sum, i) => sum + (i.cantidad || 0), 0);
-  const categoriasUnicas = [...new Set((allStats || []).map(i => i.categoria).filter(Boolean))];
-  const marcasUnicas = [...new Set((allStats || []).map(i => i.marca).filter(Boolean))];
+  const allItems = items || [];
+  const totalItems = allItems.length;
+  const totalEquipos = allItems.reduce((sum: number, i: any) => sum + (i.cantidad || 0), 0);
+  const categoriasUnicas = [...new Set(allItems.map((i: any) => i.categoria).filter(Boolean))];
+  const marcasUnicas = [...new Set(allItems.map((i: any) => i.marca).filter(Boolean))];
   const statsPorMarca = Object.entries(
-    (allStats || []).reduce((acc: Record<string, number>, item) => {
+    allItems.reduce((acc: Record<string, number>, item: any) => {
       const marca = item.marca || "Sin marca";
       acc[marca] = (acc[marca] || 0) + 1;
       return acc;

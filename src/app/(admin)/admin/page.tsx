@@ -71,34 +71,73 @@ export default async function AdminDashboardPage() {
   }
   const isSuperadmin = currentAgent?.rol === "superadmin";
 
-  // ── Queries paralelas ──────────────────────────────────────────────────────
-  const [
-    { count: totalAgentes },
-    { count: totalCasos },
-    { count: countResueltos },
-    { count: casosAbiertos },
-    { count: casosEscalados },
-    { count: casosIa },
-    { count: totalCanales },
-    { data: docChunks },
-    { count: totalInventario },
-    { data: casosRecientes },
-    { data: agentes },
-    { data: agentConfig },
-    allCasosResult,
-  ] = await Promise.all([
-    supabase.from("sek_agent_config").select("*", { count: "exact", head: true }),
-    supabase.from("sek_cases").select("*", { count: "exact", head: true }).neq("canal", "simulator").neq("es_test", true),
-    supabase.from("sek_cases").select("*", { count: "exact", head: true }).or("estado.in.(resuelto,cerrado),closed_at.not.is.null").neq("canal", "simulator").neq("es_test", true),
-    supabase.from("sek_cases").select("*", { count: "exact", head: true }).in("estado", ["ia_atendiendo", "abierto", "escalado", "pendiente"]).neq("canal", "simulator").neq("es_test", true),
-    supabase.from("sek_cases").select("*", { count: "exact", head: true }).eq("estado", "escalado").neq("canal", "simulator").neq("es_test", true),
-    supabase.from("sek_cases").select("*", { count: "exact", head: true }).eq("estado", "ia_atendiendo").neq("canal", "simulator").neq("es_test", true),
-    supabase.from("sek_channels").select("*", { count: "exact", head: true }),
-    supabase.from("sek_doc_chunks").select("doc_id, doc_name"),
-    supabase.from("sek_inventario").select("*", { count: "exact", head: true }),
-    supabase.from("sek_cases").select("id, title, estado, canal, created_at, assigned_to").neq("canal", "simulator").neq("es_test", true).order("created_at", { ascending: false }).limit(6),
-    supabase.from("sek_agent_config").select("email, nombre, apellido, rol").neq("email", "system_prompt@sekunet.com"),
-    supabase.from("sek_agent_config").select("system_prompt, ia_activa, modo_no_atendido").eq("email", "system_prompt@sekunet.com").maybeSingle(),
+  // ── Queries paralelas con cache de alta velocidad (30s) ────────────────────
+  const [dashboardSummaryRes, allCasosResult] = await Promise.all([
+    queryWithFallback(
+      "admin_dashboard_summary",
+      async () => {
+        const [
+          agentesRes,
+          casosRes,
+          resueltosRes,
+          abiertosRes,
+          escaladosRes,
+          iaRes,
+          canalesRes,
+          docChunksRes,
+          inventarioRes,
+          recientesRes,
+          allAgentesRes,
+          agentConfigRes,
+        ] = await Promise.all([
+          supabase.from("sek_agent_config").select("*", { count: "exact", head: true }),
+          supabase.from("sek_cases").select("*", { count: "exact", head: true }).neq("canal", "simulator").neq("es_test", true),
+          supabase.from("sek_cases").select("*", { count: "exact", head: true }).or("estado.in.(resuelto,cerrado),closed_at.not.is.null").neq("canal", "simulator").neq("es_test", true),
+          supabase.from("sek_cases").select("*", { count: "exact", head: true }).in("estado", ["ia_atendiendo", "abierto", "escalado", "pendiente"]).neq("canal", "simulator").neq("es_test", true),
+          supabase.from("sek_cases").select("*", { count: "exact", head: true }).eq("estado", "escalado").neq("canal", "simulator").neq("es_test", true),
+          supabase.from("sek_cases").select("*", { count: "exact", head: true }).eq("estado", "ia_atendiendo").neq("canal", "simulator").neq("es_test", true),
+          supabase.from("sek_channels").select("*", { count: "exact", head: true }),
+          supabase.from("sek_doc_chunks").select("doc_id, doc_name"),
+          supabase.from("sek_inventario").select("*", { count: "exact", head: true }),
+          supabase.from("sek_cases").select("id, title, estado, canal, created_at, assigned_to").neq("canal", "simulator").neq("es_test", true).order("created_at", { ascending: false }).limit(6),
+          supabase.from("sek_agent_config").select("email, nombre, apellido, rol").neq("email", "system_prompt@sekunet.com"),
+          supabase.from("sek_agent_config").select("system_prompt, ia_activa, modo_no_atendido").eq("email", "system_prompt@sekunet.com").maybeSingle(),
+        ]);
+
+        return {
+          data: {
+            totalAgentes: agentesRes.count,
+            totalCasos: casosRes.count,
+            countResueltos: resueltosRes.count,
+            casosAbiertos: abiertosRes.count,
+            casosEscalados: escaladosRes.count,
+            casosIa: iaRes.count,
+            totalCanales: canalesRes.count,
+            docChunks: docChunksRes.data,
+            totalInventario: inventarioRes.count,
+            casosRecientes: recientesRes.data,
+            agentes: allAgentesRes.data,
+            agentConfig: agentConfigRes.data,
+          },
+          error: null,
+        };
+      },
+      {
+        totalAgentes: 0,
+        totalCasos: 0,
+        countResueltos: 0,
+        casosAbiertos: 0,
+        casosEscalados: 0,
+        casosIa: 0,
+        totalCanales: 0,
+        docChunks: [],
+        totalInventario: 0,
+        casosRecientes: [],
+        agentes: [],
+        agentConfig: null,
+      },
+      30000 // 30s TTL
+    ),
     queryWithFallback(
       "admin_all_casos_kpi",
       async () => {
@@ -124,6 +163,21 @@ export default async function AdminDashboardPage() {
       30000 // 30 segundos de cache: instantáneo para cambios de pestaña
     )
   ]);
+
+  const {
+    totalAgentes,
+    totalCasos,
+    countResueltos,
+    casosAbiertos,
+    casosEscalados,
+    casosIa,
+    totalCanales,
+    docChunks,
+    totalInventario,
+    casosRecientes,
+    agentes,
+    agentConfig,
+  } = dashboardSummaryRes.data;
 
   const allCasos = allCasosResult.data ?? [];
 

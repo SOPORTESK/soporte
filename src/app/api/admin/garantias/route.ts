@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createGarantiasServiceClient, GarantiaRecord } from "@/lib/supabase-garantias";
 import { createClient } from "@/lib/supabase/server";
+import { cacheDelete } from "@/lib/supabase/cache";
 
 export const dynamic = "force-dynamic";
 
@@ -180,6 +181,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: lastError?.message || "Error al insertar registro" }, { status: 500 });
     }
 
+    cacheDelete("admin_garantias_records");
     return NextResponse.json({ ok: true, record: savedRecord });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "Error al crear registro" }, { status: 500 });
