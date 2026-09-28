@@ -78,22 +78,34 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     // Registrar en garantias_historial si hubo cambios
     if (prevRecord) {
       try {
-        const cambios: Record<string, { anterior: any; nuevo: any }> = {};
+        const cambios: string[] = [];
         for (const key of Object.keys(body)) {
-          if (body[key] !== prevRecord[key]) {
-            cambios[key] = { anterior: prevRecord[key], nuevo: body[key] };
+          if (body[key] !== prevRecord[key] && key !== "fecha_modificacion" && key !== "modificado_por" && key !== "nota") {
+            cambios.push(`${key}: ${prevRecord[key] || "—"} ➔ ${body[key]}`);
           }
         }
 
-        await client.from("garantias_historial").insert({
+        const obsTexto = (body.observaciones && String(body.observaciones).trim()) || "";
+        const segTexto = (body.seguimiento && String(body.seguimiento).trim()) || "";
+        const obsFinal = obsTexto || (cambios.length > 0 ? cambios.join(" | ") : (body.nota || "Actualización de registro"));
+        const segFinal = segTexto || prevRecord.seguimiento || (cambios.length > 0 ? cambios.join(" | ") : "");
+
+        const historialPayload = {
+          id: (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : (`hist_${Date.now()}`),
           garantia_id: params.id,
           fecha: now,
-          usuario: nombreModificador,
-          nota: body.nota || (body.estatus !== prevRecord.estatus ? `Cambio de estatus: ${prevRecord.estatus || "Sin estatus"} ➔ ${body.estatus}` : "Actualización de campos"),
-          cambios,
-          estatus_anterior: prevRecord.estatus || null,
-          estatus_nuevo: body.estatus || prevRecord.estatus || null,
-        });
+          observaciones: obsFinal,
+          seguimiento: segFinal,
+          modificado_por: nombreModificador,
+        };
+
+        const { error: histInsertError } = await client
+          .from("garantias_historial")
+          .insert(historialPayload);
+
+        if (histInsertError) {
+          console.warn("[garantias historial] Error al guardar historial:", histInsertError);
+        }
       } catch (histErr) {
         console.warn("[garantias historial] No se pudo guardar historial:", histErr);
       }

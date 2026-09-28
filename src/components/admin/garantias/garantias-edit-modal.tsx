@@ -401,6 +401,36 @@ export function GarantiasEditModal({ record, onClose, onSaved, canEditDev = true
                 </div>
               </div>
 
+              {/* Sección 6: Observaciones y Seguimiento */}
+              <div className="border border-border/80 rounded-xl p-4 bg-muted/10 space-y-3">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-blue-500" />
+                  Observaciones y Seguimiento (Histórico)
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-muted-foreground mb-1">Observaciones</label>
+                    <textarea
+                      rows={2}
+                      value={form.observaciones || ""}
+                      onChange={e => handleChange("observaciones", e.target.value)}
+                      placeholder="Notas u observaciones sobre el trámite..."
+                      className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-muted-foreground mb-1">Seguimiento</label>
+                    <textarea
+                      rows={2}
+                      value={form.seguimiento || ""}
+                      onChange={e => handleChange("seguimiento", e.target.value)}
+                      placeholder="Bitácora de seguimiento..."
+                      className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
               {/* Nota de modificación */}
               <div>
                 <label className="block text-xs font-semibold text-muted-foreground mb-1">
@@ -427,13 +457,34 @@ export function GarantiasEditModal({ record, onClose, onSaved, canEditDev = true
               ) : (
                 <div className="space-y-3">
                   {historialList.map((h, i) => (
-                    <div key={h.id || i} className="p-3.5 rounded-xl border border-border bg-muted/30 space-y-1.5">
+                    <div key={h.id || i} className="p-3.5 rounded-xl border border-border bg-muted/30 space-y-2">
                       <div className="flex items-center justify-between text-xs">
-                        <span className="font-semibold text-foreground">{h.usuario || "Usuario desconocido"}</span>
-                        <span className="text-muted-foreground">{new Date(h.fecha).toLocaleString("es-CR")}</span>
+                        <span className="font-bold text-foreground">
+                          {h.modificado_por || h.usuario || "Técnico"}
+                        </span>
+                        <span className="text-muted-foreground text-[11px] font-mono">
+                          {h.fecha ? new Date(h.fecha).toLocaleString("es-CR") : "Fecha desc."}
+                        </span>
                       </div>
-                      {h.nota && (
-                        <p className="text-xs text-brand-600 dark:text-brand-400 font-medium">{h.nota}</p>
+                      {(h.observaciones || h.nota) && (
+                        <div className="bg-background/60 p-2.5 rounded-lg border border-border/60">
+                          <div className="text-[10px] font-black uppercase tracking-wider text-muted-foreground mb-0.5">
+                            Observaciones:
+                          </div>
+                          <p className="text-xs text-foreground font-medium whitespace-pre-wrap">
+                            {h.observaciones || h.nota}
+                          </p>
+                        </div>
+                      )}
+                      {h.seguimiento && (
+                        <div className="bg-background/60 p-2.5 rounded-lg border border-border/60">
+                          <div className="text-[10px] font-black uppercase tracking-wider text-muted-foreground mb-0.5">
+                            Seguimiento:
+                          </div>
+                          <p className="text-xs text-muted-foreground whitespace-pre-wrap">
+                            {h.seguimiento}
+                          </p>
+                        </div>
                       )}
                       {h.cambios && Object.keys(h.cambios).length > 0 && (
                         <div className="text-[11px] font-mono text-muted-foreground bg-background/50 p-2 rounded border border-border/50 space-y-0.5">
