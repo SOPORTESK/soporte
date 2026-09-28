@@ -573,90 +573,91 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
             ) : (
               <div className="space-y-6">
                 {/* 1. Tarjetas KPI de la Jornada con separación limpia de Trabajo en PC y Justificación Manual */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-                  <div className="p-3.5 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-2 shadow-sm">
+                {/* 1. Tarjetas KPI de la Jornada con separación limpia de Trabajo en PC y Justificación Manual */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                  <div className="p-4 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-3 shadow-sm hover:border-border transition-all">
                     <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">
+                      <span className="text-[11px] font-black uppercase tracking-wider text-muted-foreground whitespace-nowrap">
                         Meta Jornada
                       </span>
-                      <div className="h-7 w-7 rounded-lg bg-violet-500/15 text-violet-400 grid place-items-center shrink-0">
-                        <Briefcase className="h-3.5 w-3.5" />
+                      <div className="h-8 w-8 rounded-xl bg-violet-500/15 text-violet-400 grid place-items-center shrink-0">
+                        <Briefcase className="h-4 w-4" />
                       </div>
                     </div>
                     <div>
-                      <p className="text-xl font-black text-violet-400 tabular-nums whitespace-nowrap tracking-tight">
+                      <p className="text-2xl font-black text-violet-400 tabular-nums whitespace-nowrap tracking-tight">
                         {targetDailyHours}h 00m
                       </p>
-                      <span className="text-[10px] text-muted-foreground font-medium">Jornada estándar</span>
+                      <span className="text-xs text-muted-foreground font-medium">Jornada estándar</span>
                     </div>
                   </div>
 
-                  <div className="p-3.5 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-2 shadow-sm">
+                  <div className="p-4 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-3 shadow-sm hover:border-border transition-all">
                     <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">
+                      <span className="text-[11px] font-black uppercase tracking-wider text-muted-foreground whitespace-nowrap">
                         Trabajo en PC
                       </span>
-                      <div className="h-7 w-7 rounded-lg bg-emerald-500/15 text-emerald-400 grid place-items-center shrink-0">
-                        <Monitor className="h-3.5 w-3.5" />
+                      <div className="h-8 w-8 rounded-xl bg-emerald-500/15 text-emerald-400 grid place-items-center shrink-0">
+                        <Monitor className="h-4 w-4" />
                       </div>
                     </div>
                     <div>
-                      <p className="text-xl font-black text-emerald-400 tabular-nums whitespace-nowrap tracking-tight">
+                      <p className="text-2xl font-black text-emerald-400 tabular-nums whitespace-nowrap tracking-tight">
                         {metrics.pcWorkTime}
                       </p>
-                      <span className="text-[10px] text-emerald-500/80 font-medium">Actividad en pantalla</span>
+                      <span className="text-xs text-emerald-500/80 font-medium">Actividad en pantalla</span>
                     </div>
                   </div>
 
-                  <div className="p-3.5 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-2 shadow-sm">
+                  <div className="p-4 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-3 shadow-sm hover:border-border transition-all">
                     <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">
+                      <span className="text-[11px] font-black uppercase tracking-wider text-muted-foreground whitespace-nowrap">
                         Justificación Manual
                       </span>
-                      <div className="h-7 w-7 rounded-lg bg-cyan-500/15 text-cyan-400 grid place-items-center shrink-0">
-                        <CheckCircle2 className="h-3.5 w-3.5" />
+                      <div className="h-8 w-8 rounded-xl bg-cyan-500/15 text-cyan-400 grid place-items-center shrink-0">
+                        <CheckCircle2 className="h-4 w-4" />
                       </div>
                     </div>
                     <div>
-                      <p className="text-xl font-black text-cyan-400 tabular-nums whitespace-nowrap tracking-tight">
+                      <p className="text-2xl font-black text-cyan-400 tabular-nums whitespace-nowrap tracking-tight">
                         {metrics.manualJustificationTime}
                       </p>
-                      <span className="text-[10px] text-cyan-500/80 font-medium">Labores fuera de PC</span>
+                      <span className="text-xs text-cyan-500/80 font-medium">Labores fuera de PC</span>
                     </div>
                   </div>
 
-                  <div className="p-3.5 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-2 shadow-sm">
+                  <div className="p-4 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-3 shadow-sm hover:border-border transition-all">
                     <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">
+                      <span className="text-[11px] font-black uppercase tracking-wider text-muted-foreground whitespace-nowrap">
                         Descanso / Almuerzo
                       </span>
-                      <div className="h-7 w-7 rounded-lg bg-amber-500/15 text-amber-400 grid place-items-center shrink-0">
-                        <Coffee className="h-3.5 w-3.5" />
+                      <div className="h-8 w-8 rounded-xl bg-amber-500/15 text-amber-400 grid place-items-center shrink-0">
+                        <Coffee className="h-4 w-4" />
                       </div>
                     </div>
                     <div>
-                      <p className="text-xl font-black text-amber-400 tabular-nums whitespace-nowrap tracking-tight">
+                      <p className="text-2xl font-black text-amber-400 tabular-nums whitespace-nowrap tracking-tight">
                         {(officialBreakMs + officialSanitaryMs) >= 60000 ? formatMinHours(officialBreakMs + officialSanitaryMs) : "0m"}
                       </p>
-                      <span className="text-[10px] text-amber-500/80 font-medium">Pausa oficial registrada</span>
+                      <span className="text-xs text-amber-500/80 font-medium">Pausa oficial registrada</span>
                     </div>
                   </div>
 
-                  <div className="p-3.5 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-2 shadow-sm">
+                  <div className="p-4 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-3 shadow-sm hover:border-border transition-all">
                     <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">
+                      <span className="text-[11px] font-black uppercase tracking-wider text-muted-foreground whitespace-nowrap">
                         Inactividad
                       </span>
-                      <div className="h-7 w-7 rounded-lg bg-slate-500/15 text-slate-400 grid place-items-center shrink-0">
-                        <Clock className="h-3.5 w-3.5" />
+                      <div className="h-8 w-8 rounded-xl bg-slate-500/15 text-slate-400 grid place-items-center shrink-0">
+                        <Clock className="h-4 w-4" />
                       </div>
                     </div>
                     <div>
-                      <p className="text-xl font-black text-slate-300 tabular-nums whitespace-nowrap tracking-tight">
+                      <p className="text-2xl font-black text-slate-300 tabular-nums whitespace-nowrap tracking-tight">
                         {officialIdleMs >= 60000 ? formatMinHours(officialIdleMs) : "0m"}
                       </p>
-                      <div className="flex items-center justify-between mt-1 text-[10px] gap-1">
-                        <span className="text-muted-foreground font-medium truncate">
+                      <div className="flex items-center justify-between mt-1 text-xs gap-1">
+                        <span className="text-muted-foreground font-medium">
                           Tolerancia: {toleranceMin}m
                         </span>
                         {officialIdleMs >= 60000 && activeDetectedGaps.length > 0 && (
@@ -672,20 +673,20 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                     </div>
                   </div>
 
-                  <div className="p-3.5 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-2 shadow-sm">
+                  <div className="p-4 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-3 shadow-sm hover:border-border transition-all">
                     <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">
+                      <span className="text-[11px] font-black uppercase tracking-wider text-muted-foreground whitespace-nowrap">
                         Tiempo Restante
                       </span>
-                      <div className="h-7 w-7 rounded-lg bg-sky-500/15 text-sky-400 grid place-items-center shrink-0">
-                        <TrendingUp className="h-3.5 w-3.5" />
+                      <div className="h-8 w-8 rounded-xl bg-sky-500/15 text-sky-400 grid place-items-center shrink-0">
+                        <TrendingUp className="h-4 w-4" />
                       </div>
                     </div>
                     <div>
-                      <p className="text-xl font-black text-sky-400 tabular-nums whitespace-nowrap tracking-tight">
+                      <p className="text-2xl font-black text-sky-400 tabular-nums whitespace-nowrap tracking-tight">
                         {officialDeficitMs > 0 ? formatMinHours(officialDeficitMs) : "0m"}
                       </p>
-                      <span className="text-[10px] text-sky-500/80 font-medium">
+                      <span className="text-xs text-sky-500/80 font-medium">
                         {officialDeficitMs > 0 ? "Para cumplir meta" : "¡Meta cumplida!"}
                       </span>
                     </div>

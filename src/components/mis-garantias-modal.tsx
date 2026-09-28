@@ -83,7 +83,7 @@ export function MisGarantiasModal({ isOpen, onClose, agent }: MisGarantiasModalP
   const [records, setRecords] = React.useState<GarantiaRecord[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [search, setSearch] = React.useState("");
-  const [subTab, setSubTab] = React.useState<"todas" | "def" | "temp" | "rma">("todas");
+  const [subTab, setSubTab] = React.useState<"todas" | "def" | "temp">("todas");
   const [filterEstatus, setFilterEstatus] = React.useState<string>("todos");
   const [expandedId, setExpandedId] = React.useState<string | null>(null);
   const [editingRecord, setEditingRecord] = React.useState<GarantiaRecord | null>(null);
@@ -137,11 +137,6 @@ export function MisGarantiasModal({ isOpen, onClose, agent }: MisGarantiasModalP
   const stats = React.useMemo(() => {
     const def = records.filter((r) => r.tipo === "salida_definitiva");
     const temp = records.filter((r) => r.tipo === "salida_temporal");
-    const rma = records.filter((r) => {
-      const cat = (r.categoria || "").toLowerCase();
-      return Boolean(r.ticket_rma || r.fecha_rma || cat.includes("rma"));
-    });
-
     const defAprobadas = def.filter((r) => Boolean(r.dev && r.dev.trim() !== "" && r.dev !== "—"));
     const defPendientes = def.length - defAprobadas.length;
 
@@ -151,7 +146,6 @@ export function MisGarantiasModal({ isOpen, onClose, agent }: MisGarantiasModalP
       defAprobadas: defAprobadas.length,
       defPendientes,
       tempTotal: temp.length,
-      rmaTotal: rma.length,
     };
   }, [records]);
 
@@ -164,11 +158,6 @@ export function MisGarantiasModal({ isOpen, onClose, agent }: MisGarantiasModalP
       list = list.filter((r) => r.tipo === "salida_definitiva");
     } else if (subTab === "temp") {
       list = list.filter((r) => r.tipo === "salida_temporal");
-    } else if (subTab === "rma") {
-      list = list.filter((r) => {
-        const cat = (r.categoria || "").toLowerCase();
-        return Boolean(r.ticket_rma || r.fecha_rma || cat.includes("rma"));
-      });
     }
 
     // Filtro por estatus / aprobación
@@ -212,23 +201,23 @@ export function MisGarantiasModal({ isOpen, onClose, agent }: MisGarantiasModalP
       }}
     >
       <div
-        className="w-full max-w-5xl h-[88vh] max-h-[860px] bg-card border border-border rounded-2xl shadow-2xl flex flex-col overflow-hidden text-foreground animate-in zoom-in-95 duration-200"
+        className="w-full max-w-7xl w-[96vw] h-[92vh] max-h-[940px] bg-card border border-border rounded-2xl shadow-2xl flex flex-col overflow-hidden text-foreground animate-in zoom-in-95 duration-200"
         role="dialog"
         aria-modal="true"
       >
         {/* ── Encabezado nativo de la ventana ── */}
-        <div className="px-5 py-4 border-b border-border bg-muted/20 flex items-center justify-between shrink-0 gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="h-10 w-10 rounded-xl bg-brand-500/10 text-brand-500 border border-brand-500/20 flex items-center justify-center shrink-0 shadow-sm">
-              <ShieldCheck className="h-5 w-5" />
+        <div className="px-6 py-4 border-b border-border bg-muted/20 flex items-center justify-between shrink-0 gap-3">
+          <div className="flex items-center gap-3.5 min-w-0">
+            <div className="h-11 w-11 rounded-2xl bg-brand-500/10 text-brand-500 border border-brand-500/20 flex items-center justify-center shrink-0 shadow-sm">
+              <ShieldCheck className="h-6 w-6" />
             </div>
             <div className="min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="text-base font-bold tracking-tight text-foreground truncate">
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <h2 className="text-lg font-bold tracking-tight text-foreground truncate">
                   Mis Procesos de Garantías
                 </h2>
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-brand-500/10 text-brand-500 border border-brand-500/25 shrink-0">
-                  <User className="h-3 w-3" />
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-brand-500/10 text-brand-500 border border-brand-500/25 shrink-0">
+                  <User className="h-3.5 w-3.5" />
                   Propietario: {agentDisplayName}
                 </span>
               </div>
@@ -243,74 +232,70 @@ export function MisGarantiasModal({ isOpen, onClose, agent }: MisGarantiasModalP
               onClick={() => loadMyRecords()}
               disabled={loading}
               title="Actualizar registros en tiempo real"
-              className="p-2 rounded-lg border border-border bg-background hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer disabled:opacity-50"
+              className="p-2.5 rounded-xl border border-border bg-background hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer disabled:opacity-50"
             >
               <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin text-brand-500" : ""}`} />
             </button>
             <button
               onClick={onClose}
               title="Cerrar ventana (Esc)"
-              className="p-2 rounded-lg border border-border bg-background hover:bg-red-500/10 hover:text-red-500 hover:border-red-500/30 text-muted-foreground transition-colors cursor-pointer"
+              className="p-2.5 rounded-xl border border-border bg-background hover:bg-red-500/10 hover:text-red-500 hover:border-red-500/30 text-muted-foreground transition-colors cursor-pointer"
             >
               <X className="h-4 w-4" />
             </button>
           </div>
         </div>
 
-        {/* ── Barra de Métricas Rápidas del Propietario ── */}
-        <div className="px-5 py-3 bg-muted/10 border-b border-border grid grid-cols-2 sm:grid-cols-4 gap-2.5 shrink-0">
-          <div className="p-2.5 rounded-xl bg-card border border-border/80 flex items-center justify-between">
-            <div>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Total Mis Registros</span>
-              <div className="text-lg font-black text-foreground">{stats.total}</div>
+        {/* ── Barra de Métricas Rápidas del Propietario (3 columnas amplias) ── */}
+        <div className="px-6 py-4 bg-muted/10 border-b border-border grid grid-cols-1 sm:grid-cols-3 gap-4 shrink-0">
+          <div className="p-4 rounded-2xl bg-card border border-border/80 flex items-center justify-between shadow-xs">
+            <div className="space-y-1">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground whitespace-nowrap">
+                Total Mis Registros
+              </span>
+              <div className="text-2xl font-black text-foreground tabular-nums">{stats.total}</div>
             </div>
-            <div className="h-8 w-8 rounded-lg bg-blue-500/10 text-blue-500 flex items-center justify-center">
-              <Layers className="h-4 w-4" />
+            <div className="h-11 w-11 rounded-xl bg-blue-500/10 text-blue-500 flex items-center justify-center shrink-0">
+              <Layers className="h-5 w-5" />
             </div>
           </div>
 
-          <div className="p-2.5 rounded-xl bg-card border border-border/80 flex items-center justify-between">
-            <div>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Definitivas</span>
-              <div className="text-lg font-black text-emerald-600 flex items-center gap-1.5">
+          <div className="p-4 rounded-2xl bg-card border border-border/80 flex items-center justify-between shadow-xs">
+            <div className="space-y-1">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground whitespace-nowrap">
+                Salidas Definitivas
+              </span>
+              <div className="text-2xl font-black text-emerald-600 flex items-center gap-2 tabular-nums">
                 {stats.defTotal}
-                <span className="text-[10px] font-semibold text-muted-foreground">
-                  ({stats.defAprobadas} aprobadas)
+                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                  {stats.defAprobadas} aprobadas
                 </span>
               </div>
             </div>
-            <div className="h-8 w-8 rounded-lg bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
-              <CheckCircle2 className="h-4 w-4" />
+            <div className="h-11 w-11 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center shrink-0">
+              <CheckCircle2 className="h-5 w-5" />
             </div>
           </div>
 
-          <div className="p-2.5 rounded-xl bg-card border border-border/80 flex items-center justify-between">
-            <div>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Temporales</span>
-              <div className="text-lg font-black text-amber-500">{stats.tempTotal}</div>
+          <div className="p-4 rounded-2xl bg-card border border-border/80 flex items-center justify-between shadow-xs">
+            <div className="space-y-1">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground whitespace-nowrap">
+                Salidas Temporales
+              </span>
+              <div className="text-2xl font-black text-amber-500 tabular-nums">{stats.tempTotal}</div>
             </div>
-            <div className="h-8 w-8 rounded-lg bg-amber-500/10 text-amber-500 flex items-center justify-center">
-              <Clock className="h-4 w-4" />
-            </div>
-          </div>
-
-          <div className="p-2.5 rounded-xl bg-card border border-border/80 flex items-center justify-between">
-            <div>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Trámites RMA</span>
-              <div className="text-lg font-black text-violet-500">{stats.rmaTotal}</div>
-            </div>
-            <div className="h-8 w-8 rounded-lg bg-violet-500/10 text-violet-500 flex items-center justify-center">
-              <Wrench className="h-4 w-4" />
+            <div className="h-11 w-11 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center shrink-0">
+              <Clock className="h-5 w-5" />
             </div>
           </div>
         </div>
 
         {/* ── Sub-navegación y Filtros ── */}
-        <div className="p-3 sm:px-5 border-b border-border bg-card flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 shrink-0">
-          <div className="flex items-center gap-1 bg-muted/40 p-1 rounded-xl border border-border shrink-0 overflow-x-auto">
+        <div className="p-3 sm:px-6 border-b border-border bg-card flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 shrink-0">
+          <div className="flex items-center gap-1.5 bg-muted/40 p-1 rounded-xl border border-border shrink-0 overflow-x-auto">
             <button
               onClick={() => setSubTab("todas")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
                 subTab === "todas" ? "bg-background text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
               }`}
             >
@@ -318,7 +303,7 @@ export function MisGarantiasModal({ isOpen, onClose, agent }: MisGarantiasModalP
             </button>
             <button
               onClick={() => setSubTab("def")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
                 subTab === "def" ? "bg-background text-brand-500 shadow-xs" : "text-muted-foreground hover:text-foreground"
               }`}
             >
@@ -326,36 +311,28 @@ export function MisGarantiasModal({ isOpen, onClose, agent }: MisGarantiasModalP
             </button>
             <button
               onClick={() => setSubTab("temp")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
                 subTab === "temp" ? "bg-background text-amber-500 shadow-xs" : "text-muted-foreground hover:text-foreground"
               }`}
             >
               Temporales ({stats.tempTotal})
             </button>
-            <button
-              onClick={() => setSubTab("rma")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
-                subTab === "rma" ? "bg-background text-violet-500 shadow-xs" : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              RMA ({stats.rmaTotal})
-            </button>
           </div>
 
-          <div className="flex items-center gap-2 flex-1 justify-end">
-            <div className="relative flex-1 sm:max-w-[240px]">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          <div className="flex items-center gap-2.5 flex-1 justify-end">
+            <div className="relative flex-1 sm:max-w-[280px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
               <input
                 type="text"
-                placeholder="Buscar boleta, ticket, serie..."
+                placeholder="Buscar boleta, ticket, cliente, serie..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-border bg-background text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand-500"
+                className="w-full pl-9 pr-3 py-1.5 rounded-xl border border-border bg-background text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand-500"
               />
               {search && (
                 <button
                   onClick={() => setSearch("")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                 >
                   <X className="h-3 w-3" />
                 </button>
@@ -365,7 +342,7 @@ export function MisGarantiasModal({ isOpen, onClose, agent }: MisGarantiasModalP
             <select
               value={filterEstatus}
               onChange={(e) => setFilterEstatus(e.target.value)}
-              className="px-2.5 py-1.5 rounded-lg border border-border bg-background text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-brand-500 font-medium shrink-0"
+              className="px-3 py-1.5 rounded-xl border border-border bg-background text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-brand-500 font-medium shrink-0 cursor-pointer"
             >
               <option value="todos">Estado: Todos</option>
               <option value="aprobados">Aprobados (Con DEV)</option>
@@ -374,8 +351,8 @@ export function MisGarantiasModal({ isOpen, onClose, agent }: MisGarantiasModalP
           </div>
         </div>
 
-        {/* ── Tabla de Contenido con Scroll Nativo ── */}
-        <div className="flex-1 overflow-auto min-h-0 divide-y divide-border">
+        {/* ── Tabla de Contenido con Scroll Horizontal y Vertical Amplio ── */}
+        <div className="flex-1 overflow-auto min-h-0 bg-card">
           {loading && records.length === 0 ? (
             <div className="h-64 flex flex-col items-center justify-center gap-2 text-muted-foreground">
               <RefreshCw className="h-6 w-6 animate-spin text-brand-500" />
@@ -392,18 +369,18 @@ export function MisGarantiasModal({ isOpen, onClose, agent }: MisGarantiasModalP
               </p>
             </div>
           ) : (
-            <table className="w-full text-left border-collapse text-xs">
-              <thead className="bg-muted/30 sticky top-0 z-10 border-b border-border backdrop-blur-sm text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+            <table className="w-full text-left border-collapse text-xs min-w-[1180px]">
+              <thead className="bg-muted/40 sticky top-0 z-10 border-b border-border backdrop-blur-sm text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
                 <tr>
-                  <th className="p-3 w-8"></th>
-                  <th className="p-3">Boleta</th>
-                  <th className="p-3">Fecha</th>
-                  <th className="p-3">Ticket</th>
-                  <th className="p-3">Categoría</th>
-                  <th className="p-3">Cliente</th>
-                  <th className="p-3">Artículo / Serie</th>
-                  <th className="p-3">Estatus & Aprobación</th>
-                  <th className="p-3 text-right">Acciones</th>
+                  <th className="py-3.5 px-4 w-10"></th>
+                  <th className="py-3.5 px-4 w-32">Boleta</th>
+                  <th className="py-3.5 px-4 w-28">Fecha</th>
+                  <th className="py-3.5 px-4 w-24">Ticket</th>
+                  <th className="py-3.5 px-4 w-36">Categoría</th>
+                  <th className="py-3.5 px-4 min-w-[240px]">Cliente</th>
+                  <th className="py-3.5 px-4 min-w-[300px]">Artículo / Modelo & Serie</th>
+                  <th className="py-3.5 px-4 w-44">Estatus & DEV</th>
+                  <th className="py-3.5 px-4 w-28 text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -420,78 +397,85 @@ export function MisGarantiasModal({ isOpen, onClose, agent }: MisGarantiasModalP
                         onClick={() => setExpandedId(isExpanded ? null : rid)}
                         className="hover:bg-muted/40 transition-colors cursor-pointer group"
                       >
-                        <td className="p-3 text-muted-foreground">
+                        <td className="py-3.5 px-4 text-muted-foreground">
                           {isExpanded ? (
-                            <ChevronDown className="h-3.5 w-3.5 text-brand-500" />
+                            <ChevronDown className="h-4 w-4 text-brand-500" />
                           ) : (
-                            <ChevronRight className="h-3.5 w-3.5 group-hover:text-foreground" />
+                            <ChevronRight className="h-4 w-4 group-hover:text-foreground" />
                           )}
                         </td>
-                        <td className="p-3 font-mono font-bold whitespace-nowrap">
+                        <td className="py-3.5 px-4 font-mono font-bold whitespace-nowrap">
                           <span
-                            className={`px-2 py-0.5 rounded text-[11px] font-mono border ${
+                            className={`px-2.5 py-1 rounded-lg text-xs font-mono border ${
                               (r.boleta || "").startsWith("GNC") || (r.boleta || "").startsWith("TNC")
-                                ? "bg-purple-500/10 text-purple-600 border-purple-500/20"
+                                ? "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/25"
                                 : (r.boleta || "").startsWith("G")
-                                ? "bg-brand-500/10 text-brand-600 border-brand-500/20"
-                                : "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+                                ? "bg-brand-500/10 text-brand-600 dark:text-brand-400 border-brand-500/25"
+                                : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/25"
                             }`}
                           >
                             {r.boleta || "—"}
                           </span>
                         </td>
-                        <td className="p-3 text-muted-foreground whitespace-nowrap">
+                        <td className="py-3.5 px-4 text-muted-foreground whitespace-nowrap font-medium">
                           {r.fecha_creacion ? r.fecha_creacion.slice(0, 10) : "—"}
                         </td>
-                        <td className="p-3 font-mono font-medium whitespace-nowrap">
+                        <td className="py-3.5 px-4 font-mono font-medium whitespace-nowrap">
                           {r.ticket ? `#${r.ticket}` : "—"}
                         </td>
-                        <td className="p-3 whitespace-nowrap">
-                          <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-muted border border-border">
+                        <td className="py-3.5 px-4 whitespace-nowrap">
+                          <span className="px-2.5 py-0.5 rounded-md text-[11px] font-semibold bg-muted border border-border">
                             {CAT_LABELS[r.categoria || ""] || r.categoria || "—"}
                           </span>
                         </td>
-                        <td className="p-3 font-semibold text-foreground max-w-[160px] truncate" title={r.nombre || ""}>
+                        <td className="py-3.5 px-4 font-semibold text-foreground leading-snug">
                           {r.nombre || "—"}
                         </td>
-                        <td className="p-3 max-w-[180px] truncate">
-                          <div className="font-medium truncate">{r.serie || "—"}</div>
-                          <div className="text-[10px] text-muted-foreground font-mono truncate">
-                            {r.numero_serie || r.marca || "—"}
+                        <td className="py-3.5 px-4">
+                          <div className="font-semibold text-foreground leading-snug">
+                            {r.serie || r.descripcion || "—"}
+                          </div>
+                          <div className="text-[11px] text-muted-foreground font-mono mt-0.5 flex items-center gap-2 flex-wrap">
+                            {r.marca && (
+                              <span className="font-medium px-1.5 py-0.2 rounded bg-muted/60 text-muted-foreground border border-border/50 text-[10px]">
+                                {r.marca}
+                              </span>
+                            )}
+                            {r.numero_serie && <span>S/N: {r.numero_serie}</span>}
                           </div>
                         </td>
-                        <td className="p-3 whitespace-nowrap">
+                        <td className="py-3.5 px-4 whitespace-nowrap">
                           {isDef ? (
                             hasDev ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
-                                <Check className="h-3 w-3" />
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25">
+                                <Check className="h-3.5 w-3.5" />
                                 Aprobado • {r.dev}
                               </span>
                             ) : (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-600 border border-amber-500/20">
-                                <Clock className="h-3 w-3" />
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/25">
+                                <Clock className="h-3.5 w-3.5" />
                                 Por Aprobar (Sin DEV)
                               </span>
                             )
                           ) : hasDev ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
-                              <Check className="h-3 w-3" />
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25">
+                              <Check className="h-3.5 w-3.5" />
                               {r.dev}
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-muted text-muted-foreground border border-border">
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-muted text-muted-foreground border border-border">
                               {r.estatus ? (KPI_ESTATUS_LABELS[r.estatus] || r.estatus) : "Temporal Activa"}
                             </span>
                           )}
                         </td>
-                        <td className="p-3 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                        <td className="py-3.5 px-4 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                           <button
                             type="button"
                             onClick={() => setEditingRecord(r)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 text-[11px] font-bold border border-amber-500/25 transition-all cursor-pointer shadow-xs active:scale-95"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 text-xs font-bold border border-amber-500/25 transition-all cursor-pointer shadow-xs active:scale-95"
                             title="Editar este registro"
                           >
-                            <Edit className="h-3 w-3" />
+                            <Edit className="h-3.5 w-3.5" />
                             Editar
                           </button>
                         </td>
