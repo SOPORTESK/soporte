@@ -31,16 +31,26 @@ export function SmartInboxBadge({ initialCount }: { initialCount: number }) {
 
     fetchCount();
 
+    // Debounce para no disparar múltiples queries si llegan ráfagas de cambios
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const debouncedFetch = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(fetchCount, 1500);
+    };
+
     const channel = supabase
       .channel("smart-inbox-badge-watch")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "sek_cases" },
-        () => { fetchCount(); }
+        debouncedFetch
       )
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      supabase.removeChannel(channel);
+    };
   }, [supabase]);
 
   if (!count || seen) return null;

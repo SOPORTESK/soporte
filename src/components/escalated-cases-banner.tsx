@@ -35,16 +35,24 @@ export function EscalatedCasesBanner() {
 
     fetchEscalated();
 
+    // Debounce para no disparar múltiples queries si llegan ráfagas de cambios
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const debouncedFetch = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(fetchEscalated, 2000);
+    };
+
     const channel = supabase
       .channel("escalated-cases-banner")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "sek_cases" },
-        fetchEscalated
+        debouncedFetch
       )
       .subscribe();
 
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
       supabase.removeChannel(channel);
     };
   }, [supabase]);

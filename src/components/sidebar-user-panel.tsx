@@ -315,7 +315,7 @@ export function SidebarUserPanel({
     };
 
     fetchTeam();
-    const teamInterval = setInterval(fetchTeam, 15000);
+    const teamInterval = setInterval(fetchTeam, 60000);
 
     const agentChannel = supabase
       .channel("sidebar_team_agents_realtime")
@@ -401,7 +401,7 @@ export function SidebarUserPanel({
     };
 
     checkActiveChats();
-    const interval = setInterval(checkActiveChats, 25000);
+    const interval = setInterval(checkActiveChats, 60000);
 
     const casesChannel = supabase
       .channel("sidebar_active_chats_realtime")
@@ -937,8 +937,8 @@ export function SidebarUserPanel({
     window.addEventListener("focus", handleFocus);
     document.addEventListener("visibilitychange", handleVisibility);
 
-    // Verificación periódica cada 25 segundos
-    const syncInterval = setInterval(checkServerTimeline, 25000);
+    // Verificación periódica cada 60 segundos (respaldo ligero, Realtime maneja las actualizaciones instantáneas)
+    const syncInterval = setInterval(checkServerTimeline, 60000);
 
     return () => {
       window.removeEventListener("storage", handleStorage);
@@ -987,7 +987,7 @@ export function SidebarUserPanel({
     const interval = setInterval(() => {
       fetchActivity();
       setLastUpdate(new Date());
-    }, 20000);
+    }, 45000);
     return () => { clearInterval(interval); };
   }, [tab, open, fetchActivity]);
 
