@@ -9,6 +9,7 @@ import { logActivity } from "@/lib/activity-client";
 import { computeUnifiedActivityMetrics, formatDurationMs } from "@/lib/activity-engine";
 import { ModalMyActivity } from "@/components/modal-my-activity";
 import { ModalAgenda } from "@/components/modal-agenda";
+import { MisGarantiasModal } from "@/components/mis-garantias-modal";
 import { AgendaEvent, AgendaTask } from "@/app/api/agenda/route";
 import { InternalChatView } from "@/components/internal-chat/internal-chat-view";
 import { buildDirectChannelId } from "@/lib/internal-chat-types";
@@ -249,6 +250,7 @@ export function SidebarUserPanel({
   const [newQuickTaskTitle, setNewQuickTaskTitle] = useState("");
   const [creatingQuickTask, setCreatingQuickTask] = useState(false);
   const [status, setStatus] = useState(safeAgent.status === "busy" ? "busy" : "online");
+  const [showMisGarantiasModal, setShowMisGarantiasModal] = useState(false);
   const statusRef = useRef(status);
   useEffect(() => {
     statusRef.current = status;
@@ -1307,6 +1309,14 @@ export function SidebarUserPanel({
                 <Calendar className="h-3.5 w-3.5 inline-block" />
               </button>
             )}
+            <button
+              type="button"
+              onClick={() => setShowMisGarantiasModal(true)}
+              className="flex-1 text-xs font-semibold py-2.5 transition-colors flex items-center justify-center gap-1 text-muted-foreground hover:text-brand-500 hover:bg-brand-500/5 cursor-pointer"
+              title="Mis Procesos & Garantías Propias"
+            >
+              <ShieldCheck className="h-3.5 w-3.5 text-brand-500 inline-block" />
+            </button>
           </div>
 
           {tab === "profile" && (
@@ -2512,6 +2522,11 @@ export function SidebarUserPanel({
       )}
 
       {/* Ventana nativa de Mis Procesos (Garantías donde soy el propietario) */}
+      <MisGarantiasModal
+        isOpen={showMisGarantiasModal}
+        onClose={() => setShowMisGarantiasModal(false)}
+        agent={safeAgent}
+      />
     </div>
   );
 }
