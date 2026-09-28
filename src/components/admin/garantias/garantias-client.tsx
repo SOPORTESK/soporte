@@ -110,8 +110,8 @@ export function GarantiasClient({
   isAdmin = true,
   isSuperadmin = false,
 }: GarantiasClientProps) {
-  // Navigation tabs: "def" | "temp" | "rma" | "calidad" | "auditoria"
-  const [activeTab, setActiveTab] = React.useState<"def" | "temp" | "rma" | "calidad" | "auditoria">("def");
+  // Navigation tabs: "def" | "temp" | "rma" | "calidad"
+  const [activeTab, setActiveTab] = React.useState<"def" | "temp" | "rma" | "calidad">("def");
   const [rmaSubTab, setRmaSubTab] = React.useState<"registros" | "analisis">("registros");
 
   // State for records
@@ -315,7 +315,6 @@ export function GarantiasClient({
     if (activeTab === "def") list = rawDefinitivas;
     else if (activeTab === "temp") list = rawTemporales;
     else if (activeTab === "rma") list = rmaPool;
-    else if (activeTab === "auditoria") list = ncSinDevList;
     else return [];
 
     const q = search.trim().toLowerCase();
@@ -1318,21 +1317,7 @@ export function GarantiasClient({
           <span>Control de Calidad (KPIs)</span>
         </button>
 
-        <button
-          onClick={() => setActiveTab("auditoria")}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold rounded-t-lg transition-all border-b-2 whitespace-nowrap ${
-            activeTab === "auditoria"
-              ? "border-rose-500 text-rose-600 dark:text-rose-400 bg-rose-500/5 font-bold"
-              : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/50"
-          }`}
-        >
-          <span>Auditoría NC sin DEV</span>
-          {ncSinDevList.length > 0 && (
-            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-rose-500 text-white font-bold">
-              {ncSinDevList.length}
-            </span>
-          )}
-        </button>
+
       </div>
 
       {/* VISTA 1 & 2: SALIDAS DEFINITIVAS Y TEMPORALES */}
@@ -2568,90 +2553,7 @@ export function GarantiasClient({
         </div>
       )}
 
-      {/* VISTA 5: AUDITORÍA NC SIN DEV */}
-      {activeTab === "auditoria" && (
-        <div className="space-y-4">
-          <div className="p-4 rounded-xl border border-rose-500/20 bg-rose-500/5 text-rose-700 dark:text-rose-400 flex items-start gap-3">
-            <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5" />
-            <div className="text-xs">
-              <p className="font-bold text-sm">Discrepancias de Auditoría: Notas de Crédito sin DEV</p>
-              <p className="mt-0.5 text-rose-600/90 dark:text-rose-400/90">
-                Estos registros corresponden a salidas por <strong>Nota de Crédito</strong> que aún no cuentan con su código
-                autorizado <strong>DEV-XXXX</strong> del sistema administrativo o contable. Haga clic en{" "}
-                <strong>Asignar DEV</strong> para regularizar el caso.
-              </p>
-            </div>
-          </div>
 
-          <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="bg-muted/40 border-b border-border text-muted-foreground uppercase text-[10px] tracking-wider font-semibold">
-                    <th className="p-3">Boleta</th>
-                    <th className="p-3">Fecha Creación</th>
-                    <th className="p-3">Cliente</th>
-                    <th className="p-3">Sede</th>
-                    <th className="p-3">Marca / Artículo</th>
-                    <th className="p-3">Tipo Salida</th>
-                    <th className="p-3">Categoría</th>
-                    <th className="p-3">Estado DEV</th>
-                    <th className="p-3 text-right">Acción</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {paginatedRecords.length === 0 ? (
-                    <tr>
-                      <td colSpan={9} className="p-8 text-center text-emerald-600 dark:text-emerald-400">
-                        <CheckCircle2 className="h-6 w-6 mx-auto mb-2" />
-                        <span className="font-bold">¡Excelente! No hay Notas de Crédito pendientes de DEV</span>
-                      </td>
-                    </tr>
-                  ) : (
-                    paginatedRecords.map((r) => (
-                      <tr key={r.id} className="hover:bg-muted/30 transition-colors">
-                        <td className="p-3 font-mono font-bold text-foreground">{r.boleta || "—"}</td>
-                        <td className="p-3 text-muted-foreground whitespace-nowrap">
-                          {r.fecha_creacion ? r.fecha_creacion.slice(0, 10) : "—"}
-                        </td>
-                        <td className="p-3 font-medium text-foreground">{r.nombre || "—"}</td>
-                        <td className="p-3 text-muted-foreground">{r.sede || "—"}</td>
-                        <td className="p-3">
-                          <span className="font-medium text-foreground">{r.serie || "—"}</span>
-                          <div className="text-[10px] text-muted-foreground">{r.marca || "—"}</div>
-                        </td>
-                        <td className="p-3 text-muted-foreground">
-                          {r.tipo === "salida_definitiva" ? "Definitiva" : "Temporal"}
-                        </td>
-                        <td className="p-3">
-                          <span className="px-2 py-0.5 rounded text-[10px] bg-muted border border-border font-medium">
-                            {CAT_LABELS[r.categoria || ""] || r.categoria || "—"}
-                          </span>
-                        </td>
-                        <td className="p-3 whitespace-nowrap">
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/15 text-rose-600 border border-rose-500/25">
-                            <AlertCircle className="h-3 w-3" />
-                            Falta Asignar DEV
-                          </span>
-                        </td>
-                        <td className="p-3 text-right whitespace-nowrap">
-                          <button
-                            onClick={() => setEditingRecord(r)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-brand-500 hover:bg-brand-600 text-white font-bold text-xs transition-colors"
-                          >
-                            <Edit className="h-3 w-3" />
-                            <span>Asignar DEV</span>
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* MODAL 1: AUDIT DETAIL MODAL (Al presionar Audit en Control de Calidad) */}
       {auditModalData.isOpen && (
