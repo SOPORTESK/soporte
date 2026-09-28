@@ -1,11 +1,4 @@
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
-import dns from "node:dns";
-
-if (typeof window === "undefined" && dns?.setDefaultResultOrder) {
-  try {
-    dns.setDefaultResultOrder("ipv4first");
-  } catch {}
-}
 
 const GARANTIAS_URL = process.env.NEXT_PUBLIC_GARANTIAS_SUPABASE_URL || "https://syngvbgelcfyunjggpwo.supabase.co";
 const GARANTIAS_ANON = process.env.NEXT_PUBLIC_GARANTIAS_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN5bmd2YmdlbGNmeXVuamdncHdvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY3MDkyNDIsImV4cCI6MjEwMjI4NTI0Mn0.4_w_wLY1O-PSik2HfbiStDhLG_JFszZEwLgpXQ3GlVw";

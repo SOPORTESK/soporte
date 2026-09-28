@@ -28,6 +28,7 @@ import { toast } from "sonner";
 import { GarantiaRecord, CAT_LABELS, KPI_ESTATUS_LABELS } from "@/components/admin/garantias/garantias-types";
 import { GarantiasEditModal } from "@/components/admin/garantias/garantias-edit-modal";
 import { GarantiasCreateModal } from "@/components/admin/garantias/garantias-create-modal";
+import { createGarantiasClient } from "@/lib/supabase-garantias";
 
 export interface MisGarantiasModalProps {
   isOpen: boolean;
@@ -125,10 +126,53 @@ export function MisGarantiasModal({ isOpen, onClose, agent }: MisGarantiasModalP
   }, [agent]);
 
   React.useEffect(() => {
-    if (isOpen) {
-      loadMyRecords();
-    }
-  }, [isOpen, loadMyRecords]);
+    if (!isOpen) return;
+
+    loadMyRecords();
+
+    // Conexión Realtime a Supabase exclusiva mientras el modal esté abierto
+    const garantiasClient = createGarantiasClient();
+    const channel = garantiasClient
+      .channel("mis_garantias_modal_stream")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "garantias" },
+        (payload: any) => {
+          if (payload.eventType === "INSERT" && payload.new) {
+            const newRec = payload.new as GarantiaRecord;
+            if (isRecordOwnedByAgent(newRec, agent)) {
+              setRecords((prev) => {
+                if (prev.some((r) => r.id === newRec.id)) return prev;
+                return [newRec, ...prev];
+              });
+              setLastUpdated(new Date().toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit" }));
+            }
+          } else if (payload.eventType === "UPDATE" && payload.new) {
+            const updated = payload.new as GarantiaRecord;
+            if (isRecordOwnedByAgent(updated, agent)) {
+              setRecords((prev) => {
+                const exists = prev.some((r) => r.id === updated.id);
+                if (exists) {
+                  return prev.map((r) => (r.id === updated.id ? { ...r, ...updated } : r));
+                }
+                return [updated, ...prev];
+              });
+              setLastUpdated(new Date().toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit" }));
+            } else {
+              setRecords((prev) => prev.filter((r) => r.id !== updated.id));
+            }
+          } else if (payload.eventType === "DELETE" && payload.old) {
+            setRecords((prev) => prev.filter((r) => r.id !== payload.old.id));
+            setLastUpdated(new Date().toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit" }));
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      garantiasClient.removeChannel(channel);
+    };
+  }, [isOpen, loadMyRecords, agent]);
 
   // Cerrar con tecla Escape
   React.useEffect(() => {

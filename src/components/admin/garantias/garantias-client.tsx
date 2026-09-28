@@ -63,6 +63,7 @@ import {
   formatDateSafe,
 } from "./garantias-types";
 import { GarantiasEditModal } from "./garantias-edit-modal";
+import { createGarantiasClient } from "@/lib/supabase-garantias";
 
 // Register Chart.js components
 ChartJS.register(
@@ -213,7 +214,7 @@ export function GarantiasClient({
     }
   }, []);
 
-  // Initial load, periodic auto-refresh (every 30s), and window focus trigger
+  // Initial load + Supabase Realtime WebSocket listener (Sincronización instantánea en vivo)
   React.useEffect(() => {
     setMounted(true);
     setLastUpdate(new Date().toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
@@ -222,21 +223,43 @@ export function GarantiasClient({
       loadRecords();
     }
 
-    // Auto-actualización silenciosa cada 30 segundos
-    const interval = setInterval(() => {
-      loadRecords(true);
-    }, 30000);
+    // Suscripción Realtime directa a la BD de Garantías (sin sobrecargar el servidor ni hacer polling)
+    const garantiasClient = createGarantiasClient();
+    const channel = garantiasClient
+      .channel("garantias_realtime_stream")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "garantias" },
+        (payload: any) => {
+          if (payload.eventType === "INSERT" && payload.new) {
+            setRecords((prev) => {
+              if (prev.some((r) => r.id === payload.new.id)) return prev;
+              return [payload.new as GarantiaRecord, ...prev];
+            });
+            setLastUpdate(new Date().toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
+          } else if (payload.eventType === "UPDATE" && payload.new) {
+            setRecords((prev) =>
+              prev.map((r) => (r.id === payload.new.id ? { ...r, ...(payload.new as GarantiaRecord) } : r))
+            );
+            setLastUpdate(new Date().toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
+          } else if (payload.eventType === "DELETE" && payload.old) {
+            setRecords((prev) => prev.filter((r) => r.id !== payload.old.id));
+            setLastUpdate(new Date().toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
+          }
+        }
+      )
+      .subscribe();
 
-    // Al regresar a la pestaña del navegador, sincronizar solo si han pasado más de 30 segundos
+    // Verificación pasiva solo si el usuario vuelve tras largo tiempo (> 5 min)
     const onFocus = () => {
-      if (Date.now() - lastFetchRef.current >= 30000) {
+      if (Date.now() - lastFetchRef.current >= 300000) {
         loadRecords(true);
       }
     };
     window.addEventListener("focus", onFocus);
 
     return () => {
-      clearInterval(interval);
+      garantiasClient.removeChannel(channel);
       window.removeEventListener("focus", onFocus);
     };
   }, [loadRecords, initialRecords]);
