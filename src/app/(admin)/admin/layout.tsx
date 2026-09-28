@@ -116,7 +116,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const isAdmin = ["admin", "superadmin"].includes(a.rol);
   const isTecnico = a.rol === "tecnico";
   
-  const canAccessAdmin = isSuperadmin || isAdmin || userPerms.inventory.view || userPerms.manuals.view || userPerms.stats.view || userPerms.ai.view || userPerms.settings.view || (userPerms as any).activity?.view;
+  const canAccessAdmin = isSuperadmin || isAdmin || userPerms.inventory.view || userPerms.manuals.view || userPerms.stats.view || userPerms.ai.view || userPerms.settings.view || (userPerms as any).activity?.view || (userPerms as any).garantias?.view;
   if (!canAccessAdmin) redirect("/inbox");
 
   const canViewActivityTracker = isSuperadmin || (
@@ -125,6 +125,10 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
   const canViewAgenda = isSuperadmin || (
     (userPerms as any).activity?.subcategories?.agenda_calendario === true
+  );
+
+  const canViewMisGarantias = isSuperadmin || (
+    (userPerms as any).garantias?.subcategories?.mis_garantias_modal !== false
   );
 
   const fullName = [a.nombre, a.apellido].filter(Boolean).join(" ") || user.email!;
@@ -179,7 +183,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                 </NavSection>
               )}
 
-              {(isSuperadmin || isAdmin || userPerms.team?.view || userPerms.inventory?.view || userPerms.manuals?.view) && (
+              {(isSuperadmin || isAdmin || userPerms.team?.view || userPerms.inventory?.view || (userPerms as any).garantias?.view || userPerms.manuals?.view) && (
                 <NavSection title="Gestión">
                   {(isSuperadmin || userPerms.team?.view) && (
                     <SidebarLink href="/admin/equipo" icon={<Users className="h-4 w-4" />}>Equipo</SidebarLink>
@@ -187,7 +191,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                   {(isSuperadmin || userPerms.inventory?.view) && (
                     <SidebarLink href="/admin/inventario" icon={<Package className="h-4 w-4" />}>Inventario</SidebarLink>
                   )}
-                  {(isSuperadmin || isAdmin) && (
+                  {(isSuperadmin || (userPerms as any).garantias?.view === true || (isAdmin && (userPerms as any).garantias?.view !== false)) && (
                     <SidebarLink href="/admin/garantias" icon={<ShieldCheck className="h-4 w-4" />}>Garantías</SidebarLink>
                   )}
                   {(isSuperadmin || userPerms.manuals?.view) && (
@@ -218,7 +222,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               <div className="flex items-center gap-1 px-4 pb-2 pt-2">
                 <ThemeToggle />
               </div>
-              <SidebarUserPanel agent={a as any} onlineAgents={onlineAgents || []} canViewActivityTracker={canViewActivityTracker} canViewAgenda={canViewAgenda} />
+              <SidebarUserPanel agent={a as any} onlineAgents={onlineAgents || []} canViewActivityTracker={canViewActivityTracker} canViewAgenda={canViewAgenda} canViewMisGarantias={canViewMisGarantias} />
             </div>
           </aside>
 

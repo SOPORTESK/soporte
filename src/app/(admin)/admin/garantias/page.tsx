@@ -3,6 +3,7 @@ import { createGarantiasServiceClient } from "@/lib/supabase-garantias";
 import { GarantiasClient } from "@/components/admin/garantias/garantias-client";
 import { redirect } from "next/navigation";
 import { getUserWithTimeout, queryWithFallback } from "@/lib/supabase/resilient";
+import { getAgentGroupPermissions } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -41,8 +42,14 @@ export default async function AdminGarantiasPage() {
     apellido: currentAgent?.apellido || "",
   };
 
-  const isAdmin = currentAgent?.rol === "admin" || currentAgent?.rol === "superadmin";
   const isSuperadmin = currentAgent?.rol === "superadmin";
+  const isAdmin = currentAgent?.rol === "admin" || isSuperadmin;
+  const userPerms = await getAgentGroupPermissions(currentAgent?.rol || "tecnico");
+  const canViewGarantias = isSuperadmin || (userPerms as any).garantias?.view === true || (isAdmin && (userPerms as any).garantias?.view !== false);
+
+  if (!canViewGarantias) {
+    redirect("/admin");
+  }
 
   let initialRecords: any[] = [];
   let initialStats: any = null;

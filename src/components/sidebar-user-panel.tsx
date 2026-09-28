@@ -224,11 +224,13 @@ export function SidebarUserPanel({
   onlineAgents, 
   canViewActivityTracker,
   canViewAgenda = true,
+  canViewMisGarantias = true,
 }: { 
   agent: Agent; 
   onlineAgents: OnlineAgent[]; 
   canViewActivityTracker?: boolean; 
   canViewAgenda?: boolean;
+  canViewMisGarantias?: boolean;
 }) {
   const safeAgent: Agent = {
     nombre: agent?.nombre ?? null,
@@ -1309,14 +1311,16 @@ export function SidebarUserPanel({
                 <Calendar className="h-3.5 w-3.5 inline-block" />
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => setShowMisGarantiasModal(true)}
-              className="flex-1 text-xs font-semibold py-2.5 transition-colors flex items-center justify-center gap-1 text-muted-foreground hover:text-brand-500 hover:bg-brand-500/5 cursor-pointer"
-              title="Mis Procesos & Garantías Propias"
-            >
-              <ShieldCheck className="h-3.5 w-3.5 text-brand-500 inline-block" />
-            </button>
+            {canViewMisGarantias && (
+              <button
+                type="button"
+                onClick={() => setShowMisGarantiasModal(true)}
+                className="flex-1 text-xs font-semibold py-2.5 transition-colors flex items-center justify-center gap-1 text-muted-foreground hover:text-brand-500 hover:bg-brand-500/5 cursor-pointer"
+                title="Mis Procesos & Garantías Propias"
+              >
+                <ShieldCheck className="h-3.5 w-3.5 text-brand-500 inline-block" />
+              </button>
+            )}
           </div>
 
           {tab === "profile" && (

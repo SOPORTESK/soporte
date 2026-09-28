@@ -124,6 +124,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const canViewAgenda = isSuperadmin || (
     (userPerms as any).activity?.subcategories?.agenda_calendario === true
   );
+  const canViewMisGarantias = isSuperadmin || (
+    (userPerms as any).garantias?.subcategories?.mis_garantias_modal !== false
+  );
 
   return (
     <GodModeWrapper originalAgent={currentAgent}>
@@ -183,7 +186,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <div className="flex items-center gap-1 px-4 pb-2 pt-2">
             <ThemeToggle />
           </div>
-          <SidebarUserPanel agent={a as any} onlineAgents={onlineAgents || []} canViewActivityTracker={canViewActivityTracker} canViewAgenda={canViewAgenda} />
+          <SidebarUserPanel agent={a as any} onlineAgents={onlineAgents || []} canViewActivityTracker={canViewActivityTracker} canViewAgenda={canViewAgenda} canViewMisGarantias={canViewMisGarantias} />
         </div>
       </aside>
 

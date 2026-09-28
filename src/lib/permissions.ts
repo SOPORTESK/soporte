@@ -18,6 +18,7 @@ export interface PermissionGroup {
     inbox: GroupPermissions;
     stats: GroupPermissions;
     activity: GroupPermissions;
+    garantias: GroupPermissions;
     inventory: GroupPermissions;
     manuals: GroupPermissions;
     ai: GroupPermissions;
@@ -36,6 +37,7 @@ export const DEFAULT_GROUPS: PermissionGroup[] = [
       inbox: { view: true, edit: true, create: true, delete: true, subcategories: { inbox_principal: true, smart_inbox: true, soporte_avanzado: true, mi_gestion: true, web_preview: true, ver_todos_casos: true, responder_mensajes: true, reasignar_casos: true, notas_internas: true, historial_cliente_drawer: true, cerrar_casos: true } },
       stats: { view: true, edit: true, create: true, delete: true, subcategories: { resumen_general: true, estadisticas_detalladas: true, estadisticas_atencion: true, volumen_mensajes: true, analitica_equipos_fallas: true, analitica_clientes: true, exportar_reportes: true } },
       activity: { view: true, edit: true, create: true, delete: true, subcategories: { registro_actividad: true, auditoria_pantalla: true, ranking_apps_sitios: true, heatmap_intensidad: true, dictamen_ejecutivo_ia: true, panel_externo_visibilidad: true, panel_externo_gestion: true, agenda_calendario: true, agenda_gestion_global: true, gestion_horas_extras: true, auditoria_pausas_inactividad: true } },
+      garantias: { view: true, edit: true, create: true, delete: true, subcategories: { view_garantias: true, create_garantias: true, edit_garantias: true, delete_garantias: true, mis_garantias_modal: true, export_garantias: true, compare_excel: true } },
       inventory: { view: true, edit: true, create: true, delete: true, subcategories: { view_inventory: true, create_edit_models: true, bulk_upload: true, delete_models: true } },
       manuals: { view: true, edit: true, create: true, delete: true, subcategories: { view_manuals: true, upload_manuals: true, delete_manuals: true } },
       ai: { view: true, edit: true, create: true, delete: true, subcategories: { view_ai_panel: true, flujos_bot: true, toggle_ai_modes: true, train_prompt: true, restore_prompt_versions: true, ai_models_config: true } },
@@ -52,6 +54,7 @@ export const DEFAULT_GROUPS: PermissionGroup[] = [
       inbox: { view: true, edit: true, create: true, delete: false, subcategories: { inbox_principal: true, smart_inbox: true, soporte_avanzado: true, mi_gestion: true, web_preview: true, ver_todos_casos: true, responder_mensajes: true, reasignar_casos: true, notas_internas: true, historial_cliente_drawer: true, cerrar_casos: true } },
       stats: { view: true, edit: true, create: true, delete: false, subcategories: { resumen_general: true, estadisticas_detalladas: true, estadisticas_atencion: true, volumen_mensajes: true, analitica_equipos_fallas: true, analitica_clientes: true, exportar_reportes: true } },
       activity: { view: true, edit: true, create: true, delete: false, subcategories: { registro_actividad: true, auditoria_pantalla: true, ranking_apps_sitios: true, heatmap_intensidad: true, dictamen_ejecutivo_ia: true, panel_externo_visibilidad: true, panel_externo_gestion: true, agenda_calendario: true, agenda_gestion_global: true, gestion_horas_extras: true, auditoria_pausas_inactividad: true } },
+      garantias: { view: true, edit: true, create: true, delete: true, subcategories: { view_garantias: true, create_garantias: true, edit_garantias: true, delete_garantias: true, mis_garantias_modal: true, export_garantias: true, compare_excel: true } },
       inventory: { view: true, edit: true, create: true, delete: true, subcategories: { view_inventory: true, create_edit_models: true, bulk_upload: true, delete_models: true } },
       manuals: { view: true, edit: true, create: true, delete: true, subcategories: { view_manuals: true, upload_manuals: true, delete_manuals: true } },
       ai: { view: true, edit: true, create: true, delete: false, subcategories: { view_ai_panel: true, flujos_bot: true, toggle_ai_modes: true, train_prompt: true, restore_prompt_versions: true, ai_models_config: true } },
@@ -68,6 +71,7 @@ export const DEFAULT_GROUPS: PermissionGroup[] = [
       inbox: { view: true, edit: true, create: true, delete: false, subcategories: { inbox_principal: true, smart_inbox: false, soporte_avanzado: true, mi_gestion: true, web_preview: false, ver_todos_casos: false, responder_mensajes: true, reasignar_casos: false, notas_internas: true, historial_cliente_drawer: true, cerrar_casos: true } },
       stats: { view: false, edit: false, create: false, delete: false, subcategories: { resumen_general: false, estadisticas_detalladas: false, estadisticas_atencion: false, volumen_mensajes: false, analitica_equipos_fallas: false, analitica_clientes: false, exportar_reportes: false } },
       activity: { view: false, edit: false, create: false, delete: false, subcategories: { registro_actividad: false, auditoria_pantalla: false, ranking_apps_sitios: false, heatmap_intensidad: false, dictamen_ejecutivo_ia: false, panel_externo_visibilidad: false, panel_externo_gestion: false, agenda_calendario: true, agenda_gestion_global: false, gestion_horas_extras: false, auditoria_pausas_inactividad: false } },
+      garantias: { view: true, edit: true, create: true, delete: false, subcategories: { view_garantias: true, create_garantias: true, edit_garantias: true, delete_garantias: false, mis_garantias_modal: true, export_garantias: false, compare_excel: false } },
       inventory: { view: true, edit: false, create: false, delete: false, subcategories: { view_inventory: true, create_edit_models: false, bulk_upload: false, delete_models: false } },
       manuals: { view: true, edit: false, create: false, delete: false, subcategories: { view_manuals: true, upload_manuals: false, delete_manuals: false } },
       ai: { view: false, edit: false, create: false, delete: false, subcategories: { view_ai_panel: false, flujos_bot: false, toggle_ai_modes: false, train_prompt: false, restore_prompt_versions: false, ai_models_config: false } },
@@ -98,7 +102,7 @@ export async function getActiveGroups(): Promise<PermissionGroup[]> {
       const parsed = JSON.parse(data.value);
       if (Array.isArray(parsed) && parsed.length > 0) {
         const allModuleKeys: (keyof PermissionGroup["permissions"])[] = [
-          "team", "inbox", "stats", "activity", "inventory", "manuals", "ai", "settings"
+          "team", "inbox", "stats", "activity", "garantias", "inventory", "manuals", "ai", "settings"
         ];
 
         const groups = parsed.map((g: any) => {

@@ -731,14 +731,14 @@ export function computeUnifiedActivityMetrics(
         const coveredDelayMs = getCoveredOverlap(schedStartMs, firstEventMs);
         const effectiveDelayMs = Math.max(0, rawDelayMs - coveredDelayMs);
 
-        // La tolerancia configurada aplica a la hora de entrada: solo si el retraso excede la tolerancia oficial es inactividad
-        if (effectiveDelayMs > TOLERANCE_GAP_MS) {
-          const excessMs = effectiveDelayMs - TOLERANCE_GAP_MS;
+        // La tolerancia configurada NO aplica a la hora de entrada: retraso efectivo >= 1 min es inicio tardío
+        if (effectiveDelayMs >= 60000) {
+          const excessMs = effectiveDelayMs;
           const excessMin = Math.round(excessMs / 60000);
           if (excessMin >= 1) {
             idleTotalMs += excessMs;
 
-            const dStart = new Date(schedStartMs + coveredDelayMs + TOLERANCE_GAP_MS);
+            const dStart = new Date(schedStartMs + coveredDelayMs);
             const dEnd = new Date(firstEventMs);
             detectedGaps.push({
               id: "gap-inicio-tardio",
@@ -750,7 +750,7 @@ export function computeUnifiedActivityMetrics(
               endTimeVal: dEnd.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }),
               durationMs: excessMs,
               minutes: excessMin,
-              reason: `Inicio tardío respecto a horario programado (${sStart}) — excede tolerancia (${toleranceMin} min) en ${excessMin} min`,
+              reason: `Inicio tardío respecto a horario programado (${sStart}) (${excessMin} min)`,
             });
           }
         }
@@ -1134,15 +1134,15 @@ export function computeUnifiedActivityMetrics(
         const coveredEarlyMs = getCoveredOverlap(lastEventMs, schedEndMs);
         const effectiveEarlyMs = Math.max(0, rawEarlyMs - coveredEarlyMs);
 
-        // La tolerancia configurada aplica a la salida: solo si el retiro anticipado excede la tolerancia oficial es inactividad
-        if (effectiveEarlyMs > TOLERANCE_GAP_MS) {
-          const excessMs = effectiveEarlyMs - TOLERANCE_GAP_MS;
+        // La tolerancia configurada NO aplica a la salida: retiro anticipado >= 1 min es salida anticipada
+        if (effectiveEarlyMs >= 60000) {
+          const excessMs = effectiveEarlyMs;
           const excessMin = Math.round(excessMs / 60000);
           if (excessMin >= 1) {
             idleTotalMs += excessMs;
 
             const dStart = new Date(lastEventMs + coveredEarlyMs);
-            const dEnd = new Date(schedEndMs - TOLERANCE_GAP_MS);
+            const dEnd = new Date(schedEndMs);
             detectedGaps.push({
               id: "gap-salida-anticipada",
               dateStr: crDateStr,
@@ -1153,7 +1153,7 @@ export function computeUnifiedActivityMetrics(
               endTimeVal: dEnd.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }),
               durationMs: excessMs,
               minutes: excessMin,
-              reason: `Salida anticipada respecto a horario programado (${sEnd}) — excede tolerancia (${toleranceMin} min) en ${excessMin} min`,
+              reason: `Salida anticipada respecto a horario programado (${sEnd}) (${excessMin} min)`,
             });
           }
         }

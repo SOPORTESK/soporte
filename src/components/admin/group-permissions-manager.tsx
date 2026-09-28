@@ -5,7 +5,7 @@ import {
   Shield, Plus, Trash2, Save, Users, UserPlus, X,
   MessageSquare, BarChart3, Package, BookOpen, Bot, Settings,
   Loader2, ChevronDown, ChevronRight, Sliders, Activity, UserCheck,
-  TrendingUp, Globe, Smartphone, Database, Lock
+  TrendingUp, Globe, Smartphone, Database, Lock, ShieldCheck
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -105,6 +105,22 @@ export const COMPLETE_MODULE_DEFINITIONS: ModuleDef[] = [
       { key: "notas_internas", label: "Notas Internas Privadas", desc: "Crear y visualizar notas amarillas internas del caso" },
       { key: "historial_cliente_drawer", label: "Historial de Cliente y Conteo de Mensajes", desc: "Abrir cajón lateral con histórico de casos y métricas del cliente" },
       { key: "cerrar_casos", label: "Cerrar / Resolver Casos", desc: "Marcar tickets como resueltos o cerrados definitivamente" },
+    ],
+  },
+  {
+    key: "garantias",
+    label: "Gestión de Garantías & RMA",
+    icon: ShieldCheck,
+    color: "text-teal-400 bg-teal-500/10 border-teal-500/20",
+    desc: "Recepción de equipos, seguimiento de casos de garantía, diagnósticos, boletas RMA y resoluciones",
+    subcategories: [
+      { key: "view_garantias", label: "Consultar Bandeja de Garantías (/admin/garantias)", desc: "Visualización del listado completo de casos, filtros, estados y expedientes" },
+      { key: "create_garantias", label: "Recepción y Registro de Garantías", desc: "Ingresar nuevos casos con consecutivo automático, cliente y detalles de ingreso" },
+      { key: "edit_garantias", label: "Diagnóstico, Estado y Actualización", desc: "Modificar estado operativo, solución técnica, entrega y registrar historial" },
+      { key: "delete_garantias", label: "Eliminar Casos de Garantía", desc: "Borrado permanente de expedientes de garantía del sistema" },
+      { key: "mis_garantias_modal", label: "Ventana 'Mis Garantías' (Panel lateral)", desc: "Acceso directo del colaborador a sus garantías asignadas desde el cajón lateral" },
+      { key: "export_garantias", label: "Exportar Reportes (Excel / PDF)", desc: "Descarga de auditoría completa, vistas filtradas y reportes analíticos de RMA" },
+      { key: "compare_excel", label: "Comparativa de Boletas Excel vs Sistema", desc: "Herramienta para subir archivo Excel y contrastar boletas faltantes o duplicadas" },
     ],
   },
   {
