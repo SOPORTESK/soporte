@@ -1568,7 +1568,23 @@ export function GarantiasClient({
                             </td>
                             <td className="p-3 text-muted-foreground whitespace-nowrap">{r.sede || "—"}</td>
                             <td className="p-3 whitespace-nowrap">
-                              {hasDev ? (
+                              {r.tipo === "salida_definitiva" ? (
+                                hasDev ? (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                                    <Check className="h-3 w-3" />
+                                    Aprobado • {r.dev}
+                                  </span>
+                                ) : estaPorAprobar(r) ? (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-600 border border-amber-500/20">
+                                    <Clock className="h-3 w-3" />
+                                    Por Aprobar (Sin DEV)
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-muted text-muted-foreground border border-border">
+                                    —
+                                  </span>
+                                )
+                              ) : hasDev ? (
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
                                   <Check className="h-3 w-3" />
                                   {r.dev}
