@@ -21,9 +21,11 @@ import {
   User,
   Wrench,
   CheckCircle2,
+  Edit,
 } from "lucide-react";
 import { toast } from "sonner";
 import { GarantiaRecord, CAT_LABELS, KPI_ESTATUS_LABELS } from "@/components/admin/garantias/garantias-types";
+import { GarantiasEditModal } from "@/components/admin/garantias/garantias-edit-modal";
 
 export interface MisGarantiasModalProps {
   isOpen: boolean;
@@ -84,7 +86,13 @@ export function MisGarantiasModal({ isOpen, onClose, agent }: MisGarantiasModalP
   const [subTab, setSubTab] = React.useState<"todas" | "def" | "temp" | "rma">("todas");
   const [filterEstatus, setFilterEstatus] = React.useState<string>("todos");
   const [expandedId, setExpandedId] = React.useState<string | null>(null);
+  const [editingRecord, setEditingRecord] = React.useState<GarantiaRecord | null>(null);
   const [lastUpdated, setLastUpdated] = React.useState<string>("");
+
+  const handleSavedRecord = (updated: GarantiaRecord) => {
+    setRecords((prev) => prev.map((rec) => (rec.id === updated.id ? { ...rec, ...updated } : rec)));
+    setEditingRecord(null);
+  };
 
   const agentDisplayName = [agent?.nombre, agent?.apellido].filter(Boolean).join(" ") || agent?.email || "Mi Usuario";
 
@@ -395,6 +403,7 @@ export function MisGarantiasModal({ isOpen, onClose, agent }: MisGarantiasModalP
                   <th className="p-3">Cliente</th>
                   <th className="p-3">Artículo / Serie</th>
                   <th className="p-3">Estatus & Aprobación</th>
+                  <th className="p-3 text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -475,12 +484,23 @@ export function MisGarantiasModal({ isOpen, onClose, agent }: MisGarantiasModalP
                             </span>
                           )}
                         </td>
+                        <td className="p-3 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            type="button"
+                            onClick={() => setEditingRecord(r)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 text-[11px] font-bold border border-amber-500/25 transition-all cursor-pointer shadow-xs active:scale-95"
+                            title="Editar este registro"
+                          >
+                            <Edit className="h-3 w-3" />
+                            Editar
+                          </button>
+                        </td>
                       </tr>
 
                       {/* ── Fila expandible con detalle completo ── */}
                       {isExpanded && (
                         <tr className="bg-muted/20">
-                          <td colSpan={8} className="p-4 border-t border-border">
+                          <td colSpan={9} className="p-4 border-t border-border">
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                               <div className="p-3 rounded-xl bg-card border border-border space-y-1.5">
                                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
@@ -532,17 +552,31 @@ export function MisGarantiasModal({ isOpen, onClose, agent }: MisGarantiasModalP
                               <span className="text-[11px] text-muted-foreground">
                                 Registrado por: <strong>{r.registrado_por || agentDisplayName}</strong>
                               </span>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  navigator.clipboard.writeText(r.boleta || "");
-                                  toast.success(`Boleta ${r.boleta} copiada al portapapeles`);
-                                }}
-                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-muted hover:bg-muted/80 text-foreground text-xs font-semibold border border-border cursor-pointer transition-colors"
-                              >
-                                <Copy className="h-3 w-3" />
-                                Copiar Boleta
-                              </button>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setEditingRecord(r);
+                                  }}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-95"
+                                >
+                                  <Edit className="h-3.5 w-3.5" />
+                                  Editar Registro
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    navigator.clipboard.writeText(r.boleta || "");
+                                    toast.success(`Boleta ${r.boleta} copiada al portapapeles`);
+                                  }}
+                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-muted hover:bg-muted/80 text-foreground text-xs font-semibold border border-border cursor-pointer transition-colors"
+                                >
+                                  <Copy className="h-3 w-3" />
+                                  Copiar Boleta
+                                </button>
+                              </div>
                             </div>
                           </td>
                         </tr>
@@ -563,6 +597,16 @@ export function MisGarantiasModal({ isOpen, onClose, agent }: MisGarantiasModalP
           {lastUpdated && <span>Última sincronización: {lastUpdated}</span>}
         </div>
       </div>
+
+      {/* ── Modal de Edición de Garantía (Nativo e Integrado) ── */}
+      {editingRecord && (
+        <GarantiasEditModal
+          record={editingRecord}
+          onClose={() => setEditingRecord(null)}
+          onSaved={handleSavedRecord}
+          canEditDev={true}
+        />
+      )}
     </div>
   );
 }
