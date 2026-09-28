@@ -225,12 +225,16 @@ export function SidebarUserPanel({
   canViewActivityTracker,
   canViewAgenda = true,
   canViewMisGarantias = true,
+  canCreateGarantias = true,
+  canEditGarantias = true,
 }: { 
   agent: Agent; 
   onlineAgents: OnlineAgent[]; 
   canViewActivityTracker?: boolean; 
   canViewAgenda?: boolean;
   canViewMisGarantias?: boolean;
+  canCreateGarantias?: boolean;
+  canEditGarantias?: boolean;
 }) {
   const safeAgent: Agent = {
     nombre: agent?.nombre ?? null,
@@ -2530,6 +2534,8 @@ export function SidebarUserPanel({
         isOpen={showMisGarantiasModal}
         onClose={() => setShowMisGarantiasModal(false)}
         agent={safeAgent}
+        canCreate={canCreateGarantias}
+        canEdit={canEditGarantias}
       />
     </div>
   );

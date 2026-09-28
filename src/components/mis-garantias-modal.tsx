@@ -38,6 +38,8 @@ export interface MisGarantiasModalProps {
     apellido?: string | null;
     email?: string | null;
   };
+  canCreate?: boolean;
+  canEdit?: boolean;
 }
 
 function normalizeName(s: string) {
@@ -82,7 +84,7 @@ function isRecordOwnedByAgent(
   return false;
 }
 
-export function MisGarantiasModal({ isOpen, onClose, agent }: MisGarantiasModalProps) {
+export function MisGarantiasModal({ isOpen, onClose, agent, canCreate = true, canEdit = true }: MisGarantiasModalProps) {
   const [records, setRecords] = React.useState<GarantiaRecord[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [search, setSearch] = React.useState("");
@@ -280,15 +282,17 @@ export function MisGarantiasModal({ isOpen, onClose, agent }: MisGarantiasModalP
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => setShowCreateModal(true)}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-brand-500 hover:bg-brand-600 text-white text-xs font-bold shadow-sm transition-all cursor-pointer active:scale-95 shrink-0"
-              title="Registrar nueva boleta de salida oficial"
-            >
-              <Plus className="h-4 w-4 stroke-[2.5]" />
-              <span>Nuevo Registro</span>
-            </button>
+            {canCreate && (
+              <button
+                type="button"
+                onClick={() => setShowCreateModal(true)}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-brand-500 hover:bg-brand-600 text-white text-xs font-bold shadow-sm transition-all cursor-pointer active:scale-95 shrink-0"
+                title="Registrar nueva boleta de salida oficial"
+              >
+                <Plus className="h-4 w-4 stroke-[2.5]" />
+                <span>Nuevo Registro</span>
+              </button>
+            )}
             <button
               onClick={() => loadMyRecords()}
               disabled={loading}
@@ -530,15 +534,19 @@ export function MisGarantiasModal({ isOpen, onClose, agent }: MisGarantiasModalP
                           )}
                         </td>
                         <td className="py-3.5 px-4 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            type="button"
-                            onClick={() => setEditingRecord(r)}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 text-xs font-bold border border-amber-500/25 transition-all cursor-pointer shadow-xs active:scale-95"
-                            title="Editar este registro"
-                          >
-                            <Edit className="h-3.5 w-3.5" />
-                            Editar
-                          </button>
+                          {canEdit ? (
+                            <button
+                              type="button"
+                              onClick={() => setEditingRecord(r)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 text-xs font-bold border border-amber-500/25 transition-all cursor-pointer shadow-xs active:scale-95"
+                              title="Editar este registro"
+                            >
+                              <Edit className="h-3.5 w-3.5" />
+                              Editar
+                            </button>
+                          ) : (
+                            <span className="text-[11px] text-muted-foreground/60 italic">Lectura</span>
+                          )}
                         </td>
                       </tr>
 
