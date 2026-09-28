@@ -63,12 +63,40 @@ export function GarantiasEditModal({ record, onClose, onSaved, canEditDev = true
       setForm({ ...record });
       setNota("");
       setLoadingHistorial(true);
+
+      const resolveHistorialFallback = () => {
+        let list: any[] = [];
+        if (record.usuario_id) {
+          try {
+            const parsed = JSON.parse(record.usuario_id);
+            if (Array.isArray(parsed) && parsed.length > 0) list = parsed;
+          } catch (_) {}
+        }
+        if (list.length === 0 && ((record.observaciones && String(record.observaciones).trim()) || (record.seguimiento && String(record.seguimiento).trim()) || record.fecha_modificacion)) {
+          list = [{
+            id: `hist_init_${record.id}`,
+            garantia_id: record.id,
+            fecha: record.fecha_modificacion || record.fecha_creacion || new Date().toISOString(),
+            modificado_por: record.modificado_por || record.registrado_por || "Técnico",
+            observaciones: record.observaciones || "(Sin observaciones registradas)",
+            seguimiento: record.seguimiento || "(Sin seguimiento registrado)"
+          }];
+        }
+        return list;
+      };
+
       fetch(`/api/admin/garantias/${record.id}`)
         .then(r => r.json())
         .then(d => {
-          if (d.historial) setHistorialList(d.historial);
+          let list = Array.isArray(d.historial) ? d.historial : [];
+          if (list.length === 0) {
+            list = resolveHistorialFallback();
+          }
+          setHistorialList(list);
         })
-        .catch(console.error)
+        .catch(() => {
+          setHistorialList(resolveHistorialFallback());
+        })
         .finally(() => setLoadingHistorial(false));
     }
   }, [record]);

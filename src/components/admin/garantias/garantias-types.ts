@@ -32,6 +32,7 @@ export type GarantiaRecord = {
   articulos_adicionales?: string | null;
   observaciones?: string | null;
   seguimiento?: string | null;
+  usuario_id?: string | null;
   historial?: Array<{
     id?: string | number;
     fecha: string;

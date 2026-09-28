@@ -28,7 +28,33 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       .eq("garantia_id", params.id)
       .order("fecha", { ascending: false });
 
-    return NextResponse.json({ record, historial: historial || [] });
+    let finalHistorial = Array.isArray(historial) ? historial : [];
+
+    // Fallback 1: Buscar historial embebido en usuario_id
+    if (finalHistorial.length === 0 && record.usuario_id) {
+      try {
+        const parsed = JSON.parse(record.usuario_id);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          finalHistorial = parsed;
+        }
+      } catch (_) {}
+    }
+
+    // Fallback 2: Sintetizar historial base si el registro ya cuenta con notas u observaciones previas
+    if (finalHistorial.length === 0) {
+      if ((record.observaciones && String(record.observaciones).trim()) || (record.seguimiento && String(record.seguimiento).trim()) || record.fecha_modificacion) {
+        finalHistorial = [{
+          id: `hist_init_${record.id}`,
+          garantia_id: record.id,
+          fecha: record.fecha_modificacion || record.fecha_creacion || new Date().toISOString(),
+          modificado_por: record.modificado_por || record.registrado_por || "Técnico",
+          observaciones: record.observaciones || "(Sin observaciones registradas)",
+          seguimiento: record.seguimiento || "(Sin seguimiento registrado)"
+        }];
+      }
+    }
+
+    return NextResponse.json({ record, historial: finalHistorial });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "Error al obtener registro" }, { status: 500 });
   }
@@ -103,6 +129,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
           modificado_por: nombreModificador,
         };
 
+        // 1. Intentar inserción en garantias_historial
         const { error: histInsertError } = await client
           .from("garantias_historial")
           .insert(historialPayload);
@@ -110,6 +137,20 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         if (histInsertError) {
           console.warn("[garantias historial] Error al guardar historial:", histInsertError);
         }
+
+        // 2. Persistir siempre en el campo embebido usuario_id del registro para respaldo garantizado
+        let prevHist: any[] = [];
+        if (prevRecord.usuario_id) {
+          try {
+            const p = JSON.parse(prevRecord.usuario_id);
+            if (Array.isArray(p)) prevHist = p;
+          } catch (_) {}
+        }
+        const updatedHist = [historialPayload, ...prevHist].slice(0, 50);
+        await client
+          .from("garantias")
+          .update({ usuario_id: JSON.stringify(updatedHist) })
+          .eq("id", params.id);
       } catch (histErr) {
         console.warn("[garantias historial] No se pudo guardar historial:", histErr);
       }
