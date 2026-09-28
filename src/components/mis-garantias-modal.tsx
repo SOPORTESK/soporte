@@ -22,10 +22,12 @@ import {
   Wrench,
   CheckCircle2,
   Edit,
+  Plus,
 } from "lucide-react";
 import { toast } from "sonner";
 import { GarantiaRecord, CAT_LABELS, KPI_ESTATUS_LABELS } from "@/components/admin/garantias/garantias-types";
 import { GarantiasEditModal } from "@/components/admin/garantias/garantias-edit-modal";
+import { GarantiasCreateModal } from "@/components/admin/garantias/garantias-create-modal";
 
 export interface MisGarantiasModalProps {
   isOpen: boolean;
@@ -87,11 +89,17 @@ export function MisGarantiasModal({ isOpen, onClose, agent }: MisGarantiasModalP
   const [filterEstatus, setFilterEstatus] = React.useState<string>("todos");
   const [expandedId, setExpandedId] = React.useState<string | null>(null);
   const [editingRecord, setEditingRecord] = React.useState<GarantiaRecord | null>(null);
+  const [showCreateModal, setShowCreateModal] = React.useState(false);
   const [lastUpdated, setLastUpdated] = React.useState<string>("");
 
   const handleSavedRecord = (updated: GarantiaRecord) => {
     setRecords((prev) => prev.map((rec) => (rec.id === updated.id ? { ...rec, ...updated } : rec)));
     setEditingRecord(null);
+  };
+
+  const handleCreatedRecord = (newRecord: GarantiaRecord) => {
+    setRecords((prev) => [newRecord, ...prev]);
+    loadMyRecords();
   };
 
   const agentDisplayName = [agent?.nombre, agent?.apellido].filter(Boolean).join(" ") || agent?.email || "Mi Usuario";
@@ -228,6 +236,15 @@ export function MisGarantiasModal({ isOpen, onClose, agent }: MisGarantiasModalP
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setShowCreateModal(true)}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-brand-500 hover:bg-brand-600 text-white text-xs font-bold shadow-sm transition-all cursor-pointer active:scale-95 shrink-0"
+              title="Registrar nueva boleta de salida oficial"
+            >
+              <Plus className="h-4 w-4 stroke-[2.5]" />
+              <span>Nuevo Registro</span>
+            </button>
             <button
               onClick={() => loadMyRecords()}
               disabled={loading}
@@ -589,6 +606,16 @@ export function MisGarantiasModal({ isOpen, onClose, agent }: MisGarantiasModalP
           onClose={() => setEditingRecord(null)}
           onSaved={handleSavedRecord}
           canEditDev={true}
+        />
+      )}
+
+      {/* ── Modal de Nuevo Registro de Garantía (Nativo y Sincronizado) ── */}
+      {showCreateModal && (
+        <GarantiasCreateModal
+          isOpen={showCreateModal}
+          onClose={() => setShowCreateModal(false)}
+          onSaved={handleCreatedRecord}
+          defaultAgentName={agentDisplayName}
         />
       )}
     </div>

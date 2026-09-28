@@ -100,47 +100,87 @@ export async function POST(req: NextRequest) {
 
     const nombreCompleto = agent ? [agent.nombre, agent.apellido].filter(Boolean).join(" ") : user.email?.split("@")[0] || "Técnico";
 
-    // Si no trae consecutivo, calcular el max + 1
-    if (!payload.numero_consecutivo) {
-      const { data: maxRows } = await client
+    // Función auxiliar para calcular consecutivo fresco igual que el titular
+    const fetchNextConsecutive = async (): Promise<number> => {
+      const { data: recentRows } = await client
         .from("garantias")
-        .select("numero_consecutivo, boleta")
-        .order("numero_consecutivo", { ascending: false })
-        .limit(10);
+        .select("boleta, numero_consecutivo")
+        .order("fecha_creacion", { ascending: false })
+        .limit(120);
 
       let maxNum = 29178;
-      if (maxRows && maxRows.length > 0) {
-        for (const r of maxRows) {
+      if (recentRows && recentRows.length > 0) {
+        const modern = recentRows.filter(r => /^(GNC|TNC|G|T|NC)/i.test(String(r.boleta || "").trim()));
+        const nums = modern.map(r => {
           const match = String(r.boleta || "").match(/(\d+)$/);
-          const n = match ? parseInt(match[1], 10) : Number(r.numero_consecutivo) || 0;
-          if (n > maxNum && n < 200000) maxNum = n;
+          return match ? parseInt(match[1], 10) : 0;
+        }).filter(n => n > 0 && n < 200000);
+
+        if (nums.length > 0) {
+          maxNum = Math.max(...nums);
         }
       }
-      payload.numero_consecutivo = maxNum + 1;
+      return maxNum + 1;
+    };
+
+    // Función auxiliar para prefijo de boleta idéntico al titular
+    const buildBoletaString = (tipo: string, categoria: string, num: number) => {
+      let p = tipo === "salida_definitiva" ? "G" : tipo === "salida_temporal" ? "T" : "";
+      const cat = String(categoria || "").toLowerCase();
+      const esNC = cat.includes("nota_credito");
+      if (esNC) p = p ? p + "NC" : "NC";
+      return p ? `${p}${num}` : String(num);
+    };
+
+    let attempts = 0;
+    const maxAttempts = 4;
+    let lastError: any = null;
+    let savedRecord: any = null;
+
+    while (attempts < maxAttempts && !savedRecord) {
+      attempts++;
+      const nextNum = payload.numero_consecutivo || (await fetchNextConsecutive());
+      const boletaStr = payload.boleta || buildBoletaString(payload.tipo || "", payload.categoria || "", nextNum);
+
+      const recordToInsert = {
+        ...payload,
+        numero_consecutivo: nextNum,
+        boleta: boletaStr,
+        fecha_creacion: payload.fecha_creacion || new Date().toISOString(),
+        registrado_por: payload.registrado_por || nombreCompleto,
+      };
+
+      const { data, error } = await client
+        .from("garantias")
+        .insert(recordToInsert)
+        .select()
+        .single();
+
+      if (!error && data) {
+        savedRecord = data;
+        break;
+      }
+
+      // Si es error de colisión de clave única (23505 duplicate key), reintentar recalculando consecutivo
+      if (error && (error.code === "23505" || /duplicate key|unique constraint|numero_consecutivo/i.test(error.message || ""))) {
+        console.warn(`[garantias POST] Colisión detectada en consecutivo ${nextNum}. Reintentando (${attempts}/${maxAttempts})...`);
+        payload.numero_consecutivo = null;
+        payload.boleta = null;
+        await new Promise(res => setTimeout(res, 60 * attempts));
+        lastError = error;
+        continue;
+      }
+
+      // Cualquier otro error
+      lastError = error;
+      break;
     }
 
-    // Prefijo boleta
-    if (!payload.boleta) {
-      const prefix = payload.tipo === "salida_definitiva" ? "G" : "T";
-      const cat = String(payload.categoria || "").toLowerCase();
-      const subPrefix = cat.includes("nota_credito") ? "NC" : "";
-      payload.boleta = `${prefix}${subPrefix}${payload.numero_consecutivo}`;
+    if (!savedRecord) {
+      return NextResponse.json({ error: lastError?.message || "Error al insertar registro" }, { status: 500 });
     }
 
-    payload.fecha_creacion = new Date().toISOString();
-    payload.registrado_por = payload.registrado_por || nombreCompleto;
-
-    const { data: newRecord, error } = await client
-      .from("garantias")
-      .insert(payload)
-      .select()
-      .single();
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-
-    return NextResponse.json({ ok: true, record: newRecord });
+    return NextResponse.json({ ok: true, record: savedRecord });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "Error al crear registro" }, { status: 500 });
   }
