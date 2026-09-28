@@ -383,9 +383,15 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
       const categoryToUse = "Justificación Manual";
 
       let customCreatedAt: string | undefined = undefined;
-      if (justDate) {
-        const timePart = justStartTime || "12:00";
+      const todayCR = new Date().toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
+      if (justDate && justDate !== todayCR) {
+        const timePart = justStartTime || "08:00";
         customCreatedAt = new Date(`${justDate}T${timePart}:00`).toISOString();
+      } else if (justStartTime && justDate === todayCR) {
+        const candidate = new Date(`${justDate}T${justStartTime}:00`);
+        customCreatedAt = candidate.getTime() <= Date.now() ? candidate.toISOString() : new Date().toISOString();
+      } else {
+        customCreatedAt = new Date().toISOString();
       }
 
       const payload = {

@@ -35,50 +35,43 @@ export interface MisGarantiasModalProps {
   };
 }
 
-// Comparador normalizado para asegurar que se empareje al agente con todas sus variantes de registro
+function normalizeName(s: string) {
+  return (s || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+// Comparador exacto y canónico para asegurar que se empareje únicamente al propietario real
 function isRecordOwnedByAgent(
   r: any,
   agent: { nombre?: string | null; apellido?: string | null; email?: string | null }
 ): boolean {
   if (!r) return false;
-  const regBy = (r.registrado_por || "").trim().toLowerCase();
-  if (!regBy) return false;
+  const regNorm = normalizeName(r.registrado_por);
+  if (!regNorm) return false;
 
-  const normalize = (s: string) =>
-    s
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .toLowerCase()
-      .trim();
+  const emailNorm = normalizeName(agent.email || "");
+  const emailPrefix = emailNorm.split("@")[0];
 
-  const regNorm = normalize(regBy);
-
-  // 1. Coincidencia por correo o prefijo de correo (ej. cbatista)
-  if (agent.email) {
-    const emailNorm = normalize(agent.email);
-    const emailPrefix = emailNorm.split("@")[0];
-    if (regNorm === emailNorm || regNorm === emailPrefix || regNorm.includes(emailPrefix)) {
-      return true;
-    }
+  // 1. Coincidencia por correo o prefijo (ej. 'cbatista')
+  if (emailPrefix && (regNorm === emailNorm || regNorm === emailPrefix)) {
+    return true;
   }
 
-  // 2. Coincidencia por nombre y apellido
-  const firstName = normalize(agent.nombre || "");
-  const lastName = normalize(agent.apellido || "");
+  // 2. Coincidencia exacta de nombre completo ('cesar andres batista')
+  const agentFull = normalizeName(((agent.nombre || "") + " " + (agent.apellido || "")).trim());
+  if (agentFull && regNorm === agentFull) return true;
 
-  if (firstName && lastName) {
-    const fullName = `${firstName} ${lastName}`;
-    if (regNorm === fullName || regNorm.includes(fullName)) return true;
+  // 3. Coincidencia por primer nombre y apellido completo (ej. 'cesar batista')
+  const agentFirst = normalizeName(agent.nombre || "").split(" ")[0];
+  const agentLast = normalizeName(agent.apellido || "").split(" ").pop();
+  const regWords = regNorm.split(" ").filter((w) => w.length > 1);
 
-    const tokens = regNorm.split(/\s+/);
-    if (
-      tokens.some((t) => t.includes(firstName) || firstName.includes(t)) &&
-      tokens.some((t) => t.includes(lastName) || lastName.includes(t))
-    ) {
-      return true;
-    }
-  } else if (firstName) {
-    if (regNorm === firstName || regNorm.includes(firstName)) return true;
+  if (agentFirst && agentLast && regWords.includes(agentFirst) && regWords.includes(agentLast)) {
+    return true;
   }
 
   return false;
