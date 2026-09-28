@@ -28,6 +28,8 @@ export type GarantiaRecord = {
   excluir_rma?: boolean | null;
   dev?: string | null;
   fecha_dev?: string | null;
+  factura_salida?: string | null;
+  articulos_adicionales?: string | null;
   observaciones?: string | null;
   seguimiento?: string | null;
   historial?: Array<{

@@ -63,6 +63,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       fecha_modificacion: now,
       modificado_por: nombreModificador,
     };
+    delete updatePayload.nota;
+    delete updatePayload.historial;
+    delete updatePayload.id;
 
     const { data: updated, error: updateError } = await client
       .from("garantias")

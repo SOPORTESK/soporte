@@ -11,6 +11,26 @@ interface GarantiasEditModalProps {
   canEditDev?: boolean;
 }
 
+function getStoredCustomEstatus(): Array<{ value: string; label: string }> {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem("custom_garantias_estatus");
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+
+function storeCustomEstatus(nombre: string) {
+  if (!nombre || !nombre.trim()) return null;
+  const cleanName = nombre.trim().toUpperCase();
+  const slug = cleanName.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  const list = getStoredCustomEstatus();
+  if (!list.find(x => x.value === slug || x.label === cleanName)) {
+    list.push({ value: slug, label: cleanName });
+    try { localStorage.setItem("custom_garantias_estatus", JSON.stringify(list)); } catch {}
+  }
+  return { value: slug, label: cleanName };
+}
+
 export function GarantiasEditModal({ record, onClose, onSaved, canEditDev = true }: GarantiasEditModalProps) {
   const [form, setForm] = React.useState<Partial<GarantiaRecord>>({});
   const [saving, setSaving] = React.useState(false);
@@ -18,6 +38,25 @@ export function GarantiasEditModal({ record, onClose, onSaved, canEditDev = true
   const [historialList, setHistorialList] = React.useState<any[]>([]);
   const [loadingHistorial, setLoadingHistorial] = React.useState(false);
   const [activeTab, setActiveTab] = React.useState<"datos" | "historial">("datos");
+  const [customEstatuses, setCustomEstatuses] = React.useState<Array<{ value: string; label: string }>>([]);
+
+  React.useEffect(() => {
+    setCustomEstatuses(getStoredCustomEstatus());
+  }, []);
+
+  const handleAddCustomEstatus = () => {
+    const nombre = prompt("Ingrese el nombre del nuevo estatus (ej. EN ESPERA DE REPUESTO):");
+    if (!nombre || !nombre.trim()) return;
+    const nuevo = storeCustomEstatus(nombre);
+    if (nuevo) {
+      setCustomEstatuses(prev => {
+        if (!prev.find(x => x.value === nuevo.value)) return [...prev, nuevo];
+        return prev;
+      });
+      setForm(prev => ({ ...prev, estatus: nuevo.value }));
+      toast.success(`Estatus "${nuevo.label}" agregado`);
+    }
+  };
 
   React.useEffect(() => {
     if (record) {
@@ -163,6 +202,28 @@ export function GarantiasEditModal({ record, onClose, onSaved, canEditDev = true
                     </select>
                   </div>
                 </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-muted-foreground mb-1">Factura de Salida</label>
+                    <input
+                      type="text"
+                      value={form.factura_salida || ""}
+                      onChange={e => handleChange("factura_salida", e.target.value)}
+                      placeholder="N° Factura de salida/entrega"
+                      className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-muted-foreground mb-1">Registrado por (Técnico)</label>
+                    <input
+                      type="text"
+                      value={form.registrado_por || ""}
+                      onChange={e => handleChange("registrado_por", e.target.value)}
+                      placeholder="Nombre del técnico responsable"
+                      className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    />
+                  </div>
+                </div>
               </div>
 
               {/* Sección 2: Cliente y Facturación */}
@@ -301,6 +362,17 @@ export function GarantiasEditModal({ record, onClose, onSaved, canEditDev = true
                     />
                   </div>
                 </div>
+
+                <div className="mt-3">
+                  <label className="block text-xs font-semibold text-muted-foreground mb-1">Artículos Adicionales / Accesorios Entregados</label>
+                  <textarea
+                    rows={2}
+                    value={form.articulos_adicionales || ""}
+                    onChange={e => handleChange("articulos_adicionales", e.target.value)}
+                    placeholder="Cables, fuentes de alimentación, cajas, adaptadores..."
+                    className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  />
+                </div>
               </div>
 
               {/* Sección 4: RMA (Trámites con Marca) */}
@@ -322,12 +394,18 @@ export function GarantiasEditModal({ record, onClose, onSaved, canEditDev = true
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                   <div>
-                    <label className="block text-xs font-semibold text-muted-foreground mb-1">Ticket RMA</label>
+                    <label className="block text-xs font-semibold text-muted-foreground mb-1">
+                      {((form.estatus || "").toLowerCase() === "nota_credito_marca" || (form.estatus || "").toLowerCase().includes("nota_credito_marca"))
+                        ? "Factura Marca"
+                        : "Ticket RMA"}
+                    </label>
                     <input
                       type="text"
                       value={form.ticket_rma || ""}
                       onChange={e => handleChange("ticket_rma", e.target.value)}
-                      placeholder="Ticket del proveedor"
+                      placeholder={((form.estatus || "").toLowerCase() === "nota_credito_marca" || (form.estatus || "").toLowerCase().includes("nota_credito_marca"))
+                        ? "Factura Marca"
+                        : "Ticket del proveedor"}
                       className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono"
                     />
                   </div>
@@ -346,18 +424,42 @@ export function GarantiasEditModal({ record, onClose, onSaved, canEditDev = true
                       type="text"
                       value={form.serie_fabrica || ""}
                       onChange={e => handleChange("serie_fabrica", e.target.value)}
+                      placeholder="Serie equipo nuevo"
                       className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-muted-foreground mb-1">Estatus RMA</label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-semibold text-muted-foreground">Estatus</label>
+                      <button
+                        type="button"
+                        onClick={handleAddCustomEstatus}
+                        className="text-[11px] font-bold text-brand-600 dark:text-brand-400 hover:underline"
+                        title="Agregar un nuevo estatus"
+                      >
+                        + Agregar Estatus
+                      </button>
+                    </div>
                     <select
                       value={form.estatus || ""}
-                      onChange={e => handleChange("estatus", e.target.value)}
+                      onChange={e => {
+                        if (e.target.value === "__ADD_NEW__") {
+                          handleAddCustomEstatus();
+                        } else {
+                          handleChange("estatus", e.target.value);
+                        }
+                      }}
                       className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 font-medium"
                     >
                       <option value="">Pendiente Trámite</option>
                       {Object.entries(KPI_ESTATUS_LABELS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                      {customEstatuses
+                        .filter(c => !KPI_ESTATUS_LABELS[c.value])
+                        .map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                      {form.estatus && !KPI_ESTATUS_LABELS[form.estatus] && !customEstatuses.find(c => c.value === form.estatus) && (
+                        <option value={form.estatus}>{String(form.estatus).toUpperCase().replace(/_/g, " ")}</option>
+                      )}
+                      <option value="__ADD_NEW__" className="text-brand-600 font-bold">➕ Agregar nuevo estatus...</option>
                     </select>
                   </div>
                 </div>
