@@ -9,7 +9,6 @@ import { logActivity } from "@/lib/activity-client";
 import { computeUnifiedActivityMetrics, formatDurationMs } from "@/lib/activity-engine";
 import { ModalMyActivity } from "@/components/modal-my-activity";
 import { ModalAgenda } from "@/components/modal-agenda";
-import { MisGarantiasModal } from "@/components/mis-garantias-modal";
 import { AgendaEvent, AgendaTask } from "@/app/api/agenda/route";
 import { InternalChatView } from "@/components/internal-chat/internal-chat-view";
 import { buildDirectChannelId } from "@/lib/internal-chat-types";
@@ -250,18 +249,10 @@ export function SidebarUserPanel({
   const [newQuickTaskTitle, setNewQuickTaskTitle] = useState("");
   const [creatingQuickTask, setCreatingQuickTask] = useState(false);
   const [status, setStatus] = useState(safeAgent.status === "busy" ? "busy" : "online");
-  const [showMisGarantiasModal, setShowMisGarantiasModal] = useState(false);
   const statusRef = useRef(status);
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
-
-  // Listener para abrir la ventana nativa de Mis Procesos desde cualquier acceso de la barra
-  useEffect(() => {
-    const handleOpen = () => setShowMisGarantiasModal(true);
-    window.addEventListener("open-mis-garantias-modal", handleOpen);
-    return () => window.removeEventListener("open-mis-garantias-modal", handleOpen);
-  }, []);
 
   // Tolerancia oficial de inactividad configurada por los administradores (en minutos)
   const [toleranceMin, setToleranceMin] = useState<number>(15);
@@ -1316,14 +1307,6 @@ export function SidebarUserPanel({
                 <Calendar className="h-3.5 w-3.5 inline-block" />
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => setShowMisGarantiasModal(true)}
-              className="flex-1 text-xs font-semibold py-2.5 transition-colors flex items-center justify-center gap-1 text-muted-foreground hover:text-brand-500 hover:bg-brand-500/5 cursor-pointer"
-              title="Mis Procesos & Garantías Propias"
-            >
-              <ShieldCheck className="h-3.5 w-3.5 text-brand-500 inline-block" />
-            </button>
           </div>
 
           {tab === "profile" && (
@@ -1344,30 +1327,6 @@ export function SidebarUserPanel({
                   </span>
                   <p className="text-[11px] text-muted-foreground font-mono mt-1">{safeAgent.email}</p>
                 </div>
-              </div>
-
-              {/* Acceso directo a Mis Procesos */}
-              <div className="p-3 rounded-xl bg-brand-500/10 border border-brand-500/25 space-y-2">
-                <div className="flex items-center justify-between">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-brand-500 flex items-center gap-1.5">
-                    <ShieldCheck className="h-3.5 w-3.5 text-brand-500" />
-                    Mis Procesos (Garantías)
-                  </p>
-                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-brand-500/20 text-brand-500">
-                    Propietario
-                  </span>
-                </div>
-                <p className="text-[11px] text-muted-foreground leading-relaxed">
-                  Consulta de manera nativa tus salidas definitivas, temporales y trámites RMA donde eres el propietario.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setShowMisGarantiasModal(true)}
-                  className="w-full py-2 px-3 rounded-lg bg-brand-600 hover:bg-brand-500 text-white text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <ShieldCheck className="h-4 w-4" />
-                  Abrir Mis Procesos
-                </button>
               </div>
 
               {/* Formulario editable de Nombre y Apellido */}
@@ -2553,11 +2512,6 @@ export function SidebarUserPanel({
       )}
 
       {/* Ventana nativa de Mis Procesos (Garantías donde soy el propietario) */}
-      <MisGarantiasModal
-        isOpen={showMisGarantiasModal}
-        onClose={() => setShowMisGarantiasModal(false)}
-        agent={safeAgent}
-      />
     </div>
   );
 }
