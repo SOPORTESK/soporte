@@ -13,7 +13,7 @@ import { MisGarantiasModal } from "@/components/mis-garantias-modal";
 import { AgendaEvent, AgendaTask } from "@/app/api/agenda/route";
 import { InternalChatView } from "@/components/internal-chat/internal-chat-view";
 import { buildDirectChannelId } from "@/lib/internal-chat-types";
-import { ManualTasksManagerModal, ManualTaskItem as DedicatedTaskItem } from "@/components/admin/manual-tasks-manager-modal";
+import { ManualTasksManagerModal, ManualTaskItem as DedicatedTaskItem, getTaskIconComponent } from "@/components/admin/manual-tasks-manager-modal";
 
 interface Agent {
   email: string;
@@ -805,7 +805,7 @@ export function SidebarUserPanel({
         short: t.label,
         category: t.category,
         subcategory: t.subcategory || undefined,
-        icon: getTaskIcon(t.iconName || t.label),
+        icon: getTaskIconComponent(t.iconName || t.label),
         iconName: t.iconName,
       }));
     }
@@ -1748,59 +1748,49 @@ export function SidebarUserPanel({
                         </span>
                       </div>
 
-                      {/* Lista de botones a lo ancho completo: CERO texto apelotado o cortado */}
-                      <div className="flex flex-col gap-1.5">
+                      {/* Cuadrícula Dock de Iconos Cuadrados (Compacto, elegante, sin apelotamiento) */}
+                      <div className="grid grid-cols-4 gap-2 pt-1 pb-1">
                         {displayedManualTasks.map((task, idx) => {
                           const isCurrent = manualTask?.label === task.label;
                           const Icon = task.icon;
-                          const color = MACRO_COLOR_PALETTE[idx % MACRO_COLOR_PALETTE.length];
                           const displayLabel = task.label;
 
                           return (
-                            <button
-                              key={task.label}
-                              type="button"
-                              title={`${task.label}${task.subcategory ? ` • ${task.subcategory}` : ""}`}
-                              onClick={() => {
-                                if (isCurrent) stopManualTask();
-                                else startManualTask(task.category, task.label, task.subcategory);
-                              }}
-                              className={`group relative flex items-center gap-2.5 p-2 px-3 rounded-xl border text-left transition-all cursor-pointer shadow-2xs active:scale-[0.99] min-h-[40px] w-full ${
-                                isCurrent
-                                  ? "bg-amber-500/20 border-amber-500 ring-2 ring-amber-500/60 shadow-amber-500/20"
-                                  : `${color.bg} ${color.border} ${color.hover}`
-                              }`}
-                            >
-                              <div
-                                className={`h-7 w-7 rounded-lg grid place-items-center shrink-0 transition-transform group-hover:scale-110 ${
+                            <div key={task.label} className="relative group">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (isCurrent) stopManualTask();
+                                  else startManualTask(task.category, task.label, task.subcategory);
+                                }}
+                                className={`w-full h-14 rounded-2xl flex flex-col items-center justify-center transition-all duration-200 border relative cursor-pointer shadow-2xs ${
                                   isCurrent
-                                    ? "bg-amber-500/30 text-amber-300 border border-amber-500/40"
-                                    : color.iconBg
+                                    ? "bg-amber-500/25 border-amber-400 text-amber-300 ring-2 ring-amber-400/50 shadow-md shadow-amber-500/20 scale-[0.98]"
+                                    : "bg-card/90 hover:bg-muted/70 border-border/80 hover:border-slate-500 text-foreground hover:scale-105 active:scale-95"
                                 }`}
                               >
-                                <Icon className="h-3.5 w-3.5" />
-                              </div>
-                              <span
-                                className={`text-[11.5px] font-bold tracking-tight leading-normal whitespace-nowrap overflow-hidden text-ellipsis flex-1 min-w-0 ${
-                                  isCurrent ? "text-amber-300 font-black" : color.text
-                                }`}
-                              >
-                                {displayLabel}
-                              </span>
-                              {isCurrent ? (
-                                <span className="flex items-center gap-1.5 shrink-0 bg-amber-500/25 border border-amber-500/40 px-2 py-0.5 rounded-full">
-                                  <span className="relative flex h-2 w-2">
+                                {isCurrent && (
+                                  <span className="absolute top-1.5 right-1.5 flex h-2 w-2">
                                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
                                     <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
                                   </span>
-                                  <span className="text-[10px] font-mono font-black text-amber-300 tabular-nums">
-                                    {manualElapsed || "00:00"}
-                                  </span>
-                                </span>
-                              ) : (
-                                <Play className="h-3 w-3 text-muted-foreground/30 group-hover:text-muted-foreground group-hover:translate-x-0.5 transition-all shrink-0" />
-                              )}
-                            </button>
+                                )}
+                                <Icon className={`h-5 w-5 transition-transform group-hover:scale-110 ${isCurrent ? "text-amber-300 animate-pulse" : ""}`} />
+                              </button>
+
+                              {/* Tooltip flotante al acercar el cursor */}
+                              <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max max-w-[200px] opacity-0 group-hover:opacity-100 transition-all duration-150 transform group-hover:-translate-y-1 z-50">
+                                <div className="bg-popover text-popover-foreground border border-border/90 shadow-2xl px-2.5 py-1.5 rounded-xl text-center backdrop-blur-md">
+                                  <p className="text-[11px] font-bold leading-tight">{displayLabel}</p>
+                                  {task.category && (
+                                    <p className="text-[9px] text-amber-500 dark:text-amber-400 font-semibold uppercase tracking-wider mt-0.5">
+                                      {task.category}
+                                    </p>
+                                  )}
+                                </div>
+                                <div className="w-2 h-2 bg-popover border-r border-b border-border/90 transform rotate-45 mx-auto -mt-1" />
+                              </div>
+                            </div>
                           );
                         })}
                       </div>
