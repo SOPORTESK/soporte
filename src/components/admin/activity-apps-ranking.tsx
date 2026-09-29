@@ -1512,6 +1512,11 @@ function ActivityAppsRankingComponent({
       l.includes("conmutac") ||
       l.includes("task switching") ||
       l.includes("applicationframehost") ||
+      l.includes("pickerhost") ||
+      l.includes("file picker") ||
+      l.includes("seleccionar carpeta") ||
+      l.includes("guardar como") ||
+      l.includes("abrir archivo") ||
       l === "explorador de windows" ||
       l.startsWith("explorador:") ||
       l === "escritorio de windows" ||
@@ -1577,6 +1582,20 @@ function ActivityAppsRankingComponent({
     if (clean.toLowerCase().includes("buscar con google") || clean.toLowerCase().includes("google search")) {
       return "Búsqueda en Google";
     }
+    const lc = clean.toLowerCase();
+    if (
+      lc === "iniciar sesión" ||
+      lc === "iniciar sesion" ||
+      lc.startsWith("iniciar sesi") ||
+      lc === "login" ||
+      lc.startsWith("login ") ||
+      lc === "sign in" ||
+      lc === "nueva pestaña" ||
+      lc === "new tab" ||
+      lc === "acceso"
+    ) {
+      return "Navegador Web (Brave)";
+    }
     return clean;
   };
 
@@ -1587,6 +1606,7 @@ function ActivityAppsRankingComponent({
     // Tienen prioridad absoluta, NUNCA se filtran ni por phantom ni por noise, y su nombre se preserva exacto.
     for (const [rawKey, val] of Object.entries(customCategories)) {
       if (!rawKey || rawKey === "Formación de Usuarios") continue;
+      if (isSystemNoise(rawKey)) continue;
       const cat = typeof val === "object" ? val?.category : val;
       // Si fue desvinculada/puesta en Sin Clasificar y no está en apps detectadas en vivo, no retenerla
       if ((cat === "Sin Clasificar" || cat === "unassigned") && !allDetectedApps.some((d) => d.toLowerCase() === rawKey.toLowerCase())) {

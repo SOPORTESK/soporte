@@ -264,6 +264,18 @@ export function extractCleanItemName(item: TimelineEntry, appMappings?: Record<s
   const rawTitle = (meta.window_title || meta.title || "").toLowerCase();
 
   // Herramientas del sistema y accesorios
+  if (
+    rawApp.includes("pickerhost") ||
+    rawTitle.includes("pickerhost") ||
+    rawApp.includes("file picker") ||
+    rawTitle.includes("file picker") ||
+    rawTitle.includes("seleccionar carpeta") ||
+    rawTitle.includes("guardar como") ||
+    rawTitle.includes("abrir archivo") ||
+    rawApp.includes("applicationframehost")
+  ) {
+    return "Explorador de archivos";
+  }
   if (rawTitle.includes("program manager") || act.includes("program manager") || rawApp.includes("program manager")) return "Escritorio de Windows";
   if (rawTitle.includes("conmutac") || act.includes("conmutac") || rawTitle.includes("task switching")) return "Conmutación de tareas";
   if (rawTitle.includes("google one") || rawApp.includes("google one") || act.includes("google one")) return "Google One";
@@ -320,8 +332,29 @@ export function extractCleanItemName(item: TimelineEntry, appMappings?: Record<s
       if (lowerClean.includes("hik-connect") || lowerClean.includes("hikvision") || lowerClean.includes("cloudsso")) {
         return "Hikvision";
       }
+
+      // TÍTULOS GENÉRICOS DE NAVEGADOR: No son aplicaciones del taller, son navegación web
+      if (
+        lowerClean === "iniciar sesión" ||
+        lowerClean === "iniciar sesion" ||
+        lowerClean.startsWith("iniciar sesi") ||
+        lowerClean === "login" ||
+        lowerClean.startsWith("login ") ||
+        lowerClean === "sign in" ||
+        lowerClean === "nueva pestaña" ||
+        lowerClean === "new tab" ||
+        lowerClean === "bienvenido" ||
+        lowerClean === "home" ||
+        lowerClean === "acceso"
+      ) {
+        return rawApp.includes("brave") ? "Navegador Web (Brave)"
+          : rawApp.includes("chrome") ? "Navegador Web (Chrome)"
+          : rawApp.includes("edge") ? "Navegador Web (Edge)"
+          : "Navegador Web";
+      }
+
       const stripped = cleanWinTitle.replace(/^Navegador:\s*/i, "").trim();
-      return stripped.length > 30 ? stripped.substring(0, 30) + "..." : stripped;
+      return stripped.length > 35 ? stripped.substring(0, 35) + "..." : stripped;
     }
   }
 
