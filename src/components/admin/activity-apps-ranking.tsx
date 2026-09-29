@@ -75,6 +75,7 @@ export interface CategoryItem {
   iconName: string;
   subcategories: string[];
   is_manual?: boolean;
+  manual_subcategories?: string[];
 }
 
 export const DEFAULT_CATEGORIES: CategoryItem[] = [
@@ -93,10 +94,16 @@ export const DEFAULT_CATEGORIES: CategoryItem[] = [
     bgBar: "bg-amber-500",
     iconName: "Wrench",
     subcategories: [
-      "Diagnóstico (MANUAL)",
-      "Reparación (MANUAL)",
-      "Mantenimiento (MANUAL)",
-      "Pruebas y Validación (MANUAL)",
+      "Diagnóstico",
+      "Reparación",
+      "Mantenimiento",
+      "Pruebas y Validación",
+    ],
+    manual_subcategories: [
+      "Diagnóstico",
+      "Reparación",
+      "Mantenimiento",
+      "Pruebas y Validación",
     ],
   },
   {
@@ -777,10 +784,10 @@ export function getDefaultSubcategoryForApp(appName: string, category: string): 
     if (name.includes("seguimiento")) return "Seguimiento de Casos";
   }
   if (category === "Servicio de Taller") {
-    if (name.includes("diagnóst") || name.includes("diagnost")) return "Diagnóstico (MANUAL)";
-    if (name.includes("mantenimiento")) return "Mantenimiento (MANUAL)";
-    if (name.includes("prueba") || name.includes("validaci")) return "Pruebas y Validación (MANUAL)";
-    return "Reparación (MANUAL)";
+    if (name.includes("diagnóst") || name.includes("diagnost")) return "Diagnóstico";
+    if (name.includes("mantenimiento")) return "Mantenimiento";
+    if (name.includes("prueba") || name.includes("validaci")) return "Pruebas y Validación";
+    return "Reparación";
   }
   if (category === "Gestión del Taller") {
     if (name.includes("limpieza") || name.includes("orden")) return "Orden y Limpieza de Taller";
@@ -807,6 +814,19 @@ export function getProductivityType(appName: string): { label: string; color: st
 
 export function normalizeOfficialCategory(category: string, action: string, appName: string): string {
   return getDefaultCategoryForApp(appName, action, category);
+}
+
+export function cleanSubcategoryName(name?: string | null): string {
+  if (!name) return "";
+  return name.replace(/\s*\((?:manual|labor manual|taller)\)\s*/gi, "").trim();
+}
+
+export function isSubcategoryManual(cat: CategoryItem | undefined, subName?: string | null): boolean {
+  if (!cat || !subName) return false;
+  if (cat.is_manual) return true;
+  const clean = cleanSubcategoryName(subName).toLowerCase();
+  if (/\(manual\)/i.test(subName)) return true;
+  return (cat.manual_subcategories || []).some((m) => cleanSubcategoryName(m).toLowerCase() === clean);
 }
 
 function formatDuration(ms: number): string {
@@ -907,7 +927,7 @@ function ActivityAppsRankingComponent({
         }
         return {
           category: custom.category as string,
-          subcategory: (custom.subcategory as string) || null,
+          subcategory: custom.subcategory ? cleanSubcategoryName(custom.subcategory as string) : null,
           isManual: true,
         };
       }
@@ -930,18 +950,38 @@ function ActivityAppsRankingComponent({
     const defSub = getDefaultSubcategoryForApp(appName, defCat);
     return {
       category: defCat,
-      subcategory: defSub,
+      subcategory: defSub ? cleanSubcategoryName(defSub) : null,
       isManual: false,
     };
   };
 
-  // Función para normalizar categorías y asegurar que incluyan subcategorías
+  // Función para normalizar categorías y asegurar que incluyan subcategorías limpias
   const sanitizeCategoryList = (list: CategoryItem[]): CategoryItem[] => {
     if (!Array.isArray(list) || list.length === 0) return DEFAULT_CATEGORIES;
-    return list.map((cat) => ({
-      ...cat,
-      subcategories: Array.isArray(cat.subcategories) ? cat.subcategories : [],
-    }));
+    return list.map((cat) => {
+      const manualSet = new Set<string>(
+        (cat.manual_subcategories || []).map((m) => cleanSubcategoryName(m).toLowerCase())
+      );
+      const cleanSubs: string[] = [];
+      (cat.subcategories || []).forEach((s) => {
+        const clean = cleanSubcategoryName(s);
+        if (!clean) return;
+        if (/\(manual\)/i.test(s)) {
+          manualSet.add(clean.toLowerCase());
+        }
+        if (!cleanSubs.includes(clean)) {
+          cleanSubs.push(clean);
+        }
+      });
+      return {
+        ...cat,
+        subcategories: cleanSubs,
+        manual_subcategories: Array.from(manualSet).map((m) => {
+          const found = cleanSubs.find((s) => s.toLowerCase() === m);
+          return found || m;
+        }),
+      };
+    });
   };
 
   // Cargar categorías y mapeos de localStorage y API
@@ -954,7 +994,11 @@ function ActivityAppsRankingComponent({
         setCustomCategories(parsed);
       }
       const localCats = localStorage.getItem("sek_categories_list");
-      if (localCats) setCategories(sanitizeCategoryList(JSON.parse(localCats)));
+      if (localCats) {
+        const sanitized = sanitizeCategoryList(JSON.parse(localCats));
+        setCategories(sanitized);
+        try { localStorage.setItem("sek_categories_list", JSON.stringify(sanitized)); } catch {}
+      }
     } catch {}
 
     fetch("/api/activity/app-categories")
@@ -969,6 +1013,11 @@ function ActivityAppsRankingComponent({
           const sanitized = sanitizeCategoryList(data.categories);
           setCategories(sanitized);
           try { localStorage.setItem("sek_categories_list", JSON.stringify(sanitized)); } catch {}
+          fetch("/api/activity/app-categories", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ categories: sanitized }),
+          }).catch(() => {});
         }
       })
       .catch(() => {});
@@ -983,13 +1032,14 @@ function ActivityAppsRankingComponent({
 
   // Asignar categoría y subcategoría a una aplicación
   const handleSetCategory = async (appName: string, category: string | null, subcategory?: string | null) => {
+    const cleanSub = subcategory ? cleanSubcategoryName(subcategory) : null;
     setSavingApp(appName);
     const newMap = { ...customCategories };
     if (!category || category === "auto" || category === "Sin Clasificar") {
       newMap[appName] = { category: "Sin Clasificar", subcategory: null };
     } else {
-      if (subcategory) {
-        newMap[appName] = { category, subcategory };
+      if (cleanSub) {
+        newMap[appName] = { category, subcategory: cleanSub };
       } else {
         newMap[appName] = category;
       }
@@ -1013,7 +1063,7 @@ function ActivityAppsRankingComponent({
         body: JSON.stringify({
           appName,
           category: (!category || category === "auto" || category === "Sin Clasificar") ? "Sin Clasificar" : category,
-          subcategory: subcategory || undefined,
+          subcategory: cleanSub || undefined,
         }),
       });
     } catch (err) {
@@ -1042,17 +1092,19 @@ function ActivityAppsRankingComponent({
 
   // Agregar subcategoría rápida a una categoría existente
   const handleAddSubcategory = async (catId: string, subcatName: string, isManual: boolean = false) => {
-    let trimmed = subcatName.trim();
-    if (!trimmed) return;
-    if (isManual && !/\(manual\)/i.test(trimmed)) {
-      trimmed = `${trimmed} (MANUAL)`;
-    }
+    const clean = cleanSubcategoryName(subcatName);
+    if (!clean) return;
     const updated = categories.map((cat) => {
       if (cat.id === catId) {
-        const subs = cat.subcategories || [];
-        if (!subs.includes(trimmed)) {
-          return { ...cat, subcategories: [...subs, trimmed] };
+        const subs = (cat.subcategories || []).map((s) => cleanSubcategoryName(s));
+        const manuals = (cat.manual_subcategories || []).map((m) => cleanSubcategoryName(m));
+        if (!subs.some((s) => s.toLowerCase() === clean.toLowerCase())) {
+          subs.push(clean);
         }
+        if (isManual && !manuals.some((m) => m.toLowerCase() === clean.toLowerCase())) {
+          manuals.push(clean);
+        }
+        return { ...cat, subcategories: subs, manual_subcategories: manuals };
       }
       return cat;
     });
@@ -1066,28 +1118,35 @@ function ActivityAppsRankingComponent({
 
   // Alternar si una subcategoría es Manual (botón en barra lateral) o Digital (PC)
   const handleToggleSubcategoryManual = async (catId: string, subcatName: string) => {
-    const isCurrentlyManual = /\(manual\)/i.test(subcatName);
-    const cleanName = subcatName.replace(/\s*\(manual\)/i, "").trim();
-    const newName = isCurrentlyManual ? cleanName : `${cleanName} (MANUAL)`;
-
+    const cleanName = cleanSubcategoryName(subcatName);
     const updated = categories.map((cat) => {
-      if (cat.id === catId && cat.subcategories) {
+      if (cat.id === catId) {
+        const currentSubs = (cat.subcategories || []).map((s) => cleanSubcategoryName(s));
+        const currentManuals = (cat.manual_subcategories || []).map((m) => cleanSubcategoryName(m));
+        const isCurrentlyManual = currentManuals.some((m) => m.toLowerCase() === cleanName.toLowerCase()) || /\(manual\)/i.test(subcatName);
+        const newManuals = isCurrentlyManual
+          ? currentManuals.filter((m) => m.toLowerCase() !== cleanName.toLowerCase())
+          : [...currentManuals, cleanName];
         return {
           ...cat,
-          subcategories: cat.subcategories.map((s) => (s === subcatName ? newName : s)),
+          manual_subcategories: newManuals,
+          subcategories: currentSubs,
         };
       }
       return cat;
     });
     saveCategoriesList(updated);
 
-    // Si había mapeos de aplicaciones apuntando a esta subcategoría, actualizarlos también
+    // Si había mapeos de aplicaciones con versiones antiguas que tenían (MANUAL), limpiarlos
     const newMap = { ...customCategories };
     let changed = false;
     for (const [app, val] of Object.entries(newMap)) {
-      if (typeof val === "object" && val && (val.category === catId || val.category === getCategoryUI(catId).label) && val.subcategory === subcatName) {
-        newMap[app] = { ...val, subcategory: newName };
-        changed = true;
+      if (typeof val === "object" && val && (val.category === catId || val.category === getCategoryUI(catId).label) && val.subcategory) {
+        const cleanSub = cleanSubcategoryName(val.subcategory);
+        if (cleanSub.toLowerCase() === cleanName.toLowerCase() && val.subcategory !== cleanName) {
+          newMap[app] = { ...val, subcategory: cleanName };
+          changed = true;
+        }
       }
     }
     if (changed) {
@@ -1114,9 +1173,14 @@ function ActivityAppsRankingComponent({
 
   // Eliminar subcategoría de una categoría
   const handleDeleteSubcategory = async (catId: string, subcatName: string) => {
+    const cleanName = cleanSubcategoryName(subcatName).toLowerCase();
     const updated = categories.map((cat) => {
       if (cat.id === catId && cat.subcategories) {
-        return { ...cat, subcategories: cat.subcategories.filter((s) => s !== subcatName) };
+        return {
+          ...cat,
+          subcategories: cat.subcategories.filter((s) => cleanSubcategoryName(s).toLowerCase() !== cleanName),
+          manual_subcategories: (cat.manual_subcategories || []).filter((m) => cleanSubcategoryName(m).toLowerCase() !== cleanName),
+        };
       }
       return cat;
     });
@@ -1126,9 +1190,11 @@ function ActivityAppsRankingComponent({
     const newMap = { ...customCategories };
     let changed = false;
     for (const [app, val] of Object.entries(newMap)) {
-      if (typeof val === "object" && val && (val.category === catId || val.category === getCategoryUI(catId).label) && val.subcategory === subcatName) {
-        newMap[app] = { category: catId, subcategory: null };
-        changed = true;
+      if (typeof val === "object" && val && (val.category === catId || val.category === getCategoryUI(catId).label) && val.subcategory) {
+        if (cleanSubcategoryName(val.subcategory).toLowerCase() === cleanName) {
+          newMap[app] = { category: catId, subcategory: null };
+          changed = true;
+        }
       }
     }
     if (changed) {
@@ -1592,9 +1658,9 @@ function ActivityAppsRankingComponent({
                 {currentSub && (
                   <span
                     className="text-xs font-semibold px-2 py-0.5 rounded-full bg-muted/60 border border-border text-foreground/90"
-                    title={`Subcategoría: ${currentSub}`}
+                    title={`Subcategoría: ${cleanSubcategoryName(currentSub)}`}
                   >
-                    {currentSub}
+                    {cleanSubcategoryName(currentSub)}
                   </span>
                 )}
 
@@ -1657,7 +1723,7 @@ function ActivityAppsRankingComponent({
                                         : "hover:bg-muted/50 text-muted-foreground hover:text-foreground"
                                     }`}
                                   >
-                                    <span className="truncate">{sub}</span>
+                                    <span className="truncate">{cleanSubcategoryName(sub)}</span>
                                     {isSubSelected && <Check className="h-2.5 w-2.5 text-violet-400 shrink-0" />}
                                   </button>
                                 );
@@ -1954,7 +2020,7 @@ function ActivityAppsRankingComponent({
                         >
                           <option value="">-- General / Sin subcat. --</option>
                           {(categories.find((c) => c.id === newCustomItemCat)?.subcategories || []).map((s) => (
-                            <option key={s} value={s}>{s}</option>
+                            <option key={s} value={s}>{cleanSubcategoryName(s)}</option>
                           ))}
                         </select>
                       </div>
@@ -2051,13 +2117,13 @@ function ActivityAppsRankingComponent({
                                   )}
                                   {isManual && (
                                     <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-300 border border-violet-500/30 shrink-0 whitespace-nowrap">
-                                      Manual
+                                      Personalizado
                                     </span>
                                   )}
                                 </div>
                                 <p className="text-[11px] text-muted-foreground truncate mt-0.5">
                                   {matchedCat ? matchedCat.label : <span className="text-amber-400 font-semibold">Sin categoría</span>}
-                                  {currentSub ? ` ➔ ${currentSub}` : <span className="text-amber-400/80"> (Falta subcategoría)</span>}
+                                  {currentSub ? ` ➔ ${cleanSubcategoryName(currentSub)}` : <span className="text-amber-400/80"> (Falta subcategoría)</span>}
                                 </p>
                               </div>
                             </div>
@@ -2086,8 +2152,8 @@ function ActivityAppsRankingComponent({
                             {/* Columna 3: Selector de Subcategoría Dependiente */}
                             <div className="w-full">
                               <select
-                                value={currentSub || ""}
-                                onChange={(e) => handleSetCategory(appName, currentCat, e.target.value || null)}
+                                value={cleanSubcategoryName(currentSub) || ""}
+                                onChange={(e) => handleSetCategory(appName, currentCat, e.target.value ? cleanSubcategoryName(e.target.value) : null)}
                                 className={`text-xs font-semibold px-2.5 py-1.5 rounded-lg border cursor-pointer w-full transition-colors truncate ${
                                   !currentSub
                                     ? "bg-amber-500/15 border-amber-500/40 text-amber-300 font-bold"
@@ -2096,11 +2162,14 @@ function ActivityAppsRankingComponent({
                                 title="Subcategoría"
                               >
                                 <option value="">-- General / Sin subcat. --</option>
-                                {availableSubcats.map((sub) => (
-                                  <option key={sub} value={sub}>
-                                    {sub}
-                                  </option>
-                                ))}
+                                {availableSubcats.map((sub) => {
+                                  const clean = cleanSubcategoryName(sub);
+                                  return (
+                                    <option key={clean} value={clean}>
+                                      {clean}
+                                    </option>
+                                  );
+                                })}
                               </select>
                             </div>
 
@@ -2386,19 +2455,18 @@ function ActivityAppsRankingComponent({
                             </div>
                           ) : (
                             subcats.map((sub) => {
-                              const isManual = /\(manual\)/i.test(sub) || !!cat.is_manual;
-                              const cleanName = sub.replace(/\s*\(manual\)/i, "").trim();
-                              const isExpanded = expandedManualSubcat === `${cat.id}::${sub}`;
+                              const cleanName = cleanSubcategoryName(sub);
+                              const isManual = isSubcategoryManual(cat, cleanName);
 
                               const appsInSub = appsInCat.filter((a) => {
                                 const asg = getAppAssignment(a);
-                                const subVal = (asg.subcategory || "").toLowerCase();
-                                return subVal === sub.toLowerCase() || subVal === cleanName.toLowerCase();
+                                const subVal = cleanSubcategoryName(asg.subcategory || "").toLowerCase();
+                                return subVal === cleanName.toLowerCase();
                               });
 
                               return (
                                 <div
-                                  key={sub}
+                                  key={cleanName}
                                   className="flex items-center justify-between p-2.5 px-4 hover:bg-muted/20 transition-colors text-xs"
                                 >
                                   {/* Columna izquierda: Nombre y conteo */}
@@ -2413,13 +2481,13 @@ function ActivityAppsRankingComponent({
                                   <div className="flex items-center gap-2 shrink-0">
                                     <button
                                       type="button"
-                                      onClick={() => handleToggleSubcategoryManual(cat.id, sub)}
+                                      onClick={() => handleToggleSubcategoryManual(cat.id, cleanName)}
                                       className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1 ${
                                         isManual
                                           ? "bg-amber-500/15 text-amber-300 border border-amber-500/30 hover:bg-amber-500/25"
                                           : "bg-muted/60 text-muted-foreground hover:text-foreground border border-border/40"
                                       }`}
-                                      title="Alternar entre labor manual de taller o software PC"
+                                      title="Alternar entre labor manual o digital"
                                     >
                                       {isManual ? "🔧 Labor Manual" : "💻 Digital / PC"}
                                     </button>
@@ -2428,7 +2496,7 @@ function ActivityAppsRankingComponent({
                                       type="button"
                                       onClick={() => {
                                         if (confirm(`¿Eliminar la subcategoría "${cleanName}"?`)) {
-                                          handleDeleteSubcategory(cat.id, sub);
+                                          handleDeleteSubcategory(cat.id, cleanName);
                                         }
                                       }}
                                       className="p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-rose-400 transition-colors cursor-pointer"
