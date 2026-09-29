@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
-import { Camera, Lock, Eye, EyeOff, Check, X, ChevronUp, ChevronDown, ChevronLeft, Circle, LogOut, Activity as ActivityIcon, FileText, ChevronRight, X as XIcon, RefreshCw, Wrench, Coffee, Timer, BarChart3, Package, LayoutDashboard, ClipboardList, Sparkles, UserPlus, Briefcase, GraduationCap, Users, Utensils, Sandwich, Bath, Square, Trash2, Clock, CheckCircle2, Calendar, Maximize2, Minimize2, Plus, UserCheck, Save, MessageSquare, Search, Play, Layers, ShieldCheck, Phone } from "lucide-react";
+import { Camera, Lock, Eye, EyeOff, Check, X, ChevronUp, ChevronDown, ChevronLeft, Circle, LogOut, Activity as ActivityIcon, FileText, ChevronRight, X as XIcon, RefreshCw, Wrench, Coffee, Timer, BarChart3, Package, LayoutDashboard, ClipboardList, Sparkles, UserPlus, Briefcase, GraduationCap, Users, Utensils, Sandwich, Bath, Square, Trash2, Clock, CheckCircle2, Calendar, Maximize2, Minimize2, Plus, UserCheck, Save, MessageSquare, Search, Play, Layers, ShieldCheck, Phone, Settings } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -13,6 +13,7 @@ import { MisGarantiasModal } from "@/components/mis-garantias-modal";
 import { AgendaEvent, AgendaTask } from "@/app/api/agenda/route";
 import { InternalChatView } from "@/components/internal-chat/internal-chat-view";
 import { buildDirectChannelId } from "@/lib/internal-chat-types";
+import { ManualTasksManagerModal, ManualTaskItem as DedicatedTaskItem } from "@/components/admin/manual-tasks-manager-modal";
 
 interface Agent {
   email: string;
@@ -710,9 +711,57 @@ export function SidebarUserPanel({
     }
   }, [tab, open]);
 
+  const [showManualTasksManagerModal, setShowManualTasksManagerModal] = useState(false);
+  const [dedicatedManualTasks, setDedicatedManualTasks] = useState<DedicatedTaskItem[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const saved = localStorage.getItem("sek_manual_tasks_list");
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    const loadDedicatedTasks = () => {
+      fetch("/api/activity/manual-tasks")
+        .then((r) => r.json())
+        .then((data) => {
+          if (data?.success && Array.isArray(data.tasks)) {
+            setDedicatedManualTasks(data.tasks);
+            try {
+              localStorage.setItem("sek_manual_tasks_list", JSON.stringify(data.tasks));
+            } catch {}
+          }
+        })
+        .catch(() => {});
+    };
+
+    const handleDedicatedUpdate = (e?: Event) => {
+      try {
+        const detail = (e as CustomEvent)?.detail;
+        if (detail && Array.isArray(detail)) {
+          setDedicatedManualTasks(detail);
+        } else {
+          const saved = localStorage.getItem("sek_manual_tasks_list");
+          if (saved) setDedicatedManualTasks(JSON.parse(saved));
+        }
+      } catch {}
+      loadDedicatedTasks();
+    };
+
+    loadDedicatedTasks();
+    window.addEventListener("sekunet_manual_tasks_updated", handleDedicatedUpdate);
+    window.addEventListener("storage", handleDedicatedUpdate);
+    return () => {
+      window.removeEventListener("sekunet_manual_tasks_updated", handleDedicatedUpdate);
+      window.removeEventListener("storage", handleDedicatedUpdate);
+    };
+  }, []);
+
   const manualTasksList = useMemo(() => {
     // Obtenemos ÚNICAMENTE las tareas/procesos que tienen is_manual_task === true en appMappingsConfig
-    const tasks: { label: string; short: string; category: string; subcategory?: string; icon: any }[] = [];
+    const tasks: { label: string; short: string; category: string; subcategory?: string; icon: any; iconName?: string }[] = [];
 
     if (appMappingsConfig && typeof appMappingsConfig === "object") {
       for (const [appName, val] of Object.entries(appMappingsConfig)) {
@@ -748,19 +797,34 @@ export function SidebarUserPanel({
     return tasks;
   }, [appMappingsConfig]);
 
+  // Lista efectiva: Prioriza la lista dedicada gestionada en el nuevo panel
+  const effectiveManualTasks = useMemo(() => {
+    if (dedicatedManualTasks.length > 0) {
+      return dedicatedManualTasks.map((t) => ({
+        label: t.label,
+        short: t.label,
+        category: t.category,
+        subcategory: t.subcategory || undefined,
+        icon: getTaskIcon(t.iconName || t.label),
+        iconName: t.iconName,
+      }));
+    }
+    return manualTasksList;
+  }, [dedicatedManualTasks, manualTasksList]);
+
   const [manualSearchQuery, setManualSearchQuery] = useState<string>("");
 
   // Tareas mostradas (filtradas si hay búsqueda, o todas directamente)
   const displayedManualTasks = useMemo(() => {
     const q = (manualSearchQuery || "").trim().toLowerCase();
-    if (!q) return manualTasksList;
-    return manualTasksList.filter(
+    if (!q) return effectiveManualTasks;
+    return effectiveManualTasks.filter(
       (item) =>
         (item?.label || "").toLowerCase().includes(q) ||
         (item?.subcategory ? String(item.subcategory).toLowerCase().includes(q) : false) ||
         (item?.category ? String(item.category).toLowerCase().includes(q) : false)
     );
-  }, [manualTasksList, manualSearchQuery]);
+  }, [effectiveManualTasks, manualSearchQuery]);
 
   useEffect(() => {
     if (tab === "activity" && !hasActivityAccess) {
@@ -1577,7 +1641,7 @@ export function SidebarUserPanel({
 
               {/* Timer manual activo si hay labor en curso */}
               {manualTask && (() => {
-                const ActiveIcon = manualTasksList.find(i => i.label === manualTask.label)?.icon || Timer;
+                const ActiveIcon = effectiveManualTasks.find(i => i.label === manualTask.label)?.icon || Timer;
                 return (
                   <div className="mx-3 mt-1.5 px-2.5 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 shadow-sm animate-in fade-in slide-in-from-top-1">
                     <div className="flex items-center gap-2">
@@ -1593,7 +1657,7 @@ export function SidebarUserPanel({
                       <button
                         type="button"
                         onClick={stopManualTask}
-                        className="flex items-center gap-1 py-1 px-2 rounded-md bg-amber-600 hover:bg-amber-500 text-white font-bold text-[10px] shadow-sm transition-all active:scale-[0.98] shrink-0"
+                        className="flex items-center gap-1 py-1 px-2 rounded-md bg-amber-600 hover:bg-amber-500 text-white font-bold text-[10px] shadow-sm transition-all active:scale-[0.98] shrink-0 cursor-pointer"
                       >
                         <Square className="h-2.5 w-2.5 fill-current" />
                         <span>Detener</span>
@@ -1605,15 +1669,25 @@ export function SidebarUserPanel({
 
               {/* Labores Manuales Directas con Selectores Dinámicos de Primer Nivel */}
               <div className="flex-1 overflow-y-auto px-3 py-1.5 space-y-1.5">
-                {/* Cabecera y contador */}
+                {/* Cabecera, contador y botón de gestión exclusiva */}
                 <div className="flex items-center justify-between">
                   <h4 className="text-xs font-black text-foreground tracking-tight flex items-center gap-1.5">
                     <Wrench className="h-3.5 w-3.5 text-violet-500" />
                     <span>Labores Manuales</span>
                   </h4>
-                  <span className="text-[9.5px] font-bold px-1.5 py-0.5 rounded-full bg-violet-500/10 text-violet-400 border border-violet-500/20 shrink-0">
-                    {manualTasksList.length}
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[9.5px] font-bold px-1.5 py-0.5 rounded-full bg-violet-500/10 text-violet-400 border border-violet-500/20 shrink-0">
+                      {effectiveManualTasks.length}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowManualTasksManagerModal(true)}
+                      title="Gestionar labores manuales (agregar, editar, eliminar)"
+                      className="p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground border border-border/50 transition-colors cursor-pointer"
+                    >
+                      <Settings className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </div>
 
                 {/* Buscador rápido integrado */}
@@ -1623,14 +1697,14 @@ export function SidebarUserPanel({
                     type="text"
                     value={manualSearchQuery}
                     onChange={(e) => setManualSearchQuery(e.target.value)}
-                    placeholder="Buscar..."
+                    placeholder="Buscar labor..."
                     className="w-full text-[11px] pl-7 pr-7 py-1 rounded-lg border border-border/60 bg-muted/20 placeholder:text-muted-foreground/60 text-foreground focus:outline-none focus:ring-1 focus:ring-violet-500/70 transition-all"
                   />
                   {manualSearchQuery && (
                     <button
                       type="button"
                       onClick={() => setManualSearchQuery("")}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-0.5"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-0.5 cursor-pointer"
                     >
                       <XIcon className="h-3.5 w-3.5" />
                     </button>
@@ -1640,13 +1714,21 @@ export function SidebarUserPanel({
                 {/* Cuadrícula directa de tareas / procesos seleccionados */}
                 <div className="pt-0.5">
                   {/* CASO 0: No hay labores manuales configuradas */}
-                  {manualTasksList.length === 0 ? (
-                    <div className="py-7 px-3 text-center rounded-xl border border-dashed border-border/60 bg-muted/10 space-y-1.5 animate-in fade-in">
+                  {effectiveManualTasks.length === 0 ? (
+                    <div className="py-7 px-3 text-center rounded-xl border border-dashed border-border/60 bg-muted/10 space-y-2 animate-in fade-in">
                       <Wrench className="h-6 w-6 text-muted-foreground/60 mx-auto" />
-                      <p className="text-xs font-semibold text-foreground">Sin tareas seleccionadas</p>
-                      <p className="text-[10px] text-muted-foreground leading-relaxed">
-                        En el panel de <span className="font-semibold text-violet-400">Gestión y Árbol Operativo</span>, marca el check de <span className="font-semibold text-amber-400">Labor Manual</span> en las tareas que deseas reflejar aquí con cronómetro.
+                      <p className="text-xs font-semibold text-foreground">Sin labores manuales</p>
+                      <p className="text-[10.5px] text-muted-foreground leading-relaxed">
+                        Agregue las tareas que desea controlar con cronómetro en este panel exclusivo.
                       </p>
+                      <button
+                        type="button"
+                        onClick={() => setShowManualTasksManagerModal(true)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-xs shadow-xs transition-all active:scale-95 cursor-pointer"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        <span>Configurar Labores</span>
+                      </button>
                     </div>
                   ) : displayedManualTasks.length === 0 ? (
                     <div className="py-6 text-center text-muted-foreground">
@@ -1659,15 +1741,15 @@ export function SidebarUserPanel({
                     <div className="space-y-1.5 animate-in fade-in-50 duration-150">
                       <div className="flex items-center justify-between px-1 pb-1 border-b border-border/40">
                         <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                          {manualSearchQuery.trim() ? "Resultados de búsqueda" : "Tareas seleccionadas"}
+                          {manualSearchQuery.trim() ? "Resultados de búsqueda" : "Labores de taller"}
                         </span>
                         <span className="text-[10px] font-bold text-violet-400">
-                          {displayedManualTasks.length} {displayedManualTasks.length === 1 ? "tarea" : "tareas"}
+                          {displayedManualTasks.length} {displayedManualTasks.length === 1 ? "labor" : "labores"}
                         </span>
                       </div>
 
-                      {/* Cuadrícula compacta de botones de tareas DIRECTAMENTE */}
-                      <div className="grid grid-cols-2 gap-1.5">
+                      {/* Lista de botones a lo ancho completo: CERO texto apelotado o cortado */}
+                      <div className="flex flex-col gap-1.5">
                         {displayedManualTasks.map((task, idx) => {
                           const isCurrent = manualTask?.label === task.label;
                           const Icon = task.icon;
@@ -1678,19 +1760,19 @@ export function SidebarUserPanel({
                             <button
                               key={task.label}
                               type="button"
-                              title={task.label}
+                              title={`${task.label}${task.subcategory ? ` • ${task.subcategory}` : ""}`}
                               onClick={() => {
                                 if (isCurrent) stopManualTask();
                                 else startManualTask(task.category, task.label, task.subcategory);
                               }}
-                              className={`group relative flex items-center gap-1.5 p-1.5 px-2 rounded-xl border text-left transition-all cursor-pointer shadow-2xs active:scale-[0.98] min-h-[38px] ${
+                              className={`group relative flex items-center gap-2.5 p-2 px-3 rounded-xl border text-left transition-all cursor-pointer shadow-2xs active:scale-[0.99] min-h-[40px] w-full ${
                                 isCurrent
-                                  ? "bg-amber-500/25 border-amber-500 ring-2 ring-amber-500/60 shadow-amber-500/20"
+                                  ? "bg-amber-500/20 border-amber-500 ring-2 ring-amber-500/60 shadow-amber-500/20"
                                   : `${color.bg} ${color.border} ${color.hover}`
                               }`}
                             >
                               <div
-                                className={`h-6 w-6 rounded-lg grid place-items-center shrink-0 transition-transform group-hover:scale-110 ${
+                                className={`h-7 w-7 rounded-lg grid place-items-center shrink-0 transition-transform group-hover:scale-110 ${
                                   isCurrent
                                     ? "bg-amber-500/30 text-amber-300 border border-amber-500/40"
                                     : color.iconBg
@@ -1699,17 +1781,24 @@ export function SidebarUserPanel({
                                 <Icon className="h-3.5 w-3.5" />
                               </div>
                               <span
-                                className={`text-[10px] font-bold leading-tight line-clamp-2 break-words flex-1 min-w-0 ${
+                                className={`text-[11.5px] font-bold tracking-tight leading-normal whitespace-nowrap overflow-hidden text-ellipsis flex-1 min-w-0 ${
                                   isCurrent ? "text-amber-300 font-black" : color.text
                                 }`}
                               >
                                 {displayLabel}
                               </span>
-                              {isCurrent && (
-                                <span className="relative flex h-2 w-2 shrink-0">
-                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                                  <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                              {isCurrent ? (
+                                <span className="flex items-center gap-1.5 shrink-0 bg-amber-500/25 border border-amber-500/40 px-2 py-0.5 rounded-full">
+                                  <span className="relative flex h-2 w-2">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                                  </span>
+                                  <span className="text-[10px] font-mono font-black text-amber-300 tabular-nums">
+                                    {manualElapsed || "00:00"}
+                                  </span>
                                 </span>
+                              ) : (
+                                <Play className="h-3 w-3 text-muted-foreground/30 group-hover:text-muted-foreground group-hover:translate-x-0.5 transition-all shrink-0" />
                               )}
                             </button>
                           );
@@ -2317,6 +2406,14 @@ export function SidebarUserPanel({
         agent={safeAgent}
         canCreate={canCreateGarantias}
         canEdit={canEditGarantias}
+      />
+
+      {/* Modal exclusivo para gestión de Labores Manuales de la barra lateral */}
+      <ManualTasksManagerModal
+        isOpen={showManualTasksManagerModal}
+        onClose={() => setShowManualTasksManagerModal(false)}
+        categoriesConfig={categoriesConfig}
+        onTasksUpdated={(updated) => setDedicatedManualTasks(updated)}
       />
     </div>
   );
