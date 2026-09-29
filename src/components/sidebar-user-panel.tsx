@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
-import { Camera, Lock, Eye, EyeOff, Check, X, ChevronUp, ChevronDown, ChevronLeft, Circle, LogOut, Activity as ActivityIcon, FileText, ChevronRight, X as XIcon, RefreshCw, Wrench, Coffee, Timer, BarChart3, Package, LayoutDashboard, ClipboardList, Sparkles, UserPlus, Briefcase, GraduationCap, Users, Utensils, Sandwich, Bath, Square, Trash2, Clock, CheckCircle2, Calendar, Maximize2, Minimize2, Plus, UserCheck, Save, MessageSquare, Search, Play, Layers, ShieldCheck } from "lucide-react";
+import { Camera, Lock, Eye, EyeOff, Check, X, ChevronUp, ChevronDown, ChevronLeft, Circle, LogOut, Activity as ActivityIcon, FileText, ChevronRight, X as XIcon, RefreshCw, Wrench, Coffee, Timer, BarChart3, Package, LayoutDashboard, ClipboardList, Sparkles, UserPlus, Briefcase, GraduationCap, Users, Utensils, Sandwich, Bath, Square, Trash2, Clock, CheckCircle2, Calendar, Maximize2, Minimize2, Plus, UserCheck, Save, MessageSquare, Search, Play, Layers, ShieldCheck, Phone } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -47,16 +47,21 @@ function getTaskIcon(name: string) {
   if (lower.includes("bodega")) return Package;
   if (lower.includes("exhibidor")) return LayoutDashboard;
   if (lower.includes("inventario")) return ClipboardList;
-  if (lower.includes("limpieza") || lower.includes("orden")) return Sparkles;
+  if (lower.includes("limpieza") || lower.includes("orden") || lower.includes("acondicionamiento")) return Sparkles;
   if (lower.includes("residuo") || lower.includes("desecho") || lower.includes("reciclaj") || lower.includes("disposici")) return Trash2;
   if (lower.includes("ventanilla") || lower.includes("mostrador")) return UserPlus;
-  if (lower.includes("diagnóstico") || lower.includes("diagnostico") || lower.includes("repara")) return Wrench;
-  if (lower.includes("venta")) return Briefcase;
-  if (lower.includes("capacita") || lower.includes("inducci") || lower.includes("entrena") || lower.includes("curso") || lower.includes("autoaprendizaje")) return GraduationCap;
-  if (lower.includes("descanso") || lower.includes("almuerzo") || lower.includes("comida")) return Sandwich;
+  if (lower.includes("diagnóst") || lower.includes("diagnostico") || lower.includes("repara") || lower.includes("mantenimiento") || lower.includes("taller") || lower.includes("mikrotik")) return Wrench;
+  if (lower.includes("prueba") || lower.includes("validaci") || lower.includes("inspecci")) return CheckCircle2;
+  if (lower.includes("reset") || lower.includes("firmware") || lower.includes("desvincul")) return RefreshCw;
+  if (lower.includes("garantía") || lower.includes("garantia")) return ShieldCheck;
+  if (lower.includes("venta") || lower.includes("cotiza") || lower.includes("cobro")) return Briefcase;
+  if (lower.includes("capacita") || lower.includes("inducci") || lower.includes("entrena") || lower.includes("curso") || lower.includes("autoaprendizaje") || lower.includes("ojt")) return GraduationCap;
+  if (lower.includes("descanso") || lower.includes("almuerzo") || lower.includes("comida") || lower.includes("café") || lower.includes("cafe")) return Sandwich;
   if (lower.includes("sanitaria") || lower.includes("baño") || lower.includes("bano")) return Bath;
-  if (lower.includes("reunión") || lower.includes("reunion") || lower.includes("charla")) return Users;
-  if (lower.includes("correo") || lower.includes("mail")) return FileText;
+  if (lower.includes("reunión") || lower.includes("reunion") || lower.includes("charla") || lower.includes("teams")) return Users;
+  if (lower.includes("correo") || lower.includes("mail") || lower.includes("informe") || lower.includes("documentaci")) return FileText;
+  if (lower.includes("llamada") || lower.includes("telefón") || lower.includes("telefon") || lower.includes("linkus")) return Phone;
+  if (lower.includes("chat") || lower.includes("mensaj") || lower.includes("whatsapp")) return MessageSquare;
   if (lower.includes("reloj") || lower.includes("pausa")) return Clock;
   return Timer;
 }
@@ -687,22 +692,53 @@ export function SidebarUserPanel({
   }, [tab, open]);
 
   const taskGroups = useMemo(() => {
-    if (!categoriesConfig || categoriesConfig.length === 0) {
-      return TAREAS_GROUPED;
+    // Obtenemos ÚNICAMENTE las tareas/procesos que tienen is_manual_task === true en appMappingsConfig
+    const manualEntries: { appName: string; category: string; subcategory?: string }[] = [];
+
+    if (appMappingsConfig && typeof appMappingsConfig === "object") {
+      for (const [appName, val] of Object.entries(appMappingsConfig)) {
+        if (!appName || appName === "Formación de Usuarios") continue;
+
+        let isManual = false;
+        let category = "Servicio de Taller";
+        let subcategory: string | undefined = undefined;
+
+        if (val && typeof val === "object") {
+          isManual = val.is_manual_task === true;
+          category = val.category || "Servicio de Taller";
+          subcategory = val.subcategory || undefined;
+        }
+
+        if (isManual) {
+          manualEntries.push({
+            appName: appName.trim(),
+            category,
+            subcategory,
+          });
+        }
+      }
     }
 
-    const isSoftwareOrUrl = (name: string) => {
-      const n = name.trim().toLowerCase();
-      if (n.startsWith("http://") || n.startsWith("https://") || n.startsWith("web:") || n.startsWith("web.")) return true;
-      if (n.includes(".") && !n.endsWith(".exe") && (n.includes(".com") || n.includes(".org") || n.includes(".net") || n.includes(".io") || n.includes(".app") || n.includes(".co") || n.includes(".es") || n.includes(".la"))) {
-        return true;
+    if (manualEntries.length === 0) {
+      return [];
+    }
+
+    // Agrupar por categoría
+    const groupMap = new Map<string, { label: string; short: string; category: string; subcategory?: string; icon: any }[]>();
+
+    for (const item of manualEntries) {
+      const catName = item.category || "Servicio de Taller";
+      if (!groupMap.has(catName)) {
+        groupMap.set(catName, []);
       }
-      if (n.endsWith(".exe") || n.endsWith(".dll") || n.endsWith(".bat")) return true;
-      if (["odoo erp", "nextime pro", "linkus", "seka chat", "whatsapp", "anydesk", "teamviewer", "chrome", "firefox", "edge", "explorer"].some(soft => n.includes(soft))) {
-        return true;
-      }
-      return false;
-    };
+      groupMap.get(catName)!.push({
+        label: item.appName,
+        short: item.appName,
+        category: catName,
+        subcategory: item.subcategory,
+        icon: getTaskIcon(item.appName),
+      });
+    }
 
     const groups: {
       group: string;
@@ -710,86 +746,29 @@ export function SidebarUserPanel({
       items: { label: string; short: string; category: string; subcategory?: string; icon: any }[];
     }[] = [];
 
-    for (const cat of categoriesConfig) {
-      let subs: string[] = Array.isArray(cat.subcategories) ? [...cat.subcategories] : [];
-      if (subs.length === 0) continue;
-
-      const catLower = (cat.id || cat.label || "").toLowerCase();
-      const isBreakCat = catLower.includes("descanso") || catLower.includes("pausa") || catLower.includes("sanitaria");
-
-      const catItems: { label: string; short: string; category: string; subcategory?: string; icon: any }[] = [];
-      const seenLabels = new Set<string>();
-
-      for (const sub of subs) {
-        if (!sub) continue;
-        const isSubManual = /\(manual\)/i.test(sub) || /manual/i.test(sub) || cat.is_manual || isBreakCat;
-        const sLower = sub.toLowerCase();
-        const isMeeting = (sLower === "reunión" || sLower === "reuniones" || sLower === "reuniones y charlas");
-
-        if (!isSubManual && !isMeeting) continue;
-
-        const cleanSub = sub.replace(/\s*\(manual\)\s*/i, "").trim();
-
-        // Buscar todas las tareas asociadas a esta subcategoría en appMappingsConfig
-        const associatedTasks: string[] = [];
-        if (appMappingsConfig && typeof appMappingsConfig === "object") {
-          for (const [appName, val] of Object.entries(appMappingsConfig)) {
-            const valCat = typeof val === "object" ? val?.category : val;
-            const valSub = typeof val === "object" ? val?.subcategory : null;
-
-            const catMatches = (valCat === cat.id || valCat === cat.label);
-            if (!catMatches) continue;
-
-            const cleanValSub = (valSub || "").replace(/\s*\(manual\)\s*/i, "").trim();
-            const subMatches = valSub === sub || cleanValSub.toLowerCase() === cleanSub.toLowerCase();
-
-            if (subMatches) {
-              if (!isSoftwareOrUrl(appName)) {
-                associatedTasks.push(appName.trim());
-              }
-            }
-          }
-        }
-
-        if (associatedTasks.length > 0) {
-          // Si tiene tareas específicas asociadas (ej: Atención en Ventanilla, Soporte a Ventas, etc.)
-          for (const taskName of associatedTasks) {
-            if (!seenLabels.has(taskName)) {
-              seenLabels.add(taskName);
-              catItems.push({
-                label: taskName,
-                short: taskName,
-                category: cat.label || cat.id,
-                subcategory: cleanSub,
-                icon: getTaskIcon(taskName),
-              });
-            }
-          }
-        } else {
-          // Si no tiene tareas hijas adicionales, el botón directo es la subcategoría
-          if (!seenLabels.has(cleanSub)) {
-            seenLabels.add(cleanSub);
-            catItems.push({
-              label: cleanSub,
-              short: cleanSub,
-              category: cat.label || cat.id,
-              subcategory: cleanSub,
-              icon: getTaskIcon(cleanSub),
-            });
-          }
-        }
-      }
-
-      if (catItems.length > 0) {
+    // Mantener el orden según categoriesConfig si está disponible
+    const orderedCatNames = (categoriesConfig || []).map((c: any) => c.label || c.id);
+    for (const catName of orderedCatNames) {
+      if (groupMap.has(catName)) {
+        const catDef = categoriesConfig.find((c: any) => (c.label || c.id) === catName);
         groups.push({
-          group: cat.label || cat.id,
-          color: cat.color,
-          items: catItems,
+          group: catName,
+          color: catDef?.color,
+          items: groupMap.get(catName)!,
         });
+        groupMap.delete(catName);
       }
     }
 
-    return groups.length > 0 ? groups : TAREAS_GROUPED;
+    // Agregar cualquier otra categoría remanente
+    for (const [catName, items] of groupMap.entries()) {
+      groups.push({
+        group: catName,
+        items,
+      });
+    }
+
+    return groups;
   }, [categoriesConfig, appMappingsConfig]);
 
   const [drillCategory, setDrillCategory] = useState<string | null>(null);
@@ -813,7 +792,12 @@ export function SidebarUserPanel({
 
   // Labores de la categoría seleccionada en la vista Drill-down
   const drillItems = useMemo(() => {
-    if (!drillCategory) return [];
+    if (!drillCategory) {
+      if (taskGroups.length === 1) {
+        return taskGroups[0].items || [];
+      }
+      return [];
+    }
     if (drillCategory === "all") {
       return taskGroups.flatMap((g) => g?.items || []);
     }
@@ -1699,9 +1683,18 @@ export function SidebarUserPanel({
 
                 {/* Vista Cuadrícula Macro (Sin Desplegables) */}
                 <div className="pt-0.5">
-                  {/* CASO A: Búsqueda activa global */}
-                  {manualSearchQuery.trim() ? (
-                    <div className="space-y-2">
+                  {/* CASO 0: No hay labores manuales configuradas */}
+                  {taskGroups.length === 0 ? (
+                    <div className="py-7 px-3 text-center rounded-xl border border-dashed border-border/60 bg-muted/10 space-y-1.5 animate-in fade-in">
+                      <Wrench className="h-6 w-6 text-muted-foreground/60 mx-auto" />
+                      <p className="text-xs font-semibold text-foreground">Sin labores manuales seleccionadas</p>
+                      <p className="text-[10px] text-muted-foreground leading-relaxed">
+                        En el panel de <span className="font-semibold text-violet-400">Gestión y Árbol Operativo</span>, marca el check de <span className="font-semibold text-amber-400">Labor Manual</span> en las tareas que deseas reflejar aquí con cronómetro.
+                      </p>
+                    </div>
+                  ) : manualSearchQuery.trim() ? (
+                    /* CASO A: Búsqueda activa global */
+                    <div className="space-y-1.5">
                       <div className="flex items-center justify-between px-1 pb-1 border-b border-border/40">
                         <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                           Resultados de búsqueda
@@ -1712,14 +1705,14 @@ export function SidebarUserPanel({
                       </div>
 
                       {searchResults.length === 0 ? (
-                        <div className="py-8 text-center text-muted-foreground">
+                        <div className="py-6 text-center text-muted-foreground">
                           <p className="text-xs font-semibold">No se encontraron labores</p>
                           <p className="text-[10px] mt-0.5 text-muted-foreground/70">
                             Prueba con otro término o borra la búsqueda
                           </p>
                         </div>
                       ) : (
-                        <div className="grid grid-cols-2 gap-2">
+                        <div className="grid grid-cols-2 gap-1.5">
                           {searchResults.map((task, idx) => {
                             const isCurrent = manualTask?.label === task.label;
                             const Icon = task.icon;
@@ -1735,20 +1728,20 @@ export function SidebarUserPanel({
                                   if (isCurrent) stopManualTask();
                                   else startManualTask(task.category, task.label, task.subcategory);
                                 }}
-                                className={`group relative flex flex-col items-center justify-center p-2.5 rounded-2xl border text-center transition-all cursor-pointer shadow-xs active:scale-95 min-h-[74px] ${
+                                className={`group relative flex flex-col items-center justify-center p-2 rounded-xl border text-center transition-all cursor-pointer shadow-2xs active:scale-95 min-h-[56px] ${
                                   isCurrent
                                     ? "bg-amber-500/25 border-amber-500 ring-2 ring-amber-500/60 shadow-amber-500/20"
                                     : `${color.bg} ${color.border} ${color.hover}`
                                 }`}
                               >
                                 {isCurrent && (
-                                  <span className="absolute top-1.5 right-1.5 flex h-2 w-2">
+                                  <span className="absolute top-1 right-1 flex h-2 w-2">
                                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
                                     <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
                                   </span>
                                 )}
                                 <div
-                                  className={`h-7 w-7 rounded-xl grid place-items-center mb-1 transition-transform group-hover:scale-110 ${
+                                  className={`h-6 w-6 rounded-lg grid place-items-center mb-0.5 transition-transform group-hover:scale-110 ${
                                     isCurrent
                                       ? "bg-amber-500/30 text-amber-300 border border-amber-500/40"
                                       : color.iconBg
@@ -1757,14 +1750,14 @@ export function SidebarUserPanel({
                                   <Icon className="h-3.5 w-3.5" />
                                 </div>
                                 <span
-                                  className={`text-[11px] font-bold leading-tight break-words text-center px-0.5 ${
+                                  className={`text-[10.5px] font-bold leading-snug line-clamp-2 break-words text-center px-0.5 ${
                                     isCurrent ? "text-amber-300 font-black" : color.text
                                   }`}
                                 >
                                   {displayLabel}
                                 </span>
                                 {isCurrent && (
-                                  <span className="text-[8px] font-black uppercase text-amber-400 mt-1 tracking-wider bg-amber-500/20 px-1.5 py-0.2 rounded-full border border-amber-500/30">
+                                  <span className="text-[7.5px] font-black uppercase text-amber-400 mt-0.5 tracking-wider bg-amber-500/20 px-1.5 py-0.2 rounded-full border border-amber-500/30">
                                     En curso
                                   </span>
                                 )}
@@ -1774,31 +1767,39 @@ export function SidebarUserPanel({
                         </div>
                       )}
                     </div>
-                  ) : drillCategory !== null ? (
-                    /* NIVEL 2: TAREAS DE LA CATEGORÍA SELECCIONADA EN BOTONES MACRO */
-                    <div className="space-y-2 animate-in fade-in-50 duration-150">
-                      {/* Cabecera con botón Volver */}
-                      <div className="flex items-center justify-between gap-2 pb-1.5 border-b border-border/40">
-                        <button
-                          type="button"
-                          onClick={() => setDrillCategory(null)}
-                          className="flex items-center gap-1 px-2 py-1 rounded-lg bg-muted/70 hover:bg-muted text-xs font-bold text-foreground border border-border/60 transition-all active:scale-95 cursor-pointer shadow-2xs"
-                        >
-                          <ChevronLeft className="h-3.5 w-3.5" />
-                          <span>Volver</span>
-                        </button>
-                        <div className="text-right min-w-0">
-                          <span className="text-xs font-black text-foreground truncate block">
-                            {drillCategory === "all" ? "Todas las labores" : drillCategory}
+                  ) : (drillCategory !== null || taskGroups.length === 1) ? (
+                    /* NIVEL 2 (o categoría única): TAREAS EN BOTONES COMPACTOS */
+                    <div className="space-y-1.5 animate-in fade-in-50 duration-150">
+                      {/* Cabecera con botón Volver (si hay más de 1 categoría) */}
+                      <div className="flex items-center justify-between gap-2 pb-1 border-b border-border/40">
+                        {taskGroups.length > 1 ? (
+                          <button
+                            type="button"
+                            onClick={() => setDrillCategory(null)}
+                            className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-muted/70 hover:bg-muted text-[11px] font-bold text-foreground border border-border/60 transition-all active:scale-95 cursor-pointer shadow-2xs"
+                          >
+                            <ChevronLeft className="h-3.5 w-3.5" />
+                            <span>Volver</span>
+                          </button>
+                        ) : (
+                          <span className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wider">
+                            {taskGroups[0]?.group}
                           </span>
+                        )}
+                        <div className="text-right min-w-0">
+                          {taskGroups.length > 1 && (
+                            <span className="text-xs font-black text-foreground truncate block">
+                              {drillCategory === "all" ? "Todas las labores" : drillCategory}
+                            </span>
+                          )}
                           <span className="text-[9.5px] text-muted-foreground font-semibold">
                             {drillItems.length} {drillItems.length === 1 ? "labor" : "labores"}
                           </span>
                         </div>
                       </div>
 
-                      {/* Cuadrícula de botones macro de tareas */}
-                      <div className="grid grid-cols-2 gap-2">
+                      {/* Cuadrícula compacta de botones de tareas */}
+                      <div className="grid grid-cols-2 gap-1.5">
                         {drillItems.map((task, idx) => {
                           const isCurrent = manualTask?.label === task.label;
                           const Icon = task.icon;
@@ -1814,20 +1815,20 @@ export function SidebarUserPanel({
                                 if (isCurrent) stopManualTask();
                                 else startManualTask(task.category, task.label, task.subcategory);
                               }}
-                              className={`group relative flex flex-col items-center justify-center p-2.5 rounded-2xl border text-center transition-all cursor-pointer shadow-xs active:scale-95 min-h-[74px] ${
+                              className={`group relative flex flex-col items-center justify-center p-2 rounded-xl border text-center transition-all cursor-pointer shadow-2xs active:scale-95 min-h-[56px] ${
                                 isCurrent
                                   ? "bg-amber-500/25 border-amber-500 ring-2 ring-amber-500/60 shadow-amber-500/20"
                                   : `${color.bg} ${color.border} ${color.hover}`
                               }`}
                             >
                               {isCurrent && (
-                                <span className="absolute top-1.5 right-1.5 flex h-2 w-2">
+                                <span className="absolute top-1 right-1 flex h-2 w-2">
                                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
                                   <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
                                 </span>
                               )}
                               <div
-                                className={`h-7 w-7 rounded-xl grid place-items-center mb-1 transition-transform group-hover:scale-110 ${
+                                className={`h-6 w-6 rounded-lg grid place-items-center mb-0.5 transition-transform group-hover:scale-110 ${
                                   isCurrent
                                     ? "bg-amber-500/30 text-amber-300 border border-amber-500/40"
                                     : color.iconBg
@@ -1836,14 +1837,14 @@ export function SidebarUserPanel({
                                 <Icon className="h-3.5 w-3.5" />
                               </div>
                               <span
-                                className={`text-[11px] font-bold leading-tight break-words text-center px-0.5 ${
+                                className={`text-[10.5px] font-bold leading-snug line-clamp-2 break-words text-center px-0.5 ${
                                   isCurrent ? "text-amber-300 font-black" : color.text
                                 }`}
                               >
                                 {displayLabel}
                               </span>
                               {isCurrent && (
-                                <span className="text-[8px] font-black uppercase text-amber-400 mt-1 tracking-wider bg-amber-500/20 px-1.5 py-0.2 rounded-full border border-amber-500/30">
+                                <span className="text-[7.5px] font-black uppercase text-amber-400 mt-0.5 tracking-wider bg-amber-500/20 px-1.5 py-0.2 rounded-full border border-amber-500/30">
                                   En curso
                                 </span>
                               )}
@@ -1853,8 +1854,8 @@ export function SidebarUserPanel({
                       </div>
                     </div>
                   ) : (
-                    /* NIVEL 1: SUBCATEGORÍAS / CATEGORÍAS EN BOTONES MACRO */
-                    <div className="space-y-2 animate-in fade-in-50 duration-150">
+                    /* NIVEL 1: CATEGORÍAS EN BOTONES COMPACTOS */
+                    <div className="space-y-1.5 animate-in fade-in-50 duration-150">
                       <div className="flex items-center justify-between px-1 pb-1 border-b border-border/40">
                         <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                           Selecciona una categoría
@@ -1864,7 +1865,7 @@ export function SidebarUserPanel({
                         </span>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-2 gap-1.5">
                         {taskGroups.map((group, idx) => {
                           const Icon = getCategoryIcon(group.group);
                           const color = MACRO_COLOR_PALETTE[idx % MACRO_COLOR_PALETTE.length];
@@ -1875,39 +1876,39 @@ export function SidebarUserPanel({
                               key={group.group}
                               type="button"
                               onClick={() => setDrillCategory(group.group)}
-                              className={`group relative flex flex-col items-center justify-center p-2.5 rounded-2xl border text-center transition-all cursor-pointer shadow-xs active:scale-95 min-h-[78px] ${
+                              className={`group relative flex flex-col items-center justify-center p-2 rounded-xl border text-center transition-all cursor-pointer shadow-2xs active:scale-95 min-h-[60px] ${
                                 hasActiveTask
                                   ? "bg-amber-500/20 border-amber-500 ring-2 ring-amber-500/50"
                                   : `${color.bg} ${color.border} ${color.hover}`
                               }`}
                             >
                               {hasActiveTask && (
-                                <span className="absolute top-1.5 right-1.5 flex h-2 w-2">
+                                <span className="absolute top-1 right-1 flex h-2 w-2">
                                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
                                   <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
                                 </span>
                               )}
                               <div
-                                className={`h-8 w-8 rounded-xl grid place-items-center mb-1 transition-transform group-hover:scale-110 ${
+                                className={`h-6.5 w-6.5 rounded-lg grid place-items-center mb-0.5 transition-transform group-hover:scale-110 ${
                                   hasActiveTask
                                     ? "bg-amber-500/30 text-amber-300 border border-amber-500/40"
                                     : color.iconBg
                                 }`}
                               >
-                                <Icon className="h-4 w-4" />
+                                <Icon className="h-3.5 w-3.5" />
                               </div>
                               <span
-                                className={`text-[11.5px] font-bold leading-tight ${
+                                className={`text-[11px] font-bold leading-tight ${
                                   hasActiveTask ? "text-amber-300 font-black" : color.text
                                 }`}
                               >
                                 {group.group}
                               </span>
-                              <span className="text-[9.5px] font-semibold text-muted-foreground mt-0.5">
+                              <span className="text-[9px] font-semibold text-muted-foreground mt-0.5">
                                 {group.items.length} {group.items.length === 1 ? "labor" : "labores"}
                               </span>
                               {hasActiveTask && (
-                                <span className="text-[8px] font-black uppercase text-amber-400 mt-1 tracking-wider bg-amber-500/20 px-1.5 py-0.2 rounded-full border border-amber-500/30">
+                                <span className="text-[7.5px] font-black uppercase text-amber-400 mt-0.5 tracking-wider bg-amber-500/20 px-1.5 py-0.2 rounded-full border border-amber-500/30">
                                   En curso
                                 </span>
                               )}
@@ -1920,12 +1921,12 @@ export function SidebarUserPanel({
                           <button
                             type="button"
                             onClick={() => setDrillCategory("all")}
-                            className="group relative flex flex-col items-center justify-center p-2.5 rounded-2xl border text-center transition-all cursor-pointer shadow-xs active:scale-95 min-h-[78px] bg-violet-500/15 border-violet-500/40 hover:bg-violet-500/25 hover:border-violet-500/70"
+                            className="group relative flex flex-col items-center justify-center p-2 rounded-xl border text-center transition-all cursor-pointer shadow-2xs active:scale-95 min-h-[60px] bg-violet-500/15 border-violet-500/40 hover:bg-violet-500/25 hover:border-violet-500/70"
                           >
-                            <div className="h-8 w-8 rounded-xl grid place-items-center mb-1 transition-transform group-hover:scale-110 bg-violet-500/25 text-violet-400 border border-violet-500/40">
-                              <Layers className="h-4 w-4" />
+                            <div className="h-6.5 w-6.5 rounded-lg grid place-items-center mb-0.5 transition-transform group-hover:scale-110 bg-violet-500/25 text-violet-400 border border-violet-500/40">
+                              <Layers className="h-3.5 w-3.5" />
                             </div>
-                            <span className="text-[11.5px] font-bold leading-tight text-violet-950 dark:text-violet-200">
+                            <span className="text-[11px] font-bold leading-tight text-violet-950 dark:text-violet-200">
                               Todas
                             </span>
                             <span className="text-[9.5px] font-semibold text-muted-foreground mt-0.5">
