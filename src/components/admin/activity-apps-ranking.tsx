@@ -904,6 +904,7 @@ function ActivityAppsRankingComponent({
   const [inlineSubcatIsManual, setInlineSubcatIsManual] = useState(false);
   const [formSubcatIsManual, setFormSubcatIsManual] = useState(false);
   const [expandedManualSubcat, setExpandedManualSubcat] = useState<string | null>(null);
+  const [expandedSubcatApps, setExpandedSubcatApps] = useState<string | null>(null);
   const [newManualTaskInput, setNewManualTaskInput] = useState("");
 
   // Helper para resolver la asignación completa (categoría + subcategoría) de una app
@@ -2115,11 +2116,7 @@ function ActivityAppsRankingComponent({
                                       ⚠️ Pendiente
                                     </span>
                                   )}
-                                  {isManual && (
-                                    <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-300 border border-violet-500/30 shrink-0 whitespace-nowrap">
-                                      Personalizado
-                                    </span>
-                                  )}
+
                                 </div>
                                 <p className="text-[11px] text-muted-foreground truncate mt-0.5">
                                   {matchedCat ? matchedCat.label : <span className="text-amber-400 font-semibold">Sin categoría</span>}
@@ -2464,47 +2461,90 @@ function ActivityAppsRankingComponent({
                                 return subVal === cleanName.toLowerCase();
                               });
 
+                              const subcatKey = `${cat.id}::${cleanName}`;
+                              const isAppsExpanded = expandedSubcatApps === subcatKey;
+
                               return (
-                                <div
-                                  key={cleanName}
-                                  className="flex items-center justify-between p-2.5 px-4 hover:bg-muted/20 transition-colors text-xs"
-                                >
-                                  {/* Columna izquierda: Nombre y conteo */}
-                                  <div className="flex items-center gap-3 min-w-0 flex-1">
-                                    <span className="font-semibold text-foreground text-xs">{cleanName}</span>
-                                    <span className="text-[11px] font-mono text-muted-foreground bg-muted/60 px-2 py-0.5 rounded-md border border-border/30">
-                                      {appsInSub.length} {appsInSub.length === 1 ? "app vinculada" : "apps vinculadas"}
-                                    </span>
+                                <div key={cleanName} className="flex flex-col">
+                                  <div className="flex items-center justify-between p-2.5 px-4 hover:bg-muted/20 transition-colors text-xs">
+                                    {/* Columna izquierda: Nombre y botón interactivo de conteo */}
+                                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                                      <span className="font-semibold text-foreground text-xs">{cleanName}</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => setExpandedSubcatApps(isAppsExpanded ? null : subcatKey)}
+                                        className={`text-[11px] font-mono px-2 py-0.5 rounded-md border transition-all flex items-center gap-1.5 cursor-pointer select-none ${
+                                          isAppsExpanded
+                                            ? "bg-violet-500/20 text-violet-300 border-violet-500/40 font-bold shadow-xs"
+                                            : "text-muted-foreground bg-muted/60 border-border/30 hover:bg-muted hover:text-foreground"
+                                        }`}
+                                        title={isAppsExpanded ? "Clic para ocultar aplicaciones" : "Clic para ver aplicaciones vinculadas"}
+                                      >
+                                        <span>{appsInSub.length} {appsInSub.length === 1 ? "app vinculada" : "apps vinculadas"}</span>
+                                        <ChevronDown className={`h-3 w-3 transition-transform duration-200 ${isAppsExpanded ? "rotate-180 text-violet-400" : "opacity-60"}`} />
+                                      </button>
+                                    </div>
+
+                                    {/* Columna derecha: Tipo y acciones */}
+                                    <div className="flex items-center gap-2 shrink-0">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleToggleSubcategoryManual(cat.id, cleanName)}
+                                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                                          isManual
+                                            ? "bg-amber-500/15 text-amber-300 border border-amber-500/30 hover:bg-amber-500/25"
+                                            : "bg-muted/60 text-muted-foreground hover:text-foreground border border-border/40"
+                                        }`}
+                                        title="Alternar entre labor manual o digital"
+                                      >
+                                        {isManual ? "🔧 Labor Manual" : "💻 Digital / PC"}
+                                      </button>
+
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (confirm(`¿Eliminar la subcategoría "${cleanName}"?`)) {
+                                            handleDeleteSubcategory(cat.id, cleanName);
+                                          }
+                                        }}
+                                        className="p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-rose-400 transition-colors cursor-pointer"
+                                        title="Eliminar subcategoría"
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </button>
+                                    </div>
                                   </div>
 
-                                  {/* Columna derecha: Tipo y acciones */}
-                                  <div className="flex items-center gap-2 shrink-0">
-                                    <button
-                                      type="button"
-                                      onClick={() => handleToggleSubcategoryManual(cat.id, cleanName)}
-                                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1 ${
-                                        isManual
-                                          ? "bg-amber-500/15 text-amber-300 border border-amber-500/30 hover:bg-amber-500/25"
-                                          : "bg-muted/60 text-muted-foreground hover:text-foreground border border-border/40"
-                                      }`}
-                                      title="Alternar entre labor manual o digital"
-                                    >
-                                      {isManual ? "🔧 Labor Manual" : "💻 Digital / PC"}
-                                    </button>
-
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        if (confirm(`¿Eliminar la subcategoría "${cleanName}"?`)) {
-                                          handleDeleteSubcategory(cat.id, cleanName);
-                                        }
-                                      }}
-                                      className="p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-rose-400 transition-colors cursor-pointer"
-                                      title="Eliminar subcategoría"
-                                    >
-                                      <Trash2 className="h-3.5 w-3.5" />
-                                    </button>
-                                  </div>
+                                  {/* Desplegable animado con las aplicaciones vinculadas */}
+                                  {isAppsExpanded && (
+                                    <div className="p-3 bg-muted/15 border-t border-border/25 pl-6 pr-4 space-y-2 animate-in fade-in slide-in-from-top-1 duration-150">
+                                      <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center justify-between">
+                                        <span>Aplicaciones vinculadas a &ldquo;{cleanName}&rdquo;:</span>
+                                        <span className="text-[10px] text-muted-foreground font-mono">Total: {appsInSub.length}</span>
+                                      </div>
+                                      {appsInSub.length === 0 ? (
+                                        <p className="text-xs text-muted-foreground/70 italic py-1">
+                                          No hay aplicaciones vinculadas a esta subcategoría todavía. Puede vincularlas desde la pestaña &ldquo;Clasificar Software y URLs&rdquo;.
+                                        </p>
+                                      ) : (
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                                          {appsInSub.map((app) => (
+                                            <div
+                                              key={app}
+                                              className="flex items-center gap-2 p-2 px-3 rounded-lg bg-background border border-border/60 text-xs text-foreground/90 shadow-xs"
+                                            >
+                                              <div className="shrink-0 text-muted-foreground">
+                                                {getAppIcon(app)}
+                                              </div>
+                                              <span className="truncate font-medium text-[11px]" title={app}>
+                                                {app}
+                                              </span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
                               );
                             })
