@@ -2565,16 +2565,13 @@ function ActivityAppsRankingComponent({
                                                 <span className="truncate font-medium text-[11px] flex-1" title={app}>
                                                   {app}
                                                 </span>
-                                                <label className="flex items-center gap-1.5 text-[11px] font-medium cursor-pointer select-none shrink-0 px-1.5 py-0.5 rounded hover:bg-muted/50 transition-colors">
+                                                <label className="flex items-center cursor-pointer select-none shrink-0 p-1 rounded hover:bg-muted/50 transition-colors" title={isProcManual ? "Labor Manual (activo)" : "Marcar como Labor Manual"}>
                                                   <input
                                                     type="checkbox"
                                                     checked={isProcManual}
                                                     onChange={() => handleToggleProcessManual(app, isProcManual)}
                                                     className="rounded border-border accent-amber-500 h-3.5 w-3.5 cursor-pointer"
                                                   />
-                                                  <span className={isProcManual ? "text-amber-300 font-semibold" : "text-muted-foreground"}>
-                                                    Labor Manual
-                                                  </span>
                                                 </label>
                                                 <button
                                                   type="button"
