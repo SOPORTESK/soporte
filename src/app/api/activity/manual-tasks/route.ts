@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 const MANUAL_TASKS_KEY = "activity_manual_tasks";
 
 export interface ManualTaskItem {
@@ -96,7 +99,10 @@ export async function GET() {
         );
     }
 
-    return NextResponse.json({ success: true, tasks });
+    return NextResponse.json(
+      { success: true, tasks },
+      { headers: { "Cache-Control": "no-store, no-cache, must-revalidate" } }
+    );
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }

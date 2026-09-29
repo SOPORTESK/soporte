@@ -724,7 +724,7 @@ export function SidebarUserPanel({
 
   useEffect(() => {
     const loadDedicatedTasks = () => {
-      fetch("/api/activity/manual-tasks")
+      fetch("/api/activity/manual-tasks", { cache: "no-store" })
         .then((r) => r.json())
         .then((data) => {
           if (data?.success && Array.isArray(data.tasks)) {
@@ -741,10 +741,19 @@ export function SidebarUserPanel({
       try {
         const detail = (e as CustomEvent)?.detail;
         if (detail && Array.isArray(detail)) {
-          setDedicatedManualTasks(detail);
-        } else {
-          const saved = localStorage.getItem("sek_manual_tasks_list");
-          if (saved) setDedicatedManualTasks(JSON.parse(saved));
+          setDedicatedManualTasks([...detail]);
+          try {
+            localStorage.setItem("sek_manual_tasks_list", JSON.stringify(detail));
+          } catch {}
+          return;
+        }
+        const saved = localStorage.getItem("sek_manual_tasks_list");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) {
+            setDedicatedManualTasks(parsed);
+            return;
+          }
         }
       } catch {}
       loadDedicatedTasks();

@@ -171,7 +171,7 @@ export function ManualTasksManagerModal({
         } catch {}
       }
 
-      const res = await fetch("/api/activity/manual-tasks");
+      const res = await fetch("/api/activity/manual-tasks", { cache: "no-store" });
       const data = await res.json();
       if (data.success && Array.isArray(data.tasks)) {
         setTasks(data.tasks);
@@ -282,13 +282,13 @@ export function ManualTasksManagerModal({
       
       setTasks(updatedList);
       localStorage.setItem("sek_manual_tasks_list", JSON.stringify(updatedList));
-      window.dispatchEvent(new CustomEvent("sekunet_manual_tasks_updated", { detail: updatedList }));
       onTasksUpdated?.(updatedList);
+      window.dispatchEvent(new CustomEvent("sekunet_manual_tasks_updated", { detail: updatedList }));
       setIconDrawerOpen(false);
       setIconDrawerTargetTaskId(null);
 
       try {
-        await fetch("/api/activity/manual-tasks", {
+        const res = await fetch("/api/activity/manual-tasks", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -297,6 +297,13 @@ export function ManualTasksManagerModal({
             iconName,
           }),
         });
+        const data = await res.json();
+        if (data.success && Array.isArray(data.tasks)) {
+          setTasks(data.tasks);
+          localStorage.setItem("sek_manual_tasks_list", JSON.stringify(data.tasks));
+          onTasksUpdated?.(data.tasks);
+          window.dispatchEvent(new CustomEvent("sekunet_manual_tasks_updated", { detail: data.tasks }));
+        }
         toast.success("Ícono actualizado en la barra lateral");
       } catch {
         toast.error("Error al guardar el nuevo ícono en el servidor");
@@ -313,15 +320,22 @@ export function ManualTasksManagerModal({
     const updatedList = tasks.filter((t) => t.id !== taskId);
     setTasks(updatedList);
     localStorage.setItem("sek_manual_tasks_list", JSON.stringify(updatedList));
-    window.dispatchEvent(new CustomEvent("sekunet_manual_tasks_updated", { detail: updatedList }));
     onTasksUpdated?.(updatedList);
+    window.dispatchEvent(new CustomEvent("sekunet_manual_tasks_updated", { detail: updatedList }));
 
     try {
-      await fetch("/api/activity/manual-tasks", {
+      const res = await fetch("/api/activity/manual-tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "delete", id: taskId }),
       });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.tasks)) {
+        setTasks(data.tasks);
+        localStorage.setItem("sek_manual_tasks_list", JSON.stringify(data.tasks));
+        onTasksUpdated?.(data.tasks);
+        window.dispatchEvent(new CustomEvent("sekunet_manual_tasks_updated", { detail: data.tasks }));
+      }
       toast.success(`"${label}" eliminada de la barra lateral`);
     } catch {
       toast.error("Error al eliminar del servidor");
