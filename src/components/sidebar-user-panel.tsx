@@ -649,7 +649,7 @@ export function SidebarUserPanel({
   });
 
   useEffect(() => {
-    const loadCategories = () => {
+    const loadCategoriesFromServer = () => {
       fetch("/api/activity/app-categories")
         .then((r) => r.json())
         .then((data) => {
@@ -660,7 +660,10 @@ export function SidebarUserPanel({
             } catch {}
           }
           if (data?.appMappings && typeof data.appMappings === "object") {
-            setAppMappingsConfig(data.appMappings);
+            setAppMappingsConfig((prev) => ({
+              ...prev,
+              ...data.appMappings,
+            }));
             try {
               localStorage.setItem("sek_app_categories", JSON.stringify(data.appMappings));
             } catch {}
@@ -669,8 +672,24 @@ export function SidebarUserPanel({
         .catch(() => {});
     };
 
-    loadCategories();
-    const handleUpdate = () => loadCategories();
+    const handleUpdate = (e?: Event) => {
+      // 1. Sincronización inmediata desde memoria (CustomEvent detail) o localStorage
+      try {
+        const detail = (e as CustomEvent)?.detail;
+        if (detail && typeof detail === "object") {
+          setAppMappingsConfig(detail);
+        } else {
+          const saved = localStorage.getItem("sek_app_categories");
+          if (saved) {
+            setAppMappingsConfig(JSON.parse(saved));
+          }
+        }
+      } catch {}
+      // 2. Comprobar también con el servidor
+      loadCategoriesFromServer();
+    };
+
+    loadCategoriesFromServer();
     window.addEventListener("sekunet_categories_updated", handleUpdate);
     window.addEventListener("storage", handleUpdate);
     return () => {
@@ -707,6 +726,11 @@ export function SidebarUserPanel({
           isManual = val.is_manual_task === true;
           category = val.category || "Servicio de Taller";
           subcategory = val.subcategory || undefined;
+        }
+
+        // Si fue desvinculada o marcada en Sin Clasificar, NUNCA debe mostrarse en labores manuales
+        if (category === "Sin Clasificar" || category === "auto" || category === "unassigned") {
+          continue;
         }
 
         if (isManual) {
@@ -1659,20 +1683,14 @@ export function SidebarUserPanel({
                                 if (isCurrent) stopManualTask();
                                 else startManualTask(task.category, task.label, task.subcategory);
                               }}
-                              className={`group relative flex flex-col items-center justify-center p-2 rounded-xl border text-center transition-all cursor-pointer shadow-2xs active:scale-95 min-h-[56px] ${
+                              className={`group relative flex items-center gap-1.5 p-1.5 px-2 rounded-xl border text-left transition-all cursor-pointer shadow-2xs active:scale-[0.98] min-h-[38px] ${
                                 isCurrent
                                   ? "bg-amber-500/25 border-amber-500 ring-2 ring-amber-500/60 shadow-amber-500/20"
                                   : `${color.bg} ${color.border} ${color.hover}`
                               }`}
                             >
-                              {isCurrent && (
-                                <span className="absolute top-1 right-1 flex h-2 w-2">
-                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                                  <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
-                                </span>
-                              )}
                               <div
-                                className={`h-6 w-6 rounded-lg grid place-items-center mb-0.5 transition-transform group-hover:scale-110 ${
+                                className={`h-6 w-6 rounded-lg grid place-items-center shrink-0 transition-transform group-hover:scale-110 ${
                                   isCurrent
                                     ? "bg-amber-500/30 text-amber-300 border border-amber-500/40"
                                     : color.iconBg
@@ -1681,15 +1699,16 @@ export function SidebarUserPanel({
                                 <Icon className="h-3.5 w-3.5" />
                               </div>
                               <span
-                                className={`text-[10.5px] font-bold leading-snug line-clamp-2 break-words text-center px-0.5 ${
+                                className={`text-[10px] font-bold leading-tight line-clamp-2 break-words flex-1 min-w-0 ${
                                   isCurrent ? "text-amber-300 font-black" : color.text
                                 }`}
                               >
                                 {displayLabel}
                               </span>
                               {isCurrent && (
-                                <span className="text-[7.5px] font-black uppercase text-amber-400 mt-0.5 tracking-wider bg-amber-500/20 px-1.5 py-0.2 rounded-full border border-amber-500/30">
-                                  En curso
+                                <span className="relative flex h-2 w-2 shrink-0">
+                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                                  <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
                                 </span>
                               )}
                             </button>

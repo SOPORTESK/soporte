@@ -1045,10 +1045,11 @@ function ActivityAppsRankingComponent({
     const newMap = { ...customCategories };
     const prev = newMap[appName];
     const prevManual = typeof prev === "object" && prev ? prev.is_manual_task : undefined;
-    const finalManual = typeof isManualTask === "boolean" ? isManualTask : prevManual;
+    const finalManual = typeof isManualTask === "boolean" ? isManualTask : (prevManual ?? false);
 
-    if (!category || category === "auto" || category === "Sin Clasificar") {
-      newMap[appName] = { category: "Sin Clasificar", subcategory: null, is_manual_task: finalManual };
+    const isUnassigned = !category || category === "auto" || category === "Sin Clasificar";
+    if (isUnassigned) {
+      newMap[appName] = { category: "Sin Clasificar", subcategory: null, is_manual_task: false };
     } else {
       newMap[appName] = {
         category,
@@ -1064,7 +1065,7 @@ function ActivityAppsRankingComponent({
     setCustomCategories(newMap);
     try { localStorage.setItem("sek_app_categories", JSON.stringify(newMap)); } catch {}
     if (typeof window !== "undefined") {
-      window.dispatchEvent(new Event("sekunet_categories_updated"));
+      window.dispatchEvent(new CustomEvent("sekunet_categories_updated", { detail: newMap }));
     }
     setActiveDropdownApp(null);
 
@@ -1074,11 +1075,14 @@ function ActivityAppsRankingComponent({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           appName,
-          category: (!category || category === "auto" || category === "Sin Clasificar") ? "Sin Clasificar" : category,
+          category: isUnassigned ? "Sin Clasificar" : category,
           subcategory: cleanSub || undefined,
-          is_manual_task: finalManual,
+          is_manual_task: isUnassigned ? false : finalManual,
         }),
       });
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("sekunet_categories_updated", { detail: newMap }));
+      }
     } catch (err) {
       console.error("Error al guardar categoría:", err);
     } finally {
@@ -1086,22 +1090,10 @@ function ActivityAppsRankingComponent({
     }
   };
 
-  const checkIsProcessManual = (appName: string, catId?: string, subcatName?: string) => {
+  const checkIsProcessManual = (appName: string, _catId?: string, _subcatName?: string) => {
     const custom = customCategories[appName];
     if (custom && typeof custom === "object" && typeof custom.is_manual_task === "boolean") {
       return custom.is_manual_task;
-    }
-    const asg = getAppAssignment(appName);
-    const catToCheck = (catId || asg.category || "").toLowerCase();
-    const subToCheck = (subcatName || asg.subcategory || "").toLowerCase();
-    if (
-      catToCheck.includes("taller") ||
-      subToCheck.includes("diagnóst") ||
-      subToCheck.includes("reparac") ||
-      subToCheck.includes("mantenimiento") ||
-      subToCheck.includes("pruebas")
-    ) {
-      return true;
     }
     return false;
   };
@@ -1110,19 +1102,49 @@ function ActivityAppsRankingComponent({
     const newVal = !currentVal;
     const existing = customCategories[appName];
     const asg = getAppAssignment(appName);
-    const targetCat = (typeof existing === "object" && existing?.category) || asg.category;
-    const targetSub = (typeof existing === "object" && existing?.subcategory) || asg.subcategory;
+    const targetCat = (typeof existing === "object" && existing?.category) || asg.category || "Servicio de Taller";
+    const targetSub = (typeof existing === "object" && existing?.subcategory) || asg.subcategory || null;
     await handleSetCategory(appName, targetCat, targetSub, newVal);
   };
 
+  const handleDeleteApp = async (appName: string) => {
+    setSavingApp(appName);
+    const newMap = { ...customCategories };
+    delete newMap[appName];
+
+    setCustomCategories(newMap);
+    try { localStorage.setItem("sek_app_categories", JSON.stringify(newMap)); } catch {}
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("sekunet_categories_updated", { detail: newMap }));
+    }
+
+    try {
+      await fetch("/api/activity/app-categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          appName,
+          action: "deleteApp",
+        }),
+      });
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("sekunet_categories_updated", { detail: newMap }));
+      }
+    } catch (err) {
+      console.error("Error al eliminar software:", err);
+    } finally {
+      setSavingApp(null);
+    }
+  };
+
   const handleUnlinkProcess = async (appName: string) => {
-    await handleSetCategory(appName, "Sin Clasificar", null);
+    await handleDeleteApp(appName);
   };
 
   const handleAddProcessToSubcat = async (procName: string, catId: string, subcatName: string) => {
     const cleanProc = procName.trim();
     if (!cleanProc) return;
-    await handleSetCategory(cleanProc, catId, subcatName);
+    await handleSetCategory(cleanProc, catId, subcatName, false);
     setAddingProcessForSubcat(null);
     setNewProcessInput("");
   };
@@ -1541,8 +1563,13 @@ function ActivityAppsRankingComponent({
 
     // 1. Procesos y tareas configurados explícitamente en customCategories:
     // Tienen prioridad absoluta, NUNCA se filtran ni por phantom ni por noise, y su nombre se preserva exacto.
-    for (const rawKey of Object.keys(customCategories)) {
+    for (const [rawKey, val] of Object.entries(customCategories)) {
       if (!rawKey || rawKey === "Formación de Usuarios") continue;
+      const cat = typeof val === "object" ? val?.category : val;
+      // Si fue desvinculada/puesta en Sin Clasificar y no está en apps detectadas en vivo, no retenerla
+      if ((cat === "Sin Clasificar" || cat === "unassigned") && !allDetectedApps.some((d) => d.toLowerCase() === rawKey.toLowerCase())) {
+        continue;
+      }
       const trimmed = rawKey.trim();
       if (trimmed.length >= 2) {
         appMap.set(trimmed.toLowerCase(), trimmed);
@@ -2107,11 +2134,11 @@ function ActivityAppsRankingComponent({
                 {/* Lista limpia y completa de software mapeado en formato TABLA ALINEADA */}
                 <div className="flex-1 flex flex-col min-h-0 space-y-2">
                   {/* Encabezado fijo de columnas para perfecta alineación */}
-                  <div className="grid grid-cols-[1fr_210px_230px_44px] items-center gap-3 px-4 py-2 rounded-xl bg-muted/40 border border-border/50 text-[11px] font-bold uppercase tracking-wider text-muted-foreground shrink-0 select-none">
+                  <div className="grid grid-cols-[1fr_210px_230px_72px] items-center gap-3 px-4 py-2 rounded-xl bg-muted/40 border border-border/50 text-[11px] font-bold uppercase tracking-wider text-muted-foreground shrink-0 select-none">
                     <div>Software / Aplicación / Labor</div>
                     <div>Categoría Principal</div>
                     <div>Subcategoría Operativa</div>
-                    <div className="text-center">Rest.</div>
+                    <div className="text-center">Opc.</div>
                   </div>
 
                   {/* Cuerpo scrollable de la tabla */}
@@ -2150,7 +2177,7 @@ function ActivityAppsRankingComponent({
                         return (
                           <div
                             key={appName}
-                            className={`grid grid-cols-[1fr_210px_230px_44px] items-center gap-3 p-2.5 px-4 rounded-xl border transition-all ${
+                            className={`grid grid-cols-[1fr_210px_230px_72px] items-center gap-3 p-2.5 px-4 rounded-xl border transition-all ${
                               isUnassigned
                                 ? "bg-amber-500/[0.04] border-amber-500/35 hover:border-amber-500/55"
                                 : "bg-card hover:bg-muted/20 border-border/60"
@@ -2189,7 +2216,7 @@ function ActivityAppsRankingComponent({
                                   !currentCat
                                     ? "bg-amber-500/15 border-amber-500/40 text-amber-300"
                                     : "bg-background hover:border-violet-500/60 border-border text-foreground"
-                                }`}
+                                }}`}
                                 title="Categoría Principal"
                               >
                                 <option value="" disabled>-- Categoría --</option>
@@ -2210,7 +2237,7 @@ function ActivityAppsRankingComponent({
                                   !currentSub
                                     ? "bg-amber-500/15 border-amber-500/40 text-amber-300 font-bold"
                                     : "bg-background hover:border-violet-500/60 border-border text-foreground"
-                                }`}
+                                }}`}
                                 title="Subcategoría"
                               >
                                 <option value="">-- General / Sin subcat. --</option>
@@ -2225,19 +2252,24 @@ function ActivityAppsRankingComponent({
                               </select>
                             </div>
 
-                            {/* Columna 4: Botón Restablecer */}
-                            <div className="flex justify-center">
-                              {isManual ? (
+                            {/* Columna 4: Botones Restablecer y Eliminar */}
+                            <div className="flex items-center justify-center gap-1">
+                              {isManual && (
                                 <button
-                                  onClick={() => handleSetCategory(appName, null, null)}
+                                  onClick={() => handleDeleteApp(appName)}
                                   title="Restablecer a detección automática"
                                   className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-amber-400 border border-border/50 transition-colors cursor-pointer"
                                 >
                                   <RotateCcw className="h-3.5 w-3.5" />
                                 </button>
-                              ) : (
-                                <span className="w-7 h-7" />
                               )}
+                              <button
+                                onClick={() => handleDeleteApp(appName)}
+                                title={`Eliminar "${appName}"`}
+                                className="p-1.5 rounded-lg hover:bg-rose-500/15 text-muted-foreground hover:text-rose-400 border border-border/50 transition-colors cursor-pointer"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
                             </div>
                           </div>
                         );
