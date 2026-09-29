@@ -2282,9 +2282,9 @@ function ActivityAppsRankingComponent({
                                       ? "bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30"
                                       : "bg-muted/60 text-muted-foreground hover:text-foreground border border-border/40"
                                   }`}
-                                  title="Alternar si toda la categoría es labor de taller o digital"
+                                  title="Alternar si toda la categoría es labor manual o digital"
                                 >
-                                  {cat.is_manual ? "🔧 Labor de Taller" : "💻 Digital / PC"}
+                                  {cat.is_manual ? "🔧 Labor Manual" : "💻 Digital / PC"}
                                 </button>
                               </div>
                             </div>
@@ -2355,7 +2355,7 @@ function ActivityAppsRankingComponent({
                                 onChange={(e) => setInlineSubcatIsManual(e.target.checked)}
                                 className="rounded border-border accent-amber-500 h-3.5 w-3.5"
                               />
-                              <span>Labor de Taller</span>
+                              <span>Labor Manual</span>
                             </label>
                             <button
                               onClick={() => {
@@ -2421,7 +2421,7 @@ function ActivityAppsRankingComponent({
                                       }`}
                                       title="Alternar entre labor manual de taller o software PC"
                                     >
-                                      {isManual ? "🔧 Labor de Taller" : "💻 Digital / PC"}
+                                      {isManual ? "🔧 Labor Manual" : "💻 Digital / PC"}
                                     </button>
 
                                     <button
