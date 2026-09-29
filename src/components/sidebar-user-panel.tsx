@@ -691,9 +691,9 @@ export function SidebarUserPanel({
     }
   }, [tab, open]);
 
-  const taskGroups = useMemo(() => {
+  const manualTasksList = useMemo(() => {
     // Obtenemos ÚNICAMENTE las tareas/procesos que tienen is_manual_task === true en appMappingsConfig
-    const manualEntries: { appName: string; category: string; subcategory?: string }[] = [];
+    const tasks: { label: string; short: string; category: string; subcategory?: string; icon: any }[] = [];
 
     if (appMappingsConfig && typeof appMappingsConfig === "object") {
       for (const [appName, val] of Object.entries(appMappingsConfig)) {
@@ -710,101 +710,33 @@ export function SidebarUserPanel({
         }
 
         if (isManual) {
-          manualEntries.push({
-            appName: appName.trim(),
+          tasks.push({
+            label: appName.trim(),
+            short: appName.trim(),
             category,
             subcategory,
+            icon: getTaskIcon(appName.trim()),
           });
         }
       }
     }
 
-    if (manualEntries.length === 0) {
-      return [];
-    }
+    return tasks;
+  }, [appMappingsConfig]);
 
-    // Agrupar por categoría
-    const groupMap = new Map<string, { label: string; short: string; category: string; subcategory?: string; icon: any }[]>();
-
-    for (const item of manualEntries) {
-      const catName = item.category || "Servicio de Taller";
-      if (!groupMap.has(catName)) {
-        groupMap.set(catName, []);
-      }
-      groupMap.get(catName)!.push({
-        label: item.appName,
-        short: item.appName,
-        category: catName,
-        subcategory: item.subcategory,
-        icon: getTaskIcon(item.appName),
-      });
-    }
-
-    const groups: {
-      group: string;
-      color?: string;
-      items: { label: string; short: string; category: string; subcategory?: string; icon: any }[];
-    }[] = [];
-
-    // Mantener el orden según categoriesConfig si está disponible
-    const orderedCatNames = (categoriesConfig || []).map((c: any) => c.label || c.id);
-    for (const catName of orderedCatNames) {
-      if (groupMap.has(catName)) {
-        const catDef = categoriesConfig.find((c: any) => (c.label || c.id) === catName);
-        groups.push({
-          group: catName,
-          color: catDef?.color,
-          items: groupMap.get(catName)!,
-        });
-        groupMap.delete(catName);
-      }
-    }
-
-    // Agregar cualquier otra categoría remanente
-    for (const [catName, items] of groupMap.entries()) {
-      groups.push({
-        group: catName,
-        items,
-      });
-    }
-
-    return groups;
-  }, [categoriesConfig, appMappingsConfig]);
-
-  const [drillCategory, setDrillCategory] = useState<string | null>(null);
   const [manualSearchQuery, setManualSearchQuery] = useState<string>("");
 
-  const totalAvailableTasks = useMemo(() => {
-    return taskGroups.reduce((acc, g) => acc + g.items.length, 0);
-  }, [taskGroups]);
-
-  // Búsqueda global si el usuario escribe en el buscador rápido
-  const searchResults = useMemo(() => {
+  // Tareas mostradas (filtradas si hay búsqueda, o todas directamente)
+  const displayedManualTasks = useMemo(() => {
     const q = (manualSearchQuery || "").trim().toLowerCase();
-    if (!q) return [];
-    return taskGroups.flatMap((g) => g?.items || []).filter(
+    if (!q) return manualTasksList;
+    return manualTasksList.filter(
       (item) =>
         (item?.label || "").toLowerCase().includes(q) ||
         (item?.subcategory ? String(item.subcategory).toLowerCase().includes(q) : false) ||
         (item?.category ? String(item.category).toLowerCase().includes(q) : false)
     );
-  }, [taskGroups, manualSearchQuery]);
-
-  // Labores de la categoría seleccionada en la vista Drill-down
-  const drillItems = useMemo(() => {
-    if (!drillCategory) {
-      if (taskGroups.length === 1) {
-        return taskGroups[0].items || [];
-      }
-      return [];
-    }
-    if (drillCategory === "all") {
-      return taskGroups.flatMap((g) => g?.items || []);
-    }
-    const targetCat = (drillCategory || "").toLowerCase();
-    const found = taskGroups.find((g) => (g?.group || "").toLowerCase() === targetCat);
-    return found ? found.items || [] : [];
-  }, [taskGroups, drillCategory]);
+  }, [manualTasksList, manualSearchQuery]);
 
   useEffect(() => {
     if (tab === "activity" && !hasActivityAccess) {
@@ -1621,7 +1553,7 @@ export function SidebarUserPanel({
 
               {/* Timer manual activo si hay labor en curso */}
               {manualTask && (() => {
-                const ActiveIcon = taskGroups.flatMap(g => g.items).find(i => i.label === manualTask.label)?.icon || Timer;
+                const ActiveIcon = manualTasksList.find(i => i.label === manualTask.label)?.icon || Timer;
                 return (
                   <div className="mx-3 mt-1.5 px-2.5 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 shadow-sm animate-in fade-in slide-in-from-top-1">
                     <div className="flex items-center gap-2">
@@ -1656,7 +1588,7 @@ export function SidebarUserPanel({
                     <span>Labores Manuales</span>
                   </h4>
                   <span className="text-[9.5px] font-bold px-1.5 py-0.5 rounded-full bg-violet-500/10 text-violet-400 border border-violet-500/20 shrink-0">
-                    {totalAvailableTasks}
+                    {manualTasksList.length}
                   </span>
                 </div>
 
@@ -1681,130 +1613,42 @@ export function SidebarUserPanel({
                   )}
                 </div>
 
-                {/* Vista Cuadrícula Macro (Sin Desplegables) */}
+                {/* Cuadrícula directa de tareas / procesos seleccionados */}
                 <div className="pt-0.5">
                   {/* CASO 0: No hay labores manuales configuradas */}
-                  {taskGroups.length === 0 ? (
+                  {manualTasksList.length === 0 ? (
                     <div className="py-7 px-3 text-center rounded-xl border border-dashed border-border/60 bg-muted/10 space-y-1.5 animate-in fade-in">
                       <Wrench className="h-6 w-6 text-muted-foreground/60 mx-auto" />
-                      <p className="text-xs font-semibold text-foreground">Sin labores manuales seleccionadas</p>
+                      <p className="text-xs font-semibold text-foreground">Sin tareas seleccionadas</p>
                       <p className="text-[10px] text-muted-foreground leading-relaxed">
                         En el panel de <span className="font-semibold text-violet-400">Gestión y Árbol Operativo</span>, marca el check de <span className="font-semibold text-amber-400">Labor Manual</span> en las tareas que deseas reflejar aquí con cronómetro.
                       </p>
                     </div>
-                  ) : manualSearchQuery.trim() ? (
-                    /* CASO A: Búsqueda activa global */
-                    <div className="space-y-1.5">
+                  ) : displayedManualTasks.length === 0 ? (
+                    <div className="py-6 text-center text-muted-foreground">
+                      <p className="text-xs font-semibold">No se encontraron tareas</p>
+                      <p className="text-[10px] mt-0.5 text-muted-foreground/70">
+                        Prueba con otro término o borra la búsqueda
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5 animate-in fade-in-50 duration-150">
                       <div className="flex items-center justify-between px-1 pb-1 border-b border-border/40">
                         <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                          Resultados de búsqueda
+                          {manualSearchQuery.trim() ? "Resultados de búsqueda" : "Tareas seleccionadas"}
                         </span>
                         <span className="text-[10px] font-bold text-violet-400">
-                          {searchResults.length} encontradas
+                          {displayedManualTasks.length} {displayedManualTasks.length === 1 ? "tarea" : "tareas"}
                         </span>
                       </div>
 
-                      {searchResults.length === 0 ? (
-                        <div className="py-6 text-center text-muted-foreground">
-                          <p className="text-xs font-semibold">No se encontraron labores</p>
-                          <p className="text-[10px] mt-0.5 text-muted-foreground/70">
-                            Prueba con otro término o borra la búsqueda
-                          </p>
-                        </div>
-                      ) : (
-                        <div className="grid grid-cols-2 gap-1.5">
-                          {searchResults.map((task, idx) => {
-                            const isCurrent = manualTask?.label === task.label;
-                            const Icon = task.icon;
-                            const color = MACRO_COLOR_PALETTE[idx % MACRO_COLOR_PALETTE.length];
-                            const displayLabel = (task as any).short && task.label.length > 20 ? (task as any).short : task.label;
-
-                            return (
-                              <button
-                                key={task.label}
-                                type="button"
-                                title={task.label}
-                                onClick={() => {
-                                  if (isCurrent) stopManualTask();
-                                  else startManualTask(task.category, task.label, task.subcategory);
-                                }}
-                                className={`group relative flex flex-col items-center justify-center p-2 rounded-xl border text-center transition-all cursor-pointer shadow-2xs active:scale-95 min-h-[56px] ${
-                                  isCurrent
-                                    ? "bg-amber-500/25 border-amber-500 ring-2 ring-amber-500/60 shadow-amber-500/20"
-                                    : `${color.bg} ${color.border} ${color.hover}`
-                                }`}
-                              >
-                                {isCurrent && (
-                                  <span className="absolute top-1 right-1 flex h-2 w-2">
-                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
-                                  </span>
-                                )}
-                                <div
-                                  className={`h-6 w-6 rounded-lg grid place-items-center mb-0.5 transition-transform group-hover:scale-110 ${
-                                    isCurrent
-                                      ? "bg-amber-500/30 text-amber-300 border border-amber-500/40"
-                                      : color.iconBg
-                                  }`}
-                                >
-                                  <Icon className="h-3.5 w-3.5" />
-                                </div>
-                                <span
-                                  className={`text-[10.5px] font-bold leading-snug line-clamp-2 break-words text-center px-0.5 ${
-                                    isCurrent ? "text-amber-300 font-black" : color.text
-                                  }`}
-                                >
-                                  {displayLabel}
-                                </span>
-                                {isCurrent && (
-                                  <span className="text-[7.5px] font-black uppercase text-amber-400 mt-0.5 tracking-wider bg-amber-500/20 px-1.5 py-0.2 rounded-full border border-amber-500/30">
-                                    En curso
-                                  </span>
-                                )}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  ) : (drillCategory !== null || taskGroups.length === 1) ? (
-                    /* NIVEL 2 (o categoría única): TAREAS EN BOTONES COMPACTOS */
-                    <div className="space-y-1.5 animate-in fade-in-50 duration-150">
-                      {/* Cabecera con botón Volver (si hay más de 1 categoría) */}
-                      <div className="flex items-center justify-between gap-2 pb-1 border-b border-border/40">
-                        {taskGroups.length > 1 ? (
-                          <button
-                            type="button"
-                            onClick={() => setDrillCategory(null)}
-                            className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-muted/70 hover:bg-muted text-[11px] font-bold text-foreground border border-border/60 transition-all active:scale-95 cursor-pointer shadow-2xs"
-                          >
-                            <ChevronLeft className="h-3.5 w-3.5" />
-                            <span>Volver</span>
-                          </button>
-                        ) : (
-                          <span className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wider">
-                            {taskGroups[0]?.group}
-                          </span>
-                        )}
-                        <div className="text-right min-w-0">
-                          {taskGroups.length > 1 && (
-                            <span className="text-xs font-black text-foreground truncate block">
-                              {drillCategory === "all" ? "Todas las labores" : drillCategory}
-                            </span>
-                          )}
-                          <span className="text-[9.5px] text-muted-foreground font-semibold">
-                            {drillItems.length} {drillItems.length === 1 ? "labor" : "labores"}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Cuadrícula compacta de botones de tareas */}
+                      {/* Cuadrícula compacta de botones de tareas DIRECTAMENTE */}
                       <div className="grid grid-cols-2 gap-1.5">
-                        {drillItems.map((task, idx) => {
+                        {displayedManualTasks.map((task, idx) => {
                           const isCurrent = manualTask?.label === task.label;
                           const Icon = task.icon;
                           const color = MACRO_COLOR_PALETTE[idx % MACRO_COLOR_PALETTE.length];
-                          const displayLabel = (task as any).short && task.label.length > 20 ? (task as any).short : task.label;
+                          const displayLabel = task.label;
 
                           return (
                             <button
@@ -1851,89 +1695,6 @@ export function SidebarUserPanel({
                             </button>
                           );
                         })}
-                      </div>
-                    </div>
-                  ) : (
-                    /* NIVEL 1: CATEGORÍAS EN BOTONES COMPACTOS */
-                    <div className="space-y-1.5 animate-in fade-in-50 duration-150">
-                      <div className="flex items-center justify-between px-1 pb-1 border-b border-border/40">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                          Selecciona una categoría
-                        </span>
-                        <span className="text-[10px] font-bold text-violet-400">
-                          {totalAvailableTasks} labores
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-1.5">
-                        {taskGroups.map((group, idx) => {
-                          const Icon = getCategoryIcon(group.group);
-                          const color = MACRO_COLOR_PALETTE[idx % MACRO_COLOR_PALETTE.length];
-                          const hasActiveTask = manualTask && group.items.some((i) => i.label === manualTask.label);
-
-                          return (
-                            <button
-                              key={group.group}
-                              type="button"
-                              onClick={() => setDrillCategory(group.group)}
-                              className={`group relative flex flex-col items-center justify-center p-2 rounded-xl border text-center transition-all cursor-pointer shadow-2xs active:scale-95 min-h-[60px] ${
-                                hasActiveTask
-                                  ? "bg-amber-500/20 border-amber-500 ring-2 ring-amber-500/50"
-                                  : `${color.bg} ${color.border} ${color.hover}`
-                              }`}
-                            >
-                              {hasActiveTask && (
-                                <span className="absolute top-1 right-1 flex h-2 w-2">
-                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                                  <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
-                                </span>
-                              )}
-                              <div
-                                className={`h-6.5 w-6.5 rounded-lg grid place-items-center mb-0.5 transition-transform group-hover:scale-110 ${
-                                  hasActiveTask
-                                    ? "bg-amber-500/30 text-amber-300 border border-amber-500/40"
-                                    : color.iconBg
-                                }`}
-                              >
-                                <Icon className="h-3.5 w-3.5" />
-                              </div>
-                              <span
-                                className={`text-[11px] font-bold leading-tight ${
-                                  hasActiveTask ? "text-amber-300 font-black" : color.text
-                                }`}
-                              >
-                                {group.group}
-                              </span>
-                              <span className="text-[9px] font-semibold text-muted-foreground mt-0.5">
-                                {group.items.length} {group.items.length === 1 ? "labor" : "labores"}
-                              </span>
-                              {hasActiveTask && (
-                                <span className="text-[7.5px] font-black uppercase text-amber-400 mt-0.5 tracking-wider bg-amber-500/20 px-1.5 py-0.2 rounded-full border border-amber-500/30">
-                                  En curso
-                                </span>
-                              )}
-                            </button>
-                          );
-                        })}
-
-                        {/* Botón Maestro: Todas las labores */}
-                        {taskGroups.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => setDrillCategory("all")}
-                            className="group relative flex flex-col items-center justify-center p-2 rounded-xl border text-center transition-all cursor-pointer shadow-2xs active:scale-95 min-h-[60px] bg-violet-500/15 border-violet-500/40 hover:bg-violet-500/25 hover:border-violet-500/70"
-                          >
-                            <div className="h-6.5 w-6.5 rounded-lg grid place-items-center mb-0.5 transition-transform group-hover:scale-110 bg-violet-500/25 text-violet-400 border border-violet-500/40">
-                              <Layers className="h-3.5 w-3.5" />
-                            </div>
-                            <span className="text-[11px] font-bold leading-tight text-violet-950 dark:text-violet-200">
-                              Todas
-                            </span>
-                            <span className="text-[9.5px] font-semibold text-muted-foreground mt-0.5">
-                              {totalAvailableTasks} labores
-                            </span>
-                          </button>
-                        )}
                       </div>
                     </div>
                   )}
