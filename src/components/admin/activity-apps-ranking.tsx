@@ -1858,13 +1858,14 @@ function ActivityAppsRankingComponent({
                       <button
                         type="button"
                         onClick={() => setAppsCategoryFilter("all")}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
                           appsCategoryFilter === "all"
                             ? "bg-violet-600 text-white shadow-sm"
                             : "bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground"
                         }`}
                       >
-                        Todas ({allSanitizedApps.length})
+                        <span>Todas</span>
+                        <span className="text-[11px] font-mono opacity-80">({allSanitizedApps.length})</span>
                       </button>
 
                       {categories.map((c) => {
@@ -1981,92 +1982,99 @@ function ActivityAppsRankingComponent({
                   </div>
                 )}
 
-                {/* Lista limpia y completa de software mapeado */}
-                <div className="flex-1 overflow-y-auto space-y-2 pr-1 min-h-0">
-                  {filteredModalApps.length === 0 ? (
-                    <div className="p-12 text-center space-y-2 rounded-2xl border border-dashed border-border/60 bg-muted/10">
-                      <p className="text-sm font-semibold text-foreground">
-                        No se encontraron aplicaciones con este filtro
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {appsCategoryFilter === "unassigned"
-                          ? "¡Excelente! Todas las aplicaciones detectadas tienen categoría y subcategoría asignada."
-                          : "Pruebe buscando con otro término o seleccionando 'Todas'."}
-                      </p>
-                      {appsCategoryFilter !== "all" && (
-                        <button
-                          onClick={() => setAppsCategoryFilter("all")}
-                          className="mt-2 px-3.5 py-1.5 text-xs font-semibold rounded-xl bg-violet-600 text-white hover:bg-violet-700 cursor-pointer"
-                        >
-                          Ver todas las aplicaciones
-                        </button>
-                      )}
-                    </div>
-                  ) : (
-                    filteredModalApps.map((appName) => {
-                      const assignment = getAppAssignment(appName);
-                      const currentCat = assignment.category;
-                      const currentSub = assignment.subcategory;
-                      const isManual = assignment.isManual;
-                      const icon = getAppIcon(appName);
+                {/* Lista limpia y completa de software mapeado en formato TABLA ALINEADA */}
+                <div className="flex-1 flex flex-col min-h-0 space-y-2">
+                  {/* Encabezado fijo de columnas para perfecta alineación */}
+                  <div className="grid grid-cols-[1fr_210px_230px_44px] items-center gap-3 px-4 py-2 rounded-xl bg-muted/40 border border-border/50 text-[11px] font-bold uppercase tracking-wider text-muted-foreground shrink-0 select-none">
+                    <div>Software / Aplicación / Labor</div>
+                    <div>Categoría Principal</div>
+                    <div>Subcategoría Operativa</div>
+                    <div className="text-center">Rest.</div>
+                  </div>
 
-                      const matchedCat = categories.find((c) => c.id === currentCat || c.label === currentCat);
-                      const availableSubcats = matchedCat?.subcategories || [];
-                      const isUnassigned = !matchedCat || !currentSub;
+                  {/* Cuerpo scrollable de la tabla */}
+                  <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 min-h-0">
+                    {filteredModalApps.length === 0 ? (
+                      <div className="p-12 text-center space-y-2 rounded-2xl border border-dashed border-border/60 bg-muted/10">
+                        <p className="text-sm font-semibold text-foreground">
+                          No se encontraron aplicaciones con este filtro
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {appsCategoryFilter === "unassigned"
+                            ? "¡Excelente! Todas las aplicaciones detectadas tienen categoría y subcategoría asignada."
+                            : "Pruebe buscando con otro término o seleccionando 'Todas'."}
+                        </p>
+                        {appsCategoryFilter !== "all" && (
+                          <button
+                            onClick={() => setAppsCategoryFilter("all")}
+                            className="mt-2 px-3.5 py-1.5 text-xs font-semibold rounded-xl bg-violet-600 text-white hover:bg-violet-700 cursor-pointer"
+                          >
+                            Ver todas las aplicaciones
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      filteredModalApps.map((appName) => {
+                        const assignment = getAppAssignment(appName);
+                        const currentCat = assignment.category;
+                        const currentSub = assignment.subcategory;
+                        const isManual = assignment.isManual;
+                        const icon = getAppIcon(appName);
 
-                      return (
-                        <div
-                          key={appName}
-                          className={`p-3.5 px-4 rounded-2xl border flex flex-col md:flex-row md:items-center justify-between gap-3 transition-all ${
-                            isUnassigned
-                              ? "bg-amber-500/[0.04] border-amber-500/35 hover:border-amber-500/55"
-                              : "bg-card hover:bg-muted/30 border-border/60"
-                          }`}
-                        >
-                          <div className="flex items-center gap-3.5 min-w-0 flex-1">
-                            <div className={`p-2.5 rounded-xl shrink-0 ${isUnassigned ? "bg-amber-500/15 text-amber-400" : "bg-muted text-muted-foreground"}`}>
-                              {icon}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <p className="font-bold text-sm text-foreground truncate" title={appName}>
-                                  {appName}
-                                </p>
-                                {isUnassigned && (
-                                  <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 shrink-0">
-                                    ⚠️ Pendiente
-                                  </span>
-                                )}
-                                {isManual && (
-                                  <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-300 border border-violet-500/30 shrink-0">
-                                    Personalizado
-                                  </span>
-                                )}
+                        const matchedCat = categories.find((c) => c.id === currentCat || c.label === currentCat);
+                        const availableSubcats = matchedCat?.subcategories || [];
+                        const isUnassigned = !matchedCat || !currentSub;
+
+                        return (
+                          <div
+                            key={appName}
+                            className={`grid grid-cols-[1fr_210px_230px_44px] items-center gap-3 p-2.5 px-4 rounded-xl border transition-all ${
+                              isUnassigned
+                                ? "bg-amber-500/[0.04] border-amber-500/35 hover:border-amber-500/55"
+                                : "bg-card hover:bg-muted/20 border-border/60"
+                            }`}
+                          >
+                            {/* Columna 1: Información del software */}
+                            <div className="flex items-center gap-3 min-w-0 pr-2">
+                              <div className={`p-2 rounded-xl shrink-0 ${isUnassigned ? "bg-amber-500/15 text-amber-400" : "bg-muted text-muted-foreground"}`}>
+                                {icon}
                               </div>
-                              <p className="text-xs text-muted-foreground mt-0.5">
-                                {matchedCat ? matchedCat.label : <span className="text-amber-400 font-semibold">Sin categoría asignada</span>}
-                                {currentSub ? ` ➔ ${currentSub}` : <span className="text-amber-400/80"> (Falta subcategoría)</span>}
-                              </p>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2">
+                                  <p className="font-bold text-xs text-foreground truncate" title={appName}>
+                                    {appName}
+                                  </p>
+                                  {isUnassigned && (
+                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 shrink-0 whitespace-nowrap">
+                                      ⚠️ Pendiente
+                                    </span>
+                                  )}
+                                  {isManual && (
+                                    <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-300 border border-violet-500/30 shrink-0 whitespace-nowrap">
+                                      Manual
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-[11px] text-muted-foreground truncate mt-0.5">
+                                  {matchedCat ? matchedCat.label : <span className="text-amber-400 font-semibold">Sin categoría</span>}
+                                  {currentSub ? ` ➔ ${currentSub}` : <span className="text-amber-400/80"> (Falta subcategoría)</span>}
+                                </p>
+                              </div>
                             </div>
-                          </div>
 
-                          <div className="flex items-center gap-3 shrink-0 flex-wrap">
-                            {/* Selector de Categoría Principal */}
-                            <div className="flex flex-col gap-1 min-w-[170px]">
-                              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">
-                                Categoría
-                              </span>
+                            {/* Columna 2: Selector de Categoría Principal */}
+                            <div className="w-full">
                               <select
                                 value={currentCat || ""}
                                 onChange={(e) => handleSetCategory(appName, e.target.value, null)}
-                                className={`text-xs font-semibold px-3 py-1.5 rounded-xl border cursor-pointer w-full transition-colors ${
+                                className={`text-xs font-semibold px-2.5 py-1.5 rounded-lg border cursor-pointer w-full transition-colors truncate ${
                                   !currentCat
                                     ? "bg-amber-500/15 border-amber-500/40 text-amber-300"
-                                    : "bg-muted/40 hover:bg-muted border-border text-foreground"
+                                    : "bg-background hover:border-violet-500/60 border-border text-foreground"
                                 }`}
                                 title="Categoría Principal"
                               >
-                                <option value="" disabled>-- Seleccionar categoría --</option>
+                                <option value="" disabled>-- Categoría --</option>
                                 {categories.map((cat) => (
                                   <option key={cat.id} value={cat.id}>
                                     {cat.label}
@@ -2075,18 +2083,15 @@ function ActivityAppsRankingComponent({
                               </select>
                             </div>
 
-                            {/* Selector de Subcategoría Dependiente */}
-                            <div className="flex flex-col gap-1 min-w-[170px]">
-                              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">
-                                Subcategoría
-                              </span>
+                            {/* Columna 3: Selector de Subcategoría Dependiente */}
+                            <div className="w-full">
                               <select
                                 value={currentSub || ""}
                                 onChange={(e) => handleSetCategory(appName, currentCat, e.target.value || null)}
-                                className={`text-xs font-semibold px-3 py-1.5 rounded-xl border cursor-pointer w-full transition-colors ${
+                                className={`text-xs font-semibold px-2.5 py-1.5 rounded-lg border cursor-pointer w-full transition-colors truncate ${
                                   !currentSub
                                     ? "bg-amber-500/15 border-amber-500/40 text-amber-300 font-bold"
-                                    : "bg-muted/40 hover:bg-muted border-border text-foreground"
+                                    : "bg-background hover:border-violet-500/60 border-border text-foreground"
                                 }`}
                                 title="Subcategoría"
                               >
@@ -2099,33 +2104,66 @@ function ActivityAppsRankingComponent({
                               </select>
                             </div>
 
-                            {isManual && (
-                              <button
-                                onClick={() => handleSetCategory(appName, null, null)}
-                                title="Restablecer a detección automática"
-                                className="p-2 rounded-xl hover:bg-muted text-muted-foreground hover:text-amber-400 border border-border/50 transition-colors cursor-pointer self-end mb-0.5"
-                              >
-                                <RotateCcw className="h-3.5 w-3.5" />
-                              </button>
-                            )}
+                            {/* Columna 4: Botón Restablecer */}
+                            <div className="flex justify-center">
+                              {isManual ? (
+                                <button
+                                  onClick={() => handleSetCategory(appName, null, null)}
+                                  title="Restablecer a detección automática"
+                                  className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-amber-400 border border-border/50 transition-colors cursor-pointer"
+                                >
+                                  <RotateCcw className="h-3.5 w-3.5" />
+                                </button>
+                              ) : (
+                                <span className="w-7 h-7" />
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })
-                  )}
+                        );
+                      })
+                    )}
+                  </div>
                 </div>
               </div>
             )}
 
-            {/* CONTENIDO PESTAÑA 2: CRUD DE CATEGORÍAS (AGREGAR / EDITAR / ELIMINAR Y SUBCATEGORÍAS) */}
+            {/* CONTENIDO PESTAÑA 2: ESTRUCTURA DE CATEGORÍAS Y SUBCATEGORÍAS */}
             {activeModalTab === "categories" && (
               <div className="flex-1 flex flex-col min-h-0 space-y-3">
+                {/* Header de la sección de categorías */}
+                <div className="flex flex-wrap items-center justify-between gap-3 bg-muted/20 border border-border/50 p-3 px-4 rounded-2xl shrink-0">
+                  <div>
+                    <h4 className="font-bold text-sm text-foreground flex items-center gap-2">
+                      <FolderTree className="h-4 w-4 text-violet-400" />
+                      <span>Estructura Oficial del Taller ({categories.length} Categorías)</span>
+                    </h4>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Organice las categorías operativas y sus respectivas subcategorías y labores.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setIsCreatingNew(true);
+                      setEditingCategory(null);
+                      setFormCatName("");
+                      setFormCatColorIdx(0);
+                      setFormCatIcon("Monitor");
+                      setFormCatSubcategories([]);
+                      setNewSubcatInput("");
+                    }}
+                    className="px-3.5 py-2 text-xs font-bold rounded-xl bg-violet-600 hover:bg-violet-700 text-white flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
+                  >
+                    <Plus className="h-4 w-4" />
+                    <span>Nueva Categoría</span>
+                  </button>
+                </div>
+
                 {/* Formulario de Creación / Edición */}
-                {(isCreatingNew || editingCategory) ? (
-                  <div className="p-4 rounded-xl bg-muted/30 border border-violet-500/40 space-y-3 animate-in fade-in duration-150">
+                {(isCreatingNew || editingCategory) && (
+                  <div className="p-4 rounded-2xl bg-muted/30 border border-violet-500/40 space-y-3 animate-in fade-in duration-150 shrink-0">
                     <div className="flex items-center justify-between">
                       <h4 className="text-xs font-bold text-violet-300">
-                        {editingCategory ? `Editar Categoría: ${editingCategory.label}` : "Nueva Categoría"}
+                        {editingCategory ? `Editar Categoría: ${editingCategory.label}` : "Crear Nueva Categoría"}
                       </h4>
                       <button
                         onClick={() => { setIsCreatingNew(false); setEditingCategory(null); }}
@@ -2135,23 +2173,23 @@ function ActivityAppsRankingComponent({
                       </button>
                     </div>
 
-                    <div className="space-y-2">
-                      <label className="text-[11px] font-semibold text-muted-foreground block">
-                        Nombre de la Categoría
-                      </label>
-                      <input
-                        type="text"
-                        value={formCatName}
-                        onChange={(e) => setFormCatName(e.target.value)}
-                        placeholder="Ej: Logística, Calidad, etc."
-                        className="w-full px-3 py-1.5 text-xs rounded-lg bg-card border border-border focus:outline-none focus:ring-2 focus:ring-violet-500 text-foreground"
-                      />
-                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div>
+                        <label className="text-xs font-semibold text-muted-foreground block mb-1">
+                          Nombre de la Categoría:
+                        </label>
+                        <input
+                          type="text"
+                          value={formCatName}
+                          onChange={(e) => setFormCatName(e.target.value)}
+                          placeholder="Ej: Logística, Calidad, etc."
+                          className="w-full px-3 py-1.5 text-xs rounded-xl bg-background border border-border focus:ring-2 focus:ring-violet-500 text-foreground"
+                        />
+                      </div>
 
-                    <div className="grid grid-cols-2 gap-3">
                       {/* Color */}
-                      <div className="space-y-1.5">
-                        <label className="text-[11px] font-semibold text-muted-foreground block">Color</label>
+                      <div>
+                        <label className="text-xs font-semibold text-muted-foreground block mb-1">Color Distintivo:</label>
                         <div className="flex flex-wrap gap-1.5">
                           {COLOR_PRESETS.map((p, idx) => (
                             <button
@@ -2168,18 +2206,18 @@ function ActivityAppsRankingComponent({
                       </div>
 
                       {/* Icono */}
-                      <div className="space-y-1.5">
-                        <label className="text-[11px] font-semibold text-muted-foreground block">Icono</label>
-                        <div className="flex flex-wrap gap-1.5 max-h-16 overflow-y-auto">
+                      <div>
+                        <label className="text-xs font-semibold text-muted-foreground block mb-1">Ícono:</label>
+                        <div className="flex flex-wrap gap-1 max-h-16 overflow-y-auto">
                           {ICON_PRESETS.map((ico) => (
                             <button
                               key={ico}
                               type="button"
                               onClick={() => setFormCatIcon(ico)}
-                              className={`p-1.5 rounded-lg border transition-all ${
+                              className={`p-1 rounded-lg border transition-all ${
                                 formCatIcon === ico
-                                    ? "border-violet-500 bg-violet-500/20 text-violet-300"
-                                    : "border-border/60 bg-card text-muted-foreground hover:text-foreground"
+                                  ? "border-violet-500 bg-violet-500/20 text-violet-300"
+                                  : "border-border/60 bg-background text-muted-foreground hover:text-foreground"
                               }`}
                             >
                               {renderCategoryIcon(ico, "h-3.5 w-3.5")}
@@ -2189,118 +2227,7 @@ function ActivityAppsRankingComponent({
                       </div>
                     </div>
 
-                    {/* Subcategorías de la Categoría en el Formulario */}
-                    <div className="space-y-1.5 pt-1 border-t border-border/40">
-                      <div className="flex items-center justify-between">
-                        <label className="text-[11px] font-semibold text-muted-foreground block">
-                          Subcategorías ({formCatSubcategories.length})
-                        </label>
-                        <span className="text-xs text-muted-foreground">Escriba y presione Enter</span>
-                      </div>
-
-                      {formCatSubcategories.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5 p-2 rounded-lg bg-card/60 border border-border/50 max-h-28 overflow-y-auto">
-                          {formCatSubcategories.map((sub, sIdx) => {
-                            const isMan = /\(manual\)/i.test(sub);
-                            const clean = sub.replace(/\s*\(manual\)/i, "").trim();
-                            return (
-                              <span
-                                key={sIdx}
-                                className={`inline-flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-lg border transition-all animate-in fade-in duration-100 ${
-                                  isMan
-                                    ? "bg-amber-500/15 border-amber-500/30 text-amber-300"
-                                    : "bg-violet-500/15 border-violet-500/30 text-violet-300"
-                                }`}
-                              >
-                                <span className="font-medium">{clean}</span>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const toggled = isMan ? clean : `${clean} (MANUAL)`;
-                                    const updated = [...formCatSubcategories];
-                                    updated[sIdx] = toggled;
-                                    setFormCatSubcategories(updated);
-                                  }}
-                                  className={`px-1.5 py-0.5 rounded text-[11px] font-bold uppercase transition-all cursor-pointer ${
-                                    isMan
-                                      ? "bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30"
-                                      : "bg-muted text-muted-foreground hover:text-foreground border border-border/40"
-                                  }`}
-                                  title={isMan ? "Configurada como labor de taller. Click para cambiar a digital/PC." : "Configurada como digital/PC. Click para marcar como labor manual."}
-                                >
-                                  {isMan ? "🛠 Manual" : "💻 PC"}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setFormCatSubcategories(formCatSubcategories.filter((_, i) => i !== sIdx))}
-                                  className="text-muted-foreground hover:text-rose-400 transition-colors p-0.5 cursor-pointer ml-0.5"
-                                  title="Quitar subcategoría"
-                                >
-                                  <X className="h-3 w-3" />
-                                </button>
-                              </span>
-                            );
-                          })}
-                        </div>
-                      )}
-
-                      <div className="flex gap-2 items-center">
-                        <input
-                          type="text"
-                          value={newSubcatInput}
-                          onChange={(e) => setNewSubcatInput(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                              let trimmed = newSubcatInput.trim();
-                              if (trimmed) {
-                                if (formSubcatIsManual && !/\(manual\)/i.test(trimmed)) {
-                                  trimmed = `${trimmed} (MANUAL)`;
-                                }
-                                if (!formCatSubcategories.includes(trimmed)) {
-                                  setFormCatSubcategories([...formCatSubcategories, trimmed]);
-                                  setNewSubcatInput("");
-                                  setFormSubcatIsManual(false);
-                                }
-                              }
-                            }
-                          }}
-                          placeholder="Nueva subcategoría (ej: Diagnóstico, Calidad)..."
-                          className="flex-1 px-3 py-1.5 text-xs rounded-lg bg-card border border-border focus:outline-none focus:ring-2 focus:ring-violet-500 text-foreground"
-                        />
-                        <label className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground cursor-pointer select-none px-1 shrink-0">
-                          <input
-                            type="checkbox"
-                            checked={formSubcatIsManual}
-                            onChange={(e) => setFormSubcatIsManual(e.target.checked)}
-                            className="rounded border-border accent-amber-500 h-3.5 w-3.5 cursor-pointer"
-                          />
-                          <span className={formSubcatIsManual ? "text-amber-400 font-bold" : ""}>Manual</span>
-                        </label>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            let trimmed = newSubcatInput.trim();
-                            if (trimmed) {
-                              if (formSubcatIsManual && !/\(manual\)/i.test(trimmed)) {
-                                trimmed = `${trimmed} (MANUAL)`;
-                              }
-                              if (!formCatSubcategories.includes(trimmed)) {
-                                setFormCatSubcategories([...formCatSubcategories, trimmed]);
-                                setNewSubcatInput("");
-                                setFormSubcatIsManual(false);
-                              }
-                            }
-                          }}
-                          disabled={!newSubcatInput.trim()}
-                          className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-muted hover:bg-muted/80 text-foreground disabled:opacity-40 cursor-pointer shrink-0"
-                        >
-                          + Añadir
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="pt-2 flex justify-end gap-2">
+                    <div className="pt-2 flex justify-end gap-2 border-t border-border/40">
                       <button
                         onClick={() => { setIsCreatingNew(false); setEditingCategory(null); }}
                         className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-muted text-muted-foreground hover:text-foreground cursor-pointer"
@@ -2310,379 +2237,214 @@ function ActivityAppsRankingComponent({
                       <button
                         onClick={handleSaveCategoryForm}
                         disabled={!formCatName.trim()}
-                        className="px-4 py-1.5 text-xs font-bold rounded-lg bg-violet-600 hover:bg-violet-700 text-white disabled:opacity-50 cursor-pointer"
+                        className="px-4 py-1.5 text-xs font-bold rounded-xl bg-violet-600 hover:bg-violet-700 text-white disabled:opacity-50 cursor-pointer shadow-sm"
                       >
                         {editingCategory ? "Guardar Cambios" : "Crear Categoría"}
                       </button>
                     </div>
                   </div>
-                ) : (
-                  <div className="flex justify-between items-center">
-                    <p className="text-xs text-muted-foreground">
-                      Administre las categorías y subcategorías operativas del taller
-                    </p>
-                    <button
-                      onClick={() => {
-                        setIsCreatingNew(true);
-                        setEditingCategory(null);
-                        setFormCatName("");
-                        setFormCatColorIdx(0);
-                        setFormCatIcon("Monitor");
-                        setFormCatSubcategories([]);
-                        setNewSubcatInput("");
-                      }}
-                      className="px-3 py-1.5 text-xs font-bold rounded-lg bg-violet-600 hover:bg-violet-700 text-white flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                      <span>Nueva Categoría</span>
-                    </button>
-                  </div>
                 )}
 
-                {/* Lista de Categorías Existentes con sus Subcategorías */}
-                <div className="flex-1 overflow-y-auto space-y-2 pr-1 min-h-[220px] max-h-[340px]">
-                  {categories.map((cat) => (
-                    <div
-                      key={cat.id}
-                      className="p-3 rounded-xl bg-muted/20 border border-border/50 space-y-2 hover:bg-muted/30 transition-colors"
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-2.5">
-                          <div className={`p-1.5 rounded-lg border ${cat.color}`}>
-                            {renderCategoryIcon(cat.iconName, "h-4 w-4")}
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-bold text-xs text-foreground">{cat.label}</span>
-                              <span className="text-xs px-1.5 py-0.5 rounded bg-muted/80 text-muted-foreground font-mono">
-                                {cat.subcategories?.length || 0} subcat.
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => handleToggleCategoryManual(cat.id)}
-                                className={`px-2 py-0.5 rounded-full text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
-                                  cat.is_manual
-                                    ? "bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30"
-                                    : "bg-muted/60 text-muted-foreground hover:text-foreground border border-border/40"
-                                }`}
-                                title={
-                                  cat.is_manual
-                                    ? "Toda la categoría está configurada como manual (aparece en Labores Manuales). Clic para desmarcar."
-                                    : "Clic para marcar toda la categoría como manual (todos sus botones van a la barra lateral)."
-                                }
-                              >
-                                {cat.is_manual ? "🔧 Labor de Taller" : "💻 Digital / PC"}
-                              </button>
+                {/* Lista limpia de Categorías en formato de jerarquía organizada */}
+                <div className="flex-1 overflow-y-auto space-y-3 pr-1 min-h-0">
+                  {categories.map((cat) => {
+                    const subcats = cat.subcategories || [];
+                    const appsInCat = allSanitizedApps.filter((a) => {
+                      const asg = getAppAssignment(a);
+                      return asg.category === cat.id || asg.category === cat.label;
+                    });
+
+                    return (
+                      <div
+                        key={cat.id}
+                        className="rounded-2xl border border-border/60 bg-card overflow-hidden shadow-xs hover:border-border transition-all"
+                      >
+                        {/* Cabecera de la Categoría */}
+                        <div className="p-3.5 px-4 bg-muted/20 border-b border-border/40 flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className={`p-2 rounded-xl border ${cat.color} shrink-0`}>
+                              {renderCategoryIcon(cat.iconName, "h-4 w-4")}
                             </div>
-                            <p className="text-xs text-muted-foreground">
-                              {cat.id === "Actividad general" ? "Categoría por defecto" : "Categoría activa"}
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            onClick={() => {
-                              setEditingCategory(cat);
-                              setIsCreatingNew(false);
-                              setFormCatName(cat.label);
-                              const foundIdx = COLOR_PRESETS.findIndex((p) => p.bgBar === cat.bgBar);
-                              setFormCatColorIdx(foundIdx >= 0 ? foundIdx : 0);
-                              setFormCatIcon(cat.iconName || "Monitor");
-                              setFormCatSubcategories(cat.subcategories ? [...cat.subcategories] : []);
-                              setNewSubcatInput("");
-                            }}
-                            className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-violet-300 transition-colors cursor-pointer"
-                            title="Editar nombre, color, icono y subcategorías"
-                          >
-                            <Edit2 className="h-3.5 w-3.5" />
-                          </button>
-
-                          <button
-                            onClick={() => handleDeleteCategory(cat.id)}
-                            className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-rose-400 transition-colors cursor-pointer"
-                            title="Eliminar categoría"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Subcategorías de la categoría con botón para agregar/eliminar en vivo */}
-                      <div className="pt-2 border-t border-border/30">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          {(cat.subcategories || []).map((sub) => {
-                            const isManual = /\(manual\)/i.test(sub) || !!cat.is_manual;
-                            const cleanName = sub.replace(/\s*\(manual\)/i, "").trim();
-                            const isExpanded = expandedManualSubcat === `${cat.id}::${sub}`;
-
-                            const isSoftwareOrUrl = (name: string) => {
-                              const n = name.trim().toLowerCase();
-                              if (n.startsWith("http://") || n.startsWith("https://") || n.startsWith("web:") || n.startsWith("web.")) return true;
-                              if (n.includes(".") && !n.endsWith(".exe") && (n.includes(".com") || n.includes(".org") || n.includes(".net") || n.includes(".io") || n.includes(".app") || n.includes(".co") || n.includes(".es") || n.includes(".la"))) {
-                                return true;
-                              }
-                              if (n.endsWith(".exe") || n.endsWith(".dll") || n.endsWith(".bat")) return true;
-                              if (["odoo erp", "nextime pro", "linkus", "seka chat", "whatsapp", "anydesk", "teamviewer", "chrome", "firefox", "edge", "explorer"].some(soft => n.includes(soft))) {
-                                return true;
-                              }
-                              return false;
-                            };
-
-                            const associatedManualTasks = isManual
-                              ? Object.entries(customCategories)
-                                  .filter(([appName, val]) => {
-                                    const valCat = typeof val === "object" ? val?.category : val;
-                                    const valSub = typeof val === "object" ? val?.subcategory : null;
-                                    const catMatches = valCat === cat.id || valCat === cat.label;
-                                    if (!catMatches) return false;
-                                    const cleanValSub = (valSub || "").replace(/\s*\(manual\)\s*/i, "").trim();
-                                    const subMatches = valSub === sub || cleanValSub.toLowerCase() === cleanName.toLowerCase();
-                                    if (!subMatches) return false;
-                                    return !isSoftwareOrUrl(appName);
-                                  })
-                                  .map(([appName]) => appName.trim())
-                              : [];
-
-                            return (
-                              <span
-                                key={sub}
-                                className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-lg border transition-all ${
-                                  isManual
-                                    ? "bg-amber-500/10 border-amber-500/30 text-amber-300"
-                                    : "bg-muted/60 border-border/60 text-foreground"
-                                }`}
-                              >
-                                <span className="font-semibold">{cleanName}</span>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-bold text-sm text-foreground">{cat.label}</span>
+                                <span className="text-xs px-2 py-0.5 rounded-full bg-muted border border-border/50 text-muted-foreground font-mono">
+                                  {subcats.length} {subcats.length === 1 ? "subcategoría" : "subcategorías"}
+                                </span>
+                                <span className="text-xs px-2 py-0.5 rounded-full bg-violet-500/10 text-violet-300 font-mono">
+                                  {appsInCat.length} apps asignadas
+                                </span>
                                 <button
                                   type="button"
-                                  onClick={() => handleToggleSubcategoryManual(cat.id, sub)}
-                                  className={`px-1.5 py-0.5 rounded text-xs font-bold uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1 ${
-                                    isManual
-                                      ? "bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/40"
-                                      : "bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground border border-border/50"
+                                  onClick={() => handleToggleCategoryManual(cat.id)}
+                                  className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                                    cat.is_manual
+                                      ? "bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30"
+                                      : "bg-muted/60 text-muted-foreground hover:text-foreground border border-border/40"
                                   }`}
-                                  title={
-                                    isManual
-                                      ? "Configurada como labor de taller (aparece como botón en barra lateral). Clic para cambiar a digital/PC."
-                                      : "Configurada como digital/PC. Clic para convertir a labor de taller (botón en barra lateral)."
-                                  }
+                                  title="Alternar si toda la categoría es labor de taller o digital"
                                 >
-                                  {isManual ? "🛠 Manual" : "💻 PC"}
+                                  {cat.is_manual ? "🔧 Labor de Taller" : "💻 Digital / PC"}
                                 </button>
-
-                                {isManual && (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const key = `${cat.id}::${sub}`;
-                                      setExpandedManualSubcat(isExpanded ? null : key);
-                                    }}
-                                    className={`px-1.5 py-0.5 rounded text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
-                                      isExpanded
-                                        ? "bg-amber-500 text-black shadow-xs"
-                                        : "bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30"
-                                    }`}
-                                    title="Ver / Gestionar labores hijas asociadas que aparecen en la barra lateral"
-                                  >
-                                    <span>{associatedManualTasks.length} {associatedManualTasks.length === 1 ? "labor" : "labores"}</span>
-                                    <ChevronDown className={`h-2.5 w-2.5 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
-                                  </button>
-                                )}
-
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteSubcategory(cat.id, sub)}
-                                  className="text-muted-foreground hover:text-rose-400 transition-colors p-0.5 rounded cursor-pointer ml-0.5"
-                                  title={`Eliminar subcategoría "${cleanName}"`}
-                                >
-                                  <X className="h-3 w-3" />
-                                </button>
-                              </span>
-                            );
-                          })}
-
-                          {/* Input inline para agregar subcategoría al instante */}
-                          {inlineAddSubcatCatId === cat.id ? (
-                            <div className="inline-flex items-center gap-2 p-1 rounded-lg bg-background border border-violet-500/50 shadow-xs">
-                              <input
-                                type="text"
-                                autoFocus
-                                value={inlineSubcatValue}
-                                onChange={(e) => setInlineSubcatValue(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter") {
-                                    e.preventDefault();
-                                    handleAddSubcategory(cat.id, inlineSubcatValue, inlineSubcatIsManual);
-                                  } else if (e.key === "Escape") {
-                                    setInlineAddSubcatCatId(null);
-                                    setInlineSubcatValue("");
-                                    setInlineSubcatIsManual(false);
-                                  }
-                                }}
-                                placeholder="Nueva subcategoría..."
-                                className="text-xs px-2.5 py-1 rounded bg-muted/30 border border-border focus:outline-none focus:border-violet-500 text-foreground w-40"
-                              />
-                              <label className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground cursor-pointer select-none px-1">
-                                <input
-                                  type="checkbox"
-                                  checked={inlineSubcatIsManual}
-                                  onChange={(e) => setInlineSubcatIsManual(e.target.checked)}
-                                  className="rounded border-border accent-amber-500 h-3.5 w-3.5 cursor-pointer"
-                                />
-                                <span className={inlineSubcatIsManual ? "text-amber-400 font-bold" : ""}>Manual</span>
-                              </label>
-                              <button
-                                type="button"
-                                onClick={() => handleAddSubcategory(cat.id, inlineSubcatValue, inlineSubcatIsManual)}
-                                className="px-2 py-1 rounded bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold cursor-pointer flex items-center gap-1"
-                                title="Guardar subcategoría"
-                              >
-                                <Check className="h-3 w-3" />
-                                <span>Agregar</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setInlineAddSubcatCatId(null);
-                                  setInlineSubcatValue("");
-                                  setInlineSubcatIsManual(false);
-                                }}
-                                className="p-1 rounded hover:bg-muted text-muted-foreground text-xs cursor-pointer"
-                                title="Cancelar"
-                              >
-                                <X className="h-3.5 w-3.5" />
-                              </button>
+                              </div>
                             </div>
-                          ) : (
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
                             <button
-                              type="button"
                               onClick={() => {
-                                setInlineAddSubcatCatId(cat.id);
+                                setInlineAddSubcatCatId(inlineAddSubcatCatId === cat.id ? null : cat.id);
                                 setInlineSubcatValue("");
                                 setInlineSubcatIsManual(false);
                               }}
-                              className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg border border-dashed border-border hover:border-violet-500/60 hover:text-violet-300 text-muted-foreground transition-all cursor-pointer"
+                              className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-violet-600/15 hover:bg-violet-600/25 text-violet-300 border border-violet-500/30 flex items-center gap-1 transition-colors cursor-pointer"
                             >
-                              <Plus className="h-3 w-3" />
-                              <span>Nueva Subcategoría</span>
+                              <Plus className="h-3.5 w-3.5" />
+                              <span>Subcategoría</span>
                             </button>
-                          )}
+                            <button
+                              onClick={() => {
+                                setEditingCategory(cat);
+                                setIsCreatingNew(false);
+                                setFormCatName(cat.label);
+                                const foundIdx = COLOR_PRESETS.findIndex((p) => p.bgBar === cat.bgBar);
+                                setFormCatColorIdx(foundIdx >= 0 ? foundIdx : 0);
+                                setFormCatIcon(cat.iconName || "Monitor");
+                                setFormCatSubcategories(cat.subcategories ? [...cat.subcategories] : []);
+                                setNewSubcatInput("");
+                              }}
+                              className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                              title="Editar categoría"
+                            >
+                              <Edit2 className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteCategory(cat.id)}
+                              className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-rose-400 transition-colors cursor-pointer"
+                              title="Eliminar categoría"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
                         </div>
 
-                        {/* Panel expandido para gestionar las labores hijas de la subcategoría manual seleccionada */}
-                        {(() => {
-                          if (!expandedManualSubcat || !expandedManualSubcat.startsWith(`${cat.id}::`)) return null;
-                          const targetSub = expandedManualSubcat.split("::")[1];
-                          const targetCleanName = targetSub.replace(/\s*\(manual\)\s*/i, "").trim();
+                        {/* Formulario Inline para agregar subcategoría dentro de esta categoría */}
+                        {inlineAddSubcatCatId === cat.id && (
+                          <div className="p-3 bg-muted/30 border-b border-border/40 flex flex-wrap items-center gap-2 animate-in fade-in">
+                            <input
+                              type="text"
+                              autoFocus
+                              value={inlineSubcatValue}
+                              onChange={(e) => setInlineSubcatValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" && inlineSubcatValue.trim()) {
+                                  handleAddSubcategory(cat.id, inlineSubcatValue.trim(), inlineSubcatIsManual);
+                                  setInlineSubcatValue("");
+                                  setInlineAddSubcatCatId(null);
+                                } else if (e.key === "Escape") {
+                                  setInlineAddSubcatCatId(null);
+                                }
+                              }}
+                              placeholder="Nombre de la nueva subcategoría..."
+                              className="flex-1 min-w-[220px] text-xs px-3 py-1.5 rounded-lg bg-background border border-violet-500 focus:outline-none text-foreground"
+                            />
+                            <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none px-2">
+                              <input
+                                type="checkbox"
+                                checked={inlineSubcatIsManual}
+                                onChange={(e) => setInlineSubcatIsManual(e.target.checked)}
+                                className="rounded border-border accent-amber-500 h-3.5 w-3.5"
+                              />
+                              <span>Labor de Taller</span>
+                            </label>
+                            <button
+                              onClick={() => {
+                                if (inlineSubcatValue.trim()) {
+                                  handleAddSubcategory(cat.id, inlineSubcatValue.trim(), inlineSubcatIsManual);
+                                  setInlineSubcatValue("");
+                                  setInlineAddSubcatCatId(null);
+                                }
+                              }}
+                              className="px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold cursor-pointer"
+                            >
+                              Guardar
+                            </button>
+                            <button
+                              onClick={() => setInlineAddSubcatCatId(null)}
+                              className="px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground cursor-pointer"
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        )}
 
-                          const isSoftwareOrUrl = (name: string) => {
-                            const n = name.trim().toLowerCase();
-                            if (n.startsWith("http://") || n.startsWith("https://") || n.startsWith("web:") || n.startsWith("web.")) return true;
-                            if (n.includes(".") && !n.endsWith(".exe") && (n.includes(".com") || n.includes(".org") || n.includes(".net") || n.includes(".io") || n.includes(".app") || n.includes(".co") || n.includes(".es") || n.includes(".la"))) {
-                              return true;
-                            }
-                            if (n.endsWith(".exe") || n.endsWith(".dll") || n.endsWith(".bat")) return true;
-                            if (["odoo erp", "nextime pro", "linkus", "seka chat", "whatsapp", "anydesk", "teamviewer", "chrome", "firefox", "edge", "explorer"].some(soft => n.includes(soft))) {
-                              return true;
-                            }
-                            return false;
-                          };
+                        {/* Lista estructurada y limpia de subcategorías */}
+                        <div className="divide-y divide-border/30 bg-background/40">
+                          {subcats.length === 0 ? (
+                            <div className="p-4 text-center text-xs text-muted-foreground">
+                              Esta categoría aún no tiene subcategorías. Toque &ldquo;+ Subcategoría&rdquo; para agregar la primera.
+                            </div>
+                          ) : (
+                            subcats.map((sub) => {
+                              const isManual = /\(manual\)/i.test(sub) || !!cat.is_manual;
+                              const cleanName = sub.replace(/\s*\(manual\)/i, "").trim();
+                              const isExpanded = expandedManualSubcat === `${cat.id}::${sub}`;
 
-                          const currentTasks = Object.entries(customCategories)
-                            .filter(([appName, val]) => {
-                              const valCat = typeof val === "object" ? val?.category : val;
-                              const valSub = typeof val === "object" ? val?.subcategory : null;
-                              const catMatches = valCat === cat.id || valCat === cat.label;
-                              if (!catMatches) return false;
-                              const cleanValSub = (valSub || "").replace(/\s*\(manual\)\s*/i, "").trim();
-                              const subMatches = valSub === targetSub || cleanValSub.toLowerCase() === targetCleanName.toLowerCase();
-                              if (!subMatches) return false;
-                              return !isSoftwareOrUrl(appName);
-                            })
-                            .map(([appName]) => appName.trim());
+                              const appsInSub = appsInCat.filter((a) => {
+                                const asg = getAppAssignment(a);
+                                const subVal = (asg.subcategory || "").toLowerCase();
+                                return subVal === sub.toLowerCase() || subVal === cleanName.toLowerCase();
+                              });
 
-                          return (
-                            <div className="w-full mt-2.5 p-3 rounded-xl bg-amber-950/20 border border-amber-500/40 space-y-2.5 animate-in fade-in duration-150">
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-1.5 text-xs font-bold text-amber-300">
-                                  <Wrench className="h-3.5 w-3.5 text-amber-400 shrink-0" />
-                                  <span>Labores en barra lateral para &ldquo;{targetCleanName}&rdquo; ({currentTasks.length})</span>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => setExpandedManualSubcat(null)}
-                                  className="text-muted-foreground hover:text-foreground text-xs p-1 rounded-md hover:bg-muted cursor-pointer"
-                                  title="Cerrar panel de labores"
+                              return (
+                                <div
+                                  key={sub}
+                                  className="flex items-center justify-between p-2.5 px-4 hover:bg-muted/20 transition-colors text-xs"
                                 >
-                                  <X className="h-3 w-3" />
-                                </button>
-                              </div>
+                                  {/* Columna izquierda: Nombre y conteo */}
+                                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                                    <span className="font-semibold text-foreground text-xs">{cleanName}</span>
+                                    <span className="text-[11px] font-mono text-muted-foreground bg-muted/60 px-2 py-0.5 rounded-md border border-border/30">
+                                      {appsInSub.length} {appsInSub.length === 1 ? "app vinculada" : "apps vinculadas"}
+                                    </span>
+                                  </div>
 
-                              <p className="text-[11px] text-muted-foreground">
-                                Estas labores aparecerán directamente como botones en la sección &ldquo;Labores Manuales&rdquo; de la barra lateral para pausar el auto-tracking de pantalla.
-                              </p>
-
-                              <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                                {currentTasks.map((tName) => (
-                                  <span
-                                    key={tName}
-                                    className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/40 text-amber-200"
-                                  >
-                                    <span>{tName}</span>
+                                  {/* Columna derecha: Tipo y acciones */}
+                                  <div className="flex items-center gap-2 shrink-0">
                                     <button
                                       type="button"
-                                      onClick={() => handleSetCategory(tName, null, null)}
-                                      className="text-amber-400 hover:text-rose-400 p-0.5 rounded cursor-pointer"
-                                      title={`Desvincular labor "${tName}"`}
+                                      onClick={() => handleToggleSubcategoryManual(cat.id, sub)}
+                                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                                        isManual
+                                          ? "bg-amber-500/15 text-amber-300 border border-amber-500/30 hover:bg-amber-500/25"
+                                          : "bg-muted/60 text-muted-foreground hover:text-foreground border border-border/40"
+                                      }`}
+                                      title="Alternar entre labor manual de taller o software PC"
                                     >
-                                      <X className="h-3 w-3" />
+                                      {isManual ? "🔧 Labor de Taller" : "💻 Digital / PC"}
                                     </button>
-                                  </span>
-                                ))}
-                                {currentTasks.length === 0 && (
-                                  <p className="text-xs text-amber-300/70 italic py-1">
-                                    Sin labores específicas asociadas. Actualmente se mostrará el botón directo &ldquo;{targetCleanName}&rdquo;.
-                                  </p>
-                                )}
-                              </div>
 
-                              <div className="flex items-center gap-2 pt-1">
-                                <input
-                                  type="text"
-                                  value={newManualTaskInput}
-                                  onChange={(e) => setNewManualTaskInput(e.target.value)}
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter" && newManualTaskInput.trim()) {
-                                      e.preventDefault();
-                                      handleSetCategory(newManualTaskInput.trim(), cat.id, targetSub);
-                                      setNewManualTaskInput("");
-                                    }
-                                  }}
-                                  placeholder={`Añadir labor para "${targetCleanName}" (ej: Entrega de Equipos, Firma de Actas)...`}
-                                  className="text-xs px-3 py-1.5 rounded-lg bg-background border border-border focus:outline-none focus:border-amber-500 text-foreground flex-1"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    if (newManualTaskInput.trim()) {
-                                      handleSetCategory(newManualTaskInput.trim(), cat.id, targetSub);
-                                      setNewManualTaskInput("");
-                                    }
-                                  }}
-                                  disabled={!newManualTaskInput.trim()}
-                                  className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold disabled:opacity-40 cursor-pointer flex items-center gap-1"
-                                >
-                                  <Plus className="h-3.5 w-3.5" />
-                                  <span>Añadir Labor</span>
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })()}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (confirm(`¿Eliminar la subcategoría "${cleanName}"?`)) {
+                                          handleDeleteSubcategory(cat.id, sub);
+                                        }
+                                      }}
+                                      className="p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-rose-400 transition-colors cursor-pointer"
+                                      title="Eliminar subcategoría"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
