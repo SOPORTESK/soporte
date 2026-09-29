@@ -46,6 +46,7 @@ import {
   GripVertical,
   ArrowRightLeft,
   Info,
+  EyeOff,
 } from "lucide-react";
 
 interface TimelineItem {
@@ -734,10 +735,16 @@ export function getDefaultCategoryForApp(appName: string, action: string = "", c
     return "Descansos";
   }
 
-  // 8. Utilidades (Spotify, Program Manager, accesorios del SO, calculadoras, etc.)
+  // 8. Utilidades (Spotify, Navegador Web, Program Manager, accesorios del SO, calculadoras, etc.)
   if (
     name.includes("utilidad") ||
     name.includes("spotify") ||
+    name.includes("navegador") ||
+    name.includes("browser") ||
+    name.includes("búsqueda") ||
+    name.includes("busqueda") ||
+    name.includes("google") ||
+    name.includes("explorador") ||
     name.includes("program manager") ||
     name.includes("conmutac") ||
     name.includes("task switching") ||
@@ -777,6 +784,7 @@ export function getDefaultSubcategoryForApp(appName: string, category: string): 
     if (name.includes("whatsapp") || name.includes("seka chat") || name.includes("chat")) return "Mensajería";
     if (name.includes("anydesk") || name.includes("teamviewer") || name.includes("remoto") || name.includes("hikvision")) return "Remoto";
     if (name.includes("odoo") || name.includes("ticket") || name.includes("presencial")) return "Presencial";
+    return "Remoto";
   }
   if (category === "Control Administrativo") {
     if (name.includes("outlook") || name.includes("correo") || name.includes("mail")) return "Optimización de Procesos";
@@ -1135,6 +1143,35 @@ function ActivityAppsRankingComponent({
       }
     } catch (err) {
       console.error("Error al eliminar software:", err);
+    } finally {
+      setSavingApp(null);
+    }
+  };
+
+  const handleIgnoreApp = async (appName: string) => {
+    setSavingApp(appName);
+    const newMap = { ...customCategories };
+    newMap[appName] = { category: "Ignorada", subcategory: "Ignorada", is_ignored: true };
+
+    setCustomCategories(newMap);
+    try { localStorage.setItem("sek_app_categories", JSON.stringify(newMap)); } catch {}
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("sekunet_categories_updated", { detail: newMap }));
+    }
+
+    try {
+      await fetch("/api/activity/app-categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          appMappings: newMap,
+        }),
+      });
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("sekunet_categories_updated", { detail: newMap }));
+      }
+    } catch (err) {
+      console.error("Error al ignorar software:", err);
     } finally {
       setSavingApp(null);
     }
@@ -1506,8 +1543,28 @@ function ActivityAppsRankingComponent({
   };
 
   const isSystemNoise = (name: string) => {
-    const l = (name || "").toLowerCase();
+    const l = (name || "").toLowerCase().trim();
     return (
+      l === "login" ||
+      l.startsWith("login ") ||
+      l.endsWith(" login") ||
+      l === "iniciar sesión" ||
+      l === "iniciar sesion" ||
+      l.startsWith("iniciar sesi") ||
+      l === "sign in" ||
+      l.startsWith("sign in") ||
+      l === "signin" ||
+      l === "auth" ||
+      l.startsWith("auth") ||
+      l === "acceso" ||
+      l === "nueva pestaña" ||
+      l === "new tab" ||
+      l === "bienvenido" ||
+      l === "welcome" ||
+      l === "blank" ||
+      l === "about:blank" ||
+      l === "cargando" ||
+      l === "loading" ||
       l.includes("program manager") ||
       l.includes("conmutac") ||
       l.includes("task switching") ||
@@ -1594,7 +1651,7 @@ function ActivityAppsRankingComponent({
       lc === "new tab" ||
       lc === "acceso"
     ) {
-      return "Navegador Web (Brave)";
+      return "Navegador Web";
     }
     return clean;
   };
@@ -1603,10 +1660,10 @@ function ActivityAppsRankingComponent({
     const appMap = new Map<string, string>();
 
     // 1. Procesos y tareas configurados explícitamente en customCategories:
-    // Tienen prioridad absoluta, NUNCA se filtran ni por phantom ni por noise, y su nombre se preserva exacto.
     for (const [rawKey, val] of Object.entries(customCategories)) {
       if (!rawKey || rawKey === "Formación de Usuarios") continue;
       if (isSystemNoise(rawKey)) continue;
+      if (typeof val === "object" && (val?.is_ignored || val?.category === "Ignorada")) continue;
       const cat = typeof val === "object" ? val?.category : val;
       // Si fue desvinculada/puesta en Sin Clasificar y no está en apps detectadas en vivo, no retenerla
       if ((cat === "Sin Clasificar" || cat === "unassigned") && !allDetectedApps.some((d) => d.toLowerCase() === rawKey.toLowerCase())) {
@@ -1621,9 +1678,15 @@ function ActivityAppsRankingComponent({
     // 2. Apps detectadas en el sistema (hoy):
     for (const raw of allDetectedApps) {
       if (!raw) continue;
-      if (isPhantomCategory(raw) || (hideSystemNoise && isSystemNoise(raw))) continue;
+      if (isPhantomCategory(raw) || isSystemNoise(raw)) continue;
+      const customVal = customCategories[raw];
+      if (typeof customVal === "object" && (customVal?.is_ignored || customVal?.category === "Ignorada")) continue;
+
       const sanitized = sanitizeAppName(raw);
-      if (isPhantomCategory(sanitized) || (hideSystemNoise && isSystemNoise(sanitized))) continue;
+      if (isPhantomCategory(sanitized) || isSystemNoise(sanitized)) continue;
+      const customSanitized = customCategories[sanitized];
+      if (typeof customSanitized === "object" && (customSanitized?.is_ignored || customSanitized?.category === "Ignorada")) continue;
+
       if (sanitized.length < 2) continue;
       if (!appMap.has(sanitized.toLowerCase())) {
         appMap.set(sanitized.toLowerCase(), sanitized);
@@ -2293,7 +2356,7 @@ function ActivityAppsRankingComponent({
                         return (
                           <div
                             key={appName}
-                            className={`grid grid-cols-[1fr_210px_230px_72px] items-center gap-3 p-2.5 px-4 rounded-xl border transition-all ${
+                            className={`grid grid-cols-[1fr_210px_230px_96px] items-center gap-3 p-2.5 px-4 rounded-xl border transition-all ${
                               isUnassigned
                                 ? "bg-amber-500/[0.04] border-amber-500/35 hover:border-amber-500/55"
                                 : "bg-card hover:bg-muted/20 border-border/60"
@@ -2385,10 +2448,11 @@ function ActivityAppsRankingComponent({
                               </select>
                             </div>
 
-                            {/* Columna 4: Botones Restablecer y Eliminar */}
+                            {/* Columna 4: Botones Restablecer, Ocultar y Eliminar */}
                             <div className="flex items-center justify-center gap-1">
                               {isManual && (
                                 <button
+                                  type="button"
                                   onClick={() => handleDeleteApp(appName)}
                                   title="Restablecer a detección automática"
                                   className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-amber-400 border border-border/50 transition-colors cursor-pointer"
@@ -2397,6 +2461,15 @@ function ActivityAppsRankingComponent({
                                 </button>
                               )}
                               <button
+                                type="button"
+                                onClick={() => handleIgnoreApp(appName)}
+                                title={`Descartar / Ocultar "${appName}" del listado (No es software de taller)`}
+                                className="p-1.5 rounded-lg hover:bg-slate-500/15 text-muted-foreground hover:text-slate-300 border border-border/50 transition-colors cursor-pointer"
+                              >
+                                <EyeOff className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                type="button"
                                 onClick={() => handleDeleteApp(appName)}
                                 title={`Eliminar "${appName}"`}
                                 className="p-1.5 rounded-lg hover:bg-rose-500/15 text-muted-foreground hover:text-rose-400 border border-border/50 transition-colors cursor-pointer"

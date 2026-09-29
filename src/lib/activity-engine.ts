@@ -276,6 +276,40 @@ export function extractCleanItemName(item: TimelineEntry, appMappings?: Record<s
   ) {
     return "Explorador de archivos";
   }
+
+  // Pantallas transitorias y de autenticación (Login, Iniciar sesión, Nueva pestaña, etc.)
+  // NUNCA deben tratarse como herramientas independientes de software del taller
+  const cleanTitleForCheck = rawTitle.replace(/\s*[-–—]\s*(brave|google chrome|microsoft edge|edge|firefox|opera).*$/i, "").trim();
+  const cleanAppForCheck = rawApp.replace(/^navegador:\s*/i, "").trim();
+  if (
+    cleanTitleForCheck === "login" ||
+    cleanTitleForCheck.startsWith("login ") ||
+    cleanTitleForCheck.endsWith(" login") ||
+    cleanTitleForCheck === "iniciar sesión" ||
+    cleanTitleForCheck === "iniciar sesion" ||
+    cleanTitleForCheck.startsWith("iniciar sesi") ||
+    cleanTitleForCheck === "sign in" ||
+    cleanTitleForCheck.startsWith("sign in") ||
+    cleanTitleForCheck === "auth" ||
+    cleanTitleForCheck.startsWith("auth") ||
+    cleanTitleForCheck === "acceso" ||
+    cleanTitleForCheck === "nueva pestaña" ||
+    cleanTitleForCheck === "new tab" ||
+    cleanTitleForCheck === "bienvenido" ||
+    cleanTitleForCheck === "cargando" ||
+    cleanAppForCheck === "login" ||
+    cleanAppForCheck.startsWith("login ") ||
+    cleanAppForCheck.endsWith(" login") ||
+    cleanAppForCheck === "iniciar sesión" ||
+    cleanAppForCheck === "iniciar sesion" ||
+    cleanAppForCheck.startsWith("iniciar sesi") ||
+    cleanAppForCheck === "sign in" ||
+    cleanAppForCheck === "auth" ||
+    cleanAppForCheck === "acceso"
+  ) {
+    return "Navegador Web";
+  }
+
   if (rawTitle.includes("program manager") || act.includes("program manager") || rawApp.includes("program manager")) return "Escritorio de Windows";
   if (rawTitle.includes("conmutac") || act.includes("conmutac") || rawTitle.includes("task switching")) return "Conmutación de tareas";
   if (rawTitle.includes("google one") || rawApp.includes("google one") || act.includes("google one")) return "Google One";
@@ -309,7 +343,17 @@ export function extractCleanItemName(item: TimelineEntry, appMappings?: Record<s
   if (rawTitle.includes("hikvision") || rawApp.includes("hikvision")) return "Hikvision";
 
   // 4. Si es navegador web (Brave, Chrome, Edge, Firefox), extraer dominio o título limpio
-  const isBrowser = rawApp.includes("chrome") || rawApp.includes("brave") || rawApp.includes("edge") || rawApp.includes("firefox");
+  const isBrowser =
+    rawApp.includes("chrome") ||
+    rawApp.includes("brave") ||
+    rawApp.includes("edge") ||
+    rawApp.includes("firefox") ||
+    rawApp.includes("opera") ||
+    rawApp.startsWith("navegador") ||
+    rawTitle.includes("brave") ||
+    rawTitle.includes("chrome") ||
+    rawTitle.includes("edge") ||
+    rawTitle.includes("firefox");
   if (isBrowser) {
     if (meta.domain) return meta.domain;
     if (meta.url) {
@@ -347,10 +391,7 @@ export function extractCleanItemName(item: TimelineEntry, appMappings?: Record<s
         lowerClean === "home" ||
         lowerClean === "acceso"
       ) {
-        return rawApp.includes("brave") ? "Navegador Web (Brave)"
-          : rawApp.includes("chrome") ? "Navegador Web (Chrome)"
-          : rawApp.includes("edge") ? "Navegador Web (Edge)"
-          : "Navegador Web";
+        return "Navegador Web";
       }
 
       const stripped = cleanWinTitle.replace(/^Navegador:\s*/i, "").trim();
@@ -527,12 +568,13 @@ export function assignToOperationalCategory(
     return "Control Administrativo";
   }
 
-  // Utilidades (Spotify, Program Manager, accesorios del SO, calculadoras, etc.)
+  // Utilidades (Spotify, Navegador Web, Program Manager, accesorios del SO, calculadoras, etc.)
   if (n.includes("utilidad") || n.includes("spotify") || n.includes("program manager") ||
       n.includes("progman") || n.includes("calculadora") || n.includes("notepad") ||
       n.includes("bloc de notas") || n.includes("taskmgr") || n.includes("administrador de tareas") ||
       n.includes("escritorio") || n.includes("conmutac") || n.includes("task switching") ||
-      n.includes("google one") ||
+      n.includes("google one") || n.includes("navegador") || n.includes("browser") ||
+      n.includes("búsqueda") || n.includes("busqueda") || n.includes("explorador") ||
       c.includes("utilidades") || a.includes("spotify") || a.includes("program manager") ||
       a.includes("conmutac") || a.includes("escritorio") || a.includes("google one")) {
     return "Utilidades";
@@ -916,6 +958,22 @@ export function computeUnifiedActivityMetrics(
       if (
         l.length < 2 ||
         isCategoryName(l) ||
+        l === "login" ||
+        l.startsWith("login ") ||
+        l.endsWith(" login") ||
+        l === "iniciar sesión" ||
+        l === "iniciar sesion" ||
+        l.startsWith("iniciar sesi") ||
+        l === "sign in" ||
+        l.startsWith("sign in") ||
+        l === "auth" ||
+        l.startsWith("auth") ||
+        l === "acceso" ||
+        l === "nueva pestaña" ||
+        l === "new tab" ||
+        l.includes("pickerhost") ||
+        l.includes("file picker") ||
+        l.includes("seleccionar carpeta") ||
         l.includes("inactiv") ||
         l.includes("pausa") ||
         l.includes("descanso") ||
@@ -1106,9 +1164,7 @@ export function computeUnifiedActivityMetrics(
           const idlePart = Math.min(excessMs, 4 * 3600 * 1000);
 
           opTimes[opCategory] = (opTimes[opCategory] || 0) + productivePart;
-          if (!softTimes[itemName]) softTimes[itemName] = { durationMs: 0, count: 0, category: opCategory };
-          softTimes[itemName].durationMs += productivePart;
-          softTimes[itemName].count++;
+          recordSoftwareTime(itemName, productivePart, opCategory);
 
           const crHour =
             parseInt(

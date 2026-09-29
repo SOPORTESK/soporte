@@ -186,6 +186,15 @@ function categorizeApp(appName, title) {
     if (t.includes('youtube')) return { category: 'Navegación', label: 'YouTube', context, context_type };
     const parts = title.split(' - ');
     const site = parts.length >= 2 ? parts[parts.length - 2] : title.substring(0, 40);
+    const lowerSite = (site || '').toLowerCase().trim();
+    if (
+      lowerSite === 'login' || lowerSite.startsWith('login ') ||
+      lowerSite === 'iniciar sesión' || lowerSite === 'iniciar sesion' || lowerSite.startsWith('iniciar sesi') ||
+      lowerSite === 'sign in' || lowerSite === 'auth' || lowerSite === 'acceso' ||
+      lowerSite === 'nueva pestaña' || lowerSite === 'new tab' || lowerSite === 'bienvenido'
+    ) {
+      return { category: 'Navegación', label: 'Navegador Web', context: 'Navegación Web', context_type: 'web' };
+    }
     return { category: 'Navegación', label: `Navegador: ${site}`, context, context_type };
   }
   if (t.includes('sekunet') || t.includes('seka chat') || t.includes('localhost:3100'))
