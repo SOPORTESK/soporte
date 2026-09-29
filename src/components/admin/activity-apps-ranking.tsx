@@ -1533,33 +1533,35 @@ function ActivityAppsRankingComponent({
     if (clean.toLowerCase().includes("buscar con google") || clean.toLowerCase().includes("google search")) {
       return "Búsqueda en Google";
     }
-    if (clean.toLowerCase().includes("hik-connect") || clean.toLowerCase().includes("hikvision")) {
-      return "Portal Hikvision";
-    }
     return clean;
   };
 
   const allSanitizedApps = useMemo(() => {
-    const rawList = Array.from(
-      new Set([...allDetectedApps, ...Object.keys(customCategories)])
-    );
+    const appMap = new Map<string, string>();
 
-    const sanitizedMap = new Map<string, string>();
-    for (const raw of rawList) {
-      if (isPhantomCategory(raw) || isSystemNoise(raw)) continue;
-      const sanitized = sanitizeAppName(raw);
-      if (isPhantomCategory(sanitized) || isSystemNoise(sanitized)) continue;
-      if (sanitized.length < 2) continue;
-      if (!sanitizedMap.has(sanitized.toLowerCase())) {
-        sanitizedMap.set(sanitized.toLowerCase(), sanitized);
+    // 1. Procesos y tareas configurados explícitamente en customCategories:
+    // Tienen prioridad absoluta, NUNCA se filtran ni por phantom ni por noise, y su nombre se preserva exacto.
+    for (const rawKey of Object.keys(customCategories)) {
+      if (!rawKey || rawKey === "Formación de Usuarios") continue;
+      const trimmed = rawKey.trim();
+      if (trimmed.length >= 2) {
+        appMap.set(trimmed.toLowerCase(), trimmed);
       }
     }
 
-    let combined = Array.from(sanitizedMap.values());
-    if (hideSystemNoise) {
-      combined = combined.filter((appName) => !isSystemNoise(appName));
+    // 2. Apps detectadas en el sistema (hoy):
+    for (const raw of allDetectedApps) {
+      if (!raw) continue;
+      if (isPhantomCategory(raw) || (hideSystemNoise && isSystemNoise(raw))) continue;
+      const sanitized = sanitizeAppName(raw);
+      if (isPhantomCategory(sanitized) || (hideSystemNoise && isSystemNoise(sanitized))) continue;
+      if (sanitized.length < 2) continue;
+      if (!appMap.has(sanitized.toLowerCase())) {
+        appMap.set(sanitized.toLowerCase(), sanitized);
+      }
     }
-    return combined.sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }));
+
+    return Array.from(appMap.values()).sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }));
   }, [allDetectedApps, customCategories, hideSystemNoise]);
 
   const totalUnassignedCount = useMemo(() => {
@@ -2370,7 +2372,8 @@ function ActivityAppsRankingComponent({
                     const subcats = cat.subcategories || [];
                     const appsInCat = allSanitizedApps.filter((a) => {
                       const asg = getAppAssignment(a);
-                      return asg.category === cat.id || asg.category === cat.label;
+                      const asgCat = (asg.category || "").toLowerCase().trim();
+                      return asgCat === cat.id.toLowerCase().trim() || asgCat === (cat.label || "").toLowerCase().trim();
                     });
 
                     return (
@@ -2490,8 +2493,8 @@ function ActivityAppsRankingComponent({
 
                               const appsInSub = appsInCat.filter((a) => {
                                 const asg = getAppAssignment(a);
-                                const subVal = cleanSubcategoryName(asg.subcategory || "").toLowerCase();
-                                return subVal === cleanName.toLowerCase();
+                                const subVal = cleanSubcategoryName(asg.subcategory || "").toLowerCase().trim();
+                                return subVal === cleanName.toLowerCase().trim();
                               });
 
                               const subcatKey = `${cat.id}::${cleanName}`;

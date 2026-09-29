@@ -13,7 +13,7 @@ const DEFAULT_CATEGORIES = [
     color: "text-emerald-400 border-emerald-500/30 bg-emerald-500/15",
     bgBar: "bg-emerald-500",
     iconName: "Headphones",
-    subcategories: ["Telefónico", "Mensajería", "Presencial", "Remoto"],
+    subcategories: ["Telefónico", "Mensajería", "Presencial", "Remoto", "Resets, Firmware y Desvinculaciones"],
   },
   {
     id: "Servicio de Taller",
@@ -22,10 +22,10 @@ const DEFAULT_CATEGORIES = [
     bgBar: "bg-amber-500",
     iconName: "Wrench",
     subcategories: [
-      "Diagnóstico (MANUAL)",
-      "Reparación (MANUAL)",
-      "Mantenimiento (MANUAL)",
-      "Pruebas y Validación (MANUAL)",
+      "Diagnóstico",
+      "Reparación",
+      "Mantenimiento",
+      "Pruebas y Validación",
     ],
   },
   {
@@ -132,9 +132,9 @@ const DEFAULT_APP_MAPPINGS: Record<string, { category: string; subcategory: stri
   "AnyDesk": { category: "Soporte", subcategory: "Remoto" },
   "TeamViewer": { category: "Soporte", subcategory: "Remoto" },
   "Asistencia Rápida": { category: "Soporte", subcategory: "Remoto" },
-  "cloudsso.hikvision.com": { category: "Soporte", subcategory: "Remoto" },
-  "hikvision.com": { category: "Soporte", subcategory: "Remoto" },
-  "https://www.hikvision.com/es-la/": { category: "Soporte", subcategory: "Remoto" },
+  "cloudsso.hikvision.com": { category: "Soporte", subcategory: "Resets, Firmware y Desvinculaciones" },
+  "hikvision.com": { category: "Soporte", subcategory: "Resets, Firmware y Desvinculaciones" },
+  "https://www.hikvision.com/es-la/": { category: "Soporte", subcategory: "Resets, Firmware y Desvinculaciones" },
   "Tienda 3D": { category: "Servicio de Taller", subcategory: "Reparación (MANUAL)" },
   "Outlook": { category: "Control Administrativo", subcategory: "Correo y Comunicaciones" },
   "Nextime PRO": { category: "Control Administrativo", subcategory: "Optimización de Procesos" },
@@ -195,7 +195,6 @@ export async function GET() {
               const kl = k.toLowerCase().trim();
               if (junkPrefixes.some((p) => kl.startsWith(p))) continue;
               if (junkExact.includes(kl)) continue;
-              if (kl.includes("descanso") || kl.includes("sanitaria") || kl.includes("inactiv") || kl.includes("pausa")) continue;
               clean[k] = v;
             }
             appMappings = clean;
@@ -273,7 +272,6 @@ export async function GET() {
       const kl = k.toLowerCase().trim();
       if (junkPrefixes.some((p) => kl.startsWith(p))) continue;
       if (junkExact.includes(kl)) continue;
-      if (kl.includes("descanso") || kl.includes("sanitaria") || kl.includes("inactiv") || kl.includes("pausa")) continue;
       finalMappings[k] = v;
     }
     return NextResponse.json({ appMappings: finalMappings, categories });
@@ -460,12 +458,13 @@ export async function POST(req: NextRequest) {
       if (body.action === "deleteApp" || body.delete) {
         delete currentMap[appName];
       } else if (category === null || category === undefined || category === "auto" || category === "Sin Clasificar" || category === "unassigned") {
-        currentMap[appName] = { category: "Sin Clasificar", subcategory: null };
+        currentMap[appName] = { category: "Sin Clasificar", subcategory: null, is_manual_task: false };
       } else {
+        const isManual = typeof body.is_manual_task === "boolean" ? body.is_manual_task : false;
         if (subcategory) {
-          currentMap[appName] = { category, subcategory };
+          currentMap[appName] = { category, subcategory, is_manual_task: isManual };
         } else {
-          currentMap[appName] = category;
+          currentMap[appName] = { category, subcategory: null, is_manual_task: isManual };
         }
       }
 
