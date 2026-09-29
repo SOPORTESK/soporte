@@ -1183,7 +1183,7 @@ function ActivityAppsRankingComponent({
 
   // Restablecer al árbol oficial del taller (Excel)
   const handleResetToOfficialTree = async () => {
-    if (!confirm("¿Restablecer el Árbol Operativo a las 6 columnas oficiales del taller (Excel)?")) return;
+    if (!confirm("¿Restablecer el Árbol Operativo a las categorías oficiales del taller?")) return;
     try {
       localStorage.setItem("sek_categories_list", JSON.stringify(DEFAULT_CATEGORIES));
     } catch {}
@@ -1513,7 +1513,7 @@ function ActivityAppsRankingComponent({
                 setViewMode("categories");
                 setActiveDropdownApp(null);
               }}
-              className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${
+              className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${
                 viewMode === "categories" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
               }`}
             >
@@ -1524,7 +1524,7 @@ function ActivityAppsRankingComponent({
                 setViewMode("apps");
                 setActiveDropdownApp(null);
               }}
-              className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${
+              className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${
                 viewMode === "apps" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
               }`}
             >
@@ -1547,7 +1547,7 @@ function ActivityAppsRankingComponent({
             const ui = getCategoryUI(itemName);
             icon = <div className={ui.color.split(" ")[0]}>{renderCategoryIcon(ui.iconName, "h-4 w-4")}</div>;
             labelNode = (
-              <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${ui.color}`}>
+              <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full border ${ui.color}`}>
                 Categoría Oficial
               </span>
             );
@@ -1569,19 +1569,19 @@ function ActivityAppsRankingComponent({
                     e.stopPropagation();
                     setActiveDropdownApp(activeDropdownApp === itemName ? null : itemName);
                   }}
-                  className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border flex items-center gap-1 transition-all hover:scale-105 cursor-pointer ${ui.color} ${
+                  className={`text-xs font-bold px-2.5 py-0.5 rounded-full border flex items-center gap-1 transition-all hover:scale-105 cursor-pointer ${ui.color} ${
                     assignment.isManual ? "ring-1 ring-violet-500/50" : ""
                   }`}
                   title={assignment.isManual ? "Categoría personalizada manualmente (clic para cambiar)" : "Categoría asignada (clic para cambiar)"}
                 >
-                  {assignment.isManual && <span className="text-[9px] font-black mr-0.5">●</span>}
+                  {assignment.isManual && <span className="text-[11px] font-black mr-0.5">●</span>}
                   <span>{ui.label}</span>
                   <ChevronDown className="h-2.5 w-2.5 opacity-60 ml-0.5" />
                 </button>
 
                 {currentSub && (
                   <span
-                    className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-muted/60 border border-border text-foreground/90"
+                    className="text-xs font-semibold px-2 py-0.5 rounded-full bg-muted/60 border border-border text-foreground/90"
                     title={`Subcategoría: ${currentSub}`}
                   >
                     {currentSub}
@@ -1594,9 +1594,9 @@ function ActivityAppsRankingComponent({
                     className="absolute right-0 top-full mt-1.5 w-64 rounded-xl bg-card border border-border shadow-2xl p-1.5 z-50 space-y-0.5 max-h-80 overflow-y-auto animate-in fade-in zoom-in-95 duration-100"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <div className="px-2 py-1 text-[9px] font-black uppercase tracking-wider text-muted-foreground border-b border-border/50 mb-1 flex items-center justify-between">
+                    <div className="px-2 py-1 text-[11px] font-black uppercase tracking-wider text-muted-foreground border-b border-border/50 mb-1 flex items-center justify-between">
                       <span className="truncate max-w-[150px]">Clasificar {itemName}</span>
-                      {savingApp === itemName && <span className="text-violet-400 font-bold text-[9px]">Guardando...</span>}
+                      {savingApp === itemName && <span className="text-violet-400 font-bold text-[11px]">Guardando...</span>}
                     </div>
 
                     {categories.map((cat) => {
@@ -1625,7 +1625,7 @@ function ActivityAppsRankingComponent({
                               <button
                                 type="button"
                                 onClick={() => handleSetCategory(itemName, cat.id, null)}
-                                className={`w-full text-left px-2 py-1 rounded text-[10px] flex items-center justify-between transition-colors ${
+                                className={`w-full text-left px-2 py-1 rounded text-xs flex items-center justify-between transition-colors ${
                                   !currentSub
                                     ? "bg-violet-500/20 text-violet-200 font-bold"
                                     : "hover:bg-muted/40 text-muted-foreground"
@@ -1641,7 +1641,7 @@ function ActivityAppsRankingComponent({
                                     key={sub}
                                     type="button"
                                     onClick={() => handleSetCategory(itemName, cat.id, sub)}
-                                    className={`w-full text-left px-2 py-1 rounded text-[10px] flex items-center justify-between transition-colors ${
+                                    className={`w-full text-left px-2 py-1 rounded text-xs flex items-center justify-between transition-colors ${
                                       isSubSelected
                                         ? "bg-violet-500/25 text-violet-200 font-bold"
                                         : "hover:bg-muted/50 text-muted-foreground hover:text-foreground"
@@ -1683,7 +1683,7 @@ function ActivityAppsRankingComponent({
             >
               <div className="flex items-center justify-between gap-3 text-xs mb-1.5">
                 <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-[10px] font-black text-muted-foreground/60 w-4">
+                  <span className="text-xs font-black text-muted-foreground/60 w-4">
                     #{index + 1}
                   </span>
                   {icon}
@@ -1720,7 +1720,7 @@ function ActivityAppsRankingComponent({
           <div
             className={`w-full transition-all duration-300 ${
               activeModalTab === "tree" ? "max-w-[96vw] xl:max-w-[1720px] h-[92vh]" : "max-w-4xl xl:max-w-5xl h-[90vh]"
-            } rounded-3xl bg-[#0b0f19] border border-border/80 shadow-2xl p-6 space-y-4 max-h-[94vh] flex flex-col`}
+            } rounded-3xl bg-card border border-border/80 shadow-2xl p-6 space-y-4 max-h-[94vh] flex flex-col`}
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header del Modal con Tabs */}
@@ -1746,6 +1746,7 @@ function ActivityAppsRankingComponent({
                   setEditingSubcat(null);
                   setTreeNewSubcatCatId(null);
                 }}
+                aria-label="Cerrar"
                 className="p-1.5 rounded-xl hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
               >
                 <X className="h-5 w-5" />
@@ -1836,7 +1837,7 @@ function ActivityAppsRankingComponent({
                     <button
                       onClick={handleResetToOfficialTree}
                       className="px-3 py-2 text-xs font-semibold rounded-xl hover:bg-amber-500/10 text-amber-400 border border-amber-500/30 flex items-center gap-1.5 transition-colors cursor-pointer"
-                      title="Restablecer exactamente a las 6 columnas del Excel"
+                      title="Restablecer a las categorías oficiales del taller"
                     >
                       <RotateCcw className="h-3.5 w-3.5" />
                       <span>Restablecer Oficial (Excel)</span>
@@ -1847,13 +1848,13 @@ function ActivityAppsRankingComponent({
                 {/* ARQUITECTURA MASTER-DETAIL (2 PANELES, SIN SCROLL HORIZONTAL) */}
                 <div className="flex-1 flex min-h-0 gap-4 overflow-hidden">
                   {/* PANEL IZQUIERDO: MASTER (Lista Vertical de Categorías + Sin Clasificar) */}
-                  <div className="w-[280px] min-w-[280px] max-w-[300px] flex flex-col bg-[#0f1422]/95 border border-border/70 rounded-2xl overflow-hidden shadow-md shrink-0">
+                  <div className="w-[280px] min-w-[280px] max-w-[300px] flex flex-col bg-card/95 border border-border/70 rounded-2xl overflow-hidden shadow-md shrink-0">
                     <div className="p-3 border-b border-border/60 bg-muted/20 flex items-center justify-between shrink-0">
                       <div className="flex items-center gap-2">
                         <Layers className="h-4 w-4 text-violet-400" />
                         <span className="text-xs font-bold text-foreground">Categorías ({categories.length})</span>
                       </div>
-                      <span className="text-[10px] font-mono font-bold text-muted-foreground bg-muted/60 px-2 py-0.5 rounded-full border border-border/40">
+                      <span className="text-xs font-mono font-bold text-muted-foreground bg-muted/60 px-2 py-0.5 rounded-full border border-border/40">
                         Total {filteredModalApps.length}
                       </span>
                     </div>
@@ -1901,10 +1902,10 @@ function ActivityAppsRankingComponent({
                           </div>
                           <div className="min-w-0">
                             <h5 className="font-bold text-xs text-foreground truncate">Sin Clasificar</h5>
-                            <p className="text-[10px] text-muted-foreground truncate">Arrastre o asigne aquí</p>
+                            <p className="text-xs text-muted-foreground truncate">Arrastre o asigne aquí</p>
                           </div>
                         </div>
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold shrink-0 ${
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold shrink-0 ${
                           unassignedApps.length > 0
                             ? "bg-amber-500/20 text-amber-300 border border-amber-500/40"
                             : "bg-muted/60 text-muted-foreground"
@@ -1914,7 +1915,7 @@ function ActivityAppsRankingComponent({
                       </button>
 
                       <div className="pt-2 pb-1 px-1">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">
+                        <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground/70">
                           Árbol Oficial
                         </span>
                       </div>
@@ -1973,12 +1974,12 @@ function ActivityAppsRankingComponent({
                                 }`}>
                                   {cat.label}
                                 </h5>
-                                <p className="text-[10px] text-muted-foreground truncate">
+                                <p className="text-xs text-muted-foreground truncate">
                                   {(cat.subcategories || []).length} subcategorías
                                 </p>
                               </div>
                             </div>
-                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold shrink-0 border ${
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold shrink-0 border ${
                               isSelected
                                 ? "bg-violet-500/20 text-violet-200 border-violet-500/40"
                                 : "bg-muted/60 text-muted-foreground border-border/40"
@@ -1992,7 +1993,7 @@ function ActivityAppsRankingComponent({
                   </div>
 
                   {/* PANEL DERECHO: DETALLE (Área de Trabajo Espaciosa de la Categoría Activa) */}
-                  <div className="flex-1 flex flex-col min-h-0 bg-[#0f1422]/95 border border-border/70 rounded-2xl overflow-hidden shadow-md">
+                  <div className="flex-1 flex flex-col min-h-0 bg-card/95 border border-border/70 rounded-2xl overflow-hidden shadow-md">
                     {/* Caso A: Detalle de Sin Clasificar */}
                     {selectedTreeCatId === "__unassigned__" ? (
                       <div className="flex-1 flex flex-col min-h-0 p-5 space-y-4">
@@ -2037,7 +2038,7 @@ function ActivityAppsRankingComponent({
                               </div>
                               <h5 className="font-bold text-sm text-foreground">¡Excelente! Sin pendientes</h5>
                               <p className="text-xs text-muted-foreground max-w-sm mx-auto">
-                                Todas las aplicaciones, URLs y labores detectadas están clasificadas en las 6 categorías oficiales.
+                                Todas las aplicaciones, URLs y labores detectadas están clasificadas en las categorías oficiales.
                               </p>
                             </div>
                           ) : (
@@ -2093,7 +2094,7 @@ function ActivityAppsRankingComponent({
                                         setManageTargetCat(asg.category || categories[0]?.id || "Soporte");
                                         setManageTargetSub(asg.subcategory || "");
                                       }}
-                                      className="px-2 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 font-bold text-[10px] flex items-center gap-1 transition-colors shrink-0 cursor-pointer"
+                                      className="px-2 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 font-bold text-xs flex items-center gap-1 transition-colors shrink-0 cursor-pointer"
                                     >
                                       <ArrowRightLeft className="h-3 w-3" />
                                       <span>Clasificar</span>
@@ -2296,23 +2297,23 @@ function ActivityAppsRankingComponent({
                                                       e.stopPropagation();
                                                       handleToggleSubcategoryManual(activeCat.id, subcat);
                                                     }}
-                                                    className={`text-[9px] font-bold px-1.5 py-0.5 rounded transition-all cursor-pointer shrink-0 ${
+                                                    className={`text-[11px] font-bold px-1.5 py-0.5 rounded transition-all cursor-pointer shrink-0 ${
                                                       isManual
                                                         ? "bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30"
                                                         : "bg-muted text-muted-foreground hover:text-foreground border border-border/40"
                                                     }`}
                                                     title={
                                                       isManual
-                                                        ? "Configurada como labor manual (botón en barra lateral). Clic para cambiar a digital/PC."
-                                                        : "Configurada como digital/PC. Clic para convertir en labor manual (botón en barra lateral)."
+                                                        ? "Configurada como labor de taller (botón en barra lateral). Clic para cambiar a digital/PC."
+                                                        : "Configurada como digital/PC. Clic para convertir en labor de taller (botón en barra lateral)."
                                                     }
                                                   >
-                                                    {isManual ? "🛠 MANUAL" : "💻 PC"}
+                                                    {isManual ? "🔧 Taller" : "💻 PC"}
                                                   </button>
                                                 </div>
 
                                                 <div className="flex items-center gap-1 shrink-0">
-                                                  <span className="text-[10px] text-muted-foreground font-mono bg-muted/60 px-2 py-0.5 rounded-full border border-border/40">
+                                                  <span className="text-xs text-muted-foreground font-mono bg-muted/60 px-2 py-0.5 rounded-full border border-border/40">
                                                     {assignedItems.length}
                                                   </span>
                                                   <button
@@ -2321,7 +2322,7 @@ function ActivityAppsRankingComponent({
                                                       setEditingSubcatValue(subcat);
                                                     }}
                                                     title="Renombrar subcategoría"
-                                                    className="opacity-0 group-hover/sub:opacity-100 p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-opacity cursor-pointer"
+                                                    className="opacity-70 hover:opacity-100 p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-opacity cursor-pointer"
                                                   >
                                                     <Edit2 className="h-3 w-3" />
                                                   </button>
@@ -2332,7 +2333,7 @@ function ActivityAppsRankingComponent({
                                                       }
                                                     }}
                                                     title="Eliminar subcategoría"
-                                                    className="opacity-0 group-hover/sub:opacity-100 p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-rose-400 transition-opacity cursor-pointer"
+                                                    className="opacity-70 hover:opacity-100 p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-rose-400 transition-opacity cursor-pointer"
                                                   >
                                                     <Trash2 className="h-3 w-3" />
                                                   </button>
@@ -2342,7 +2343,7 @@ function ActivityAppsRankingComponent({
                                           </div>
 
                                           {/* Lista de Software o URLs Asignados */}
-                                          <div className="pt-2.5 space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                                          <div className="pt-2.5 space-y-1.5 max-h-[480px] overflow-y-auto pr-1">
                                             {assignedItems.map((item) => {
                                               const isUrl = item.includes(".") && !item.endsWith(".exe") && (item.includes(".com") || item.includes(".org") || item.includes(".net") || item.includes(".io") || item.includes(".app") || item.startsWith("http"));
                                               return (
@@ -2395,7 +2396,7 @@ function ActivityAppsRankingComponent({
                                                         setManageTargetSub(subcat);
                                                       }}
                                                       title="Mover o reasignar"
-                                                      className="opacity-0 group-hover/item:opacity-100 p-1 rounded-md text-muted-foreground hover:text-violet-400 hover:bg-violet-500/10 transition-all cursor-pointer"
+                                                      className="opacity-70 hover:opacity-100 p-1 rounded-md text-muted-foreground hover:text-violet-400 hover:bg-violet-500/10 transition-all cursor-pointer"
                                                     >
                                                       <ArrowRightLeft className="h-3 w-3" />
                                                     </button>
@@ -2406,7 +2407,7 @@ function ActivityAppsRankingComponent({
                                                         handleSetCategory(item, null, null);
                                                       }}
                                                       title="Desvincular (enviar a Sin Clasificar)"
-                                                      className="opacity-0 group-hover/item:opacity-100 p-1 rounded-md text-muted-foreground hover:text-rose-400 hover:bg-rose-500/10 transition-all cursor-pointer"
+                                                      className="opacity-70 hover:opacity-100 p-1 rounded-md text-muted-foreground hover:text-rose-400 hover:bg-rose-500/10 transition-all cursor-pointer"
                                                     >
                                                       <X className="h-3 w-3" />
                                                     </button>
@@ -2447,7 +2448,7 @@ function ActivityAppsRankingComponent({
                                               {/* Sugerencias de apps pendientes no asignadas */}
                                               {unassignedApps.length > 0 && (
                                                 <div className="max-h-28 overflow-y-auto space-y-1 p-1 bg-background/80 rounded-lg border border-border/40">
-                                                  <p className="text-[9px] font-semibold text-muted-foreground px-1 uppercase tracking-wider">
+                                                  <p className="text-[11px] font-semibold text-muted-foreground px-1 uppercase tracking-wider">
                                                     Sugerencias pendientes:
                                                   </p>
                                                   {unassignedApps
@@ -2620,7 +2621,7 @@ function ActivityAppsRankingComponent({
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <div>
-                        <label className="text-[10px] text-muted-foreground block mb-1">Nombre o URL:</label>
+                        <label className="text-xs text-muted-foreground block mb-1">Nombre o URL:</label>
                         <input
                           type="text"
                           value={newCustomItemName}
@@ -2630,7 +2631,7 @@ function ActivityAppsRankingComponent({
                         />
                       </div>
                       <div>
-                        <label className="text-[10px] text-muted-foreground block mb-1">Categoría Principal:</label>
+                        <label className="text-xs text-muted-foreground block mb-1">Categoría Principal:</label>
                         <select
                           value={newCustomItemCat}
                           onChange={(e) => {
@@ -2646,7 +2647,7 @@ function ActivityAppsRankingComponent({
                         </select>
                       </div>
                       <div>
-                        <label className="text-[10px] text-muted-foreground block mb-1">Subcategoría:</label>
+                        <label className="text-xs text-muted-foreground block mb-1">Subcategoría:</label>
                         <select
                           value={newCustomItemSub}
                           onChange={(e) => setNewCustomItemSub(e.target.value)}
@@ -2849,7 +2850,7 @@ function ActivityAppsRankingComponent({
                         <label className="text-[11px] font-semibold text-muted-foreground block">
                           Subcategorías ({formCatSubcategories.length})
                         </label>
-                        <span className="text-[10px] text-muted-foreground">Escriba y presione Enter</span>
+                        <span className="text-xs text-muted-foreground">Escriba y presione Enter</span>
                       </div>
 
                       {formCatSubcategories.length > 0 && (
@@ -2875,12 +2876,12 @@ function ActivityAppsRankingComponent({
                                     updated[sIdx] = toggled;
                                     setFormCatSubcategories(updated);
                                   }}
-                                  className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase transition-all cursor-pointer ${
+                                  className={`px-1.5 py-0.5 rounded text-[11px] font-bold uppercase transition-all cursor-pointer ${
                                     isMan
                                       ? "bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30"
                                       : "bg-muted text-muted-foreground hover:text-foreground border border-border/40"
                                   }`}
-                                  title={isMan ? "Configurada como labor manual. Click para cambiar a digital/PC." : "Configurada como digital/PC. Click para marcar como labor manual."}
+                                  title={isMan ? "Configurada como labor de taller. Click para cambiar a digital/PC." : "Configurada como digital/PC. Click para marcar como labor manual."}
                                 >
                                   {isMan ? "🛠 Manual" : "💻 PC"}
                                 </button>
@@ -3008,13 +3009,13 @@ function ActivityAppsRankingComponent({
                           <div>
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="font-bold text-xs text-foreground">{cat.label}</span>
-                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted/80 text-muted-foreground font-mono">
+                              <span className="text-xs px-1.5 py-0.5 rounded bg-muted/80 text-muted-foreground font-mono">
                                 {cat.subcategories?.length || 0} subcat.
                               </span>
                               <button
                                 type="button"
                                 onClick={() => handleToggleCategoryManual(cat.id)}
-                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                                className={`px-2 py-0.5 rounded-full text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
                                   cat.is_manual
                                     ? "bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30"
                                     : "bg-muted/60 text-muted-foreground hover:text-foreground border border-border/40"
@@ -3025,10 +3026,10 @@ function ActivityAppsRankingComponent({
                                     : "Clic para marcar toda la categoría como manual (todos sus botones van a la barra lateral)."
                                 }
                               >
-                                {cat.is_manual ? "🛠 Manual (Completa)" : "💻 Digital / PC"}
+                                {cat.is_manual ? "🔧 Labor de Taller" : "💻 Digital / PC"}
                               </button>
                             </div>
-                            <p className="text-[10px] text-muted-foreground">
+                            <p className="text-xs text-muted-foreground">
                               {cat.id === "Actividad general" ? "Categoría por defecto" : "Categoría activa"}
                             </p>
                           </div>
@@ -3111,15 +3112,15 @@ function ActivityAppsRankingComponent({
                                 <button
                                   type="button"
                                   onClick={() => handleToggleSubcategoryManual(cat.id, sub)}
-                                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1 ${
+                                  className={`px-1.5 py-0.5 rounded text-xs font-bold uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1 ${
                                     isManual
                                       ? "bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/40"
                                       : "bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground border border-border/50"
                                   }`}
                                   title={
                                     isManual
-                                      ? "Configurada como labor manual (aparece como botón en barra lateral). Clic para cambiar a digital/PC."
-                                      : "Configurada como digital/PC. Clic para convertir a labor manual (botón en barra lateral)."
+                                      ? "Configurada como labor de taller (aparece como botón en barra lateral). Clic para cambiar a digital/PC."
+                                      : "Configurada como digital/PC. Clic para convertir a labor de taller (botón en barra lateral)."
                                   }
                                 >
                                   {isManual ? "🛠 Manual" : "💻 PC"}
@@ -3132,7 +3133,7 @@ function ActivityAppsRankingComponent({
                                       const key = `${cat.id}::${sub}`;
                                       setExpandedManualSubcat(isExpanded ? null : key);
                                     }}
-                                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                                    className={`px-1.5 py-0.5 rounded text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
                                       isExpanded
                                         ? "bg-amber-500 text-black shadow-xs"
                                         : "bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30"
