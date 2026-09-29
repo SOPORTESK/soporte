@@ -45,6 +45,7 @@ import {
   Inbox,
   GripVertical,
   ArrowRightLeft,
+  Info,
 } from "lucide-react";
 
 interface TimelineItem {
@@ -53,6 +54,8 @@ interface TimelineItem {
   category: string;
   duration_ms?: number | null;
   metadata?: Record<string, any> | null;
+  agent_name?: string | null;
+  agent_email?: string | null;
 }
 
 interface Props {
@@ -1544,8 +1547,27 @@ function ActivityAppsRankingComponent({
   }, [viewMode, metrics]);
 
 
+  const fixMojibake = (str: string): string => {
+    if (!str) return "";
+    return str
+      .replace(/sesi[\uFFFD\?]+n/gi, "sesión")
+      .replace(/contrase[\uFFFD\?]+a/gi, "contraseña")
+      .replace(/atenci[\uFFFD\?]+n/gi, "atención")
+      .replace(/gesti[\uFFFD\?]+n/gi, "gestión")
+      .replace(/reuni[\uFFFD\?]+n/gi, "reunión")
+      .replace(/administraci[\uFFFD\?]+n/gi, "administración")
+      .replace(/configuraci[\uFFFD\?]+n/gi, "configuración")
+      .replace(/notificaci[\uFFFD\?]+n/gi, "notificación")
+      .replace(/ubicaci[\uFFFD\?]+n/gi, "ubicación")
+      .replace(/garant[\uFFFD\?]+a/gi, "garantía")
+      .replace(/bater[\uFFFD\?]+a/gi, "batería")
+      .replace(/informaci[\uFFFD\?]+n/gi, "información")
+      .replace(/direcci[\uFFFD\?]+n/gi, "dirección")
+      .replace(/electr[\uFFFD\?]+nico/gi, "electrónico");
+  };
+
   const sanitizeAppName = (name: string): string => {
-    let clean = (name || "").trim();
+    let clean = fixMojibake((name || "").trim());
     if (clean.toLowerCase().startsWith("navegador web:")) {
       clean = clean.replace(/^navegador web:\s*/i, "").trim();
     }
@@ -1628,6 +1650,68 @@ function ActivityAppsRankingComponent({
       return !matchedCat || !asg.subcategory;
     });
   }, [allSanitizedApps, categories, customCategories]);
+
+  const [selectedInspectApp, setSelectedInspectApp] = useState<string | null>(null);
+
+  // Mapa de rastro detallado: extrae procesos, colaboradores, títulos y fechas para cada app
+  const appTraceMap = useMemo(() => {
+    const map = new Map<string, {
+      process: string;
+      fullTitles: Set<string>;
+      agents: Set<string>;
+      urls: Set<string>;
+      lastSeen: string;
+      totalMs: number;
+      count: number;
+    }>();
+
+    for (const item of (timeline || [])) {
+      const meta = (item.metadata || {}) as Record<string, any>;
+      const rawTitle = fixMojibake((meta.window_title || meta.title || meta.context || "").trim());
+      const rawProcess = (meta.process || meta.app || meta.app_name || "").trim();
+      const rawAct = fixMojibake((item.action || "").trim());
+      const agent = (item.agent_name || item.agent_email || "").trim();
+      const url = (meta.url || meta.domain || "").trim();
+      const dur = Number(item.duration_ms || (meta.duration_seconds ? meta.duration_seconds * 1000 : 0)) || 0;
+
+      const candidates = [
+        sanitizeAppName(meta.app_name || ""),
+        sanitizeAppName(meta.label || ""),
+        sanitizeAppName(meta.task || ""),
+        sanitizeAppName(rawTitle),
+        sanitizeAppName(rawAct),
+      ].filter(Boolean);
+
+      for (const cand of candidates) {
+        if (!cand || cand.length < 2) continue;
+        const normKey = cand.toLowerCase();
+        let existing = map.get(normKey);
+        if (!existing) {
+          existing = {
+            process: rawProcess,
+            fullTitles: new Set(),
+            agents: new Set(),
+            urls: new Set(),
+            lastSeen: item.created_at || "",
+            totalMs: 0,
+            count: 0,
+          };
+          map.set(normKey, existing);
+        }
+        if (rawProcess && !existing.process) existing.process = rawProcess;
+        if (rawTitle) existing.fullTitles.add(rawTitle);
+        if (agent) existing.agents.add(agent);
+        if (url) existing.urls.add(url);
+        existing.totalMs += dur;
+        existing.count += 1;
+        if (item.created_at && (!existing.lastSeen || item.created_at > existing.lastSeen)) {
+          existing.lastSeen = item.created_at;
+        }
+      }
+    }
+
+    return map;
+  }, [timeline]);
 
   const filteredUnassigned = useMemo(() => {
     if (!unassignedSearch.trim()) return unassignedApps;
@@ -2174,6 +2258,18 @@ function ActivityAppsRankingComponent({
                         const availableSubcats = matchedCat?.subcategories || [];
                         const isUnassigned = !matchedCat || !currentSub;
 
+                        const trace = appTraceMap.get(appName.toLowerCase());
+                        const displayProcess = trace?.process 
+                          ? (trace.process.toLowerCase().includes("brave") ? "Brave" 
+                             : trace.process.toLowerCase().includes("chrome") ? "Chrome"
+                             : trace.process.toLowerCase().includes("edge") ? "Edge"
+                             : trace.process)
+                          : null;
+                        const displayAgent = trace?.agents && trace.agents.size > 0 ? Array.from(trace.agents)[0] : null;
+                        const lastTimeFormatted = trace?.lastSeen 
+                          ? new Date(trace.lastSeen).toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", hour12: true }) 
+                          : null;
+
                         return (
                           <div
                             key={appName}
@@ -2198,12 +2294,29 @@ function ActivityAppsRankingComponent({
                                       ⚠️ Pendiente
                                     </span>
                                   )}
-
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedInspectApp(appName)}
+                                    className="p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-violet-400 transition-colors cursor-pointer shrink-0"
+                                    title="Ver origen, colaboradores y ventanas capturadas"
+                                  >
+                                    <Info className="h-3.5 w-3.5" />
+                                  </button>
                                 </div>
-                                <p className="text-[11px] text-muted-foreground truncate mt-0.5">
-                                  {matchedCat ? matchedCat.label : <span className="text-amber-400 font-semibold">Sin categoría</span>}
-                                  {currentSub ? ` ➔ ${cleanSubcategoryName(currentSub)}` : <span className="text-amber-400/80"> (Falta subcategoría)</span>}
-                                </p>
+                                <div className="flex items-center gap-1.5 flex-wrap mt-0.5 text-[11px] text-muted-foreground">
+                                  <span className="truncate">
+                                    {matchedCat ? matchedCat.label : <span className="text-amber-400 font-semibold">Sin categoría</span>}
+                                    {currentSub ? ` ➔ ${cleanSubcategoryName(currentSub)}` : <span className="text-amber-400/80"> (Falta subcategoría)</span>}
+                                  </span>
+                                  {(displayProcess || displayAgent) && (
+                                    <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground/80 bg-muted/60 px-1.5 py-0.5 rounded-md border border-border/40 whitespace-nowrap">
+                                      {displayProcess && <span className="font-medium text-foreground/80">{displayProcess}</span>}
+                                      {displayProcess && displayAgent && <span>•</span>}
+                                      {displayAgent && <span>{displayAgent}</span>}
+                                      {lastTimeFormatted && <span className="opacity-70 font-mono text-[9.5px]">({lastTimeFormatted})</span>}
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                             </div>
 
@@ -2867,6 +2980,102 @@ function ActivityAppsRankingComponent({
                 </div>
               </div>
             )}
+
+            {/* Modal de Detalle y Rastro de Actividad */}
+            {selectedInspectApp && (() => {
+              const trace = appTraceMap.get(selectedInspectApp.toLowerCase());
+              const titles = trace?.fullTitles ? Array.from(trace.fullTitles) : [];
+              const agents = trace?.agents ? Array.from(trace.agents) : [];
+              const asg = getAppAssignment(selectedInspectApp);
+
+              return (
+                <div className="fixed inset-0 z-[9999999] bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+                  <div className="bg-card border border-border shadow-2xl rounded-2xl w-full max-w-lg p-5 space-y-4">
+                    <div className="flex items-start justify-between gap-3 border-b border-border/60 pb-3">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2.5 rounded-xl bg-violet-500/15 text-violet-400">
+                          {getAppIcon(selectedInspectApp)}
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-sm text-foreground">
+                            {selectedInspectApp}
+                          </h4>
+                          <p className="text-[11px] text-muted-foreground">
+                            Rastro de auditoría y detalles técnicos de captura
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setSelectedInspectApp(null)}
+                        className="p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground cursor-pointer"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+
+                    <div className="space-y-3 text-xs">
+                      {/* Software / Proceso */}
+                      <div className="p-2.5 rounded-xl bg-muted/30 border border-border/50 flex items-center justify-between">
+                        <span className="text-muted-foreground font-semibold">Proceso / Software:</span>
+                        <span className="font-bold text-foreground">
+                          {trace?.process ? (trace.process.toLowerCase().includes("brave") ? "Navegador Brave (brave.exe)" : trace.process) : "Detección de Sistema"}
+                        </span>
+                      </div>
+
+                      {/* Colaborador(es) */}
+                      <div className="p-2.5 rounded-xl bg-muted/30 border border-border/50 flex items-center justify-between">
+                        <span className="text-muted-foreground font-semibold">Colaborador(es):</span>
+                        <span className="font-bold text-violet-400">
+                          {agents.length > 0 ? agents.join(", ") : "Usuario del sistema"}
+                        </span>
+                      </div>
+
+                      {/* Títulos originales capturados */}
+                      <div className="space-y-1">
+                        <span className="text-[11px] font-bold text-muted-foreground">
+                          Títulos de Ventana Originales Capturados ({titles.length}):
+                        </span>
+                        <div className="max-h-36 overflow-y-auto p-2 rounded-xl bg-background border border-border/70 space-y-1">
+                          {titles.length === 0 ? (
+                            <p className="text-[11px] text-muted-foreground italic">No hay títulos específicos registrados</p>
+                          ) : (
+                            titles.map((t, idx) => (
+                              <p key={idx} className="text-[11px] font-mono text-foreground/90 py-1 border-b border-border/20 last:border-none break-all">
+                                {t}
+                              </p>
+                            ))
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Estado y categoría actual */}
+                      <div className="p-2.5 rounded-xl bg-amber-500/[0.08] border border-amber-500/30 flex items-center justify-between">
+                        <div>
+                          <p className="font-bold text-foreground text-[11px]">Asignación Actual:</p>
+                          <p className="text-[10.5px] text-muted-foreground">
+                            {asg.category || "Sin categoría"} {asg.subcategory ? `➔ ${asg.subcategory}` : "(Falta subcategoría)"}
+                          </p>
+                        </div>
+                        {trace?.lastSeen && (
+                          <span className="text-[10px] text-muted-foreground font-mono">
+                            Última: {new Date(trace.lastSeen).toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", hour12: true })}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end pt-2">
+                      <button
+                        onClick={() => setSelectedInspectApp(null)}
+                        className="px-4 py-1.5 text-xs font-bold rounded-xl bg-violet-600 hover:bg-violet-700 text-white cursor-pointer"
+                      >
+                        Cerrar detalle
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}
