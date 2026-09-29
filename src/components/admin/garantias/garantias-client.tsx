@@ -61,6 +61,7 @@ import {
   SEDES,
   formatTimeElapsed,
   formatDateSafe,
+  getCanonicalOwnerName,
 } from "./garantias-types";
 import { GarantiasEditModal } from "./garantias-edit-modal";
 import { createGarantiasClient } from "@/lib/supabase-garantias";
@@ -117,7 +118,12 @@ export function GarantiasClient({
   const [rmaSubTab, setRmaSubTab] = React.useState<"registros" | "analisis">("registros");
 
   // State for records
-  const [records, setRecords] = React.useState<GarantiaRecord[]>(initialRecords);
+  const [records, setRecords] = React.useState<GarantiaRecord[]>(() =>
+    initialRecords.map((r) => ({
+      ...r,
+      registrado_por: getCanonicalOwnerName(r.registrado_por),
+    }))
+  );
   const [loading, setLoading] = React.useState(false);
   const [lastUpdate, setLastUpdate] = React.useState<string>("");
   const [mounted, setMounted] = React.useState(false);
@@ -203,7 +209,12 @@ export function GarantiasClient({
       if (!res.ok) throw new Error("Error al consultar las garantías");
       const data = await res.json();
       if (Array.isArray(data.records)) {
-        setRecords(data.records);
+        setRecords(
+          data.records.map((r: GarantiaRecord) => ({
+            ...r,
+            registrado_por: getCanonicalOwnerName(r.registrado_por),
+          }))
+        );
         setLastUpdate(new Date().toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
       }
     } catch (err: any) {
@@ -232,14 +243,22 @@ export function GarantiasClient({
         { event: "*", schema: "public", table: "garantias" },
         (payload: any) => {
           if (payload.eventType === "INSERT" && payload.new) {
+            const cleanRec = {
+              ...payload.new,
+              registrado_por: getCanonicalOwnerName(payload.new.registrado_por),
+            } as GarantiaRecord;
             setRecords((prev) => {
-              if (prev.some((r) => r.id === payload.new.id)) return prev;
-              return [payload.new as GarantiaRecord, ...prev];
+              if (prev.some((r) => r.id === cleanRec.id)) return prev;
+              return [cleanRec, ...prev];
             });
             setLastUpdate(new Date().toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
           } else if (payload.eventType === "UPDATE" && payload.new) {
+            const cleanRec = {
+              ...payload.new,
+              registrado_por: getCanonicalOwnerName(payload.new.registrado_por),
+            } as GarantiaRecord;
             setRecords((prev) =>
-              prev.map((r) => (r.id === payload.new.id ? { ...r, ...(payload.new as GarantiaRecord) } : r))
+              prev.map((r) => (r.id === cleanRec.id ? { ...r, ...cleanRec } : r))
             );
             setLastUpdate(new Date().toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
           } else if (payload.eventType === "DELETE" && payload.old) {
@@ -285,15 +304,16 @@ export function GarantiasClient({
     onlyPendingRma,
   ]);
 
-  // Distinct Owners extracted from registrado_por
+  // Distinct Owners extracted from registrado_por and canonicalized to support agents
   const distinctOwners = React.useMemo(() => {
-    return Array.from(
-      new Set(
-        records
-          .map((r) => (r.registrado_por || "").trim())
-          .filter(Boolean)
-      )
-    ).sort((a, b) => a.localeCompare(b));
+    const canonicalSet = new Set<string>();
+    records.forEach((r) => {
+      const canonical = getCanonicalOwnerName(r.registrado_por);
+      if (canonical && canonical !== "Sin Propietario") {
+        canonicalSet.add(canonical);
+      }
+    });
+    return Array.from(canonicalSet).sort((a, b) => a.localeCompare(b));
   }, [records]);
 
   // Derived collections
@@ -430,8 +450,11 @@ export function GarantiasClient({
       }
 
       // Propietario / Registrado Por filter
-      if (filterOwner && (r.registrado_por || "").trim().toLowerCase() !== filterOwner.trim().toLowerCase()) {
-        return false;
+      if (filterOwner) {
+        const canonical = getCanonicalOwnerName(r.registrado_por);
+        if (canonical.toLowerCase() !== filterOwner.trim().toLowerCase()) {
+          return false;
+        }
       }
 
       // Date range filter
@@ -454,14 +477,13 @@ export function GarantiasClient({
           return false;
         }
         if (onlyMyRma) {
-          const myFullName = [currentUser?.nombre, currentUser?.apellido].filter(Boolean).join(" ").toLowerCase();
-          const myEmail = (currentUser?.email || "").toLowerCase();
-          const regBy = (r.registrado_por || "").toLowerCase();
-          const matches =
-            (myFullName && regBy.includes(myFullName)) ||
-            (myEmail && regBy.includes(myEmail)) ||
-            (currentUser?.nombre && regBy.includes(currentUser.nombre.toLowerCase()));
-          if (!matches) return false;
+          const myCanonical = getCanonicalOwnerName(
+            [currentUser?.nombre, currentUser?.apellido].filter(Boolean).join(" ") || currentUser?.email
+          );
+          const recordCanonical = getCanonicalOwnerName(r.registrado_por);
+          if (recordCanonical.toLowerCase() !== myCanonical.toLowerCase()) {
+            return false;
+          }
         }
         if (onlyPendingRma) {
           const clean = (v: any) => (v ? v.toString().trim().replace(/^[\-\s—]+$/, "") : "");

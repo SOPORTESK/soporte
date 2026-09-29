@@ -113,3 +113,22 @@ export function formatDateSafe(isoString?: string | null): string {
   }
 }
 
+export function getCanonicalOwnerName(registradoPor?: string | null): string {
+  if (!registradoPor) return "Sin Propietario";
+  const norm = registradoPor
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, " ");
+
+  if (norm.includes("batista") || norm === "cbatista") return "César Andrés Batista";
+  if (norm.includes("montenegro") || norm === "jmontenegro") return "Jorge Montenegro";
+  if (norm.includes("bolsios") || norm === "sbolsios") return "Josseph Bolsios";
+  if (norm.includes("bermudez") || norm === "mbermudez") return "Matthew Bermúdez";
+  if (norm.includes("valverde") || norm === "jvalverde") return "Joshua Valverde";
+  if (norm.includes("nunez") || norm === "inunez") return "Isaac Nuñez";
+
+  return registradoPor.trim();
+}
+
