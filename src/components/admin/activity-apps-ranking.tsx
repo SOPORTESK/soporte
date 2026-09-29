@@ -2547,39 +2547,42 @@ function ActivityAppsRankingComponent({
                                           No hay procesos vinculados a esta subcategoría todavía.
                                         </p>
                                       ) : (
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                                        <div className="flex flex-wrap items-center gap-1.5">
                                           {appsInSub.map((app) => {
                                             const isProcManual = checkIsProcessManual(app, cat.id, cleanName);
                                             return (
                                               <div
                                                 key={app}
-                                                className={`flex items-center gap-2 p-2 px-3 rounded-xl border text-xs transition-all shadow-xs ${
+                                                className={`inline-flex items-center gap-1.5 py-1 px-2.5 rounded-lg border text-xs transition-all shadow-xs ${
                                                   isProcManual
-                                                    ? "bg-amber-500/[0.07] border-amber-500/40 text-foreground"
-                                                    : "bg-background border-border/60 text-foreground/90"
+                                                    ? "bg-amber-500/[0.08] border-amber-500/40 text-foreground"
+                                                    : "bg-card border-border/60 text-foreground/90 hover:border-border"
                                                 }`}
                                               >
                                                 <div className="shrink-0 text-muted-foreground">
                                                   {getAppIcon(app)}
                                                 </div>
-                                                <span className="truncate font-medium text-[11px] flex-1" title={app}>
+                                                <span className="font-medium text-xs whitespace-nowrap" title={app}>
                                                   {app}
                                                 </span>
-                                                <label className="flex items-center cursor-pointer select-none shrink-0 p-1 rounded hover:bg-muted/50 transition-colors" title={isProcManual ? "Labor Manual (activo)" : "Marcar como Labor Manual"}>
+                                                <label
+                                                  className="flex items-center cursor-pointer select-none ml-0.5 pl-1.5 border-l border-border/40"
+                                                  title={isProcManual ? "Labor Manual (activo)" : "Marcar como Labor Manual"}
+                                                >
                                                   <input
                                                     type="checkbox"
                                                     checked={isProcManual}
                                                     onChange={() => handleToggleProcessManual(app, isProcManual)}
-                                                    className="rounded border-border accent-amber-500 h-3.5 w-3.5 cursor-pointer"
+                                                    className="rounded border-border accent-amber-500 h-3 w-3 cursor-pointer"
                                                   />
                                                 </label>
                                                 <button
                                                   type="button"
                                                   onClick={() => handleUnlinkProcess(app)}
-                                                  className="p-1 rounded-md text-muted-foreground/60 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer shrink-0 ml-0.5"
+                                                  className="p-0.5 rounded text-muted-foreground/50 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
                                                   title={`Desvincular "${app}" de ${cleanName}`}
                                                 >
-                                                  <X className="h-3.5 w-3.5" />
+                                                  <X className="h-3 w-3" />
                                                 </button>
                                               </div>
                                             );
