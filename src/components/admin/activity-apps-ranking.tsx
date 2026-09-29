@@ -835,7 +835,7 @@ function ActivityAppsRankingComponent({
   const [customCategories, setCustomCategories] = useState<Record<string, any>>({});
   const [activeDropdownApp, setActiveDropdownApp] = useState<string | null>(null);
   const [showManageModal, setShowManageModal] = useState(false);
-  const [activeModalTab, setActiveModalTab] = useState<"tree" | "apps" | "categories">("tree");
+  const [activeModalTab, setActiveModalTab] = useState<"apps" | "categories">("apps");
   const [searchQuery, setSearchQuery] = useState("");
   const [savingApp, setSavingApp] = useState<string | null>(null);
   const [hideSystemNoise, setHideSystemNoise] = useState(true);
@@ -1419,7 +1419,7 @@ function ActivityAppsRankingComponent({
     return clean;
   };
 
-  const filteredModalApps = useMemo(() => {
+  const allSanitizedApps = useMemo(() => {
     const rawList = Array.from(
       new Set([...allDetectedApps, ...Object.keys(customCategories)])
     );
@@ -1436,10 +1436,22 @@ function ActivityAppsRankingComponent({
     }
 
     let combined = Array.from(sanitizedMap.values());
-
     if (hideSystemNoise) {
       combined = combined.filter((appName) => !isSystemNoise(appName));
     }
+    return combined.sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }));
+  }, [allDetectedApps, customCategories, hideSystemNoise]);
+
+  const totalUnassignedCount = useMemo(() => {
+    return allSanitizedApps.filter((appName) => {
+      const asg = getAppAssignment(appName);
+      const matchedCat = categories.find((c) => c.id === asg.category || c.label === asg.category);
+      return !matchedCat || !asg.subcategory;
+    }).length;
+  }, [allSanitizedApps, categories, customCategories]);
+
+  const filteredModalApps = useMemo(() => {
+    let combined = allSanitizedApps;
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -1450,25 +1462,23 @@ function ActivityAppsRankingComponent({
       combined = combined.filter((app) => {
         const asg = getAppAssignment(app);
         if (appsCategoryFilter === "unassigned") {
-          return !asg.subcategory;
+          const matchedCat = categories.find((c) => c.id === asg.category || c.label === asg.category);
+          return !matchedCat || !asg.subcategory;
         }
         return asg.category === appsCategoryFilter;
       });
     }
 
-    return combined.sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }));
-  }, [allDetectedApps, customCategories, searchQuery, hideSystemNoise, appsCategoryFilter]);
+    return combined;
+  }, [allSanitizedApps, searchQuery, appsCategoryFilter, categories]);
 
-  // Lista de apps y URLs pendientes de clasificar (sin subcategoría oficial asignada)
   const unassignedApps = useMemo(() => {
-    return filteredModalApps.filter((appName) => {
+    return allSanitizedApps.filter((appName) => {
       const asg = getAppAssignment(appName);
       const matchedCat = categories.find((c) => c.id === asg.category || c.label === asg.category);
-      if (!matchedCat) return true;
-      if (!asg.subcategory) return true;
-      return false;
+      return !matchedCat || !asg.subcategory;
     });
-  }, [filteredModalApps, categories, customCategories]);
+  }, [allSanitizedApps, categories, customCategories]);
 
   const filteredUnassigned = useMemo(() => {
     if (!unassignedSearch.trim()) return unassignedApps;
@@ -1714,25 +1724,23 @@ function ActivityAppsRankingComponent({
         })}
       </div>
 
-      {/* MODAL COMPLETO DE GESTIÓN (Mapeo de Apps + CRUD de Categorías) */}
+      {/* MODAL DE GESTIÓN Y CLASIFICACIÓN (SIMPLIFICADO) */}
       {showManageModal && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div
-            className={`w-full transition-all duration-300 ${
-              activeModalTab === "tree" ? "max-w-[96vw] xl:max-w-[1720px] h-[92vh]" : "max-w-4xl xl:max-w-5xl h-[90vh]"
-            } rounded-3xl bg-card border border-border/80 shadow-2xl p-6 space-y-4 max-h-[94vh] flex flex-col`}
+            className="w-full transition-all duration-300 max-w-5xl xl:max-w-6xl h-[90vh] rounded-3xl bg-card border border-border/80 shadow-2xl p-6 space-y-4 max-h-[94vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Header del Modal con Tabs */}
+            {/* Header del Modal */}
             <div className="flex items-center justify-between border-b border-border/50 pb-3 shrink-0">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-xl bg-violet-500/15 border border-violet-500/20 text-violet-400">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-violet-500/15 border border-violet-500/25 text-violet-400">
                   <SlidersHorizontal className="h-5 w-5" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-base text-foreground tracking-tight">Gestión y Árbol Operativo del Taller</h3>
+                  <h3 className="font-bold text-lg text-foreground tracking-tight">Gestión Operativa del Taller</h3>
                   <p className="text-xs text-muted-foreground">
-                    Organice aplicaciones, URLs y labores en categorías y subcategorías oficiales
+                    Asigne aplicaciones, URLs y tareas a sus categorías oficiales
                   </p>
                 </div>
               </div>
@@ -1742,875 +1750,165 @@ function ActivityAppsRankingComponent({
                   setIsCreatingNew(false);
                   setEditingCategory(null);
                   setShowAddCustomModal(false);
-                  setTreeSubcatAddTarget(null);
-                  setEditingSubcat(null);
-                  setTreeNewSubcatCatId(null);
                 }}
                 aria-label="Cerrar"
-                className="p-1.5 rounded-xl hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                className="p-2 rounded-xl hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
-            {/* Pestañas del Modal */}
-            <div className="flex border-b border-border/50 gap-4 overflow-x-auto pb-1 shrink-0">
-              <button
-                onClick={() => { setActiveModalTab("tree"); }}
-                className={`pb-2.5 text-xs font-bold transition-all border-b-2 flex items-center gap-2 whitespace-nowrap cursor-pointer ${
-                  activeModalTab === "tree"
-                    ? "border-violet-500 text-violet-400"
-                    : "border-transparent text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <FolderTree className="h-4 w-4" />
-                <span>Árbol Operativo (Vista Jerárquica)</span>
-              </button>
+            {/* Pestañas del Modal - 2 VISTAS CLARAS */}
+            <div className="flex border-b border-border/50 gap-4 pb-1 shrink-0">
               <button
                 onClick={() => { setActiveModalTab("apps"); setIsCreatingNew(false); setEditingCategory(null); }}
-                className={`pb-2.5 text-xs font-bold transition-all border-b-2 flex items-center gap-2 whitespace-nowrap cursor-pointer ${
+                className={`pb-2.5 px-3 text-sm font-bold transition-all border-b-2 flex items-center gap-2 whitespace-nowrap cursor-pointer ${
                   activeModalTab === "apps"
                     ? "border-violet-500 text-violet-400"
                     : "border-transparent text-muted-foreground hover:text-foreground"
                 }`}
               >
                 <Layers className="h-4 w-4" />
-                <span>Mapeo de Software y URLs ({filteredModalApps.length})</span>
+                <span>Clasificar Software y URLs</span>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-300 font-mono font-bold">
+                  {allSanitizedApps.length}
+                </span>
+                {totalUnassignedCount > 0 && (
+                  <span className="text-xs px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold animate-pulse">
+                    ⚠️ {totalUnassignedCount} pendientes
+                  </span>
+                )}
               </button>
+
               <button
                 onClick={() => { setActiveModalTab("categories"); }}
-                className={`pb-2.5 text-xs font-bold transition-all border-b-2 flex items-center gap-2 whitespace-nowrap cursor-pointer ${
+                className={`pb-2.5 px-3 text-sm font-bold transition-all border-b-2 flex items-center gap-2 whitespace-nowrap cursor-pointer ${
                   activeModalTab === "categories"
                     ? "border-violet-500 text-violet-400"
                     : "border-transparent text-muted-foreground hover:text-foreground"
                 }`}
               >
-                <SlidersHorizontal className="h-4 w-4" />
+                <FolderTree className="h-4 w-4" />
                 <span>Categorías del Taller ({categories.length})</span>
               </button>
             </div>
 
-            {/* CONTENIDO PESTAÑA 1: ÁRBOL OPERATIVO */}
-            {activeModalTab === "tree" && (
-              <div className="flex-1 flex flex-col min-h-0 space-y-3.5">
-                {/* Barra de herramientas superior del Árbol */}
-                <div className="flex flex-wrap items-center justify-between gap-3 bg-muted/20 border border-border/50 p-2.5 px-3.5 rounded-2xl shrink-0">
-                  <div className="flex items-center gap-2 flex-1 min-w-[240px] max-w-md bg-muted/30 border border-border/60 rounded-xl px-3 py-1.5">
-                    <Search className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <input
-                      type="text"
-                      value={treeSearch}
-                      onChange={(e) => setTreeSearch(e.target.value)}
-                      placeholder="Buscar por software, URL, subcategoría o labor..."
-                      className="w-full bg-transparent text-xs text-foreground placeholder:text-muted-foreground focus:outline-none"
-                    />
-                    {treeSearch && (
-                      <button onClick={() => setTreeSearch("")} className="text-muted-foreground hover:text-foreground">
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-2 shrink-0 flex-wrap">
-                    <button
-                      onClick={() => setShowAddCustomModal(true)}
-                      className="px-3.5 py-2 text-xs font-bold rounded-xl bg-violet-600 hover:bg-violet-700 text-white flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
-                    >
-                      <Plus className="h-4 w-4" />
-                      <span>Agregar Software o URL</span>
-                    </button>
-                    <button
-                      onClick={() => {
-                        setIsCreatingNew(true);
-                        setEditingCategory(null);
-                        setFormCatName("");
-                        setFormCatColorIdx(0);
-                        setFormCatIcon("Monitor");
-                        setFormCatSubcategories([]);
-                        setActiveModalTab("categories");
-                      }}
-                      className="px-3.5 py-2 text-xs font-semibold rounded-xl bg-muted/40 hover:bg-muted text-foreground border border-border/60 flex items-center gap-1.5 transition-colors cursor-pointer"
-                    >
-                      <Plus className="h-3.5 w-3.5 text-violet-400" />
-                      <span>Nueva Categoría</span>
-                    </button>
-                    <button
-                      onClick={handleResetToOfficialTree}
-                      className="px-3 py-2 text-xs font-semibold rounded-xl hover:bg-amber-500/10 text-amber-400 border border-amber-500/30 flex items-center gap-1.5 transition-colors cursor-pointer"
-                      title="Restablecer a las categorías oficiales del taller"
-                    >
-                      <RotateCcw className="h-3.5 w-3.5" />
-                      <span>Restablecer Oficial (Excel)</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* ARQUITECTURA MASTER-DETAIL (2 PANELES, SIN SCROLL HORIZONTAL) */}
-                <div className="flex-1 flex min-h-0 gap-4 overflow-hidden">
-                  {/* PANEL IZQUIERDO: MASTER (Lista Vertical de Categorías + Sin Clasificar) */}
-                  <div className="w-[280px] min-w-[280px] max-w-[300px] flex flex-col bg-card/95 border border-border/70 rounded-2xl overflow-hidden shadow-md shrink-0">
-                    <div className="p-3 border-b border-border/60 bg-muted/20 flex items-center justify-between shrink-0">
-                      <div className="flex items-center gap-2">
-                        <Layers className="h-4 w-4 text-violet-400" />
-                        <span className="text-xs font-bold text-foreground">Categorías ({categories.length})</span>
-                      </div>
-                      <span className="text-xs font-mono font-bold text-muted-foreground bg-muted/60 px-2 py-0.5 rounded-full border border-border/40">
-                        Total {filteredModalApps.length}
-                      </span>
-                    </div>
-
-                    <div className="p-2 space-y-1.5 flex-1 overflow-y-auto pr-1.5">
-                      {/* Opción Destacada: 📥 Sin Clasificar */}
-                      <button
-                        type="button"
-                        onClick={() => setSelectedTreeCatId("__unassigned__")}
-                        onDragOver={(e) => {
-                          e.preventDefault();
-                          e.dataTransfer.dropEffect = "move";
-                          if (dragOverTarget !== "master::__unassigned__") {
-                            setDragOverTarget("master::__unassigned__");
-                          }
-                        }}
-                        onDragLeave={(e) => {
-                          if (e.currentTarget.contains(e.relatedTarget as Node)) return;
-                          setDragOverTarget(null);
-                        }}
-                        onDrop={(e) => {
-                          e.preventDefault();
-                          const droppedApp = e.dataTransfer.getData("text/plain") || draggedItem;
-                          if (droppedApp) {
-                            handleSetCategory(droppedApp, null, null);
-                          }
-                          setDraggedItem(null);
-                          setDragOverTarget(null);
-                        }}
-                        className={`w-full text-left p-2.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between group ${
-                          dragOverTarget === "master::__unassigned__"
-                            ? "bg-amber-500/30 border-amber-400 ring-2 ring-amber-500/50 scale-[1.02]"
-                            : selectedTreeCatId === "__unassigned__"
-                            ? "bg-amber-500/15 border-amber-500/60 ring-1 ring-amber-500/40 shadow-sm"
-                            : "bg-background/60 hover:bg-background border-border/50 hover:border-amber-500/40"
-                        }`}
-                      >
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <div className={`p-2 rounded-lg shrink-0 transition-colors ${
-                            selectedTreeCatId === "__unassigned__"
-                              ? "bg-amber-500 text-black font-bold"
-                              : "bg-amber-500/15 text-amber-400 group-hover:bg-amber-500/25"
-                          }`}>
-                            <Inbox className="h-4 w-4" />
-                          </div>
-                          <div className="min-w-0">
-                            <h5 className="font-bold text-xs text-foreground truncate">Sin Clasificar</h5>
-                            <p className="text-xs text-muted-foreground truncate">Arrastre o asigne aquí</p>
-                          </div>
-                        </div>
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold shrink-0 ${
-                          unassignedApps.length > 0
-                            ? "bg-amber-500/20 text-amber-300 border border-amber-500/40"
-                            : "bg-muted/60 text-muted-foreground"
-                        }`}>
-                          {unassignedApps.length}
-                        </span>
-                      </button>
-
-                      <div className="pt-2 pb-1 px-1">
-                        <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground/70">
-                          Árbol Oficial
-                        </span>
-                      </div>
-
-                      {/* Lista de las 6 Categorías */}
-                      {categories.map((cat) => {
-                        const countInCat = filteredModalApps.filter((appName) => {
-                          const asg = getAppAssignment(appName);
-                          return asg.category === cat.id || asg.category === cat.label;
-                        }).length;
-
-                        const isSelected = selectedTreeCatId === cat.id;
-                        const isDropTarget = dragOverTarget === `master::${cat.id}`;
-
-                        return (
-                          <button
-                            key={cat.id}
-                            type="button"
-                            onClick={() => setSelectedTreeCatId(cat.id)}
-                            onDragOver={(e) => {
-                              e.preventDefault();
-                              e.dataTransfer.dropEffect = "move";
-                              if (dragOverTarget !== `master::${cat.id}`) {
-                                setDragOverTarget(`master::${cat.id}`);
-                              }
-                            }}
-                            onDragLeave={(e) => {
-                              if (e.currentTarget.contains(e.relatedTarget as Node)) return;
-                              setDragOverTarget(null);
-                            }}
-                            onDrop={(e) => {
-                              e.preventDefault();
-                              const droppedApp = e.dataTransfer.getData("text/plain") || draggedItem;
-                              if (droppedApp) {
-                                handleSetCategory(droppedApp, cat.id, cat.subcategories?.[0] || null);
-                                setSelectedTreeCatId(cat.id);
-                              }
-                              setDraggedItem(null);
-                              setDragOverTarget(null);
-                            }}
-                            className={`w-full text-left p-2.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between group ${
-                              isDropTarget
-                                ? "bg-violet-500/30 border-violet-400 ring-2 ring-violet-500/60 scale-[1.02]"
-                                : isSelected
-                                ? "bg-violet-600/15 border-violet-500/60 ring-1 ring-violet-500/40 shadow-sm"
-                                : "bg-background/60 hover:bg-background border-border/50 hover:border-violet-500/30"
-                            }`}
-                          >
-                            <div className="flex items-center gap-2.5 min-w-0 pr-1">
-                              <div className={`p-2 rounded-lg shrink-0 ${cat.color.replace('text-', 'bg-')}/15 ${cat.color}`}>
-                                {renderCategoryIcon(cat.iconName, "h-4 w-4")}
-                              </div>
-                              <div className="min-w-0">
-                                <h5 className={`font-bold text-xs truncate leading-tight ${
-                                  isSelected ? "text-violet-300" : "text-foreground group-hover:text-foreground"
-                                }`}>
-                                  {cat.label}
-                                </h5>
-                                <p className="text-xs text-muted-foreground truncate">
-                                  {(cat.subcategories || []).length} subcategorías
-                                </p>
-                              </div>
-                            </div>
-                            <span className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold shrink-0 border ${
-                              isSelected
-                                ? "bg-violet-500/20 text-violet-200 border-violet-500/40"
-                                : "bg-muted/60 text-muted-foreground border-border/40"
-                            }`}>
-                              {countInCat}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* PANEL DERECHO: DETALLE (Área de Trabajo Espaciosa de la Categoría Activa) */}
-                  <div className="flex-1 flex flex-col min-h-0 bg-card/95 border border-border/70 rounded-2xl overflow-hidden shadow-md">
-                    {/* Caso A: Detalle de Sin Clasificar */}
-                    {selectedTreeCatId === "__unassigned__" ? (
-                      <div className="flex-1 flex flex-col min-h-0 p-5 space-y-4">
-                        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/50 pb-4 shrink-0">
-                          <div className="flex items-center gap-3">
-                            <div className="p-3 rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-400">
-                              <Inbox className="h-6 w-6" />
-                            </div>
-                            <div>
-                              <h4 className="font-bold text-base text-foreground tracking-tight flex items-center gap-2">
-                                <span>Software y URLs Sin Clasificar</span>
-                                <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                                  {unassignedApps.length}
-                                </span>
-                              </h4>
-                              <p className="text-xs text-muted-foreground">
-                                Elementos detectados en jornada que no tienen una subcategoría asignada. Arrástrelos a una categoría en el panel izquierdo o haga clic para asignarlos.
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            <div className="relative">
-                              <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground" />
-                              <input
-                                type="text"
-                                value={unassignedSearch}
-                                onChange={(e) => setUnassignedSearch(e.target.value)}
-                                placeholder="Filtrar pendientes..."
-                                className="pl-8 pr-3 py-1.5 text-xs rounded-xl bg-background border border-border/60 focus:outline-none focus:border-amber-500 text-foreground w-48 shadow-xs"
-                              />
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Contenido Grid de Pendientes */}
-                        <div className="flex-1 overflow-y-auto pr-1.5">
-                          {filteredUnassigned.length === 0 ? (
-                            <div className="p-12 text-center space-y-2 border border-dashed border-border/60 rounded-2xl bg-muted/10">
-                              <div className="p-3 rounded-2xl bg-emerald-500/15 text-emerald-400 inline-block">
-                                <Check className="h-6 w-6" />
-                              </div>
-                              <h5 className="font-bold text-sm text-foreground">¡Excelente! Sin pendientes</h5>
-                              <p className="text-xs text-muted-foreground max-w-sm mx-auto">
-                                Todas las aplicaciones, URLs y labores detectadas están clasificadas en las categorías oficiales.
-                              </p>
-                            </div>
-                          ) : (
-                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5">
-                              {filteredUnassigned.map((item) => {
-                                const isUrl = item.includes(".") && !item.endsWith(".exe") && (item.includes(".com") || item.includes(".org") || item.includes(".net") || item.includes(".io") || item.includes(".app") || item.startsWith("http"));
-                                return (
-                                  <div
-                                    key={item}
-                                    draggable
-                                    onDragStart={(e) => {
-                                      e.dataTransfer.setData("text/plain", item);
-                                      e.dataTransfer.effectAllowed = "move";
-                                      setDraggedItem(item);
-                                    }}
-                                    onDragEnd={() => {
-                                      setDraggedItem(null);
-                                      setDragOverTarget(null);
-                                    }}
-                                    onClick={() => {
-                                      const asg = getAppAssignment(item);
-                                      setItemToManage({
-                                        appName: item,
-                                        currentCat: asg.category || categories[0]?.id || "Soporte",
-                                        currentSub: asg.subcategory || null,
-                                      });
-                                      setManageTargetCat(asg.category || categories[0]?.id || "Soporte");
-                                      setManageTargetSub(asg.subcategory || "");
-                                    }}
-                                    className="group/item flex items-center justify-between p-2.5 rounded-xl bg-background/80 hover:bg-background border border-amber-500/20 hover:border-amber-500/50 text-xs transition-all shadow-xs cursor-grab active:cursor-grabbing hover:shadow-md"
-                                  >
-                                    <div className="flex items-center gap-2 min-w-0 pr-2 flex-1">
-                                      <GripVertical className="h-4 w-4 text-muted-foreground/30 group-hover/item:text-amber-400 shrink-0" />
-                                      {isUrl ? (
-                                        <Globe className="h-4 w-4 text-cyan-400 shrink-0" />
-                                      ) : (
-                                        <span className="shrink-0">{getAppIcon(item)}</span>
-                                      )}
-                                      <span className="text-xs font-medium text-foreground truncate" title={item}>
-                                        {item}
-                                      </span>
-                                    </div>
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        const asg = getAppAssignment(item);
-                                        setItemToManage({
-                                          appName: item,
-                                          currentCat: asg.category || categories[0]?.id || "Soporte",
-                                          currentSub: asg.subcategory || null,
-                                        });
-                                        setManageTargetCat(asg.category || categories[0]?.id || "Soporte");
-                                        setManageTargetSub(asg.subcategory || "");
-                                      }}
-                                      className="px-2 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 font-bold text-xs flex items-center gap-1 transition-colors shrink-0 cursor-pointer"
-                                    >
-                                      <ArrowRightLeft className="h-3 w-3" />
-                                      <span>Clasificar</span>
-                                    </button>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ) : (
-                      /* Caso B: Detalle de una Categoría Oficial Seleccionada */
-                      (() => {
-                        const activeCat = categories.find((c) => c.id === selectedTreeCatId) || categories[0];
-                        if (!activeCat) return null;
-
-                        const allAssignedInCat = filteredModalApps.filter((appName) => {
-                          const asg = getAppAssignment(appName);
-                          return asg.category === activeCat.id || asg.category === activeCat.label;
-                        });
-
-                        const isAddingSubcatToThisCat = treeNewSubcatCatId === activeCat.id;
-
-                        return (
-                          <div className="flex-1 flex flex-col min-h-0 p-5 space-y-4">
-                            {/* Header Amplio de la Categoría Activa */}
-                            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/50 pb-4 shrink-0">
-                              <div className="flex items-center gap-3 min-w-0">
-                                <div className={`p-3 rounded-2xl ${activeCat.color.replace('text-', 'bg-')}/15 ${activeCat.color} shrink-0`}>
-                                  {renderCategoryIcon(activeCat.iconName, "h-6 w-6")}
-                                </div>
-                                <div className="min-w-0">
-                                  <div className="flex items-center gap-2">
-                                    <h3 className="font-bold text-base text-foreground tracking-tight truncate">
-                                      {activeCat.label}
-                                    </h3>
-                                    <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-muted/70 text-muted-foreground border border-border/50 shrink-0">
-                                      {allAssignedInCat.length} elementos
-                                    </span>
-                                  </div>
-                                  <p className="text-xs text-muted-foreground">
-                                    {(activeCat.subcategories || []).length} subcategorías operativas definidas
-                                  </p>
-                                </div>
-                              </div>
-
-                              <div className="flex items-center gap-2">
-                                {isAddingSubcatToThisCat ? (
-                                  <div className="flex items-center gap-1 bg-background border border-violet-500 rounded-xl p-1 shadow-xs">
-                                    <input
-                                      type="text"
-                                      autoFocus
-                                      value={treeNewSubcatInput}
-                                      onChange={(e) => setTreeNewSubcatInput(e.target.value)}
-                                      onKeyDown={(e) => {
-                                        if (e.key === "Enter" && treeNewSubcatInput.trim()) {
-                                          handleAddSubcategory(activeCat.id, treeNewSubcatInput.trim());
-                                          setTreeNewSubcatInput("");
-                                          setTreeNewSubcatCatId(null);
-                                        } else if (e.key === "Escape") {
-                                          setTreeNewSubcatCatId(null);
-                                        }
-                                      }}
-                                      placeholder="Nombre de subcategoría..."
-                                      className="text-xs px-2 py-1 bg-transparent text-foreground focus:outline-none w-44"
-                                    />
-                                    <button
-                                      onClick={() => {
-                                        if (!treeNewSubcatInput.trim()) return;
-                                        handleAddSubcategory(activeCat.id, treeNewSubcatInput.trim());
-                                        setTreeNewSubcatInput("");
-                                        setTreeNewSubcatCatId(null);
-                                      }}
-                                      className="px-2.5 py-1 text-xs font-bold rounded-lg bg-violet-600 hover:bg-violet-700 text-white cursor-pointer"
-                                    >
-                                      Crear
-                                    </button>
-                                    <button
-                                      onClick={() => setTreeNewSubcatCatId(null)}
-                                      className="p-1 rounded-lg hover:bg-muted text-muted-foreground cursor-pointer"
-                                    >
-                                      <X className="h-3.5 w-3.5" />
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <button
-                                    onClick={() => {
-                                      setTreeNewSubcatCatId(activeCat.id);
-                                      setTreeNewSubcatInput("");
-                                    }}
-                                    className="px-3 py-1.5 text-xs font-semibold rounded-xl bg-violet-600/10 hover:bg-violet-600/20 text-violet-300 border border-violet-500/30 flex items-center gap-1.5 transition-colors cursor-pointer"
-                                  >
-                                    <Plus className="h-3.5 w-3.5" />
-                                    <span>Nueva Subcategoría</span>
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* Rejilla Espaciosa de Subcategorías (2 Columnas) */}
-                            <div className="flex-1 overflow-y-auto pr-1.5">
-                              {(activeCat.subcategories || []).length === 0 ? (
-                                <div className="p-10 text-center text-xs text-muted-foreground border border-dashed border-border/60 rounded-2xl">
-                                  No hay subcategorías en esta categoría. Haga clic en «Nueva Subcategoría» para crear una.
-                                </div>
-                              ) : (
-                                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 pb-2">
-                                  {(activeCat.subcategories || []).map((subcat) => {
-                                    const assignedItems = filteredModalApps.filter((appName) => {
-                                      const asg = getAppAssignment(appName);
-                                      const matchCat = asg.category === activeCat.id || asg.category === activeCat.label;
-                                      const matchSub = asg.subcategory === subcat || (!asg.subcategory && subcat === "General");
-                                      if (!matchCat || !matchSub) return false;
-                                      if (!treeSearch.trim()) return true;
-                                      const q = treeSearch.toLowerCase();
-                                      return (
-                                        appName.toLowerCase().includes(q) ||
-                                        subcat.toLowerCase().includes(q) ||
-                                        activeCat.label.toLowerCase().includes(q)
-                                      );
-                                    });
-
-                                    const isEditingThisSub = editingSubcat?.catId === activeCat.id && editingSubcat?.subcat === subcat;
-                                    const isAddingHere = treeSubcatAddTarget === `${activeCat.id}::${subcat}`;
-                                    const isManual = subcat.includes("(MANUAL)");
-                                    const cleanSubcatTitle = subcat.replace(/\s*\(MANUAL\)\s*/i, "").trim();
-                                    const isDropTarget = dragOverTarget === `${activeCat.id}::${subcat}`;
-
-                                    return (
-                                      <div
-                                        key={subcat}
-                                        onDragOver={(e) => {
-                                          e.preventDefault();
-                                          e.dataTransfer.dropEffect = "move";
-                                          if (dragOverTarget !== `${activeCat.id}::${subcat}`) {
-                                            setDragOverTarget(`${activeCat.id}::${subcat}`);
-                                          }
-                                        }}
-                                        onDragLeave={(e) => {
-                                          if (e.currentTarget.contains(e.relatedTarget as Node)) return;
-                                          setDragOverTarget(null);
-                                        }}
-                                        onDrop={(e) => {
-                                          e.preventDefault();
-                                          const droppedApp = e.dataTransfer.getData("text/plain") || draggedItem;
-                                          if (droppedApp) {
-                                            handleSetCategory(droppedApp, activeCat.id, subcat);
-                                          }
-                                          setDraggedItem(null);
-                                          setDragOverTarget(null);
-                                        }}
-                                        className={`group/sub p-4 rounded-2xl transition-all shadow-xs border flex flex-col justify-between ${
-                                          isDropTarget
-                                            ? "bg-violet-500/20 border-violet-400 ring-2 ring-violet-500/50 scale-[1.01]"
-                                            : "bg-background/80 hover:bg-background border-border/70 hover:border-violet-500/40 space-y-3"
-                                        }`}
-                                      >
-                                        <div>
-                                          {/* Encabezado de la Subcategoría */}
-                                          <div className="flex items-start justify-between gap-2 pb-2.5 border-b border-border/40">
-                                            {isEditingThisSub ? (
-                                              <div className="flex items-center gap-1 flex-1">
-                                                <input
-                                                  type="text"
-                                                  autoFocus
-                                                  value={editingSubcatValue}
-                                                  onChange={(e) => setEditingSubcatValue(e.target.value)}
-                                                  onKeyDown={(e) => {
-                                                    if (e.key === "Enter") {
-                                                      handleRenameSubcategory(activeCat.id, subcat, editingSubcatValue);
-                                                    } else if (e.key === "Escape") {
-                                                      setEditingSubcat(null);
-                                                    }
-                                                  }}
-                                                  className="w-full text-xs px-2.5 py-1 rounded-lg bg-background border border-violet-500 text-foreground"
-                                                />
-                                                <button
-                                                  onClick={() => handleRenameSubcategory(activeCat.id, subcat, editingSubcatValue)}
-                                                  className="p-1 rounded-lg hover:bg-muted text-emerald-400 cursor-pointer"
-                                                >
-                                                  <Check className="h-3.5 w-3.5" />
-                                                </button>
-                                                <button
-                                                  onClick={() => setEditingSubcat(null)}
-                                                  className="p-1 rounded-lg hover:bg-muted text-muted-foreground cursor-pointer"
-                                                >
-                                                  <X className="h-3.5 w-3.5" />
-                                                </button>
-                                              </div>
-                                            ) : (
-                                              <>
-                                                <div className="flex items-center gap-2 min-w-0">
-                                                  <span className="text-xs font-bold text-foreground leading-snug">
-                                                    {cleanSubcatTitle}
-                                                  </span>
-                                                  <button
-                                                    type="button"
-                                                    onClick={(e) => {
-                                                      e.stopPropagation();
-                                                      handleToggleSubcategoryManual(activeCat.id, subcat);
-                                                    }}
-                                                    className={`text-[11px] font-bold px-1.5 py-0.5 rounded transition-all cursor-pointer shrink-0 ${
-                                                      isManual
-                                                        ? "bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30"
-                                                        : "bg-muted text-muted-foreground hover:text-foreground border border-border/40"
-                                                    }`}
-                                                    title={
-                                                      isManual
-                                                        ? "Configurada como labor de taller (botón en barra lateral). Clic para cambiar a digital/PC."
-                                                        : "Configurada como digital/PC. Clic para convertir en labor de taller (botón en barra lateral)."
-                                                    }
-                                                  >
-                                                    {isManual ? "🔧 Taller" : "💻 PC"}
-                                                  </button>
-                                                </div>
-
-                                                <div className="flex items-center gap-1 shrink-0">
-                                                  <span className="text-xs text-muted-foreground font-mono bg-muted/60 px-2 py-0.5 rounded-full border border-border/40">
-                                                    {assignedItems.length}
-                                                  </span>
-                                                  <button
-                                                    onClick={() => {
-                                                      setEditingSubcat({ catId: activeCat.id, subcat });
-                                                      setEditingSubcatValue(subcat);
-                                                    }}
-                                                    title="Renombrar subcategoría"
-                                                    className="opacity-70 hover:opacity-100 p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-opacity cursor-pointer"
-                                                  >
-                                                    <Edit2 className="h-3 w-3" />
-                                                  </button>
-                                                  <button
-                                                    onClick={() => {
-                                                      if (confirm(`¿Eliminar la subcategoría "${subcat}"?`)) {
-                                                        handleDeleteSubcategory(activeCat.id, subcat);
-                                                      }
-                                                    }}
-                                                    title="Eliminar subcategoría"
-                                                    className="opacity-70 hover:opacity-100 p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-rose-400 transition-opacity cursor-pointer"
-                                                  >
-                                                    <Trash2 className="h-3 w-3" />
-                                                  </button>
-                                                </div>
-                                              </>
-                                            )}
-                                          </div>
-
-                                          {/* Lista de Software o URLs Asignados */}
-                                          <div className="pt-2.5 space-y-1.5 max-h-[480px] overflow-y-auto pr-1">
-                                            {assignedItems.map((item) => {
-                                              const isUrl = item.includes(".") && !item.endsWith(".exe") && (item.includes(".com") || item.includes(".org") || item.includes(".net") || item.includes(".io") || item.includes(".app") || item.startsWith("http"));
-                                              return (
-                                                <div
-                                                  key={item}
-                                                  draggable
-                                                  onDragStart={(e) => {
-                                                    e.dataTransfer.setData("text/plain", item);
-                                                    e.dataTransfer.effectAllowed = "move";
-                                                    setDraggedItem(item);
-                                                  }}
-                                                  onDragEnd={() => {
-                                                    setDraggedItem(null);
-                                                    setDragOverTarget(null);
-                                                  }}
-                                                  onClick={() => {
-                                                    setItemToManage({
-                                                      appName: item,
-                                                      currentCat: activeCat.id,
-                                                      currentSub: subcat,
-                                                    });
-                                                    setManageTargetCat(activeCat.id);
-                                                    setManageTargetSub(subcat);
-                                                  }}
-                                                  className="group/item flex items-center justify-between p-2 rounded-xl bg-card/60 hover:bg-card border border-border/40 hover:border-violet-500/40 text-xs transition-all cursor-grab active:cursor-grabbing shadow-2xs"
-                                                  title="Arrastre a otra subcategoría o haga clic para reasignar"
-                                                >
-                                                  <div className="flex items-center gap-2 min-w-0 pr-1 flex-1">
-                                                    <GripVertical className="h-3.5 w-3.5 text-muted-foreground/30 group-hover/item:text-violet-400 shrink-0" />
-                                                    {isUrl ? (
-                                                      <Globe className="h-3.5 w-3.5 text-cyan-400 shrink-0" />
-                                                    ) : (
-                                                      <span className="shrink-0">{getAppIcon(item)}</span>
-                                                    )}
-                                                    <span className="text-[11px] font-medium text-foreground/90 truncate leading-tight">
-                                                      {item}
-                                                    </span>
-                                                  </div>
-                                                  <div className="flex items-center gap-1 shrink-0">
-                                                    <button
-                                                      type="button"
-                                                      onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        setItemToManage({
-                                                          appName: item,
-                                                          currentCat: activeCat.id,
-                                                          currentSub: subcat,
-                                                        });
-                                                        setManageTargetCat(activeCat.id);
-                                                        setManageTargetSub(subcat);
-                                                      }}
-                                                      title="Mover o reasignar"
-                                                      className="opacity-70 hover:opacity-100 p-1 rounded-md text-muted-foreground hover:text-violet-400 hover:bg-violet-500/10 transition-all cursor-pointer"
-                                                    >
-                                                      <ArrowRightLeft className="h-3 w-3" />
-                                                    </button>
-                                                    <button
-                                                      type="button"
-                                                      onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        handleSetCategory(item, null, null);
-                                                      }}
-                                                      title="Desvincular (enviar a Sin Clasificar)"
-                                                      className="opacity-70 hover:opacity-100 p-1 rounded-md text-muted-foreground hover:text-rose-400 hover:bg-rose-500/10 transition-all cursor-pointer"
-                                                    >
-                                                      <X className="h-3 w-3" />
-                                                    </button>
-                                                  </div>
-                                                </div>
-                                              );
-                                            })}
-                                            {assignedItems.length === 0 && !isAddingHere && (
-                                              <p className="text-[11px] text-muted-foreground/50 italic py-2 text-center">
-                                                Sin elementos asignados (arrastre aquí)
-                                              </p>
-                                            )}
-                                          </div>
-                                        </div>
-
-                                        {/* Footer de la Subcategoría: Añadir software o URL */}
-                                        <div className="pt-2 border-t border-border/40">
-                                          {isAddingHere ? (
-                                            <div className="space-y-1.5">
-                                              <input
-                                                type="text"
-                                                autoFocus
-                                                value={treeSubcatItemInput}
-                                                onChange={(e) => setTreeSubcatItemInput(e.target.value)}
-                                                onKeyDown={(e) => {
-                                                  if (e.key === "Enter" && treeSubcatItemInput.trim()) {
-                                                    handleSetCategory(treeSubcatItemInput.trim(), activeCat.id, subcat);
-                                                    setTreeSubcatItemInput("");
-                                                    setTreeSubcatAddTarget(null);
-                                                  } else if (e.key === "Escape") {
-                                                    setTreeSubcatAddTarget(null);
-                                                  }
-                                                }}
-                                                placeholder="Escriba software o URL..."
-                                                className="w-full text-xs px-2.5 py-1.5 rounded-lg bg-background border border-violet-500/60 focus:outline-none text-foreground placeholder:text-muted-foreground/60 shadow-xs"
-                                              />
-
-                                              {/* Sugerencias de apps pendientes no asignadas */}
-                                              {unassignedApps.length > 0 && (
-                                                <div className="max-h-28 overflow-y-auto space-y-1 p-1 bg-background/80 rounded-lg border border-border/40">
-                                                  <p className="text-[11px] font-semibold text-muted-foreground px-1 uppercase tracking-wider">
-                                                    Sugerencias pendientes:
-                                                  </p>
-                                                  {unassignedApps
-                                                    .filter((u) => !treeSubcatItemInput.trim() || u.toLowerCase().includes(treeSubcatItemInput.toLowerCase()))
-                                                    .slice(0, 5)
-                                                    .map((sug) => (
-                                                      <button
-                                                        key={sug}
-                                                        type="button"
-                                                        onClick={() => {
-                                                          handleSetCategory(sug, activeCat.id, subcat);
-                                                          setTreeSubcatItemInput("");
-                                                          setTreeSubcatAddTarget(null);
-                                                        }}
-                                                        className="w-full text-left px-2 py-1 rounded text-[11px] hover:bg-violet-500/20 text-foreground/90 hover:text-violet-300 flex items-center justify-between transition-colors cursor-pointer"
-                                                      >
-                                                        <span className="truncate">{sug}</span>
-                                                        <Plus className="h-3 w-3 text-violet-400 shrink-0" />
-                                                      </button>
-                                                    ))}
-                                                </div>
-                                              )}
-
-                                              <div className="flex items-center gap-1.5 justify-end">
-                                                <button
-                                                  onClick={() => {
-                                                    setTreeSubcatAddTarget(null);
-                                                    setTreeSubcatItemInput("");
-                                                  }}
-                                                  className="px-2 py-0.5 text-xs rounded hover:bg-muted text-muted-foreground cursor-pointer"
-                                                >
-                                                  Cancelar
-                                                </button>
-                                                <button
-                                                  disabled={!treeSubcatItemInput.trim()}
-                                                  onClick={() => {
-                                                    if (!treeSubcatItemInput.trim()) return;
-                                                    handleSetCategory(treeSubcatItemInput.trim(), activeCat.id, subcat);
-                                                    setTreeSubcatItemInput("");
-                                                    setTreeSubcatAddTarget(null);
-                                                  }}
-                                                  className="px-2.5 py-0.5 text-xs font-bold rounded-md bg-violet-600 hover:bg-violet-700 text-white disabled:opacity-50 cursor-pointer"
-                                                >
-                                                  Añadir
-                                                </button>
-                                              </div>
-                                            </div>
-                                          ) : (
-                                            <button
-                                              onClick={() => {
-                                                setTreeSubcatAddTarget(`${activeCat.id}::${subcat}`);
-                                                setTreeSubcatItemInput("");
-                                              }}
-                                              className="w-full py-1 text-[11px] font-medium text-muted-foreground hover:text-violet-400 hover:bg-violet-500/10 rounded-lg flex items-center justify-center gap-1 transition-colors border border-dashed border-border/60 hover:border-violet-500/40 cursor-pointer"
-                                            >
-                                              <Plus className="h-3 w-3" />
-                                              <span>Añadir software o URL</span>
-                                            </button>
-                                          )}
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })()
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* CONTENIDO PESTAÑA 2: MAPEO DE SOFTWARE Y LABORES */}
+            {/* VISTA 1: CLASIFICACIÓN DE SOFTWARE Y LABORES */}
             {activeModalTab === "apps" && (
               <div className="flex-1 flex flex-col min-h-0 space-y-3">
-                {/* Barra de búsqueda y botón agregar */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-2">
+                {/* Barra de búsqueda y botones superiores */}
+                <div className="space-y-2.5 shrink-0">
+                  <div className="flex items-center justify-between gap-3">
                     <div className="relative flex-1">
-                      <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                      <Search className="absolute left-3.5 top-3 h-4 w-4 text-muted-foreground" />
                       <input
                         type="text"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder="Buscar software o URL (ej: Odoo, WhatsApp, github.com)..."
-                        className="w-full pl-9 pr-4 py-2 text-xs rounded-xl bg-muted/40 border border-border focus:outline-none focus:ring-2 focus:ring-violet-500 text-foreground placeholder:text-muted-foreground"
+                        placeholder="Buscar software o URL (ej: WhatsApp, YouTube, Linkus, Odoo)..."
+                        className="w-full pl-10 pr-4 py-2.5 text-xs rounded-xl bg-muted/40 border border-border focus:outline-none focus:ring-2 focus:ring-violet-500 text-foreground placeholder:text-muted-foreground"
                       />
                     </div>
-                    <button
-                      onClick={() => {
-                        setShowAddCustomModal(!showAddCustomModal);
-                        if (!newCustomItemCat && categories.length > 0) {
-                          setNewCustomItemCat(categories[0].id);
-                          setNewCustomItemSub(categories[0].subcategories?.[0] || "");
-                        }
-                      }}
-                      className="px-3 py-2 text-xs font-semibold rounded-xl bg-violet-600 hover:bg-violet-700 text-white flex items-center gap-1.5 transition-colors shrink-0 shadow-sm cursor-pointer"
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                      <span>Agregar Software / URL</span>
-                    </button>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => {
+                          setShowAddCustomModal(!showAddCustomModal);
+                          if (!newCustomItemCat && categories.length > 0) {
+                            setNewCustomItemCat(categories[0].id);
+                            setNewCustomItemSub(categories[0].subcategories?.[0] || "");
+                          }
+                        }}
+                        className="px-3.5 py-2.5 text-xs font-bold rounded-xl bg-violet-600 hover:bg-violet-700 text-white flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
+                      >
+                        <Plus className="h-4 w-4" />
+                        <span>Agregar Software / URL</span>
+                      </button>
+                      <button
+                        onClick={handleResetToOfficialTree}
+                        className="px-3 py-2.5 text-xs font-semibold rounded-xl hover:bg-amber-500/10 text-amber-400 border border-amber-500/30 flex items-center gap-1.5 transition-colors cursor-pointer"
+                        title="Restablecer a las categorías oficiales del taller"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                        <span>Restablecer Oficial</span>
+                      </button>
+                    </div>
                   </div>
 
-                  {/* Filtros rápidos por Categoría y Toggle de Ruido de Sistema */}
-                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-border/40">
-                    <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 text-xs">
-                      <button
-                        type="button"
-                        onClick={() => setAppsCategoryFilter("all")}
-                        className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer ${
-                          appsCategoryFilter === "all" ? "bg-violet-600 text-white" : "bg-muted/30 hover:bg-muted text-muted-foreground"
-                        }`}
-                      >
-                        Todas ({filteredModalApps.length})
-                      </button>
-                      {categories.map((c) => (
-                        <button
-                          key={c.id}
-                          type="button"
-                          onClick={() => setAppsCategoryFilter(appsCategoryFilter === c.id ? "all" : c.id)}
-                          className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap ${
-                            appsCategoryFilter === c.id ? "bg-violet-600 text-white" : "bg-muted/30 hover:bg-muted text-muted-foreground"
-                          }`}
-                        >
-                          {c.label}
-                        </button>
-                      ))}
+                  {/* Filtros rápidos por Categoría y Toggle de Ruido */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border/50">
+                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+                      {/* Botón Sin Clasificar (Destacado en ámbar) */}
                       <button
                         type="button"
                         onClick={() => setAppsCategoryFilter(appsCategoryFilter === "unassigned" ? "all" : "unassigned")}
-                        className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 shadow-sm ${
                           appsCategoryFilter === "unassigned"
-                            ? "bg-amber-500/25 text-amber-300 border border-amber-500/40"
-                            : "bg-muted/30 hover:bg-muted text-amber-400/80"
+                            ? "bg-amber-500 text-black ring-2 ring-amber-400"
+                            : totalUnassignedCount > 0
+                            ? "bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30"
+                            : "bg-muted/30 text-muted-foreground hover:bg-muted"
                         }`}
                       >
-                        Sin Subcategoría
+                        <span>⚠️ Sin Clasificar</span>
+                        <span className="px-1.5 py-0.2 rounded-full bg-black/20 text-xs font-mono">
+                          {totalUnassignedCount}
+                        </span>
                       </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setAppsCategoryFilter("all")}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                          appsCategoryFilter === "all"
+                            ? "bg-violet-600 text-white shadow-sm"
+                            : "bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        Todas ({allSanitizedApps.length})
+                      </button>
+
+                      {categories.map((c) => {
+                        const countInCat = allSanitizedApps.filter((a) => {
+                          const asg = getAppAssignment(a);
+                          return asg.category === c.id || asg.category === c.label;
+                        }).length;
+                        return (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => setAppsCategoryFilter(appsCategoryFilter === c.id ? "all" : c.id)}
+                            className={`px-2.5 py-1.5 rounded-xl text-xs font-medium transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                              appsCategoryFilter === c.id
+                                ? "bg-violet-600 text-white font-bold shadow-sm"
+                                : "bg-muted/30 hover:bg-muted text-muted-foreground hover:text-foreground"
+                            }`}
+                          >
+                            <span>{c.label}</span>
+                            <span className="text-[11px] opacity-70 font-mono">({countInCat})</span>
+                          </button>
+                        );
+                      })}
                     </div>
 
-                    <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer select-none hover:text-foreground">
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none hover:text-foreground shrink-0">
                       <input
                         type="checkbox"
                         checked={hideSystemNoise}
                         onChange={(e) => setHideSystemNoise(e.target.checked)}
                         className="rounded border-border text-violet-600 focus:ring-violet-500 h-3.5 w-3.5"
                       />
-                      <span>Ocultar procesos de sistema (Alt+Tab, Escritorio)</span>
+                      <span>Ocultar ruido del sistema (Alt+Tab, Escritorio)</span>
                     </label>
                   </div>
                 </div>
 
                 {/* Formulario desplegable para agregar Software o URL manual */}
                 {showAddCustomModal && (
-                  <div className="p-3.5 rounded-xl bg-muted/30 border border-violet-500/40 space-y-2.5 animate-in fade-in duration-150">
+                  <div className="p-4 rounded-2xl bg-muted/40 border border-violet-500/40 space-y-3 animate-in fade-in duration-150 shrink-0">
                     <div className="flex items-center justify-between">
                       <h4 className="text-xs font-bold text-violet-300 flex items-center gap-1.5">
-                        <Plus className="h-3.5 w-3.5" />
-                        <span>Registrar Software, URL o Tarea Manual</span>
+                        <Plus className="h-4 w-4" />
+                        <span>Registrar Nuevo Software, URL o Labor</span>
                       </h4>
                       <button
                         onClick={() => setShowAddCustomModal(false)}
@@ -2619,19 +1917,19 @@ function ActivityAppsRankingComponent({
                         <X className="h-4 w-4" />
                       </button>
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <div>
-                        <label className="text-xs text-muted-foreground block mb-1">Nombre o URL:</label>
+                        <label className="text-xs font-semibold text-muted-foreground block mb-1">Nombre o URL:</label>
                         <input
                           type="text"
                           value={newCustomItemName}
                           onChange={(e) => setNewCustomItemName(e.target.value)}
                           placeholder="ej: github.com o Linkus"
-                          className="w-full px-2.5 py-1.5 text-xs rounded-lg bg-background border border-border focus:ring-2 focus:ring-violet-500 text-foreground placeholder:text-muted-foreground"
+                          className="w-full px-3 py-2 text-xs rounded-xl bg-background border border-border focus:ring-2 focus:ring-violet-500 text-foreground placeholder:text-muted-foreground"
                         />
                       </div>
                       <div>
-                        <label className="text-xs text-muted-foreground block mb-1">Categoría Principal:</label>
+                        <label className="text-xs font-semibold text-muted-foreground block mb-1">Categoría Principal:</label>
                         <select
                           value={newCustomItemCat}
                           onChange={(e) => {
@@ -2639,7 +1937,7 @@ function ActivityAppsRankingComponent({
                             const targetCat = categories.find((c) => c.id === e.target.value);
                             setNewCustomItemSub(targetCat?.subcategories?.[0] || "");
                           }}
-                          className="w-full px-2.5 py-1.5 text-xs rounded-lg bg-background border border-border focus:ring-2 focus:ring-violet-500 text-foreground cursor-pointer"
+                          className="w-full px-3 py-2 text-xs rounded-xl bg-background border border-border focus:ring-2 focus:ring-violet-500 text-foreground cursor-pointer"
                         >
                           {categories.map((c) => (
                             <option key={c.id} value={c.id}>{c.label}</option>
@@ -2647,13 +1945,13 @@ function ActivityAppsRankingComponent({
                         </select>
                       </div>
                       <div>
-                        <label className="text-xs text-muted-foreground block mb-1">Subcategoría:</label>
+                        <label className="text-xs font-semibold text-muted-foreground block mb-1">Subcategoría:</label>
                         <select
                           value={newCustomItemSub}
                           onChange={(e) => setNewCustomItemSub(e.target.value)}
-                          className="w-full px-2.5 py-1.5 text-xs rounded-lg bg-background border border-border focus:ring-2 focus:ring-violet-500 text-foreground cursor-pointer"
+                          className="w-full px-3 py-2 text-xs rounded-xl bg-background border border-border focus:ring-2 focus:ring-violet-500 text-foreground cursor-pointer"
                         >
-                          <option value="">-- General --</option>
+                          <option value="">-- General / Sin subcat. --</option>
                           {(categories.find((c) => c.id === newCustomItemCat)?.subcategories || []).map((s) => (
                             <option key={s} value={s}>{s}</option>
                           ))}
@@ -2663,7 +1961,7 @@ function ActivityAppsRankingComponent({
                     <div className="flex justify-end gap-2 pt-1">
                       <button
                         onClick={() => setShowAddCustomModal(false)}
-                        className="px-2.5 py-1 text-xs rounded-lg text-muted-foreground hover:bg-muted cursor-pointer"
+                        className="px-3 py-1.5 text-xs rounded-lg text-muted-foreground hover:bg-muted cursor-pointer"
                       >
                         Cancelar
                       </button>
@@ -2675,7 +1973,7 @@ function ActivityAppsRankingComponent({
                           setNewCustomItemName("");
                           setShowAddCustomModal(false);
                         }}
-                        className="px-3 py-1 text-xs font-bold rounded-lg bg-violet-600 hover:bg-violet-700 text-white disabled:opacity-50 cursor-pointer"
+                        className="px-4 py-1.5 text-xs font-bold rounded-lg bg-violet-600 hover:bg-violet-700 text-white disabled:opacity-50 cursor-pointer shadow-sm"
                       >
                         Guardar y Asignar
                       </button>
@@ -2683,11 +1981,26 @@ function ActivityAppsRankingComponent({
                   </div>
                 )}
 
-                {/* Lista compacta de software mapeado */}
-                <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 min-h-[260px] max-h-[380px]">
+                {/* Lista limpia y completa de software mapeado */}
+                <div className="flex-1 overflow-y-auto space-y-2 pr-1 min-h-0">
                   {filteredModalApps.length === 0 ? (
-                    <div className="p-8 text-center text-xs text-muted-foreground">
-                      No se encontraron aplicaciones ni URLs con ese filtro.
+                    <div className="p-12 text-center space-y-2 rounded-2xl border border-dashed border-border/60 bg-muted/10">
+                      <p className="text-sm font-semibold text-foreground">
+                        No se encontraron aplicaciones con este filtro
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {appsCategoryFilter === "unassigned"
+                          ? "¡Excelente! Todas las aplicaciones detectadas tienen categoría y subcategoría asignada."
+                          : "Pruebe buscando con otro término o seleccionando 'Todas'."}
+                      </p>
+                      {appsCategoryFilter !== "all" && (
+                        <button
+                          onClick={() => setAppsCategoryFilter("all")}
+                          className="mt-2 px-3.5 py-1.5 text-xs font-semibold rounded-xl bg-violet-600 text-white hover:bg-violet-700 cursor-pointer"
+                        >
+                          Ver todas las aplicaciones
+                        </button>
+                      )}
                     </div>
                   ) : (
                     filteredModalApps.map((appName) => {
@@ -2699,68 +2012,100 @@ function ActivityAppsRankingComponent({
 
                       const matchedCat = categories.find((c) => c.id === currentCat || c.label === currentCat);
                       const availableSubcats = matchedCat?.subcategories || [];
+                      const isUnassigned = !matchedCat || !currentSub;
 
                       return (
                         <div
                           key={appName}
-                          className="p-2 px-3 rounded-lg bg-card/60 hover:bg-muted/30 border border-border/40 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 transition-colors group"
+                          className={`p-3.5 px-4 rounded-2xl border flex flex-col md:flex-row md:items-center justify-between gap-3 transition-all ${
+                            isUnassigned
+                              ? "bg-amber-500/[0.04] border-amber-500/35 hover:border-amber-500/55"
+                              : "bg-card hover:bg-muted/30 border-border/60"
+                          }`}
                         >
-                          <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                            <div className="p-1 rounded-md bg-muted/40 shrink-0 text-muted-foreground group-hover:text-foreground transition-colors">
+                          <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                            <div className={`p-2.5 rounded-xl shrink-0 ${isUnassigned ? "bg-amber-500/15 text-amber-400" : "bg-muted text-muted-foreground"}`}>
                               {icon}
                             </div>
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2">
-                                <p className="font-semibold text-xs text-foreground truncate" title={appName}>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="font-bold text-sm text-foreground truncate" title={appName}>
                                   {appName}
                                 </p>
+                                {isUnassigned && (
+                                  <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 shrink-0">
+                                    ⚠️ Pendiente
+                                  </span>
+                                )}
+                                {isManual && (
+                                  <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-300 border border-violet-500/30 shrink-0">
+                                    Personalizado
+                                  </span>
+                                )}
                               </div>
+                              <p className="text-xs text-muted-foreground mt-0.5">
+                                {matchedCat ? matchedCat.label : <span className="text-amber-400 font-semibold">Sin categoría asignada</span>}
+                                {currentSub ? ` ➔ ${currentSub}` : <span className="text-amber-400/80"> (Falta subcategoría)</span>}
+                              </p>
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-2 shrink-0">
+                          <div className="flex items-center gap-3 shrink-0 flex-wrap">
                             {/* Selector de Categoría Principal */}
-                            <select
-                              value={currentCat}
-                              onChange={(e) => handleSetCategory(appName, e.target.value, null)}
-                              className="text-xs font-medium px-2 py-1 rounded-md bg-muted/30 border border-border/60 hover:border-border text-foreground cursor-pointer max-w-[160px]"
-                              title="Categoría Principal"
-                            >
-                              {categories.map((cat) => (
-                                <option key={cat.id} value={cat.id}>
-                                  {cat.label}
-                                </option>
-                              ))}
-                            </select>
+                            <div className="flex flex-col gap-1 min-w-[170px]">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">
+                                Categoría
+                              </span>
+                              <select
+                                value={currentCat || ""}
+                                onChange={(e) => handleSetCategory(appName, e.target.value, null)}
+                                className={`text-xs font-semibold px-3 py-1.5 rounded-xl border cursor-pointer w-full transition-colors ${
+                                  !currentCat
+                                    ? "bg-amber-500/15 border-amber-500/40 text-amber-300"
+                                    : "bg-muted/40 hover:bg-muted border-border text-foreground"
+                                }`}
+                                title="Categoría Principal"
+                              >
+                                <option value="" disabled>-- Seleccionar categoría --</option>
+                                {categories.map((cat) => (
+                                  <option key={cat.id} value={cat.id}>
+                                    {cat.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
 
                             {/* Selector de Subcategoría Dependiente */}
-                            {availableSubcats.length > 0 && (
+                            <div className="flex flex-col gap-1 min-w-[170px]">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">
+                                Subcategoría
+                              </span>
                               <select
                                 value={currentSub || ""}
                                 onChange={(e) => handleSetCategory(appName, currentCat, e.target.value || null)}
-                                className={`text-xs px-2 py-1 rounded-md border cursor-pointer max-w-[170px] ${
-                                  currentSub
-                                    ? "bg-muted/30 border-border/60 text-foreground font-normal"
-                                    : "bg-amber-500/10 border-amber-500/30 text-amber-300 font-medium"
+                                className={`text-xs font-semibold px-3 py-1.5 rounded-xl border cursor-pointer w-full transition-colors ${
+                                  !currentSub
+                                    ? "bg-amber-500/15 border-amber-500/40 text-amber-300 font-bold"
+                                    : "bg-muted/40 hover:bg-muted border-border text-foreground"
                                 }`}
                                 title="Subcategoría"
                               >
-                                <option value="">-- General --</option>
+                                <option value="">-- General / Sin subcat. --</option>
                                 {availableSubcats.map((sub) => (
                                   <option key={sub} value={sub}>
                                     {sub}
                                   </option>
                                 ))}
                               </select>
-                            )}
+                            </div>
 
                             {isManual && (
                               <button
                                 onClick={() => handleSetCategory(appName, null, null)}
-                                title="Restablecer a automático"
-                                className="p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-amber-400 transition-colors cursor-pointer"
+                                title="Restablecer a detección automática"
+                                className="p-2 rounded-xl hover:bg-muted text-muted-foreground hover:text-amber-400 border border-border/50 transition-colors cursor-pointer self-end mb-0.5"
                               >
-                                <RotateCcw className="h-3 w-3" />
+                                <RotateCcw className="h-3.5 w-3.5" />
                               </button>
                             )}
                           </div>
@@ -3344,11 +2689,7 @@ function ActivityAppsRankingComponent({
 
             {/* Footer */}
             <div className="border-t border-border/50 pt-3 flex items-center justify-between text-xs">
-              {activeModalTab === "tree" ? (
-                <span className="text-muted-foreground">
-                  Vista de árbol: 6 categorías operativas oficiales del taller
-                </span>
-              ) : activeModalTab === "apps" ? (
+              {activeModalTab === "apps" ? (
                 <span className="text-muted-foreground">
                   {Object.keys(customCategories).length} aplicación(es) o URL(s) con categoría personalizada
                 </span>
