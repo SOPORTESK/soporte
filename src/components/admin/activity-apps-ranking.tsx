@@ -905,6 +905,8 @@ function ActivityAppsRankingComponent({
   const [formSubcatIsManual, setFormSubcatIsManual] = useState(false);
   const [expandedManualSubcat, setExpandedManualSubcat] = useState<string | null>(null);
   const [expandedSubcatApps, setExpandedSubcatApps] = useState<string | null>(null);
+  const [addingProcessForSubcat, setAddingProcessForSubcat] = useState<string | null>(null);
+  const [newProcessInput, setNewProcessInput] = useState("");
   const [newManualTaskInput, setNewManualTaskInput] = useState("");
 
   // Helper para resolver la asignación completa (categoría + subcategoría) de una app
@@ -1032,18 +1034,27 @@ function ActivityAppsRankingComponent({
   };
 
   // Asignar categoría y subcategoría a una aplicación
-  const handleSetCategory = async (appName: string, category: string | null, subcategory?: string | null) => {
+  const handleSetCategory = async (
+    appName: string,
+    category: string | null,
+    subcategory?: string | null,
+    isManualTask?: boolean
+  ) => {
     const cleanSub = subcategory ? cleanSubcategoryName(subcategory) : null;
     setSavingApp(appName);
     const newMap = { ...customCategories };
+    const prev = newMap[appName];
+    const prevManual = typeof prev === "object" && prev ? prev.is_manual_task : undefined;
+    const finalManual = typeof isManualTask === "boolean" ? isManualTask : prevManual;
+
     if (!category || category === "auto" || category === "Sin Clasificar") {
-      newMap[appName] = { category: "Sin Clasificar", subcategory: null };
+      newMap[appName] = { category: "Sin Clasificar", subcategory: null, is_manual_task: finalManual };
     } else {
-      if (cleanSub) {
-        newMap[appName] = { category, subcategory: cleanSub };
-      } else {
-        newMap[appName] = category;
-      }
+      newMap[appName] = {
+        category,
+        subcategory: cleanSub || null,
+        is_manual_task: finalManual,
+      };
     }
 
     if (appName === "Formación de Usuarios") {
@@ -1065,6 +1076,7 @@ function ActivityAppsRankingComponent({
           appName,
           category: (!category || category === "auto" || category === "Sin Clasificar") ? "Sin Clasificar" : category,
           subcategory: cleanSub || undefined,
+          is_manual_task: finalManual,
         }),
       });
     } catch (err) {
@@ -1072,6 +1084,47 @@ function ActivityAppsRankingComponent({
     } finally {
       setSavingApp(null);
     }
+  };
+
+  const checkIsProcessManual = (appName: string, catId?: string, subcatName?: string) => {
+    const custom = customCategories[appName];
+    if (custom && typeof custom === "object" && typeof custom.is_manual_task === "boolean") {
+      return custom.is_manual_task;
+    }
+    const asg = getAppAssignment(appName);
+    const catToCheck = (catId || asg.category || "").toLowerCase();
+    const subToCheck = (subcatName || asg.subcategory || "").toLowerCase();
+    if (
+      catToCheck.includes("taller") ||
+      subToCheck.includes("diagnóst") ||
+      subToCheck.includes("reparac") ||
+      subToCheck.includes("mantenimiento") ||
+      subToCheck.includes("pruebas")
+    ) {
+      return true;
+    }
+    return false;
+  };
+
+  const handleToggleProcessManual = async (appName: string, currentVal: boolean) => {
+    const newVal = !currentVal;
+    const existing = customCategories[appName];
+    const asg = getAppAssignment(appName);
+    const targetCat = (typeof existing === "object" && existing?.category) || asg.category;
+    const targetSub = (typeof existing === "object" && existing?.subcategory) || asg.subcategory;
+    await handleSetCategory(appName, targetCat, targetSub, newVal);
+  };
+
+  const handleUnlinkProcess = async (appName: string) => {
+    await handleSetCategory(appName, "Sin Clasificar", null);
+  };
+
+  const handleAddProcessToSubcat = async (procName: string, catId: string, subcatName: string) => {
+    const cleanProc = procName.trim();
+    if (!cleanProc) return;
+    await handleSetCategory(cleanProc, catId, subcatName);
+    setAddingProcessForSubcat(null);
+    setNewProcessInput("");
   };
 
   const saveCategoriesList = async (updatedList: CategoryItem[]) => {
@@ -2338,20 +2391,8 @@ function ActivityAppsRankingComponent({
                                   {subcats.length} {subcats.length === 1 ? "subcategoría" : "subcategorías"}
                                 </span>
                                 <span className="text-xs px-2 py-0.5 rounded-full bg-violet-500/10 text-violet-300 font-mono">
-                                  {appsInCat.length} apps asignadas
+                                  {appsInCat.length} {appsInCat.length === 1 ? "proceso vinculado" : "procesos vinculados"}
                                 </span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleToggleCategoryManual(cat.id)}
-                                  className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1 ${
-                                    cat.is_manual
-                                      ? "bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30"
-                                      : "bg-muted/60 text-muted-foreground hover:text-foreground border border-border/40"
-                                  }`}
-                                  title="Alternar si toda la categoría es labor manual o digital"
-                                >
-                                  {cat.is_manual ? "🔧 Labor Manual" : "💻 Digital / PC"}
-                                </button>
                               </div>
                             </div>
                           </div>
@@ -2414,15 +2455,7 @@ function ActivityAppsRankingComponent({
                               placeholder="Nombre de la nueva subcategoría..."
                               className="flex-1 min-w-[220px] text-xs px-3 py-1.5 rounded-lg bg-background border border-violet-500 focus:outline-none text-foreground"
                             />
-                            <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none px-2">
-                              <input
-                                type="checkbox"
-                                checked={inlineSubcatIsManual}
-                                onChange={(e) => setInlineSubcatIsManual(e.target.checked)}
-                                className="rounded border-border accent-amber-500 h-3.5 w-3.5"
-                              />
-                              <span>Labor Manual</span>
-                            </label>
+
                             <button
                               onClick={() => {
                                 if (inlineSubcatValue.trim()) {
@@ -2478,28 +2511,15 @@ function ActivityAppsRankingComponent({
                                             ? "bg-violet-500/20 text-violet-300 border-violet-500/40 font-bold shadow-xs"
                                             : "text-muted-foreground bg-muted/60 border-border/30 hover:bg-muted hover:text-foreground"
                                         }`}
-                                        title={isAppsExpanded ? "Clic para ocultar aplicaciones" : "Clic para ver aplicaciones vinculadas"}
+                                        title={isAppsExpanded ? "Clic para ocultar procesos" : "Clic para ver procesos vinculados"}
                                       >
-                                        <span>{appsInSub.length} {appsInSub.length === 1 ? "app vinculada" : "apps vinculadas"}</span>
+                                        <span>{appsInSub.length} {appsInSub.length === 1 ? "proceso vinculado" : "procesos vinculados"}</span>
                                         <ChevronDown className={`h-3 w-3 transition-transform duration-200 ${isAppsExpanded ? "rotate-180 text-violet-400" : "opacity-60"}`} />
                                       </button>
                                     </div>
 
-                                    {/* Columna derecha: Tipo y acciones */}
+                                    {/* Columna derecha: Acciones */}
                                     <div className="flex items-center gap-2 shrink-0">
-                                      <button
-                                        type="button"
-                                        onClick={() => handleToggleSubcategoryManual(cat.id, cleanName)}
-                                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1 ${
-                                          isManual
-                                            ? "bg-amber-500/15 text-amber-300 border border-amber-500/30 hover:bg-amber-500/25"
-                                            : "bg-muted/60 text-muted-foreground hover:text-foreground border border-border/40"
-                                        }`}
-                                        title="Alternar entre labor manual o digital"
-                                      >
-                                        {isManual ? "🔧 Labor Manual" : "💻 Digital / PC"}
-                                      </button>
-
                                       <button
                                         type="button"
                                         onClick={() => {
@@ -2515,34 +2535,117 @@ function ActivityAppsRankingComponent({
                                     </div>
                                   </div>
 
-                                  {/* Desplegable animado con las aplicaciones vinculadas */}
+                                  {/* Desplegable animado con los procesos vinculados */}
                                   {isAppsExpanded && (
-                                    <div className="p-3 bg-muted/15 border-t border-border/25 pl-6 pr-4 space-y-2 animate-in fade-in slide-in-from-top-1 duration-150">
+                                    <div className="p-3 bg-muted/15 border-t border-border/25 pl-6 pr-4 space-y-2.5 animate-in fade-in slide-in-from-top-1 duration-150">
                                       <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center justify-between">
-                                        <span>Aplicaciones vinculadas a &ldquo;{cleanName}&rdquo;:</span>
+                                        <span>Procesos vinculados a &ldquo;{cleanName}&rdquo;:</span>
                                         <span className="text-[10px] text-muted-foreground font-mono">Total: {appsInSub.length}</span>
                                       </div>
                                       {appsInSub.length === 0 ? (
                                         <p className="text-xs text-muted-foreground/70 italic py-1">
-                                          No hay aplicaciones vinculadas a esta subcategoría todavía. Puede vincularlas desde la pestaña &ldquo;Clasificar Software y URLs&rdquo;.
+                                          No hay procesos vinculados a esta subcategoría todavía.
                                         </p>
                                       ) : (
                                         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                                          {appsInSub.map((app) => (
-                                            <div
-                                              key={app}
-                                              className="flex items-center gap-2 p-2 px-3 rounded-lg bg-background border border-border/60 text-xs text-foreground/90 shadow-xs"
-                                            >
-                                              <div className="shrink-0 text-muted-foreground">
-                                                {getAppIcon(app)}
+                                          {appsInSub.map((app) => {
+                                            const isProcManual = checkIsProcessManual(app, cat.id, cleanName);
+                                            return (
+                                              <div
+                                                key={app}
+                                                className={`flex items-center gap-2 p-2 px-3 rounded-xl border text-xs transition-all shadow-xs ${
+                                                  isProcManual
+                                                    ? "bg-amber-500/[0.07] border-amber-500/40 text-foreground"
+                                                    : "bg-background border-border/60 text-foreground/90"
+                                                }`}
+                                              >
+                                                <div className="shrink-0 text-muted-foreground">
+                                                  {getAppIcon(app)}
+                                                </div>
+                                                <span className="truncate font-medium text-[11px] flex-1" title={app}>
+                                                  {app}
+                                                </span>
+                                                <label className="flex items-center gap-1.5 text-[11px] font-medium cursor-pointer select-none shrink-0 px-1.5 py-0.5 rounded hover:bg-muted/50 transition-colors">
+                                                  <input
+                                                    type="checkbox"
+                                                    checked={isProcManual}
+                                                    onChange={() => handleToggleProcessManual(app, isProcManual)}
+                                                    className="rounded border-border accent-amber-500 h-3.5 w-3.5 cursor-pointer"
+                                                  />
+                                                  <span className={isProcManual ? "text-amber-300 font-semibold" : "text-muted-foreground"}>
+                                                    Labor Manual
+                                                  </span>
+                                                </label>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => handleUnlinkProcess(app)}
+                                                  className="p-1 rounded-md text-muted-foreground/60 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer shrink-0 ml-0.5"
+                                                  title={`Desvincular "${app}" de ${cleanName}`}
+                                                >
+                                                  <X className="h-3.5 w-3.5" />
+                                                </button>
                                               </div>
-                                              <span className="truncate font-medium text-[11px]" title={app}>
-                                                {app}
-                                              </span>
-                                            </div>
-                                          ))}
+                                            );
+                                          })}
                                         </div>
                                       )}
+
+                                      {/* Formulario / botón para vincular nuevo proceso */}
+                                      <div className="pt-1">
+                                        {addingProcessForSubcat === subcatKey ? (
+                                          <div className="flex items-center gap-2 max-w-lg animate-in fade-in">
+                                            <input
+                                              type="text"
+                                              autoFocus
+                                              value={newProcessInput}
+                                              onChange={(e) => setNewProcessInput(e.target.value)}
+                                              onKeyDown={(e) => {
+                                                if (e.key === "Enter" && newProcessInput.trim()) {
+                                                  handleAddProcessToSubcat(newProcessInput.trim(), cat.id, cleanName);
+                                                } else if (e.key === "Escape") {
+                                                  setAddingProcessForSubcat(null);
+                                                  setNewProcessInput("");
+                                                }
+                                              }}
+                                              placeholder="Nombre del proceso o tarea a vincular..."
+                                              className="flex-1 text-xs px-3 py-1.5 rounded-lg bg-background border border-violet-500 focus:outline-none text-foreground"
+                                            />
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                if (newProcessInput.trim()) {
+                                                  handleAddProcessToSubcat(newProcessInput.trim(), cat.id, cleanName);
+                                                }
+                                              }}
+                                              className="px-3 py-1.5 text-xs font-bold rounded-lg bg-violet-600 hover:bg-violet-700 text-white cursor-pointer"
+                                            >
+                                              Vincular
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setAddingProcessForSubcat(null);
+                                                setNewProcessInput("");
+                                              }}
+                                              className="px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground cursor-pointer"
+                                            >
+                                              Cancelar
+                                            </button>
+                                          </div>
+                                        ) : (
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setAddingProcessForSubcat(subcatKey);
+                                              setNewProcessInput("");
+                                            }}
+                                            className="text-xs font-semibold px-2.5 py-1 rounded-lg border border-dashed border-border/80 hover:border-violet-500/60 text-muted-foreground hover:text-violet-300 hover:bg-violet-500/10 flex items-center gap-1.5 transition-colors cursor-pointer"
+                                          >
+                                            <Plus className="h-3 w-3" />
+                                            <span>+ Vincular proceso o tarea</span>
+                                          </button>
+                                        )}
+                                      </div>
                                     </div>
                                   )}
                                 </div>
