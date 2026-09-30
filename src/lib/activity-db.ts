@@ -406,7 +406,7 @@ export async function getActivityTimeline(
   while (from < maxRecords) {
     let query = supabase
       .from("activity_log")
-      .select("*")
+      .select("id, agent_email, agent_name, action, category, case_id, metadata, duration_ms, created_at")
       .order("created_at", { ascending: false });
 
     if (agentEmail) query = query.eq("agent_email", agentEmail);

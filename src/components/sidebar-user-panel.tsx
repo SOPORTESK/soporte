@@ -612,11 +612,35 @@ export function SidebarUserPanel({
     });
   };
 
+function ManualTaskTimerBadge({ start }: { start: number }) {
+  const [timeStr, setTimeStr] = useState(() => {
+    const ms = Math.max(0, Date.now() - start);
+    const m = Math.floor(ms / 60000);
+    const s = Math.floor((ms % 60000) / 1000);
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  });
+
+  useEffect(() => {
+    const ticker = setInterval(() => {
+      const ms = Math.max(0, Date.now() - start);
+      const m = Math.floor(ms / 60000);
+      const s = Math.floor((ms % 60000) / 1000);
+      setTimeStr(`${m}:${s.toString().padStart(2, "0")}`);
+    }, 1000);
+    return () => clearInterval(ticker);
+  }, [start]);
+
+  return (
+    <span className="text-[10.5px] font-mono font-black text-amber-300 tabular-nums px-1.5 py-0.5 rounded-md bg-amber-500/20 border border-amber-500/30 shrink-0">
+      {timeStr}
+    </span>
+  );
+}
+
   const [myMetrics, setMyMetrics] = useState<any>(null);
   const [showActivityModal, setShowActivityModal] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
-  const [elapsed, setElapsed] = useState("");
   const [manualTask, setManualTask] = useState<{ type: string; label: string; subcategory?: string; start: number } | null>(() => {
     if (typeof window === "undefined") return null;
     try {
@@ -635,7 +659,6 @@ export function SidebarUserPanel({
       return null;
     }
   });
-  const [manualElapsed, setManualElapsed] = useState("");
   const [hoveredManualTask, setHoveredManualTask] = useState<any>(null);
 
   // Categorías dinámicas sincronizadas con "Gestionar Categorías"
@@ -882,7 +905,6 @@ export function SidebarUserPanel({
           } catch {}
         } else {
           setManualTask(null);
-          setManualElapsed("");
         }
       }
     };
@@ -896,7 +918,6 @@ export function SidebarUserPanel({
         if (!data) return;
         if (data.action === "stop") {
           setManualTask(null);
-          setManualElapsed("");
           try { localStorage.removeItem("sekunet_manual_task"); } catch {}
         } else if (data.action === "start" && data.task) {
           setManualTask(data.task);
@@ -926,7 +947,6 @@ export function SidebarUserPanel({
             if (act.startsWith("terminó:") || act.startsWith("termino:")) {
               // El último evento registrado fue que TERMINÓ la labor
               setManualTask(null);
-              setManualElapsed("");
               try { localStorage.removeItem("sekunet_manual_task"); } catch {}
             } else if (act.startsWith("inició:") || act.startsWith("inicio:")) {
               const startMs = new Date(lastManual.created_at).getTime();
@@ -938,7 +958,6 @@ export function SidebarUserPanel({
               });
               if (hasEnd || isDifferentDay || (Date.now() - startMs > 8 * 60 * 60 * 1000)) {
                 setManualTask(null);
-                setManualElapsed("");
                 try { localStorage.removeItem("sekunet_manual_task"); } catch {}
               } else {
                 const label = lastManual.metadata?.task || lastManual.metadata?.label || lastManual.action.replace(/^inici[oó]:\s*/i, "").trim();
@@ -1022,27 +1041,6 @@ export function SidebarUserPanel({
     return () => { clearInterval(interval); };
   }, [tab, open, fetchActivity]);
 
-  // Ticker separado: actualiza los textos "hace Xs" y el contador de la tarea manual activa
-  useEffect(() => {
-    const ticker = setInterval(() => {
-      if (lastUpdate && (tab === "activity" && open)) {
-        const sec = Math.floor((Date.now() - lastUpdate.getTime()) / 1000);
-        if (sec < 60) setElapsed(`hace ${sec}s`);
-        else if (sec < 3600) setElapsed(`hace ${Math.floor(sec / 60)}m`);
-        else setElapsed(`hace ${Math.floor(sec / 3600)}h`);
-      } else {
-        setElapsed("");
-      }
-      if (manualTask) {
-        const ms = Date.now() - manualTask.start;
-        const m = Math.floor(ms / 60000);
-        const s = Math.floor((ms % 60000) / 1000);
-        setManualElapsed(`${m}:${s.toString().padStart(2, "0")}`);
-      }
-    }, 1000);
-    return () => clearInterval(ticker);
-  }, [tab, open, lastUpdate, manualTask]);
-
   const startManualTask = (type: string, label: string, subcategory?: string) => {
     if (manualTask) return;
     const taskObj = { type, label, subcategory, start: Date.now() };
@@ -1096,7 +1094,6 @@ export function SidebarUserPanel({
       });
     }
     setManualTask(null);
-    setManualElapsed("");
     try {
       localStorage.removeItem("sekunet_manual_task");
     } catch {}
@@ -1700,9 +1697,7 @@ export function SidebarUserPanel({
                       <p className="text-[11px] font-black text-amber-400 leading-snug break-words flex-1 min-w-0" title={manualTask.label}>
                         {manualTask.label}
                       </p>
-                      <span className="text-[10.5px] font-mono font-black text-amber-300 tabular-nums px-1.5 py-0.5 rounded-md bg-amber-500/20 border border-amber-500/30 shrink-0">
-                        {manualElapsed}
-                      </span>
+                      <ManualTaskTimerBadge start={manualTask.start} />
                       <button
                         type="button"
                         onClick={stopManualTask}

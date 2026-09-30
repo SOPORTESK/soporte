@@ -4,6 +4,13 @@ import { getActivityTimeline, getActivityMetrics } from "@/lib/activity-db";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+interface CacheEntry {
+  data: any;
+  expires: number;
+}
+const timelineCache = new Map<string, CacheEntry>();
+const CACHE_TTL_MS = 5000; // 5s TTL para evitar consultas duplicadas en ráfagas de navegación/foco
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -13,8 +20,18 @@ export async function GET(req: NextRequest) {
     const metricsParam = searchParams.get("metrics");
     const lastMinutes = searchParams.get("lastMinutes");
 
+    const cacheKey = `${agent || "all"}_${date}_${endDate || ""}_${metricsParam || ""}_${lastMinutes || ""}`;
+    const cached = timelineCache.get(cacheKey);
+    if (cached && Date.now() < cached.expires) {
+      const res = NextResponse.json(cached.data);
+      res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+      res.headers.set("X-Cache", "HIT");
+      return res;
+    }
+
     if (metricsParam === "only" && agent) {
       const m = await getActivityMetrics(agent, date);
+      timelineCache.set(cacheKey, { data: m, expires: Date.now() + CACHE_TTL_MS });
       const res = NextResponse.json(m);
       res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
       return res;
@@ -36,7 +53,9 @@ export async function GET(req: NextRequest) {
           .limit(100);
         if (agent) query = query.eq("agent_email", agent);
         const { data } = await query;
-        const res = NextResponse.json({ timeline: data || [], metrics: null });
+        const result = { timeline: data || [], metrics: null };
+        timelineCache.set(cacheKey, { data: result, expires: Date.now() + CACHE_TTL_MS });
+        const res = NextResponse.json(result);
         res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
         return res;
       }
@@ -45,7 +64,8 @@ export async function GET(req: NextRequest) {
     let timeline = await getActivityTimeline(agent, date, endDate);
 
     let metricsData = null;
-    if (agent) {
+    const shouldComputeMetrics = metricsParam === "true" || metricsParam === "1";
+    if (agent && shouldComputeMetrics) {
       try {
         metricsData = await getActivityMetrics(agent, date, timeline);
       } catch (err) {
@@ -53,7 +73,14 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const res = NextResponse.json({ timeline, metrics: metricsData });
+    const result = { timeline, metrics: metricsData };
+    timelineCache.set(cacheKey, { data: result, expires: Date.now() + CACHE_TTL_MS });
+    if (timelineCache.size > 200) {
+      const oldestKey = timelineCache.keys().next().value;
+      if (oldestKey) timelineCache.delete(oldestKey);
+    }
+
+    const res = NextResponse.json(result);
     res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
     return res;
   } catch (error: any) {
