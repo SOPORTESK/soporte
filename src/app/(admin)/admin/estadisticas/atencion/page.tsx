@@ -770,6 +770,9 @@ export default async function EstadisticasAtencionPage({
   let totalMensajesIA = 0;
 
   const distribucionHoras: number[] = new Array(24).fill(0);
+  const distribucionHorasClientes: number[] = new Array(24).fill(0);
+  const distribucionHorasTecnicos: number[] = new Array(24).fill(0);
+  const distribucionHorasIA: number[] = new Array(24).fill(0);
 
   const getCRHour = (tStr?: string) => {
     if (!tStr) return -1;
@@ -791,7 +794,10 @@ export default async function EstadisticasAtencionPage({
     // Distribuir mensajes de clientes por hora
     clienteMsgs.forEach((m: any) => {
       const h = getCRHour(m.time || m.timestamp || m.created_at || c.created_at);
-      if (h >= 0 && h < 24) distribucionHoras[h]++;
+      if (h >= 0 && h < 24) {
+        distribucionHoras[h]++;
+        distribucionHorasClientes[h]++;
+      }
     });
 
     const clienteNombre = getClienteNombre(c);
@@ -812,9 +818,17 @@ export default async function EstadisticasAtencionPage({
 
     tecnicoMsgs.forEach((m: any) => {
       const h = getCRHour(m.time || m.timestamp || m.created_at || c.created_at);
-      if (h >= 0 && h < 24) distribucionHoras[h]++;
-
       const isIA = m.role === "assistant" || m.author === "Asistente Sekunet" || m.author === "Soporte Sekunet";
+
+      if (h >= 0 && h < 24) {
+        distribucionHoras[h]++;
+        if (isIA) {
+          distribucionHorasIA[h]++;
+        } else {
+          distribucionHorasTecnicos[h]++;
+        }
+      }
+
       if (isIA) {
         totalMensajesIA++;
       } else {
@@ -901,6 +915,9 @@ export default async function EstadisticasAtencionPage({
     agentStats: Object.values(agentMessageStats).sort((a, b) => b.enviados - a.enviados),
     topClientes: Object.values(clientMessageStats).sort((a, b) => b.total - a.total),
     distribucionHoras,
+    distribucionHorasClientes,
+    distribucionHorasTecnicos,
+    distribucionHorasIA,
     filtroActual: filtroLabel,
     mensajes7d: msgs7dCount.actual,
     mensajesAntes7d: msgs7dCount.anterior,
