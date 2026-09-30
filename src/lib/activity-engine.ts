@@ -608,8 +608,15 @@ export function computeUnifiedActivityMetrics(
     .filter((t) => {
       if (!t.created_at || isNaN(new Date(t.created_at).getTime())) return false;
       const act = (t.action || "").toLowerCase();
-      // Descartar falsos positivos de pestañas de navegador en segundo plano
+      // Descartar falsos positivos de pestañas de navegador en segundo plano y protectores de pantalla
       if (act.includes("pausa prolongada") && act.includes("sin interacción en")) {
+        return false;
+      }
+      if (act.includes("mystify") || act.includes(".scr") || act.includes("scrnsave")) {
+        return false;
+      }
+      // Descartar registros nocturnos corruptos con duraciones irreales (> 4 horas en un solo evento)
+      if (t.duration_ms && t.duration_ms > 4 * 3600 * 1000) {
         return false;
       }
       return true;
@@ -1022,7 +1029,12 @@ export function computeUnifiedActivityMetrics(
                 (meta.minutes ? meta.minutes * 60000 : 0) ||
                 (meta.duration_seconds ? meta.duration_seconds * 1000 : 0)
             ) || 0;
-          const dur = Math.min(discreteMs, 4 * 3600 * 1000);
+          // TOPE ESTRICTO DE SEGURIDAD / HORARIO:
+          // Si no hubo "Inició:" hoy, la labor se inició un día anterior o fuera de horario.
+          // El tiempo atribuible a la jornada de HOY no puede exceder el tiempo transcurrido desde el primer evento del día.
+          const firstDayEventMs = new Date(sorted[0].created_at).getTime();
+          const maxElapsedSinceDayStart = Math.max(0, currTime - firstDayEventMs);
+          const dur = Math.min(discreteMs, maxElapsedSinceDayStart, 4 * 3600 * 1000);
           if (dur > 0) {
             opTimes[opCategory] = (opTimes[opCategory] || 0) + dur;
             recordSoftwareTime(itemName, dur, opCategory);
@@ -1301,7 +1313,7 @@ export function computeUnifiedActivityMetrics(
   }
 
   // 2. CÁLCULO ESTRICTO DE CATEGORÍAS MASTER (Nivel 1)
-  const productiveMs =
+  const rawProductiveMs =
     (opTimes["Soporte"] || 0) +
     (opTimes["Servicio de Taller"] || 0) +
     (opTimes["Control Administrativo"] || 0) +
@@ -1310,6 +1322,24 @@ export function computeUnifiedActivityMetrics(
     (opTimes["On-the-Job Training (OJT)"] || 0) +
     (opTimes["Justificación Manual"] || 0) +
     (opTimes["Utilidades"] || 0);
+
+  // INVARIANTE FÍSICA INQUEBRANTABLE:
+  // Ningún colaborador puede acumular más tiempo productivo que el tiempo real de reloj transcurrido
+  // entre su primer evento del día y el último evento registrado (con margen de 1 min).
+  const firstEventMs = new Date(sorted[0].created_at).getTime();
+  const lastEventMs = new Date(sorted[sorted.length - 1].created_at).getTime();
+  const maxElapsedWallClockMs = Math.max(60000, (lastEventMs - firstEventMs) + 60000);
+
+  let productiveMs = rawProductiveMs;
+  if (productiveMs > maxElapsedWallClockMs) {
+    const scale = maxElapsedWallClockMs / productiveMs;
+    OFFICIAL_OPERATIONAL_CATEGORIES.forEach((c) => {
+      if (opTimes[c.id]) {
+        opTimes[c.id] = Math.round(opTimes[c.id] * scale);
+      }
+    });
+    productiveMs = maxElapsedWallClockMs;
+  }
 
   const breakMs = opTimes["Descansos"] || 0;
   const sanitaryMs = opTimes["Pausa Sanitaria"] || 0;

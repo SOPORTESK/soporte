@@ -621,7 +621,16 @@ export function SidebarUserPanel({
     if (typeof window === "undefined") return null;
     try {
       const saved = localStorage.getItem("sekunet_manual_task");
-      return saved ? JSON.parse(saved) : null;
+      if (!saved) return null;
+      const parsed = JSON.parse(saved);
+      if (parsed?.start) {
+        const isSameDay = new Date(parsed.start).toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" }) === new Date().toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
+        if (!isSameDay || (Date.now() - parsed.start > 8 * 3600 * 1000)) {
+          localStorage.removeItem("sekunet_manual_task");
+          return null;
+        }
+      }
+      return parsed;
     } catch {
       return null;
     }
@@ -853,7 +862,8 @@ export function SidebarUserPanel({
       const saved = localStorage.getItem("sekunet_manual_task");
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Date.now() - parsed.start < 10 * 60 * 60 * 1000) {
+        const isSameDay = parsed?.start && new Date(parsed.start).toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" }) === new Date().toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
+        if (isSameDay && (Date.now() - parsed.start < 8 * 60 * 60 * 1000)) {
           currentTask = parsed;
           setManualTask(parsed);
         } else {
@@ -919,12 +929,13 @@ export function SidebarUserPanel({
               try { localStorage.removeItem("sekunet_manual_task"); } catch {}
             } else if (act.startsWith("inició:") || act.startsWith("inicio:")) {
               const startMs = new Date(lastManual.created_at).getTime();
-              // Verificar si ya existe un evento posterior que lo haya terminado
+              const isDifferentDay = new Date(startMs).toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" }) !== new Date().toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
+              // Verificar si ya existe un evento posterior que lo haya terminado o si pertenece a otro día
               const hasEnd = sorted.some((it: any) => {
                 const a = (it.action || "").toLowerCase();
                 return (a.startsWith("terminó:") || a.startsWith("termino:")) && new Date(it.created_at).getTime() > startMs;
               });
-              if (hasEnd || (Date.now() - startMs > 8 * 60 * 60 * 1000)) {
+              if (hasEnd || isDifferentDay || (Date.now() - startMs > 8 * 60 * 60 * 1000)) {
                 setManualTask(null);
                 setManualElapsed("");
                 try { localStorage.removeItem("sekunet_manual_task"); } catch {}
@@ -1059,19 +1070,30 @@ export function SidebarUserPanel({
 
   const stopManualTask = () => {
     if (!manualTask) return;
-    const rawDuration = Date.now() - manualTask.start;
-    // Tope de seguridad: si una tarea quedó abierta por días o se olvidó cerrar, limitar a máximo 4 horas
-    const duration = Math.min(rawDuration, 4 * 60 * 60 * 1000);
-    const min = Math.floor(duration / 60000);
-    const sec = Math.round((duration % 60000) / 1000);
-    logActivity({
-      agent_email: agent.email,
-      agent_name: fullName,
-      action: `Terminó: ${manualTask.label} (${min}min ${sec}s)`,
-      category: manualTask.type,
-      duration_ms: duration,
-      metadata: { manual: true, task: manualTask.label, subcategory: manualTask.subcategory, duration_seconds: Math.round(duration / 1000) },
-    });
+    const now = Date.now();
+    const taskStartDateStr = new Date(manualTask.start).toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
+    const todayDateStr = new Date(now).toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
+    const isSameDay = taskStartDateStr === todayDateStr;
+
+    // Si la labor se inició un día anterior o hace más de 8 horas, pertenece a la jornada anterior y no se acumula hoy
+    let duration = 0;
+    if (isSameDay) {
+      const rawDuration = now - manualTask.start;
+      duration = Math.min(rawDuration, 4 * 60 * 60 * 1000);
+    }
+
+    if (duration > 0) {
+      const min = Math.floor(duration / 60000);
+      const sec = Math.round((duration % 60000) / 1000);
+      logActivity({
+        agent_email: agent.email,
+        agent_name: fullName,
+        action: `Terminó: ${manualTask.label} (${min}min ${sec}s)`,
+        category: manualTask.type,
+        duration_ms: duration,
+        metadata: { manual: true, task: manualTask.label, subcategory: manualTask.subcategory, duration_seconds: Math.round(duration / 1000) },
+      });
+    }
     setManualTask(null);
     setManualElapsed("");
     try {

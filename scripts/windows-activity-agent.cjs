@@ -339,12 +339,23 @@ async function poll() {
     // 1. Validar jerarquía de horario: Empleado individual -> Horario operativo global
     const sched = await getEffectiveSchedule(AGENT_EMAIL);
     if (!isWithinSchedule(sched)) {
+      // Al salir de horario, reiniciar estado para que no acumule tiempo nocturno
+      _enterTime = 0;
+      _lastLabel = '';
+      _lastTitle = '';
+      _lastProcess = '';
       return;
+    }
+
+    // Al reingresar al horario o tras una pausa prolongada, reiniciar enterTime
+    if (!_enterTime || (Date.now() - _enterTime > 2 * 3600 * 1000)) {
+      _enterTime = Date.now();
     }
 
     // 2. Si el agente tiene labor manual activa (almuerzo, taller, etc.), no registrar ventanas de PC
     const hasManual = await checkActiveManualTask(AGENT_EMAIL);
     if (hasManual) {
+      _enterTime = Date.now();
       return;
     }
 
@@ -368,13 +379,19 @@ async function poll() {
       tLower.includes('mystify') ||
       !title
     ) {
+      // Reiniciar enterTime para que el protector de pantalla o bloqueo no acumule horas fantasma
+      _enterTime = now;
+      _lastLabel = '';
+      _lastTitle = '';
       return;
     }
 
     const { category, label, context, context_type } = categorizeWindow(procName, title);
 
     if (label !== _lastLabel || (title !== _lastTitle && Math.abs(now - _enterTime) > 30000)) {
-      const dwellMs = now - _enterTime;
+      const rawDwell = now - _enterTime;
+      // Tope de seguridad: ninguna ventana continua puede acumular más de 30 min en un solo bloque
+      const dwellMs = Math.min(rawDwell, 30 * 60 * 1000);
       
       const minDwell = _lastContextType === 'system' ? 60000 : MIN_SESSION_MS;
       if (_lastLabel && dwellMs >= minDwell) {
