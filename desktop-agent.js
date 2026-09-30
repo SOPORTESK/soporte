@@ -13,7 +13,11 @@ const { execFileSync } = require("child_process");
 
 async function getActiveWindow() {
   try {
-    const exePath = path.join(__dirname, "scripts", "get-active-win.exe");
+    const exeCandidates = [
+      path.join(__dirname, "scripts", "get-active-win-url.exe"),
+      path.join(__dirname, "scripts", "get-active-win.exe")
+    ];
+    const exePath = exeCandidates.find(p => fs.existsSync(p)) || exeCandidates[1];
     if (fs.existsSync(exePath)) {
       const out = execFileSync(exePath, { encoding: "utf8", timeout: 1500, windowsHide: true });
       if (out && out.trim().startsWith("{")) {
@@ -22,9 +26,11 @@ async function getActiveWindow() {
         const procTitle = parsed.Title || parsed.title || '';
         const procPath = parsed.Path || parsed.path || '';
         const procPid = parsed.Id || parsed.pid || 0;
+        const procUrl = parsed.URL || parsed.url || '';
         if (procName && procName !== "Unknown" && procName !== "Idle" && procName !== "") {
           return {
             title: procTitle,
+            url: procUrl,
             owner: { name: procName.replace(/\.exe$/i, ""), path: procPath, processId: procPid }
           };
         }

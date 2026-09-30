@@ -7,9 +7,10 @@ require('dotenv').config({ path: 'C:\\Users\\Taller SK\\Documents\\PROYECTOS\\Ch
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 const ps1Path = path.join(__dirname, 'get_active_win.ps1');
 
-function categorizeWindow(processName, title) {
+function categorizeWindow(processName, title, url = '') {
   const p = (processName || '').toLowerCase();
   const t = (title || '').toLowerCase();
+  const u = (url || '').toLowerCase();
 
   let context = t;
   let context_type = 'app';
@@ -40,6 +41,17 @@ function categorizeWindow(processName, title) {
     context = cleanContext;
     context_type = 'web';
     const lowerClean = cleanContext.toLowerCase();
+
+    // Detección directa por URL
+    if (u) {
+      if (u.includes('odoo')) return { category: 'Atención de tickets', label: 'Odoo ERP', context: cleanContext || 'Odoo ERP', context_type };
+      if (u.includes('localhost:3100') || u.includes('sekunet.com')) return { category: 'Operativa', label: 'Seka Chat', context: cleanContext || 'Seka Chat', context_type };
+      if (u.includes('hikvision') || u.includes('hik-partner') || u.includes('cloudsso')) return { category: 'Soporte', label: 'Hikvision', context: cleanContext || 'Hikvision', context_type };
+      if (u.includes('supabase')) return { category: 'Control Administrativo', label: 'Supabase', context: 'Consola Supabase', context_type };
+      if (u.includes('youtube')) return { category: 'No Laboral', label: 'YouTube', context: cleanContext, context_type };
+      if (u.includes('facebook') || u.includes('instagram') || u.includes('tiktok') || u.includes('twitter') || u.includes('x.com')) return { category: 'No Laboral', label: 'Redes Sociales', context: cleanContext, context_type };
+      if (u.includes('github') || u.includes('stackoverflow')) return { category: 'Investigación y desarrollo', label: 'Documentación / GitHub', context: cleanContext, context_type };
+    }
 
     // Odoo ERP (tickets #04xxx, cotizaciones, presupuestos, portal Odoo, pedidos S1xxxx)
     if (
@@ -94,6 +106,15 @@ function categorizeWindow(processName, title) {
     ];
     if (genericWebTitles.includes(lowerClean) || genericWebTitles.some(g => lowerClean === g || lowerClean.startsWith(g + ' '))) {
       return { category: 'Utilidades', label: 'Navegador Web', context: cleanContext || 'Navegación Web', context_type };
+    }
+
+    // Si hay URL capturada, usar el dominio limpio como nombre de software
+    if (url) {
+      try {
+        const uObj = new URL(url.startsWith('http') ? url : `https://${url}`);
+        const domain = uObj.hostname.replace(/^www\./, '');
+        return { category: 'Utilidades', label: domain, context: cleanContext || domain, context_type };
+      } catch {}
     }
 
     const cleanTitle = cleanContext.split(' - ')[0] || cleanContext;
@@ -203,7 +224,11 @@ function formatExecutiveAction(category, label, context, durationMs) {
     : `${label}${durStr}`;
 }
 
-const exePath = path.join(__dirname, 'get-active-win.exe');
+const exeCandidates = [
+  path.join(__dirname, 'get-active-win-url.exe'),
+  path.join(__dirname, 'get-active-win.exe')
+];
+const exePath = exeCandidates.find(p => fs.existsSync(p)) || exeCandidates[1];
 
 function getActiveWindow() {
   return new Promise((resolve) => {
@@ -221,6 +246,7 @@ function getActiveWindow() {
 
 let _lastProcess = '';
 let _lastTitle = '';
+let _lastUrl = '';
 let _lastLabel = '';
 let _lastCategory = '';
 let _lastContext = '';
@@ -399,6 +425,7 @@ async function poll() {
 
     const procName = win.Process || 'Unknown';
     const title = win.Title || '';
+    const url = win.URL || '';
     const now = Date.now();
 
     const pLower = procName.toLowerCase();
@@ -418,10 +445,11 @@ async function poll() {
       _enterTime = now;
       _lastLabel = '';
       _lastTitle = '';
+      _lastUrl = '';
       return;
     }
 
-    const { category, label, context, context_type } = categorizeWindow(procName, title);
+    const { category, label, context, context_type } = categorizeWindow(procName, title, url);
 
     if (label !== _lastLabel || (title !== _lastTitle && Math.abs(now - _enterTime) > 30000)) {
       const rawDwell = now - _enterTime;
@@ -442,6 +470,7 @@ async function poll() {
             label: _lastLabel,
             process: _lastProcess,
             title: _lastTitle,
+            url: _lastUrl || undefined,
             source: 'desktop',
             duration_seconds: Math.round(dwellMs / 1000),
             context: _lastContext,
@@ -454,6 +483,7 @@ async function poll() {
 
       _lastProcess = procName;
       _lastTitle = title;
+      _lastUrl = url;
       _lastLabel = label;
       _lastCategory = category;
       _lastContext = context;
@@ -461,6 +491,10 @@ async function poll() {
       _enterTime = now;
       _lastHeartbeat = now;
     } else {
+      // Actualizar URL si se navegó dentro de la misma app/pestaña
+      if (url && url !== _lastUrl) {
+        _lastUrl = url;
+      }
       // Punto de control cada 5 minutos continuos
       if (now - _lastHeartbeat >= HEARTBEAT_INTERVAL) {
         _lastHeartbeat = now;
@@ -477,6 +511,7 @@ async function poll() {
             label,
             process: procName,
             title,
+            url: url || _lastUrl || undefined,
             source: 'desktop',
             dwell_seconds: Math.round(dwellMs / 1000),
             context,

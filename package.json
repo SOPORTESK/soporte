@@ -30,7 +30,8 @@
     ],
     "asarUnpack": [
       "**/*.{node,dll}",
-      "**/scripts/get-active-win.exe"
+      "**/scripts/get-active-win.exe",
+      "**/scripts/get-active-win-url.exe"
     ],
     "directories": {
       "output": "release"

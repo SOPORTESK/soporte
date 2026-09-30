@@ -10,6 +10,9 @@ const os = require('os');
 // Native Win32 active window detector — 100% reliable on Windows 10/11
 function findActiveWinExe() {
   const candidates = [
+    path.join(__dirname, '../scripts/get-active-win-url.exe'),
+    path.join(__dirname, '../scripts/get-active-win-url.exe').replace('app.asar', 'app.asar.unpacked'),
+    path.join(process.resourcesPath || '', 'app.asar.unpacked/scripts/get-active-win-url.exe'),
     path.join(__dirname, '../scripts/get-active-win.exe'),
     path.join(__dirname, '../scripts/get-active-win.exe').replace('app.asar', 'app.asar.unpacked'),
     path.join(process.resourcesPath || '', 'app.asar.unpacked/scripts/get-active-win.exe'),
@@ -33,9 +36,11 @@ async function getActiveWindow() {
         const procTitle = parsed.Title || parsed.title || '';
         const procPath = parsed.Path || parsed.path || '';
         const procPid = parsed.Id || parsed.pid || 0;
+        const procUrl = parsed.URL || parsed.url || '';
         if (procName && procName !== 'Unknown' && procName !== 'Idle' && procName !== '') {
           return {
             title: procTitle,
+            url: procUrl,
             owner: { name: procName.replace(/\.exe$/i, ''), path: procPath, processId: procPid }
           };
         }
@@ -91,6 +96,7 @@ let _agentEmail = null;
 let _agentName = null;
 let _lastApp = null;
 let _lastTitle = null;
+let _lastUrl = null;
 let _appEnterTime = Date.now();
 let _lastActivityTime = Date.now();
 let _isIdle = false;
@@ -106,7 +112,7 @@ let _clickCount = 0;
 let _screenshotsDir = null;
 
 // ─── CATEGORIZE APP ───────────────────────────────────────────────────────────
-function categorizeApp(appName, title) {
+function categorizeApp(appName, title, url = '') {
   const app = (appName || '').toLowerCase();
   const t = (title || '').toLowerCase();
 
@@ -173,9 +179,34 @@ function categorizeApp(appName, title) {
   }
 
   if (app.includes('chrome') || app.includes('firefox') || app.includes('edge') || app.includes('brave') || app.includes('opera') || app.includes('browser')) {
-    context = t.replace(/\s*[-–]\s*(Brave|Google Chrome|Microsoft Edge|Firefox|Opera).*$/i, '').trim();
+    let cleanContext = (title || '').replace(/\s*[-–—]\s*(Brave|Google Chrome|Microsoft Edge|Firefox|Opera).*$/i, '').trim();
+    cleanContext = cleanContext.replace(/^\(\d+\+?\)\s*/, '').replace(/^\*\s*/, '').trim();
+    context = cleanContext;
     context_type = 'web';
-    if (t.includes('odoo')) return { category: 'Atención de tickets', label: 'Odoo ERP', context, context_type };
+    const lowerClean = cleanContext.toLowerCase();
+    const uLower = (url || '').toLowerCase();
+
+    // Detección directa por URL
+    if (uLower) {
+      if (uLower.includes('odoo')) return { category: 'Atención de tickets', label: 'Odoo ERP', context: cleanContext || 'Odoo ERP', context_type };
+      if (uLower.includes('localhost:3100') || uLower.includes('sekunet.com')) return { category: 'Navegación', label: 'Seka Chat', context: cleanContext || 'Seka Chat', context_type };
+      if (uLower.includes('hikvision') || uLower.includes('hik-partner') || uLower.includes('cloudsso')) return { category: 'Soporte técnico', label: 'Hikvision', context: cleanContext || 'Hikvision', context_type };
+      if (uLower.includes('supabase')) return { category: 'Investigación y desarrollo', label: 'Supabase', context: 'Consola Supabase', context_type };
+      if (uLower.includes('youtube')) return { category: 'Navegación', label: 'YouTube', context: cleanContext, context_type };
+      if (uLower.includes('github') || uLower.includes('stackoverflow')) return { category: 'Investigación y desarrollo', label: 'Documentación / GitHub', context: cleanContext, context_type };
+    }
+
+    // Odoo ERP (tickets #04xxx, cotizaciones, presupuestos, portal Odoo, pedidos S1xxxx)
+    if (
+      lowerClean.includes('odoo') ||
+      /#\d{4,6}/.test(lowerClean) ||
+      lowerClean.includes('cotizaciones') ||
+      lowerClean.includes('presupuesto') ||
+      /\b[sS]\d{5}\b/.test(lowerClean)
+    ) {
+      return { category: 'Atención de tickets', label: 'Odoo ERP', context: cleanContext || 'Odoo ERP', context_type };
+    }
+
     if (t.includes('tienda 3d') || t.includes('tienda3d') || t.includes('rma') || t.includes('garantía') || t.includes('garantia') || t.includes('warranty'))
       return { category: 'Trámites de garantías', label: `Garantías - ${title.split(' - ').slice(-2)[0] || title.substring(0, 40)}`, context, context_type };
     if (t.includes('sekunet') || t.includes('seka chat') || t.includes('localhost:3100'))
@@ -184,17 +215,27 @@ function categorizeApp(appName, title) {
       return { category: 'Investigación y desarrollo', label: `Investigación - ${title.split(' - ').slice(-2)[0] || title.substring(0, 40)}`, context, context_type };
     if (t.includes('linkedin')) return { category: 'Navegación', label: 'LinkedIn', context, context_type };
     if (t.includes('youtube')) return { category: 'Navegación', label: 'YouTube', context, context_type };
-    const parts = title.split(' - ');
-    const site = parts.length >= 2 ? parts[parts.length - 2] : title.substring(0, 40);
-    const lowerSite = (site || '').toLowerCase().trim();
-    if (
-      lowerSite === 'login' || lowerSite.startsWith('login ') ||
-      lowerSite === 'iniciar sesión' || lowerSite === 'iniciar sesion' || lowerSite.startsWith('iniciar sesi') ||
-      lowerSite === 'sign in' || lowerSite === 'auth' || lowerSite === 'acceso' ||
-      lowerSite === 'nueva pestaña' || lowerSite === 'new tab' || lowerSite === 'bienvenido'
-    ) {
+
+    const genericWebTitles = [
+      'nuevo', 'nueva pestaña', 'new tab', 'iniciar sesión', 'iniciar sesion',
+      'login', 'sign in', 'acceso', 'acceder', 'sin título', 'sin titulo',
+      'bienvenido', 'home', 'inicio', 'configuración', 'configuracion',
+      '500: internal server error', 'error'
+    ];
+    if (genericWebTitles.includes(lowerClean) || genericWebTitles.some(g => lowerClean === g || lowerClean.startsWith(g + ' '))) {
       return { category: 'Navegación', label: 'Navegador Web', context: 'Navegación Web', context_type: 'web' };
     }
+
+    if (url) {
+      try {
+        const uObj = new URL(url.startsWith('http') ? url : `https://${url}`);
+        const domain = uObj.hostname.replace(/^www\./, '');
+        return { category: 'Navegación', label: domain, context: cleanContext || domain, context_type: 'web' };
+      } catch {}
+    }
+
+    const parts = cleanContext.split(' - ');
+    const site = parts.length >= 2 ? parts[parts.length - 2] : cleanContext.substring(0, 40);
     return { category: 'Navegación', label: `Navegador: ${site}`, context, context_type };
   }
   if (t.includes('sekunet') || t.includes('seka chat') || t.includes('localhost:3100'))
@@ -440,10 +481,10 @@ async function pollActivity() {
       if (!_isIdle && _lastApp) {
         const dwellSec = Math.round((Date.now() - _appEnterTime) / 1000);
         if (Date.now() - _appEnterTime >= 10000) {
-          const { category, label } = categorizeApp(_lastApp, _lastTitle);
-          await sendLog(`Dejó de usar "${label}" (pantalla bloqueada) después de ${formatDwell(dwellSec)}`, category, { app: _lastApp, title: _lastTitle, dwell_seconds: dwellSec, reason: 'no_window' });
+          const { category, label } = categorizeApp(_lastApp, _lastTitle, _lastUrl);
+          await sendLog(`Dejó de usar "${label}" (pantalla bloqueada) después de ${formatDwell(dwellSec)}`, category, { app: _lastApp, title: _lastTitle, url: _lastUrl || undefined, dwell_seconds: dwellSec, reason: 'no_window' });
         }
-        _lastApp = null; _lastTitle = null;
+        _lastApp = null; _lastTitle = null; _lastUrl = null;
       }
       _isIdle = true;
       return;
@@ -452,18 +493,20 @@ async function pollActivity() {
     _isIdle = false;
     const appName = win.owner?.name || 'Unknown';
     const title = win.title || '';
+    const url = win.url || '';
     const now = Date.now();
 
     if (appName !== _lastApp) {
       const dwellMs = now - _appEnterTime;
       if (_lastApp && dwellMs >= 15000) {
-        const lastCatInfo = categorizeApp(_lastApp, _lastTitle);
+        const lastCatInfo = categorizeApp(_lastApp, _lastTitle, _lastUrl);
         const execAction = formatExecutiveAction(lastCatInfo.category, lastCatInfo.label, lastCatInfo.context, dwellMs);
         await sendLog(execAction, lastCatInfo.category, {
           app: _lastApp,
           app_name: lastCatInfo.label,
           label: lastCatInfo.label,
           title: _lastTitle,
+          url: _lastUrl || undefined,
           dwell_seconds: Math.round(dwellMs / 1000),
           duration_ms: dwellMs,
           source: 'desktop',
@@ -472,18 +515,20 @@ async function pollActivity() {
           executive_report: true
         });
       }
-      _lastApp = appName; _lastTitle = title;
+      _lastApp = appName; _lastTitle = title; _lastUrl = url;
       _appEnterTime = now; _lastActivityTime = now; _lastHeartbeatSec = 0;
     } else if (title !== _lastTitle) {
       _lastTitle = title;
+      if (url) _lastUrl = url;
       _lastActivityTime = now;
     } else {
+      if (url && url !== _lastUrl) _lastUrl = url;
       _lastActivityTime = now;
       const dwellSec = Math.round((now - _appEnterTime) / 1000);
       const heartbeatBucket = Math.floor(dwellSec / HEARTBEAT_EVERY);
       if (heartbeatBucket > _lastHeartbeatSec && dwellSec >= HEARTBEAT_EVERY) {
         _lastHeartbeatSec = heartbeatBucket;
-        const catInfo = categorizeApp(appName, title);
+        const catInfo = categorizeApp(appName, title, url || _lastUrl);
         const dwellMs = now - _appEnterTime;
         const execAction = formatExecutiveAction(catInfo.category, catInfo.label, catInfo.context, dwellMs);
         await sendLog(execAction, catInfo.category, {
@@ -491,6 +536,7 @@ async function pollActivity() {
           app_name: catInfo.label,
           label: catInfo.label,
           title: title.substring(0, 100),
+          url: url || _lastUrl || undefined,
           dwell_seconds: dwellSec,
           duration_ms: HEARTBEAT_EVERY * 1000,
           source: 'desktop',
