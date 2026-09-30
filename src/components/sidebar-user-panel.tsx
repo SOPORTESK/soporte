@@ -1842,33 +1842,7 @@ export function SidebarUserPanel({
                                     <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
                                   </span>
                                 )}
-                                <Icon className={`h-5 w-5 transition-transform group-hover:scale-110 ${isCurrent ? "text-amber-300 animate-pulse" : ""}`} />
                               </button>
-
-                              {/* Tooltip flotante con anclaje inteligente a bordes para evitar recortes */}
-                              <div className={`pointer-events-none absolute bottom-full mb-2 w-max max-w-[210px] opacity-0 group-hover:opacity-100 transition-all duration-150 transform group-hover:-translate-y-1 z-50 ${
-                                col === 0
-                                  ? "left-0 translate-x-0"
-                                  : col === 3
-                                    ? "right-0 translate-x-0"
-                                    : "left-1/2 -translate-x-1/2"
-                              }`}>
-                                <div className="bg-popover text-popover-foreground border border-border/90 shadow-2xl px-2.5 py-1.5 rounded-xl text-center backdrop-blur-md">
-                                  <p className="text-xs font-bold leading-snug whitespace-normal break-words">{displayLabel}</p>
-                                  {task.category && (
-                                    <p className="text-[10px] text-amber-500 dark:text-amber-400 font-semibold uppercase tracking-wider mt-0.5 whitespace-normal break-words">
-                                      {task.category}
-                                    </p>
-                                  )}
-                                </div>
-                                <div className={`w-2 h-2 bg-popover border-r border-b border-border/90 transform rotate-45 -mt-1 ${
-                                  col === 0
-                                    ? "ml-5"
-                                    : col === 3
-                                      ? "ml-auto mr-5"
-                                      : "mx-auto"
-                                }`} />
-                              </div>
                             </div>
                           );
                         })}
