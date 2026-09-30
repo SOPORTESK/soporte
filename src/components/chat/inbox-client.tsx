@@ -651,10 +651,18 @@ export function InboxClient({
           }, 150);
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+          console.warn(`[inbox] canal realtime ${status}, reintentando en 2s...`);
+          setTimeout(() => { try { channel.subscribe(); } catch {} }, 2000);
+        }
+      });
 
-    /* Polling de respaldo cada 120s con metadatos ligeros (máx 300 casos) */
-    const poll = setInterval(async () => {
+    /* Refetch silencioso: reutilizado por polling y por focus/visibility */
+    let lastRefetch = Date.now();
+    const doRefetch = async () => {
+      if (Date.now() - lastRefetch < 10000) return; // throttle 10s
+      lastRefetch = Date.now();
       try {
         if (containerType === "mi-gestion" && !agentEmail) return;
         const fetchEmail = containerType === "mi-gestion" ? (agentEmail || undefined) : undefined;
@@ -675,23 +683,28 @@ export function InboxClient({
         if (currentSelected && !filteredNewCases.some(c => String(c.id) === String(currentSelected.id))) {
           filteredNewCases.unshift(currentSelected);
         }
-        const prevTotal = prevCasesRef.current.length;
-        const prevUnread = prevCasesRef.current.reduce((s, c) => s + (c.unread_count || 0), 0);
-        const newTotal = filteredNewCases.length;
-        const newUnread = filteredNewCases.reduce((s, c) => s + (c.unread_count || 0), 0);
-        if (newTotal !== prevTotal || newUnread !== prevUnread) {
-          setCases(filteredNewCases);
-          prevCasesRef.current = filteredNewCases;
-          prevMergedRef.current = mergeGroups(filteredNewCases);
-        }
+        setCases(filteredNewCases);
+        prevCasesRef.current = filteredNewCases;
+        prevMergedRef.current = mergeGroups(filteredNewCases);
       } catch (e) {
-        console.error("[inbox] fetchCasesMeta poll error:", e);
+        console.error("[inbox] refetch error:", e);
       }
-    }, 120000);
+    };
+
+    /* Polling de respaldo cada 120s */
+    const poll = setInterval(doRefetch, 120000);
+
+    /* Refetch inmediato al volver a la ventana (cubre Electron en segundo plano) */
+    const handleFocus = () => doRefetch();
+    const handleVisibility = () => { if (document.visibilityState === "visible") doRefetch(); };
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibility);
 
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer);
       clearInterval(poll);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibility);
       supabase.removeChannel(channel);
     };
   }, [supabase, containerType, agentEmail, agentName, selectCase]);
