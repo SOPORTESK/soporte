@@ -5,7 +5,7 @@ import Link from "next/link";
 import {
   MessageSquare, BarChart3, Bot, ArrowDownLeft, ArrowUpRight, Download, FileText,
   ExternalLink, Clock, Activity, TrendingUp, TrendingDown, Minus, Users, Wrench,
-  Sun, Moon, Info, Sparkles, Filter
+  Sun, Moon, Info, Sparkles, Filter, Table, BarChart2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { exportToExcel, exportToCSV } from "@/lib/export-utils";
@@ -94,7 +94,8 @@ export function MessageVolumeTabs({
 
   const maxAgentMsgs = Math.max(...stats.agentStats.map(a => Math.max(a.enviados, a.recibidos)), 1);
 
-  // ── Segmentación y Rango de la Distribución Horaria ──
+  // ── Segmentación, Rango y Modo de Visualización (Tabla Horizontal vs Barras) ──
+  const [hourlyDisplayMode, setHourlyDisplayMode] = React.useState<"tabla" | "grafica">("tabla");
   const [hourlySegment, setHourlySegment] = React.useState<"total" | "clientes" | "tecnicos" | "ia">("total");
   const [hourRangeMode, setHourRangeMode] = React.useState<"jornada" | "24h">("jornada");
   const [hoveredHour, setHoveredHour] = React.useState<number | null>(null);
@@ -562,6 +563,354 @@ export function MessageVolumeTabs({
             </div>
           </div>
 
+          {/* Distribución Horaria y Horas Pico (Horizontal, Ancho Completo, Matriz o Barras) */}
+          {maxHoraMsgs > 0 && (
+            <div className="rounded-2xl border border-border/60 bg-card p-4 space-y-3 shadow-sm w-full">
+              {/* Encabezado: Título + Badge Pico + Segmentos + Rango + Toggle Vista + Descargas */}
+              <div className="flex flex-wrap items-center justify-between gap-2.5">
+                {/* Lado izquierdo: Título + Badge Hora Pico */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="h-7 w-7 rounded-lg bg-amber-500/10 text-amber-400 grid place-items-center shrink-0 border border-amber-500/20">
+                    <Clock className="h-3.5 w-3.5" />
+                  </div>
+                  <h3 className="text-xs font-black text-foreground">Distribución Horaria y Tráfico</h3>
+                  
+                  {/* Badge Hora Pico Compacto */}
+                  <div className="px-2 py-0.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[11px] font-bold flex items-center gap-1">
+                    <span>🔥 Pico:</span>
+                    <strong className="font-black text-foreground">{horaPicoIndex >= 0 ? formatHoraLabel(horaPicoIndex) : "—"}</strong>
+                    <span className="opacity-80">({maxHoraMsgs.toLocaleString()} msgs)</span>
+                  </div>
+
+                  {/* Resumen rápido Mañana / Tarde / Fuera */}
+                  <span className="text-[10px] text-muted-foreground hidden xl:inline">
+                    · Mañana: <strong className="text-foreground">{hourlySummary.mananaPct}%</strong> · Tarde: <strong className="text-foreground">{hourlySummary.tardePct}%</strong> · Fuera: <strong className="text-foreground">{hourlySummary.fueraHorarioPct}%</strong>
+                  </span>
+                </div>
+
+                {/* Lado derecho: Toggle Vista (Tabla / Gráfica) + Segmentos + Rango + Descargas */}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {/* Selector Vista: Tabla Horizontal vs Gráfica */}
+                  <div className="inline-flex p-0.5 rounded-lg bg-muted/60 border border-border/60 text-[11px] font-bold gap-0.5">
+                    <button
+                      onClick={() => setHourlyDisplayMode("tabla")}
+                      className={cn(
+                        "flex items-center gap-1 px-2 py-0.5 rounded-md transition-all text-[11px]",
+                        hourlyDisplayMode === "tabla"
+                          ? "bg-card text-foreground font-black shadow-sm"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                      title="Ver como tabla / matriz horizontal completa"
+                    >
+                      <Table className="h-3 w-3" />
+                      <span>Tabla</span>
+                    </button>
+                    <button
+                      onClick={() => setHourlyDisplayMode("grafica")}
+                      className={cn(
+                        "flex items-center gap-1 px-2 py-0.5 rounded-md transition-all text-[11px]",
+                        hourlyDisplayMode === "grafica"
+                          ? "bg-card text-foreground font-black shadow-sm"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                      title="Ver como gráfica de barras continua"
+                    >
+                      <BarChart2 className="h-3 w-3" />
+                      <span>Barras</span>
+                    </button>
+                  </div>
+
+                  {/* Segmentos de rol (mini píldoras) */}
+                  <div className="inline-flex p-0.5 rounded-lg bg-muted/60 border border-border/60 text-[11px] font-bold gap-0.5">
+                    {[
+                      { key: "total", label: "Todos", count: stats.totalGlobal },
+                      { key: "clientes", label: "Clientes", count: stats.totalClientes },
+                      { key: "tecnicos", label: "Técnicos", count: stats.totalTecnicos },
+                      { key: "ia", label: "IA", count: stats.totalIA },
+                    ].map((tab) => {
+                      const isActive = hourlySegment === tab.key;
+                      return (
+                        <button
+                          key={tab.key}
+                          onClick={() => setHourlySegment(tab.key as any)}
+                          className={cn(
+                            "px-2 py-0.5 rounded-md transition-all text-[11px]",
+                            isActive
+                              ? "bg-card text-foreground font-black shadow-sm"
+                              : "text-muted-foreground hover:text-foreground"
+                          )}
+                          title={`${tab.label}: ${tab.count.toLocaleString()} mensajes`}
+                        >
+                          {tab.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Toggle Jornada / 24h mini */}
+                  <div className="inline-flex p-0.5 rounded-lg bg-muted/60 border border-border/60 text-[11px] font-bold gap-0.5">
+                    <button
+                      onClick={() => setHourRangeMode("jornada")}
+                      className={cn(
+                        "px-1.5 py-0.5 rounded-md transition-all text-[10px]",
+                        hourRangeMode === "jornada"
+                          ? "bg-card text-foreground font-black shadow-sm"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      6h–20h
+                    </button>
+                    <button
+                      onClick={() => setHourRangeMode("24h")}
+                      className={cn(
+                        "px-1.5 py-0.5 rounded-md transition-all text-[10px]",
+                        hourRangeMode === "24h"
+                          ? "bg-card text-foreground font-black shadow-sm"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      24h
+                    </button>
+                  </div>
+
+                  {/* Descarga mini Excel / CSV */}
+                  <button
+                    onClick={handleExportHorasExcel}
+                    title="Descargar tabla horaria en Excel (.xlsx)"
+                    className="p-1 px-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 text-[11px] font-bold flex items-center gap-1"
+                  >
+                    <Download className="h-3 w-3" />
+                    <span className="hidden sm:inline">Excel</span>
+                  </button>
+                  <button
+                    onClick={handleExportHorasCSV}
+                    title="Descargar tabla horaria en CSV"
+                    className="p-1 px-1.5 rounded-lg border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-muted text-[11px] font-bold flex items-center gap-1"
+                  >
+                    <FileText className="h-3 w-3" />
+                    <span className="hidden sm:inline">CSV</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* VISTA 1: TABLA HORIZONTAL MATRICIAL (A todo lo ancho horizontal) */}
+              {hourlyDisplayMode === "tabla" ? (
+                <div className="overflow-x-auto border border-border/50 rounded-xl bg-background/40">
+                  <table className="w-full text-xs text-center border-collapse">
+                    <thead>
+                      <tr className="border-b border-border/60 bg-muted/40 text-[11px]">
+                        <th className="py-2 px-3 text-left font-bold text-muted-foreground sticky left-0 bg-card/95 backdrop-blur-sm z-10 whitespace-nowrap min-w-[90px]">
+                          Actor / Métrica
+                        </th>
+                        {displayHoursIndices.map((h) => {
+                          const isPeak = h === horaPicoIndex;
+                          const isLaboral = h >= 8 && h < 17;
+                          return (
+                            <th
+                              key={h}
+                              className={cn(
+                                "py-1.5 px-2 font-bold whitespace-nowrap border-l border-border/30",
+                                isPeak
+                                  ? "bg-amber-500/20 text-amber-400 font-black"
+                                  : isLaboral
+                                  ? "text-foreground"
+                                  : "text-muted-foreground opacity-60"
+                              )}
+                            >
+                              <div>{formatHoraLabel(h)}</div>
+                              {isLaboral && <span className="block text-[8px] text-emerald-500 font-semibold leading-none">Taller</span>}
+                            </th>
+                          );
+                        })}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/30 text-[11px]">
+                      {/* Fila Total */}
+                      <tr className={cn(hourlySegment === "total" ? "bg-sky-500/[0.06]" : "hover:bg-muted/30")}>
+                        <td className="py-1.5 px-3 text-left font-black text-foreground sticky left-0 bg-card/95 backdrop-blur-sm z-10 whitespace-nowrap">
+                          Total
+                        </td>
+                        {displayHoursIndices.map((h) => {
+                          const count = rawTotalHoras[h] || 0;
+                          const isPeak = h === horaPicoIndex && count > 0;
+                          return (
+                            <td
+                              key={h}
+                              className={cn(
+                                "py-1.5 px-2 tabular-nums border-l border-border/30",
+                                isPeak
+                                  ? "bg-amber-500/25 text-amber-300 font-black"
+                                  : count > 0
+                                  ? "text-foreground font-bold"
+                                  : "text-muted-foreground/40"
+                              )}
+                            >
+                              {count > 0 ? count.toLocaleString() : "—"}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                      {/* Fila Clientes */}
+                      <tr className={cn(hourlySegment === "clientes" ? "bg-emerald-500/[0.06]" : "hover:bg-muted/30")}>
+                        <td className="py-1.5 px-3 text-left font-bold text-emerald-400 sticky left-0 bg-card/95 backdrop-blur-sm z-10 whitespace-nowrap">
+                          👤 Clientes
+                        </td>
+                        {displayHoursIndices.map((h) => {
+                          const count = rawClientesHoras[h] || 0;
+                          return (
+                            <td key={h} className="py-1.5 px-2 tabular-nums text-emerald-400/90 font-medium border-l border-border/30">
+                              {count > 0 ? count.toLocaleString() : "—"}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                      {/* Fila Técnicos */}
+                      <tr className={cn(hourlySegment === "tecnicos" ? "bg-violet-500/[0.06]" : "hover:bg-muted/30")}>
+                        <td className="py-1.5 px-3 text-left font-bold text-violet-400 sticky left-0 bg-card/95 backdrop-blur-sm z-10 whitespace-nowrap">
+                          🛠 Técnicos
+                        </td>
+                        {displayHoursIndices.map((h) => {
+                          const count = rawTecnicosHoras[h] || 0;
+                          return (
+                            <td key={h} className="py-1.5 px-2 tabular-nums text-violet-400/90 font-medium border-l border-border/30">
+                              {count > 0 ? count.toLocaleString() : "—"}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                      {/* Fila IA */}
+                      <tr className={cn(hourlySegment === "ia" ? "bg-cyan-500/[0.06]" : "hover:bg-muted/30")}>
+                        <td className="py-1.5 px-3 text-left font-bold text-cyan-400 sticky left-0 bg-card/95 backdrop-blur-sm z-10 whitespace-nowrap">
+                          🤖 IA Sekunet
+                        </td>
+                        {displayHoursIndices.map((h) => {
+                          const count = rawIAHoras[h] || 0;
+                          return (
+                            <td key={h} className="py-1.5 px-2 tabular-nums text-cyan-400/90 font-medium border-l border-border/30">
+                              {count > 0 ? count.toLocaleString() : "—"}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                      {/* Fila % del Día */}
+                      <tr className="hover:bg-muted/30 text-muted-foreground text-[10px]">
+                        <td className="py-1 px-3 text-left font-semibold sticky left-0 bg-card/95 backdrop-blur-sm z-10 whitespace-nowrap">
+                          % del Total
+                        </td>
+                        {displayHoursIndices.map((h) => {
+                          const count = rawTotalHoras[h] || 0;
+                          const pct = totalSegmentMsgs > 0 && count > 0 ? ((count / totalSegmentMsgs) * 100).toFixed(1) + "%" : "—";
+                          return (
+                            <td key={h} className="py-1 px-2 tabular-nums border-l border-border/30">
+                              {pct}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                /* VISTA 2: GRÁFICA DE BARRAS HORIZONTAL CONTINUA (Ancho completo 100%) */
+                <div className="overflow-x-auto pb-1 -mx-1 px-1">
+                  <div
+                    className="w-full gap-1.5 pt-1"
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: `repeat(${displayHoursIndices.length}, minmax(0, 1fr))`
+                    }}
+                  >
+                    {displayHoursIndices.map((h) => {
+                      const count = activeHoras[h] || 0;
+                      const cli = rawClientesHoras[h] || 0;
+                      const tec = rawTecnicosHoras[h] || 0;
+                      const ia = rawIAHoras[h] || 0;
+                      const isLaboral = h >= 8 && h < 17;
+                      const isPeak = h === horaPicoIndex && count > 0;
+                      const pctOfMax = maxHoraMsgs > 0 ? (count / maxHoraMsgs) * 100 : 0;
+                      const pctOfTotal = totalSegmentMsgs > 0 ? ((count / totalSegmentMsgs) * 100).toFixed(1) : "0";
+                      const barHeight = count > 0 ? Math.max(Math.round(pctOfMax), 4) : 0;
+
+                      let barColor = "bg-sky-500 group-hover:bg-sky-400";
+                      if (isPeak) {
+                        barColor = "bg-amber-500 shadow-sm shadow-amber-500/50";
+                      } else if (hourlySegment === "clientes") {
+                        barColor = "bg-emerald-500 group-hover:bg-emerald-400";
+                      } else if (hourlySegment === "tecnicos") {
+                        barColor = "bg-violet-500 group-hover:bg-violet-400";
+                      } else if (hourlySegment === "ia") {
+                        barColor = "bg-cyan-500 group-hover:bg-cyan-400";
+                      } else if (pctOfMax < 25) {
+                        barColor = "bg-sky-500/40 group-hover:bg-sky-500/70";
+                      }
+
+                      const tooltipText = `${formatHoraRangoCompleto(h)} ${isLaboral ? '(Horario Taller)' : '(Fuera de horario)'}\n• Total: ${count.toLocaleString()} msgs (${pctOfTotal}%)\n• Clientes: ${cli.toLocaleString()}\n• Técnicos: ${tec.toLocaleString()}\n• IA: ${ia.toLocaleString()}`;
+
+                      return (
+                        <div
+                          key={h}
+                          title={tooltipText}
+                          className="flex flex-col items-center gap-1 group cursor-pointer"
+                        >
+                          <span
+                            className={cn(
+                              "text-[9px] font-bold h-3 flex items-center transition-colors leading-none",
+                              isPeak ? "text-amber-400 font-black" : "text-muted-foreground group-hover:text-foreground"
+                            )}
+                          >
+                            {count > 0 ? (count >= 1000 ? `${(count / 1000).toFixed(1)}k` : count) : ""}
+                          </span>
+
+                          <div
+                            className={cn(
+                              "w-full h-16 rounded-lg flex items-end p-0.5 overflow-hidden relative border transition-all",
+                              isPeak
+                                ? "bg-amber-500/10 border-amber-500/40"
+                                : isLaboral
+                                ? "bg-sky-500/[0.04] border-sky-500/20 group-hover:border-sky-500/40"
+                                : "bg-muted/20 border-border/30 opacity-70 group-hover:opacity-100"
+                            )}
+                          >
+                            <div
+                              className={cn(
+                                "w-full rounded transition-all duration-300",
+                                barColor,
+                                count === 0 && "opacity-0"
+                              )}
+                              style={{ height: `${barHeight}%` }}
+                            />
+                          </div>
+
+                          <span
+                            className={cn(
+                              "text-[10px] whitespace-nowrap leading-tight",
+                              isPeak
+                                ? "font-black text-amber-400"
+                                : isLaboral
+                                ? "font-bold text-foreground"
+                                : "font-medium text-muted-foreground text-[9px]"
+                            )}
+                          >
+                            {formatHoraLabel(h)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Franja de pie sutil */}
+              <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-1 border-t border-border/30">
+                <span className="flex items-center gap-1.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                  <span>Horario de atención oficial: <strong className="text-foreground">8:00 AM – 5:00 PM</strong></span>
+                </span>
+                <span className="text-[10px] hidden sm:inline">Pase el cursor sobre cualquier celda o barra para auditar el desglose completo</span>
+              </div>
+            </div>
+          )}
+
           {/* Grillas de Técnicos y Top Clientes */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             {/* Tabla / Comparativa por Técnico (7 columnas en desktop) */}
@@ -688,209 +1037,6 @@ export function MessageVolumeTabs({
               </div>
             </div>
           </div>
-
-          {/* Distribución Horaria y Horas Pico (Ultra-compacto y de alta legibilidad) */}
-          {maxHoraMsgs > 0 && (
-            <div className="rounded-2xl border border-border/60 bg-card p-4 space-y-3 shadow-sm">
-              {/* Encabezado en 1 sola línea: Título + Badge Pico + Segmentos + Rango + Descargas */}
-              <div className="flex flex-wrap items-center justify-between gap-2.5">
-                {/* Lado izquierdo: Título + Badge Hora Pico */}
-                <div className="flex items-center gap-2 flex-wrap">
-                  <div className="h-7 w-7 rounded-lg bg-amber-500/10 text-amber-400 grid place-items-center shrink-0 border border-amber-500/20">
-                    <Clock className="h-3.5 w-3.5" />
-                  </div>
-                  <h3 className="text-xs font-black text-foreground">Horas Pico y Tráfico</h3>
-                  
-                  {/* Badge Hora Pico Compacto */}
-                  <div className="px-2 py-0.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[11px] font-bold flex items-center gap-1">
-                    <span>🔥 Pico:</span>
-                    <strong className="font-black text-foreground">{horaPicoIndex >= 0 ? formatHoraLabel(horaPicoIndex) : "—"}</strong>
-                    <span className="opacity-80">({maxHoraMsgs.toLocaleString()})</span>
-                  </div>
-
-                  {/* Resumen rápido Mañana / Tarde / Fuera */}
-                  <span className="text-[10px] text-muted-foreground hidden xl:inline">
-                    · Mañana: <strong className="text-foreground">{hourlySummary.mananaPct}%</strong> · Tarde: <strong className="text-foreground">{hourlySummary.tardePct}%</strong> · Fuera: <strong className="text-foreground">{hourlySummary.fueraHorarioPct}%</strong>
-                  </span>
-                </div>
-
-                {/* Lado derecho: Filtros de actor + Rango + Descargas en formato mini */}
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  {/* Segmentos de rol (mini píldoras) */}
-                  <div className="inline-flex p-0.5 rounded-lg bg-muted/60 border border-border/60 text-[11px] font-bold gap-0.5">
-                    {[
-                      { key: "total", label: "Todos", count: stats.totalGlobal },
-                      { key: "clientes", label: "Clientes", count: stats.totalClientes },
-                      { key: "tecnicos", label: "Técnicos", count: stats.totalTecnicos },
-                      { key: "ia", label: "IA", count: stats.totalIA },
-                    ].map((tab) => {
-                      const isActive = hourlySegment === tab.key;
-                      return (
-                        <button
-                          key={tab.key}
-                          onClick={() => setHourlySegment(tab.key as any)}
-                          className={cn(
-                            "px-2 py-0.5 rounded-md transition-all text-[11px]",
-                            isActive
-                              ? "bg-card text-foreground font-black shadow-sm"
-                              : "text-muted-foreground hover:text-foreground"
-                          )}
-                          title={`${tab.label}: ${tab.count.toLocaleString()} mensajes`}
-                        >
-                          {tab.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {/* Toggle Jornada / 24h mini */}
-                  <div className="inline-flex p-0.5 rounded-lg bg-muted/60 border border-border/60 text-[11px] font-bold gap-0.5">
-                    <button
-                      onClick={() => setHourRangeMode("jornada")}
-                      className={cn(
-                        "px-1.5 py-0.5 rounded-md transition-all text-[10px]",
-                        hourRangeMode === "jornada"
-                          ? "bg-card text-foreground font-black shadow-sm"
-                          : "text-muted-foreground hover:text-foreground"
-                      )}
-                    >
-                      6h–20h
-                    </button>
-                    <button
-                      onClick={() => setHourRangeMode("24h")}
-                      className={cn(
-                        "px-1.5 py-0.5 rounded-md transition-all text-[10px]",
-                        hourRangeMode === "24h"
-                          ? "bg-card text-foreground font-black shadow-sm"
-                          : "text-muted-foreground hover:text-foreground"
-                      )}
-                    >
-                      24h
-                    </button>
-                  </div>
-
-                  {/* Descarga mini Excel / CSV */}
-                  <button
-                    onClick={handleExportHorasExcel}
-                    title="Descargar tabla horaria en Excel (.xlsx)"
-                    className="p-1 px-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 text-[11px] font-bold flex items-center gap-1"
-                  >
-                    <Download className="h-3 w-3" />
-                    <span className="hidden sm:inline">Excel</span>
-                  </button>
-                  <button
-                    onClick={handleExportHorasCSV}
-                    title="Descargar tabla horaria en CSV"
-                    className="p-1 px-1.5 rounded-lg border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-muted text-[11px] font-bold flex items-center gap-1"
-                  >
-                    <FileText className="h-3 w-3" />
-                    <span className="hidden sm:inline">CSV</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Gráfica de Barras Compacta (64px de altura) */}
-              <div className="overflow-x-auto pb-1 -mx-1 px-1 scrollbar-none">
-                <div
-                  className={cn(
-                    "grid gap-1.5 pt-1",
-                    hourRangeMode === "jornada"
-                      ? "grid-cols-15 min-w-[680px]"
-                      : "grid-cols-24 min-w-[960px]"
-                  )}
-                >
-                  {displayHoursIndices.map((h) => {
-                    const count = activeHoras[h] || 0;
-                    const cli = rawClientesHoras[h] || 0;
-                    const tec = rawTecnicosHoras[h] || 0;
-                    const ia = rawIAHoras[h] || 0;
-                    const isLaboral = h >= 8 && h < 17;
-                    const isPeak = h === horaPicoIndex && count > 0;
-                    const pctOfMax = maxHoraMsgs > 0 ? (count / maxHoraMsgs) * 100 : 0;
-                    const pctOfTotal = totalSegmentMsgs > 0 ? ((count / totalSegmentMsgs) * 100).toFixed(1) : "0";
-                    const barHeight = count > 0 ? Math.max(Math.round(pctOfMax), 4) : 0;
-
-                    let barColor = "bg-sky-500 group-hover:bg-sky-400";
-                    if (isPeak) {
-                      barColor = "bg-amber-500 shadow-sm shadow-amber-500/50";
-                    } else if (hourlySegment === "clientes") {
-                      barColor = "bg-emerald-500 group-hover:bg-emerald-400";
-                    } else if (hourlySegment === "tecnicos") {
-                      barColor = "bg-violet-500 group-hover:bg-violet-400";
-                    } else if (hourlySegment === "ia") {
-                      barColor = "bg-cyan-500 group-hover:bg-cyan-400";
-                    } else if (pctOfMax < 25) {
-                      barColor = "bg-sky-500/40 group-hover:bg-sky-500/70";
-                    }
-
-                    const tooltipText = `${formatHoraRangoCompleto(h)} ${isLaboral ? '(Horario Taller)' : '(Fuera de horario)'}\n• Total: ${count.toLocaleString()} msgs (${pctOfTotal}%)\n• Clientes: ${cli.toLocaleString()}\n• Técnicos: ${tec.toLocaleString()}\n• IA: ${ia.toLocaleString()}`;
-
-                    return (
-                      <div
-                        key={h}
-                        title={tooltipText}
-                        className="flex flex-col items-center gap-1 group cursor-pointer"
-                      >
-                        {/* Número superior */}
-                        <span
-                          className={cn(
-                            "text-[9px] font-bold h-3 flex items-center transition-colors leading-none",
-                            isPeak ? "text-amber-400 font-black" : "text-muted-foreground group-hover:text-foreground"
-                          )}
-                        >
-                          {count > 0 ? (count >= 1000 ? `${(count / 1000).toFixed(1)}k` : count) : ""}
-                        </span>
-
-                        {/* Contenedor de la barra compacta (h-16 = 64px) */}
-                        <div
-                          className={cn(
-                            "w-full h-16 rounded-lg flex items-end p-0.5 overflow-hidden relative border transition-all",
-                            isPeak
-                              ? "bg-amber-500/10 border-amber-500/40"
-                              : isLaboral
-                              ? "bg-sky-500/[0.04] border-sky-500/20 group-hover:border-sky-500/40"
-                              : "bg-muted/20 border-border/30 opacity-70 group-hover:opacity-100"
-                          )}
-                        >
-                          <div
-                            className={cn(
-                              "w-full rounded transition-all duration-300",
-                              barColor,
-                              count === 0 && "opacity-0"
-                            )}
-                            style={{ height: `${barHeight}%` }}
-                          />
-                        </div>
-
-                        {/* Etiqueta de hora */}
-                        <span
-                          className={cn(
-                            "text-[10px] whitespace-nowrap leading-tight",
-                            isPeak
-                              ? "font-black text-amber-400"
-                              : isLaboral
-                              ? "font-bold text-foreground"
-                              : "font-medium text-muted-foreground text-[9px]"
-                          )}
-                        >
-                          {formatHoraLabel(h)}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Franja de pie sutil (1 sola línea discreta) */}
-              <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-1 border-t border-border/30">
-                <span className="flex items-center gap-1.5">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                  <span>Horario de atención oficial: <strong className="text-foreground">8:00 AM – 5:00 PM</strong></span>
-                </span>
-                <span className="text-[10px] hidden sm:inline">Pase el cursor sobre cualquier barra para ver el desglose Clientes / Técnicos / IA</span>
-              </div>
-            </div>
-          )}
         </div>
       )}
     </div>
