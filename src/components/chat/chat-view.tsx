@@ -4065,7 +4065,12 @@ function Bubble({ m, prev, next, clienteName, onImageClick, agentEmail, onMessag
         </div>
 
         {m.mediaUrl && <MediaPreview url={m.mediaUrl} type={m.mediaType} name={m.fileName} onImageClick={onImageClick} />}
-        {!m.mediaUrl && (m.mediaType?.startsWith("video") || m.fileName?.endsWith(".mp4") || (m.content && (m.content.includes("video") || m.content.includes("Video")))) && (
+        {!m.mediaUrl && (
+          m.mediaType?.startsWith("video") ||
+          (m.fileName && /\.(mp4|mov|webm|mkv)$/i.test(m.fileName)) ||
+          m.content?.trim() === "[Video en optimización...]" ||
+          (Boolean(m.content?.trim().startsWith("[Procesando")) && m.content!.toLowerCase().includes("video"))
+        ) && (
           <div className="relative w-[220px] h-[124px] rounded-xl bg-slate-900 flex flex-col items-center justify-center border border-white/10 overflow-hidden shadow-inner my-1">
             <div className="flex flex-col items-center gap-2 text-white/80">
               <div className="w-10 h-10 rounded-full bg-black/40 flex items-center justify-center border border-white/20">
