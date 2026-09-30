@@ -514,7 +514,12 @@ export function ChatView({
     toast.success("Actualizado");
   }
 
-  const [previewMedia, setPreviewMedia] = React.useState<{ url: string; type?: string; name?: string } | null>(null);
+  const [previewMedia, setPreviewMedia] = React.useState<{
+    url: string;
+    type?: string;
+    name?: string;
+    initialIndex?: number;
+  } | null>(null);
 
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const scrollerRef = React.useRef<HTMLDivElement>(null);
@@ -1880,6 +1885,56 @@ export function ChatView({
   const iaAtendiendo = estadoLower === "ia_atendiendo";
   const isEscalado = estadoLower === "escalado";
 
+  // Galería multimedia interactiva del chat para navegación fluida
+  const chatMediaList = React.useMemo(() => {
+    const list: Array<{
+      id?: string | number;
+      url: string;
+      type?: string;
+      name?: string;
+      senderName?: string;
+      time?: string | Date;
+      caption?: string;
+      messageId?: string | number;
+    }> = [];
+
+    for (const msg of (messages || [])) {
+      if (msg.mediaUrl && !msg.deleted) {
+        const t = (msg.mediaType || "").toLowerCase();
+        const ext = (msg.fileName || msg.mediaUrl).split("?")[0].split(".").pop()?.toLowerCase() || "";
+        const isImg = t.startsWith("image/") || ["jpg", "jpeg", "png", "gif", "webp", "svg", "bmp"].includes(ext);
+        const isVid = t.startsWith("video/") || ["mp4", "mov", "webm", "mkv"].includes(ext);
+        const isDoc = t.includes("pdf") || ext === "pdf" || ["xml", "txt", "json", "csv", "log", "html", "htm"].includes(ext);
+        if (isImg || isVid || isDoc) {
+          list.push({
+            id: msg.id,
+            url: msg.mediaUrl,
+            type: msg.mediaType,
+            name: msg.fileName || (isVid ? "Video" : isImg ? "Imagen" : "Documento"),
+            senderName: msg.source === "user" ? (ci.nombre || "Cliente") : msg.authorName || (msg.source === "assistant" ? "IA" : "Técnico"),
+            time: msg.time,
+            caption: msg.content && msg.content !== "── Archivo adjunto ──" ? msg.content : undefined,
+            messageId: msg.id,
+          });
+        }
+      }
+    }
+    return list;
+  }, [messages, ci.nombre]);
+
+  const handleOpenMedia = React.useCallback(
+    (url: string, type?: string, name?: string) => {
+      const idx = chatMediaList.findIndex((item) => item.url === url);
+      setPreviewMedia({
+        url,
+        type,
+        name,
+        initialIndex: idx >= 0 ? idx : 0,
+      });
+    },
+    [chatMediaList]
+  );
+
   async function toggleAutoClosePaused() {
     try {
       const res = await fetch("/api/admin/toggle-auto-close-paused", {
@@ -2708,13 +2763,13 @@ export function ChatView({
                   <div className="flex-1 h-px bg-border" />
                 </div>
               )}
-              <div className={cn("transition-opacity", isSameAuthorAsPrev ? "-mt-0.5" : "mt-2")}>
+              <div id={`msg-${m.id}`} className={cn("transition-opacity", isSameAuthorAsPrev ? "-mt-0.5" : "mt-2")}>
                 <Bubble
                   m={m}
                   prev={prev}
                   next={next}
                   clienteName={ci.nombre}
-                  onImageClick={(url, type, name) => setPreviewMedia({ url, type, name })}
+                  onImageClick={handleOpenMedia}
                   agentEmail={agentEmail}
                   onMessageUpdate={handleMessageUpdate}
                   fallbackCaseId={targetId}
@@ -3223,12 +3278,25 @@ export function ChatView({
         currentCase={sekCase}
       />
 
-      {/* Visor de medios con pan/zoom/descarga */}
+      {/* Visor de medios interactivo de primer nivel (Galería con miniaturas y navegación) */}
       {previewMedia && (
         <MediaViewer
           url={previewMedia.url}
           type={previewMedia.type}
           name={previewMedia.name}
+          mediaList={chatMediaList}
+          initialIndex={previewMedia.initialIndex}
+          onJumpToMessage={(messageId) => {
+            setPreviewMedia(null);
+            setTimeout(() => {
+              const el = document.getElementById(`msg-${messageId}`);
+              if (el) {
+                el.scrollIntoView({ behavior: "smooth", block: "center" });
+                el.classList.add("ring-2", "ring-violet-500", "rounded-2xl", "transition-all", "duration-500");
+                setTimeout(() => el.classList.remove("ring-2", "ring-violet-500"), 2500);
+              }
+            }, 100);
+          }}
           onClose={() => setPreviewMedia(null)}
         />
       )}
