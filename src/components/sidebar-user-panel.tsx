@@ -636,6 +636,7 @@ export function SidebarUserPanel({
     }
   });
   const [manualElapsed, setManualElapsed] = useState("");
+  const [hoveredManualTask, setHoveredManualTask] = useState<any>(null);
 
   // Categorías dinámicas sincronizadas con "Gestionar Categorías"
   const [categoriesConfig, setCategoriesConfig] = useState<any[]>(() => {
@@ -1787,14 +1788,27 @@ export function SidebarUserPanel({
                     </div>
                   ) : (
                     <div className="space-y-1.5 animate-in fade-in-50 duration-150">
-                      <div className="flex items-center justify-between px-1 pb-1 border-b border-border/40">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                          {manualSearchQuery.trim() ? "Resultados de búsqueda" : "Labores de taller"}
-                        </span>
-                        <span className="text-[10px] font-bold text-violet-400">
-                          {displayedManualTasks.length} {displayedManualTasks.length === 1 ? "labor" : "labores"}
-                        </span>
-                      </div>
+                      {hoveredManualTask ? (
+                        <div className="flex items-center justify-between px-2.5 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 transition-all min-h-[36px]">
+                          <div className="min-w-0 flex-1">
+                            <span className="text-xs font-black text-amber-300 block leading-tight break-words">
+                              {hoveredManualTask.label}
+                            </span>
+                            <span className="text-[10px] font-bold text-amber-400/90 uppercase tracking-wider block leading-tight mt-0.5">
+                              {hoveredManualTask.category} {hoveredManualTask.subcategory ? `• ${hoveredManualTask.subcategory}` : ""}
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between px-1 pb-1 border-b border-border/40">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                            {manualSearchQuery.trim() ? "Resultados de búsqueda" : "Labores de taller"}
+                          </span>
+                          <span className="text-[10px] font-bold text-violet-400">
+                            {displayedManualTasks.length} {displayedManualTasks.length === 1 ? "labor" : "labores"}
+                          </span>
+                        </div>
+                      )}
 
                       {/* Cuadrícula Dock de Iconos Cuadrados (Compacto, elegante, sin apelotamiento) */}
                       <div className="grid grid-cols-4 gap-2 pt-1 pb-1">
@@ -1802,11 +1816,16 @@ export function SidebarUserPanel({
                           const isCurrent = manualTask?.label === task.label;
                           const Icon = task.icon;
                           const displayLabel = task.label;
+                          const col = idx % 4;
 
                           return (
                             <div key={task.label} className="relative group">
                               <button
                                 type="button"
+                                onMouseEnter={() => setHoveredManualTask(task)}
+                                onMouseLeave={() => setHoveredManualTask(null)}
+                                onFocus={() => setHoveredManualTask(task)}
+                                onBlur={() => setHoveredManualTask(null)}
                                 onClick={() => {
                                   if (isCurrent) stopManualTask();
                                   else startManualTask(task.category, task.label, task.subcategory);
@@ -1826,8 +1845,14 @@ export function SidebarUserPanel({
                                 <Icon className={`h-5 w-5 transition-transform group-hover:scale-110 ${isCurrent ? "text-amber-300 animate-pulse" : ""}`} />
                               </button>
 
-                              {/* Tooltip flotante al acercar el cursor */}
-                              <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max max-w-[260px] opacity-0 group-hover:opacity-100 transition-all duration-150 transform group-hover:-translate-y-1 z-50">
+                              {/* Tooltip flotante con anclaje inteligente a bordes para evitar recortes */}
+                              <div className={`pointer-events-none absolute bottom-full mb-2 w-max max-w-[210px] opacity-0 group-hover:opacity-100 transition-all duration-150 transform group-hover:-translate-y-1 z-50 ${
+                                col === 0
+                                  ? "left-0 translate-x-0"
+                                  : col === 3
+                                    ? "right-0 translate-x-0"
+                                    : "left-1/2 -translate-x-1/2"
+                              }`}>
                                 <div className="bg-popover text-popover-foreground border border-border/90 shadow-2xl px-2.5 py-1.5 rounded-xl text-center backdrop-blur-md">
                                   <p className="text-xs font-bold leading-snug whitespace-normal break-words">{displayLabel}</p>
                                   {task.category && (
@@ -1836,7 +1861,13 @@ export function SidebarUserPanel({
                                     </p>
                                   )}
                                 </div>
-                                <div className="w-2 h-2 bg-popover border-r border-b border-border/90 transform rotate-45 mx-auto -mt-1" />
+                                <div className={`w-2 h-2 bg-popover border-r border-b border-border/90 transform rotate-45 -mt-1 ${
+                                  col === 0
+                                    ? "ml-5"
+                                    : col === 3
+                                      ? "ml-auto mr-5"
+                                      : "mx-auto"
+                                }`} />
                               </div>
                             </div>
                           );
