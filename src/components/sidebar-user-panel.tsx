@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { Camera, Lock, Eye, EyeOff, Check, X, ChevronUp, ChevronDown, ChevronLeft, Circle, LogOut, Activity as ActivityIcon, FileText, ChevronRight, X as XIcon, RefreshCw, Wrench, Coffee, Timer, BarChart3, Package, LayoutDashboard, ClipboardList, Sparkles, UserPlus, Briefcase, GraduationCap, Users, Utensils, Sandwich, Bath, Square, Trash2, Clock, CheckCircle2, Calendar, Maximize2, Minimize2, Plus, UserCheck, Save, MessageSquare, Search, Play, Layers, ShieldCheck, Phone, Settings } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
@@ -1789,7 +1789,10 @@ export function SidebarUserPanel({
                   ) : (
                     <div className="space-y-1.5 animate-in fade-in-50 duration-150">
                       {hoveredManualTask ? (
-                        <div className="flex items-center justify-between px-2.5 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 transition-all min-h-[36px]">
+                        <div className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 transition-all min-h-[36px]">
+                          <div className="h-6 w-6 rounded-lg bg-amber-500/20 text-amber-300 grid place-items-center shrink-0 border border-amber-500/30">
+                            {React.createElement(hoveredManualTask.icon || Wrench, { className: "h-3.5 w-3.5" })}
+                          </div>
                           <div className="min-w-0 flex-1">
                             <span className="text-xs font-black text-amber-300 block leading-tight break-words">
                               {hoveredManualTask.label}
@@ -1816,7 +1819,6 @@ export function SidebarUserPanel({
                           const isCurrent = manualTask?.label === task.label;
                           const Icon = task.icon;
                           const displayLabel = task.label;
-                          const col = idx % 4;
 
                           return (
                             <div key={task.label} className="relative group">
@@ -1842,6 +1844,7 @@ export function SidebarUserPanel({
                                     <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
                                   </span>
                                 )}
+                                <Icon className={`h-6 w-6 transition-transform group-hover:scale-110 ${isCurrent ? "text-amber-300 animate-pulse" : "text-foreground"}`} />
                               </button>
                             </div>
                           );
