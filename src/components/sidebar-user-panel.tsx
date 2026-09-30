@@ -1788,28 +1788,44 @@ export function SidebarUserPanel({
                     </div>
                   ) : (
                     <div className="space-y-1.5 animate-in fade-in-50 duration-150">
+                      <div className="flex items-center justify-between px-1 pb-1 border-b border-border/40">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                          {manualSearchQuery.trim() ? "Resultados de búsqueda" : "Labores de taller"}
+                        </span>
+                        <span className="text-[10px] font-bold text-violet-400">
+                          {displayedManualTasks.length} {displayedManualTasks.length === 1 ? "labor" : "labores"}
+                        </span>
+                      </div>
+
+                      {/* Tarjeta inspectora estructurada: sin apelotamiento ni texto cortado */}
                       {hoveredManualTask ? (
-                        <div className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 transition-all min-h-[36px]">
-                          <div className="h-6 w-6 rounded-lg bg-amber-500/20 text-amber-300 grid place-items-center shrink-0 border border-amber-500/30">
-                            {React.createElement(hoveredManualTask.icon || Wrench, { className: "h-3.5 w-3.5" })}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <span className="text-xs font-black text-amber-300 block leading-tight break-words">
-                              {hoveredManualTask.label}
-                            </span>
-                            <span className="text-[10px] font-bold text-amber-400/90 uppercase tracking-wider block leading-tight mt-0.5">
-                              {hoveredManualTask.category} {hoveredManualTask.subcategory ? `• ${hoveredManualTask.subcategory}` : ""}
-                            </span>
+                        <div className="p-2.5 rounded-xl bg-card border border-amber-500/40 shadow-xs animate-in fade-in duration-100">
+                          <div className="flex items-start gap-2.5">
+                            <div className="h-8 w-8 rounded-lg bg-amber-500/20 text-amber-400 grid place-items-center shrink-0 border border-amber-500/30 mt-0.5">
+                              {React.createElement(hoveredManualTask.icon || Wrench, { className: "h-4 w-4" })}
+                            </div>
+                            <div className="min-w-0 flex-1 space-y-1">
+                              <div className="flex items-start justify-between gap-2">
+                                <h5 className="font-bold text-xs text-foreground leading-snug break-words">
+                                  {hoveredManualTask.label}
+                                </h5>
+                                <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-400 border border-amber-500/30 shrink-0">
+                                  {hoveredManualTask.category}
+                                </span>
+                              </div>
+                              {hoveredManualTask.subcategory && (
+                                <p className="text-[11px] text-muted-foreground leading-relaxed break-words">
+                                  {hoveredManualTask.subcategory}
+                                </p>
+                              )}
+                            </div>
                           </div>
                         </div>
                       ) : (
-                        <div className="flex items-center justify-between px-1 pb-1 border-b border-border/40">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                            {manualSearchQuery.trim() ? "Resultados de búsqueda" : "Labores de taller"}
-                          </span>
-                          <span className="text-[10px] font-bold text-violet-400">
-                            {displayedManualTasks.length} {displayedManualTasks.length === 1 ? "labor" : "labores"}
-                          </span>
+                        <div className="px-3 py-2 rounded-xl bg-muted/20 border border-border/50 text-center">
+                          <p className="text-[11px] text-muted-foreground">
+                            Pasa el cursor sobre un ícono para ver su detalle
+                          </p>
                         </div>
                       )}
 
