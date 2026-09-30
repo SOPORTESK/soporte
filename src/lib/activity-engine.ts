@@ -389,13 +389,16 @@ export function extractCleanItemName(item: TimelineEntry, appMappings?: Record<s
         lowerClean === "new tab" ||
         lowerClean === "bienvenido" ||
         lowerClean === "home" ||
-        lowerClean === "acceso"
+        lowerClean === "acceso" ||
+        lowerClean === "acceder" ||
+        lowerClean === "sin título" ||
+        lowerClean === "sin titulo"
       ) {
         return "Navegador Web";
       }
 
       const stripped = cleanWinTitle.replace(/^Navegador:\s*/i, "").trim();
-      return stripped.length > 35 ? stripped.substring(0, 35) + "..." : stripped;
+      return stripped.length > 80 ? stripped.substring(0, 80) + "..." : stripped;
     }
   }
 
@@ -580,8 +583,29 @@ export function assignToOperationalCategory(
     return "Utilidades";
   }
 
-  // Soporte (por defecto para chats, llamadas, Linkus, WhatsApp, Odoo, tickets)
-  return "Soporte";
+  // Soporte (únicamente para chats, llamadas, Linkus, WhatsApp, Odoo, tickets o soporte explícito)
+  if (
+    n.includes("whatsapp") || n.includes("seka chat") || n.includes("chat") ||
+    n.includes("linkus") || n.includes("phone") || n.includes("llamada") ||
+    n.includes("anydesk") || n.includes("teamviewer") || n.includes("ultraviewer") ||
+    n.includes("rustdesk") || n.includes("odoo") || n.includes("ticket") ||
+    c.includes("soporte") || a.includes("whatsapp") || a.includes("chat") ||
+    a.includes("llamada") || a.includes("linkus")
+  ) {
+    return "Soporte";
+  }
+
+  // Navegación web genérica no clasificada
+  if (
+    n.includes("brave") || n.includes("chrome") || n.includes("edge") ||
+    n.includes("firefox") || n.includes("opera") || n.includes("web") ||
+    a.includes("navegador") || c.includes("navegaci")
+  ) {
+    return "Utilidades";
+  }
+
+  // Si no coincide con ninguna regla oficial, DEBE ser Sin Clasificar (no contaminar Soporte)
+  return "Sin Clasificar";
 }
 
 /**

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
-import { computeUnifiedActivityMetrics } from "@/lib/activity-engine";
+import { computeUnifiedActivityMetrics, extractCleanItemName } from "@/lib/activity-engine";
 import {
   Monitor,
   Phone,
@@ -764,8 +764,46 @@ export function getDefaultCategoryForApp(appName: string, action: string = "", c
     return "Utilidades";
   }
 
-  // 9. Soporte (WhatsApp, Seka Chat, Linkus llamadas, Odoo Tickets, Casos, Atención directa)
-  return "Soporte";
+  // 9. Soporte (únicamente WhatsApp, Seka Chat, Linkus llamadas, Odoo Tickets, software remoto específico)
+  if (
+    name.includes("whatsapp") ||
+    name.includes("seka chat") ||
+    name.includes("linkus") ||
+    name.includes("phone") ||
+    name.includes("llamada") ||
+    name.includes("anydesk") ||
+    name.includes("teamviewer") ||
+    name.includes("ultraviewer") ||
+    name.includes("rustdesk") ||
+    name.includes("supremo") ||
+    name.includes("odoo") ||
+    name.includes("ticket") ||
+    name.includes("soporte") ||
+    act.includes("whatsapp") ||
+    act.includes("seka chat") ||
+    act.includes("linkus") ||
+    act.includes("odoo") ||
+    cat.includes("soporte")
+  ) {
+    return "Soporte";
+  }
+
+  // 10. Si es navegación web genérica
+  if (
+    name.includes("brave") ||
+    name.includes("chrome") ||
+    name.includes("edge") ||
+    name.includes("firefox") ||
+    name.includes("opera") ||
+    name.includes("web") ||
+    name.includes("navegador") ||
+    act.includes("navegador")
+  ) {
+    return "Utilidades";
+  }
+
+  // Si no coincide con ninguna regla oficial previa, debe quedar "Sin Clasificar" para que el supervisor decida
+  return "Sin Clasificar";
 }
 
 /**
@@ -782,9 +820,9 @@ export function getDefaultSubcategoryForApp(appName: string, category: string): 
   if (category === "Soporte") {
     if (name.includes("linkus") || name.includes("phone") || name.includes("llamada")) return "Telefónico";
     if (name.includes("whatsapp") || name.includes("seka chat") || name.includes("chat")) return "Mensajería";
-    if (name.includes("anydesk") || name.includes("teamviewer") || name.includes("remoto") || name.includes("hikvision")) return "Remoto";
+    if (name.includes("anydesk") || name.includes("teamviewer") || name.includes("ultraviewer") || name.includes("rustdesk") || name.includes("supremo") || name.includes("remoto") || name.includes("vnc") || name.includes("escritorio remoto")) return "Remoto";
     if (name.includes("odoo") || name.includes("ticket") || name.includes("presencial")) return "Presencial";
-    return "Remoto";
+    return null; // NUNCA asignar "Remoto" ciegamente por defecto
   }
   if (category === "Control Administrativo") {
     if (name.includes("outlook") || name.includes("correo") || name.includes("mail")) return "Optimización de Procesos";
@@ -1612,6 +1650,7 @@ function ActivityAppsRankingComponent({
   const fixMojibake = (str: string): string => {
     if (!str) return "";
     return str
+      .replace(/t[\uFFFD\?]+tulo/gi, "título")
       .replace(/sesi[\uFFFD\?]+n/gi, "sesión")
       .replace(/contrase[\uFFFD\?]+a/gi, "contraseña")
       .replace(/atenci[\uFFFD\?]+n/gi, "atención")
@@ -1625,7 +1664,10 @@ function ActivityAppsRankingComponent({
       .replace(/bater[\uFFFD\?]+a/gi, "batería")
       .replace(/informaci[\uFFFD\?]+n/gi, "información")
       .replace(/direcci[\uFFFD\?]+n/gi, "dirección")
-      .replace(/electr[\uFFFD\?]+nico/gi, "electrónico");
+      .replace(/electr[\uFFFD\?]+nico/gi, "electrónico")
+      .replace(/m[\uFFFD\?]+sica/gi, "música")
+      .replace(/p[\uFFFD\?]+gina/gi, "página")
+      .replace(/tel[\uFFFD\?]+fono/gi, "teléfono");
   };
 
   const sanitizeAppName = (name: string): string => {
@@ -1649,7 +1691,10 @@ function ActivityAppsRankingComponent({
       lc === "sign in" ||
       lc === "nueva pestaña" ||
       lc === "new tab" ||
-      lc === "acceso"
+      lc === "acceso" ||
+      lc === "acceder" ||
+      lc === "sin título" ||
+      lc === "sin titulo"
     ) {
       return "Navegador Web";
     }
@@ -1700,7 +1745,7 @@ function ActivityAppsRankingComponent({
     return allSanitizedApps.filter((appName) => {
       const asg = getAppAssignment(appName);
       const matchedCat = categories.find((c) => c.id === asg.category || c.label === asg.category);
-      return !matchedCat || !asg.subcategory;
+      return !matchedCat || !asg.subcategory || asg.category === "Sin Clasificar";
     }).length;
   }, [allSanitizedApps, categories, customCategories]);
 
@@ -1717,7 +1762,7 @@ function ActivityAppsRankingComponent({
         const asg = getAppAssignment(app);
         if (appsCategoryFilter === "unassigned") {
           const matchedCat = categories.find((c) => c.id === asg.category || c.label === asg.category);
-          return !matchedCat || !asg.subcategory;
+          return !matchedCat || !asg.subcategory || asg.category === "Sin Clasificar";
         }
         return asg.category === appsCategoryFilter;
       });
@@ -1730,7 +1775,7 @@ function ActivityAppsRankingComponent({
     return allSanitizedApps.filter((appName) => {
       const asg = getAppAssignment(appName);
       const matchedCat = categories.find((c) => c.id === asg.category || c.label === asg.category);
-      return !matchedCat || !asg.subcategory;
+      return !matchedCat || !asg.subcategory || asg.category === "Sin Clasificar";
     });
   }, [allSanitizedApps, categories, customCategories]);
 
@@ -1743,6 +1788,7 @@ function ActivityAppsRankingComponent({
       fullTitles: Set<string>;
       agents: Set<string>;
       urls: Set<string>;
+      contexts: Set<string>;
       lastSeen: string;
       totalMs: number;
       count: number;
@@ -1750,14 +1796,18 @@ function ActivityAppsRankingComponent({
 
     for (const item of (timeline || [])) {
       const meta = (item.metadata || {}) as Record<string, any>;
-      const rawTitle = fixMojibake((meta.window_title || meta.title || meta.context || "").trim());
+      const rawTitle = fixMojibake((meta.window_title || meta.title || "").trim());
+      const rawContext = fixMojibake((meta.context || "").trim());
       const rawProcess = (meta.process || meta.app || meta.app_name || "").trim();
       const rawAct = fixMojibake((item.action || "").trim());
       const agent = (item.agent_name || item.agent_email || "").trim();
       const url = (meta.url || meta.domain || "").trim();
       const dur = Number(item.duration_ms || (meta.duration_seconds ? meta.duration_seconds * 1000 : 0)) || 0;
 
+      const engineName = extractCleanItemName(item as any);
+
       const candidates = [
+        engineName,
         sanitizeAppName(meta.app_name || ""),
         sanitizeAppName(meta.label || ""),
         sanitizeAppName(meta.task || ""),
@@ -1775,6 +1825,7 @@ function ActivityAppsRankingComponent({
             fullTitles: new Set(),
             agents: new Set(),
             urls: new Set(),
+            contexts: new Set(),
             lastSeen: item.created_at || "",
             totalMs: 0,
             count: 0,
@@ -1783,6 +1834,7 @@ function ActivityAppsRankingComponent({
         }
         if (rawProcess && !existing.process) existing.process = rawProcess;
         if (rawTitle) existing.fullTitles.add(rawTitle);
+        if (rawContext && rawContext !== rawTitle) existing.contexts.add(rawContext);
         if (agent) existing.agents.add(agent);
         if (url) existing.urls.add(url);
         existing.totalMs += dur;
@@ -2301,8 +2353,8 @@ function ActivityAppsRankingComponent({
                 {/* Lista limpia y completa de software mapeado en formato TABLA ALINEADA */}
                 <div className="flex-1 flex flex-col min-h-0 space-y-2">
                   {/* Encabezado fijo de columnas para perfecta alineación */}
-                  <div className="grid grid-cols-[1fr_210px_230px_72px] items-center gap-3 px-4 py-2 rounded-xl bg-muted/40 border border-border/50 text-[11px] font-bold uppercase tracking-wider text-muted-foreground shrink-0 select-none">
-                    <div>Software / Aplicación / Labor</div>
+                  <div className="grid grid-cols-[1fr_210px_230px_96px] items-center gap-3 px-4 py-2 rounded-xl bg-muted/40 border border-border/50 text-[11px] font-bold uppercase tracking-wider text-muted-foreground shrink-0 select-none">
+                    <div>Software / Aplicación / Navegación</div>
                     <div>Categoría Principal</div>
                     <div>Subcategoría Operativa</div>
                     <div className="text-center">Opc.</div>
@@ -2339,7 +2391,7 @@ function ActivityAppsRankingComponent({
 
                         const matchedCat = categories.find((c) => c.id === currentCat || c.label === currentCat);
                         const availableSubcats = matchedCat?.subcategories || [];
-                        const isUnassigned = !matchedCat || !currentSub;
+                        const isUnassigned = !matchedCat || !currentSub || currentCat === "Sin Clasificar";
 
                         const trace = appTraceMap.get(appName.toLowerCase());
                         const displayProcess = trace?.process 
@@ -2353,24 +2405,36 @@ function ActivityAppsRankingComponent({
                           ? new Date(trace.lastSeen).toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit", hour12: true }) 
                           : null;
 
+                        // Rastro de auditoría: títulos de ventana reales capturados, URLs y contextos
+                        const fullTitles = trace?.fullTitles ? Array.from(trace.fullTitles) : [];
+                        const contexts = trace?.contexts ? Array.from(trace.contexts) : [];
+                        const urls = trace?.urls ? Array.from(trace.urls) : [];
+                        const rawDetail = fullTitles[0] || contexts[0] || urls[0] || null;
+                        const cleanDetail = rawDetail ? fixMojibake(rawDetail) : null;
+                        const isWeb = Boolean(
+                          (displayProcess && ["brave", "chrome", "edge", "firefox", "opera"].includes(displayProcess.toLowerCase())) ||
+                          urls.length > 0 ||
+                          (rawDetail && (rawDetail.toLowerCase().includes("http") || rawDetail.toLowerCase().includes(".com") || rawDetail.toLowerCase().includes(".cr") || rawDetail.toLowerCase().includes(".net")))
+                        );
+
                         return (
                           <div
                             key={appName}
-                            className={`grid grid-cols-[1fr_210px_230px_96px] items-center gap-3 p-2.5 px-4 rounded-xl border transition-all ${
+                            className={`grid grid-cols-[1fr_210px_230px_96px] items-center gap-3 p-3 px-4 rounded-xl border transition-all ${
                               isUnassigned
-                                ? "bg-amber-500/[0.04] border-amber-500/35 hover:border-amber-500/55"
+                                ? "bg-amber-500/[0.04] border-amber-500/40 hover:border-amber-500/60 shadow-xs"
                                 : "bg-card hover:bg-muted/20 border-border/60"
                             }`}
                           >
-                            {/* Columna 1: Información del software */}
-                            <div className="flex items-center gap-3 min-w-0 pr-2">
-                              <div className={`p-2 rounded-xl shrink-0 ${isUnassigned ? "bg-amber-500/15 text-amber-400" : "bg-muted text-muted-foreground"}`}>
+                            {/* Columna 1: Información detallada del software / navegación */}
+                            <div className="flex items-start gap-3 min-w-0 pr-2">
+                              <div className={`p-2 rounded-xl shrink-0 mt-0.5 ${isUnassigned ? "bg-amber-500/15 text-amber-400" : "bg-muted text-muted-foreground"}`}>
                                 {icon}
                               </div>
                               <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-2">
-                                  <p className="font-bold text-xs text-foreground truncate" title={appName}>
-                                    {appName}
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <p className="font-bold text-xs text-foreground" title={appName}>
+                                    {fixMojibake(appName)}
                                   </p>
                                   {isUnassigned && (
                                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 shrink-0 whitespace-nowrap">
@@ -2381,14 +2445,26 @@ function ActivityAppsRankingComponent({
                                     type="button"
                                     onClick={() => setSelectedInspectApp(appName)}
                                     className="p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-violet-400 transition-colors cursor-pointer shrink-0"
-                                    title="Ver origen, colaboradores y ventanas capturadas"
+                                    title="Ver todas las capturas, URL, colaboradores y auditoría técnica"
                                   >
                                     <Info className="h-3.5 w-3.5" />
                                   </button>
                                 </div>
-                                <div className="flex items-center gap-1.5 flex-wrap mt-0.5 text-[11px] text-muted-foreground">
+
+                                {/* RASTRO DE VENTANA / PESTAÑA REAL CAPTURADA */}
+                                {cleanDetail && cleanDetail !== appName && (
+                                  <div className="mt-1 flex items-start gap-1.5 text-[11px] text-cyan-300 bg-cyan-950/40 border border-cyan-800/50 rounded-md px-2 py-1 max-w-full">
+                                    <Globe className="h-3.5 w-3.5 mt-0.5 shrink-0 text-cyan-400" />
+                                    <div className="min-w-0 flex-1 break-words">
+                                      <span className="font-semibold text-cyan-400">{isWeb ? "Pestaña / URL capturada: " : "Ventana real: "}</span>
+                                      <span className="font-mono text-cyan-100 select-all font-medium">{cleanDetail}</span>
+                                    </div>
+                                  </div>
+                                )}
+
+                                <div className="flex items-center gap-1.5 flex-wrap mt-1 text-[11px] text-muted-foreground">
                                   <span className="truncate">
-                                    {matchedCat ? matchedCat.label : <span className="text-amber-400 font-semibold">Sin categoría</span>}
+                                    {matchedCat && currentCat !== "Sin Clasificar" ? matchedCat.label : <span className="text-amber-400 font-semibold">⚠️ Sin Categoría</span>}
                                     {currentSub ? ` ➔ ${cleanSubcategoryName(currentSub)}` : <span className="text-amber-400/80"> (Falta subcategoría)</span>}
                                   </span>
                                   {(displayProcess || displayAgent) && (
@@ -2406,16 +2482,16 @@ function ActivityAppsRankingComponent({
                             {/* Columna 2: Selector de Categoría Principal */}
                             <div className="w-full">
                               <select
-                                value={currentCat || ""}
+                                value={(!currentCat || currentCat === "Sin Clasificar") ? "" : currentCat}
                                 onChange={(e) => handleSetCategory(appName, e.target.value, null)}
                                 className={`text-xs font-semibold px-2.5 py-1.5 rounded-lg border cursor-pointer w-full transition-colors truncate ${
-                                  !currentCat
-                                    ? "bg-amber-500/15 border-amber-500/40 text-amber-300"
+                                  !currentCat || currentCat === "Sin Clasificar"
+                                    ? "bg-amber-500/15 border-amber-500/50 text-amber-300 font-bold"
                                     : "bg-background hover:border-violet-500/60 border-border text-foreground"
                                 }}`}
                                 title="Categoría Principal"
                               >
-                                <option value="" disabled>-- Categoría --</option>
+                                <option value="" disabled>-- ⚠️ Seleccionar Categoría --</option>
                                 {categories.map((cat) => (
                                   <option key={cat.id} value={cat.id}>
                                     {cat.label}
@@ -2431,12 +2507,12 @@ function ActivityAppsRankingComponent({
                                 onChange={(e) => handleSetCategory(appName, currentCat, e.target.value ? cleanSubcategoryName(e.target.value) : null)}
                                 className={`text-xs font-semibold px-2.5 py-1.5 rounded-lg border cursor-pointer w-full transition-colors truncate ${
                                   !currentSub
-                                    ? "bg-amber-500/15 border-amber-500/40 text-amber-300 font-bold"
+                                    ? "bg-amber-500/15 border-amber-500/50 text-amber-300 font-bold"
                                     : "bg-background hover:border-violet-500/60 border-border text-foreground"
                                 }}`}
                                 title="Subcategoría"
                               >
-                                <option value="">-- General / Sin subcat. --</option>
+                                <option value="">-- {availableSubcats.length > 0 ? "⚠️ Seleccione Subcategoría" : "General"} --</option>
                                 {availableSubcats.map((sub) => {
                                   const clean = cleanSubcategoryName(sub);
                                   return (
@@ -2448,8 +2524,18 @@ function ActivityAppsRankingComponent({
                               </select>
                             </div>
 
-                            {/* Columna 4: Botones Restablecer, Ocultar y Eliminar */}
+                            {/* Columna 4: Acciones rápidas */}
                             <div className="flex items-center justify-center gap-1">
+                              {isWeb && isUnassigned && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleSetCategory(appName, "Utilidades", "Navegación General")}
+                                  title="Mapear a Navegación Web (Utilidades ➔ Navegación General)"
+                                  className="p-1.5 rounded-lg bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/40 transition-colors cursor-pointer"
+                                >
+                                  <Globe className="h-3.5 w-3.5" />
+                                </button>
+                              )}
                               {isManual && (
                                 <button
                                   type="button"
