@@ -366,19 +366,34 @@ export function extractCleanItemName(item: TimelineEntry, appMappings?: Record<s
       .replace(/\s*[-–—]\s*(Brave|Google Chrome|Microsoft Edge|Firefox|Opera).*$/i, "")
       .trim();
     if (cleanWinTitle) {
-      const lowerClean = cleanWinTitle.toLowerCase();
+      // Limpiar badges de notificación como (1) , (43) , etc.
+      const strippedBadge = cleanWinTitle.replace(/^\(\d+\+?\)\s*/, "").replace(/^\*\s*/, "").trim();
+      const lowerClean = strippedBadge.toLowerCase();
+
+      // Odoo ERP (tickets #04xxx, cotizaciones, presupuestos, portal Odoo)
+      if (
+        lowerClean.includes("odoo") ||
+        /#\d{4,6}/.test(lowerClean) ||
+        lowerClean.includes("cotizaciones") ||
+        lowerClean.includes("presupuesto") ||
+        /\b[sS]\d{5}\b/.test(lowerClean)
+      ) {
+        return "Odoo ERP";
+      }
+
       if (lowerClean.includes("chat sekunet") || lowerClean.includes("atención al cliente")) {
         return "Seka Chat";
       }
       if (lowerClean.includes("buscar con google") || lowerClean.includes("google search")) {
         return "Búsqueda en Google";
       }
-      if (lowerClean.includes("hik-connect") || lowerClean.includes("hikvision") || lowerClean.includes("cloudsso")) {
+      if (lowerClean.includes("hik-connect") || lowerClean.includes("hikvision") || lowerClean.includes("cloudsso") || lowerClean.includes("hik-partner")) {
         return "Hikvision";
       }
 
       // TÍTULOS GENÉRICOS DE NAVEGADOR: No son aplicaciones del taller, son navegación web
       if (
+        lowerClean === "nuevo" ||
         lowerClean === "iniciar sesión" ||
         lowerClean === "iniciar sesion" ||
         lowerClean.startsWith("iniciar sesi") ||
@@ -392,12 +407,15 @@ export function extractCleanItemName(item: TimelineEntry, appMappings?: Record<s
         lowerClean === "acceso" ||
         lowerClean === "acceder" ||
         lowerClean === "sin título" ||
-        lowerClean === "sin titulo"
+        lowerClean === "sin titulo" ||
+        lowerClean === "configuración" ||
+        lowerClean === "configuracion" ||
+        lowerClean.includes("500: internal server error")
       ) {
         return "Navegador Web";
       }
 
-      const stripped = cleanWinTitle.replace(/^Navegador:\s*/i, "").trim();
+      const stripped = strippedBadge.replace(/^Navegador:\s*/i, "").trim();
       return stripped.length > 80 ? stripped.substring(0, 80) + "..." : stripped;
     }
   }

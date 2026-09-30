@@ -33,36 +33,71 @@ function categorizeWindow(processName, title) {
     return { category: 'Soporte Telefónico', label, context, context_type: 'call' };
   }
   if (p.includes('chrome') || p.includes('msedge') || p.includes('edge') || p.includes('brave') || p.includes('firefox') || p.includes('opera')) {
-    context = t.replace(/\s*[-–]\s*(Brave|Google Chrome|Microsoft Edge|Firefox|Opera).*$/i, '').trim();
+    // 1. Quitar sufijo del navegador
+    let cleanContext = (title || '').replace(/\s*[-–—]\s*(Brave|Google Chrome|Microsoft Edge|Firefox|Opera).*$/i, '').trim();
+    // 2. Quitar prefijo de badges de notificación como (1) , (43) , *
+    cleanContext = cleanContext.replace(/^\(\d+\+?\)\s*/, '').replace(/^\*\s*/, '').trim();
+    context = cleanContext;
     context_type = 'web';
-    if (t.includes('odoo')) return { category: 'Atención de tickets', label: 'Odoo ERP', context, context_type };
-    if (t.includes('google one') || t.includes('one.google')) {
+    const lowerClean = cleanContext.toLowerCase();
+
+    // Odoo ERP (tickets #04xxx, cotizaciones, presupuestos, portal Odoo, pedidos S1xxxx)
+    if (
+      lowerClean.includes('odoo') ||
+      /#\d{4,6}/.test(lowerClean) ||
+      lowerClean.includes('cotizaciones') ||
+      lowerClean.includes('presupuesto') ||
+      /\b[sS]\d{5}\b/.test(lowerClean)
+    ) {
+      return { category: 'Atención de tickets', label: 'Odoo ERP', context: cleanContext || 'Odoo ERP', context_type };
+    }
+
+    if (lowerClean.includes('google one') || lowerClean.includes('one.google')) {
       return { category: 'Utilidades', label: 'Google One', context: 'Google One', context_type: 'web' };
     }
-    if (t.includes('supabase')) {
+    if (lowerClean.includes('supabase')) {
       return { category: 'Control Administrativo', label: 'Supabase', context: 'Supabase', context_type: 'web' };
     }
-    if (t.includes('tienda 3d') || t.includes('tienda3d') || (t.includes('rma') && t.includes('garant'))) {
-      return { category: 'Trámites de garantías', label: `Garantías Tienda 3D - ${title.substring(0, 40)}`, context, context_type };
+    if (lowerClean.includes('tienda 3d') || lowerClean.includes('tienda3d') || (lowerClean.includes('rma') && lowerClean.includes('garant'))) {
+      return { category: 'Trámites de garantías', label: `Garantías Tienda 3D`, context: cleanContext, context_type };
     }
-    if (t.includes('sekunet') || t.includes('seka chat') || t.includes('localhost:3100')) {
-      return { category: 'Operativa', label: 'Seka Chat', context, context_type };
+    if (
+      lowerClean.includes('sekunet') ||
+      lowerClean.includes('seka chat') ||
+      lowerClean.includes('localhost:3100') ||
+      lowerClean.includes('atención al cliente') ||
+      lowerClean.includes('chat sekunet') ||
+      lowerClean.includes('mi bandeja de gestión')
+    ) {
+      return { category: 'Operativa', label: 'Seka Chat', context: cleanContext, context_type };
     }
-    if (t.includes('youtube')) return { category: 'No Laboral', label: 'YouTube', context, context_type };
-    if (t.includes('facebook') || t.includes('instagram') || t.includes('tiktok') || t.includes('twitter') || t.includes('x.com')) {
-      return { category: 'No Laboral', label: 'Redes Sociales', context, context_type };
+    if (lowerClean.includes('youtube')) return { category: 'No Laboral', label: 'YouTube', context: cleanContext, context_type };
+    if (lowerClean.includes('facebook') || lowerClean.includes('instagram') || lowerClean.includes('tiktok') || lowerClean.includes('twitter') || lowerClean.includes('x.com')) {
+      return { category: 'No Laboral', label: 'Redes Sociales', context: cleanContext, context_type };
     }
-    if (t.includes('github') || t.includes('stackoverflow') || t.includes('docs.') || t.includes('developer') || t.includes('npmjs')) {
-      return { category: 'Investigación y desarrollo', label: 'Documentación / GitHub', context, context_type };
+    if (lowerClean.includes('github') || lowerClean.includes('stackoverflow') || lowerClean.includes('docs.') || lowerClean.includes('developer') || lowerClean.includes('npmjs')) {
+      return { category: 'Investigación y desarrollo', label: 'Documentación / GitHub', context: cleanContext, context_type };
     }
-    if (t.includes('buscar con google') || t.includes('google search') || t.includes('google.com/search')) {
-      return { category: 'Utilidades', label: 'Búsqueda en Google', context, context_type };
+    if (lowerClean.includes('buscar con google') || lowerClean.includes('google search') || lowerClean.includes('google.com/search')) {
+      return { category: 'Utilidades', label: 'Búsqueda en Google', context: 'Búsqueda en Google', context_type };
     }
-    if (t.includes('hikvision') || t.includes('hik-partner') || t.includes('cloudsso')) {
-      return { category: 'Soporte', label: 'Hikvision', context, context_type };
+    if (lowerClean.includes('hikvision') || lowerClean.includes('hik-partner') || lowerClean.includes('cloudsso') || lowerClean.includes('hik-connect')) {
+      return { category: 'Soporte', label: 'Hikvision', context: cleanContext, context_type };
     }
-    const cleanTitle = title.split(' - ')[0] || title;
-    return { category: 'Utilidades', label: cleanTitle.substring(0, 45).trim(), context, context_type };
+
+    // TÍTULOS GENÉRICOS O NAVEGACIÓN WEB GENERAL:
+    const genericWebTitles = [
+      'nuevo', 'nueva pestaña', 'new tab', 'iniciar sesión', 'iniciar sesion',
+      'login', 'sign in', 'acceso', 'acceder', 'sin título', 'sin titulo',
+      'bienvenido', 'home', 'inicio', 'configuración', 'configuracion',
+      '500: internal server error', 'error'
+    ];
+    if (genericWebTitles.includes(lowerClean) || genericWebTitles.some(g => lowerClean === g || lowerClean.startsWith(g + ' '))) {
+      return { category: 'Utilidades', label: 'Navegador Web', context: cleanContext || 'Navegación Web', context_type };
+    }
+
+    const cleanTitle = cleanContext.split(' - ')[0] || cleanContext;
+    return { category: 'Utilidades', label: cleanTitle.substring(0, 45).trim() || 'Navegador Web', context, context_type };
   }
   if (p.includes('spotify') || t.includes('spotify')) {
     return { category: 'Utilidades', label: 'Spotify', context, context_type: 'music' };

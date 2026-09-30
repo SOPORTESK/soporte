@@ -1672,17 +1672,41 @@ function ActivityAppsRankingComponent({
 
   const sanitizeAppName = (name: string): string => {
     let clean = fixMojibake((name || "").trim());
+    // Limpiar badges de notificación como (1) , (43) , etc.
+    clean = clean.replace(/^\(\d+\+?\)\s*/, "").replace(/^\*\s*/, "").trim();
+
     if (clean.toLowerCase().startsWith("navegador web:")) {
       clean = clean.replace(/^navegador web:\s*/i, "").trim();
     }
     if (clean.toLowerCase().startsWith("navegador:")) {
       clean = clean.replace(/^navegador:\s*/i, "").trim();
     }
-    if (clean.toLowerCase().includes("buscar con google") || clean.toLowerCase().includes("google search")) {
+    const lc = clean.toLowerCase();
+
+    // 1. Odoo ERP (tickets #04xxx, cotizaciones, presupuestos, portal Odoo)
+    if (
+      lc.includes("odoo") ||
+      /#\d{4,6}/.test(lc) ||
+      lc.includes("cotizaciones") ||
+      lc.includes("presupuesto") ||
+      /\b[sS]\d{5}\b/.test(lc)
+    ) {
+      return "Odoo ERP";
+    }
+
+    if (lc.includes("chat sekunet") || lc.includes("atención al cliente") || lc.includes("seka chat")) {
+      return "Seka Chat";
+    }
+    if (lc.includes("buscar con google") || lc.includes("google search")) {
       return "Búsqueda en Google";
     }
-    const lc = clean.toLowerCase();
+    if (lc.includes("hikvision") || lc.includes("hik-partner") || lc.includes("cloudsso")) {
+      return "Hikvision";
+    }
+
+    // 2. Títulos genéricos de páginas o pestañas sin software específico
     if (
+      lc === "nuevo" ||
       lc === "iniciar sesión" ||
       lc === "iniciar sesion" ||
       lc.startsWith("iniciar sesi") ||
@@ -1694,7 +1718,10 @@ function ActivityAppsRankingComponent({
       lc === "acceso" ||
       lc === "acceder" ||
       lc === "sin título" ||
-      lc === "sin titulo"
+      lc === "sin titulo" ||
+      lc === "configuración" ||
+      lc === "configuracion" ||
+      lc.includes("500: internal server error")
     ) {
       return "Navegador Web";
     }
