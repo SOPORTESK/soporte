@@ -985,7 +985,9 @@ export function SidebarUserPanel({
       .then(r => r.json())
       .then(d => {
         const timeline = Array.isArray(d?.timeline) ? d.timeline : [];
-        if (timeline.length > 0) {
+        if (d?.metrics) {
+          setMyMetrics(d.metrics);
+        } else if (timeline.length > 0) {
           const computed = computeUnifiedActivityMetrics(timeline, { toleranceMinutes: toleranceMin });
           const targetDailyHours = computed.targetDailyHours || 10;
           const targetMs = targetDailyHours * 3600 * 1000;
@@ -1003,8 +1005,6 @@ export function SidebarUserPanel({
             productivityScore: computed.productivityScore,
             compliancePercent: computed.compliancePercent,
           });
-        } else if (d?.metrics) {
-          setMyMetrics(d.metrics);
         }
       })
       .catch(() => {});
@@ -1639,6 +1639,23 @@ export function SidebarUserPanel({
                     {myMetrics?.productivityScore ?? 100}%
                   </span>
                 </div>
+
+                {/* Indicador de Tiempo Extra Autorizado o Pendiente de Aprobación */}
+                {myMetrics?.rawOvertimeMs > 0 && (
+                  <div className="pt-0.5">
+                    {myMetrics.isOvertimeApproved ? (
+                      <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[10px] font-bold">
+                        <Check className="h-3 w-3 text-emerald-400 shrink-0" />
+                        <span>+{myMetrics.overtimeTime} tiempo extra aprobado</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[10px] font-bold">
+                        <Clock className="h-3 w-3 text-amber-400 shrink-0" />
+                        <span>+{myMetrics.overtimeTime} fuera de horario (En revisión)</span>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Fila 2: Métricas en línea compactas */}
                 <div className="flex items-center gap-2 pt-0.5 border-t border-border/40">
