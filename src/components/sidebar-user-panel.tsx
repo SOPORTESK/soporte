@@ -1657,7 +1657,7 @@ export function SidebarUserPanel({
                       <div className="h-6 w-6 rounded-md bg-amber-500/20 text-amber-400 grid place-items-center shrink-0 border border-amber-500/30">
                         <ActiveIcon className="h-3 w-3" />
                       </div>
-                      <p className="text-[11px] font-black text-amber-400 leading-snug truncate flex-1 min-w-0" title={manualTask.label}>
+                      <p className="text-[11px] font-black text-amber-400 leading-snug break-words flex-1 min-w-0" title={manualTask.label}>
                         {manualTask.label}
                       </p>
                       <span className="text-[10.5px] font-mono font-black text-amber-300 tabular-nums px-1.5 py-0.5 rounded-md bg-amber-500/20 border border-amber-500/30 shrink-0">
@@ -1788,11 +1788,11 @@ export function SidebarUserPanel({
                               </button>
 
                               {/* Tooltip flotante al acercar el cursor */}
-                              <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max max-w-[200px] opacity-0 group-hover:opacity-100 transition-all duration-150 transform group-hover:-translate-y-1 z-50">
+                              <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max max-w-[260px] opacity-0 group-hover:opacity-100 transition-all duration-150 transform group-hover:-translate-y-1 z-50">
                                 <div className="bg-popover text-popover-foreground border border-border/90 shadow-2xl px-2.5 py-1.5 rounded-xl text-center backdrop-blur-md">
-                                  <p className="text-[11px] font-bold leading-tight">{displayLabel}</p>
+                                  <p className="text-xs font-bold leading-snug whitespace-normal break-words">{displayLabel}</p>
                                   {task.category && (
-                                    <p className="text-[9px] text-amber-500 dark:text-amber-400 font-semibold uppercase tracking-wider mt-0.5">
+                                    <p className="text-[10px] text-amber-500 dark:text-amber-400 font-semibold uppercase tracking-wider mt-0.5 whitespace-normal break-words">
                                       {task.category}
                                     </p>
                                   )}

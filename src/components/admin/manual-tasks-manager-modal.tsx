@@ -48,6 +48,7 @@ import {
   X,
   Plus,
   LayoutGrid,
+  Info,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -153,11 +154,20 @@ export function ManualTasksManagerModal({
   const [formSubcategory, setFormSubcategory] = useState("");
   const [formIconName, setFormIconName] = useState("Wrench");
 
-  // Cajón de Iconos modal/drawer
   const [iconDrawerOpen, setIconDrawerOpen] = useState(false);
   const [iconDrawerTargetTaskId, setIconDrawerTargetTaskId] = useState<string | null>(null); // si es para cambio rápido en la lista, guarda el ID
   const [iconSearchQuery, setIconSearchQuery] = useState("");
   const [iconCategoryFilter, setIconCategoryFilter] = useState<string>("todos");
+  const [hoveredIcon, setHoveredIcon] = useState<AvailableIconDef | null>(null);
+
+  const selectedIconDef = useMemo(() => {
+    const targetName = iconDrawerTargetTaskId
+      ? tasks.find((t) => t.id === iconDrawerTargetTaskId)?.iconName
+      : formIconName;
+    return AVAILABLE_ICONS.find((i) => i.name === targetName) || null;
+  }, [iconDrawerTargetTaskId, tasks, formIconName]);
+
+  const inspectedIcon = hoveredIcon || selectedIconDef;
 
   // Cargar lista de labores
   const loadTasks = async () => {
@@ -575,15 +585,15 @@ export function ManualTasksManagerModal({
                         </button>
 
                         <div className="min-w-0 flex-1">
-                          <p className="font-bold text-xs text-foreground truncate" title={task.label}>
+                          <p className="font-bold text-xs text-foreground break-words leading-snug">
                             {task.label}
                           </p>
-                          <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-muted-foreground">
+                          <div className="flex flex-wrap items-center gap-1.5 mt-0.5 text-xs text-muted-foreground">
                             <span className="font-semibold text-violet-400">{task.category}</span>
                             {task.subcategory && (
                               <>
                                 <span>•</span>
-                                <span className="truncate">{task.subcategory}</span>
+                                <span className="break-words">{task.subcategory}</span>
                               </>
                             )}
                           </div>
@@ -699,14 +709,14 @@ export function ManualTasksManagerModal({
                 </div>
               </div>
 
-              {/* Cuadrícula de Íconos del Cajón */}
+              {/* Cuadrícula de Íconos del Cajón - Iconos cuadrados limpios sin texto apelotado ni cortado */}
               <div className="flex-1 overflow-y-auto p-4">
                 {filteredIcons.length === 0 ? (
                   <div className="py-12 text-center text-muted-foreground text-xs">
                     No se encontraron íconos con "{iconSearchQuery}"
                   </div>
                 ) : (
-                  <div className="grid grid-cols-4 sm:grid-cols-6 gap-2.5">
+                  <div className="grid grid-cols-5 sm:grid-cols-6 md:grid-cols-8 gap-2.5">
                     {filteredIcons.map((item) => {
                       const IconComponent = item.icon;
                       const isSelected =
@@ -715,37 +725,82 @@ export function ManualTasksManagerModal({
                           tasks.find((t) => t.id === iconDrawerTargetTaskId)?.iconName === item.name);
 
                       return (
-                        <button
-                          key={item.name}
-                          type="button"
-                          onClick={() => handleSelectIcon(item.name)}
-                          className={`group flex flex-col items-center justify-center p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
-                            isSelected
-                              ? "bg-amber-500/25 border-amber-400 text-amber-300 ring-2 ring-amber-400/50 shadow-md shadow-amber-500/20"
-                              : "bg-muted/20 hover:bg-muted/60 border-border/60 hover:border-slate-500 text-muted-foreground hover:text-foreground hover:scale-105 active:scale-95"
-                          }`}
-                        >
-                          <IconComponent className="h-5 w-5 mb-1.5 transition-transform group-hover:scale-110" />
-                          <span className="text-[10px] font-bold leading-tight truncate w-full">
-                            {item.label}
-                          </span>
-                        </button>
+                        <div key={item.name} className="relative group">
+                          <button
+                            type="button"
+                            onClick={() => handleSelectIcon(item.name)}
+                            onMouseEnter={() => setHoveredIcon(item)}
+                            onMouseLeave={() => setHoveredIcon(null)}
+                            onFocus={() => setHoveredIcon(item)}
+                            onBlur={() => setHoveredIcon(null)}
+                            aria-label={item.label}
+                            className={`w-full aspect-square rounded-2xl flex items-center justify-center transition-all duration-200 border cursor-pointer ${
+                              isSelected
+                                ? "bg-amber-500/25 border-amber-400 text-amber-300 ring-2 ring-amber-400/50 shadow-lg shadow-amber-500/20 scale-[0.98]"
+                                : "bg-muted/20 hover:bg-muted/60 border-border/60 hover:border-amber-500/50 text-muted-foreground hover:text-foreground hover:scale-105 active:scale-95"
+                            }`}
+                          >
+                            <IconComponent className={`h-6 w-6 transition-transform duration-200 group-hover:scale-125 ${isSelected ? "text-amber-400" : ""}`} />
+                          </button>
+
+                          {/* Tooltip flotante con texto 100% completo, sin recortes */}
+                          <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max max-w-[240px] opacity-0 group-hover:opacity-100 transition-all duration-150 transform group-hover:-translate-y-1 z-50">
+                            <div className="bg-popover text-popover-foreground border border-border/90 shadow-2xl px-2.5 py-1.5 rounded-xl text-center backdrop-blur-md">
+                              <p className="text-xs font-bold leading-snug whitespace-normal break-words">{item.label}</p>
+                              <p className="text-[10px] text-amber-500 dark:text-amber-400 font-semibold uppercase tracking-wider mt-0.5">
+                                {item.category}
+                              </p>
+                            </div>
+                            <div className="w-2 h-2 bg-popover border-r border-b border-border/90 transform rotate-45 mx-auto -mt-1" />
+                          </div>
+                        </div>
                       );
                     })}
                   </div>
                 )}
               </div>
 
+              {/* Barra inspectora de ícono en tiempo real */}
+              <div className="px-5 py-3 border-t border-border/60 bg-muted/30 flex items-center justify-between gap-4 shrink-0">
+                {inspectedIcon ? (
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <div className="h-11 w-11 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 grid place-items-center shrink-0 shadow-xs">
+                      {React.createElement(inspectedIcon.icon, { className: "h-6 w-6" })}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-bold text-sm text-foreground break-words leading-tight">
+                          {inspectedIcon.label}
+                        </span>
+                        <span className="text-[11px] px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-400 border border-amber-500/30 font-semibold">
+                          {inspectedIcon.category}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5 break-words">
+                        Palabras clave: {inspectedIcon.keywords}
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground italic">
+                    <Info className="h-4 w-4 shrink-0 text-muted-foreground/70" />
+                    <span>Pasa el cursor sobre cualquier ícono para ver su nombre completo y detalles.</span>
+                  </div>
+                )}
+                <div className="text-xs text-muted-foreground font-medium shrink-0">
+                  {filteredIcons.length} íconos disponibles
+                </div>
+              </div>
+
               {/* Pie del Cajón */}
-              <div className="px-5 py-3 border-t border-border/60 bg-muted/20 flex items-center justify-between text-[11px] text-muted-foreground">
-                <span>{filteredIcons.length} íconos disponibles</span>
+              <div className="px-5 py-3 border-t border-border/60 bg-card flex items-center justify-end shrink-0">
                 <button
                   type="button"
                   onClick={() => {
                     setIconDrawerOpen(false);
                     setIconDrawerTargetTaskId(null);
                   }}
-                  className="px-3 py-1 rounded-lg bg-muted hover:bg-muted/80 text-foreground font-bold text-xs cursor-pointer"
+                  className="px-4 py-2 rounded-xl bg-muted hover:bg-muted/80 text-foreground font-bold text-xs cursor-pointer border border-border/60 transition-colors"
                 >
                   Cerrar cajón
                 </button>
