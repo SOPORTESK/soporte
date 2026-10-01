@@ -1440,8 +1440,8 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
             )}
           </div>
 
-          {/* Contenedor del contenido con scroll independiente */}
-          <div className="overflow-y-auto overflow-x-hidden" style={{ maxHeight: "calc(78vh - 42px)" }}>
+          {/* Contenedor del contenido con tamaño uniforme fijo y scroll independiente */}
+          <div className="overflow-y-auto overflow-x-hidden w-full" style={{ height: "520px", maxHeight: "calc(80vh - 45px)" }}>
 
           {tab === "profile" && (
             <div className="p-4 space-y-4">
@@ -1559,7 +1559,7 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
           )}
 
           {tab === "team" && selectedChat && !teamChatExpanded && (
-            <div className="flex flex-col w-full overflow-hidden" style={{ height: "520px", maxHeight: "calc(78vh - 45px)" }}>
+            <div className="flex flex-col w-full h-full overflow-hidden">
               <InternalChatView
                 channelId={selectedChat.channelId}
                 channelName={selectedChat.channelName}
@@ -1577,7 +1577,7 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
           )}
 
           {tab === "team" && !selectedChat && !teamChatExpanded && (
-            <div className="p-3 space-y-3" style={{ minHeight: "380px", maxHeight: "560px", overflowY: "auto" }}>
+            <div className="p-3 space-y-3">
               {/* Barra superior con botón para ampliar ventana */}
               <div className="flex items-center justify-between pb-1">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
@@ -1696,7 +1696,7 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
           )}
 
           {tab === "activity" && hasActivityAccess && (
-            <div className="flex flex-col" style={{ minHeight: "440px", maxHeight: "560px" }}>
+            <div className="flex flex-col">
               {/* Header con gradiente y métricas compactas */}
               <div className="px-3 py-2 bg-gradient-to-br from-violet-500/15 via-indigo-500/5 to-transparent border-b border-border/50 space-y-1.5">
                 {/* Fila 1: Título + Score */}
