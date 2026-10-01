@@ -1696,7 +1696,7 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
           )}
 
           {tab === "activity" && hasActivityAccess && (
-            <div className="flex flex-col">
+            <div className="flex flex-col h-[520px] max-h-full overflow-hidden">
               {/* Header con gradiente y métricas compactas */}
               <div className="px-3 py-2 bg-gradient-to-br from-violet-500/15 via-indigo-500/5 to-transparent border-b border-border/50 space-y-1.5">
                 {/* Fila 1: Título + Score */}
@@ -1794,8 +1794,8 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
                 );
               })()}
 
-              {/* Labores Manuales Directas con Selectores Dinámicos de Primer Nivel */}
-              <div className="flex-1 overflow-y-auto px-3 py-1.5 space-y-1.5">
+              {/* Labores Manuales Directas con Selectores Dinámicos de Primer Nivel - Área con scroll propio */}
+              <div className="flex-1 min-h-0 overflow-y-auto px-3 py-1.5 space-y-1.5">
                 {/* Cabecera, contador y botón de gestión exclusiva */}
                 <div className="flex items-center justify-between">
                   <h4 className="text-xs font-black text-foreground tracking-tight flex items-center gap-1.5">
@@ -1960,8 +1960,8 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
                 </div>
               </div>
 
-              {/* Footer con sincronización y reporte IA */}
-              <div className="px-3 py-2.5 border-t border-border/50 bg-card/40 flex gap-2">
+              {/* Footer con sincronización y reporte IA - SIEMPRE VISIBLE */}
+              <div className="shrink-0 px-3 py-2.5 border-t border-border/70 bg-card/95 backdrop-blur-sm flex gap-2 sticky bottom-0 z-20 shadow-sm">
                 <button
                   onClick={handleSync}
                   disabled={syncing}
