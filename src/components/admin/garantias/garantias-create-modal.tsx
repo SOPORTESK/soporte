@@ -19,7 +19,6 @@ import {
   Building2,
   User,
   Package,
-  FileText,
   RotateCcw,
   ExternalLink,
 } from "lucide-react";
@@ -73,11 +72,6 @@ export function GarantiasCreateModal({
   const [boletaFisica, setBoletaFisica] = React.useState<string>("");
   const [descripcion, setDescripcion] = React.useState<string>("");
   const [falla, setFalla] = React.useState<string>("");
-  const [facturaSalida, setFacturaSalida] = React.useState<string>("");
-  const [articulosAdicionales, setArticulosAdicionales] = React.useState<string>("");
-  const [observaciones, setObservaciones] = React.useState<string>("");
-  const [seguimiento, setSeguimiento] = React.useState<string>("");
-  const [excluirRma, setExcluirRma] = React.useState<boolean>(false);
 
   // Estado de sincronización de consecutivo
   const [boletaPreview, setBoletaPreview] = React.useState<string>("—");
@@ -196,11 +190,6 @@ export function GarantiasCreateModal({
     setBoletaFisica("");
     setDescripcion("");
     setFalla("");
-    setFacturaSalida("");
-    setArticulosAdicionales("");
-    setObservaciones("");
-    setSeguimiento("");
-    setExcluirRma(false);
     setMatchedInventoryItem(null);
     setSavedRecord(null);
     setCurrentStep(1);
@@ -232,11 +221,6 @@ export function GarantiasCreateModal({
         boleta_fisica: boletaFisica.trim() || null,
         descripcion: descripcion.trim() || null,
         falla: falla.trim(),
-        factura_salida: facturaSalida.trim() || null,
-        articulos_adicionales: articulosAdicionales.trim() || null,
-        observaciones: observaciones.trim() || null,
-        seguimiento: seguimiento.trim() || null,
-        excluir_rma: Boolean(excluirRma),
         registrado_por: defaultAgentName,
       };
 
@@ -966,91 +950,6 @@ body{font-family:'Plus Jakarta Sans',sans-serif;font-size:11px;color:#1A1108;bac
                     className="w-full p-2.5 rounded-xl bg-background border border-border text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 font-medium resize-none"
                     required
                   />
-                </div>
-              </div>
-
-              {/* SECCIÓN 4: OBSERVACIONES Y SEGUIMIENTO */}
-              <div className="p-4 rounded-2xl bg-card border border-border/80 space-y-4">
-                <div className="flex items-center justify-between border-b border-border/60 pb-3">
-                  <div className="flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-blue-500" />
-                    <h3 className="text-xs font-black uppercase tracking-wider text-foreground">
-                      4. Observaciones y Seguimiento
-                    </h3>
-                  </div>
-                  <span className="text-[10px] font-semibold text-muted-foreground px-2 py-0.5 rounded-full bg-muted">
-                    Opcional
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                  <div>
-                    <label className="block text-xs font-semibold text-muted-foreground mb-1">
-                      Factura Salida
-                    </label>
-                    <input
-                      type="text"
-                      value={facturaSalida}
-                      onChange={(e) => setFacturaSalida(e.target.value)}
-                      placeholder="Ej: 001-002-12345"
-                      className="w-full h-9 px-3 rounded-xl bg-background border border-border text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 font-medium"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-muted-foreground mb-1">
-                      Artículos Adicionales
-                    </label>
-                    <input
-                      type="text"
-                      value={articulosAdicionales}
-                      onChange={(e) => setArticulosAdicionales(e.target.value)}
-                      placeholder="Accesorios, cables, cargadores, etc."
-                      className="w-full h-9 px-3 rounded-xl bg-background border border-border text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 font-medium"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                  <div>
-                    <label className="block text-xs font-semibold text-muted-foreground mb-1">
-                      Observaciones
-                    </label>
-                    <textarea
-                      rows={2}
-                      value={observaciones}
-                      onChange={(e) => setObservaciones(e.target.value)}
-                      placeholder="Notas internas o aclaraciones del proceso..."
-                      className="w-full p-2.5 rounded-xl bg-background border border-border text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 font-medium resize-none"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-muted-foreground mb-1">
-                      Seguimiento
-                    </label>
-                    <textarea
-                      rows={2}
-                      value={seguimiento}
-                      onChange={(e) => setSeguimiento(e.target.value)}
-                      placeholder="Acciones realizadas o pasos pendientes..."
-                      className="w-full p-2.5 rounded-xl bg-background border border-border text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 font-medium resize-none"
-                    />
-                  </div>
-                </div>
-
-                <div className="pt-2 border-t border-border/60">
-                  <label className="inline-flex items-center gap-2 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={excluirRma}
-                      onChange={(e) => setExcluirRma(e.target.checked)}
-                      className="w-4 h-4 rounded border-border text-primary focus:ring-primary/40"
-                    />
-                    <span className="text-xs font-semibold text-foreground">
-                      Excluir de Trámites con Marca (RMA)
-                    </span>
-                  </label>
                 </div>
               </div>
 
