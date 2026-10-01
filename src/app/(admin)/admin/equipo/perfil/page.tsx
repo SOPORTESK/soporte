@@ -9,6 +9,7 @@ import { GodModeButton } from "@/components/admin/god-mode-button";
 import { GodModeBanner } from "@/components/admin/god-mode-banner";
 import { AgentCasesHistory } from "@/components/admin/agent-cases-history";
 import { AgentScheduleCard } from "@/components/admin/agent-schedule-card";
+import { AgentProfileTabs } from "@/components/admin/agent-profile-tabs";
 import { getUserWithTimeout, queryWithFallback } from "@/lib/supabase/resilient";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +17,7 @@ export const dynamic = "force-dynamic";
 export default async function AgentProfilePage({
   searchParams
 }: {
-  searchParams: { email?: string }
+  searchParams: { email?: string; tab?: "rendimiento" | "historial" | "gestion" }
 }) {
   const supabase = createClient();
 
@@ -171,112 +172,121 @@ export default async function AgentProfilePage({
         </div>
       </section>
 
-      {/* ── KPI STATS ── */}
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {[
-          { label: "Casos Totales",    value: (casos || []).length.toString(), icon: MessageSquare, color: "text-brand-500",   bg: "bg-brand-500/10",   sub: `${abiertos.length} activos ahora`  },
-          { label: "Resueltos",        value: resueltos.length.toString(),     icon: CheckCircle,   color: "text-emerald-500", bg: "bg-emerald-500/10", sub: `${tasa}% tasa de resolución`       },
-          { label: "SLA Promedio",     value: formatSLA(avgSLA),               icon: Clock,         color: "text-sky-500",     bg: "bg-sky-500/10",     sub: "Solo casos de este agente"         },
-          { label: "Satisfacción",     value: avgCal ? `${avgCal}/5` : "—",   icon: Star,          color: "text-amber-400",   bg: "bg-amber-400/10",   sub: `${cals.length} calificaciones`     },
-        ].map(k => (
-          <div key={k.label} className="relative rounded-2xl border border-border bg-card p-5 ring-1 ring-border/50 overflow-hidden hover:shadow-lg hover:-translate-y-0.5 transition-all">
-            <div className={`absolute -top-6 -right-6 h-20 w-20 rounded-full ${k.bg} blur-2xl`} />
-            <div className="relative">
-              <div className={`inline-flex items-center justify-center h-9 w-9 rounded-xl ${k.bg} ${k.color} mb-3`}>
-                <k.icon className="h-4 w-4" />
-              </div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">{k.label}</p>
-              <p className={`text-3xl font-black mt-1 tracking-tight tabular-nums ${k.color}`}>{k.value}</p>
-              <p className="text-[11px] text-muted-foreground mt-1">{k.sub}</p>
-            </div>
-          </div>
-        ))}
-      </section>
-
-      {/* ── TASA DE RESOLUCIÓN VISUAL ── */}
-      <section className="grid gap-6 lg:grid-cols-3">
-        {/* Gauge de resolución */}
-        <div className="rounded-2xl border border-border bg-card p-6 flex flex-col items-center justify-center">
-          <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-4">Efectividad Global</p>
-          <div className="relative h-36 w-36">
-            <svg className="h-36 w-36 -rotate-90" viewBox="0 0 36 36">
-              <circle cx="18" cy="18" r="15" fill="none" className="stroke-muted/30" strokeWidth="2.5" />
-              <circle cx="18" cy="18" r="15" fill="none"
-                className={tasa >= 80 ? "stroke-emerald-500" : tasa >= 60 ? "stroke-amber-500" : "stroke-rose-500"}
-                strokeWidth="2.5"
-                strokeDasharray={`${tasa * 0.942} 100`}
-                strokeLinecap="round"
-              />
-            </svg>
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className={`text-3xl font-black tabular-nums ${tasa >= 80 ? "text-emerald-500" : tasa >= 60 ? "text-amber-500" : "text-rose-500"}`}>{tasa}%</span>
-              <span className="text-[10px] text-muted-foreground">resolución</span>
-            </div>
-          </div>
-          <p className="text-xs text-muted-foreground mt-3 text-center">
-            {tasa >= 80 ? "Rendimiento excelente" : tasa >= 60 ? "Rendimiento aceptable" : "Necesita mejorar"}
-          </p>
-        </div>
-
-        {/* Actividad hoy */}
-        <div className="rounded-2xl border border-border bg-card p-6">
-          <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-4">Distribución de Casos</p>
-          <div className="space-y-3">
-            {[
-              { label: "Resueltos/Cerrados", count: resueltos.length, total: (casos || []).length, color: "bg-emerald-500" },
-              { label: "Activos",            count: abiertos.length,  total: (casos || []).length, color: "bg-brand-500"   },
-              { label: "Hoy",                count: casosHoy,          total: (casos || []).length, color: "bg-violet-500"  },
-            ].map(row => (
-              <div key={row.label} className="space-y-1">
-                <div className="flex justify-between text-xs">
-                  <span className="text-muted-foreground font-medium">{row.label}</span>
-                  <span className="font-black tabular-nums">{row.count}</span>
-                </div>
-                <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
-                  <div className={`h-full ${row.color} rounded-full transition-all`}
-                    style={{ width: row.total > 0 ? `${Math.round((row.count / row.total) * 100)}%` : "0%" }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Satisfacción */}
-        <div className="rounded-2xl border border-border bg-card p-6">
-          <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-4">Calificaciones Recibidas</p>
-          {cals.length > 0 ? (
-            <div>
-              <div className="flex items-baseline gap-2 mb-4">
-                <span className="text-5xl font-black text-amber-400 tabular-nums">{avgCal}</span>
-                <span className="text-muted-foreground text-sm">/5.0</span>
-              </div>
-              <div className="space-y-2">
-                {[5,4,3,2,1].map(star => {
-                  const count = cals.filter(c => Math.round(c) === star).length;
-                  return (
-                    <div key={star} className="flex items-center gap-2">
-                      <span className="text-[10px] font-bold text-amber-400 w-3">{star}</span>
-                      <Star className="h-3 w-3 text-amber-400 fill-amber-400 shrink-0" />
-                      <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-                        <div className="h-full bg-amber-400 rounded-full" style={{ width: cals.length > 0 ? `${(count / cals.length) * 100}%` : "0%" }} />
-                      </div>
-                      <span className="text-[10px] text-muted-foreground w-4 text-right tabular-nums">{count}</span>
+      {/* ── TABS: RENDIMIENTO, HISTORIAL Y GESTIÓN DE TRABAJO ── */}
+      <AgentProfileTabs
+        defaultTab={searchParams.tab || "rendimiento"}
+        casosCount={(casos || []).length}
+        rendimientoContent={
+          <>
+            {/* ── KPI STATS ── */}
+            <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {[
+                { label: "Casos Totales",    value: (casos || []).length.toString(), icon: MessageSquare, color: "text-brand-500",   bg: "bg-brand-500/10",   sub: `${abiertos.length} activos ahora`  },
+                { label: "Resueltos",        value: resueltos.length.toString(),     icon: CheckCircle,   color: "text-emerald-500", bg: "bg-emerald-500/10", sub: `${tasa}% tasa de resolución`       },
+                { label: "SLA Promedio",     value: formatSLA(avgSLA),               icon: Clock,         color: "text-sky-500",     bg: "bg-sky-500/10",     sub: "Solo casos de este agente"         },
+                { label: "Satisfacción",     value: avgCal ? `${avgCal}/5` : "—",   icon: Star,          color: "text-amber-400",   bg: "bg-amber-400/10",   sub: `${cals.length} calificaciones`     },
+              ].map(k => (
+                <div key={k.label} className="relative rounded-2xl border border-border bg-card p-5 ring-1 ring-border/50 overflow-hidden hover:shadow-lg hover:-translate-y-0.5 transition-all">
+                  <div className={`absolute -top-6 -right-6 h-20 w-20 rounded-full ${k.bg} blur-2xl`} />
+                  <div className="relative">
+                    <div className={`inline-flex items-center justify-center h-9 w-9 rounded-xl ${k.bg} ${k.color} mb-3`}>
+                      <k.icon className="h-4 w-4" />
                     </div>
-                  );
-                })}
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">{k.label}</p>
+                    <p className={`text-3xl font-black mt-1 tracking-tight tabular-nums ${k.color}`}>{k.value}</p>
+                    <p className="text-[11px] text-muted-foreground mt-1">{k.sub}</p>
+                  </div>
+                </div>
+              ))}
+            </section>
+
+            {/* ── TASA DE RESOLUCIÓN VISUAL ── */}
+            <section className="grid gap-6 lg:grid-cols-3">
+              {/* Gauge de resolución */}
+              <div className="rounded-2xl border border-border bg-card p-6 flex flex-col items-center justify-center">
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-4">Efectividad Global</p>
+                <div className="relative h-36 w-36">
+                  <svg className="h-36 w-36 -rotate-90" viewBox="0 0 36 36">
+                    <circle cx="18" cy="18" r="15" fill="none" className="stroke-muted/30" strokeWidth="2.5" />
+                    <circle cx="18" cy="18" r="15" fill="none"
+                      className={tasa >= 80 ? "stroke-emerald-500" : tasa >= 60 ? "stroke-amber-500" : "stroke-rose-500"}
+                      strokeWidth="2.5"
+                      strokeDasharray={`${tasa * 0.942} 100`}
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <span className={`text-3xl font-black tabular-nums ${tasa >= 80 ? "text-emerald-500" : tasa >= 60 ? "text-amber-500" : "text-rose-500"}`}>{tasa}%</span>
+                    <span className="text-[10px] text-muted-foreground">resolución</span>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground mt-3 text-center">
+                  {tasa >= 80 ? "Rendimiento excelente" : tasa >= 60 ? "Rendimiento aceptable" : "Necesita mejorar"}
+                </p>
               </div>
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground italic">Sin calificaciones aún</p>
-          )}
-        </div>
-      </section>
 
-      {/* ── GESTIÓN DE HORARIO DEL EMPLEADO ── */}
-      <AgentScheduleCard agentEmail={targetEmail} agentName={fullName} />
+              {/* Actividad hoy */}
+              <div className="rounded-2xl border border-border bg-card p-6">
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-4">Distribución de Casos</p>
+                <div className="space-y-3">
+                  {[
+                    { label: "Resueltos/Cerrados", count: resueltos.length, total: (casos || []).length, color: "bg-emerald-500" },
+                    { label: "Activos",            count: abiertos.length,  total: (casos || []).length, color: "bg-brand-500"   },
+                    { label: "Hoy",                count: casosHoy,          total: (casos || []).length, color: "bg-violet-500"  },
+                  ].map(row => (
+                    <div key={row.label} className="space-y-1">
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground font-medium">{row.label}</span>
+                        <span className="font-black tabular-nums">{row.count}</span>
+                      </div>
+                      <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
+                        <div className={`h-full ${row.color} rounded-full transition-all`}
+                          style={{ width: row.total > 0 ? `${Math.round((row.count / row.total) * 100)}%` : "0%" }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
 
-      {/* ── HISTORIAL DE CASOS CON BÚSQUEDA, FILTROS Y SCROLL ── */}
-      <AgentCasesHistory cases={(casos as any[]) || []} />
+              {/* Satisfacción */}
+              <div className="rounded-2xl border border-border bg-card p-6">
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-4">Calificaciones Recibidas</p>
+                {cals.length > 0 ? (
+                  <div>
+                    <div className="flex items-baseline gap-2 mb-4">
+                      <span className="text-5xl font-black text-amber-400 tabular-nums">{avgCal}</span>
+                      <span className="text-muted-foreground text-sm">/5.0</span>
+                    </div>
+                    <div className="space-y-2">
+                      {[5,4,3,2,1].map(star => {
+                        const count = cals.filter(c => Math.round(c) === star).length;
+                        return (
+                          <div key={star} className="flex items-center gap-2">
+                            <span className="text-[10px] font-bold text-amber-400 w-3">{star}</span>
+                            <Star className="h-3 w-3 text-amber-400 fill-amber-400 shrink-0" />
+                            <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                              <div className="h-full bg-amber-400 rounded-full" style={{ width: cals.length > 0 ? `${(count / cals.length) * 100}%` : "0%" }} />
+                            </div>
+                            <span className="text-[10px] text-muted-foreground w-4 text-right tabular-nums">{count}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground italic">Sin calificaciones aún</p>
+                )}
+              </div>
+            </section>
+          </>
+        }
+        historialContent={
+          <AgentCasesHistory cases={(casos as any[]) || []} />
+        }
+        gestionContent={
+          <AgentScheduleCard agentEmail={targetEmail} agentName={fullName} />
+        }
+      />
     </div>
   );
 }
