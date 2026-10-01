@@ -28,6 +28,8 @@ import {
   Briefcase,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   UserPlus,
   Users,
   SlidersHorizontal,
@@ -67,6 +69,23 @@ const WORKSHOP_JUSTIFY_PRESETS = [
   { label: "Gestión de Residuos", short: "Residuos", icon: Trash2, cat: "Gestión de Residuos" },
   { label: "Capacitación / Inducción", short: "Capacitación", icon: GraduationCap, cat: "On-the-Job Training (OJT)" },
   { label: "Reunión de taller", short: "Reunión", icon: Users, cat: "Control Administrativo" },
+];
+
+const CATEGORY_HEX_MAP: Record<string, string> = {
+  "Control Administrativo": "#3b82f6",
+  "Gestión del Taller": "#6366f1",
+  "Soporte": "#10b981",
+  "Servicio de Taller": "#f59e0b",
+  "Gestión de Residuos": "#f43f5e",
+  "On-the-Job Training (OJT)": "#8b5cf6",
+  "Justificación Manual": "#a855f7",
+  "Utilidades": "#64748b",
+  "Descansos": "#f97316",
+  "Pausa Sanitaria": "#14b8a6",
+};
+
+const SOFTWARE_PALETTE = [
+  "#8b5cf6", "#3b82f6", "#10b981", "#f59e0b", "#ec4899", "#06b6d4", "#6366f1", "#84cc16", "#e11d48", "#14b8a6"
 ];
 
 export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Props) {
@@ -336,36 +355,87 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
     }
   };
 
-  // Lista unificada para la tabla de Resumen
-  const categoriesList = useMemo(() => {
+  // Estados para gráfico de dona y desglose interactivo
+  const [hoveredDonutItem, setHoveredDonutItem] = useState<{
+    label: string;
+    time: string;
+    pct: number;
+    color: string;
+  } | null>(null);
+  const [showZeroCategories, setShowZeroCategories] = useState(false);
+
+  // Preparación gráfica y filtrado inteligente (sin paginación forzada)
+  const chartData = useMemo(() => {
     if (categoryViewMode === "categories") {
-      return metrics.operationalBuckets.map((b) => ({
-        category: b.label,
-        durationMs: b.durationMs,
-        count: 1,
-        percentage: b.percentage,
-        color: b.color,
-        bgBar: b.bgBar,
-        iconName: b.iconName,
-        isCategory: true,
-      }));
+      const active = metrics.operationalBuckets.filter((b) => b.durationMs > 0);
+      const inactive = metrics.operationalBuckets.filter((b) => b.durationMs === 0);
+      const totalActiveDuration = active.reduce((acc, b) => acc + b.durationMs, 0) || 1;
+
+      const items = active.map((b) => {
+        const pct = Math.round((b.durationMs / totalActiveDuration) * 100);
+        return {
+          id: b.id,
+          label: b.label,
+          durationMs: b.durationMs,
+          formattedTime: b.formattedTime,
+          percentage: pct,
+          color: CATEGORY_HEX_MAP[b.id] || "#8b5cf6",
+          iconName: b.iconName,
+          isProductive: b.isProductive,
+        };
+      });
+
+      return {
+        items,
+        inactive,
+        totalDurationMs: totalActiveDuration,
+      };
     } else {
-      return metrics.topSoftware.map((s) => ({
-        category: s.name,
-        durationMs: s.durationMs,
-        count: s.count,
-        percentage: s.percentage,
-        color: "text-foreground",
-        bgBar: "bg-violet-500",
-        iconName: "Monitor",
-        isCategory: false,
-      }));
+      const active = metrics.topSoftware.filter((s) => s.durationMs > 0);
+      const totalActiveDuration = active.reduce((acc, s) => acc + s.durationMs, 0) || 1;
+
+      const items = active.slice(0, 10).map((s, idx) => {
+        const pct = Math.round((s.durationMs / totalActiveDuration) * 100);
+        return {
+          id: s.name,
+          label: s.name,
+          durationMs: s.durationMs,
+          formattedTime: s.formattedTime,
+          percentage: pct,
+          color: SOFTWARE_PALETTE[idx % SOFTWARE_PALETTE.length],
+          iconName: "Monitor",
+          isProductive: true,
+        };
+      });
+
+      return {
+        items,
+        inactive: [],
+        totalDurationMs: totalActiveDuration,
+      };
     }
   }, [categoryViewMode, metrics]);
 
-  const totalCatPages = Math.max(1, Math.ceil(categoriesList.length / ITEMS_PER_PAGE));
-  const currentCatPage = Math.min(Math.max(1, catPage), totalCatPages);
-  const paginatedCategories = categoriesList.slice((currentCatPage - 1) * ITEMS_PER_PAGE, currentCatPage * ITEMS_PER_PAGE);
+  // Segmentos geométricos SVG de la Dona
+  const donutSegments = useMemo(() => {
+    const radius = 58;
+    const circumference = 2 * Math.PI * radius;
+    let accumulatedRatio = 0;
+
+    return chartData.items.map((item) => {
+      const ratio = item.durationMs / chartData.totalDurationMs;
+      const strokeDasharray = `${(ratio * circumference).toFixed(2)} ${circumference.toFixed(2)}`;
+      const strokeDashoffset = -((accumulatedRatio * circumference).toFixed(2));
+      accumulatedRatio += ratio;
+
+      return {
+        ...item,
+        radius,
+        strokeDasharray,
+        strokeDashoffset,
+      };
+    });
+  }, [chartData]);
 
   const formatMinHours = (ms: number) => {
     return formatDurationMs(ms);
@@ -594,100 +664,120 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                 <p className="text-xs text-muted-foreground">Cargando métricas de actividad...</p>
               </div>
             ) : (
-              <div className="space-y-6">
-                {/* 1. Tarjetas KPI de la Jornada con separación limpia de Trabajo en PC y Justificación Manual */}
-                {/* 1. Tarjetas KPI de la Jornada con separación limpia de Trabajo en PC y Justificación Manual */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-                  <div className="p-4 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-3 shadow-sm hover:border-border transition-all">
+              <div className="space-y-4">
+                {/* 1. Tarjetas KPI de la Jornada - 6 métricas claras en una sola fila */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+                  {/* Meta */}
+                  <div className="p-3 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-1.5 shadow-2xs hover:border-border transition-all">
                     <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-black uppercase tracking-wider text-muted-foreground whitespace-nowrap">
-                        Meta Jornada
+                      <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground whitespace-nowrap">
+                        Meta
                       </span>
-                      <div className="h-8 w-8 rounded-xl bg-violet-500/15 text-violet-400 grid place-items-center shrink-0">
-                        <Briefcase className="h-4 w-4" />
+                      <div className="h-6 w-6 rounded-lg bg-violet-500/15 text-violet-400 grid place-items-center shrink-0">
+                        <Briefcase className="h-3 w-3" />
                       </div>
                     </div>
                     <div>
-                      <p className="text-2xl font-black text-violet-400 tabular-nums whitespace-nowrap tracking-tight">
+                      <p className="text-lg font-black text-violet-400 tabular-nums whitespace-nowrap tracking-tight font-mono">
                         {targetDailyHours}h 00m
                       </p>
-                      <span className="text-xs text-muted-foreground font-medium">Jornada estándar</span>
+                      <span className="text-[10px] text-muted-foreground font-medium block truncate">Jornada oficial</span>
                     </div>
                   </div>
 
-                  <div className="p-4 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-3 shadow-sm hover:border-border transition-all">
+                  {/* Trabajo PC */}
+                  <div className="p-3 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-1.5 shadow-2xs hover:border-border transition-all">
                     <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-black uppercase tracking-wider text-muted-foreground whitespace-nowrap">
-                        Trabajo en PC
+                      <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground whitespace-nowrap">
+                        Trabajo PC
                       </span>
-                      <div className="h-8 w-8 rounded-xl bg-emerald-500/15 text-emerald-400 grid place-items-center shrink-0">
-                        <Monitor className="h-4 w-4" />
+                      <div className="h-6 w-6 rounded-lg bg-emerald-500/15 text-emerald-400 grid place-items-center shrink-0">
+                        <Monitor className="h-3 w-3" />
                       </div>
                     </div>
                     <div>
-                      <p className="text-2xl font-black text-emerald-400 tabular-nums whitespace-nowrap tracking-tight">
+                      <p className="text-lg font-black text-emerald-400 tabular-nums whitespace-nowrap tracking-tight font-mono">
                         {metrics.pcWorkTime}
                       </p>
-                      <span className="text-xs text-emerald-500/80 font-medium">Actividad en pantalla</span>
+                      <span className="text-[10px] text-emerald-500/80 font-medium block truncate">En pantalla</span>
                     </div>
                   </div>
 
-                  <div className="p-4 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-3 shadow-sm hover:border-border transition-all">
+                  {/* Labores Manuales */}
+                  <div className="p-3 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-1.5 shadow-2xs hover:border-border transition-all">
                     <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-black uppercase tracking-wider text-muted-foreground whitespace-nowrap">
-                        Justificación Manual
+                      <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground whitespace-nowrap">
+                        Manuales
                       </span>
-                      <div className="h-8 w-8 rounded-xl bg-cyan-500/15 text-cyan-400 grid place-items-center shrink-0">
-                        <CheckCircle2 className="h-4 w-4" />
+                      <div className="h-6 w-6 rounded-lg bg-cyan-500/15 text-cyan-400 grid place-items-center shrink-0">
+                        <CheckCircle2 className="h-3 w-3" />
                       </div>
                     </div>
                     <div>
-                      <p className="text-2xl font-black text-cyan-400 tabular-nums whitespace-nowrap tracking-tight">
+                      <p className="text-lg font-black text-cyan-400 tabular-nums whitespace-nowrap tracking-tight font-mono">
                         {metrics.manualJustificationTime}
                       </p>
-                      <span className="text-xs text-cyan-500/80 font-medium">Labores fuera de PC</span>
+                      <span className="text-[10px] text-cyan-500/80 font-medium block truncate">Fuera de PC</span>
                     </div>
                   </div>
 
-                  <div className="p-4 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-3 shadow-sm hover:border-border transition-all">
+                  {/* Descanso / Almuerzo */}
+                  <div className="p-3 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-1.5 shadow-2xs hover:border-border transition-all">
                     <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-black uppercase tracking-wider text-muted-foreground whitespace-nowrap">
-                        Descanso / Almuerzo
+                      <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground whitespace-nowrap">
+                        Descanso
                       </span>
-                      <div className="h-8 w-8 rounded-xl bg-amber-500/15 text-amber-400 grid place-items-center shrink-0">
-                        <Coffee className="h-4 w-4" />
+                      <div className="h-6 w-6 rounded-lg bg-amber-500/15 text-amber-400 grid place-items-center shrink-0">
+                        <Coffee className="h-3 w-3" />
                       </div>
                     </div>
                     <div>
-                      <p className="text-2xl font-black text-amber-400 tabular-nums whitespace-nowrap tracking-tight">
-                        {(officialBreakMs + officialSanitaryMs) >= 60000 ? formatMinHours(officialBreakMs + officialSanitaryMs) : "0m"}
+                      <p className="text-lg font-black text-amber-400 tabular-nums whitespace-nowrap tracking-tight font-mono">
+                        {officialBreakMs >= 60000 ? formatMinHours(officialBreakMs) : "0m"}
                       </p>
-                      <span className="text-xs text-amber-500/80 font-medium">Pausa oficial registrada</span>
+                      <span className="text-[10px] text-amber-500/80 font-medium block truncate">Almuerzo / Café</span>
                     </div>
                   </div>
 
-                  <div className="p-4 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-3 shadow-sm hover:border-border transition-all">
+                  {/* Pausa Sanitaria */}
+                  <div className="p-3 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-1.5 shadow-2xs hover:border-border transition-all">
                     <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-black uppercase tracking-wider text-muted-foreground whitespace-nowrap">
-                        Inactividad
+                      <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground whitespace-nowrap">
+                        Sanitaria
                       </span>
-                      <div className="h-8 w-8 rounded-xl bg-slate-500/15 text-slate-400 grid place-items-center shrink-0">
-                        <Clock className="h-4 w-4" />
+                      <div className="h-6 w-6 rounded-lg bg-teal-500/15 text-teal-400 grid place-items-center shrink-0">
+                        <Toilet className="h-3 w-3" />
                       </div>
                     </div>
                     <div>
-                      <p className="text-2xl font-black text-slate-300 tabular-nums whitespace-nowrap tracking-tight">
+                      <p className="text-lg font-black text-teal-400 tabular-nums whitespace-nowrap tracking-tight font-mono">
+                        {officialSanitaryMs >= 60000 ? formatMinHours(officialSanitaryMs) : "0m"}
+                      </p>
+                      <span className="text-[10px] text-teal-500/80 font-medium block truncate">Pausas SS.HH.</span>
+                    </div>
+                  </div>
+
+                  {/* Inactividad */}
+                  <div className="p-3 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-1.5 shadow-2xs hover:border-border transition-all">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground whitespace-nowrap">
+                        Inactivo
+                      </span>
+                      <div className="h-6 w-6 rounded-lg bg-slate-500/15 text-slate-400 grid place-items-center shrink-0">
+                        <Clock className="h-3 w-3" />
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-lg font-black text-slate-300 tabular-nums whitespace-nowrap tracking-tight font-mono">
                         {officialIdleMs >= 60000 ? formatMinHours(officialIdleMs) : "0m"}
                       </p>
-                      <div className="flex items-center justify-between mt-1 text-xs gap-1">
-                        <span className="text-muted-foreground font-medium">
-                          Tolerancia: {toleranceMin}m
-                        </span>
+                      <div className="flex items-center justify-between mt-0.5 text-[9.5px]">
+                        <span className="text-muted-foreground">Tol: {toleranceMin}m</span>
                         {officialIdleMs >= 60000 && activeDetectedGaps.length > 0 && (
                           <button
                             type="button"
                             onClick={() => setActiveTab("justificar")}
-                            className="font-bold text-violet-400 hover:text-violet-300 underline underline-offset-2 transition-colors cursor-pointer shrink-0"
+                            className="font-bold text-violet-400 hover:text-violet-300 underline transition-colors cursor-pointer shrink-0"
                           >
                             Justificar
                           </button>
@@ -695,39 +785,20 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                       </div>
                     </div>
                   </div>
-
-                  <div className="p-4 rounded-2xl bg-card border border-border/70 flex flex-col justify-between gap-3 shadow-sm hover:border-border transition-all">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-black uppercase tracking-wider text-muted-foreground whitespace-nowrap">
-                        Tiempo Restante
-                      </span>
-                      <div className="h-8 w-8 rounded-xl bg-sky-500/15 text-sky-400 grid place-items-center shrink-0">
-                        <TrendingUp className="h-4 w-4" />
-                      </div>
-                    </div>
-                    <div>
-                      <p className="text-2xl font-black text-sky-400 tabular-nums whitespace-nowrap tracking-tight">
-                        {officialDeficitMs > 0 ? formatMinHours(officialDeficitMs) : "0m"}
-                      </p>
-                      <span className="text-xs text-sky-500/80 font-medium">
-                        {officialDeficitMs > 0 ? "Para cumplir meta" : "¡Meta cumplida!"}
-                      </span>
-                    </div>
-                  </div>
                 </div>
 
                 {/* Panel Consolidado de Sesión y Progreso */}
-                <div className="p-4 rounded-2xl bg-muted/20 border border-border/60 space-y-3.5">
-                  <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
-                    <div className="flex items-center gap-2.5 font-mono">
-                      <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
-                        <LogIn className="h-3.5 w-3.5" />
-                        <span className="text-[10px] uppercase font-sans font-bold text-emerald-500/80">Inicio Sesión:</span>
+                <div className="p-3 rounded-2xl bg-muted/20 border border-border/60 space-y-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <div className="flex items-center gap-2 font-mono">
+                      <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[11px]">
+                        <LogIn className="h-3 w-3" />
+                        <span className="text-[9.5px] uppercase font-sans font-bold text-emerald-500/80">Entrada:</span>
                         <span className="font-bold">{firstLoginTime || "--:--"}</span>
                       </div>
-                      <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-500/10 border border-slate-500/20 text-slate-300">
-                        <LogOut className="h-3.5 w-3.5" />
-                        <span className="text-[10px] uppercase font-sans font-bold text-slate-400">Última marca:</span>
+                      <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-500/10 border border-slate-500/20 text-slate-300 text-[11px]">
+                        <LogOut className="h-3 w-3" />
+                        <span className="text-[9.5px] uppercase font-sans font-bold text-slate-400">Última marca:</span>
                         <span className="font-bold">{lastLogoutTime || "--:--"}</span>
                       </div>
                     </div>
@@ -735,14 +806,14 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                     {rawOvertimeMs > 0 && (
                       <div>
                         {isOvertimeApproved ? (
-                          <span className="px-3 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-bold flex items-center gap-1.5">
-                            <CheckCircle2 className="h-3.5 w-3.5" />
-                            Tiempo Extra Aprobado: +{formatMinHours(rawOvertimeMs)}
+                          <span className="px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-bold text-[11px] flex items-center gap-1.5">
+                            <CheckCircle2 className="h-3 w-3" />
+                            Extra Aprobado: +{formatMinHours(rawOvertimeMs)}
                           </span>
                         ) : (
-                          <span className="px-3 py-1.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400 font-bold flex items-center gap-1.5" title="El tiempo extra requiere autorización del supervisor">
-                            <Clock className="h-3.5 w-3.5 animate-pulse" />
-                            +{formatMinHours(rawOvertimeMs)} extra pendiente de autorización
+                          <span className="px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-400 font-bold text-[11px] flex items-center gap-1.5" title="Requiere autorización">
+                            <Clock className="h-3 w-3 animate-pulse" />
+                            +{formatMinHours(rawOvertimeMs)} extra en revisión
                           </span>
                         )}
                       </div>
@@ -750,31 +821,28 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                   </div>
 
                   {/* Barra de Progreso */}
-                  <div className="space-y-1.5 pt-1">
+                  <div className="space-y-1">
                     <div className="flex justify-between items-center text-xs font-bold">
-                      <span className="text-emerald-400">
-                        Cumplimiento de Jornada: {officialCompliancePercent}% ({formatMinHours(officialActiveMs)} / {targetDailyHours}h)
+                      <span className="text-emerald-400 text-[11px]">
+                        Cumplimiento: {officialCompliancePercent}% ({formatMinHours(officialActiveMs)} / {targetDailyHours}h)
                       </span>
                       <span className="text-sky-400 text-[11px]">
                         {officialDeficitMs > 0 ? `Faltan ${formatMinHours(officialDeficitMs)} para completar` : "¡Jornada de 10h completada!"}
                       </span>
                     </div>
-                    <div className="h-2.5 w-full rounded-full bg-slate-800/80 overflow-hidden flex shadow-inner">
+                    <div className="h-2 w-full rounded-full bg-slate-800/80 overflow-hidden flex shadow-inner">
                       <div
                         className="bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-500 rounded-full"
                         style={{ width: `${Math.min(100, officialCompliancePercent)}%` }}
-                      />
-                      <div
-                        className="bg-transparent transition-all duration-500"
-                        style={{ width: `${Math.max(0, 100 - officialCompliancePercent)}%` }}
                       />
                     </div>
                   </div>
                 </div>
 
-                {/* 2. Desglose por Categorías de Tiempo */}
-                <div className="space-y-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
+                {/* 2. Distribución Gráfica de Tiempo con Gráfico Donut y Leyenda Inteligente */}
+                <div className="p-4 rounded-2xl bg-card border border-border/70 space-y-3.5 shadow-2xs">
+                  {/* Selector y contador */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-border/40">
                     <div className="flex items-center gap-2">
                       <BarChart3 className="h-4 w-4 text-violet-400" />
                       <h3 className="text-xs font-black uppercase tracking-wider text-muted-foreground">
@@ -787,23 +855,23 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                           type="button"
                           onClick={() => {
                             setCategoryViewMode("categories");
-                            setCatPage(1);
+                            setHoveredDonutItem(null);
                           }}
-                          className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                          className={`px-3 py-1 rounded-md transition-all cursor-pointer ${
                             categoryViewMode === "categories"
                               ? "bg-background text-foreground shadow-sm"
                               : "text-muted-foreground hover:text-foreground"
                           }`}
                         >
-                          Por Categoría (8 Oficiales)
+                          Por Categorías Oficiales
                         </button>
                         <button
                           type="button"
                           onClick={() => {
                             setCategoryViewMode("software");
-                            setCatPage(1);
+                            setHoveredDonutItem(null);
                           }}
-                          className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                          className={`px-3 py-1 rounded-md transition-all cursor-pointer ${
                             categoryViewMode === "software"
                               ? "bg-background text-foreground shadow-sm"
                               : "text-muted-foreground hover:text-foreground"
@@ -813,84 +881,158 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                         </button>
                       </div>
                       <span className="text-[11px] font-mono text-muted-foreground">
-                        {categoriesList.length} {categoriesList.length === 1 ? "registro" : "registros"}
+                        {chartData.items.length} {chartData.items.length === 1 ? "activa" : "activas"}
                       </span>
                     </div>
                   </div>
 
-                  {categoriesList.length === 0 ? (
-                    <div className="p-8 text-center rounded-2xl bg-muted/20 border border-border/50 text-xs text-muted-foreground">
-                      No hay suficientes actividades registradas hoy todavía.
+                  {chartData.items.length === 0 ? (
+                    <div className="py-8 text-center rounded-xl bg-muted/20 border border-border/50 text-xs text-muted-foreground">
+                      No hay actividades registradas en este período todavía.
                     </div>
                   ) : (
-                    <div className="space-y-2.5">
-                      <div className="space-y-2">
-                        {paginatedCategories.map((cat) => (
-                          <div
-                            key={cat.category}
-                            className="p-3.5 rounded-2xl bg-card border border-border/70 flex flex-col gap-2 hover:border-violet-500/40 transition-colors"
-                          >
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2.5">
-                                <div className="p-1.5 rounded-lg bg-muted border border-border">
-                                  {getCategoryIcon(cat.category)}
-                                </div>
-                                <span className="font-bold text-xs text-foreground">{cat.category}</span>
-                              </div>
-                              <div className="text-right">
-                                <span className="font-mono font-bold text-xs text-foreground">
-                                  {formatMinHours(cat.durationMs)}
-                                </span>
-                                <span className="text-[10px] text-muted-foreground ml-1.5">
-                                  ({cat.percentage}%)
-                                </span>
-                              </div>
-                            </div>
-
-                            <div className="h-1.5 w-full rounded-full bg-muted/60 overflow-hidden">
-                              <div
-                                className={`h-full rounded-full transition-all duration-500 ${
-                                  (cat as any).bgBar || "bg-gradient-to-r from-violet-500 to-indigo-500"
-                                }`}
-                                style={{ width: `${cat.percentage}%` }}
+                    <div className="flex flex-col sm:flex-row items-center gap-6 pt-1">
+                      {/* DONUT SVG CHART */}
+                      <div className="relative flex items-center justify-center shrink-0 p-1">
+                        <svg
+                          viewBox="0 0 160 160"
+                          className="w-40 h-40 transform -rotate-90 overflow-visible"
+                        >
+                          {donutSegments.map((seg) => {
+                            const isHovered = hoveredDonutItem?.label === seg.label;
+                            return (
+                              <circle
+                                key={seg.id}
+                                cx="80"
+                                cy="80"
+                                r={seg.radius}
+                                fill="transparent"
+                                stroke={seg.color}
+                                strokeWidth={isHovered ? "20" : "15"}
+                                strokeDasharray={seg.strokeDasharray}
+                                strokeDashoffset={seg.strokeDashoffset}
+                                className="transition-all duration-300 ease-out cursor-pointer hover:opacity-90"
+                                onMouseEnter={() =>
+                                  setHoveredDonutItem({
+                                    label: seg.label,
+                                    time: seg.formattedTime,
+                                    pct: seg.percentage,
+                                    color: seg.color,
+                                  })
+                                }
+                                onMouseLeave={() => setHoveredDonutItem(null)}
                               />
-                            </div>
-                          </div>
-                        ))}
+                            );
+                          })}
+                        </svg>
+
+                        {/* TEXTO EN EL CENTRO DE LA DONA */}
+                        <div className="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none px-3">
+                          <span className="text-[9.5px] font-bold uppercase tracking-wider text-muted-foreground line-clamp-1 max-w-[95px]">
+                            {hoveredDonutItem ? hoveredDonutItem.label : "ACTIVO"}
+                          </span>
+                          <span
+                            className="text-lg font-black font-mono tracking-tight"
+                            style={{ color: hoveredDonutItem?.color || "#38bdf8" }}
+                          >
+                            {hoveredDonutItem ? hoveredDonutItem.time : formatMinHours(officialActiveMs)}
+                          </span>
+                          <span className="text-[9.5px] font-semibold text-muted-foreground">
+                            {hoveredDonutItem ? `${hoveredDonutItem.pct}% del total` : `${officialCompliancePercent}% meta`}
+                          </span>
+                        </div>
                       </div>
 
-                      {/* Paginador Interactivo */}
-                      {categoriesList.length > ITEMS_PER_PAGE && (
-                        <div className="pt-2 flex items-center justify-between border-t border-border/50 text-xs">
-                          <span className="text-muted-foreground text-[11px]">
-                            Mostrando {(currentCatPage - 1) * ITEMS_PER_PAGE + 1} -{" "}
-                            {Math.min(currentCatPage * ITEMS_PER_PAGE, categoriesList.length)} de {categoriesList.length} categorías
-                          </span>
-                          <div className="flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              disabled={currentCatPage <= 1}
-                              onClick={() => setCatPage((p) => Math.max(1, p - 1))}
-                              className="px-2.5 py-1 rounded-lg border border-border bg-background hover:bg-muted text-foreground text-xs font-semibold disabled:opacity-40 disabled:pointer-events-none transition-colors flex items-center gap-1"
-                            >
-                              <ChevronLeft className="h-3.5 w-3.5" />
-                              Anterior
-                            </button>
-                            <span className="px-2 py-0.5 text-[11px] font-bold text-muted-foreground font-mono">
-                              {currentCatPage} / {totalCatPages}
-                            </span>
-                            <button
-                              type="button"
-                              disabled={currentCatPage >= totalCatPages}
-                              onClick={() => setCatPage((p) => Math.min(totalCatPages, p + 1))}
-                              className="px-2.5 py-1 rounded-lg border border-border bg-background hover:bg-muted text-foreground text-xs font-semibold disabled:opacity-40 disabled:pointer-events-none transition-colors flex items-center gap-1"
-                            >
-                              Siguiente
-                              <ChevronRight className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
+                      {/* LEYENDA Y BARRAS COMPACTAS (2 Columnas) */}
+                      <div className="flex-1 w-full space-y-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[260px] overflow-y-auto pr-1">
+                          {chartData.items.map((item) => {
+                            const isHovered = hoveredDonutItem?.label === item.label;
+                            return (
+                              <div
+                                key={item.id}
+                                onMouseEnter={() =>
+                                  setHoveredDonutItem({
+                                    label: item.label,
+                                    time: item.formattedTime,
+                                    pct: item.percentage,
+                                    color: item.color,
+                                  })
+                                }
+                                onMouseLeave={() => setHoveredDonutItem(null)}
+                                className={`p-2 rounded-xl border transition-all cursor-pointer flex flex-col gap-1 ${
+                                  isHovered
+                                    ? "bg-muted/80 border-violet-500/50 shadow-xs scale-[1.01]"
+                                    : "bg-muted/30 hover:bg-muted/50 border-border/60"
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-1.5">
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <div
+                                      className="w-2.5 h-2.5 rounded-full shrink-0 shadow-2xs"
+                                      style={{ backgroundColor: item.color }}
+                                    />
+                                    <span className="font-bold text-xs text-foreground truncate" title={item.label}>
+                                      {item.label}
+                                    </span>
+                                  </div>
+                                  <div className="text-right shrink-0">
+                                    <span className="font-mono font-bold text-xs text-foreground">
+                                      {item.formattedTime}
+                                    </span>
+                                    <span className="text-[10px] text-muted-foreground ml-1">
+                                      ({item.percentage}%)
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="h-1.5 w-full rounded-full bg-muted/80 overflow-hidden">
+                                  <div
+                                    className="h-full rounded-full transition-all duration-300"
+                                    style={{
+                                      width: `${Math.min(100, item.percentage)}%`,
+                                      backgroundColor: item.color,
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
-                      )}
+
+                        {/* CATEGORÍAS SIN ACTIVIDAD (Colapsables para no desperdiciar espacio) */}
+                        {categoryViewMode === "categories" && chartData.inactive.length > 0 && (
+                          <div className="pt-1.5">
+                            <button
+                              type="button"
+                              onClick={() => setShowZeroCategories(!showZeroCategories)}
+                              className="text-[11px] font-semibold text-muted-foreground hover:text-foreground flex items-center gap-1.5 transition-colors cursor-pointer"
+                            >
+                              {showZeroCategories ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                              <span>
+                                {showZeroCategories
+                                  ? "Ocultar categorías sin actividad"
+                                  : `Ver ${chartData.inactive.length} categorías sin actividad hoy (0m)`}
+                              </span>
+                            </button>
+
+                            {showZeroCategories && (
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 mt-2 animate-in fade-in duration-200">
+                                {chartData.inactive.map((cat) => (
+                                  <div
+                                    key={cat.id}
+                                    className="p-1.5 px-2 rounded-lg bg-muted/20 border border-border/40 text-[10.5px] text-muted-foreground flex items-center justify-between"
+                                  >
+                                    <span className="truncate mr-1" title={cat.label}>
+                                      {cat.label}
+                                    </span>
+                                    <span className="font-mono text-[10px] opacity-70">0m</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
