@@ -1314,37 +1314,35 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
       {open && (
         <div className="border-b border-border bg-card overflow-y-auto overflow-x-hidden" style={{ maxHeight: "78vh" }}>
           {/* Tabs */}
-          <div className="flex border-b border-border bg-muted/10">
+          <div className="flex border-b border-border bg-muted/10 relative z-30">
             <button
               type="button"
               onClick={() => setTab("profile")}
-              className={`flex-1 py-2.5 transition-all flex items-center justify-center border-b-2 focus:outline-none ${
+              className={`group/tab relative flex-1 py-2.5 transition-all flex items-center justify-center border-b-2 focus:outline-none ${
                 tab === "profile"
                   ? "text-violet-400 border-violet-500 bg-violet-500/5 font-semibold"
                   : "text-muted-foreground border-transparent hover:text-foreground hover:bg-muted/30"
               }`}
-              title="Mi Perfil"
               aria-label="Mi Perfil"
             >
               <User className="h-4 w-4" />
+              <span className="pointer-events-none absolute top-full left-1 mt-2 z-50 opacity-0 group-hover/tab:opacity-100 transition-all duration-150 transform -translate-y-1 group-hover/tab:translate-y-0">
+                <span className="relative block bg-slate-900/95 dark:bg-slate-800/95 text-slate-100 text-[11px] font-medium px-2.5 py-1 rounded shadow-xl border border-slate-700/60 whitespace-nowrap">
+                  Mi Perfil
+                  <span className="absolute -top-1 left-3 w-2 h-2 bg-slate-900/95 dark:bg-slate-800/95 border-t border-l border-slate-700/60 rotate-45" />
+                </span>
+              </span>
             </button>
             <button
               type="button"
               onClick={() => setTab("team")}
-              className={`flex-1 py-2.5 transition-all flex items-center justify-center border-b-2 focus:outline-none ${
+              className={`group/tab relative flex-1 py-2.5 transition-all flex items-center justify-center border-b-2 focus:outline-none ${
                 tab === "team"
                   ? "text-violet-400 border-violet-500 bg-violet-500/5 font-semibold"
                   : totalChatUnread > 0
                   ? "text-violet-400 bg-violet-500/10 border-violet-500/50"
                   : "text-muted-foreground border-transparent hover:text-foreground hover:bg-muted/30"
               }`}
-              title={
-                totalChatUnread > 0
-                  ? `Equipo (${totalChatUnread} mensajes sin leer)`
-                  : others.length > 0
-                  ? `Equipo (${others.length} en línea)`
-                  : "Equipo"
-              }
               aria-label="Equipo"
             >
               <div className="relative inline-flex items-center justify-center">
@@ -1359,46 +1357,71 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
                   </span>
                 ) : null}
               </div>
+              <span className="pointer-events-none absolute top-full left-1/2 -translate-x-1/2 mt-2 z-50 opacity-0 group-hover/tab:opacity-100 transition-all duration-150 transform -translate-y-1 group-hover/tab:translate-y-0">
+                <span className="relative block bg-slate-900/95 dark:bg-slate-800/95 text-slate-100 text-[11px] font-medium px-2.5 py-1 rounded shadow-xl border border-slate-700/60 whitespace-nowrap">
+                  {totalChatUnread > 0
+                    ? `Equipo (${totalChatUnread} no leídos)`
+                    : others.length > 0
+                    ? `Equipo (${others.length} activos)`
+                    : "Equipo"}
+                  <span className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-900/95 dark:bg-slate-800/95 border-t border-l border-slate-700/60 rotate-45" />
+                </span>
+              </span>
             </button>
             {hasActivityAccess && (
               <button
                 type="button"
                 onClick={() => setTab("activity")}
-                className={`flex-1 py-2.5 transition-all flex items-center justify-center border-b-2 focus:outline-none ${
+                className={`group/tab relative flex-1 py-2.5 transition-all flex items-center justify-center border-b-2 focus:outline-none ${
                   tab === "activity"
                     ? "text-violet-400 border-violet-500 bg-violet-500/5 font-semibold"
                     : "text-muted-foreground border-transparent hover:text-foreground hover:bg-muted/30"
                 }`}
-                title="Registro de Actividad"
                 aria-label="Registro de Actividad"
               >
                 <ActivityIcon className="h-4 w-4" />
+                <span className="pointer-events-none absolute top-full left-1/2 -translate-x-1/2 mt-2 z-50 opacity-0 group-hover/tab:opacity-100 transition-all duration-150 transform -translate-y-1 group-hover/tab:translate-y-0">
+                  <span className="relative block bg-slate-900/95 dark:bg-slate-800/95 text-slate-100 text-[11px] font-medium px-2.5 py-1 rounded shadow-xl border border-slate-700/60 whitespace-nowrap">
+                    Registro de Actividad
+                    <span className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-900/95 dark:bg-slate-800/95 border-t border-l border-slate-700/60 rotate-45" />
+                  </span>
+                </span>
               </button>
             )}
             {canViewAgenda && (
               <button
                 type="button"
                 onClick={() => setTab("agenda")}
-                className={`flex-1 py-2.5 transition-all flex items-center justify-center border-b-2 focus:outline-none ${
+                className={`group/tab relative flex-1 py-2.5 transition-all flex items-center justify-center border-b-2 focus:outline-none ${
                   tab === "agenda"
                     ? "text-violet-400 border-violet-500 bg-violet-500/5 font-semibold"
                     : "text-muted-foreground border-transparent hover:text-foreground hover:bg-muted/30"
                 }`}
-                title="Calendario, Agenda y Tareas"
                 aria-label="Calendario, Agenda y Tareas"
               >
                 <Calendar className="h-4 w-4" />
+                <span className="pointer-events-none absolute top-full left-1/2 -translate-x-1/2 mt-2 z-50 opacity-0 group-hover/tab:opacity-100 transition-all duration-150 transform -translate-y-1 group-hover/tab:translate-y-0">
+                  <span className="relative block bg-slate-900/95 dark:bg-slate-800/95 text-slate-100 text-[11px] font-medium px-2.5 py-1 rounded shadow-xl border border-slate-700/60 whitespace-nowrap">
+                    Agenda y Tareas
+                    <span className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-900/95 dark:bg-slate-800/95 border-t border-l border-slate-700/60 rotate-45" />
+                  </span>
+                </span>
               </button>
             )}
             {canViewMisGarantias && (
               <button
                 type="button"
                 onClick={() => setShowMisGarantiasModal(true)}
-                className="flex-1 py-2.5 transition-all flex items-center justify-center border-b-2 border-transparent text-muted-foreground hover:text-brand-400 hover:bg-brand-500/5 focus:outline-none cursor-pointer"
-                title="Mis Procesos & Garantías Propias"
+                className="group/tab relative flex-1 py-2.5 transition-all flex items-center justify-center border-b-2 border-transparent text-muted-foreground hover:text-brand-400 hover:bg-brand-500/5 focus:outline-none cursor-pointer"
                 aria-label="Mis Procesos & Garantías Propias"
               >
                 <ShieldCheck className="h-4 w-4 text-brand-500" />
+                <span className="pointer-events-none absolute top-full right-1 mt-2 z-50 opacity-0 group-hover/tab:opacity-100 transition-all duration-150 transform -translate-y-1 group-hover/tab:translate-y-0">
+                  <span className="relative block bg-slate-900/95 dark:bg-slate-800/95 text-slate-100 text-[11px] font-medium px-2.5 py-1 rounded shadow-xl border border-slate-700/60 whitespace-nowrap">
+                    Mis Garantías
+                    <span className="absolute -top-1 right-3 w-2 h-2 bg-slate-900/95 dark:bg-slate-800/95 border-t border-l border-slate-700/60 rotate-45" />
+                  </span>
+                </span>
               </button>
             )}
           </div>
