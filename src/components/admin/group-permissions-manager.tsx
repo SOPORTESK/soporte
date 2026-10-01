@@ -53,6 +53,7 @@ export const COMPLETE_MODULE_DEFINITIONS: ModuleDef[] = [
       { key: "agenda_gestion_global", label: "Gestión Global de Eventos & Asignación de Tareas", desc: "Crear eventos corporativos, programar reuniones de equipo y asignar tareas a otros colaboradores" },
       { key: "gestion_horas_extras", label: "Control y Aprobación de Horas Extras", desc: "Revisar, autorizar o rechazar solicitudes de tiempo extraordinario en la suite de actividad" },
       { key: "auditoria_pausas_inactividad", label: "Auditoría de Inactividad y Justificaciones", desc: "Supervisión de pausas operativas, descansos y validación de justificaciones presenciales" },
+      { key: "gestionar_labores_manuales", label: "Gestión de Labores Manuales & Cajón de Íconos", desc: "Crear, editar, eliminar labores del taller y configurar sus íconos/colores en el dock rápido" },
     ],
   },
   {

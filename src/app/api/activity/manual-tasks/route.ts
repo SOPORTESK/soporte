@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { createClient } from "@/lib/supabase/server";
+import { getAgentGroupPermissions } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -110,6 +112,24 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+    const serverSupabase = createClient();
+    const { data: { user } } = await serverSupabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+
+    const { data: caller } = await serverSupabase
+      .from("sek_agent_config")
+      .select("rol")
+      .ilike("email", user.email || "")
+      .maybeSingle();
+
+    const role = caller?.rol || "tecnico";
+    const perms = await getAgentGroupPermissions(role);
+    const canManage = role === "superadmin" || (perms as any)?.activity?.subcategories?.gestionar_labores_manuales === true;
+
+    if (!canManage) {
+      return NextResponse.json({ error: "No tienes permiso para gestionar labores manuales" }, { status: 403 });
+    }
+
     const body = await req.json();
     const supabase = createServiceClient();
 

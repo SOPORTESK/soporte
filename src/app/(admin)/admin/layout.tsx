@@ -138,6 +138,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     (userPerms as any).garantias?.edit === true &&
     (userPerms as any).garantias?.subcategories?.edit_garantias !== false
   );
+  const canManageManualTasks = isSuperadmin || (
+    (userPerms as any).activity?.subcategories?.gestionar_labores_manuales === true
+  );
 
   const fullName = [a.nombre, a.apellido].filter(Boolean).join(" ") || user.email!;
   const onlineAgents = (onlineAgentsResult.data || []) as any[];
@@ -229,7 +232,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               <div className="flex items-center gap-1 px-4 pb-2 pt-2">
                 <ThemeToggle />
               </div>
-              <SidebarUserPanel agent={a as any} onlineAgents={onlineAgents || []} canViewActivityTracker={canViewActivityTracker} canViewAgenda={canViewAgenda} canViewMisGarantias={canViewMisGarantias} canCreateGarantias={canCreateGarantias} canEditGarantias={canEditGarantias} />
+              <SidebarUserPanel agent={a as any} onlineAgents={onlineAgents || []} canViewActivityTracker={canViewActivityTracker} canViewAgenda={canViewAgenda} canViewMisGarantias={canViewMisGarantias} canCreateGarantias={canCreateGarantias} canEditGarantias={canEditGarantias} canManageManualTasks={canManageManualTasks} />
             </div>
           </aside>
 

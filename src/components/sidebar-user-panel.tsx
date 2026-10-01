@@ -233,6 +233,7 @@ export function SidebarUserPanel({
   canViewMisGarantias = true,
   canCreateGarantias = true,
   canEditGarantias = true,
+  canManageManualTasks,
 }: { 
   agent: Agent; 
   onlineAgents: OnlineAgent[]; 
@@ -241,6 +242,7 @@ export function SidebarUserPanel({
   canViewMisGarantias?: boolean;
   canCreateGarantias?: boolean;
   canEditGarantias?: boolean;
+  canManageManualTasks?: boolean;
 }) {
   const safeAgent: Agent = {
     nombre: agent?.nombre ?? null,
@@ -253,6 +255,7 @@ export function SidebarUserPanel({
   };
   const canAccessAdmin = ["admin", "superadmin"].includes(safeAgent.rol);
   const hasActivityAccess = canViewActivityTracker !== undefined ? canViewActivityTracker : canAccessAdmin;
+  const hasManageManualTasksAccess = canManageManualTasks !== undefined ? canManageManualTasks : canAccessAdmin;
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"profile" | "team" | "activity" | "agenda">("profile");
   const [showAgendaModal, setShowAgendaModal] = useState(false);
@@ -1727,14 +1730,16 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
                     <span className="text-[9.5px] font-bold px-1.5 py-0.5 rounded-full bg-violet-500/10 text-violet-400 border border-violet-500/20 shrink-0">
                       {effectiveManualTasks.length}
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => setShowManualTasksManagerModal(true)}
-                      title="Gestionar labores manuales (agregar, editar, eliminar)"
-                      className="p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground border border-border/50 transition-colors cursor-pointer"
-                    >
-                      <Settings className="h-3.5 w-3.5" />
-                    </button>
+                    {hasManageManualTasksAccess && (
+                      <button
+                        type="button"
+                        onClick={() => setShowManualTasksManagerModal(true)}
+                        title="Gestionar labores manuales (agregar, editar, eliminar)"
+                        className="p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground border border-border/50 transition-colors cursor-pointer"
+                      >
+                        <Settings className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -1769,14 +1774,20 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
                       <p className="text-[10.5px] text-muted-foreground leading-relaxed">
                         Agregue las tareas que desea controlar con cronómetro en este panel exclusivo.
                       </p>
-                      <button
-                        type="button"
-                        onClick={() => setShowManualTasksManagerModal(true)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-xs shadow-xs transition-all active:scale-95 cursor-pointer"
-                      >
-                        <Plus className="h-3.5 w-3.5" />
-                        <span>Configurar Labores</span>
-                      </button>
+                      {hasManageManualTasksAccess ? (
+                        <button
+                          type="button"
+                          onClick={() => setShowManualTasksManagerModal(true)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-xs shadow-xs transition-all active:scale-95 cursor-pointer"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          <span>Configurar Labores</span>
+                        </button>
+                      ) : (
+                        <p className="text-[10px] text-muted-foreground italic">
+                          Consulte al administrador para configurar labores en la barra.
+                        </p>
+                      )}
                     </div>
                   ) : displayedManualTasks.length === 0 ? (
                     <div className="py-6 text-center text-muted-foreground">
