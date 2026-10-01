@@ -99,7 +99,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       .update(updatePayload)
       .eq("id", params.id)
       .select()
-      .single();
+      .maybeSingle();
 
     if (updateError) {
       return NextResponse.json({ error: updateError.message }, { status: 500 });
