@@ -258,6 +258,7 @@ export function SidebarUserPanel({
   const hasManageManualTasksAccess = canManageManualTasks !== undefined ? canManageManualTasks : canAccessAdmin;
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"profile" | "team" | "activity" | "agenda">("profile");
+  const [hoveredTab, setHoveredTab] = useState<string | null>(null);
   const [showAgendaModal, setShowAgendaModal] = useState(false);
   const [panelAgendaEvents, setPanelAgendaEvents] = useState<AgendaEvent[]>([]);
   const [panelAgendaTasks, setPanelAgendaTasks] = useState<AgendaTask[]>([]);
@@ -1308,17 +1309,56 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
       });
   }, [teamAgents, safeAgent.email]);
 
+  const activeTabKey = hoveredTab || tab;
+  const activeTabInfo = useMemo(() => {
+    switch (activeTabKey) {
+      case "profile":
+        return {
+          title: "Mi Perfil",
+          desc: safeAgent.rol ? `Rol: ${safeAgent.rol}` : "Configuración de cuenta",
+        };
+      case "team":
+        return {
+          title: "Equipo",
+          desc: totalChatUnread > 0
+            ? `${totalChatUnread} mensajes sin leer`
+            : others.length > 0
+            ? `${others.length} compañeros activos`
+            : "Colaboradores del taller",
+        };
+      case "activity":
+        return {
+          title: "Registro de Actividad",
+          desc: "Métricas y productividad",
+        };
+      case "agenda":
+        return {
+          title: "Agenda y Tareas",
+          desc: "Calendario y pendientes",
+        };
+      case "garantias":
+        return {
+          title: "Mis Procesos & Garantías",
+          desc: "Casos asignados a mi cargo",
+        };
+      default:
+        return { title: "Panel de Usuario", desc: "" };
+    }
+  }, [activeTabKey, safeAgent.rol, totalChatUnread, others.length]);
+
   return (
     <div className="border-t border-border">
       {/* Panel expandible */}
       {open && (
         <div className="border-b border-border bg-card overflow-y-auto overflow-x-hidden" style={{ maxHeight: "78vh" }}>
-          {/* Tabs */}
+          {/* Tabs con iconos perfectamente distribuidos */}
           <div className="flex border-b border-border bg-muted/10 relative z-30">
             <button
               type="button"
               onClick={() => setTab("profile")}
-              className={`group/tab relative flex-1 py-2.5 transition-all flex items-center justify-center border-b-2 focus:outline-none ${
+              onMouseEnter={() => setHoveredTab("profile")}
+              onMouseLeave={() => setHoveredTab(null)}
+              className={`flex-1 py-2.5 transition-all flex items-center justify-center border-b-2 focus:outline-none ${
                 tab === "profile"
                   ? "text-violet-400 border-violet-500 bg-violet-500/5 font-semibold"
                   : "text-muted-foreground border-transparent hover:text-foreground hover:bg-muted/30"
@@ -1326,17 +1366,13 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
               aria-label="Mi Perfil"
             >
               <User className="h-4 w-4" />
-              <span className="pointer-events-none absolute top-full left-1 mt-2 z-50 opacity-0 group-hover/tab:opacity-100 transition-all duration-150 transform -translate-y-1 group-hover/tab:translate-y-0">
-                <span className="relative block bg-slate-900/95 dark:bg-slate-800/95 text-slate-100 text-[11px] font-medium px-2.5 py-1 rounded shadow-xl border border-slate-700/60 whitespace-nowrap">
-                  Mi Perfil
-                  <span className="absolute -top-1 left-3 w-2 h-2 bg-slate-900/95 dark:bg-slate-800/95 border-t border-l border-slate-700/60 rotate-45" />
-                </span>
-              </span>
             </button>
             <button
               type="button"
               onClick={() => setTab("team")}
-              className={`group/tab relative flex-1 py-2.5 transition-all flex items-center justify-center border-b-2 focus:outline-none ${
+              onMouseEnter={() => setHoveredTab("team")}
+              onMouseLeave={() => setHoveredTab(null)}
+              className={`flex-1 py-2.5 transition-all flex items-center justify-center border-b-2 focus:outline-none ${
                 tab === "team"
                   ? "text-violet-400 border-violet-500 bg-violet-500/5 font-semibold"
                   : totalChatUnread > 0
@@ -1357,22 +1393,14 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
                   </span>
                 ) : null}
               </div>
-              <span className="pointer-events-none absolute top-full left-1/2 -translate-x-1/2 mt-2 z-50 opacity-0 group-hover/tab:opacity-100 transition-all duration-150 transform -translate-y-1 group-hover/tab:translate-y-0">
-                <span className="relative block bg-slate-900/95 dark:bg-slate-800/95 text-slate-100 text-[11px] font-medium px-2.5 py-1 rounded shadow-xl border border-slate-700/60 whitespace-nowrap">
-                  {totalChatUnread > 0
-                    ? `Equipo (${totalChatUnread} no leídos)`
-                    : others.length > 0
-                    ? `Equipo (${others.length} activos)`
-                    : "Equipo"}
-                  <span className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-900/95 dark:bg-slate-800/95 border-t border-l border-slate-700/60 rotate-45" />
-                </span>
-              </span>
             </button>
             {hasActivityAccess && (
               <button
                 type="button"
                 onClick={() => setTab("activity")}
-                className={`group/tab relative flex-1 py-2.5 transition-all flex items-center justify-center border-b-2 focus:outline-none ${
+                onMouseEnter={() => setHoveredTab("activity")}
+                onMouseLeave={() => setHoveredTab(null)}
+                className={`flex-1 py-2.5 transition-all flex items-center justify-center border-b-2 focus:outline-none ${
                   tab === "activity"
                     ? "text-violet-400 border-violet-500 bg-violet-500/5 font-semibold"
                     : "text-muted-foreground border-transparent hover:text-foreground hover:bg-muted/30"
@@ -1380,19 +1408,15 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
                 aria-label="Registro de Actividad"
               >
                 <ActivityIcon className="h-4 w-4" />
-                <span className="pointer-events-none absolute top-full left-1/2 -translate-x-1/2 mt-2 z-50 opacity-0 group-hover/tab:opacity-100 transition-all duration-150 transform -translate-y-1 group-hover/tab:translate-y-0">
-                  <span className="relative block bg-slate-900/95 dark:bg-slate-800/95 text-slate-100 text-[11px] font-medium px-2.5 py-1 rounded shadow-xl border border-slate-700/60 whitespace-nowrap">
-                    Registro de Actividad
-                    <span className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-900/95 dark:bg-slate-800/95 border-t border-l border-slate-700/60 rotate-45" />
-                  </span>
-                </span>
               </button>
             )}
             {canViewAgenda && (
               <button
                 type="button"
                 onClick={() => setTab("agenda")}
-                className={`group/tab relative flex-1 py-2.5 transition-all flex items-center justify-center border-b-2 focus:outline-none ${
+                onMouseEnter={() => setHoveredTab("agenda")}
+                onMouseLeave={() => setHoveredTab(null)}
+                className={`flex-1 py-2.5 transition-all flex items-center justify-center border-b-2 focus:outline-none ${
                   tab === "agenda"
                     ? "text-violet-400 border-violet-500 bg-violet-500/5 font-semibold"
                     : "text-muted-foreground border-transparent hover:text-foreground hover:bg-muted/30"
@@ -1400,29 +1424,38 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
                 aria-label="Calendario, Agenda y Tareas"
               >
                 <Calendar className="h-4 w-4" />
-                <span className="pointer-events-none absolute top-full left-1/2 -translate-x-1/2 mt-2 z-50 opacity-0 group-hover/tab:opacity-100 transition-all duration-150 transform -translate-y-1 group-hover/tab:translate-y-0">
-                  <span className="relative block bg-slate-900/95 dark:bg-slate-800/95 text-slate-100 text-[11px] font-medium px-2.5 py-1 rounded shadow-xl border border-slate-700/60 whitespace-nowrap">
-                    Agenda y Tareas
-                    <span className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-900/95 dark:bg-slate-800/95 border-t border-l border-slate-700/60 rotate-45" />
-                  </span>
-                </span>
               </button>
             )}
             {canViewMisGarantias && (
               <button
                 type="button"
                 onClick={() => setShowMisGarantiasModal(true)}
-                className="group/tab relative flex-1 py-2.5 transition-all flex items-center justify-center border-b-2 border-transparent text-muted-foreground hover:text-brand-400 hover:bg-brand-500/5 focus:outline-none cursor-pointer"
+                onMouseEnter={() => setHoveredTab("garantias")}
+                onMouseLeave={() => setHoveredTab(null)}
+                className="flex-1 py-2.5 transition-all flex items-center justify-center border-b-2 border-transparent text-muted-foreground hover:text-brand-400 hover:bg-brand-500/5 focus:outline-none cursor-pointer"
                 aria-label="Mis Procesos & Garantías Propias"
               >
                 <ShieldCheck className="h-4 w-4 text-brand-500" />
-                <span className="pointer-events-none absolute top-full right-1 mt-2 z-50 opacity-0 group-hover/tab:opacity-100 transition-all duration-150 transform -translate-y-1 group-hover/tab:translate-y-0">
-                  <span className="relative block bg-slate-900/95 dark:bg-slate-800/95 text-slate-100 text-[11px] font-medium px-2.5 py-1 rounded shadow-xl border border-slate-700/60 whitespace-nowrap">
-                    Mis Garantías
-                    <span className="absolute -top-1 right-3 w-2 h-2 bg-slate-900/95 dark:bg-slate-800/95 border-t border-l border-slate-700/60 rotate-45" />
-                  </span>
-                </span>
               </button>
+            )}
+          </div>
+
+          {/* Subheader descriptivo fijo: El cursor NUNCA tapa el texto porque está en una posición fija abajo de los iconos */}
+          <div className="px-3.5 py-1.5 bg-muted/25 border-b border-border/70 flex items-center justify-between text-xs select-none">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="font-bold text-[11px] uppercase tracking-wider text-violet-400 truncate">
+                {activeTabInfo.title}
+              </span>
+              {activeTabInfo.desc && (
+                <span className="text-[10px] text-muted-foreground truncate">
+                  · {activeTabInfo.desc}
+                </span>
+              )}
+            </div>
+            {hoveredTab && (
+              <span className="text-[9px] font-bold text-violet-400/90 bg-violet-500/10 border border-violet-500/20 px-1.5 py-0.5 rounded uppercase tracking-wider shrink-0">
+                Pestaña
+              </span>
             )}
           </div>
 
