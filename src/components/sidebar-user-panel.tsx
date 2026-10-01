@@ -1794,8 +1794,8 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
                 );
               })()}
 
-              {/* Labores Manuales Directas con Selectores Dinámicos de Primer Nivel - Área con scroll propio */}
-              <div className="flex-1 min-h-0 overflow-y-auto px-3 py-1.5 space-y-1.5">
+              {/* Sección fija superior de Labores Manuales (Buscador, Cabecera, Inspector de tarjeta) */}
+              <div className="shrink-0 px-3 pt-2 pb-1.5 space-y-1.5 border-b border-border/40 bg-card">
                 {/* Cabecera, contador y botón de gestión exclusiva */}
                 <div className="flex items-center justify-between">
                   <h4 className="text-xs font-black text-foreground tracking-tight flex items-center gap-1.5">
@@ -1840,124 +1840,125 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
                   )}
                 </div>
 
-                {/* Cuadrícula directa de tareas / procesos seleccionados */}
-                <div className="pt-0.5">
-                  {/* CASO 0: No hay labores manuales configuradas */}
-                  {effectiveManualTasks.length === 0 ? (
-                    <div className="py-7 px-3 text-center rounded-xl border border-dashed border-border/60 bg-muted/10 space-y-2 animate-in fade-in">
-                      <Wrench className="h-6 w-6 text-muted-foreground/60 mx-auto" />
-                      <p className="text-xs font-semibold text-foreground">Sin labores manuales</p>
-                      <p className="text-[10.5px] text-muted-foreground leading-relaxed">
-                        Agregue las tareas que desea controlar con cronómetro en este panel exclusivo.
-                      </p>
-                      {hasManageManualTasksAccess ? (
-                        <button
-                          type="button"
-                          onClick={() => setShowManualTasksManagerModal(true)}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-xs shadow-xs transition-all active:scale-95 cursor-pointer"
-                        >
-                          <Plus className="h-3.5 w-3.5" />
-                          <span>Configurar Labores</span>
-                        </button>
-                      ) : (
-                        <p className="text-[10px] text-muted-foreground italic">
-                          Consulte al administrador para configurar labores en la barra.
-                        </p>
-                      )}
+                {/* Subcabecera y Tarjeta Inspectora fija (solo si hay labores) */}
+                {effectiveManualTasks.length > 0 && (
+                  <div className="space-y-1 pt-0.5">
+                    <div className="flex items-center justify-between px-0.5">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                        {manualSearchQuery.trim() ? "Resultados de búsqueda" : "Labores de taller"}
+                      </span>
+                      <span className="text-[10px] font-bold text-violet-400">
+                        {displayedManualTasks.length} {displayedManualTasks.length === 1 ? "labor" : "labores"}
+                      </span>
                     </div>
-                  ) : displayedManualTasks.length === 0 ? (
-                    <div className="py-6 text-center text-muted-foreground">
-                      <p className="text-xs font-semibold">No se encontraron tareas</p>
-                      <p className="text-[10px] mt-0.5 text-muted-foreground/70">
-                        Prueba con otro término o borra la búsqueda
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="space-y-1.5 animate-in fade-in-50 duration-150">
-                      <div className="flex items-center justify-between px-1 pb-1 border-b border-border/40">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                          {manualSearchQuery.trim() ? "Resultados de búsqueda" : "Labores de taller"}
-                        </span>
-                        <span className="text-[10px] font-bold text-violet-400">
-                          {displayedManualTasks.length} {displayedManualTasks.length === 1 ? "labor" : "labores"}
-                        </span>
-                      </div>
 
-                      {/* Tarjeta inspectora estructurada: sin apelotamiento ni texto cortado */}
-                      {hoveredManualTask ? (() => {
-                        const hColor = (hoveredManualTask as any).iconColor || "text-amber-400";
-                        return (
-                        <div className="p-2.5 rounded-xl bg-card border border-border/60 shadow-xs animate-in fade-in duration-100">
-                          <div className="flex items-start gap-2.5">
-                            <div className={`h-8 w-8 rounded-lg bg-muted/60 ${hColor} grid place-items-center shrink-0 border border-border/50 mt-0.5`}>
+                    {/* Tarjeta inspectora estructurada: fija en la parte superior */}
+                    {hoveredManualTask ? (() => {
+                      const hColor = (hoveredManualTask as any).iconColor || "text-amber-400";
+                      return (
+                        <div className="p-2 rounded-xl bg-muted/40 border border-border/70 shadow-xs animate-in fade-in duration-100 min-h-[50px] flex items-center">
+                          <div className="flex items-center gap-2.5 w-full">
+                            <div className={`h-8 w-8 rounded-lg bg-card ${hColor} grid place-items-center shrink-0 border border-border/50`}>
                               {React.createElement(hoveredManualTask.icon || Wrench, { className: "h-4 w-4" })}
                             </div>
-                            <div className="min-w-0 flex-1 space-y-1">
-                              <div className="flex items-start justify-between gap-2">
-                                <h5 className="font-bold text-xs text-foreground leading-snug break-words">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <h5 className="font-bold text-xs text-foreground truncate" title={hoveredManualTask.label}>
                                   {hoveredManualTask.label}
                                 </h5>
-                                <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-400 border border-amber-500/30 shrink-0">
+                                <span className="text-[9.5px] font-semibold px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-400 border border-amber-500/30 shrink-0">
                                   {hoveredManualTask.category}
                                 </span>
                               </div>
                               {hoveredManualTask.subcategory && (
-                                <p className="text-[11px] text-muted-foreground leading-relaxed break-words">
+                                <p className="text-[10.5px] text-muted-foreground truncate leading-tight mt-0.5" title={hoveredManualTask.subcategory}>
                                   {hoveredManualTask.subcategory}
                                 </p>
                               )}
                             </div>
                           </div>
                         </div>
-                        );
-                      })() : (
-                        <div className="px-3 py-2 rounded-xl bg-muted/20 border border-border/50 text-center">
-                          <p className="text-[11px] text-muted-foreground">
-                            Pasa el cursor sobre un ícono para ver su detalle
-                          </p>
-                        </div>
-                      )}
-
-                      {/* Cuadrícula Dock de Iconos Cuadrados (Compacto, elegante, sin apelotamiento) */}
-                      <div className="grid grid-cols-4 gap-2 pt-1 pb-1">
-                        {displayedManualTasks.map((task, idx) => {
-                          const isCurrent = manualTask?.label === task.label;
-                          const Icon = task.icon;
-                          const displayLabel = task.label;
-
-                          return (
-                            <div key={task.label} className="relative group">
-                              <button
-                                type="button"
-                                onMouseEnter={() => setHoveredManualTask(task)}
-                                onMouseLeave={() => setHoveredManualTask(null)}
-                                onFocus={() => setHoveredManualTask(task)}
-                                onBlur={() => setHoveredManualTask(null)}
-                                onClick={() => {
-                                  if (isCurrent) stopManualTask();
-                                  else startManualTask(task.category, task.label, task.subcategory);
-                                }}
-                                className={`w-full h-14 rounded-2xl flex flex-col items-center justify-center transition-all duration-200 border relative cursor-pointer shadow-2xs ${
-                                  isCurrent
-                                    ? "bg-amber-500/25 border-amber-400 text-amber-300 ring-2 ring-amber-400/50 shadow-md shadow-amber-500/20 scale-[0.98]"
-                                    : "bg-card/90 hover:bg-muted/70 border-border/80 hover:border-slate-500 text-foreground hover:scale-105 active:scale-95"
-                                }`}
-                              >
-                                {isCurrent && (
-                                  <span className="absolute top-1.5 right-1.5 flex h-2 w-2">
-                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
-                                  </span>
-                                )}
-                                <Icon className={`h-6 w-6 transition-transform group-hover:scale-110 ${isCurrent ? "text-amber-300 animate-pulse" : ((task as any).iconColor || "text-foreground")}`} />
-                              </button>
-                            </div>
-                          );
-                        })}
+                      );
+                    })() : (
+                      <div className="px-3 py-2 rounded-xl bg-muted/20 border border-border/50 text-center min-h-[50px] flex items-center justify-center">
+                        <p className="text-[11px] text-muted-foreground">
+                          Pasa el cursor sobre un ícono para ver su detalle
+                        </p>
                       </div>
-                    </div>
-                  )}
-                </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* SOLO LA CUADRÍCULA DE ICONOS TIENE SCROLL */}
+              <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2">
+                {/* CASO 0: No hay labores manuales configuradas */}
+                {effectiveManualTasks.length === 0 ? (
+                  <div className="py-7 px-3 text-center rounded-xl border border-dashed border-border/60 bg-muted/10 space-y-2 animate-in fade-in">
+                    <Wrench className="h-6 w-6 text-muted-foreground/60 mx-auto" />
+                    <p className="text-xs font-semibold text-foreground">Sin labores manuales</p>
+                    <p className="text-[10.5px] text-muted-foreground leading-relaxed">
+                      Agregue las tareas que desea controlar con cronómetro en este panel exclusivo.
+                    </p>
+                    {hasManageManualTasksAccess ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowManualTasksManagerModal(true)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-xs shadow-xs transition-all active:scale-95 cursor-pointer"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        <span>Configurar Labores</span>
+                      </button>
+                    ) : (
+                      <p className="text-[10px] text-muted-foreground italic">
+                        Consulte al administrador para configurar labores en la barra.
+                      </p>
+                    )}
+                  </div>
+                ) : displayedManualTasks.length === 0 ? (
+                  <div className="py-6 text-center text-muted-foreground">
+                    <p className="text-xs font-semibold">No se encontraron tareas</p>
+                    <p className="text-[10px] mt-0.5 text-muted-foreground/70">
+                      Prueba con otro término o borra la búsqueda
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-4 gap-2 pb-2">
+                    {displayedManualTasks.map((task) => {
+                      const isCurrent = manualTask?.label === task.label;
+                      const Icon = task.icon;
+
+                      return (
+                        <div key={task.label} className="relative group">
+                          <button
+                            type="button"
+                            onMouseEnter={() => setHoveredManualTask(task)}
+                            onMouseLeave={() => setHoveredManualTask(null)}
+                            onFocus={() => setHoveredManualTask(task)}
+                            onBlur={() => setHoveredManualTask(null)}
+                            onClick={() => {
+                              if (isCurrent) stopManualTask();
+                              else startManualTask(task.category, task.label, task.subcategory);
+                            }}
+                            className={`w-full h-14 rounded-2xl flex flex-col items-center justify-center transition-all duration-200 border relative cursor-pointer shadow-2xs ${
+                              isCurrent
+                                ? "bg-amber-500/25 border-amber-400 text-amber-300 ring-2 ring-amber-400/50 shadow-md shadow-amber-500/20 scale-[0.98]"
+                                : "bg-card/90 hover:bg-muted/70 border-border/80 hover:border-slate-500 text-foreground hover:scale-105 active:scale-95"
+                            }`}
+                          >
+                            {isCurrent && (
+                              <span className="absolute top-1.5 right-1.5 flex h-2 w-2">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                              </span>
+                            )}
+                            <Icon className={`h-6 w-6 transition-transform group-hover:scale-110 ${isCurrent ? "text-amber-300 animate-pulse" : ((task as any).iconColor || "text-foreground")}`} />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               {/* Footer con sincronización y reporte IA - SIEMPRE VISIBLE */}
