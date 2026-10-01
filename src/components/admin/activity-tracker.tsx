@@ -46,6 +46,7 @@ import {
   SlidersHorizontal,
   FolderTree,
 } from "lucide-react";
+import { Toilet } from "./manual-tasks-manager-modal";
 import { Avatar } from "@/components/ui/avatar";
 import { ActivityLivePulse, type LiveAgent } from "./activity-live-pulse";
 import { ActivityHeatmap } from "./activity-heatmap";
@@ -104,8 +105,8 @@ const CATEGORY_ICONS: Record<string, any> = {
   "Soporte técnico": Wrench,
   "Labores manuales": Package,
   "Tiempo de descanso": Sandwich,
-  "Pausa personal": Bath,
-  "Pausa Sanitaria": Bath,
+  "Pausa personal": Toilet,
+  "Pausa Sanitaria": Toilet,
   "Atención presencial": UserPlus,
   "Inventario": ClipboardList,
   "Mantenimiento": Sparkles,

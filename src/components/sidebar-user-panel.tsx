@@ -13,7 +13,7 @@ import { MisGarantiasModal } from "@/components/mis-garantias-modal";
 import { AgendaEvent, AgendaTask } from "@/app/api/agenda/route";
 import { InternalChatView } from "@/components/internal-chat/internal-chat-view";
 import { buildDirectChannelId } from "@/lib/internal-chat-types";
-import { ManualTasksManagerModal, ManualTaskItem as DedicatedTaskItem, getTaskIconComponent } from "@/components/admin/manual-tasks-manager-modal";
+import { ManualTasksManagerModal, ManualTaskItem as DedicatedTaskItem, getTaskIconComponent, getTaskIconColor, Toilet } from "@/components/admin/manual-tasks-manager-modal";
 
 interface Agent {
   email: string;
@@ -58,7 +58,7 @@ function getTaskIcon(name: string) {
   if (lower.includes("venta") || lower.includes("cotiza") || lower.includes("cobro")) return Briefcase;
   if (lower.includes("capacita") || lower.includes("inducci") || lower.includes("entrena") || lower.includes("curso") || lower.includes("autoaprendizaje") || lower.includes("ojt")) return GraduationCap;
   if (lower.includes("descanso") || lower.includes("almuerzo") || lower.includes("comida") || lower.includes("café") || lower.includes("cafe")) return Sandwich;
-  if (lower.includes("sanitaria") || lower.includes("baño") || lower.includes("bano")) return Bath;
+  if (lower.includes("sanitaria") || lower.includes("baño") || lower.includes("bano") || lower.includes("inodoro") || lower.includes("wc") || lower.includes("miar") || lower.includes("cagar")) return Toilet;
   if (lower.includes("reunión") || lower.includes("reunion") || lower.includes("charla") || lower.includes("teams")) return Users;
   if (lower.includes("correo") || lower.includes("mail") || lower.includes("informe") || lower.includes("documentaci")) return FileText;
   if (lower.includes("llamada") || lower.includes("telefón") || lower.includes("telefon") || lower.includes("linkus")) return Phone;
@@ -124,8 +124,8 @@ const TAREAS_GROUPED: { group: string; color?: string; items: ManualTaskItem[] }
   {
     group: "Pausa Sanitaria",
     items: [
-      { label: "Pausa Sanitaria", short: "Pausa Sanitaria", category: "Pausa Sanitaria", icon: Bath },
-      { label: "Baño", short: "Baño", category: "Pausa Sanitaria", icon: Bath },
+      { label: "Pausa Sanitaria", short: "Sanitario", category: "Pausa Sanitaria", icon: Toilet },
+      { label: "Baño (WC)", short: "Baño", category: "Pausa Sanitaria", icon: Toilet },
     ]
   }
 ];
@@ -849,9 +849,13 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
         subcategory: t.subcategory || undefined,
         icon: getTaskIconComponent(t.iconName || t.label),
         iconName: t.iconName,
+        iconColor: getTaskIconColor(t.iconName || t.label),
       }));
     }
-    return manualTasksList;
+    return manualTasksList.map((t) => ({
+      ...t,
+      iconColor: getTaskIconColor((t as any).iconName || t.label),
+    }));
   }, [dedicatedManualTasks, manualTasksList]);
 
   const [manualSearchQuery, setManualSearchQuery] = useState<string>("");
@@ -1793,10 +1797,12 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
                       </div>
 
                       {/* Tarjeta inspectora estructurada: sin apelotamiento ni texto cortado */}
-                      {hoveredManualTask ? (
-                        <div className="p-2.5 rounded-xl bg-card border border-amber-500/40 shadow-xs animate-in fade-in duration-100">
+                      {hoveredManualTask ? (() => {
+                        const hColor = (hoveredManualTask as any).iconColor || "text-amber-400";
+                        return (
+                        <div className="p-2.5 rounded-xl bg-card border border-border/60 shadow-xs animate-in fade-in duration-100">
                           <div className="flex items-start gap-2.5">
-                            <div className="h-8 w-8 rounded-lg bg-amber-500/20 text-amber-400 grid place-items-center shrink-0 border border-amber-500/30 mt-0.5">
+                            <div className={`h-8 w-8 rounded-lg bg-muted/60 ${hColor} grid place-items-center shrink-0 border border-border/50 mt-0.5`}>
                               {React.createElement(hoveredManualTask.icon || Wrench, { className: "h-4 w-4" })}
                             </div>
                             <div className="min-w-0 flex-1 space-y-1">
@@ -1816,7 +1822,8 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
                             </div>
                           </div>
                         </div>
-                      ) : (
+                        );
+                      })() : (
                         <div className="px-3 py-2 rounded-xl bg-muted/20 border border-border/50 text-center">
                           <p className="text-[11px] text-muted-foreground">
                             Pasa el cursor sobre un ícono para ver su detalle
@@ -1855,7 +1862,7 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
                                     <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
                                   </span>
                                 )}
-                                <Icon className={`h-6 w-6 transition-transform group-hover:scale-110 ${isCurrent ? "text-amber-300 animate-pulse" : "text-foreground"}`} />
+                                <Icon className={`h-6 w-6 transition-transform group-hover:scale-110 ${isCurrent ? "text-amber-300 animate-pulse" : ((task as any).iconColor || "text-foreground")}`} />
                               </button>
                             </div>
                           );

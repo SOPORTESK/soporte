@@ -41,6 +41,7 @@ import { toast } from "sonner";
 import { logActivity } from "@/lib/activity-client";
 import { computeUnifiedActivityMetrics, formatDurationMs } from "@/lib/activity-engine";
 import { extractSmartAppName } from "@/components/admin/activity-apps-ranking";
+import { Toilet } from "@/components/admin/manual-tasks-manager-modal";
 
 interface Props {
   isOpen: boolean;
@@ -379,7 +380,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
     if (c.includes("control") || c.includes("admin") || c.includes("correo") || c.includes("mail") || c.includes("excel") || c.includes("word") || c.includes("informe")) return <TrendingUp className="h-4 w-4 text-blue-400" />;
     if (c.includes("gestión del taller") || c.includes("gestion del taller") || c.includes("bodega") || c.includes("inventario") || c.includes("ventanilla") || c.includes("mostrador") || c.includes("limpieza") || c.includes("exhibidor")) return <Package className="h-4 w-4 text-indigo-400" />;
     if (c.includes("descanso") || c.includes("almuerzo") || c.includes("café") || c.includes("cafe")) return <Sandwich className="h-4 w-4 text-amber-400" />;
-    if (c.includes("sanitaria") || c.includes("baño") || c.includes("bano")) return <Bath className="h-4 w-4 text-emerald-400" />;
+    if (c.includes("sanitaria") || c.includes("baño") || c.includes("bano") || c.includes("inodoro") || c.includes("wc")) return <Toilet className="h-4 w-4 text-cyan-400" />;
     if (c.includes("justificación")) return <CheckCircle2 className="h-4 w-4 text-cyan-400" />;
     return <Globe className="h-4 w-4 text-muted-foreground" />;
   };

@@ -48,6 +48,7 @@ import {
   Info,
   EyeOff,
 } from "lucide-react";
+import { Toilet } from "@/components/admin/manual-tasks-manager-modal";
 
 interface TimelineItem {
   created_at?: string;
@@ -405,7 +406,7 @@ function getAppIcon(appName: string) {
   if (name.includes("capacita")) return <GraduationCap className="h-4 w-4 text-violet-400" />;
   if (name.includes("descanso") || name.includes("almuerzo") || name.includes("café") || name.includes("cafe"))
     return <Sandwich className="h-4 w-4 text-amber-400" />;
-  if (name.includes("baño") || name.includes("bano") || name.includes("sanitaria") || name.includes("sanitario")) return <Bath className="h-4 w-4 text-sky-400" />;
+  if (name.includes("baño") || name.includes("bano") || name.includes("sanitaria") || name.includes("sanitario") || name.includes("inodoro") || name.includes("wc")) return <Toilet className="h-4 w-4 text-cyan-400" />;
   if (name.includes("reunión") || name.includes("reunion")) return <Users className="h-4 w-4 text-indigo-400" />;
   if (name.includes("justificaci")) return <ClipboardList className="h-4 w-4 text-pink-400" />;
 
