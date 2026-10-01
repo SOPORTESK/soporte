@@ -9,6 +9,7 @@ import { GodModeButton } from "@/components/admin/god-mode-button";
 import { GodModeBanner } from "@/components/admin/god-mode-banner";
 import { AgentCasesHistory } from "@/components/admin/agent-cases-history";
 import { AgentScheduleCard } from "@/components/admin/agent-schedule-card";
+import { AgentOvertimeCard } from "@/components/admin/agent-overtime-card";
 import { AgentProfileTabs } from "@/components/admin/agent-profile-tabs";
 import { getUserWithTimeout, queryWithFallback } from "@/lib/supabase/resilient";
 
@@ -284,7 +285,10 @@ export default async function AgentProfilePage({
           <AgentCasesHistory cases={(casos as any[]) || []} />
         }
         gestionContent={
-          <AgentScheduleCard agentEmail={targetEmail} agentName={fullName} />
+          <div className="space-y-8">
+            <AgentScheduleCard agentEmail={targetEmail} agentName={fullName} />
+            <AgentOvertimeCard agentEmail={targetEmail} agentName={fullName} />
+          </div>
         }
       />
     </div>
