@@ -225,10 +225,10 @@ function formatExecutiveAction(category, label, context, durationMs) {
 }
 
 const exeCandidates = [
-  path.join(__dirname, 'get-active-win-url.exe'),
-  path.join(__dirname, 'get-active-win.exe')
+  path.join(__dirname, 'get-active-win.exe'),
+  path.join(__dirname, 'get-active-win-url.exe')
 ];
-const exePath = exeCandidates.find(p => fs.existsSync(p)) || exeCandidates[1];
+const exePath = exeCandidates.find(p => fs.existsSync(p)) || exeCandidates[0];
 
 function getActiveWindow() {
   return new Promise((resolve) => {
