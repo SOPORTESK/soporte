@@ -1355,33 +1355,38 @@ export function computeUnifiedActivityMetrics(
   }
 
   // 2. CÁLCULO ESTRICTO DE CATEGORÍAS MASTER (Nivel 1)
-  const rawProductiveMs =
+  const rawPcProductiveMs =
     (opTimes["Soporte"] || 0) +
     (opTimes["Servicio de Taller"] || 0) +
     (opTimes["Control Administrativo"] || 0) +
     (opTimes["Gestión del Taller"] || 0) +
     (opTimes["Gestión de Residuos"] || 0) +
     (opTimes["On-the-Job Training (OJT)"] || 0) +
-    (opTimes["Justificación Manual"] || 0) +
     (opTimes["Utilidades"] || 0);
 
-  // INVARIANTE FÍSICA INQUEBRANTABLE:
-  // Ningún colaborador puede acumular más tiempo productivo que el tiempo real de reloj transcurrido
+  // INVARIANTE FÍSICA INQUEBRANTABLE (SOLO PARA TRABAJO EN SOFTWARE / PC):
+  // Ningún colaborador puede acumular más tiempo productivo en software/PC que el tiempo real de reloj transcurrido
   // entre su primer evento del día y el último evento registrado (con margen de 1 min).
-  const firstEventMs = new Date(sorted[0].created_at).getTime();
-  const lastEventMs = new Date(sorted[sorted.length - 1].created_at).getTime();
-  const maxElapsedWallClockMs = Math.max(60000, (lastEventMs - firstEventMs) + 60000);
+  // La Justificación Manual representa labores fuera de PC o ausencias justificadas y NUNCA se escala por eventos de PC.
+  let pcProductiveMs = rawPcProductiveMs;
+  if (sorted.length > 0) {
+    const firstEventMs = new Date(sorted[0].created_at).getTime();
+    const lastEventMs = new Date(sorted[sorted.length - 1].created_at).getTime();
+    const maxElapsedWallClockMs = Math.max(60000, (lastEventMs - firstEventMs) + 60000);
 
-  let productiveMs = rawProductiveMs;
-  if (productiveMs > maxElapsedWallClockMs) {
-    const scale = maxElapsedWallClockMs / productiveMs;
-    OFFICIAL_OPERATIONAL_CATEGORIES.forEach((c) => {
-      if (opTimes[c.id]) {
-        opTimes[c.id] = Math.round(opTimes[c.id] * scale);
-      }
-    });
-    productiveMs = maxElapsedWallClockMs;
+    if (pcProductiveMs > maxElapsedWallClockMs) {
+      const scale = maxElapsedWallClockMs / pcProductiveMs;
+      OFFICIAL_OPERATIONAL_CATEGORIES.forEach((c) => {
+        if (c.id !== "Justificación Manual" && opTimes[c.id]) {
+          opTimes[c.id] = Math.round(opTimes[c.id] * scale);
+        }
+      });
+      pcProductiveMs = maxElapsedWallClockMs;
+    }
   }
+
+  const manualJustificationMs = opTimes["Justificación Manual"] || 0;
+  const productiveMs = pcProductiveMs + manualJustificationMs;
 
   const breakMs = opTimes["Descansos"] || 0;
   const sanitaryMs = opTimes["Pausa Sanitaria"] || 0;
@@ -1450,7 +1455,6 @@ export function computeUnifiedActivityMetrics(
   const targetMs = targetDailyHours * 3600 * 1000;
   const compliancePercent = Math.min(100, Math.round((productiveMs / (targetMs || 1)) * 100));
 
-  const manualJustificationMs = opTimes["Justificación Manual"] || 0;
   const pcWorkMs = Math.max(0, productiveMs - manualJustificationMs);
 
   return {

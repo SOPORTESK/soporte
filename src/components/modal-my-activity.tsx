@@ -1028,10 +1028,21 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                               >
                                 <div className="flex items-center justify-between gap-1.5">
                                   <div className="flex items-center gap-2 min-w-0">
-                                    <div
-                                      className="w-2.5 h-2.5 rounded-full shrink-0 shadow-2xs"
-                                      style={{ backgroundColor: item.color }}
-                                    />
+                                    {(() => {
+                                      const CatIcon = getTaskIconComponent(item.iconName || item.label);
+                                      return (
+                                        <div
+                                          className="h-6 w-6 rounded-lg flex items-center justify-center shrink-0 border shadow-2xs"
+                                          style={{
+                                            backgroundColor: `${item.color}25`,
+                                            borderColor: `${item.color}50`,
+                                            color: item.color,
+                                          }}
+                                        >
+                                          <CatIcon className="h-3.5 w-3.5" />
+                                        </div>
+                                      );
+                                    })()}
                                     <span className="font-bold text-xs text-foreground truncate" title={item.label}>
                                       {item.label}
                                     </span>
@@ -1077,17 +1088,23 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
 
                             {showZeroCategories && (
                               <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 mt-2 animate-in fade-in duration-200">
-                                {chartData.inactive.map((cat) => (
-                                  <div
-                                    key={cat.id}
-                                    className="p-1.5 px-2 rounded-lg bg-muted/20 border border-border/40 text-[10.5px] text-muted-foreground flex items-center justify-between"
-                                  >
-                                    <span className="truncate mr-1" title={cat.label}>
-                                      {cat.label}
-                                    </span>
-                                    <span className="font-mono text-[10px] opacity-70">0m</span>
-                                  </div>
-                                ))}
+                                {chartData.inactive.map((cat) => {
+                                  const CatIcon = getTaskIconComponent(cat.iconName || cat.label);
+                                  return (
+                                    <div
+                                      key={cat.id}
+                                      className="p-1.5 px-2 rounded-lg bg-muted/20 border border-border/40 text-[10.5px] text-muted-foreground flex items-center justify-between"
+                                    >
+                                      <div className="flex items-center gap-1.5 min-w-0">
+                                        <CatIcon className="h-3.5 w-3.5 shrink-0 opacity-70 text-violet-400" />
+                                        <span className="truncate mr-1" title={cat.label}>
+                                          {cat.label}
+                                        </span>
+                                      </div>
+                                      <span className="font-mono text-[10px] opacity-70">0m</span>
+                                    </div>
+                                  );
+                                })}
                               </div>
                             )}
                           </div>
@@ -1320,7 +1337,9 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                           >
                             <div
                               className={`p-1.5 rounded-lg shrink-0 ${
-                                isSelected ? "bg-violet-600 text-white" : "bg-muted text-muted-foreground"
+                                isSelected
+                                  ? "bg-violet-600 text-white shadow-xs"
+                                  : "bg-violet-500/10 text-violet-400 border border-violet-500/20"
                               }`}
                             >
                               <Icon className="h-3.5 w-3.5" />
