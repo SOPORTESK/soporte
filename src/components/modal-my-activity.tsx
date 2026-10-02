@@ -43,7 +43,7 @@ import { toast } from "sonner";
 import { logActivity } from "@/lib/activity-client";
 import { computeUnifiedActivityMetrics, formatDurationMs } from "@/lib/activity-engine";
 import { extractSmartAppName } from "@/components/admin/activity-apps-ranking";
-import { Toilet } from "@/components/admin/manual-tasks-manager-modal";
+import { Toilet, getTaskIconComponent, ManualTaskItem } from "@/components/admin/manual-tasks-manager-modal";
 
 interface Props {
   isOpen: boolean;
@@ -59,16 +59,21 @@ interface CategoryUsage {
   percentage: number;
 }
 
-const WORKSHOP_JUSTIFY_PRESETS = [
-  { label: "Limpieza de taller", short: "Limpieza", icon: Sparkles, cat: "Gestión del Taller" },
-  { label: "Bodega e Inventario", short: "Bodega", icon: Package, cat: "Gestión del Taller" },
-  { label: "Iniciar Diagnóstico Físico", short: "Diagnóstico", icon: Wrench, cat: "Servicio de Taller" },
-  { label: "Reparación de equipo", short: "Reparación", icon: Wrench, cat: "Servicio de Taller" },
-  { label: "Atención presencial en mostrador", short: "Ventanilla", icon: UserPlus, cat: "Gestión del Taller" },
-  { label: "Soporte a Ventas", short: "Soporte Ventas", icon: Briefcase, cat: "Soporte" },
-  { label: "Gestión de Residuos", short: "Residuos", icon: Trash2, cat: "Gestión de Residuos" },
-  { label: "Capacitación / Inducción", short: "Capacitación", icon: GraduationCap, cat: "On-the-Job Training (OJT)" },
-  { label: "Reunión de taller", short: "Reunión", icon: Users, cat: "Control Administrativo" },
+const FALLBACK_MANUAL_TASKS: ManualTaskItem[] = [
+  { id: "diagnostico", label: "Diagnóstico", category: "Servicio de Taller", subcategory: "Diagnóstico", iconName: "Wrench", color: "amber" },
+  { id: "reparacion", label: "Reparación", category: "Servicio de Taller", subcategory: "Reparación", iconName: "Hammer", color: "sky" },
+  { id: "ir_a_bodega", label: "Ir a Bodega", category: "Gestión del Taller", subcategory: "Bodega e Inventario", iconName: "Package", color: "orange" },
+  { id: "limpieza_taller", label: "Limpieza de taller", category: "Gestión del Taller", subcategory: "Acondicionamiento del Área", iconName: "Sparkles", color: "emerald" },
+  { id: "inventario", label: "Inventario", category: "Control Administrativo", subcategory: "Inventarios", iconName: "ClipboardList", color: "indigo" },
+  { id: "almuerzo", label: "Almuerzo", category: "Descansos", subcategory: "Tiempo de Descanso", iconName: "Utensils", color: "amber" },
+  { id: "bano", label: "Baño", category: "Pausa Sanitaria", subcategory: "Pausa Sanitaria", iconName: "Bath", color: "amber" },
+  { id: "exhibidores", label: "Exhibidores", category: "Gestión del Taller", subcategory: "Exhibidor", iconName: "Tag", color: "amber" },
+  { id: "inspeccion", label: "Inspección", category: "Control Administrativo", subcategory: "Devoluciones", iconName: "Search", color: "amber" },
+  { id: "soporte_ventas", label: "Soporte a Ventas", category: "Soporte", subcategory: "Presencial", iconName: "Briefcase", color: "amber" },
+  { id: "induccion_clientes", label: "Inducción a Clientes", category: "Soporte", subcategory: "Presencial", iconName: "Contact", color: "amber" },
+  { id: "ventanilla", label: "Ventanilla", category: "Soporte", subcategory: "Presencial", iconName: "UserPlus", color: "amber" },
+  { id: "ojt", label: "OJT", category: "On-the-Job Training (OJT)", subcategory: "Capacitación Técnica", iconName: "Briefcase", color: "amber" },
+  { id: "reunion", label: "Reunión", category: "Control Administrativo", subcategory: "Informes y Documentación", iconName: "Users", color: "amber" },
 ];
 
 const CATEGORY_HEX_MAP: Record<string, string> = {
@@ -116,7 +121,8 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
   const [justEndTime, setJustEndTime] = useState("");
   const [justTimeRange, setJustTimeRange] = useState("");
   const [justMinutes, setJustMinutes] = useState("15");
-  const [justReason, setJustReason] = useState("Limpieza de taller");
+  const [manualTasks, setManualTasks] = useState<ManualTaskItem[]>(FALLBACK_MANUAL_TASKS);
+  const [justReason, setJustReason] = useState<string>("Diagnóstico");
   const [justDetail, setJustDetail] = useState("");
   const [savingJust, setSavingJust] = useState(false);
   const [targetDailyHours, setTargetDailyHours] = useState(10);
@@ -130,6 +136,59 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
   const [scheduleStart, setScheduleStart] = useState<string>("07:00");
   const [scheduleEnd, setScheduleEnd] = useState<string>("17:00");
   const [showManualJustify, setShowManualJustify] = useState(false);
+
+  // Sincronizar las opciones de labores manuales idénticas a la barra lateral
+  useEffect(() => {
+    const loadTasks = () => {
+      try {
+        const saved = localStorage.getItem("sek_manual_tasks_list");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setManualTasks(parsed);
+          }
+        }
+      } catch {}
+
+      fetch("/api/activity/manual-tasks", { cache: "no-store" })
+        .then((r) => r.json())
+        .then((data) => {
+          if (data?.success && Array.isArray(data.tasks) && data.tasks.length > 0) {
+            setManualTasks(data.tasks);
+            try {
+              localStorage.setItem("sek_manual_tasks_list", JSON.stringify(data.tasks));
+            } catch {}
+          }
+        })
+        .catch(() => {});
+    };
+
+    loadTasks();
+
+    const handleUpdate = (e?: Event) => {
+      try {
+        const detail = (e as CustomEvent)?.detail;
+        if (detail && Array.isArray(detail) && detail.length > 0) {
+          setManualTasks([...detail]);
+          return;
+        }
+      } catch {}
+      loadTasks();
+    };
+
+    window.addEventListener("sekunet_manual_tasks_updated", handleUpdate);
+    window.addEventListener("storage", handleUpdate);
+    return () => {
+      window.removeEventListener("sekunet_manual_tasks_updated", handleUpdate);
+      window.removeEventListener("storage", handleUpdate);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (manualTasks.length > 0 && (!justReason || !manualTasks.some((t) => t.label === justReason))) {
+      setJustReason(manualTasks[0].label);
+    }
+  }, [manualTasks, justReason]);
 
   useEffect(() => {
     fetch("/api/activity/schedule")
@@ -304,7 +363,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
       setJustDate(activeDetectedGaps[0].dateStr);
     }
     if (!justReason) {
-      setJustReason("Atención presencial en mostrador");
+      setJustReason(manualTasks[0]?.label || "Diagnóstico");
     }
     toast.info(`Seleccionados ${detectedLostMin} min para justificar todo de una vez.`);
   };
@@ -335,7 +394,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
     setJustTimeRange(`${gap.startTime} a ${gap.endTime}`);
     setJustMinutes(String(gap.minutes));
     if (!justReason) {
-      setJustReason("Atención presencial en mostrador");
+      setJustReason(manualTasks[0]?.label || "Diagnóstico");
     }
     toast.info(`Laguna seleccionada: ${gap.startTime} — ${gap.endTime} (${gap.minutes} min)`);
   };
@@ -457,7 +516,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
 
   const handleSendJustification = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    const reasonToUse = justReason.trim() || "Atención presencial en mostrador";
+    const reasonToUse = justReason.trim() || manualTasks[0]?.label || "Labor de Taller";
     if (!justReason.trim()) {
       setJustReason(reasonToUse);
     }
@@ -472,7 +531,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
         : (justStartTime && justEndTime ? ` [${justStartTime} - ${justEndTime}]` : "");
       const dateText = justDate ? ` (${justDate})` : "";
 
-      const matchedPreset = WORKSHOP_JUSTIFY_PRESETS.find((p) => p.label === reasonToUse);
+      const matchedPreset = manualTasks.find((p) => p.label === reasonToUse);
       const categoryToUse = "Justificación Manual";
 
       let customCreatedAt: string | undefined = undefined;
@@ -504,7 +563,8 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
           end_time: justEndTime || undefined,
           minutes: minVal,
           task: reasonToUse,
-          original_category: matchedPreset?.cat || "Gestión del Taller",
+          original_category: matchedPreset?.category || "Gestión del Taller",
+          subcategory: matchedPreset?.subcategory || undefined,
         },
       };
 
@@ -1244,12 +1304,12 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                      {WORKSHOP_JUSTIFY_PRESETS.map((preset) => {
-                        const Icon = preset.icon;
+                      {manualTasks.map((preset) => {
+                        const Icon = getTaskIconComponent(preset.iconName || preset.label);
                         const isSelected = justReason === preset.label;
                         return (
                           <button
-                            key={preset.label}
+                            key={preset.id || preset.label}
                             type="button"
                             onClick={() => setJustReason(preset.label)}
                             className={`px-3 py-2 rounded-xl border text-left flex items-center gap-2.5 transition-all cursor-pointer ${
@@ -1265,7 +1325,14 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                             >
                               <Icon className="h-3.5 w-3.5" />
                             </div>
-                            <span className="text-xs font-semibold truncate flex-1">{preset.label}</span>
+                            <div className="min-w-0 flex-1">
+                              <span className="text-xs font-semibold truncate block">{preset.label}</span>
+                              {preset.category && (
+                                <span className="text-[10px] text-muted-foreground/70 truncate block">
+                                  {preset.category}
+                                </span>
+                              )}
+                            </div>
                             {isSelected && <CheckCircle2 className="h-3.5 w-3.5 text-violet-400 shrink-0" />}
                           </button>
                         );
