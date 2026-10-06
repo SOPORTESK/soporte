@@ -5,8 +5,19 @@ import { computeUnifiedActivityMetrics } from "@/lib/activity-engine";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+let liveCache: { data: any; expires: number } | null = null;
+const LIVE_CACHE_TTL_MS = 5000;
+
 export async function GET(_req: NextRequest) {
   try {
+    const now = new Date();
+    if (liveCache && now.getTime() < liveCache.expires) {
+      const res = NextResponse.json(liveCache.data);
+      res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+      res.headers.set("X-Cache", "HIT");
+      return res;
+    }
+
     const supabase = createServiceClient();
 
     // 1. Obtener todos los agentes registrados (excluyendo bots y cuentas del sistema)
@@ -22,7 +33,6 @@ export async function GET(_req: NextRequest) {
     if (agentErr) throw agentErr;
 
     // 2. Obtener los eventos de actividad del día de hoy
-    const now = new Date();
     const todayStr = now.toISOString().split("T")[0];
     const startOfToday = `${todayStr}T00:00:00`;
 
@@ -83,6 +93,8 @@ export async function GET(_req: NextRequest) {
         secondsAgo,
         lastSeen: latestLog?.created_at || null,
         activeMinutes: Math.round(activeMs / 60000),
+        breakMinutes: Math.round(((computed.masterBuckets.Descanso?.durationMs || 0) + (computed.masterBuckets["Pausa Sanitaria"]?.durationMs || 0)) / 60000),
+        workdayMinutes: Math.round((computed.totalWorkdayMs || (activeMs + (computed.masterBuckets.Descanso?.durationMs || 0) + (computed.masterBuckets["Pausa Sanitaria"]?.durationMs || 0))) / 60000),
         idleMinutes: Math.round(idleMs / 60000),
         productivityScore,
         todayEventsCount: todayLogs.length,
@@ -93,11 +105,21 @@ export async function GET(_req: NextRequest) {
       };
     });
 
-    return NextResponse.json({
+    const responsePayload = {
       ok: true,
       timestamp: now.toISOString(),
       agents: liveAgents,
-    });
+    };
+
+    liveCache = {
+      data: responsePayload,
+      expires: now.getTime() + LIVE_CACHE_TTL_MS,
+    };
+
+    const res = NextResponse.json(responsePayload);
+    res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.headers.set("X-Cache", "MISS");
+    return res;
   } catch (err: any) {
     console.error("[api/activity/live] Error:", err);
     return NextResponse.json({ error: err.message }, { status: 500 });

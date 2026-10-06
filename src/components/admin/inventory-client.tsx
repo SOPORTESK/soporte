@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { Edit2, Trash2, Plus, X, Save, Search, Upload } from "lucide-react";
+import { useState, useMemo, useEffect } from "react";
+import { Edit2, Trash2, Plus, X, Save, Search, Upload, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
 import { Badge } from "@/components/ui/avatar";
 
 interface InventoryItem {
@@ -21,35 +21,79 @@ interface InventoryClientProps {
   totalModelos: number;
   isAdmin: boolean;
   isSuperadmin: boolean;
+  categorias?: string[];
 }
 
-export function InventoryClient({ items, statsPorMarca, totalModelos, isAdmin, isSuperadmin }: InventoryClientProps) {
+export function InventoryClient({ items, statsPorMarca, totalModelos, isAdmin, isSuperadmin, categorias = [] }: InventoryClientProps) {
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [formData, setFormData] = useState<Partial<InventoryItem>>({});
   const [searchTerm, setSearchTerm] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<string>("all");
+  const [selectedBrand, setSelectedBrand] = useState<string>("all");
   const [isUploading, setIsUploading] = useState(false);
 
-  // Ordenar items por marca alfabéticamente
+  // Estados de paginación
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+
+  // Resetear a página 1 cuando cambian los filtros
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedBrand, selectedCategory, searchTerm, pageSize]);
+
+  // Ordenar items determinísticamente por marca -> modelo -> nombre
   const sortedItems = useMemo(() => {
     return [...items].sort((a, b) => {
-      const marcaA = (a.marca || "").toLowerCase();
-      const marcaB = (b.marca || "").toLowerCase();
-      if (marcaA < marcaB) return -1;
-      if (marcaA > marcaB) return 1;
-      return 0;
+      const marcaA = (a.marca || "GENÉRICO").trim().toUpperCase();
+      const marcaB = (b.marca || "GENÉRICO").trim().toUpperCase();
+      if (marcaA !== marcaB) return marcaA.localeCompare(marcaB);
+      const modA = (a.modelo || "").trim().toUpperCase();
+      const modB = (b.modelo || "").trim().toUpperCase();
+      if (modA !== modB) return modA.localeCompare(modB);
+      return (a.nombre || "").localeCompare(b.nombre || "");
     });
   }, [items]);
 
   const filteredItems = useMemo(() => {
-    if (!searchTerm) return sortedItems;
-    const term = searchTerm.toLowerCase();
-    return sortedItems.filter(i => 
-      (i.marca?.toLowerCase() || "").includes(term) ||
-      (i.modelo?.toLowerCase() || "").includes(term) ||
-      (i.nombre?.toLowerCase() || "").includes(term)
-    );
-  }, [sortedItems, searchTerm]);
+    const brand = selectedBrand.trim().toUpperCase();
+    const cat = selectedCategory.trim();
+    const term = searchTerm.trim().toLowerCase();
+
+    return sortedItems.filter((i) => {
+      if (brand !== "ALL") {
+        const itemBrand = (i.marca || "GENÉRICO").trim().toUpperCase();
+        if (itemBrand !== brand) {
+          return false;
+        }
+      }
+      if (cat !== "all" && (i.categoria || "").trim() !== cat) {
+        return false;
+      }
+      if (term) {
+        const matches =
+          (i.marca?.toLowerCase() || "").includes(term) ||
+          (i.modelo?.toLowerCase() || "").includes(term) ||
+          (i.nombre?.toLowerCase() || "").includes(term) ||
+          (i.categoria?.toLowerCase() || "").includes(term);
+        if (!matches) return false;
+      }
+      return true;
+    });
+  }, [sortedItems, searchTerm, selectedBrand, selectedCategory]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / pageSize));
+  const safePage = Math.min(currentPage, totalPages);
+  const startIndex = (safePage - 1) * pageSize;
+  const endIndex = Math.min(startIndex + pageSize, filteredItems.length);
+  const paginatedItems = useMemo(() => {
+    const slice = filteredItems.slice(startIndex, endIndex);
+    if (selectedBrand.trim().toUpperCase() !== "ALL") {
+      const targetBrand = selectedBrand.trim().toUpperCase();
+      return slice.filter((i) => (i.marca || "GENÉRICO").trim().toUpperCase() === targetBrand);
+    }
+    return slice;
+  }, [filteredItems, startIndex, endIndex, selectedBrand]);
 
   const handleEdit = (item: InventoryItem) => {
     setEditingItem(item);
@@ -140,21 +184,99 @@ export function InventoryClient({ items, statsPorMarca, totalModelos, isAdmin, i
 
   return (
     <>
-    {/* Estadísticas por Marca - Grid compacto para 37 marcas */}
-      <div className="mb-4 p-4 rounded-xl border border-border bg-muted/30">
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Modelos por Marca</p>
-          <span className="text-xs text-muted-foreground">{statsPorMarca.length} marcas · {new Intl.NumberFormat('en-US').format(totalModelos)} modelos</span>
+    {/* Estadísticas por Marca - Grid interactivo */}
+      <div className="mb-4 p-4 rounded-xl border border-border bg-muted/30 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Modelos por Marca</p>
+            {selectedBrand !== "all" && (
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-bold bg-violet-600 text-white shadow-sm">
+                Filtrando: {selectedBrand}
+                <button
+                  type="button"
+                  onClick={() => { setSelectedBrand("all"); setCurrentPage(1); }}
+                  className="hover:opacity-75 font-bold"
+                  title="Quitar filtro de marca"
+                >
+                  ✕
+                </button>
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-muted-foreground font-medium">
+              {statsPorMarca.length} marcas · {new Intl.NumberFormat('en-US').format(totalModelos)} modelos
+            </span>
+            {(selectedBrand !== "all" || selectedCategory !== "all") && (
+              <button
+                type="button"
+                onClick={() => { setSelectedBrand("all"); setSelectedCategory("all"); setCurrentPage(1); }}
+                className="text-xs text-violet-400 hover:underline font-semibold"
+              >
+                Limpiar filtros
+              </button>
+            )}
+          </div>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2 max-h-32 overflow-y-auto">
-          {statsPorMarca.map(([marca, count]) => (
-            <div key={marca} className="flex items-center justify-between px-2 py-1.5 rounded bg-card border border-border text-xs">
-              <span className="font-medium truncate" title={marca}>{marca}</span>
-              <span className="text-muted-foreground bg-muted px-1 rounded text-[10px]">{count}</span>
-            </div>
-          ))}
+        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2 max-h-40 overflow-y-auto pr-1">
+          {statsPorMarca.map(([marca, count]) => {
+            const isSelected = selectedBrand.toUpperCase() === marca.toUpperCase();
+            return (
+              <button
+                type="button"
+                key={marca}
+                onClick={() => {
+                  setSelectedBrand(isSelected ? "all" : marca);
+                  setCurrentPage(1);
+                }}
+                className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg border text-xs text-left transition-all cursor-pointer ${
+                  isSelected
+                    ? "bg-violet-600 text-white border-violet-500 shadow-md ring-2 ring-violet-400/50 font-bold"
+                    : "bg-card border-border hover:bg-muted text-foreground"
+                }`}
+              >
+                <span className="truncate" title={marca}>{marca}</span>
+                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                  isSelected ? "bg-white/20 text-white" : "bg-muted text-muted-foreground"
+                }`}>{count}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
+
+      {/* Selector de Categorías (Pills) */}
+      {categorias.length > 0 && (
+        <div className="mb-4 flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+          <button
+            onClick={() => setSelectedCategory("all")}
+            className={`px-3 py-1.5 rounded-lg font-bold shrink-0 transition-colors ${
+              selectedCategory === "all"
+                ? "bg-violet-600 text-white shadow-sm"
+                : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+            }`}
+          >
+            Todas ({items.length})
+          </button>
+          {categorias.map((cat) => {
+            const count = items.filter((i) => i.categoria === cat).length;
+            const isSel = selectedCategory === cat;
+            return (
+              <button
+                key={cat}
+                onClick={() => setSelectedCategory(isSel ? "all" : cat)}
+                className={`px-3 py-1.5 rounded-lg font-medium shrink-0 transition-colors ${
+                  isSel
+                    ? "bg-violet-600 text-white shadow-sm font-bold"
+                    : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                {cat} <span className="opacity-70 ml-1">({count})</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Controles: Búsqueda + Upload + Agregar */}
       <div className="flex flex-col sm:flex-row gap-3 mb-4">
@@ -162,7 +284,7 @@ export function InventoryClient({ items, statsPorMarca, totalModelos, isAdmin, i
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <input
             type="text"
-            placeholder="Buscar por marca, modelo o descripción..."
+            placeholder="Buscar por marca, modelo, categoría o descripción..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full pl-9 pr-4 py-2 rounded-lg border border-border bg-background text-sm"
@@ -190,34 +312,110 @@ export function InventoryClient({ items, statsPorMarca, totalModelos, isAdmin, i
         )}
       </div>
 
-      {/* Tabla */}
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/50 text-left">
-            <tr>
-              <th className="p-3 font-semibold">Marca</th>
-              <th className="p-3 font-semibold">Modelo</th>
-              <th className="p-3 font-semibold">Descripción</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {filteredItems.slice(0, 50).map((i) => (
-              <tr key={i.id} className="hover:bg-muted/30 transition-colors">
-                <td className="p-3 text-muted-foreground whitespace-nowrap">{i.marca || "—"}</td>
-                <td className="p-3 text-muted-foreground font-mono text-xs whitespace-nowrap">{i.modelo || "—"}</td>
-                <td className="p-3 font-medium truncate max-w-md lg:max-w-2xl" title={i.nombre}>{i.nombre}</td>
+      {/* Tabla con scroll contenido y cabecera fija */}
+      <div className="rounded-xl border border-border bg-card overflow-hidden shadow-sm flex flex-col">
+        <div className="overflow-x-auto max-h-[560px] overflow-y-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/90 backdrop-blur sticky top-0 z-10 text-left border-b border-border shadow-xs">
+              <tr>
+                <th className="p-3 font-semibold text-xs uppercase tracking-wider text-muted-foreground whitespace-nowrap">Marca</th>
+                <th className="p-3 font-semibold text-xs uppercase tracking-wider text-muted-foreground whitespace-nowrap">Modelo</th>
+                <th className="p-3 font-semibold text-xs uppercase tracking-wider text-muted-foreground whitespace-nowrap">Categoría</th>
+                <th className="p-3 font-semibold text-xs uppercase tracking-wider text-muted-foreground">Descripción</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-        {filteredItems.length > 50 && (
-          <div className="p-4 text-center text-sm text-muted-foreground">
-            Mostrando 50 de {filteredItems.length} resultados. Usa la búsqueda para refinar.
+            </thead>
+            <tbody className="divide-y divide-border">
+              {paginatedItems.map((i, idx) => (
+                <tr key={`${i.id}-${i.modelo || ''}-${startIndex + idx}`} className="hover:bg-muted/40 transition-colors">
+                  <td className="p-3 font-bold text-foreground whitespace-nowrap">{i.marca || "—"}</td>
+                  <td className="p-3 text-muted-foreground font-mono text-xs whitespace-nowrap">{i.modelo || "—"}</td>
+                  <td className="p-3 whitespace-nowrap">
+                    <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-violet-500/10 text-violet-400 border border-violet-500/20">
+                      {i.categoria || "Sin categoría"}
+                    </span>
+                  </td>
+                  <td className="p-3 font-medium truncate max-w-md lg:max-w-2xl text-foreground/90" title={i.nombre}>
+                    {i.nombre}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Barra de Paginación */}
+        {filteredItems.length > 0 && (
+          <div className="p-3 border-t border-border bg-muted/20 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <span>
+                Mostrando <strong className="text-foreground">{startIndex + 1}</strong> - <strong className="text-foreground">{endIndex}</strong> de <strong className="text-foreground">{new Intl.NumberFormat('en-US').format(filteredItems.length)}</strong> modelos
+              </span>
+              <span className="text-border">|</span>
+              <div className="flex items-center gap-1.5">
+                <span>Por página:</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="bg-background border border-border rounded px-2 py-1 text-xs text-foreground cursor-pointer"
+                >
+                  <option value={15}>15</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setCurrentPage(1)}
+                disabled={safePage <= 1}
+                className="p-1 rounded border border-border bg-background hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed font-medium"
+                title="Primera página"
+              >
+                <ChevronsLeft className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={safePage <= 1}
+                className="flex items-center gap-1 px-2.5 py-1 rounded border border-border bg-background hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed font-medium"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+                <span>Anterior</span>
+              </button>
+              <span className="px-2 font-mono text-muted-foreground">
+                Pág. <strong className="text-foreground">{safePage}</strong> de <strong className="text-foreground">{totalPages}</strong>
+              </span>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={safePage >= totalPages}
+                className="flex items-center gap-1 px-2.5 py-1 rounded border border-border bg-background hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed font-medium"
+              >
+                <span>Siguiente</span>
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrentPage(totalPages)}
+                disabled={safePage >= totalPages}
+                className="p-1 rounded border border-border bg-background hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed font-medium"
+                title="Última página"
+              >
+                <ChevronsRight className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         )}
+
         {filteredItems.length === 0 && (
-          <div className="p-8 text-center text-sm text-muted-foreground">
-            No se encontraron resultados para &quot;{searchTerm}&quot;
+          <div className="p-12 text-center text-sm text-muted-foreground">
+            No se encontraron resultados para los filtros seleccionados.
           </div>
         )}
       </div>

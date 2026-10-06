@@ -2334,10 +2334,10 @@ function ActivityAppsRankingComponent({
                             const targetCat = categories.find((c) => c.id === e.target.value);
                             setNewCustomItemSub(targetCat?.subcategories?.[0] || "");
                           }}
-                          className="w-full px-3 py-2 text-xs rounded-xl bg-background border border-border focus:ring-2 focus:ring-violet-500 text-foreground cursor-pointer"
+                          className="w-full px-3 py-2 text-xs rounded-xl bg-background border border-border focus:ring-2 focus:ring-violet-500 text-foreground cursor-pointer [color-scheme:light] dark:[color-scheme:dark]"
                         >
                           {categories.map((c) => (
-                            <option key={c.id} value={c.id}>{c.label}</option>
+                            <option key={c.id} value={c.id} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">{c.label}</option>
                           ))}
                         </select>
                       </div>
@@ -2346,11 +2346,11 @@ function ActivityAppsRankingComponent({
                         <select
                           value={newCustomItemSub}
                           onChange={(e) => setNewCustomItemSub(e.target.value)}
-                          className="w-full px-3 py-2 text-xs rounded-xl bg-background border border-border focus:ring-2 focus:ring-violet-500 text-foreground cursor-pointer"
+                          className="w-full px-3 py-2 text-xs rounded-xl bg-background border border-border focus:ring-2 focus:ring-violet-500 text-foreground cursor-pointer [color-scheme:light] dark:[color-scheme:dark]"
                         >
-                          <option value="">-- General / Sin subcat. --</option>
+                          <option value="" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">-- General / Sin subcat. --</option>
                           {(categories.find((c) => c.id === newCustomItemCat)?.subcategories || []).map((s) => (
-                            <option key={s} value={s}>{cleanSubcategoryName(s)}</option>
+                            <option key={s} value={s} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">{cleanSubcategoryName(s)}</option>
                           ))}
                         </select>
                       </div>
@@ -3105,10 +3105,10 @@ function ActivityAppsRankingComponent({
                           const found = categories.find((c) => c.id === nextCat);
                           setManageTargetSub(found?.subcategories?.[0] || "");
                         }}
-                        className="w-full px-3 py-2 rounded-xl bg-background border border-border/70 text-foreground text-xs focus:outline-none focus:border-violet-500 cursor-pointer"
+                        className="w-full px-3 py-2 rounded-xl bg-background border border-border/70 text-foreground text-xs focus:outline-none focus:border-violet-500 cursor-pointer [color-scheme:light] dark:[color-scheme:dark]"
                       >
                         {categories.map((c) => (
-                          <option key={c.id} value={c.id}>
+                          <option key={c.id} value={c.id} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">
                             {c.label}
                           </option>
                         ))}
@@ -3133,10 +3133,10 @@ function ActivityAppsRankingComponent({
                           <select
                             value={manageTargetSub}
                             onChange={(e) => setManageTargetSub(e.target.value)}
-                            className="w-full px-3 py-2 rounded-xl bg-background border border-border/70 text-foreground text-xs focus:outline-none focus:border-violet-500 cursor-pointer"
+                            className="w-full px-3 py-2 rounded-xl bg-background border border-border/70 text-foreground text-xs focus:outline-none focus:border-violet-500 cursor-pointer [color-scheme:light] dark:[color-scheme:dark]"
                           >
                             {subs.map((s) => (
-                              <option key={s} value={s}>
+                              <option key={s} value={s} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">
                                 {s}
                               </option>
                             ))}

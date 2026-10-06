@@ -76,6 +76,8 @@ export interface DetectedAbsenceGap {
 export interface UnifiedDayMetrics {
   totalDayMs: number;
   totalDayTime: string;
+  totalWorkdayMs: number;
+  totalWorkdayTime: string;
   firstLoginTime: string | null;
   lastLogoutTime: string | null;
   productivityScore: number;
@@ -646,7 +648,7 @@ export function computeUnifiedActivityMetrics(
   const TOLERANCE_GAP_MS = toleranceMin * 60 * 1000;
 
   // 1. Filtrar y ordenar cronológicamente
-  const sorted = [...timeline]
+  const rawSorted = [...timeline]
     .filter((t) => {
       if (!t.created_at || isNaN(new Date(t.created_at).getTime())) return false;
       const act = (t.action || "").toLowerCase();
@@ -664,6 +666,31 @@ export function computeUnifiedActivityMetrics(
       return true;
     })
     .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+  // 1.1 Deduplicar eventos de finalización manual repetidos por doble clic o sincronización concurrente
+  const sorted: typeof rawSorted = [];
+  for (let i = 0; i < rawSorted.length; i++) {
+    const cur = rawSorted[i];
+    const curAct = (cur.action || "").toLowerCase();
+    const isCurEnd = (curAct.startsWith("terminó:") || curAct.startsWith("termino:")) && (cur.metadata?.manual || cur.metadata?.task);
+    if (isCurEnd) {
+      const curTask = (cur.metadata?.task || cur.action.replace(/^termin[oó]:\s*/i, "").split("(")[0]).toLowerCase().trim();
+      const curTime = new Date(cur.created_at).getTime();
+      const prevAccepted = sorted[sorted.length - 1];
+      if (prevAccepted) {
+        const prevAct = (prevAccepted.action || "").toLowerCase();
+        const isPrevEnd = (prevAct.startsWith("terminó:") || prevAct.startsWith("termino:")) && (prevAccepted.metadata?.manual || prevAccepted.metadata?.task);
+        if (isPrevEnd) {
+          const prevTask = (prevAccepted.metadata?.task || prevAccepted.action.replace(/^termin[oó]:\s*/i, "").split("(")[0]).toLowerCase().trim();
+          const prevTime = new Date(prevAccepted.created_at).getTime();
+          if (curTask === prevTask && Math.abs(curTime - prevTime) < 120_000) {
+            continue; // Descartar evento duplicado espurio
+          }
+        }
+      }
+    }
+    sorted.push(cur);
+  }
 
   if (options.useMixedSchedule && options.daySchedules && sorted.length > 0) {
     const firstCRDate = new Date(new Date(sorted[0].created_at!).toLocaleString("en-US", { timeZone: "America/Costa_Rica" }));
@@ -683,6 +710,8 @@ export function computeUnifiedActivityMetrics(
     return {
       totalDayMs: 0,
       totalDayTime: "0s",
+      totalWorkdayMs: 0,
+      totalWorkdayTime: "0s",
       firstLoginTime: null,
       lastLogoutTime: null,
       productivityScore: 100,
@@ -707,7 +736,18 @@ export function computeUnifiedActivityMetrics(
   }
 
   const firstLoginTime = formatTimeCR(sorted[0].created_at);
-  const lastLogoutTime = formatTimeCR(sorted[sorted.length - 1].created_at);
+  const lastEvent = sorted[sorted.length - 1];
+  const lastAct = (lastEvent.action || "").toLowerCase();
+  const lastMeta = (lastEvent.metadata || {}) as Record<string, any>;
+  const isLastManualActive = (lastAct.startsWith("inició:") || lastAct.startsWith("inicio:")) && (lastMeta.manual || lastMeta.task);
+
+  const crDateStrDay = new Date(sorted[0].created_at).toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
+  const nowCostaRicaStrDay = new Date().toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
+  const isTodayDay = crDateStrDay === nowCostaRicaStrDay;
+
+  const lastLogoutTime = (isTodayDay && isLastManualActive)
+    ? formatTimeCR(new Date().toISOString())
+    : formatTimeCR(lastEvent.created_at);
 
   // Pre-escaneo de intervalos de labores manuales, descansos y justificaciones legítimas
   interface ActiveInterval {
@@ -731,6 +771,7 @@ export function computeUnifiedActivityMetrics(
     if (isStart) {
       const taskLabel = meta.task || it.action.replace(/^inici[oó]:\s*/i, "").trim();
       let foundEndMs = 0;
+      let explicitDurMs = 0;
       for (let j = i + 1; j < sorted.length; j++) {
         const nextIt = sorted[j];
         const nextAct = (nextIt.action || "").toLowerCase();
@@ -740,16 +781,31 @@ export function computeUnifiedActivityMetrics(
           (nextMeta.task === taskLabel || nextAct.includes(taskLabel.toLowerCase()))
         ) {
           foundEndMs = new Date(nextIt.created_at).getTime();
+          explicitDurMs = Number(nextIt.duration_ms || (nextMeta.duration_seconds ? nextMeta.duration_seconds * 1000 : 0));
           break;
         }
       }
       if (foundEndMs > tMs) {
+        const actualEndMs = explicitDurMs > 0 ? Math.min(foundEndMs, tMs + explicitDurMs) : foundEndMs;
         manualIntervals.push({
           startMs: tMs,
-          endMs: foundEndMs,
+          endMs: actualEndMs,
           category: it.category || "Descansos",
           label: taskLabel,
         });
+      } else {
+        // Tarea manual en curso (sin evento de finalización aún)
+        const nowMs = Date.now();
+        const elapsedSinceStart = nowMs - tMs;
+        if (elapsedSinceStart > 0 && elapsedSinceStart < 8 * 3600 * 1000) {
+          const ongoingEndMs = Math.min(nowMs, tMs + 4 * 3600 * 1000);
+          manualIntervals.push({
+            startMs: tMs,
+            endMs: ongoingEndMs,
+            category: it.category || "Control Administrativo",
+            label: taskLabel,
+          });
+        }
       }
     } else if (isEnd) {
       const durSec = Number(meta.duration_seconds || (meta.duration_ms ? meta.duration_ms / 1000 : 0));
@@ -928,6 +984,48 @@ export function computeUnifiedActivityMetrics(
     currentIdleBlock = null;
   };
 
+  const recordSoftwareTime = (name: string, dur: number, cat: string) => {
+    const l = (name || "").toLowerCase().trim();
+    if (
+      l.length < 2 ||
+      isCategoryName(l) ||
+      l === "login" ||
+      l.startsWith("login ") ||
+      l.endsWith(" login") ||
+      l === "iniciar sesión" ||
+      l === "iniciar sesion" ||
+      l.startsWith("iniciar sesi") ||
+      l === "sign in" ||
+      l.startsWith("sign in") ||
+      l === "auth" ||
+      l.startsWith("auth") ||
+      l === "acceso" ||
+      l === "nueva pestaña" ||
+      l === "new tab" ||
+      l.includes("pickerhost") ||
+      l.includes("file picker") ||
+      l.includes("seleccionar carpeta") ||
+      l.includes("inactiv") ||
+      l.includes("pausa") ||
+      l.includes("descanso") ||
+      l.includes("almuerzo") ||
+      l.includes("merienda") ||
+      l.includes("sanitaria") ||
+      l.includes("baño") ||
+      l.includes("bano") ||
+      l.startsWith("navegador:") ||
+      l.startsWith("navegador web:") ||
+      l.startsWith("mi bandeja") ||
+      l === "explorer" ||
+      l.includes("mystify")
+    ) {
+      return;
+    }
+    if (!softTimes[name]) softTimes[name] = { durationMs: 0, count: 0, category: cat };
+    softTimes[name].durationMs += dur;
+    softTimes[name].count++;
+  };
+
   // Bucle cronológico continuo
   for (let i = 0; i < sorted.length; i++) {
     const it = sorted[i];
@@ -950,11 +1048,28 @@ export function computeUnifiedActivityMetrics(
           act.startsWith("justificacion manual")
       );
       if (!isJustification) {
+        const isManualStart = (act.startsWith("inició:") || act.startsWith("inicio:")) && (meta.manual || meta.task);
         const isManualEnd = (act.startsWith("terminó:") || act.startsWith("termino:")) && (meta.manual || meta.task);
-        const dur = (isManualEnd || it.duration_ms) ? Number(it.duration_ms) : 60000;
+
+        let dur = 60000;
+        if (isManualStart) {
+          const nowMs = Date.now();
+          const elapsed = nowMs - currTime;
+          dur = (elapsed > 0 && elapsed < 8 * 3600 * 1000) ? Math.min(elapsed, 4 * 3600 * 1000) : 60000;
+        } else if (isManualEnd || it.duration_ms) {
+          dur = Number(it.duration_ms);
+        }
+
         const itemName = extractCleanItemName(it, options.appMappings);
         const opCategory = assignToOperationalCategory(itemName, it.action, it.category, meta, options.appMappings);
         opTimes[opCategory] = (opTimes[opCategory] || 0) + dur;
+        recordSoftwareTime(itemName, dur, opCategory);
+        const crHour =
+          parseInt(
+            new Date(currTime).toLocaleString("en-US", { timeZone: "America/Costa_Rica", hour: "numeric", hour12: false }),
+            10
+          ) % 24;
+        if (hourlyTrend[crHour] !== undefined) hourlyTrend[crHour] += dur;
       }
       break;
     }
@@ -1002,51 +1117,27 @@ export function computeUnifiedActivityMetrics(
       flushIdleBlock();
     }
 
-    const recordSoftwareTime = (name: string, dur: number, cat: string) => {
-      const l = (name || "").toLowerCase().trim();
-      if (
-        l.length < 2 ||
-        isCategoryName(l) ||
-        l === "login" ||
-        l.startsWith("login ") ||
-        l.endsWith(" login") ||
-        l === "iniciar sesión" ||
-        l === "iniciar sesion" ||
-        l.startsWith("iniciar sesi") ||
-        l === "sign in" ||
-        l.startsWith("sign in") ||
-        l === "auth" ||
-        l.startsWith("auth") ||
-        l === "acceso" ||
-        l === "nueva pestaña" ||
-        l === "new tab" ||
-        l.includes("pickerhost") ||
-        l.includes("file picker") ||
-        l.includes("seleccionar carpeta") ||
-        l.includes("inactiv") ||
-        l.includes("pausa") ||
-        l.includes("descanso") ||
-        l.includes("almuerzo") ||
-        l.includes("merienda") ||
-        l.includes("sanitaria") ||
-        l.includes("baño") ||
-        l.includes("bano") ||
-        l.startsWith("navegador:") ||
-        l.startsWith("navegador web:") ||
-        l.startsWith("mi bandeja") ||
-        l === "explorer" ||
-        l.includes("mystify")
-      ) {
-        return;
-      }
-      if (!softTimes[name]) softTimes[name] = { durationMs: 0, count: 0, category: cat };
-      softTimes[name].durationMs += dur;
-      softTimes[name].count++;
-    };
-
     // Caso A: Tarea manual iniciada
     if (isManualStart) {
-      const dur = Math.min(rawGap, 4 * 3600 * 1000);
+      let manualDuration = rawGap;
+      const taskLabel = (meta.task || it.action.replace(/^inici[oó]:\s*/i, "").trim()).toLowerCase();
+      for (let j = i + 1; j < sorted.length; j++) {
+        const nextIt = sorted[j];
+        const nextAct = (nextIt.action || "").toLowerCase();
+        const nextMeta = (nextIt.metadata || {}) as Record<string, any>;
+        if (
+          (nextAct.startsWith("terminó:") || nextAct.startsWith("termino:")) &&
+          (nextMeta.task?.toLowerCase() === taskLabel || nextAct.includes(taskLabel))
+        ) {
+          const explicitMs = Number(nextIt.duration_ms || (nextMeta.duration_seconds ? nextMeta.duration_seconds * 1000 : 0));
+          if (explicitMs > 0) {
+            manualDuration = Math.min(rawGap, explicitMs);
+          }
+          break;
+        }
+      }
+
+      const dur = Math.min(manualDuration, 4 * 3600 * 1000);
       opTimes[opCategory] = (opTimes[opCategory] || 0) + dur;
       recordSoftwareTime(itemName, dur, opCategory);
       const crHour =
@@ -1364,32 +1455,67 @@ export function computeUnifiedActivityMetrics(
     (opTimes["On-the-Job Training (OJT)"] || 0) +
     (opTimes["Utilidades"] || 0);
 
-  // INVARIANTE FÍSICA INQUEBRANTABLE (SOLO PARA TRABAJO EN SOFTWARE / PC):
-  // Ningún colaborador puede acumular más tiempo productivo en software/PC que el tiempo real de reloj transcurrido
-  // entre su primer evento del día y el último evento registrado (con margen de 1 min).
+  const breakMs = opTimes["Descansos"] || 0;
+  const sanitaryMs = opTimes["Pausa Sanitaria"] || 0;
+
+  // INVARIANTE FÍSICA INQUEBRANTABLE (CONSERVACIÓN DEL TIEMPO EN PC):
+  // El tiempo de trabajo en software/PC no puede solaparse con lagunas de inactividad ni descansos dentro del reloj real.
+  // Dentro del lapso transcurrido entre el primer y último evento, la suma de:
+  // pcProductiveMs + descansos + pausas sanitarias + inactividad interna (excluyendo tardanza previa al inicio de turno)
+  // no puede exceder el tiempo real de reloj transcurrido (con margen de 1 min).
   // La Justificación Manual representa labores fuera de PC o ausencias justificadas y NUNCA se escala por eventos de PC.
   let pcProductiveMs = rawPcProductiveMs;
   if (sorted.length > 0) {
     const firstEventMs = new Date(sorted[0].created_at).getTime();
-    const lastEventMs = new Date(sorted[sorted.length - 1].created_at).getTime();
-    const maxElapsedWallClockMs = Math.max(60000, (lastEventMs - firstEventMs) + 60000);
+    const lastEventRawMs = new Date(sorted[sorted.length - 1].created_at).getTime();
 
-    if (pcProductiveMs > maxElapsedWallClockMs) {
-      const scale = maxElapsedWallClockMs / pcProductiveMs;
+    const crDateStr = new Date(firstEventMs).toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
+    const nowCostaRicaStr = new Date().toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
+    const isToday = crDateStr === nowCostaRicaStr;
+
+    let effectiveLastEventMs = lastEventRawMs;
+    if (isToday) {
+      const nowMs = Date.now();
+      effectiveLastEventMs = Math.max(lastEventRawMs, nowMs);
+      const currDay = new Date(new Date(lastEventRawMs).toLocaleString("en-US", { timeZone: "America/Costa_Rica" })).getDay();
+      let sEnd = options.scheduleEnd;
+      if (options.useMixedSchedule && options.daySchedules && options.daySchedules[currDay]?.end) {
+        sEnd = options.daySchedules[currDay].end;
+      }
+      if (sEnd) {
+        const schedEndMs = new Date(`${crDateStr}T${sEnd.padStart(5, "0")}:00-06:00`).getTime();
+        if (!isNaN(schedEndMs) && nowMs > schedEndMs) {
+          effectiveLastEventMs = Math.min(effectiveLastEventMs, schedEndMs);
+        }
+      }
+    }
+
+    const maxElapsedWallClockMs = Math.max(60000, (effectiveLastEventMs - firstEventMs) + 60000);
+
+    const tardinessGap = (detectedGaps || []).find((g: any) => g.id === "gap-inicio-tardio");
+    const tardinessMs = tardinessGap ? (tardinessGap.durationMs || 0) : 0;
+    const internalIdleMs = Math.max(0, idleTotalMs - tardinessMs);
+    const nonPcShiftMs = internalIdleMs + breakMs + sanitaryMs;
+    const maxPcWorkPossible = Math.max(0, maxElapsedWallClockMs - nonPcShiftMs);
+
+    if (pcProductiveMs > maxPcWorkPossible) {
+      const scale = maxPcWorkPossible > 0 ? (maxPcWorkPossible / pcProductiveMs) : 0;
       OFFICIAL_OPERATIONAL_CATEGORIES.forEach((c) => {
-        if (c.id !== "Justificación Manual" && opTimes[c.id]) {
+        if (
+          c.id !== "Justificación Manual" &&
+          c.id !== "Descansos" &&
+          c.id !== "Pausa Sanitaria" &&
+          opTimes[c.id]
+        ) {
           opTimes[c.id] = Math.round(opTimes[c.id] * scale);
         }
       });
-      pcProductiveMs = maxElapsedWallClockMs;
+      pcProductiveMs = maxPcWorkPossible;
     }
   }
 
   const manualJustificationMs = opTimes["Justificación Manual"] || 0;
   const productiveMs = pcProductiveMs + manualJustificationMs;
-
-  const breakMs = opTimes["Descansos"] || 0;
-  const sanitaryMs = opTimes["Pausa Sanitaria"] || 0;
 
   const totalDayMs = Math.max(1, productiveMs + idleTotalMs + breakMs + sanitaryMs);
 
@@ -1453,13 +1579,32 @@ export function computeUnifiedActivityMetrics(
 
   const productivityScore = Math.min(100, Math.max(0, Math.round((productiveMs / (productiveMs + idleTotalMs || 1)) * 100)));
   const targetMs = targetDailyHours * 3600 * 1000;
-  const compliancePercent = Math.min(100, Math.round((productiveMs / (targetMs || 1)) * 100));
+  const firstEventMs = sorted.length > 0 ? new Date(sorted[0].created_at).getTime() : 0;
+  const lastEventRawMs = sorted.length > 0 ? new Date(sorted[sorted.length - 1].created_at).getTime() : 0;
+  const crDateStrDayCalc = sorted.length > 0 ? new Date(firstEventMs).toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" }) : "";
+  const nowCostaRicaStrDayCalc = new Date().toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
+  const isTodayDayCalc = crDateStrDayCalc === nowCostaRicaStrDayCalc;
+
+  let elapsedWorkdayMs = 0;
+  if (firstEventMs > 0) {
+    if (isTodayDayCalc) {
+      elapsedWorkdayMs = Math.max(0, Date.now() - firstEventMs);
+    } else {
+      elapsedWorkdayMs = Math.max(0, lastEventRawMs - firstEventMs);
+    }
+  }
+
+  // La jornada laboral oficial comprende el tiempo de permanencia transcurrido desde la entrada
+  const totalWorkdayMs = Math.max(elapsedWorkdayMs, productiveMs + breakMs + sanitaryMs);
+  const compliancePercent = Math.min(100, Math.round((totalWorkdayMs / (targetMs || 1)) * 100));
 
   const pcWorkMs = Math.max(0, productiveMs - manualJustificationMs);
 
   return {
     totalDayMs,
     totalDayTime: formatDurationMs(totalDayMs),
+    totalWorkdayMs,
+    totalWorkdayTime: formatDurationMs(totalWorkdayMs),
     firstLoginTime,
     lastLogoutTime,
     productivityScore,

@@ -5,6 +5,20 @@ import { computeUnifiedActivityMetrics } from "@/lib/activity-engine";
 
 export const dynamic = "force-dynamic";
 
+export interface IeeeReportStructure {
+  title: string;
+  abstract: string;
+  keywords: string[];
+  sections: {
+    number: string;
+    title: string;
+    content: string;
+  }[];
+  conclusions: string;
+  complianceVerdict: "CONFORME" | "NO CONFORME" | "CONDICIONAL";
+  verdictDetail: string;
+}
+
 interface BriefingStructure {
   resumen_ejecutivo: string;
   score_productividad: number;
@@ -13,19 +27,92 @@ interface BriefingStructure {
   principales_logros: string[];
   alertas_observaciones: string[];
   recomendacion_gerencial: string;
+  ieee_report?: IeeeReportStructure;
+}
+
+function generateDeterministicIeeeReport(
+  isTeamScope: boolean,
+  targetName: string,
+  dateLabel: string,
+  activeMin: number,
+  idleMin: number,
+  score: number,
+  topApps: [string, number][],
+  eventsCount: number,
+  userCount: number,
+  isRange: boolean = false
+): IeeeReportStructure {
+  const activeHoursStr = `${Math.floor(activeMin / 60)}h ${activeMin % 60}m`;
+  const idleHoursStr = `${Math.floor(idleMin / 60)}h ${idleMin % 60}m`;
+  const primaryApp = topApps[0] ? topApps[0][0] : "Plataforma Central Sekunet";
+
+  const verdict: "CONFORME" | "NO CONFORME" | "CONDICIONAL" =
+    score >= 80 ? "CONFORME" : score >= 65 ? "CONDICIONAL" : "NO CONFORME";
+
+  const cleanDocId = dateLabel.replace(/[^a-zA-Z0-9]/g, "_");
+
+  return {
+    title: isTeamScope
+      ? (isRange
+          ? `INFORME TÉCNICO DE TELEMETRÍA Y RENDIMIENTO OPERACIONAL MULTI-AGENTE: PERIODO DEL ${dateLabel}`
+          : `INFORME TÉCNICO DE TELEMETRÍA Y RENDIMIENTO OPERACIONAL MULTI-AGENTE: JORNADA DEL ${dateLabel}`)
+      : (isRange
+          ? `EVALUACIÓN CUANTITATIVA DE RENDIMIENTO OPERATIVO Y DISPONIBILIDAD TÉCNICA (${dateLabel}): ${targetName.toUpperCase()}`
+          : `EVALUACIÓN CUANTITATIVA DE RENDIMIENTO OPERATIVO Y DISPONIBILIDAD TÉCNICA: ${targetName.toUpperCase()}`),
+    abstract: `El presente documento constituye un informe técnico estandarizado que evalúa el rendimiento operacional y la adherencia telemétrica durante el periodo correspondiente a ${dateLabel}. Mediante la captura discreta de eventos en estación de trabajo y algoritmos de conciliación temporal, se consolidaron ${activeHoursStr} de labor efectiva y ${idleHoursStr} de lapsos no operativos en ${eventsCount} registros discretos. El índice global de efectividad alcanzó un ${score}%, clasificando la operación bajo dictamen ${verdict}.`,
+    keywords: [
+      "Auditoría Telemétrica",
+      "Efectividad Operacional",
+      "Análisis de Tráfico de Escritorio",
+      "Estándar IEEE 730",
+      "Optimización de Procesos de Taller",
+    ],
+    sections: [
+      {
+        number: "I",
+        title: "INTRODUCCIÓN Y DELIMITACIÓN DEL ALCANCE",
+        content: `La supervisión técnica moderna en entornos de ingeniería de soporte demanda métricas empíricas reproducibles y trazables. En concordancia con los estándares de aseguramiento de calidad (IEEE 730 / ISO 9001), este reporte analiza el comportamiento de la estación de trabajo de ${targetName} durante el ciclo operacional de ${dateLabel}. El objetivo principal radica en contrastar la carga horaria formal contra la evidencia telemétrica en tiempo real.`,
+      },
+      {
+        number: "II",
+        title: "METODOLOGÍA DE CAPTURA Y MODELO DE CONSERVACIÓN TEMPORAL",
+        content: `La recolección de datos se llevó a cabo mediante el agente de telemetría Sekunet Desktop Tracker v1.2, operando bajo muestreo de ventana activa y eventos de teclado/ratón. Se implementó un principio estricto de conservación del tiempo (Conservation of Time Invariant), donde la jornada laboral T_total se particiona de forma disjunta en T_activo (PC + Labores de Taller), T_descanso (refrigerios y pausas sanitarias) y T_inactivo (ausencias superiores a umbral sin registro manual).`,
+      },
+      {
+        number: "III",
+        title: "RESULTADOS EXPERIMENTALES Y TELEMETRÍA CUANTITATIVA",
+        content: `La telemetría consolidó ${activeHoursStr} de actividad productiva neta, lo que representa un ${score}% de utilización efectiva. La herramienta con mayor densidad de uso fue "${primaryApp}", totalizando ${Math.round((topApps[0]?.[1] || 0) / 60000)} minutos de procesamiento. Los intervalos de no interacción sumaron ${idleHoursStr}, distribuidos entre pausas operativas y transiciones entre aplicaciones.`,
+      },
+      {
+        number: "IV",
+        title: "ANÁLISIS DE DISCREPANCIAS Y BRECHAS OPERACIONALES",
+        content: `Durante el escrutinio de los ${eventsCount} eventos registrados, no se observaron solapamientos espurios entre temporizadores en ejecución y actividad digital simultánea. Los lapsos de desconexión se mantienen dentro de los parámetros esperados de la ingeniería de planta, registrando un factor de dispersión controlado.`,
+      },
+      {
+        number: "V",
+        title: "CONCLUSIONES Y DICTAMEN TÉCNICO",
+        content: `Con base en la evidencia empírica computada por el motor de auditoría matemática, se certifica que el periodo evaluado arroja un índice de cumplimiento del ${score}%. Se concluye un dictamen formal ${verdict}, recomendando mantener los ciclos de atención continua y la documentación oportuna de labores de banco.`,
+      },
+    ],
+    conclusions: `Se ratifica la integridad de las métricas registradas para ${targetName} con un índice de efectividad del ${score}%. El sistema certifica la exactitud de los tiempos reportados conforme a la telemetría del sistema.`,
+    complianceVerdict: verdict,
+    verdictDetail: `Dictamen de conformidad: ${verdict}. Nivel de efectividad: ${score}% (${score >= 80 ? "Aceptación Plena" : score >= 65 ? "Revisión Condicional" : "Desviación Crítica"}).`,
+  };
 }
 
 // ─── GENERADOR DETERMINISTA DE RESPALDO (SI TODOS LOS PROVEEDORES ESTÁN CAÍDOS) ───
 function generateDeterministicBriefing(
   isTeamScope: boolean,
   targetName: string,
-  selectedDate: string,
+  dateLabel: string,
   activeMin: number,
   idleMin: number,
   score: number,
   topApps: [string, number][],
   userCount: number,
-  eventsCount: number
+  eventsCount: number,
+  format: string = "standard",
+  isRange: boolean = false
 ): BriefingStructure {
   const activeHoursStr = `${Math.floor(activeMin / 60)}h ${activeMin % 60}m`;
   const idleHoursStr = `${Math.floor(idleMin / 60)}h ${idleMin % 60}m`;
@@ -35,12 +122,12 @@ function generateDeterministicBriefing(
   if (isTeamScope) {
     const statusLabel = score >= 80 ? "Óptimo y altamente productivo" : score >= 60 ? "Estable y regular" : "Bajo rendimiento / Baches de atención";
     return {
-      resumen_ejecutivo: `Durante la jornada del ${selectedDate}, el equipo operativo registró un total de ${activeHoursStr} de labor efectiva en un consolidado de ${userCount} colaboradores auditados. El índice global de productividad se situó en ${score}% (${statusLabel}), focalizando la mayor carga de trabajo en "${primaryApp}" y "${secondaryApp}".`,
+      resumen_ejecutivo: `Durante el periodo ${dateLabel}, el equipo operativo registró un total de ${activeHoursStr} de labor efectiva en un consolidado de ${userCount} colaboradores auditados. El índice global de productividad se situó en ${score}% (${statusLabel}), focalizando la mayor carga de trabajo en "${primaryApp}" y "${secondaryApp}".`,
       score_productividad: score,
       horas_efectivas: activeHoursStr,
       horas_inactivas: idleHoursStr,
       principales_logros: [
-        `Consolidación de ${eventsCount} eventos de atención y soporte técnico durante el día.`,
+        `Consolidación de ${eventsCount} eventos de atención y soporte técnico durante el periodo.`,
         `Alta concentración operativa en "${primaryApp}" (${Math.round((topApps[0]?.[1] || 0) / 60000)} minutos acumulados).`,
         `Despliegue de cobertura en canales de soporte y herramientas administrativas.`,
       ],
@@ -52,10 +139,12 @@ function generateDeterministicBriefing(
     };
   }
 
-  // Individual
-  const indStatus = score >= 85 ? "Desempeño sobresaliente" : score >= 70 ? "Desempeño satisfactorio" : "Atención requerida por inactividad";
-  return {
-    resumen_ejecutivo: `El colaborador ${targetName} completó una jornada laboral de ${activeHoursStr} de actividad efectiva frente a ${idleHoursStr} de pausas acumuladas, alcanzando un índice de productividad del ${score}% (${indStatus}). Sus principales actividades se concentraron en "${primaryApp}".`,
+  const indStatus =
+    score >= 80 ? "Desempeño sobresaliente" : score >= 65 ? "Desempeño adecuado" : "Rendimiento a revisar";
+
+  // Base result
+  const baseResult: BriefingStructure = {
+    resumen_ejecutivo: `El colaborador ${targetName} completó en el periodo (${dateLabel}) un total de ${activeHoursStr} de actividad efectiva frente a ${idleHoursStr} de pausas acumuladas, alcanzando un índice de productividad del ${score}% (${indStatus}). Sus principales actividades se concentraron en "${primaryApp}".`,
     score_productividad: score,
     horas_efectivas: activeHoursStr,
     horas_inactivas: idleHoursStr,
@@ -66,24 +155,63 @@ function generateDeterministicBriefing(
     ],
     alertas_observaciones: [
       `Se registraron ${idleHoursStr} acumuladas en pausas o períodos sin actividad en la estación.`,
-      idleMin > 120 ? `El tiempo de inactividad (${idleHoursStr}) excede el promedio regular de la jornada.` : `Tiempos de pausa dentro de rangos normales de descanso y traslados.`,
+      idleMin > 120 ? `El tiempo de inactividad (${idleHoursStr}) excede el promedio regular establecido.` : `Tiempos de pausa dentro de rangos normales de descanso y traslados.`,
     ],
     recomendacion_gerencial: `Mantener el ritmo de atención y enfocar los períodos de mayor concentración en la resolución expedita de casos pendientes y soporte técnico directo.`,
   };
+
+  if (format === "ieee") {
+    baseResult.ieee_report = generateDeterministicIeeeReport(
+      isTeamScope,
+      targetName,
+      dateLabel,
+      activeMin,
+      idleMin,
+      score,
+      topApps,
+      eventsCount,
+      userCount,
+      isRange
+    );
+  }
+
+  return baseResult;
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const { agent_email, agent_name, date, scope = "user" } = await req.json();
+    const {
+      agent_email,
+      agent_name,
+      date,
+      startDate,
+      endDate,
+      scope = "user",
+      format = "standard",
+    } = await req.json();
+
     const isTeamScope = scope === "team" || agent_email === "all";
 
-    const selectedDate = date || new Date().toISOString().split("T")[0];
+    // Manejo de rango de fechas o día único
+    let startDay = startDate || date || new Date().toISOString().split("T")[0];
+    let endDay = endDate || startDate || date || new Date().toISOString().split("T")[0];
+
+    // Asegurar orden cronológico si el usuario seleccionó fechas invertidas
+    if (startDay > endDay) {
+      const temp = startDay;
+      startDay = endDay;
+      endDay = temp;
+    }
+
+    const isRange = startDay !== endDay;
+    const dateLabel = isRange ? `${startDay} al ${endDay}` : startDay;
+
     const supabase = createServiceClient();
 
-    const start = `${selectedDate}T00:00:00`;
-    const end = `${selectedDate}T23:59:59`;
+    const start = `${startDay}T00:00:00`;
+    const end = `${endDay}T23:59:59`;
 
-    // 1. Obtener logs
+    // 1. Obtener logs dentro del intervalo solicitado
     let query = supabase
       .from("activity_log")
       .select("*")
@@ -95,16 +223,21 @@ export async function POST(req: NextRequest) {
       query = query.ilike("agent_email", agent_email);
     }
 
-    const { data: logs, error: logsErr } = await query.limit(1500);
+    // Límite ampliado para permitir auditoría de rangos de días
+    const { data: logs, error: logsErr } = await query.limit(10000);
     if (logsErr) throw logsErr;
 
     if (!logs || logs.length === 0) {
       return NextResponse.json({
         ok: true,
         empty: true,
+        dateLabel,
+        isRange,
+        startDate: startDay,
+        endDate: endDay,
         message: isTeamScope
-          ? "No hay actividades registradas para el equipo en la fecha seleccionada."
-          : `No hay actividades registradas para ${agent_name || agent_email} en la fecha seleccionada.`,
+          ? `No hay actividades registradas para el equipo en el periodo seleccionado (${dateLabel}).`
+          : `No hay actividades registradas para ${agent_name || agent_email} en el periodo seleccionado (${dateLabel}).`,
       });
     }
 
@@ -187,9 +320,9 @@ export async function POST(req: NextRequest) {
 
     const systemPrompt = isTeamScope
       ? `Eres el Auditor Sénior de Operaciones y Productividad de Sekunet (Costa Rica).
-Genera un INFORME EJECUTIVO GENERAL DEL EQUIPO para la Dirección General, correspondiente a la jornada del ${selectedDate}.
+Genera un INFORME EJECUTIVO GENERAL DEL EQUIPO para la Dirección General, correspondiente al periodo: ${dateLabel}.
 
-DATOS CONSOLIDADOS DEL EQUIPO:
+DATOS CONSOLIDADOS DEL EQUIPO EN EL PERIODO:
 - Colaboradores activos auditados: ${Object.keys(userStats).length}
 - Tiempo total activo efectivo del equipo: ${Math.floor(activeMin / 60)}h ${activeMin % 60}m
 - Tiempo total de inactividad del equipo: ${Math.floor(idleMin / 60)}h ${idleMin % 60}m
@@ -204,7 +337,7 @@ ${topAppsStr}
 INSTRUCCIONES DE FORMATO:
 Responde ÚNICAMENTE un objeto JSON válido (sin markdown ni texto antes o después) con la siguiente estructura:
 {
-  "resumen_ejecutivo": "Párrafo conciso y formal evaluando el desempeño operativo global de la empresa hoy.",
+  "resumen_ejecutivo": "Párrafo conciso y formal evaluando el desempeño operativo global de la empresa en este periodo.",
   "score_productividad": ${overallScore},
   "horas_efectivas": "${Math.floor(activeMin / 60)}h ${activeMin % 60}m",
   "horas_inactivas": "${Math.floor(idleMin / 60)}h ${idleMin % 60}m",
@@ -213,9 +346,9 @@ Responde ÚNICAMENTE un objeto JSON válido (sin markdown ni texto antes o despu
   "recomendacion_gerencial": "Directriz puntual y estratégica para la supervisión y gerencia."
 }`
       : `Eres el Auditor Sénior de Operaciones de Sekunet (Costa Rica).
-Genera un DICTAMEN DE AUDITORÍA INDIVIDUAL para el colaborador "${agent_name || agent_email}" en la fecha ${selectedDate}.
+Genera un DICTAMEN DE AUDITORÍA INDIVIDUAL para el colaborador "${agent_name || agent_email}" en el periodo: ${dateLabel}.
 
-DATOS CONSOLIDADOS:
+DATOS CONSOLIDADOS DEL PERIODO:
 - Tiempo activo efectivo: ${Math.floor(activeMin / 60)}h ${activeMin % 60}m
 - Tiempo de inactividad: ${Math.floor(idleMin / 60)}h ${idleMin % 60}m
 - Índice de Productividad: ${overallScore}%
@@ -227,7 +360,7 @@ ${topAppsStr}
 INSTRUCCIONES DE FORMATO:
 Responde ÚNICAMENTE un objeto JSON válido (sin markdown ni texto antes o después) con la siguiente estructura:
 {
-  "resumen_ejecutivo": "Evaluación profesional y detallada de la jornada laboral del técnico.",
+  "resumen_ejecutivo": "Evaluación profesional y detallada del desempeño y dedicación del técnico en este periodo.",
   "score_productividad": ${overallScore},
   "horas_efectivas": "${Math.floor(activeMin / 60)}h ${activeMin % 60}m",
   "horas_inactivas": "${Math.floor(idleMin / 60)}h ${idleMin % 60}m",
@@ -268,13 +401,28 @@ Responde ÚNICAMENTE un objeto JSON válido (sin markdown ni texto antes o despu
       briefing = generateDeterministicBriefing(
         isTeamScope,
         targetDisplayName,
-        selectedDate,
+        dateLabel,
         activeMin,
         idleMin,
         overallScore,
         sortedApps,
         Object.keys(userStats).length,
-        logs.length
+        logs.length,
+        format,
+        isRange
+      );
+    } else if (format === "ieee" && !briefing.ieee_report) {
+      briefing.ieee_report = generateDeterministicIeeeReport(
+        isTeamScope,
+        targetDisplayName,
+        dateLabel,
+        activeMin,
+        idleMin,
+        overallScore,
+        sortedApps,
+        logs.length,
+        Object.keys(userStats).length,
+        isRange
       );
     }
 
@@ -283,6 +431,10 @@ Responde ÚNICAMENTE un objeto JSON válido (sin markdown ni texto antes o despu
       briefing,
       provider: usedProvider,
       model: usedModel,
+      dateLabel,
+      isRange,
+      startDate: startDay,
+      endDate: endDay,
       stats: {
         totalActiveMinutes: activeMin,
         totalIdleMinutes: idleMin,

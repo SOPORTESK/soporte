@@ -234,29 +234,35 @@ export async function saveAgentSchedule(
 }
 
 export async function getOvertimeRequests(date?: string, agentEmail?: string): Promise<OvertimeRequest[]> {
-  const supabase = getClient();
-  try {
-    const { data, error } = await supabase
-      .from("sek_app_settings")
-      .select("value")
-      .eq("key", OVERTIME_SETTING_KEY)
-      .maybeSingle();
+  const cacheKey = "app_overtime_all";
+  let list = cacheGetFresh(cacheKey, 15000);
+  if (!list) {
+    const supabase = getClient();
+    try {
+      const { data, error } = await supabase
+        .from("sek_app_settings")
+        .select("value")
+        .eq("key", OVERTIME_SETTING_KEY)
+        .maybeSingle();
 
-    if (!error && data?.value) {
-      let list: OvertimeRequest[] = JSON.parse(data.value);
-      if (!Array.isArray(list)) list = [];
-      if (date) {
-        list = list.filter((r) => r.date === date);
+      if (!error && data?.value) {
+        list = JSON.parse(data.value);
+        if (!Array.isArray(list)) list = [];
+        cacheSet(cacheKey, list);
       }
-      if (agentEmail) {
-        list = list.filter((r) => r.agent_email.toLowerCase() === agentEmail.toLowerCase());
-      }
-      return list;
+    } catch (err) {
+      console.error("[getOvertimeRequests] error:", err);
     }
-  } catch (err) {
-    console.error("[getOvertimeRequests] error:", err);
   }
-  return [];
+  if (!Array.isArray(list)) return [];
+  let filtered = list;
+  if (date) {
+    filtered = filtered.filter((r) => r.date === date);
+  }
+  if (agentEmail) {
+    filtered = filtered.filter((r) => r.agent_email.toLowerCase() === agentEmail.toLowerCase());
+  }
+  return filtered;
 }
 
 export async function requestOvertime(params: {
@@ -374,7 +380,22 @@ export async function hasActiveManualTask(agentEmail: string): Promise<boolean> 
   return false;
 }
 
+const recentInsertsCache = new Map<string, number>();
+
 export async function insertActivityLog(entry: ActivityLog): Promise<void> {
+  const dedupKey = `${entry.agent_email}|${entry.action}|${entry.created_at || ""}`;
+  const now = Date.now();
+  const lastInsert = recentInsertsCache.get(dedupKey);
+  if (lastInsert && (now - lastInsert < 15000)) {
+    // Duplicado idéntico en menos de 15s (reintento de red o doble evento), omitir silenciosamente
+    return;
+  }
+  recentInsertsCache.set(dedupKey, now);
+  if (recentInsertsCache.size > 2000) {
+    const oldest = recentInsertsCache.keys().next().value;
+    if (oldest) recentInsertsCache.delete(oldest);
+  }
+
   const supabase = getClient();
   const insertPayload: any = {
     agent_email: entry.agent_email,
@@ -452,6 +473,8 @@ export async function getActivitySummaries(
 }
 
 export async function getAppMappings(): Promise<Record<string, any>> {
+  const cached = cacheGetFresh("app_activity_categories", 60000);
+  if (cached) return cached;
   try {
     const supabase = createServiceClient();
     const { data } = await supabase
@@ -460,7 +483,9 @@ export async function getAppMappings(): Promise<Record<string, any>> {
       .eq("key", "activity_app_categories")
       .maybeSingle();
     if (data?.value) {
-      return typeof data.value === "string" ? JSON.parse(data.value) : data.value;
+      const res = typeof data.value === "string" ? JSON.parse(data.value) : data.value;
+      cacheSet("app_activity_categories", res);
+      return res;
     }
   } catch (err) {
     console.error("[activity-db] Error getting app mappings:", err);
@@ -512,9 +537,13 @@ export async function getActivityMetrics(agentEmail: string, date: string, exist
   const overtimeRequests = await getOvertimeRequests(date, agentEmail);
   const otReq = overtimeRequests[0] || null;
   const isOvertimeApproved = otReq?.status === "approved";
-  const rawOvertimeMs = Math.max(0, productiveMs - targetMs);
-  const deficitMs = Math.max(0, targetMs - productiveMs);
+
+  // La jornada laboral oficial comprende el tiempo de permanencia transcurrido desde la entrada
+  const totalWorkdayMs = computed.totalWorkdayMs || (productiveMs + breakMs + sanitaryMs);
+  const rawOvertimeMs = Math.max(0, totalWorkdayMs - targetMs);
+  const deficitMs = Math.max(0, targetMs - totalWorkdayMs);
   const activeDisplayMs = (rawOvertimeMs > 0 && !isOvertimeApproved) ? targetMs : productiveMs;
+  const workdayDisplayMs = (rawOvertimeMs > 0 && !isOvertimeApproved) ? targetMs : totalWorkdayMs;
 
   const categoryTimeMs: Record<string, number> = {};
   computed.operationalBuckets.forEach((b) => {
@@ -524,6 +553,9 @@ export async function getActivityMetrics(agentEmail: string, date: string, exist
   return {
     totalActiveMs: activeDisplayMs,
     rawActiveMs: productiveMs,
+    totalWorkdayMs: workdayDisplayMs,
+    rawWorkdayMs: totalWorkdayMs,
+    totalWorkdayTime: formatDuration(workdayDisplayMs),
     targetDailyHours,
     deficitMs,
     rawOvertimeMs,

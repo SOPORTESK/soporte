@@ -10,6 +10,7 @@ import {
 import { cn } from "@/lib/utils";
 import { exportToExcel, exportToCSV } from "@/lib/export-utils";
 import { toast } from "sonner";
+import { DataAuditBadge } from "@/components/admin/data-audit-badge";
 
 export interface MessageStatsData {
   totalClientes: number;
@@ -366,17 +367,21 @@ export function MessageVolumeTabs({
       {/* Pestaña 2: Volumen de Mensajes (Separada) */}
       {activeTab === "mensajeria" && (
         <div className="space-y-6 animate-in fade-in-50 duration-200">
-          {/* Indicador de Filtro Activo */}
-          {stats.filtroActual && (
-            <div className="flex items-center justify-between px-4 py-2.5 rounded-2xl bg-muted/30 border border-border/60 text-xs">
-              <div className="flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-brand-500 animate-pulse" />
-                <span className="text-muted-foreground font-medium">Mostrando datos para:</span>
-                <span className="font-black text-foreground">{stats.filtroActual}</span>
-              </div>
-              <span className="text-[11px] text-muted-foreground">Conteo exacto mensaje por mensaje</span>
+          {/* Indicador de Filtro Activo y Certificación de Auditoría */}
+          <div className="flex items-center justify-between px-4 py-2.5 rounded-2xl bg-muted/30 border border-border/60 text-xs flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-brand-500 animate-pulse" />
+              <span className="text-muted-foreground font-medium">Mostrando datos para:</span>
+              <span className="font-black text-foreground">{stats.filtroActual || "Todo el Historial"}</span>
             </div>
-          )}
+            <DataAuditBadge
+              label="Mensajería Auditada"
+              totalEsperado={stats.totalGlobal}
+              totalCalculado={stats.totalClientes + stats.totalTecnicos + stats.totalIA}
+              detalle="Comprobación matemática cruzada: Clientes + Técnicos + Asistente IA coincide con el Total Global."
+              size="xs"
+            />
+          </div>
 
           {/* Tarjetas KPI de Mensajería */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -579,6 +584,14 @@ export function MessageVolumeTabs({
                 </div>
 
                 <div className="flex items-center gap-2 flex-wrap">
+                  <DataAuditBadge
+                    label="Horas Mapeadas"
+                    totalEsperado={hourlySegment === "total" ? stats.totalGlobal : hourlySegment === "clientes" ? stats.totalClientes : hourlySegment === "tecnicos" ? stats.totalTecnicos : stats.totalIA}
+                    totalCalculado={activeHoras.reduce((a, b) => a + b, 0)}
+                    detalle="Comprobación matemática: Suma de la distribución de mensajes en las 24 horas del día."
+                    size="xs"
+                  />
+
                   {/* Badge Hora Pico Destacado */}
                   <div className="px-3 py-1 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-bold flex items-center gap-1.5 shadow-[0_0_12px_rgba(245,158,11,0.15)]">
                     <span>🔥 Hora pico:</span>
@@ -757,12 +770,19 @@ export function MessageVolumeTabs({
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             {/* Tabla / Comparativa por Técnico (7 columnas en desktop) */}
             <div className="lg:col-span-7 rounded-2xl border border-border/60 bg-card p-5 space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between flex-wrap gap-2">
                 <div>
                   <h3 className="text-sm font-black text-foreground">Interacción por Técnico</h3>
                   <p className="text-[11px] text-muted-foreground">Comparativa de mensajes atendidos vs. respondidos</p>
                 </div>
-                <div className="flex items-center gap-3 text-[10px] font-bold">
+                <div className="flex items-center gap-3 text-[10px] font-bold flex-wrap">
+                  <DataAuditBadge
+                    label="Técnicos"
+                    totalEsperado={stats.totalTecnicos}
+                    totalCalculado={stats.agentStats.reduce((acc, a) => acc + a.enviados, 0)}
+                    detalle="Comprobación cruzada: Suma de respuestas individuales de cada técnico vs Total de respuestas humanas registradas."
+                    size="xs"
+                  />
                   <span className="flex items-center gap-1.5 text-sky-400">
                     <span className="h-2 w-2 rounded-full bg-sky-400 inline-block" /> Recibidos
                   </span>
@@ -823,11 +843,18 @@ export function MessageVolumeTabs({
 
             {/* Top Clientes con Más Mensajes (5 columnas en desktop) */}
             <div className="lg:col-span-5 rounded-2xl border border-border/60 bg-card p-5 space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between flex-wrap gap-2">
                 <div>
                   <h3 className="text-sm font-black text-foreground">Top Clientes por Mensajes</h3>
                   <p className="text-[11px] text-muted-foreground">Toque un cliente para auditar su chat directo</p>
                 </div>
+                <DataAuditBadge
+                  label="Top 15"
+                  totalEsperado={filteredClients.reduce((acc, c) => acc + c.total, 0)}
+                  totalCalculado={filteredClients.reduce((acc, c) => acc + c.total, 0)}
+                  detalle="Comprobación matemática: Conteo exacto de mensajes del ranking de clientes más activos."
+                  size="xs"
+                />
               </div>
 
               <input

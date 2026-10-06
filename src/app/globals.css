@@ -50,6 +50,7 @@
     --success: 173 80% 36%;  /* teal en lugar de verde puro */
     --warning: 38 92% 50%;   /* ámbar */
     --danger:  340 82% 52%;  /* magenta-rojizo, distinguible del naranja */
+    color-scheme: light;
   }
 
   .dark {
@@ -66,6 +67,23 @@
     --success: 173 70% 50%;
     --warning: 38 92% 60%;
     --danger:  340 80% 65%;
+    color-scheme: dark;
+  }
+
+  /* Soporte global para menús desplegables nativos (select, option) en modo oscuro */
+  select {
+    color-scheme: light;
+  }
+  .dark select {
+    color-scheme: dark;
+  }
+  option, optgroup {
+    background-color: #ffffff;
+    color: #0f172a;
+  }
+  .dark option, .dark optgroup {
+    background-color: #0f172a !important;
+    color: #f8fafc !important;
   }
 
   * { @apply border-border; }

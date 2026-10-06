@@ -192,8 +192,9 @@ function ActivityLivePulseComponent({
               {/* Métricas de hoy y Cumplimiento de Jornada */}
               {(() => {
                 const targetMins = Math.round(targetDailyHours * 60);
-                const compliancePercent = targetMins > 0 ? Math.round((ag.activeMinutes / targetMins) * 100) : 0;
-                const isGoalReached = ag.activeMinutes >= targetMins;
+                const workdayMins = (ag as any).workdayMinutes || ((ag.activeMinutes || 0) + ((ag as any).breakMinutes || 0));
+                const compliancePercent = targetMins > 0 ? Math.min(100, Math.round((workdayMins / targetMins) * 100)) : 0;
+                const isGoalReached = workdayMins >= targetMins;
 
                 return (
                   <div className="mt-3 pt-3 border-t border-border/50 space-y-2.5">

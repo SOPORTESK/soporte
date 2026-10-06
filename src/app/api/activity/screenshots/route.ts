@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 
 export const dynamic = "force-dynamic";
@@ -30,9 +30,9 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ screenshots: [] });
     }
 
-    // Filtrar por fecha si el nombre contiene timestamp
+    const endDateParam = searchParams.get("endDate");
     const targetDateStart = new Date(`${date}T00:00:00`).getTime();
-    const targetDateEnd = new Date(`${date}T23:59:59`).getTime();
+    const targetDateEnd = new Date(`${endDateParam || date}T23:59:59`).getTime();
 
     const screenshots = (files || [])
       .filter((f) => {

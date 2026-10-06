@@ -10,6 +10,7 @@ import {
 import { Badge } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { GroupPermissionsManager } from "./group-permissions-manager";
+import { DataAuditBadge } from "@/components/admin/data-audit-badge";
 
 interface AgentPerformance {
   email: string;
@@ -196,11 +197,20 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
         <div className="relative rounded-2xl border border-brand-500/20 bg-gradient-to-br from-brand-500/5 to-transparent p-5 overflow-hidden ring-1 ring-brand-500/10">
           <div className="absolute -top-8 -right-8 h-28 w-28 rounded-full bg-brand-500/10 blur-2xl" />
           <div className="relative">
-            <div className="flex items-center gap-2 mb-3">
-              <div className="h-9 w-9 rounded-xl bg-brand-500/10 text-brand-500 grid place-items-center">
-                <Target className="h-4 w-4" />
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <div className="h-9 w-9 rounded-xl bg-brand-500/10 text-brand-500 grid place-items-center">
+                  <Target className="h-4 w-4" />
+                </div>
+                <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Score Equipo</span>
               </div>
-              <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Score Equipo</span>
+              <DataAuditBadge
+                label="Resolución"
+                totalEsperado={globalStats.totalCasos}
+                totalCalculado={globalStats.totalResueltos}
+                detalle="Casos resueltos vs total."
+                size="xs"
+              />
             </div>
             <p className="text-5xl font-black tracking-tight text-brand-500 tabular-nums">{globalStats.tasaResolucion}%</p>
             <p className="text-[11px] text-muted-foreground mt-1">Tasa de resolución global</p>
@@ -266,7 +276,16 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
               <Bot className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Automatización IA</p>
+              <div className="flex items-center gap-2">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Automatización IA</p>
+                <DataAuditBadge
+                  label="Casos Auditados"
+                  totalEsperado={globalStats.totalCasos}
+                  totalCalculado={(globalStats.totalIA ?? 0) + (globalStats.casosHumanos ?? 0)}
+                  detalle="Comprobación matemática: Casos IA + Casos Humanos = Total de Casos gestionados."
+                  size="xs"
+                />
+              </div>
               <p className="text-3xl font-black tracking-tight text-cyan-500 tabular-nums">{globalStats.pctIA ?? 0}%</p>
             </div>
           </div>
@@ -286,7 +305,7 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
       <div className="rounded-2xl border border-border bg-card overflow-hidden">
         {/* Header con Pestañas */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-6 py-4 border-b border-border bg-gradient-to-r from-muted/20 to-transparent">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <div className="inline-flex p-1 rounded-xl bg-muted/60 border border-border/50 gap-1">
               <button
                 type="button"
@@ -319,6 +338,13 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
                 </span>
               </button>
             </div>
+            <DataAuditBadge
+              label="Casos Asignados"
+              totalEsperado={globalStats.casosHumanos ?? 0}
+              totalCalculado={agents.reduce((acc, a) => acc + a.totalAtendidos, 0)}
+              detalle="Comprobación matemática: Suma de casos asignados en la tabla de técnicos."
+              size="xs"
+            />
           </div>
           <div className="flex items-center gap-2">
             {/* Sort buttons */}

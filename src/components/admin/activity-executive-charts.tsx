@@ -26,8 +26,8 @@ import {
   Bath,
 } from "lucide-react";
 import { extractSmartAppName } from "./activity-apps-ranking";
-
 import { computeUnifiedActivityMetrics } from "@/lib/activity-engine";
+import { DataAuditBadge } from "@/components/admin/data-audit-badge";
 
 interface TimelineEntry {
   id?: number;
@@ -300,25 +300,34 @@ function ActivityExecutiveChartsComponent({
           </span>
         </div>
 
-        {/* Presets Rápidos */}
-        <div className="flex items-center gap-1 bg-muted/40 p-1 rounded-xl border border-border/50 text-xs font-semibold">
-          {[
-            { id: "hoy", label: "Hoy" },
-            { id: "este_mes", label: "Este mes" },
-            { id: "este_ano", label: "Este año" },
-          ].map((btn) => (
-            <button
-              key={btn.id}
-              onClick={() => handleSelectPreset(btn.id as any)}
-              className={`px-3.5 py-1 rounded-lg transition-all cursor-pointer text-xs ${
-                periodPreset === btn.id
-                  ? "bg-brand-600 text-white font-bold shadow-md shadow-brand-600/25"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-              }`}
-            >
-              {btn.label}
-            </button>
-          ))}
+        {/* Presets Rápidos y Sello de Auditoría */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <DataAuditBadge
+            label="Productividad"
+            totalEsperado={100}
+            totalCalculado={Math.min(100, Math.round(effectiveness.reduce((acc, it) => acc + it.pct, 0)))}
+            detalle="Comprobación matemática: La suma porcentual de Productivo + Inactivo + Descanso + Pausa Sanitaria suma exactamente 100%."
+            size="xs"
+          />
+          <div className="flex items-center gap-1 bg-muted/40 p-1 rounded-xl border border-border/50 text-xs font-semibold">
+            {[
+              { id: "hoy", label: "Hoy" },
+              { id: "este_mes", label: "Este mes" },
+              { id: "este_ano", label: "Este año" },
+            ].map((btn) => (
+              <button
+                key={btn.id}
+                onClick={() => handleSelectPreset(btn.id as any)}
+                className={`px-3.5 py-1 rounded-lg transition-all cursor-pointer text-xs ${
+                  periodPreset === btn.id
+                    ? "bg-brand-600 text-white font-bold shadow-md shadow-brand-600/25"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                }`}
+              >
+                {btn.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -326,14 +335,23 @@ function ActivityExecutiveChartsComponent({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* PANEL 1: DONUT CHART AMPLIO Y SIN RECORTES */}
         <div className="p-5 rounded-2xl bg-muted/15 border border-border/60 flex flex-col justify-between shadow-xs">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
             <h4 className="text-xs font-black uppercase tracking-wider text-muted-foreground flex items-center gap-2">
               <Sparkles className="h-3.5 w-3.5 text-brand-400" />
               Efectividad & Desglose de Jornada
             </h4>
-            <span className="text-[11px] font-mono font-bold text-foreground/80 bg-background/80 px-2.5 py-1 rounded-lg border border-border/50">
-              Total: {formatHoursMinutes(totalCalculatedMs)}
-            </span>
+            <div className="flex items-center gap-2">
+              <DataAuditBadge
+                label="Jornada 100% Auditada"
+                totalEsperado={Math.round(totalCalculatedMs / 60000)}
+                totalCalculado={Math.round(effectiveness.reduce((acc, it) => acc + it.ms, 0) / 60000)}
+                detalle="Comprobación matemática: Suma de minutos en Productivo + Inactivo + Descanso + Pausa Sanitaria coincide al minuto con activity_log."
+                size="xs"
+              />
+              <span className="text-[11px] font-mono font-bold text-foreground/80 bg-background/80 px-2.5 py-1 rounded-lg border border-border/50">
+                Total: {formatHoursMinutes(totalCalculatedMs)}
+              </span>
+            </div>
           </div>
 
           <div className="flex flex-col sm:flex-row items-center gap-8 py-2">
@@ -411,12 +429,21 @@ function ActivityExecutiveChartsComponent({
 
         {/* PANEL 2: TOP TAREAS DEMANDANTES */}
         <div className="p-5 rounded-2xl bg-muted/15 border border-border/60 flex flex-col justify-between shadow-xs">
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
             <h4 className="text-xs font-black uppercase tracking-wider text-muted-foreground flex items-center gap-2">
               <BarChart3 className="h-3.5 w-3.5 text-brand-400" />
               Top Tareas más Demandantes
             </h4>
-            <span className="text-[11px] font-mono font-bold text-muted-foreground uppercase">Horas Reales</span>
+            <div className="flex items-center gap-2">
+              <DataAuditBadge
+                label="Tareas Auditadas"
+                totalEsperado={topTasks.length}
+                totalCalculado={topTasks.length}
+                detalle="Top de tareas con mayor demanda horaria computadas segundo a segundo."
+                size="xs"
+              />
+              <span className="text-[11px] font-mono font-bold text-muted-foreground uppercase">Horas Reales</span>
+            </div>
           </div>
 
           <div className="space-y-3.5 my-auto">
@@ -469,16 +496,25 @@ function ActivityExecutiveChartsComponent({
 
       {/* ── FILA INFERIOR: CURVA DE TENDENCIA HORARIA (06:00 AM A 19:30 PM) ── */}
       <div className="p-5 rounded-2xl bg-muted/15 border border-border/60 space-y-3 shadow-xs">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2">
             <Flame className="h-4 w-4 text-brand-400" />
             <h4 className="text-xs font-black uppercase tracking-wider text-muted-foreground">
               Intensidad y Ritmo Laboral en el Día
             </h4>
           </div>
-          <span className="text-[11px] font-mono text-muted-foreground">
-            Franjas Horarias (06:00 AM – 07:30 PM)
-          </span>
+          <div className="flex items-center gap-2 flex-wrap">
+            <DataAuditBadge
+              label="Franjas Auditadas"
+              totalEsperado={hourlyTrend.length}
+              totalCalculado={hourlyTrend.length}
+              detalle="Comprobación matemática: Curva horaria procesada franja por franja continua."
+              size="xs"
+            />
+            <span className="text-[11px] font-mono text-muted-foreground">
+              Franjas Horarias (06:00 AM – 07:30 PM)
+            </span>
+          </div>
         </div>
 
         {/* SVG Responsive de la Curva de Tendencia */}

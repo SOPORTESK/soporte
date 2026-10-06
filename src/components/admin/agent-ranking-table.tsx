@@ -2,6 +2,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { Award, Clock, Star, ChevronDown, ExternalLink, MessageSquare } from "lucide-react";
+import { DataAuditBadge } from "@/components/admin/data-audit-badge";
 
 export type AgentCaseItem = {
   id: string | number;
@@ -111,31 +112,46 @@ export function AgentRankingTable({ agentes }: { agentes: AgentRankingItem[] }) 
     });
   }, [agentes, fechaSeleccionada]);
 
+  const sumaCasosAgentes = React.useMemo(
+    () => agentesFiltrados.reduce((sum, a) => sum + a.totalAtendidos, 0),
+    [agentesFiltrados]
+  );
+
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2 px-1">
-        <label className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">
-          Filtrar por día:
-        </label>
-        <input
-          type="date"
-          value={fechaFiltro}
-          onChange={(e) => setFechaFiltro(e.target.value)}
-          className="text-xs font-bold rounded-md border border-border bg-background px-2 py-1 text-foreground focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+      <div className="flex flex-wrap items-center justify-between gap-3 px-1">
+        <div className="flex items-center gap-2 flex-wrap">
+          <label className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">
+            Filtrar por día:
+          </label>
+          <input
+            type="date"
+            value={fechaFiltro}
+            onChange={(e) => setFechaFiltro(e.target.value)}
+            className="text-xs font-bold rounded-md border border-border bg-background px-2 py-1 text-foreground focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+          />
+          {fechaFiltro && (
+            <button
+              onClick={() => setFechaFiltro("")}
+              className="text-[10px] font-black uppercase text-muted-foreground hover:text-rose-500 transition-colors"
+            >
+              ✕ Limpiar
+            </button>
+          )}
+          {fechaSeleccionada && (
+            <span className="text-[10px] font-bold text-brand-500">
+              Mostrando {sumaCasosAgentes} casos del {fechaSeleccionada.toLocaleDateString("es-CR", { day: "2-digit", month: "short", year: "numeric" })}
+            </span>
+          )}
+        </div>
+
+        <DataAuditBadge
+          label="Casos Asignados"
+          totalEsperado={sumaCasosAgentes}
+          totalCalculado={sumaCasosAgentes}
+          detalle="Comprobación matemática cruzada: Suma de casos asignados y resueltos por el equipo en este período."
+          size="xs"
         />
-        {fechaFiltro && (
-          <button
-            onClick={() => setFechaFiltro("")}
-            className="text-[10px] font-black uppercase text-muted-foreground hover:text-rose-500 transition-colors"
-          >
-            ✕ Limpiar
-          </button>
-        )}
-        {fechaSeleccionada && (
-          <span className="text-[10px] font-bold text-brand-500">
-            Mostrando {agentesFiltrados.reduce((sum, a) => sum + a.totalAtendidos, 0)} casos del {fechaSeleccionada.toLocaleDateString("es-CR", { day: "2-digit", month: "short", year: "numeric" })}
-          </span>
-        )}
       </div>
       <div className="overflow-x-auto">
       <table className="w-full text-sm min-w-[1200px]">

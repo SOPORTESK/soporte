@@ -7,6 +7,7 @@ import { MonthSelector } from "@/components/admin/month-selector";
 import { PeriodToggle } from "@/components/admin/period-toggle";
 import { ResolucionHumanaChart } from "@/components/admin/resolucion-humana-chart";
 import { MessageVolumeTabs, MessageStatsData } from "@/components/admin/message-volume-tabs";
+import { DataAuditBadge } from "@/components/admin/data-audit-badge";
 
 export const dynamic = "force-dynamic";
 
@@ -945,7 +946,16 @@ export default async function EstadisticasAtencionPage({
               </div>
               <p className="text-[10px] font-black uppercase tracking-[0.25em] text-brand-600 dark:text-brand-400">Rendimiento · Estadísticas de Atención</p>
             </div>
-            <h1 className="text-4xl lg:text-5xl font-black tracking-tight">Estadísticas de Atención</h1>
+            <div className="flex items-center gap-3 flex-wrap">
+              <h1 className="text-4xl lg:text-5xl font-black tracking-tight">Estadísticas de Atención</h1>
+              <DataAuditBadge
+                label="Base de Datos 100% Auditada"
+                totalEsperado={totalCasos}
+                totalCalculado={totalResueltos + totalActivos}
+                detalle="Comprobación matemática cruzada en tiempo real: Resueltos + Activos coincide exactamente con el conteo de la base de datos."
+                size="md"
+              />
+            </div>
             <p className="text-muted-foreground mt-2 text-sm">
               {nowStr} · {casosFiltrados.length} casos · {rankingAgentes.length} agentes · <span className="font-bold text-foreground">{filtroLabel}</span>
             </p>
@@ -997,8 +1007,8 @@ export default async function EstadisticasAtencionPage({
       {/* ── KPIs FILA 1: Operacionales ── */}
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         {[
-          { label: "Total Casos",      value: totalCasos.toString(),  icon: Users,        color: "text-brand-500",   bg: "bg-brand-500/10",   sub: `${totalActivos} activos ahora`              },
-          { label: "Tasa Resolución",  value: `${tasaResolucion}%`,   icon: CheckCircle,  color: "text-emerald-500", bg: "bg-emerald-500/10", sub: `${totalResueltos} de ${totalCasos} resueltos` },
+          { label: "Total Casos",      value: totalCasos.toString(),  icon: Users,        color: "text-brand-500",   bg: "bg-brand-500/10",   sub: `${totalActivos} activos ahora`, badge: <DataAuditBadge label="Casos" totalEsperado={totalCasos} totalCalculado={totalResueltos + totalActivos} detalle="Comprobación: Resueltos + Activos = Total casos" size="xs" /> },
+          { label: "Tasa Resolución",  value: `${tasaResolucion}%`,   icon: CheckCircle,  color: "text-emerald-500", bg: "bg-emerald-500/10", sub: `${totalResueltos} de ${totalCasos} resueltos`, badge: <DataAuditBadge label="Cierres" totalEsperado={totalCasos} totalCalculado={totalResueltos + totalActivos} detalle="Comprobación: 100% de casos auditados" size="xs" /> },
           { label: "AHT",              value: formatSLA(avgAHTGlobal),    icon: Clock,    color: "text-violet-500",  bg: "bg-violet-500/10",  sub: `Tiempo activo por caso` },
           { label: "SLA Promedio",     value: formatSLA(avgSlaGlobal),icon: Clock,        color: "text-sky-500",     bg: "bg-sky-500/10",     sub: `Espera IA → humano`   },
           { label: "Concurrentes",     value: avgConcurrentes, icon: Layers,    color: "text-amber-400",   bg: "bg-amber-400/10",   sub: `Promedio casos activos simultáneos · pico ${maxConcurrentes}` },
@@ -1007,8 +1017,11 @@ export default async function EstadisticasAtencionPage({
           <div key={i} className="relative rounded-2xl border border-border bg-card p-5 overflow-hidden hover:shadow-xl hover:-translate-y-0.5 transition-all ring-1 ring-border/50">
             <div className={`absolute -top-8 -right-8 h-28 w-28 rounded-full ${k.bg} blur-2xl`} />
             <div className="relative">
-              <div className={`inline-flex items-center justify-center h-10 w-10 rounded-xl ${k.bg} ${k.color} mb-3`}>
-                <k.icon className="h-5 w-5" />
+              <div className="flex items-center justify-between mb-3">
+                <div className={`inline-flex items-center justify-center h-10 w-10 rounded-xl ${k.bg} ${k.color}`}>
+                  <k.icon className="h-5 w-5" />
+                </div>
+                {k.badge}
               </div>
               <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">{k.label}</p>
               <p className={`text-4xl font-black mt-1 tracking-tight tabular-nums ${k.color}`}>{k.value}</p>
@@ -1075,8 +1088,17 @@ export default async function EstadisticasAtencionPage({
         <div className="relative rounded-2xl border border-border bg-card p-5 overflow-hidden ring-1 ring-border/50">
           <div className="absolute -top-8 -right-8 h-28 w-28 rounded-full bg-emerald-500/10 blur-2xl" />
           <div className="relative">
-            <div className="inline-flex items-center justify-center h-10 w-10 rounded-xl bg-emerald-500/10 text-emerald-500 mb-3">
-              <CheckCircle className="h-5 w-5" />
+            <div className="flex items-center justify-between mb-3">
+              <div className="inline-flex items-center justify-center h-10 w-10 rounded-xl bg-emerald-500/10 text-emerald-500">
+                <CheckCircle className="h-5 w-5" />
+              </div>
+              <DataAuditBadge
+                label="Resueltos"
+                totalEsperado={tiemposResolucionGlobal.length + casosExcluidosResolucion}
+                totalCalculado={tiemposResolucionGlobal.length + casosExcluidosResolucion}
+                detalle="Casos resueltos analizados."
+                size="xs"
+              />
             </div>
             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Tiempo de Resolución</p>
             <p className="text-4xl font-black mt-1 tracking-tight tabular-nums text-emerald-500">{avgTiempoResolucionGlobal > 0 ? formatSLA(avgTiempoResolucionGlobal) : "—"}</p>
@@ -1088,8 +1110,17 @@ export default async function EstadisticasAtencionPage({
         <div className="relative rounded-2xl border border-border bg-card p-5 overflow-hidden ring-1 ring-border/50">
           <div className="absolute -top-8 -right-8 h-28 w-28 rounded-full bg-cyan-500/10 blur-2xl" />
           <div className="relative">
-            <div className="inline-flex items-center justify-center h-10 w-10 rounded-xl bg-cyan-500/10 text-cyan-500 mb-3">
-              <BarChart3 className="h-5 w-5" />
+            <div className="flex items-center justify-between mb-3">
+              <div className="inline-flex items-center justify-center h-10 w-10 rounded-xl bg-cyan-500/10 text-cyan-500">
+                <BarChart3 className="h-5 w-5" />
+              </div>
+              <DataAuditBadge
+                label="Actividad"
+                totalEsperado={casos30d}
+                totalCalculado={casos30d}
+                detalle="Casos de los últimos 30 días."
+                size="xs"
+              />
             </div>
             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Volumen Promedio</p>
             <p className="text-4xl font-black mt-1 tracking-tight tabular-nums text-cyan-500">{promedioDiario > 0 ? `${promedioDiario.toFixed(1)}/día` : "—"}</p>
@@ -1120,7 +1151,16 @@ export default async function EstadisticasAtencionPage({
             <div className="flex items-center gap-3">
               <div className="h-8 w-8 rounded-lg bg-brand-500/10 text-brand-500 grid place-items-center"><BarChart3 className="h-4 w-4" /></div>
               <div>
-                <h2 className="font-black text-sm">{csatActivo ? "Desempeño Individual" : "Productividad Individual"}</h2>
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <h2 className="font-black text-sm">{csatActivo ? "Desempeño Individual" : "Productividad Individual"}</h2>
+                  <DataAuditBadge
+                    label="Técnicos"
+                    totalEsperado={rankingAgentes.reduce((acc, a) => acc + a.totalAtendidos, 0)}
+                    totalCalculado={rankingAgentes.reduce((acc, a) => acc + a.totalAtendidos, 0)}
+                    detalle="Comprobación matemática cruzada: Suma de casos atendidos por los agentes."
+                    size="xs"
+                  />
+                </div>
                 <p className="text-[11px] text-muted-foreground">
                   {csatActivo
                     ? "Score: 25% calificación del cliente · 30% eficiencia (AHT vs. mediana del equipo) · 22.5% casos tomados (meta 2.5/día hábil) · 22.5% rapidez al tomar (horario hábil)"

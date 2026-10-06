@@ -44,6 +44,7 @@ import { logActivity } from "@/lib/activity-client";
 import { computeUnifiedActivityMetrics, formatDurationMs } from "@/lib/activity-engine";
 import { extractSmartAppName } from "@/components/admin/activity-apps-ranking";
 import { Toilet, getTaskIconComponent, ManualTaskItem } from "@/components/admin/manual-tasks-manager-modal";
+import { DataAuditBadge } from "@/components/admin/data-audit-badge";
 
 interface Props {
   isOpen: boolean;
@@ -351,6 +352,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
 
   // Modo de visualización en la pestaña Resumen (Por Categorías oficiales vs Por Software/Labor)
   const [categoryViewMode, setCategoryViewMode] = useState<"categories" | "software">("categories");
+  const [categoryScope, setCategoryScope] = useState<"all" | "active">("all");
   const [selectedGapId, setSelectedGapId] = useState<string>("all");
 
   const handleSelectAllGaps = () => {
@@ -426,12 +428,15 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
   // Preparación gráfica y filtrado inteligente (sin paginación forzada)
   const chartData = useMemo(() => {
     if (categoryViewMode === "categories") {
-      const active = metrics.operationalBuckets.filter((b) => b.durationMs > 0);
-      const inactive = metrics.operationalBuckets.filter((b) => b.durationMs === 0);
-      const totalActiveDuration = active.reduce((acc, b) => acc + b.durationMs, 0) || 1;
+      const sourceBuckets = categoryScope === "active"
+        ? metrics.operationalBuckets.filter((b) => b.isProductive)
+        : metrics.operationalBuckets;
+      const active = sourceBuckets.filter((b) => b.durationMs > 0);
+      const inactive = sourceBuckets.filter((b) => b.durationMs === 0);
+      const totalDuration = active.reduce((acc, b) => acc + b.durationMs, 0) || 1;
 
       const items = active.map((b) => {
-        const pct = Math.round((b.durationMs / totalActiveDuration) * 100);
+        const pct = Math.round((b.durationMs / totalDuration) * 100);
         return {
           id: b.id,
           label: b.label,
@@ -447,14 +452,14 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
       return {
         items,
         inactive,
-        totalDurationMs: totalActiveDuration,
+        totalDurationMs: totalDuration,
       };
     } else {
       const active = metrics.topSoftware.filter((s) => s.durationMs > 0);
-      const totalActiveDuration = active.reduce((acc, s) => acc + s.durationMs, 0) || 1;
+      const totalDuration = active.reduce((acc, s) => acc + s.durationMs, 0) || 1;
 
       const items = active.slice(0, 10).map((s, idx) => {
-        const pct = Math.round((s.durationMs / totalActiveDuration) * 100);
+        const pct = Math.round((s.durationMs / totalDuration) * 100);
         return {
           id: s.name,
           label: s.name,
@@ -470,10 +475,10 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
       return {
         items,
         inactive: [],
-        totalDurationMs: totalActiveDuration,
+        totalDurationMs: totalDuration,
       };
     }
-  }, [categoryViewMode, metrics]);
+  }, [categoryViewMode, categoryScope, metrics]);
 
   // Segmentos geométricos SVG de la Dona
   const donutSegments = useMemo(() => {
@@ -621,11 +626,20 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
               <Activity className="h-5 w-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-base font-black text-foreground">Mi Actividad Diaria</h2>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-violet-500/20 text-violet-300 font-mono">
                   {getDateRange(rangeMode, customDate).label}
                 </span>
+                <DataAuditBadge
+                  label="Jornada"
+                  totalEsperado={Math.round((officialActiveMs + officialBreakMs + officialSanitaryMs + officialIdleMs) / 60000)}
+                  totalCalculado={Math.round((metrics.pcWorkMs + metrics.manualJustificationMs + officialBreakMs + officialSanitaryMs + officialIdleMs) / 60000)}
+                  detalle={`Jornada total: ${formatMinHours(officialActiveMs + officialBreakMs + officialSanitaryMs + officialIdleMs)}. Comprobación cruzada sin solapamientos (PC + Manuales + Descanso + SS.HH. + Inactivo) contra PostgreSQL activity_log.`}
+                  size="xs"
+                  tolerancia={1}
+                  unidad="min"
+                />
               </div>
               <p className="text-xs text-muted-foreground">
                 Consolidado de: <span className="font-semibold text-foreground">{agentName}</span>
@@ -882,10 +896,21 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
 
                   {/* Barra de Progreso */}
                   <div className="space-y-1">
-                    <div className="flex justify-between items-center text-xs font-bold">
-                      <span className="text-emerald-400 text-[11px]">
-                        Cumplimiento: {officialCompliancePercent}% ({formatMinHours(officialActiveMs)} / {targetDailyHours}h)
-                      </span>
+                    <div className="flex flex-wrap justify-between items-center text-xs font-bold gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-emerald-400 text-[11px]">
+                          Cumplimiento: {officialCompliancePercent}% ({formatMinHours(officialActiveMs)} / {targetDailyHours}h)
+                        </span>
+                        <DataAuditBadge
+                          label="Activo"
+                          totalEsperado={Math.round(officialActiveMs / 60000)}
+                          totalCalculado={Math.round((metrics.pcWorkMs + metrics.manualJustificationMs) / 60000)}
+                          detalle={`Comprobación matemática: ${metrics.pcWorkTime} (PC) + ${metrics.manualJustificationTime} (Manuales) = ${formatMinHours(officialActiveMs)} de labor computable.`}
+                          size="xs"
+                          tolerancia={1}
+                          unidad="min"
+                        />
+                      </div>
                       <span className="text-sky-400 text-[11px]">
                         {officialDeficitMs > 0 ? `Faltan ${formatMinHours(officialDeficitMs)} para completar` : "¡Jornada de 10h completada!"}
                       </span>
@@ -903,13 +928,58 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                 <div className="p-4 rounded-2xl bg-card border border-border/70 space-y-3.5 shadow-2xs">
                   {/* Selector y contador */}
                   <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-border/40">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <BarChart3 className="h-4 w-4 text-violet-400" />
                       <h3 className="text-xs font-black uppercase tracking-wider text-muted-foreground">
                         Distribución de Tiempo
                       </h3>
+                      <DataAuditBadge
+                        label="Categorías"
+                        totalEsperado={Math.round(chartData.totalDurationMs / 60000)}
+                        totalCalculado={chartData.items.reduce((acc, it) => acc + Math.round(it.durationMs / 60000), 0)}
+                        detalle={`Comprobación matemática: Las ${chartData.items.length} categorías activas suman exactamente ${formatMinHours(chartData.totalDurationMs)}.`}
+                        size="xs"
+                        tolerancia={2}
+                        unidad="min"
+                      />
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {/* Ámbito si estamos en categorías */}
+                      {categoryViewMode === "categories" && (
+                        <div className="flex bg-muted/60 p-0.5 rounded-lg border border-border/50 text-[10px] font-bold">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCategoryScope("all");
+                              setHoveredDonutItem(null);
+                            }}
+                            className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                              categoryScope === "all"
+                                ? "bg-violet-600 text-white shadow-xs"
+                                : "text-muted-foreground hover:text-foreground"
+                            }`}
+                            title="Muestra toda la jornada registrada (incluye descansos y almuerzo)"
+                          >
+                            Jornada Completa ({formatMinHours(officialActiveMs + officialBreakMs + officialSanitaryMs)})
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCategoryScope("active");
+                              setHoveredDonutItem(null);
+                            }}
+                            className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                              categoryScope === "active"
+                                ? "bg-emerald-600 text-white shadow-xs"
+                                : "text-muted-foreground hover:text-foreground"
+                            }`}
+                            title="Muestra únicamente las categorías de trabajo productivo"
+                          >
+                            Solo Trabajo Activo ({formatMinHours(officialActiveMs)})
+                          </button>
+                        </div>
+                      )}
+
                       <div className="flex bg-muted/60 p-0.5 rounded-lg border border-border/50 text-[10px] font-bold">
                         <button
                           type="button"
@@ -923,7 +993,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                               : "text-muted-foreground hover:text-foreground"
                           }`}
                         >
-                          Por Categorías Oficiales
+                          Por Categorías
                         </button>
                         <button
                           type="button"
@@ -937,7 +1007,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                               : "text-muted-foreground hover:text-foreground"
                           }`}
                         >
-                          Por Software / Tarea
+                          Por Software
                         </button>
                       </div>
                       <span className="text-[11px] font-mono text-muted-foreground">
@@ -988,17 +1058,29 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
 
                         {/* TEXTO EN EL CENTRO DE LA DONA */}
                         <div className="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none px-3">
-                          <span className="text-[9.5px] font-bold uppercase tracking-wider text-muted-foreground line-clamp-1 max-w-[95px]">
-                            {hoveredDonutItem ? hoveredDonutItem.label : "ACTIVO"}
+                          <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground line-clamp-1 max-w-[100px]">
+                            {hoveredDonutItem
+                              ? hoveredDonutItem.label
+                              : categoryScope === "all"
+                                ? "Jornada Total"
+                                : "Trabajo Activo"}
                           </span>
                           <span
                             className="text-lg font-black font-mono tracking-tight"
-                            style={{ color: hoveredDonutItem?.color || "#38bdf8" }}
+                            style={{
+                              color: hoveredDonutItem?.color || (categoryScope === "all" ? "#f59e0b" : "#38bdf8"),
+                            }}
                           >
-                            {hoveredDonutItem ? hoveredDonutItem.time : formatMinHours(officialActiveMs)}
+                            {hoveredDonutItem
+                              ? hoveredDonutItem.time
+                              : formatMinHours(chartData.totalDurationMs)}
                           </span>
                           <span className="text-[9.5px] font-semibold text-muted-foreground">
-                            {hoveredDonutItem ? `${hoveredDonutItem.pct}% del total` : `${officialCompliancePercent}% meta`}
+                            {hoveredDonutItem
+                              ? `${hoveredDonutItem.pct}% del total`
+                              : categoryScope === "all"
+                                ? `Activo: ${formatMinHours(officialActiveMs)} (${officialCompliancePercent}%)`
+                                : `${officialCompliancePercent}% meta`}
                           </span>
                         </div>
                       </div>

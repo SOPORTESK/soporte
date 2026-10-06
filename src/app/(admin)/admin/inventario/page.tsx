@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 import { Package, Search, Database, Sparkles, Brain, Filter, ChevronLeft, ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/avatar";
 import Link from "next/link";
@@ -31,16 +32,37 @@ export default async function AdminInventarioPage() {
   const isAdmin = currentAgent?.rol === "admin" || currentAgent?.rol === "superadmin";
   const isSuperadmin = currentAgent?.rol === "superadmin";
   
-  // Obtener items de inventario con cache de alta velocidad (60s TTL)
+  // Obtener items de inventario con paginación completa y cliente de servicio (sin límite de RLS)
   const { data: items } = await queryWithFallback(
-    "admin_inventario_items",
+    "admin_inventario_items_full_v2",
     async () => {
-      const { data, error } = await supabase
-        .from("sek_inventario")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(10000);
-      return { data: data || [], error };
+      const sb = createServiceClient();
+      const all: any[] = [];
+      let offset = 0;
+      while (true) {
+        const { data, error } = await sb
+          .from("sek_inventario")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .order("id", { ascending: true })
+          .range(offset, offset + 999);
+        if (error) {
+          console.error("[inventario] Error paginando en offset", offset, error.message);
+          return { data: all, error };
+        }
+        if (!data || data.length === 0) break;
+        all.push(...data);
+        if (data.length < 1000) break;
+        offset += 1000;
+      }
+      // Deduplicar estrictamente por ID para evitar colisiones en paginación
+      const seen = new Set<string>();
+      const unique = all.filter((item) => {
+        if (!item.id || seen.has(item.id)) return false;
+        seen.add(item.id);
+        return true;
+      });
+      return { data: unique, error: null };
     },
     [],
     60000
@@ -49,15 +71,17 @@ export default async function AdminInventarioPage() {
   const allItems = items || [];
   const totalItems = allItems.length;
   const totalEquipos = allItems.reduce((sum: number, i: any) => sum + (i.cantidad || 0), 0);
-  const categoriasUnicas = [...new Set(allItems.map((i: any) => i.categoria).filter(Boolean))];
-  const marcasUnicas = [...new Set(allItems.map((i: any) => i.marca).filter(Boolean))];
-  const statsPorMarca = Object.entries(
-    allItems.reduce((acc: Record<string, number>, item: any) => {
-      const marca = item.marca || "Sin marca";
-      acc[marca] = (acc[marca] || 0) + 1;
-      return acc;
-    }, {})
-  ).sort(([a], [b]) => a.localeCompare(b));
+  const categoriasUnicas = Array.from(new Set(allItems.map((i: any) => (i.categoria || "").trim()).filter(Boolean))).sort();
+  
+  // Normalizar marcas para evitar colisiones de mayúsculas/minúsculas
+  const brandCountMap = allItems.reduce((acc: Record<string, number>, item: any) => {
+    const marca = (item.marca || "GENÉRICO").trim().toUpperCase();
+    acc[marca] = (acc[marca] || 0) + 1;
+    return acc;
+  }, {});
+
+  const statsPorMarca = Object.entries(brandCountMap).sort(([a], [b]) => a.localeCompare(b));
+  const marcasUnicas = statsPorMarca.map(([marca]) => marca);
   
   const formatNumber = (num: number) => new Intl.NumberFormat('en-US').format(num);
 
@@ -149,6 +173,7 @@ export default async function AdminInventarioPage() {
               totalModelos={totalItems}
               isAdmin={isAdmin} 
               isSuperadmin={isSuperadmin}
+              categorias={categoriasUnicas}
             />
             
           </>

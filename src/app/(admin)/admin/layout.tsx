@@ -14,6 +14,7 @@ import { MobileNav } from "@/components/admin/mobile-nav";
 import { GodModeAdminWrapper } from "@/components/god-mode-admin-wrapper";
 import { GodModeGuard } from "@/components/god-mode-guard";
 import { EscalatedCasesBanner } from "@/components/escalated-cases-banner";
+import { DataIntegrityBanner } from "@/components/admin/data-integrity-banner";
 import { FloatingTechAssistant } from "@/components/floating-tech-assistant";
 import { ActivityTrackerProvider } from "@/components/activity-tracker-provider";
 import { getUserWithTimeout, queryWithFallback } from "@/lib/supabase/resilient";
@@ -254,6 +255,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
           <main id="main" className="min-w-0 min-h-0 flex flex-col">
             <EscalatedCasesBanner />
+            <DataIntegrityBanner />
             {children}
           </main>
         </div>

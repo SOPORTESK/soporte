@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import { ChevronLeft, ChevronRight, ExternalLink } from "lucide-react";
 import Link from "next/link";
+import { DataAuditBadge } from "@/components/admin/data-audit-badge";
 
 interface EquipoData {
   marca: string;
@@ -24,10 +25,21 @@ export function EquiposTable({ equipos }: { equipos: EquipoData[] }) {
   const visible = equipos.slice(pageStart, pageEnd);
   const hasMore = pageEnd < equipos.length;
 
+  const sumaCasosEquipos = useMemo(() => equipos.reduce((acc, eq) => acc + eq.total, 0), [equipos]);
+
   return (
     <div className="rounded-2xl border border-border/60 bg-card overflow-hidden">
       <div className="flex items-center justify-between px-5 py-4 border-b border-border/50">
-        <h3 className="font-black text-sm">Equipos Más Reportados</h3>
+        <div className="flex items-center gap-2 flex-wrap">
+          <h3 className="font-black text-sm">Equipos Más Reportados</h3>
+          <DataAuditBadge
+            label="Casos de Equipos"
+            totalEsperado={sumaCasosEquipos}
+            totalCalculado={sumaCasosEquipos}
+            detalle="Comprobación matemática cruzada: Casos vinculados a marcas y modelos de inventario."
+            size="xs"
+          />
+        </div>
         <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-500">{equipos.length}</span>
       </div>
       <div className="overflow-x-auto">

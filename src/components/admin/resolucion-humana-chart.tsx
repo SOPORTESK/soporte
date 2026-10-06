@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { Clock, ChevronDown } from "lucide-react";
+import { DataAuditBadge } from "@/components/admin/data-audit-badge";
 
 export interface CasoResolucion {
   id: string | number;
@@ -47,11 +48,22 @@ export function ResolucionHumanaChart({ grupos, totalValidos, excluidos, sinDato
     setExpanded(prev => prev === label ? null : label);
   }
 
+  const totalCalculado = totalValidos + excluidos.count + sinDatos.count + (sinAsignar?.count || 0);
+
   return (
     <div className="lg:col-span-6 rounded-2xl border border-border bg-card p-6">
-      <div className="flex items-center gap-2 mb-5">
-        <div className="h-7 w-7 rounded-lg bg-emerald-500/10 text-emerald-500 grid place-items-center"><Clock className="h-3.5 w-3.5" /></div>
-        <h3 className="font-black text-sm uppercase tracking-widest text-muted-foreground whitespace-nowrap">Resolución Equipo de Soporte</h3>
+      <div className="flex items-center justify-between mb-5 flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <div className="h-7 w-7 rounded-lg bg-emerald-500/10 text-emerald-500 grid place-items-center"><Clock className="h-3.5 w-3.5" /></div>
+          <h3 className="font-black text-sm uppercase tracking-widest text-muted-foreground whitespace-nowrap">Resolución Equipo de Soporte</h3>
+        </div>
+        <DataAuditBadge
+          label="Casos Auditados"
+          totalEsperado={totalCasos}
+          totalCalculado={totalCalculado}
+          detalle="Comprobación matemática cruzada: Suma de casos en rangos de tiempo + fuera de SLA (+7d) + en curso + sin asignar."
+          size="xs"
+        />
       </div>
       {totalValidos > 0 ? (
         <div className="space-y-3">

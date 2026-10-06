@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { useState, useEffect } from "react";
 import {
@@ -25,6 +25,7 @@ interface Props {
   agentEmail?: string;
   agentName?: string;
   date: string;
+  endDate?: string;
 }
 
 function formatTime(iso: string): string {
@@ -39,7 +40,7 @@ function formatTime(iso: string): string {
   }
 }
 
-export function ActivityScreenGallery({ agentEmail, agentName, date }: Props) {
+export function ActivityScreenGallery({ agentEmail, agentName, date, endDate }: Props) {
   const [screenshots, setScreenshots] = useState<ScreenshotItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
@@ -48,7 +49,8 @@ export function ActivityScreenGallery({ agentEmail, agentName, date }: Props) {
     if (!agentEmail) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/activity/screenshots?agent=${encodeURIComponent(agentEmail)}&date=${date}`);
+      const endParam = endDate ? `&endDate=${encodeURIComponent(endDate)}` : "";
+      const res = await fetch(`/api/activity/screenshots?agent=${encodeURIComponent(agentEmail)}&date=${date}${endParam}`);
       const data = await res.json();
       setScreenshots(data.screenshots || []);
     } catch (e) {
@@ -60,7 +62,7 @@ export function ActivityScreenGallery({ agentEmail, agentName, date }: Props) {
 
   useEffect(() => {
     fetchScreenshots();
-  }, [agentEmail, date]);
+  }, [agentEmail, date, endDate]);
 
   // Navegación con teclado en modal
   useEffect(() => {

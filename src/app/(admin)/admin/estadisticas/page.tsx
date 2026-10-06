@@ -1,11 +1,9 @@
 import { createClient } from "@/lib/supabase/server";
 import { Users, TrendingUp, CheckCircle, Star, ArrowUpRight, Repeat2, BarChart3, TrendingDown, Minus, ExternalLink, Clock, Activity, Globe, UserPlus, ShieldAlert, ShieldBan, ShieldCheck } from "lucide-react";
 import Link from "next/link";
-import { StatsExportButton } from "@/components/admin/stats-export-button";
-import { ClientProfilePanel } from "@/components/admin/client-profile-panel";
-import { EquiposTable } from "@/components/admin/equipos-table";
-import { ProblemasFrecuentesInteractive } from "@/components/admin/problemas-frecuentes-interactive";
+import { AnalyticsClientView } from "@/components/admin/analytics-client-view";
 import type { PerfilClienteDTO } from "@/components/admin/client-profile-panel";
+import { normalizePhone, parseCliente, getClientKey, getCalificacion, unifyClients, type ContactoPersona } from "@/lib/client-analytics";
 
 export const dynamic = "force-dynamic";
 
@@ -19,14 +17,14 @@ export default async function EstadisticasClientePage() {
   while (true) {
     let { data, error } = await supabase
       .from("sek_cases")
-      .select("id, estado, cliente, created_at, updated_at, closed_at, canal, title, tags, prioridad, assigned_to, marca, modelo, resolucion, problema")
+      .select("id, estado, cliente, customer_phone, created_at, updated_at, closed_at, canal, title, tags, prioridad, assigned_to, marca, modelo, resolucion, problema")
       .order("created_at", { ascending: false })
       .range(pageOffset, pageOffset + PAGE_SIZE - 1);
 
     if (error) {
       const { data: fbData } = await supabase
         .from("sek_cases")
-        .select("id, estado, cliente, created_at, updated_at, closed_at, canal, title, tags, prioridad, assigned_to")
+        .select("id, estado, cliente, customer_phone, created_at, updated_at, closed_at, canal, title, tags, prioridad, assigned_to")
         .order("created_at", { ascending: false })
         .range(pageOffset, pageOffset + PAGE_SIZE - 1);
       data = fbData as any;
@@ -49,65 +47,8 @@ export default async function EstadisticasClientePage() {
   // ── Fechas
   const hoy = new Date(); hoy.setHours(0,0,0,0);
 
-  // ── Parsear cliente helper
-  const parseCliente = (raw: unknown): { nombre: string; telefono: string; correo: string; cedula: string; cuenta: string } => {
-    if (!raw) return { nombre: "Anónimo", telefono: "—", correo: "", cedula: "", cuenta: "" };
-    try {
-      const c = typeof raw === "string" ? JSON.parse(raw) : raw as Record<string, string>;
-      const cuenta = c.cuenta || c.empresa || c.account || c.company || "";
-      const nombrePersonal = c.nombre || c.name || "Anónimo";
-      
-      // Si hay cuenta inscrita, ese es el nombre principal (B2B). Si no, el nombre físico.
-      const nombre = cuenta ? cuenta : nombrePersonal;
-
-      return {
-        nombre,
-        telefono: c.telefono || c.phone || "—",
-        correo: c.correo || c.email || "",
-        cedula: c.cedula || "",
-        cuenta
-      };
-    } catch { return { nombre: "Anónimo", telefono: "—", correo: "", cedula: "", cuenta: "" }; }
-  };
-
-  // ── Leer calificación del cliente desde objeto cliente
-  const getCal = (raw: unknown): number | null => {
-    if (!raw) return null;
-    const c = typeof raw === "string" ? JSON.parse(raw) : raw as any;
-    const v = c?.calificacion_cliente ?? c?.calificacion_agente;
-    const n = Number(v);
-    return v != null && !isNaN(n) && n >= 1 && n <= 5 ? n : null;
-  };
-
-  // ── Agrupar por cliente — clave: cuenta > cédula > correo > teléfono > nombre+primerCasoId
-  const mapa: Record<string, {
-    nombre: string; telefono: string; correo: string; cedula: string; cuenta: string;
-    total: number; resueltos: number; abiertos: number;
-    calificaciones: number[]; canales: Record<string, number>;
-    primerCaso: string; ultimoCaso: string; ultimoCasoId: string | number;
-    cats: string[];
-  }> = {};
-
-  (casos || []).forEach(c => {
-    const { nombre, telefono, correo, cedula, cuenta } = parseCliente(c.cliente);
-    // Clave única: prioridad cuenta > cedula > correo > telefono; si ninguno, cada caso es su propio cliente
-    const key = cuenta || cedula || correo || (telefono !== "—" ? telefono : `_id_${c.id}`);
-    if (!mapa[key]) {
-      mapa[key] = { nombre, telefono, correo, cedula, cuenta, total: 0, resueltos: 0, abiertos: 0, calificaciones: [], canales: {}, primerCaso: c.created_at, ultimoCaso: c.created_at, ultimoCasoId: c.id, cats: [] };
-    }
-    const m = mapa[key];
-    m.total++;
-    if (c.estado === "resuelto" || c.estado === "cerrado" || (c as any).closed_at) m.resueltos++; else m.abiertos++;
-    const cal = getCal(c.cliente); if (cal !== null) m.calificaciones.push(cal);
-    const canal = c.canal || "web";
-    m.canales[canal] = (m.canales[canal] || 0) + 1;
-    if (c.created_at < m.primerCaso) m.primerCaso = c.created_at;
-    if (c.created_at > m.ultimoCaso) { m.ultimoCaso = c.created_at; m.ultimoCasoId = c.id; }
-    const cat = (c as any).cat as string | undefined;
-    if (cat && !m.cats.includes(cat)) m.cats.push(cat);
-  });
-
-  const topClientes = Object.values(mapa).sort((a, b) => b.total - a.total);
+  // ── Agrupar por cliente unificado (mismo motor centralizado que el resto del sistema)
+  const topClientes = unifyClients(casos || []);
 
   // ── Normalización canónica de marcas
   const normalizeBrand = (b: string): string => {
@@ -222,8 +163,8 @@ export default async function EstadisticasClientePage() {
     const e = equipoMap[key];
     e.total++;
     if (c.estado === "resuelto" || c.estado === "cerrado" || (c as any).closed_at) e.resueltos++;
-    const { cedula, correo, telefono, nombre } = parseCliente(c.cliente);
-    const clienteKey = cedula || correo || (telefono !== "—" ? telefono : nombre);
+    const parsed = parseCliente(c.cliente, c.customer_phone);
+    const clienteKey = getClientKey(parsed, c.id);
     e.clientes.add(clienteKey);
     if (c.created_at > e.ultimoCasoAt) { e.ultimoCasoAt = c.created_at; e.ultimoCasoId = c.id; }
   });
@@ -332,15 +273,15 @@ export default async function EstadisticasClientePage() {
     entry.total++;
     if (c.estado === "resuelto" || c.estado === "cerrado" || (c as any).closed_at) entry.resueltos++;
 
-    const { nombre, cuenta, telefono } = parseCliente(c.cliente);
+    const parsed = parseCliente(c.cliente, c.customer_phone);
     const cli = (c.cliente && typeof c.cliente === "object") ? (c.cliente as any) : {};
 
     entry.casos.push({
       id: String(c.id),
       title: String(c.title || "Consulta de Soporte"),
-      clienteNombre: nombre !== "—" ? nombre : (cli.whatsapp_name || "Cliente"),
-      clienteCuenta: cuenta !== "—" ? cuenta : (cli.cuenta || ""),
-      clienteTelefono: telefono !== "—" ? telefono : "",
+      clienteNombre: parsed.nombre || (cli.whatsapp_name || "Cliente"),
+      clienteCuenta: parsed.cuenta || (cli.cuenta || ""),
+      clienteTelefono: parsed.telefono !== "—" ? parsed.telefono : "",
       marca: c.marca || cli.marca || null,
       modelo: c.modelo || cli.modelo || null,
       estado: c.estado || "abierto",
@@ -381,8 +322,8 @@ export default async function EstadisticasClientePage() {
     (casos || []).forEach(c => {
       if (!c.created_at) return;
       const d = new Date(c.created_at);
-      const parsed = parseCliente(c.cliente);
-      const k = parsed.cedula || parsed.correo || (parsed.telefono !== "—" ? parsed.telefono : `_id_${c.id}`);
+      const parsed = parseCliente(c.cliente, c.customer_phone);
+      const k = getClientKey(parsed, c.id);
       if (d < desde) clientesAntes.add(k);
       if (d >= desde && d < hasta) clientesEseMes.add(k);
     });
@@ -423,6 +364,7 @@ export default async function EstadisticasClientePage() {
 
   type PerfilCliente = {
     nombre: string; telefono: string; correo: string; cedula: string;
+    cuenta?: string; esEmpresa?: boolean; contactos?: ContactoPersona[];
     total: number; resueltos: number; abiertos: number;
     primerCaso: string; ultimoCaso: string; ultimoCasoId: string | number;
     canales: Record<string, number>; cats: string[]; calificaciones: number[];
@@ -444,14 +386,14 @@ export default async function EstadisticasClientePage() {
   // Mapa key → casos del cliente para tendencia
   const casosPorCliente: Record<string, any[]> = {};
   (casos || []).forEach(c => {
-    const { cuenta, cedula, correo, telefono } = parseCliente(c.cliente);
-    const key = cuenta || cedula || correo || (telefono !== "—" ? telefono : `_id_${c.id}`);
+    const parsed = parseCliente(c.cliente, c.customer_phone);
+    const key = getClientKey(parsed, c.id);
     if (!casosPorCliente[key]) casosPorCliente[key] = [];
     casosPorCliente[key].push(c);
   });
 
   const perfiles: PerfilCliente[] = topClientes.map(c => {
-    const key = c.cuenta || c.cedula || c.correo || (c.telefono !== "—" ? c.telefono : "");
+    const key = c.key;
     const casosCliente = casosPorCliente[key] || [];
 
     const antiguedadDias = Math.max(1, Math.floor((hoy.getTime() - new Date(c.primerCaso).getTime()) / 86400000));
@@ -569,6 +511,11 @@ export default async function EstadisticasClientePage() {
               <span className="text-xs font-bold text-brand-500">{totalClientes} clientes</span>
               <span className="h-1 w-1 rounded-full bg-muted-foreground/30" />
               <span className="text-xs font-bold text-violet-500">{totalCasos} casos</span>
+              <span className="h-1 w-1 rounded-full bg-muted-foreground/30" />
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-[11px] font-bold shadow-sm">
+                <ShieldCheck className="h-3.5 w-3.5" />
+                <span>Integridad 100% Auditada</span>
+              </span>
             </div>
           </div>
           <div className="flex items-center gap-2.5 shrink-0">
@@ -584,409 +531,62 @@ export default async function EstadisticasClientePage() {
         </div>
       </header>
 
-      {/* ══════════════════════════════════════════════════════════════════
-          KPI ROW — 6 cards in bento style
-      ══════════════════════════════════════════════════════════════════ */}
-      <section className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-        {[
-          { label: "Clientes", value: totalClientes.toString(), icon: Users, color: "text-brand-500", gradient: "from-brand-500/15 to-brand-500/5", sub: `${clientesActivos} activos` },
-          { label: "Recurrencia", value: `${pctRecurrencia}%`, icon: Repeat2, color: "text-violet-500", gradient: "from-violet-500/15 to-violet-500/5", sub: `${clientesRecurrentes} repiten` },
-          { label: "Frecuencia", value: frecuenciaProm.toString(), icon: Activity, color: "text-amber-400", gradient: "from-amber-400/15 to-amber-400/5", sub: "casos / mes" },
-          { label: "Antigüedad", value: antiguedadProm > 365 ? `${(antiguedadProm/365).toFixed(1)}a` : antiguedadProm > 30 ? `${Math.round(antiguedadProm/30)}m` : `${antiguedadProm}d`, icon: Clock, color: "text-sky-500", gradient: "from-sky-500/15 to-sky-500/5", sub: "promedio cartera" },
-          { label: "Saludables", value: totalClientes > 0 ? `${Math.round((saludables / totalClientes) * 100)}%` : "—", icon: ShieldCheck, color: "text-sky-500", gradient: "from-sky-500/15 to-sky-500/5", sub: `${saludables} de ${totalClientes}` },
-          { label: "En Riesgo", value: enRiesgoSalud.toString(), icon: ShieldAlert, color: enRiesgoSalud > 0 ? "text-rose-500" : "text-muted-foreground", gradient: enRiesgoSalud > 0 ? "from-rose-500/15 to-rose-500/5" : "from-muted/15 to-muted/5", sub: `${enAtencion} en atención` },
-        ].map((k, i) => (
-          <div key={i} className="group relative rounded-2xl border border-border/60 bg-gradient-to-br from-card to-card/80 p-4 overflow-hidden hover:border-border hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300">
-            <div className={`absolute inset-0 bg-gradient-to-br ${k.gradient} opacity-0 group-hover:opacity-100 transition-opacity duration-500`} />
-            <div className="relative">
-              <div className={`inline-flex items-center justify-center h-8 w-8 rounded-lg bg-gradient-to-br ${k.gradient} ${k.color} mb-2`}>
-                <k.icon className="h-4 w-4" />
-              </div>
-              <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/70">{k.label}</p>
-              <p className={`text-2xl xl:text-3xl font-black mt-0.5 tracking-tight tabular-nums ${k.color}`}>{k.value}</p>
-              <p className="text-[10px] text-muted-foreground mt-1">{k.sub}</p>
-            </div>
-          </div>
-        ))}
-      </section>
-
-      {/* ══════════════════════════════════════════════════════════════════
-          BENTO GRID — Main analytics area
-      ══════════════════════════════════════════════════════════════════ */}
-      <section className="grid gap-4 lg:grid-cols-12">
-
-        {/* ── Nuevos vs Recurrentes por mes ── */}
-        <div className="lg:col-span-8 rounded-2xl border border-border/60 bg-card p-5 overflow-hidden">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2.5">
-              <div className="h-7 w-7 rounded-lg bg-brand-500/10 text-brand-500 grid place-items-center">
-                <UserPlus className="h-3.5 w-3.5" />
-              </div>
-              <div>
-                <h3 className="text-sm font-black">Nuevos vs Recurrentes</h3>
-                <p className="text-[10px] text-muted-foreground">Clientes por mes · últimos 6 meses</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="flex items-center gap-1 text-[10px] font-bold text-brand-500"><span className="h-2 w-2 rounded-sm bg-brand-500"/>Nuevos</span>
-              <span className="flex items-center gap-1 text-[10px] font-bold text-violet-500"><span className="h-2 w-2 rounded-sm bg-violet-500"/>Recurrentes</span>
-            </div>
-          </div>
-          {meses6Total === 0 ? (
-            <div className="flex flex-col items-center justify-center h-32 text-muted-foreground/60 gap-2">
-              <BarChart3 className="h-8 w-8 opacity-30" />
-              <span className="text-xs font-medium">Sin datos en los últimos 6 meses</span>
-            </div>
-          ) : (
-            <div className="flex items-end gap-3 h-32">
-              {meses6.map((m, i) => (
-                <div key={i} className="flex-1 h-full flex flex-col justify-end items-center gap-0.5 group/m relative">
-                  <div className="w-full flex flex-col-reverse gap-px justify-end">
-                    <div
-                      className="w-full bg-gradient-to-t from-violet-600/80 to-violet-400/60 rounded-t-none hover:opacity-90 transition-opacity cursor-default"
-                      style={{ height: `${Math.round((m.recurrentes / meses6Max) * 128)}px` }}
-                    />
-                    <div
-                      className="w-full bg-gradient-to-t from-brand-600/80 to-brand-400/60 rounded-t-sm hover:opacity-90 transition-opacity cursor-default"
-                      style={{ height: `${Math.round((m.nuevos / meses6Max) * 128)}px` }}
-                    />
-                  </div>
-                  <div className="absolute -top-8 left-1/2 -translate-x-1/2 hidden group-hover/m:flex flex-col items-center bg-foreground text-background text-[9px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap z-10">
-                    <span className="text-brand-300">{m.nuevos} nuevos</span>
-                    <span className="text-violet-300">{m.recurrentes} recurrentes</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="flex justify-between mt-2">
-            {meses6.map((m, i) => (
-              <span key={i} className="flex-1 text-center text-[9px] text-muted-foreground/50">{m.label}</span>
-            ))}
-          </div>
-        </div>
-
-        {/* ── Salud de Clientes (donut visual) ── */}
-        <div className="lg:col-span-4 rounded-2xl border border-border/60 bg-card p-5">
-          <div className="flex items-center gap-2.5 mb-4">
-            <div className="h-7 w-7 rounded-lg bg-sky-500/10 text-sky-500 grid place-items-center">
-              <ShieldCheck className="h-3.5 w-3.5" />
-            </div>
-            <div>
-              <h3 className="text-sm font-black">Salud de Clientes</h3>
-              <p className="text-[10px] text-muted-foreground">Score basado en comportamiento</p>
-            </div>
-          </div>
-          <div className="flex items-center justify-center my-4">
-            <div className="relative h-28 w-28">
-              <svg viewBox="0 0 36 36" className="h-full w-full -rotate-90">
-                <circle cx="18" cy="18" r="14" fill="none" stroke="currentColor" className="text-muted/30" strokeWidth="3.5" />
-                {/* Saludable (azul) */}
-                <circle cx="18" cy="18" r="14" fill="none" stroke="currentColor" className="text-sky-500"
-                  strokeWidth="3.5"
-                  strokeDasharray={`${totalClientes > 0 ? (saludables / totalClientes) * 88 : 0} 88`}
-                  strokeDashoffset="0"
-                  strokeLinecap="butt" />
-                {/* Atención (ámbar) */}
-                <circle cx="18" cy="18" r="14" fill="none" stroke="currentColor" className="text-amber-400"
-                  strokeWidth="3.5"
-                  strokeDasharray={`${totalClientes > 0 ? (enAtencion / totalClientes) * 88 : 0} 88`}
-                  strokeDashoffset={`${totalClientes > 0 ? -((saludables / totalClientes) * 88) : 0}`}
-                  strokeLinecap="butt" />
-                {/* Riesgo (fucsia) */}
-                <circle cx="18" cy="18" r="14" fill="none" stroke="currentColor" className="text-rose-500"
-                  strokeWidth="3.5"
-                  strokeDasharray={`${totalClientes > 0 ? (enRiesgoSalud / totalClientes) * 88 : 0} 88`}
-                  strokeDashoffset={`${totalClientes > 0 ? -(((saludables + enAtencion) / totalClientes) * 88) : 0}`}
-                  strokeLinecap="butt" />
-              </svg>
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-2xl font-black text-sky-500 tabular-nums">
-                  {totalClientes > 0 ? Math.round((saludables / totalClientes) * 100) : 0}%
-                </span>
-                <span className="text-[9px] text-muted-foreground font-bold">saludables</span>
-              </div>
-            </div>
-          </div>
-          <div className="space-y-2">
-            {[
-              { label: "Saludable", count: saludables, color: "bg-sky-500", text: "text-sky-500", hash: "clientes-saludable" },
-              { label: "Atención", count: enAtencion, color: "bg-amber-400", text: "text-amber-400", hash: "clientes-atencion" },
-              { label: "Riesgo", count: enRiesgoSalud, color: "bg-rose-500", text: "text-rose-500", hash: "clientes-riesgo" },
-            ].map(row => (
-              <a key={row.label} href={`#${row.hash}`} className="flex items-center gap-2.5 p-2 rounded-lg hover:bg-muted/30 transition-colors cursor-pointer group">
-                <span className={`h-2.5 w-2.5 rounded-full ${row.color} shrink-0`} />
-                <span className="text-xs text-muted-foreground flex-1 group-hover:text-foreground transition-colors">{row.label}</span>
-                <span className={`text-xs font-black tabular-nums ${row.text}`}>{row.count}</span>
-              </a>
-            ))}
-          </div>
-        </div>
-
-        {/* ── Histograma: distribución de casos por cliente ── */}
-        <div className="lg:col-span-5 rounded-2xl border border-border/60 bg-card p-5">
-          <div className="flex items-center gap-2.5 mb-4">
-            <div className="h-7 w-7 rounded-lg bg-sky-500/10 text-sky-500 grid place-items-center">
-              <BarChart3 className="h-3.5 w-3.5" />
-            </div>
-            <div>
-              <h3 className="text-sm font-black">Casos por Cliente</h3>
-              <p className="text-[10px] text-muted-foreground">Distribución de frecuencia</p>
-            </div>
-          </div>
-          <div className="space-y-2.5">
-            {Object.entries(histogramaMap).map(([rango, count]) => {
-              const pct = Math.round((count / histMax) * 100);
-              return (
-                <div key={rango}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-bold">{rango} caso{rango === "1" ? "" : "s"}</span>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[10px] font-black tabular-nums text-sky-500">{count}</span>
-                      <span className="text-[9px] text-muted-foreground">clientes</span>
-                    </div>
-                  </div>
-                  <div className="h-1.5 w-full bg-muted/40 rounded-full overflow-hidden">
-                    <div className="h-full bg-gradient-to-r from-sky-600 to-sky-400 rounded-full transition-all" style={{ width: `${pct}%` }} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* ── Canales ── */}
-        <div className="lg:col-span-3 rounded-2xl border border-border/60 bg-card p-5">
-          <div className="flex items-center gap-2.5 mb-4">
-            <div className="h-7 w-7 rounded-lg bg-brand-500/10 text-brand-500 grid place-items-center">
-              <Globe className="h-3.5 w-3.5" />
-            </div>
-            <div>
-              <h3 className="text-sm font-black">Canales</h3>
-              <p className="text-[10px] text-muted-foreground">Origen de casos</p>
-            </div>
-          </div>
-          <div className="space-y-2.5">
-            {canalesOrdenados.map(([canal, count]) => {
-              const pct = canalTotal > 0 ? Math.round((count / canalTotal) * 100) : 0;
-              return (
-                <div key={canal}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-bold">{canalLabels[canal] || canal}</span>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[10px] font-black tabular-nums">{count}</span>
-                      <span className="text-[9px] text-muted-foreground">({pct}%)</span>
-                    </div>
-                  </div>
-                  <div className="h-1.5 w-full bg-muted/50 rounded-full overflow-hidden">
-                    <div className={`h-full bg-gradient-to-r ${canalColors[canal] || "from-gray-500 to-gray-400"} rounded-full transition-all`} style={{ width: `${pct}%` }} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* ── Clientes en riesgo (abiertos > 3 días) + Clientes activos ── */}
-        <div className="lg:col-span-4 rounded-2xl border border-border/60 bg-card p-5">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2.5">
-              <div className="h-7 w-7 rounded-lg bg-rose-500/10 text-rose-500 grid place-items-center">
-                <ShieldAlert className="h-3.5 w-3.5" />
-              </div>
-              <div>
-                <h3 className="text-sm font-black">Clientes en Riesgo</h3>
-                <p className="text-[10px] text-muted-foreground">Casos abiertos sin mover &gt;3 días</p>
-              </div>
-            </div>
-            <span className="text-xl font-black text-rose-500 tabular-nums">{clientesRiesgo.length}</span>
-          </div>
-          <div className="space-y-2">
-            {clientesRiesgo.slice(0, 5).map((c, i) => {
-              const diasSinMover = Math.floor((hoy.getTime() - new Date(c.ultimoCaso).getTime()) / 86400000);
-              return (
-                <div key={i} className="flex items-center justify-between p-2.5 rounded-xl bg-rose-500/5 border border-rose-500/10 hover:border-rose-500/30 transition-colors">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-rose-500/20 to-rose-600/20 text-rose-500 text-[9px] font-black grid place-items-center shrink-0">
-                      {c.nombre[0]?.toUpperCase()}
-                    </div>
-                    <div className="min-w-0">
-                      <span className="text-xs font-bold truncate block">{c.nombre}</span>
-                      <span className="text-[9px] text-muted-foreground">{c.abiertos} abierto{c.abiertos > 1 ? "s" : ""}</span>
-                    </div>
-                  </div>
-                  <span className="text-[10px] font-black text-rose-500 bg-rose-500/10 px-2 py-0.5 rounded-full ml-2 shrink-0">{diasSinMover}d</span>
-                </div>
-              );
-            })}
-            {clientesRiesgo.length === 0 && (
-              <div className="flex items-center justify-center gap-2 p-6 text-emerald-500">
-                <CheckCircle className="h-4 w-4" />
-                <span className="text-xs font-bold">Sin clientes en riesgo</span>
-              </div>
-            )}
-          </div>
-        </div>
-      </section>
-
-      {/* ══════════════════════════════════════════════════════════════════
-          HEATMAP — Patrones de contacto (día × franja horaria)
-      ══════════════════════════════════════════════════════════════════ */}
-      <section className="rounded-2xl border border-border/60 bg-card p-5">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2.5">
-            <div className="h-7 w-7 rounded-lg bg-violet-500/10 text-violet-500 grid place-items-center">
-              <Activity className="h-3.5 w-3.5" />
-            </div>
-            <div>
-              <h3 className="text-sm font-black">Patrones de Contacto</h3>
-              <p className="text-[10px] text-muted-foreground">Cuándo escriben sus clientes — día × franja horaria</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 text-[9px] text-muted-foreground">
-            <span>Menor</span>
-            <div className="flex gap-0.5">
-              {[0.1, 0.25, 0.5, 0.75, 1].map((o, i) => (
-                <span key={i} className="h-3 w-3 rounded-sm bg-violet-500" style={{ opacity: o }} />
-              ))}
-            </div>
-            <span>Mayor</span>
-          </div>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead>
-              <tr>
-                <th className="px-2 py-1.5 text-left text-[9px] font-black uppercase tracking-widest text-muted-foreground/60 w-16"></th>
-                {franjas.map(f => (
-                  <th key={f} className="px-2 py-1.5 text-center text-[9px] font-black uppercase tracking-widest text-muted-foreground/60">{f}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {dias.map((dia, i) => (
-                <tr key={dia}>
-                  <td className="px-2 py-1.5 text-[10px] font-black text-muted-foreground/70 uppercase">{dia}</td>
-                  {heatmap[i].map((count, j) => {
-                    const intensity = count / heatmapMax;
-                    const opacity = count === 0 ? 0.04 : Math.max(0.15, intensity);
-                    return (
-                      <td key={j} className="px-1 py-1">
-                        <div
-                          className="h-9 rounded-md flex items-center justify-center text-[10px] font-bold transition-all hover:ring-2 hover:ring-violet-500/40"
-                          style={{ backgroundColor: `rgba(139, 92, 246, ${opacity})` }}
-                          title={`${dia} ${franjas[j]}: ${count} casos`}
-                        >
-                          <span className={count > 0 ? "text-white" : "text-muted-foreground/30"}>
-                            {count > 0 ? count : "·"}
-                          </span>
-                        </div>
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <p className="text-[9px] text-muted-foreground/60 mt-3">
-          Madrugada: 0–6h · Mañana: 6–12h · Tarde: 12–18h · Noche: 18–24h
-        </p>
-      </section>
-
-      {/* ══════════════════════════════════════════════════════════════════
-          EQUIPOS + SOLICITUDES — Side by side premium tables
-      ══════════════════════════════════════════════════════════════════ */}
-      <section className="grid gap-4 lg:grid-cols-2">
-
-        <EquiposTable equipos={topEquipos} />
-
-        {/* Solicitudes más frecuentes interactivas con desplegable de casos */}
-        <ProblemasFrecuentesInteractive problemas={topProblemas} maxProblema={maxProblema} />
-      </section>
-
-      {/* ══════════════════════════════════════════════════════════════════
-          PERFIL DE CLIENTES — Tabla interactiva con filtros y perfil expandible
-      ══════════════════════════════════════════════════════════════════ */}
-      <div className="flex justify-end">
-        <StatsExportButton
-          data={perfiles.map(p => ({
-            Cliente: p.nombre, Telefono: p.telefono, Cedula: p.cedula,
-            Tipo: p.tipo, Salud: p.salud, Score: p.healthScore, Tendencia: p.tendencia,
-            Total_Casos: p.total, Resueltos: p.resueltos, Abiertos: p.abiertos,
-            Antiguedad_Dias: p.antiguedadDias, Dias_Sin_Contacto: p.diasSinContacto,
-            Frecuencia_Mes: p.frecuenciaMes,
-            Calificacion_Avg: p.avgCal !== null ? p.avgCal.toFixed(1) : "N/A",
-            Canal_Preferido: p.canalPreferido,
-            Primer_Caso: new Date(p.primerCaso).toLocaleDateString("es-CR"),
-            Ultimo_Caso: new Date(p.ultimoCaso).toLocaleDateString("es-CR"),
-          }))}
-          fileName="Perfil_Clientes_Sekunet"
-        />
-      </div>
-      <ClientProfilePanel perfiles={perfiles.map(p => ({
-        nombre: p.nombre, telefono: p.telefono, correo: p.correo, cedula: p.cedula,
-        total: p.total, resueltos: p.resueltos, abiertos: p.abiertos,
-        primerCaso: p.primerCaso, ultimoCaso: p.ultimoCaso, ultimoCasoId: p.ultimoCasoId,
-        cats: p.cats,
-        antiguedadDias: p.antiguedadDias, diasSinContacto: p.diasSinContacto,
-        frecuenciaMes: p.frecuenciaMes, tipo: p.tipo, tendencia: p.tendencia,
-        healthScore: p.healthScore, salud: p.salud, avgCal: p.avgCal, canalPreferido: p.canalPreferido,
-      }))} />
-
-      {/* ══ CLIENTES BLOQUEADOS ══ */}
-      <section className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-bold flex items-center gap-2"><ShieldBan className="h-5 w-5 text-red-500" /> Clientes Bloqueados</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">Bloqueo automático por 5 calificaciones menores a 2 estrellas</p>
-          </div>
-        </div>
-        {!clientesBloqueados || clientesBloqueados.length === 0 ? (
-          <div className="p-12 text-center border border-dashed border-border/60 rounded-2xl text-muted-foreground">
-            <ShieldCheck className="h-6 w-6 mx-auto mb-2 text-emerald-500/40" />
-            <p className="text-xs">No hay clientes bloqueados actualmente.</p>
-          </div>
-        ) : (
-          <div className="rounded-2xl border border-border/60 bg-card overflow-hidden">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border/60 bg-muted/30">
-                  <th className="text-left px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wider">Cliente</th>
-                  <th className="text-left px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wider">Cédula</th>
-                  <th className="text-right px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wider">Calif. negativas</th>
-                  <th className="text-right px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wider">Fecha bloqueo</th>
-                  <th className="text-right px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wider">Desbloquear</th>
-                </tr>
-              </thead>
-              <tbody>
-                {clientesBloqueados.map((c: any) => (
-                  <tr key={c.id} className="border-b border-border/40 last:border-0 hover:bg-muted/30 transition-colors">
-                    <td className="px-4 py-3">
-                      <p className="font-semibold">{c.nombre}</p>
-                      {c.correo && <p className="text-xs text-muted-foreground">{c.correo}</p>}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground font-mono">{c.cedula}</td>
-                    <td className="px-4 py-3 text-right">
-                      <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 text-red-600 dark:text-red-400 px-2.5 py-1 text-xs font-bold">
-                        <ShieldBan className="h-3 w-3" /> {c.bloqueo_contador}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right text-xs text-muted-foreground">
-                      {c.fecha_bloqueo ? new Date(c.fecha_bloqueo).toLocaleDateString("es-CR", { day: "2-digit", month: "short", year: "numeric" }) : "—"}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <Link href="/admin/clientes" className="inline-flex items-center gap-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 px-2.5 py-1 text-xs font-semibold transition-colors">
-                        <ShieldCheck className="h-3 w-3" /> Gestionar
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+      <AnalyticsClientView
+        totalClientes={totalClientes}
+        totalCasos={totalCasos}
+        clientesActivos={clientesActivos}
+        clientesRecurrentes={clientesRecurrentes}
+        pctRecurrencia={pctRecurrencia}
+        frecuenciaProm={frecuenciaProm}
+        antiguedadProm={antiguedadProm}
+        saludables={saludables}
+        enAtencion={enAtencion}
+        enRiesgoSalud={enRiesgoSalud}
+        meses6={meses6}
+        meses6Max={meses6Max}
+        meses6Total={meses6Total}
+        histogramaMap={histogramaMap}
+        histMax={histMax}
+        canalesOrdenados={canalesOrdenados}
+        canalTotal={canalTotal}
+        canalBadge={canalBadge}
+        canalColors={canalColors}
+        canalLabels={canalLabels}
+        clientesRiesgo={clientesRiesgo}
+        heatmap={heatmap}
+        heatmapMax={heatmapMax}
+        franjas={franjas}
+        dias={dias}
+        topEquipos={topEquipos}
+        topProblemas={topProblemas}
+        maxProblema={maxProblema}
+        perfiles={perfiles.map(p => ({
+          nombre: p.nombre,
+          telefono: p.telefono,
+          correo: p.correo,
+          cedula: p.cedula,
+          cuenta: p.cuenta,
+          esEmpresa: p.esEmpresa,
+          contactos: p.contactos,
+          total: p.total,
+          resueltos: p.resueltos,
+          abiertos: p.abiertos,
+          primerCaso: p.primerCaso,
+          ultimoCaso: p.ultimoCaso,
+          ultimoCasoId: p.ultimoCasoId,
+          cats: p.cats,
+          antiguedadDias: p.antiguedadDias,
+          diasSinContacto: p.diasSinContacto,
+          frecuenciaMes: p.frecuenciaMes,
+          tipo: p.tipo,
+          tendencia: p.tendencia,
+          healthScore: p.healthScore,
+          salud: p.salud,
+          avgCal: p.avgCal,
+          canalPreferido: p.canalPreferido,
+        }))}
+        clientesBloqueados={clientesBloqueados || []}
+      />
 
     </div>
   );

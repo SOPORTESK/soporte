@@ -663,6 +663,7 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
     }
   });
   const [hoveredManualTask, setHoveredManualTask] = useState<any>(null);
+  const isStoppingTaskRef = useRef(false);
 
   // Categorías dinámicas sincronizadas con "Gestionar Categorías"
   const [categoriesConfig, setCategoriesConfig] = useState<any[]>(() => {
@@ -1019,10 +1020,17 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
           const targetDailyHours = computed.targetDailyHours || 10;
           const targetMs = targetDailyHours * 3600 * 1000;
           const productiveMs = computed.masterBuckets.Productivo.durationMs;
-          const deficitMs = Math.max(0, targetMs - productiveMs);
+          const breakMs = computed.masterBuckets.Descanso.durationMs;
+          const sanitaryMs = computed.masterBuckets["Pausa Sanitaria"].durationMs;
+          const workdayMs = productiveMs + breakMs + sanitaryMs;
+          const deficitMs = Math.max(0, targetMs - workdayMs);
           setMyMetrics({
             totalActiveMs: productiveMs,
             totalActiveTime: computed.masterBuckets.Productivo.formattedTime,
+            totalWorkdayMs: workdayMs,
+            totalWorkdayTime: formatDurationMs(workdayMs),
+            totalBreakMs: breakMs,
+            totalSanitaryMs: sanitaryMs,
             rawActiveMs: productiveMs,
             targetDailyHours,
             deficitMs,
@@ -1075,16 +1083,23 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
   };
 
   const stopManualTask = () => {
-    if (!manualTask) return;
+    if (!manualTask || isStoppingTaskRef.current) return;
+    isStoppingTaskRef.current = true;
+    const taskToStop = manualTask;
+    setManualTask(null);
+    try {
+      localStorage.removeItem("sekunet_manual_task");
+    } catch {}
+
     const now = Date.now();
-    const taskStartDateStr = new Date(manualTask.start).toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
+    const taskStartDateStr = new Date(taskToStop.start).toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
     const todayDateStr = new Date(now).toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
     const isSameDay = taskStartDateStr === todayDateStr;
 
     // Si la labor se inició un día anterior o hace más de 8 horas, pertenece a la jornada anterior y no se acumula hoy
     let duration = 0;
     if (isSameDay) {
-      const rawDuration = now - manualTask.start;
+      const rawDuration = now - taskToStop.start;
       duration = Math.min(rawDuration, 4 * 60 * 60 * 1000);
     }
 
@@ -1094,16 +1109,12 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
       logActivity({
         agent_email: agent.email,
         agent_name: fullName,
-        action: `Terminó: ${manualTask.label} (${min}min ${sec}s)`,
-        category: manualTask.type,
+        action: `Terminó: ${taskToStop.label} (${min}min ${sec}s)`,
+        category: taskToStop.type,
         duration_ms: duration,
-        metadata: { manual: true, task: manualTask.label, subcategory: manualTask.subcategory, duration_seconds: Math.round(duration / 1000) },
+        metadata: { manual: true, task: taskToStop.label, subcategory: taskToStop.subcategory, duration_seconds: Math.round(duration / 1000) },
       });
     }
-    setManualTask(null);
-    try {
-      localStorage.removeItem("sekunet_manual_task");
-    } catch {}
 
     // Transmitir inmediatamente el cese de la labor a Electron y demás ventanas
     try {
@@ -1115,6 +1126,9 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
     } catch {}
 
     fetchActivity();
+    setTimeout(() => {
+      isStoppingTaskRef.current = false;
+    }, 2000);
   };
 
   const handleSync = async () => {
@@ -1738,32 +1752,37 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
                   </div>
                 )}
 
-                {/* Fila 2: Métricas en línea compactas */}
-                <div className="flex items-center gap-2 pt-0.5 border-t border-border/40">
-                  <div className="flex-1 flex items-center gap-1.5 bg-card/80 border border-emerald-500/25 rounded-lg px-2 py-1">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-                    <span className="text-[9.5px] font-bold text-muted-foreground uppercase">Activo</span>
-                    <span className="text-[11px] font-black text-emerald-400 ml-auto">{myMetrics?.totalActiveTime || "0m"}</span>
+                {/* Fila 2: Métricas en línea compactas (Jornada transcurrida, Activo puro y Tiempo restante) */}
+                <div className="flex items-center gap-1.5 pt-0.5 border-t border-border/40">
+                  <div className="flex-1 flex items-center gap-1 bg-card/80 border border-violet-500/25 rounded-lg px-1.5 py-1 min-w-0" title="Jornada Laboral transcurrida desde la hora de entrada">
+                    <Clock className="h-2.5 w-2.5 text-violet-400 shrink-0" />
+                    <span className="text-[8.5px] font-bold text-muted-foreground uppercase">Jornada</span>
+                    <span className="text-[10.5px] font-black text-violet-300 ml-auto font-mono truncate">{myMetrics?.totalWorkdayTime || "0m"}</span>
                   </div>
-                  <div className="flex-1 flex items-center gap-1.5 bg-card/80 border border-sky-500/25 rounded-lg px-2 py-1">
+                  <div className="flex-1 flex items-center gap-1 bg-card/80 border border-emerald-500/25 rounded-lg px-1.5 py-1 min-w-0" title="Tiempo activo acumulado en PC y labores de taller">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                    <span className="text-[8.5px] font-bold text-muted-foreground uppercase">Activo</span>
+                    <span className="text-[10.5px] font-black text-emerald-400 ml-auto font-mono truncate">{myMetrics?.totalActiveTime || "0m"}</span>
+                  </div>
+                  <div className="flex-1 flex items-center gap-1 bg-card/80 border border-sky-500/25 rounded-lg px-1.5 py-1 min-w-0" title="Tiempo restante para completar la jornada meta">
                     <Clock className="h-2.5 w-2.5 text-sky-400 shrink-0" />
-                    <span className="text-[9.5px] font-bold text-muted-foreground uppercase">Resta</span>
-                    <span className="text-[11px] font-black text-sky-400 ml-auto">{myMetrics?.deficitMs > 0 ? (myMetrics?.deficitTime || "0m") : "OK"}</span>
+                    <span className="text-[8.5px] font-bold text-muted-foreground uppercase">Resta</span>
+                    <span className="text-[10.5px] font-black text-sky-400 ml-auto font-mono truncate">{myMetrics?.deficitMs > 0 ? (myMetrics?.deficitTime || "0m") : "OK"}</span>
                   </div>
                 </div>
 
-                {/* Fila 3: Barra de progreso */}
+                {/* Fila 3: Barra de progreso de Jornada */}
                 <div className="flex items-center gap-2">
                   <div className="h-1.5 flex-1 rounded-full bg-slate-800/80 overflow-hidden border border-border/40">
                     <div
                       className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-500 rounded-full"
                       style={{
-                        width: `${Math.min(100, Math.round(((myMetrics?.totalActiveMs || 0) / (10 * 3600 * 1000)) * 100))}%`
+                        width: `${Math.min(100, Math.round(((myMetrics?.totalWorkdayMs || (myMetrics?.totalActiveMs || 0) + (myMetrics?.totalBreakMs || 0) + (myMetrics?.totalSanitaryMs || 0)) / (10 * 3600 * 1000)) * 100))}%`
                       }}
                     />
                   </div>
                   <span className="text-[9px] font-bold text-muted-foreground shrink-0">
-                    {Math.min(100, Math.round(((myMetrics?.totalActiveMs || 0) / (10 * 3600 * 1000)) * 100))}%
+                    {Math.min(100, Math.round(((myMetrics?.totalWorkdayMs || (myMetrics?.totalActiveMs || 0) + (myMetrics?.totalBreakMs || 0) + (myMetrics?.totalSanitaryMs || 0)) / (10 * 3600 * 1000)) * 100))}%
                   </span>
                 </div>
               </div>

@@ -6,6 +6,7 @@ import {
   Activity,
   Clock,
   TrendingUp,
+  BarChart3,
   RefreshCw,
   Settings,
   Mail,
@@ -18,6 +19,7 @@ import {
   Phone,
   Headphones,
   Trash2,
+  Pencil,
   ShieldCheck,
   Code,
   Camera,
@@ -53,7 +55,7 @@ import { ActivityHeatmap } from "./activity-heatmap";
 import { ActivityAppsRanking, DEFAULT_CATEGORIES } from "./activity-apps-ranking";
 import { ActivityScreenGallery } from "./activity-screen-gallery";
 import { ActivityAiBriefing } from "./activity-ai-briefing";
-import { ActivityExecutiveCharts } from "./activity-executive-charts";
+import { ActivityAnalyticsTab } from "./activity-analytics-tab";
 import { computeUnifiedActivityMetrics, extractCleanItemName } from "@/lib/activity-engine";
 
 interface TimelineEntry {
@@ -773,7 +775,40 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
   const [selectedAgent, setSelectedAgent] = useState<string | undefined>(defaultEmail);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
   const [selectedEndDate, setSelectedEndDate] = useState<string | undefined>(undefined);
-  const [activeTab, setActiveTab] = useState<"live" | "timeline" | "screenshots" | "apps" | "briefing">("live");
+  const [dateRangeMode, setDateRangeMode] = useState<"single" | "range">("single");
+  const [activeTab, setActiveTab] = useState<"live" | "timeline" | "screenshots" | "apps" | "briefing" | "analytics">("live");
+
+  const handleSuiteDatePreset = (preset: "hoy" | "ayer" | "7d" | "15d" | "mes") => {
+    const now = new Date();
+    const toYMD = (d: Date) => d.toISOString().split("T")[0];
+    if (preset === "hoy") {
+      const today = toYMD(now);
+      setDateRangeMode("single");
+      setSelectedDate(today);
+      setSelectedEndDate(undefined);
+    } else if (preset === "ayer") {
+      const yest = new Date(now.getTime() - 86400000);
+      const yStr = toYMD(yest);
+      setDateRangeMode("single");
+      setSelectedDate(yStr);
+      setSelectedEndDate(undefined);
+    } else if (preset === "7d") {
+      const past7 = new Date(now.getTime() - 6 * 86400000);
+      setDateRangeMode("range");
+      setSelectedDate(toYMD(past7));
+      setSelectedEndDate(toYMD(now));
+    } else if (preset === "15d") {
+      const past15 = new Date(now.getTime() - 14 * 86400000);
+      setDateRangeMode("range");
+      setSelectedDate(toYMD(past15));
+      setSelectedEndDate(toYMD(now));
+    } else if (preset === "mes") {
+      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+      setDateRangeMode("range");
+      setSelectedDate(toYMD(firstDay));
+      setSelectedEndDate(toYMD(now));
+    }
+  };
 
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
@@ -948,6 +983,16 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
   const [serverMetrics, setServerMetrics] = useState<any>(null);
   const [visibleLogsCount, setVisibleLogsCount] = useState<number>(60);
   const [reclassifyingId, setReclassifyingId] = useState<number | null>(null);
+
+  // Estados para Modal de Ajuste Administrativo de Registros
+  const [editingLog, setEditingLog] = useState<TimelineEntry | null>(null);
+  const [editDurationMin, setEditDurationMin] = useState<string>("");
+  const [editCategory, setEditCategory] = useState<string>("");
+  const [editSubcategory, setEditSubcategory] = useState<string>("");
+  const [editAction, setEditAction] = useState<string>("");
+  const [editReason, setEditReason] = useState<string>("");
+  const [savingEdit, setSavingEdit] = useState<boolean>(false);
+  const [deletingLogId, setDeletingLogId] = useState<number | null>(null);
   const fetchLive = useCallback(async () => {
     try {
       const res = await fetch("/api/activity/live");
@@ -991,6 +1036,81 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
       setLoading(false);
     }
   }, [selectedAgent, selectedDate, selectedEndDate]);
+
+  const handleOpenEditLog = (item: TimelineEntry) => {
+    setEditingLog(item);
+    const durMin = item.duration_ms ? Math.round(item.duration_ms / 60000) : 0;
+    setEditDurationMin(String(durMin));
+    setEditCategory(item.category || "Descansos");
+    const meta = (item.metadata || {}) as Record<string, any>;
+    setEditSubcategory(meta.manual_subcategory || meta.subcategory || "");
+    setEditAction(item.action || "");
+    setEditReason(meta.adjusted_reason || "");
+  };
+
+  const handleSaveEditLog = async () => {
+    if (!editingLog) return;
+    setSavingEdit(true);
+    try {
+      const minVal = parseInt(editDurationMin, 10);
+      const newDurationMs = isNaN(minVal) ? 0 : minVal * 60 * 1000;
+
+      const res = await fetch("/api/activity/log", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: editingLog.id,
+          duration_ms: newDurationMs,
+          category: editCategory,
+          subcategory: editSubcategory,
+          action: editAction,
+          reason: editReason || "Corrección manual por administrador",
+          adjusted_by: defaultEmail || "Administrador",
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || "Error al actualizar registro");
+      }
+
+      toast.success("Registro corregido exitosamente. Recalculando analíticas...");
+      setEditingLog(null);
+      fetchTimeline(true);
+    } catch (err: any) {
+      toast.error(err.message || "Error al guardar el ajuste");
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const handleDeleteLog = async (item: TimelineEntry) => {
+    const isBreak = item.category === "Descansos";
+    const promptMsg = isBreak
+      ? `¿Desea anular/eliminar este registro de descanso ("${item.action}")?\n\nEl tiempo se liberará y las analíticas de jornada se recalcularán de inmediato.`
+      : `¿Desea anular/eliminar este registro ("${item.action}")?`;
+
+    if (!confirm(promptMsg)) return;
+
+    setDeletingLogId(item.id);
+    try {
+      const res = await fetch(`/api/activity/log?id=${item.id}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || "Error al eliminar registro");
+      }
+
+      toast.success("Registro eliminado exitosamente. Recalculando analíticas...");
+      setTimeline((prev) => prev.filter((t) => t.id !== item.id));
+      fetchTimeline(true);
+    } catch (err: any) {
+      toast.error(err.message || "Error al eliminar el registro");
+    } finally {
+      setDeletingLogId(null);
+    }
+  };
 
   useEffect(() => {
     fetchLive();
@@ -1233,9 +1353,13 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
       const targetMins = Math.round((serverMetrics.targetDailyHours || targetDailyHours || 10) * 60);
       const activeMins = Math.round((serverMetrics.totalActiveMs || 0) / 60000);
       const rawActiveMins = Math.round((serverMetrics.rawActiveMs || 0) / 60000);
+      const breakMins = Math.round(((serverMetrics.totalBreakMs || 0) + (serverMetrics.totalSanitaryMs || 0)) / 60000);
+      const workdayMins = serverMetrics.totalWorkdayMs
+        ? Math.round(serverMetrics.totalWorkdayMs / 60000)
+        : (activeMins + breakMins);
       const deficitMins = Math.round((serverMetrics.deficitMs || 0) / 60000);
       const rawOtMins = Math.round((serverMetrics.rawOvertimeMs || 0) / 60000);
-      const percent = targetMins > 0 ? Math.round((activeMins / targetMins) * 100) : 0;
+      const percent = targetMins > 0 ? Math.min(100, Math.round((workdayMins / targetMins) * 100)) : 0;
 
       const currentOtReq = overtimeRequests.find(
         (r) => r.agent_email?.toLowerCase() === (selectedAgent || "").toLowerCase()
@@ -1247,11 +1371,13 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
       return {
         rawActiveMinutes: rawActiveMins,
         activeMinutes: activeMins,
+        workdayMinutes: workdayMins,
+        breakMinutes: breakMins,
         targetMinutes: targetMins,
         targetDailyHours: serverMetrics.targetDailyHours || targetDailyHours || 10,
         percent,
-        diffMinutes: activeMins - targetMins,
-        isCompleted: rawActiveMins >= targetMins,
+        diffMinutes: workdayMins - targetMins,
+        isCompleted: workdayMins >= targetMins,
         overtimeMinutes: rawOtMins,
         deficitMinutes: deficitMins,
         isOvertimeApproved,
@@ -1273,9 +1399,14 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
       appMappings,
     });
     const productiveMs = computed.masterBuckets.Productivo.durationMs;
+    const breakMs = computed.masterBuckets.Descanso.durationMs;
+    const sanitaryMs = computed.masterBuckets["Pausa Sanitaria"].durationMs;
+    const workdayMs = productiveMs + breakMs + sanitaryMs;
+    const workdayMinutes = Math.round(workdayMs / 60000);
     const rawActiveMinutes = Math.round(productiveMs / 60000);
+    const breakMinutes = Math.round((breakMs + sanitaryMs) / 60000);
     const targetMinutes = Math.round(targetDailyHours * 60);
-    const diffMinutes = rawActiveMinutes - targetMinutes;
+    const diffMinutes = workdayMinutes - targetMinutes;
     const rawOvertimeMinutes = diffMinutes > 0 ? diffMinutes : 0;
     const deficitMinutes = diffMinutes < 0 ? Math.abs(diffMinutes) : 0;
 
@@ -1286,20 +1417,22 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
     const isOvertimePending = currentOtReq?.status === "pending";
     const isOvertimeRejected = currentOtReq?.status === "rejected";
 
-    const activeMinutesDisplay = (rawOvertimeMinutes > 0 && !isOvertimeApproved)
+    const workdayMinutesDisplay = (rawOvertimeMinutes > 0 && !isOvertimeApproved)
       ? targetMinutes
-      : rawActiveMinutes;
+      : workdayMinutes;
 
-    const percent = targetMinutes > 0 ? Math.round((activeMinutesDisplay / targetMinutes) * 100) : 0;
+    const percent = targetMinutes > 0 ? Math.min(100, Math.round((workdayMinutesDisplay / targetMinutes) * 100)) : 0;
 
     return {
       rawActiveMinutes,
-      activeMinutes: activeMinutesDisplay,
+      activeMinutes: rawActiveMinutes,
+      workdayMinutes: workdayMinutesDisplay,
+      breakMinutes,
       targetMinutes,
       targetDailyHours,
       percent,
       diffMinutes,
-      isCompleted: rawActiveMinutes >= targetMinutes,
+      isCompleted: workdayMinutes >= targetMinutes,
       overtimeMinutes: rawOvertimeMinutes,
       deficitMinutes,
       isOvertimeApproved,
@@ -1334,17 +1467,107 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
           </div>
         </div>
 
-        {/* Controles de fecha y refresco */}
+        {/* Controles de fecha, rango de tiempo y refresco */}
         <div className="flex flex-wrap items-center gap-2.5">
-          {/* Selector de fecha */}
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-border bg-background shadow-sm text-xs font-semibold">
-            <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="bg-transparent text-foreground focus:outline-none cursor-pointer"
-            />
+          {/* Selector de Modalidad Temporal: Día Único vs Rango */}
+          <div className="flex items-center p-0.5 rounded-xl border border-border bg-background shadow-sm">
+            <button
+              onClick={() => {
+                setDateRangeMode("single");
+                setSelectedEndDate(undefined);
+              }}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                dateRangeMode === "single"
+                  ? "bg-violet-600 text-white shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              1 Día
+            </button>
+            <button
+              onClick={() => {
+                setDateRangeMode("range");
+                if (!selectedEndDate || selectedEndDate === selectedDate) {
+                  setSelectedEndDate(selectedDate);
+                }
+              }}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                dateRangeMode === "range"
+                  ? "bg-violet-600 text-white shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Rango
+            </button>
+          </div>
+
+          {/* Selector de Fecha(s) */}
+          {dateRangeMode === "single" ? (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-border bg-background shadow-sm text-xs font-semibold">
+              <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => {
+                  setSelectedDate(e.target.value);
+                  setSelectedEndDate(undefined);
+                }}
+                className="bg-transparent text-foreground focus:outline-none cursor-pointer"
+              />
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-border bg-background shadow-sm text-xs font-semibold">
+              <Calendar className="h-3.5 w-3.5 text-violet-400 shrink-0" />
+              <span className="text-[10px] text-muted-foreground uppercase font-bold">Desde:</span>
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="bg-transparent text-foreground focus:outline-none cursor-pointer"
+              />
+              <span className="text-muted-foreground font-bold">→</span>
+              <span className="text-[10px] text-muted-foreground uppercase font-bold">Hasta:</span>
+              <input
+                type="date"
+                value={selectedEndDate || selectedDate}
+                onChange={(e) => setSelectedEndDate(e.target.value)}
+                className="bg-transparent text-foreground focus:outline-none cursor-pointer"
+              />
+            </div>
+          )}
+
+          {/* Atajos Rápidos de Fechas */}
+          <div className="hidden xl:flex items-center gap-1">
+            <button
+              onClick={() => handleSuiteDatePreset("hoy")}
+              className="px-2 py-1 rounded-lg border border-border bg-background hover:bg-muted text-[11px] font-semibold text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Hoy
+            </button>
+            <button
+              onClick={() => handleSuiteDatePreset("ayer")}
+              className="px-2 py-1 rounded-lg border border-border bg-background hover:bg-muted text-[11px] font-semibold text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Ayer
+            </button>
+            <button
+              onClick={() => handleSuiteDatePreset("7d")}
+              className="px-2 py-1 rounded-lg border border-border bg-background hover:bg-muted text-[11px] font-semibold text-muted-foreground hover:text-foreground transition-colors"
+            >
+              7d
+            </button>
+            <button
+              onClick={() => handleSuiteDatePreset("15d")}
+              className="px-2 py-1 rounded-lg border border-border bg-background hover:bg-muted text-[11px] font-semibold text-muted-foreground hover:text-foreground transition-colors"
+            >
+              15d
+            </button>
+            <button
+              onClick={() => handleSuiteDatePreset("mes")}
+              className="px-2 py-1 rounded-lg border border-border bg-background hover:bg-muted text-[11px] font-semibold text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Mes
+            </button>
           </div>
 
           {/* Selector de Auto-refresco */}
@@ -1430,6 +1653,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
         {[
           { id: "live", label: "En Vivo & Resumen", icon: Activity },
           { id: "apps", label: "Productividad & Apps", icon: Monitor },
+          { id: "analytics", label: "Analíticas & Estadísticas", icon: BarChart3 },
           { id: "timeline", label: "Línea de Tiempo", icon: Clock },
           { id: "screenshots", label: "Capturas de Pantalla", icon: Camera },
           { id: "briefing", label: "Dictamen IA & Reportes", icon: Sparkles },
@@ -1478,7 +1702,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                       {currentAgentObj?.name || selectedAgent}
                     </span>
                     <span className="text-[11px] text-muted-foreground font-mono">
-                      ({selectedDate})
+                      ({selectedEndDate && selectedEndDate !== selectedDate ? `${selectedDate} al ${selectedEndDate}` : selectedDate})
                     </span>
                   </div>
                   <p className="text-xs text-muted-foreground">
@@ -1490,7 +1714,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                   <div className="text-right">
                     <div className="flex items-baseline justify-end gap-1 font-mono">
                       <span className="text-2xl font-black text-foreground">
-                        {Math.floor(agentDailyCompliance.activeMinutes / 60)}h {(agentDailyCompliance.activeMinutes % 60).toString().padStart(2, "0")}m
+                        {Math.floor(agentDailyCompliance.workdayMinutes / 60)}h {(agentDailyCompliance.workdayMinutes % 60).toString().padStart(2, "0")}m
                       </span>
                       <span className="text-xs font-semibold text-muted-foreground">
                         / {targetDailyHours.toFixed(1)}h meta
@@ -1526,8 +1750,24 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                     <span className="font-bold">{agentDailyCompliance.lastLogoutTime || "--:--"}</span>
                   </div>
 
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-violet-500/15 border border-violet-500/30 text-violet-300 font-bold" title="Tiempo total de permanencia de la jornada transcurrido desde la hora de entrada">
+                    <Clock className="h-3.5 w-3.5 text-violet-400" />
+                    <span className="text-[10px] uppercase font-sans font-bold text-violet-400/80">Jornada:</span>
+                    <span>{serverMetrics?.totalWorkdayTime || `${Math.floor(agentDailyCompliance.workdayMinutes / 60)}h ${agentDailyCompliance.workdayMinutes % 60}m`}</span>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-bold">
+                    <Activity className="h-3.5 w-3.5 text-emerald-400" />
+                    <span className="text-[10px] uppercase font-sans font-bold text-emerald-400/80">Activo:</span>
+                    <span>{serverMetrics?.totalActiveTime || `${Math.floor(agentDailyCompliance.activeMinutes / 60)}h ${agentDailyCompliance.activeMinutes % 60}m`}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-300 font-bold">
+                    <Sandwich className="h-3.5 w-3.5 text-amber-400" />
+                    <span className="text-[10px] uppercase font-sans font-bold text-amber-400/80">Descansos:</span>
+                    <span>{serverMetrics?.totalBreakTime || `${agentDailyCompliance.breakMinutes}m`}</span>
+                  </div>
                   <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-muted/60 border border-border text-foreground">
-                    <Monitor className="h-3.5 w-3.5 text-emerald-400" />
+                    <Monitor className="h-3.5 w-3.5 text-sky-400" />
                     <span className="text-[10px] uppercase font-sans font-bold text-muted-foreground">PC:</span>
                     <span className="font-bold">{serverMetrics?.pcWorkTime || "--"}</span>
                   </div>
@@ -1662,12 +1902,12 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
               </div>
             </div>
 
-            {/* Vista rápida de informes narrados de 5 minutos */}
+            {/* Vista rápida de bitácora consolidada de 5 minutos */}
             <div className="p-5 rounded-2xl bg-card border border-border/70 shadow-sm space-y-3">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-sm font-bold text-foreground">Informes Narrados Recientes (Bloques de 5 min)</h3>
-                  <p className="text-[11px] text-muted-foreground">Consolidación de tareas activas continuas del colaborador</p>
+                  <h3 className="text-sm font-bold text-foreground">Bitácora Operativa Consolidada (Intervalos de 5 min)</h3>
+                  <p className="text-[11px] text-muted-foreground">Trazabilidad cronológica de actividades y tareas continuas del colaborador</p>
                 </div>
                 <button
                   onClick={() => setActiveTab("timeline")}
@@ -1728,7 +1968,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  Informes Narrados (Bloques 5 min)
+                  Bitácora Consolidada (5 min)
                 </button>
                 <button
                   onClick={() => setTimelineViewMode("logs")}
@@ -1774,11 +2014,11 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                 <select
                   value={categoryFilter}
                   onChange={(e) => setCategoryFilter(e.target.value)}
-                  className="px-3 py-1.5 rounded-xl border border-border bg-background text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-violet-500"
+                  className="px-3 py-1.5 rounded-xl border border-border bg-background text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-violet-500 [color-scheme:light] dark:[color-scheme:dark]"
                 >
-                  <option value="all">Todas las categorías</option>
+                  <option value="all" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">Todas las categorías</option>
                   {categoriesAvailable.map((c) => (
-                    <option key={c} value={c}>
+                    <option key={c} value={c} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">
                       {c}
                     </option>
                   ))}
@@ -1787,7 +2027,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
 
               {timelineViewMode === "consolidated" ? (
                 <span className="text-xs text-muted-foreground font-semibold">
-                  Mostrando {filteredConsolidatedBlocks.length} informes narrados {scheduleEnabled && `(${scheduleStart} – ${scheduleEnd})`}
+                  Mostrando {filteredConsolidatedBlocks.length} intervalos consolidados {scheduleEnabled && `(${scheduleStart} – ${scheduleEnd})`}
                 </span>
               ) : (
                 <span className="text-xs text-muted-foreground font-semibold">
@@ -1801,7 +2041,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
               <div className="space-y-3">
                 {filteredConsolidatedBlocks.length === 0 ? (
                   <div className="p-12 text-center rounded-2xl bg-card border border-border/70 text-muted-foreground text-xs">
-                    No hay informes registrados para esta fecha, horario o filtros.
+                    No hay registros operativos para esta fecha, horario o filtros.
                   </div>
                 ) : (
                   filteredConsolidatedBlocks.map((block) => {
@@ -1969,11 +2209,11 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                                     const firstSub = found?.subcategories?.[0] || "";
                                     handleReclassifyLog(item, newCat, firstSub);
                                   }}
-                                  className="bg-transparent text-xs font-semibold text-foreground focus:outline-none cursor-pointer"
+                                  className="bg-transparent text-xs font-semibold text-foreground focus:outline-none cursor-pointer [color-scheme:light] dark:[color-scheme:dark]"
                                   title="Reclasificar categoría de este evento y guardar regla en el sistema"
                                 >
                                   {DEFAULT_CATEGORIES.map((cat) => (
-                                    <option key={cat.id} value={cat.id} className="bg-popover text-popover-foreground">
+                                    <option key={cat.id} value={cat.id} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">
                                       {cat.label}
                                     </option>
                                   ))}
@@ -1988,11 +2228,11 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                                     value={currentSubcat || categoryDef.subcategories[0]}
                                     disabled={reclassifyingId === item.id}
                                     onChange={(e) => handleReclassifyLog(item, currentCat, e.target.value)}
-                                    className="bg-transparent text-xs text-muted-foreground hover:text-foreground focus:outline-none cursor-pointer max-w-[140px] truncate"
+                                    className="bg-transparent text-xs text-muted-foreground hover:text-foreground focus:outline-none cursor-pointer max-w-[140px] truncate [color-scheme:light] dark:[color-scheme:dark]"
                                     title="Reclasificar subcategoría"
                                   >
                                     {categoryDef.subcategories.map((sub) => (
-                                      <option key={sub} value={sub} className="bg-popover text-popover-foreground">
+                                      <option key={sub} value={sub} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">
                                         {sub}
                                       </option>
                                     ))}
@@ -2016,6 +2256,31 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                             <span className="font-bold text-foreground text-xs whitespace-nowrap">
                               {timeStr}
                             </span>
+
+                            {/* Acciones Administrativas: Editar y Eliminar */}
+                            <div className="flex items-center gap-1 pl-1 ml-1 border-l border-border/50">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditLog(item)}
+                                className="h-7 w-7 rounded-lg bg-muted/50 hover:bg-violet-600/20 hover:text-violet-400 text-muted-foreground grid place-items-center transition-all cursor-pointer"
+                                title="Ajustar duración, categoría o motivo del registro"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteLog(item)}
+                                disabled={deletingLogId === item.id}
+                                className="h-7 w-7 rounded-lg bg-muted/50 hover:bg-rose-600/20 hover:text-rose-400 text-muted-foreground grid place-items-center transition-all cursor-pointer disabled:opacity-50"
+                                title="Anular o eliminar este registro erróneo"
+                              >
+                                {deletingLogId === item.id ? (
+                                  <RefreshCw className="h-3 w-3 animate-spin text-rose-400" />
+                                ) : (
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                )}
+                              </button>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -2054,35 +2319,13 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
             agentEmail={selectedAgent}
             agentName={currentAgentObj?.name || selectedAgent}
             date={selectedDate}
+            endDate={selectedEndDate}
           />
         )}
 
         {/* PESTAÑA 2: PRODUCTIVIDAD & APLICACIONES */}
         {activeTab === "apps" && (
           <div className="space-y-6">
-            {/* Analíticas Ejecutivas (Donut de Efectividad, Top Tareas Demandantes y Curva de Tendencia Horaria) */}
-            <ActivityExecutiveCharts
-              timeline={timelineWithinSchedule}
-              selectedDate={selectedDate}
-              onDateChange={(date, endDate) => {
-                setSelectedDate(date);
-                setSelectedEndDate(endDate);
-              }}
-              onRefresh={() => {
-                fetchLive();
-                fetchTimeline();
-              }}
-              refreshing={refreshing}
-              scheduleStart={scheduleStart}
-              scheduleEnd={scheduleEnd}
-              compliance={agentDailyCompliance}
-              serverMetrics={serverMetrics}
-              toleranceMinutes={toleranceMinutes}
-              useMixedSchedule={useMixedSchedule}
-              daySchedules={daySchedules}
-              appMappings={appMappings}
-            />
-
             <div className="grid grid-cols-1 gap-6">
               <ActivityAppsRanking
                 timeline={timeline}
@@ -2096,10 +2339,37 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                 onAppMappingsChange={(newMap) => setAppMappings(newMap)}
               />
             </div>
-
-            {/* Mapa de Calor Horario */}
-            <ActivityHeatmap timeline={timelineWithinSchedule} date={selectedDate} />
           </div>
+        )}
+
+        {/* PESTAÑA 3: ANALÍTICAS & ESTADÍSTICAS (INDIVIDUALES Y GRUPALES) */}
+        {activeTab === "analytics" && (
+          <ActivityAnalyticsTab
+            agents={liveAgents}
+            selectedAgent={selectedAgent}
+            onSelectAgent={(email) => setSelectedAgent(email)}
+            selectedDate={selectedDate}
+            selectedEndDate={selectedEndDate}
+            onDateChange={(date, endDate) => {
+              setSelectedDate(date);
+              setSelectedEndDate(endDate);
+              setDateRangeMode(endDate ? "range" : "single");
+            }}
+            individualTimeline={timelineWithinSchedule}
+            scheduleStart={scheduleStart}
+            scheduleEnd={scheduleEnd}
+            compliance={agentDailyCompliance}
+            serverMetrics={serverMetrics}
+            toleranceMinutes={toleranceMinutes}
+            useMixedSchedule={useMixedSchedule}
+            daySchedules={daySchedules}
+            appMappings={appMappings}
+            onRefresh={() => {
+              fetchLive();
+              fetchTimeline();
+            }}
+            refreshing={refreshing}
+          />
         )}
 
         {/* PESTAÑA 5: DICTAMEN IA & REPORTES */}
@@ -2108,11 +2378,195 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
             agentEmail={selectedAgent}
             agentName={currentAgentObj?.name || selectedAgent}
             date={selectedDate}
+            endDate={selectedEndDate}
             timeline={timeline}
             allAgents={liveAgents}
           />
         )}
       </div>
+
+      {/* ── MODAL ULTRA-PREMIUM DE AJUSTE ADMINISTRATIVO DE REGISTROS ── */}
+      {editingLog && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150"
+          onClick={() => setEditingLog(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl bg-card border border-border/80 shadow-2xl p-6 space-y-4 animate-in zoom-in-95 duration-150 text-foreground"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-border/60">
+              <div className="flex items-center gap-2.5">
+                <div className="h-9 w-9 rounded-xl bg-violet-600/20 border border-violet-500/30 text-violet-400 grid place-items-center">
+                  <Pencil className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-foreground">Ajuste Administrativo</h3>
+                  <p className="text-[11px] text-muted-foreground">
+                    Modificar duración o reclasificar registro de actividad
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingLog(null)}
+                className="h-8 w-8 rounded-lg bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground grid place-items-center transition-colors cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Contexto del registro */}
+            <div className="p-3 rounded-xl bg-muted/30 border border-border/50 text-xs space-y-1">
+              <div className="flex justify-between text-muted-foreground">
+                <span>Agente:</span>
+                <span className="font-semibold text-foreground">{editingLog.agent_name || editingLog.agent_email}</span>
+              </div>
+              <div className="flex justify-between text-muted-foreground">
+                <span>Fecha / Hora:</span>
+                <span className="font-mono text-foreground">
+                  {editingLog.created_at ? new Date(editingLog.created_at).toLocaleString("es-CR") : "--"}
+                </span>
+              </div>
+              <div className="flex justify-between text-muted-foreground">
+                <span>Acción original:</span>
+                <span className="font-medium text-foreground truncate max-w-[200px]" title={editingLog.action}>
+                  {editingLog.action}
+                </span>
+              </div>
+            </div>
+
+            {/* Formulario */}
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="font-bold text-muted-foreground block mb-1">
+                  Duración computable (en minutos):
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="0"
+                    max="1440"
+                    value={editDurationMin}
+                    onChange={(e) => setEditDurationMin(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-background border border-border/70 text-foreground font-mono font-bold focus:outline-none focus:ring-2 focus:ring-violet-500"
+                    placeholder="Ej. 45"
+                  />
+                  <span className="text-muted-foreground font-semibold">minutos</span>
+                </div>
+                <span className="text-[10px] text-muted-foreground mt-0.5 block">
+                  Equivale a: {Math.floor((parseInt(editDurationMin, 10) || 0) / 60)}h {(parseInt(editDurationMin, 10) || 0) % 60}m
+                </span>
+              </div>
+
+              <div>
+                <label className="font-bold text-muted-foreground block mb-1">Categoría oficial:</label>
+                <select
+                  value={editCategory}
+                  onChange={(e) => {
+                    setEditCategory(e.target.value);
+                    const found = DEFAULT_CATEGORIES.find((c) => c.id === e.target.value);
+                    if (found && found.subcategories?.[0]) {
+                      setEditSubcategory(found.subcategories[0]);
+                    }
+                  }}
+                  className="w-full px-3 py-2 rounded-xl bg-background border border-border/70 text-foreground font-semibold focus:outline-none focus:ring-2 focus:ring-violet-500 cursor-pointer [color-scheme:light] dark:[color-scheme:dark]"
+                >
+                  {DEFAULT_CATEGORIES.map((cat) => (
+                    <option key={cat.id} value={cat.id} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">
+                      {cat.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="font-bold text-muted-foreground block mb-1">Subcategoría:</label>
+                {(() => {
+                  const catDef = DEFAULT_CATEGORIES.find((c) => c.id === editCategory);
+                  if (catDef && catDef.subcategories && catDef.subcategories.length > 0) {
+                    return (
+                      <select
+                        value={editSubcategory || catDef.subcategories[0]}
+                        onChange={(e) => setEditSubcategory(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl bg-background border border-border/70 text-foreground font-semibold focus:outline-none focus:ring-2 focus:ring-violet-500 cursor-pointer [color-scheme:light] dark:[color-scheme:dark]"
+                      >
+                        {catDef.subcategories.map((sub) => (
+                          <option key={sub} value={sub} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">
+                            {sub}
+                          </option>
+                        ))}
+                      </select>
+                    );
+                  }
+                  return (
+                    <input
+                      type="text"
+                      value={editSubcategory}
+                      onChange={(e) => setEditSubcategory(e.target.value)}
+                      placeholder="Subcategoría opcional"
+                      className="w-full px-3 py-2 rounded-xl bg-background border border-border/70 text-foreground font-medium focus:outline-none focus:ring-2 focus:ring-violet-500"
+                    />
+                  );
+                })()}
+              </div>
+
+              <div>
+                <label className="font-bold text-muted-foreground block mb-1">Título / Acción visible:</label>
+                <input
+                  type="text"
+                  value={editAction}
+                  onChange={(e) => setEditAction(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-background border border-border/70 text-foreground font-medium focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  placeholder="Descripción de la actividad"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-muted-foreground block mb-1">
+                  Motivo del ajuste (Auditoría administrativa):
+                </label>
+                <input
+                  type="text"
+                  value={editReason}
+                  onChange={(e) => setEditReason(e.target.value)}
+                  placeholder="Ej. Temporizador dejado en segundo plano por error"
+                  className="w-full px-3 py-2 rounded-xl bg-background border border-border/70 text-foreground font-medium focus:outline-none focus:ring-2 focus:ring-violet-500"
+                />
+              </div>
+            </div>
+
+            {/* Botones de acción */}
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-border/60">
+              <button
+                type="button"
+                onClick={() => setEditingLog(null)}
+                className="px-4 py-2 rounded-xl border border-border/60 hover:bg-muted font-bold text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={savingEdit}
+                onClick={handleSaveEditLog}
+                className="px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-xs shadow-md shadow-violet-600/25 transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {savingEdit ? (
+                  <>
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    Guardando...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    Aplicar Corrección
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

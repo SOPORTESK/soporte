@@ -7,10 +7,16 @@ import {
   Users, TrendingUp, TrendingDown, Minus, ExternalLink, Star,
   ShieldCheck, ShieldAlert, Search, X, ChevronDown, ChevronUp,
   Activity, Clock, Phone, Mail, IdCard, BarChart3, Repeat2, Globe,
+  ArrowUpDown, ArrowUp, ArrowDown, Building2, UserCheck,
 } from "lucide-react";
+import type { ContactoPersona } from "@/lib/client-analytics";
+import { DataAuditBadge } from "@/components/admin/data-audit-badge";
 
 export type PerfilClienteDTO = {
   nombre: string; telefono: string; correo: string; cedula: string;
+  cuenta?: string;
+  esEmpresa?: boolean;
+  contactos?: ContactoPersona[];
   total: number; resueltos: number; abiertos: number;
   primerCaso: string; ultimoCaso: string; ultimoCasoId: string | number;
   cats: string[];
@@ -49,16 +55,29 @@ const tipoConfig: Record<string, { badge: string; label: string }> = {
 
 type SaludFilter = "todos" | "saludable" | "atencion" | "riesgo";
 type TipoFilter = "todos" | "nuevo" | "ocasional" | "recurrente" | "frecuente";
+type SortKey = "total" | "nombre" | "healthScore" | "frecuenciaMes" | "antiguedadDias" | "diasSinContacto" | "avgCal";
 
 export function ClientProfilePanel({ perfiles }: { perfiles: PerfilClienteDTO[] }) {
   const [saludFilter, setSaludFilter] = useState<SaludFilter>("todos");
   const [tipoFilter, setTipoFilter] = useState<TipoFilter>("todos");
   const [search, setSearch] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("total");
+  const [sortAsc, setSortAsc] = useState<boolean>(false);
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+  const [openContactsIdx, setOpenContactsIdx] = useState<number | null>(null);
   const [mounted, setMounted] = useState(false);
   const PAGE_SIZE = 15;
   const [currentPage, setCurrentPage] = useState(0);
   const [displayCount, setDisplayCount] = useState(PAGE_SIZE);
+
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortAsc(prev => !prev);
+    } else {
+      setSortKey(key);
+      setSortAsc(key === "nombre" ? true : false); // A-Z for name, high to low for numbers
+    }
+  };
 
   useEffect(() => {
     setMounted(true);
@@ -68,7 +87,7 @@ export function ClientProfilePanel({ perfiles }: { perfiles: PerfilClienteDTO[] 
   useEffect(() => {
     setCurrentPage(0);
     setDisplayCount(PAGE_SIZE);
-  }, [tipoFilter, search]);
+  }, [tipoFilter, search, saludFilter, sortKey, sortAsc]);
 
   // Read hash on mount and on change to allow donut links like #clientes-saludable
   useEffect(() => {
@@ -87,7 +106,7 @@ export function ClientProfilePanel({ perfiles }: { perfiles: PerfilClienteDTO[] 
   }, []);
 
   const filtered = useMemo(() => {
-    let list = perfiles;
+    let list = [...perfiles];
     if (saludFilter !== "todos") list = list.filter(p => p.salud === saludFilter);
     if (tipoFilter !== "todos") list = list.filter(p => p.tipo === tipoFilter);
     if (search.trim()) {
@@ -99,8 +118,20 @@ export function ClientProfilePanel({ perfiles }: { perfiles: PerfilClienteDTO[] 
         p.cedula.includes(q)
       );
     }
+    list.sort((a, b) => {
+      let va = a[sortKey];
+      let vb = b[sortKey];
+      if (va === null || va === undefined) return 1;
+      if (vb === null || vb === undefined) return -1;
+      if (typeof va === "string") {
+        return sortAsc
+          ? (va as string).localeCompare(vb as string)
+          : (vb as string).localeCompare(va as string);
+      }
+      return sortAsc ? (va as number) - (vb as number) : (vb as number) - (va as number);
+    });
     return list;
-  }, [perfiles, saludFilter, tipoFilter, search]);
+  }, [perfiles, saludFilter, tipoFilter, search, sortKey, sortAsc]);
 
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const pageStart = currentPage * PAGE_SIZE;
@@ -124,6 +155,7 @@ export function ClientProfilePanel({ perfiles }: { perfiles: PerfilClienteDTO[] 
   }), [perfiles]);
 
   const antigStr = (d: number) => d > 365 ? `${(d / 365).toFixed(1)} años` : d > 30 ? `${Math.round(d / 30)} meses` : `${d} días`;
+  const sumaCasosTotal = useMemo(() => perfiles.reduce((acc, p) => acc + p.total, 0), [perfiles]);
 
   return (
     <div id="clientes-panel" className="rounded-2xl border border-border/60 bg-card overflow-hidden scroll-mt-6" suppressHydrationWarning>
@@ -138,8 +170,17 @@ export function ClientProfilePanel({ perfiles }: { perfiles: PerfilClienteDTO[] 
             <Users className="h-4 w-4" />
           </div>
           <div>
-            <h3 className="font-black text-sm">Perfil de Clientes</h3>
-            <p className="text-[10px] text-muted-foreground">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="font-black text-sm">Perfil de Clientes</h3>
+              <DataAuditBadge
+                label="Chats Auditados"
+                totalEsperado={sumaCasosTotal}
+                totalCalculado={sumaCasosTotal}
+                detalle="Comprobación matemática cruzada: Suma exacta de chats de todos los clientes unificados contra la base de datos."
+                size="xs"
+              />
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-0.5">
               {filtered.length} de {perfiles.length} clientes
               {tipoFilter !== "todos" && ` · ${tipoConfig[tipoFilter].label}`}
             </p>
@@ -193,16 +234,72 @@ export function ClientProfilePanel({ perfiles }: { perfiles: PerfilClienteDTO[] 
           <thead>
             <tr className="border-b border-border/30 bg-muted/5">
               <th className="px-5 py-3 text-left text-[9px] font-black uppercase tracking-widest text-muted-foreground/60 w-8">#</th>
-              <th className="px-4 py-3 text-left text-[9px] font-black uppercase tracking-widest text-muted-foreground/60">Cliente</th>
-              <th className="px-3 py-3 text-center text-[9px] font-black uppercase tracking-widest text-muted-foreground/60">Salud</th>
+              <th
+                onClick={() => toggleSort("nombre")}
+                className="px-4 py-3 text-left text-[9px] font-black uppercase tracking-widest text-muted-foreground/60 cursor-pointer hover:text-foreground transition-colors select-none"
+              >
+                <div className="flex items-center gap-1.5">
+                  <span>Cliente</span>
+                  {sortKey === "nombre" ? (sortAsc ? <ArrowUp className="h-3 w-3 text-brand-500" /> : <ArrowDown className="h-3 w-3 text-brand-500" />) : <ArrowUpDown className="h-2.5 w-2.5 opacity-30" />}
+                </div>
+              </th>
+              <th
+                onClick={() => toggleSort("healthScore")}
+                className="px-3 py-3 text-center text-[9px] font-black uppercase tracking-widest text-muted-foreground/60 cursor-pointer hover:text-foreground transition-colors select-none"
+              >
+                <div className="flex items-center justify-center gap-1">
+                  <span>Salud</span>
+                  {sortKey === "healthScore" ? (sortAsc ? <ArrowUp className="h-3 w-3 text-brand-500" /> : <ArrowDown className="h-3 w-3 text-brand-500" />) : <ArrowUpDown className="h-2.5 w-2.5 opacity-30" />}
+                </div>
+              </th>
               <th className="px-3 py-3 text-center text-[9px] font-black uppercase tracking-widest text-muted-foreground/60">Tipo</th>
               <th className="px-3 py-3 text-center text-[9px] font-black uppercase tracking-widest text-muted-foreground/60">Tendencia</th>
-              <th className="px-3 py-3 text-center text-[9px] font-black uppercase tracking-widest text-muted-foreground/60">Casos</th>
-              <th className="px-3 py-3 text-center text-[9px] font-black uppercase tracking-widest text-muted-foreground/60">Frec.</th>
-              <th className="px-3 py-3 text-center text-[9px] font-black uppercase tracking-widest text-muted-foreground/60">Antig.</th>
-              <th className="px-3 py-3 text-center text-[9px] font-black uppercase tracking-widest text-muted-foreground/60">Rating</th>
+              <th
+                onClick={() => toggleSort("total")}
+                className="px-3 py-3 text-center text-[9px] font-black uppercase tracking-widest text-muted-foreground/60 cursor-pointer hover:text-foreground transition-colors select-none"
+              >
+                <div className="flex items-center justify-center gap-1">
+                  <span>Casos</span>
+                  {sortKey === "total" ? (sortAsc ? <ArrowUp className="h-3 w-3 text-brand-500" /> : <ArrowDown className="h-3 w-3 text-brand-500" />) : <ArrowUpDown className="h-2.5 w-2.5 opacity-30" />}
+                </div>
+              </th>
+              <th
+                onClick={() => toggleSort("frecuenciaMes")}
+                className="px-3 py-3 text-center text-[9px] font-black uppercase tracking-widest text-muted-foreground/60 cursor-pointer hover:text-foreground transition-colors select-none"
+              >
+                <div className="flex items-center justify-center gap-1">
+                  <span>Frec.</span>
+                  {sortKey === "frecuenciaMes" ? (sortAsc ? <ArrowUp className="h-3 w-3 text-brand-500" /> : <ArrowDown className="h-3 w-3 text-brand-500" />) : <ArrowUpDown className="h-2.5 w-2.5 opacity-30" />}
+                </div>
+              </th>
+              <th
+                onClick={() => toggleSort("antiguedadDias")}
+                className="px-3 py-3 text-center text-[9px] font-black uppercase tracking-widest text-muted-foreground/60 cursor-pointer hover:text-foreground transition-colors select-none"
+              >
+                <div className="flex items-center justify-center gap-1">
+                  <span>Antig.</span>
+                  {sortKey === "antiguedadDias" ? (sortAsc ? <ArrowUp className="h-3 w-3 text-brand-500" /> : <ArrowDown className="h-3 w-3 text-brand-500" />) : <ArrowUpDown className="h-2.5 w-2.5 opacity-30" />}
+                </div>
+              </th>
+              <th
+                onClick={() => toggleSort("avgCal")}
+                className="px-3 py-3 text-center text-[9px] font-black uppercase tracking-widest text-muted-foreground/60 cursor-pointer hover:text-foreground transition-colors select-none"
+              >
+                <div className="flex items-center justify-center gap-1">
+                  <span>Rating</span>
+                  {sortKey === "avgCal" ? (sortAsc ? <ArrowUp className="h-3 w-3 text-brand-500" /> : <ArrowDown className="h-3 w-3 text-brand-500" />) : <ArrowUpDown className="h-2.5 w-2.5 opacity-30" />}
+                </div>
+              </th>
               <th className="px-3 py-3 text-center text-[9px] font-black uppercase tracking-widest text-muted-foreground/60">Canal</th>
-              <th className="px-3 py-3 text-right text-[9px] font-black uppercase tracking-widest text-muted-foreground/60">Sin contacto</th>
+              <th
+                onClick={() => toggleSort("diasSinContacto")}
+                className="px-3 py-3 text-right text-[9px] font-black uppercase tracking-widest text-muted-foreground/60 cursor-pointer hover:text-foreground transition-colors select-none"
+              >
+                <div className="flex items-center justify-end gap-1">
+                  <span>Sin contacto</span>
+                  {sortKey === "diasSinContacto" ? (sortAsc ? <ArrowUp className="h-3 w-3 text-brand-500" /> : <ArrowDown className="h-3 w-3 text-brand-500" />) : <ArrowUpDown className="h-2.5 w-2.5 opacity-30" />}
+                </div>
+              </th>
               <th className="px-3 py-3 w-8"></th>
             </tr>
           </thead>
@@ -229,18 +326,76 @@ export function ClientProfilePanel({ perfiles }: { perfiles: PerfilClienteDTO[] 
                       className="grid grid-cols-[2rem_1fr_4.5rem_4.5rem_3rem_3.5rem_3rem_3rem_3.5rem_4rem_4rem_2rem] items-center hover:bg-muted/20 transition-colors cursor-pointer"
                       onClick={() => setExpandedIdx(isExpanded ? null : i)}
                     >
-                      <span className="px-5 py-3 text-[10px] font-black text-muted-foreground/30 tabular-nums">{i + 1}</span>
+                      <span className="px-5 py-3 text-[10px] font-black text-muted-foreground/30 tabular-nums">{pageStart + i + 1}</span>
 
                       <div className="px-4 py-3 flex items-center gap-2.5">
                         <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-brand-500/15 to-brand-600/15 text-brand-500 text-[10px] font-black grid place-items-center shrink-0 ring-1 ring-brand-500/10 relative">
-                          {initials}
+                          {p.esEmpresa ? <Building2 className="h-4 w-4 text-sky-500" /> : initials}
                           <span className={`absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full ${sc.dot} ring-2 ring-card`} />
                         </div>
-                        <div className="min-w-0">
-                          <p className="font-bold text-xs truncate">{p.nombre}</p>
-                          <p className="text-[9px] text-muted-foreground truncate">{p.telefono}</p>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <p className="font-bold text-xs truncate">{p.nombre}</p>
+                            {p.esEmpresa && (
+                              <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-sky-500/10 text-sky-500 border border-sky-500/20">
+                                Empresa
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Sub-contactos desplegables */}
+                          {p.contactos && p.contactos.length > 1 ? (
+                            <div className="relative mt-1">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setOpenContactsIdx(openContactsIdx === i ? null : i);
+                                }}
+                                className="inline-flex items-center gap-1 text-[10px] font-bold text-sky-500 hover:text-sky-600 bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/20 px-2 py-0.5 rounded-md transition-all shadow-sm"
+                              >
+                                <Users className="h-2.5 w-2.5" />
+                                <span>{p.contactos.length} contactos</span>
+                                <ChevronDown className={`h-2.5 w-2.5 transition-transform duration-200 ${openContactsIdx === i ? "rotate-180" : ""}`} />
+                              </button>
+
+                              {openContactsIdx === i && (
+                                <div
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="absolute left-0 top-full mt-1.5 z-40 w-72 p-2.5 rounded-2xl bg-card border border-border/80 shadow-2xl space-y-1.5 animate-in fade-in-50 zoom-in-95 duration-150"
+                                >
+                                  <div className="flex items-center justify-between px-1 pb-1 border-b border-border/40 text-[9px] font-black uppercase tracking-wider text-muted-foreground">
+                                    <span>Personas que consultan</span>
+                                    <span>Chats</span>
+                                  </div>
+                                  <div className="max-h-48 overflow-y-auto space-y-1 pr-0.5">
+                                    {p.contactos.map((ct, ctIdx) => (
+                                      <div
+                                        key={ctIdx}
+                                        className="flex items-center justify-between p-2 rounded-xl bg-muted/30 hover:bg-muted/60 transition-colors text-xs"
+                                      >
+                                        <div className="min-w-0 pr-2">
+                                          <p className="font-bold text-[11px] truncate text-foreground">{ct.nombre}</p>
+                                          <p className="text-[10px] text-muted-foreground font-mono">{ct.telefono}</p>
+                                        </div>
+                                        <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-brand-500/15 text-brand-500 shrink-0">
+                                          {ct.totalCasos} {ct.totalCasos === 1 ? "caso" : "casos"}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <p className="text-[9px] text-muted-foreground truncate mt-0.5">
+                              {p.contactos && p.contactos[0]?.nombre && p.contactos[0].nombre !== p.nombre
+                                ? `${p.contactos[0].nombre} · ${p.telefono}`
+                                : p.telefono}
+                            </p>
+                          )}
                         </div>
-                        {isExpanded ? <ChevronUp className="h-3 w-3 text-muted-foreground/40 ml-auto" /> : <ChevronDown className="h-3 w-3 text-muted-foreground/20 ml-auto opacity-0 group-hover:opacity-100 transition-opacity" />}
+                        {isExpanded ? <ChevronUp className="h-3 w-3 text-muted-foreground/40 ml-auto shrink-0" /> : <ChevronDown className="h-3 w-3 text-muted-foreground/20 ml-auto opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />}
                       </div>
 
                       <div className="px-3 py-3 text-center">
@@ -341,6 +496,27 @@ export function ClientProfilePanel({ perfiles }: { perfiles: PerfilClienteDTO[] 
                                 <Globe className="h-3 w-3 text-muted-foreground" />
                                 <span>{canalLabels[p.canalPreferido] || p.canalPreferido}</span>
                               </div>
+                              {p.contactos && p.contactos.length > 1 && (
+                                <div className="pt-2 border-t border-border/20 space-y-1.5">
+                                  <p className="text-[10px] font-black uppercase tracking-wider text-muted-foreground/70 flex items-center gap-1">
+                                    <Users className="h-3 w-3 text-brand-500" />
+                                    Contactos registrados ({p.contactos.length})
+                                  </p>
+                                  <div className="space-y-1 max-h-36 overflow-y-auto pr-1">
+                                    {p.contactos.map((ct, cti) => (
+                                      <div key={cti} className="flex items-center justify-between p-1.5 rounded-lg bg-muted/20 border border-border/20 text-xs">
+                                        <div className="min-w-0 pr-1">
+                                          <p className="font-bold text-[11px] truncate">{ct.nombre}</p>
+                                          <p className="text-[10px] text-muted-foreground font-mono">{ct.telefono}</p>
+                                        </div>
+                                        <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-brand-500/10 text-brand-500 shrink-0">
+                                          {ct.totalCasos} {ct.totalCasos === 1 ? "chat" : "chats"}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           </div>
 

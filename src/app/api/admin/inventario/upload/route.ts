@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
+import { inferBrand, inferCategory } from "@/lib/inventory-classifier";
 
 export async function POST(req: NextRequest) {
   const supabase = createClient();
@@ -38,45 +39,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Excel vacío o sin datos" }, { status: 400 });
     }
 
-    // Detectar columnas (filas: MARCA, MODELO, DESCRIPCION)
+    // Detectar columnas (filas: MARCA, MODELO, DESCRIPCION / CATEGORÍA)
     const headers = data[0].map((h: string) => h?.toString().toUpperCase().trim());
     const marcaIdx = headers.findIndex((h: string) => h.includes("MARCA"));
-    const modeloIdx = headers.findIndex((h: string) => h.includes("MODELO"));
-    const descIdx = headers.findIndex((h: string) => h.includes("DESCRIP") || h.includes("NOMBRE"));
+    const modeloIdx = headers.findIndex((h: string) => h.includes("MODELO") || h.includes("CODIGO") || h.includes("CÓDIGO"));
+    const descIdx = headers.findIndex((h: string) => h.includes("DESCRIP") || h.includes("NOMBRE") || h.includes("PRODUCTO") || h.includes("DETALLE"));
+    const catIdx = headers.findIndex((h: string) => h.includes("CATEGOR"));
 
-    if (marcaIdx === -1 || modeloIdx === -1 || descIdx === -1) {
+    const hasValidDescCol = descIdx !== -1 || catIdx !== -1;
+
+    if (modeloIdx === -1 || !hasValidDescCol) {
       return NextResponse.json({ 
-        error: `Columnas no encontradas. Headers detectados: ${headers.join(", ")}. Se esperan: MARCA, MODELO, DESCRIPCION` 
+        error: `Columnas no encontradas. Headers detectados: ${headers.join(", ")}. Se esperan al menos: MODELO y DESCRIPCION` 
       }, { status: 400 });
     }
-
-    // Función para adivinar la marca si viene vacía
-    const guessMarca = (marca: string | null, modelo: string | null, nombre: string | null) => {
-      if (marca && marca.trim() !== "" && marca !== "—" && marca !== "-") return marca;
-      const mod = (modelo || "").toUpperCase();
-      const nom = (nombre || "").toUpperCase();
-      
-      if (mod.startsWith("HIK") || mod.startsWith("DS-") || nom.includes("HIKVISION")) return "HIKVISION";
-      if (mod.startsWith("DH-") || mod.startsWith("HAC-") || mod.startsWith("IPC-") || nom.includes("DAHUA")) return "DAHUA";
-      if (mod.startsWith("SAX") || nom.includes("SAXXON")) return "SAXXON";
-      if (mod.startsWith("PRO") || nom.includes("PROVISION")) return "PROVISION";
-      if (mod.startsWith("XMR") || nom.includes("EPCOM")) return "EPCOM";
-      if (mod.startsWith("UBI") || nom.includes("UBIQUITI")) return "UBIQUITI";
-      if (mod.startsWith("MI-") || nom.includes("XIAOMI")) return "XIAOMI";
-      if (nom.includes("D-LINK") || mod.startsWith("DGS-")) return "D-LINK";
-      if (nom.includes("TP-LINK") || mod.startsWith("TL-")) return "TP-LINK";
-      if (nom.includes("WESTERN DIGITAL") || mod.startsWith("WD")) return "WESTERN DIGITAL";
-      if (nom.includes("SEAGATE") || mod.startsWith("ST")) return "SEAGATE";
-      if (nom.includes("KINGSTON")) return "KINGSTON";
-      if (nom.includes("ADATA")) return "ADATA";
-      if (nom.includes("ZKTECO") || mod.startsWith("ZK")) return "ZKTECO";
-      if (mod.startsWith("EZV") || nom.includes("EZVIZ")) return "EZVIZ";
-      if (mod.startsWith("IMOU") || nom.includes("IMOU")) return "IMOU";
-      if (mod.startsWith("SYS") || nom.includes("SYCOM")) return "SYSCOM";
-      if (mod.startsWith("LINK") || nom.includes("LINKSYS")) return "LINKSYS";
-      
-      return null;
-    };
 
     // Procesar datos (omitir fila de headers)
     const items = [];
@@ -84,13 +60,21 @@ export async function POST(req: NextRequest) {
     
     for (let i = 1; i < data.length; i++) {
       const row = data[i];
-      if (!row[marcaIdx] && !row[modeloIdx]) continue; // Saltar filas vacías
-
-      let marca = row[marcaIdx]?.toString().trim() || "";
+      if (!row || row.length === 0) continue;
+      
+      const marcaRaw = marcaIdx !== -1 ? (row[marcaIdx]?.toString().trim() || "") : "";
       const modelo = row[modeloIdx]?.toString().trim() || "";
-      const nombre = row[descIdx]?.toString().trim() || "";
+      let nombre = descIdx !== -1 ? (row[descIdx]?.toString().trim() || "") : "";
 
-      marca = guessMarca(marca, modelo, nombre) || marca;
+      // Fallback inteligente: si la columna de descripción está vacía pero en CATEGORÍA vino el texto del producto
+      if (!nombre && catIdx !== -1 && row[catIdx]) {
+        nombre = row[catIdx]?.toString().trim() || "";
+      }
+
+      if (!modelo && !nombre) continue; // Saltar filas completamente vacías
+
+      const marca = inferBrand(marcaRaw, modelo, nombre);
+      const categoria = inferCategory(marca, modelo, nombre);
 
       if (!nombre) {
         errors.push(`Fila ${i + 1}: sin descripción`);
@@ -103,7 +87,7 @@ export async function POST(req: NextRequest) {
         nombre: nombre,
         codigo: modelo || null, // Usar modelo como código si no hay otro
         cantidad: 1,
-        categoria: null,
+        categoria: categoria,
         ubicacion: null,
         notas: null,
         date: new Date().toISOString().split("T")[0]

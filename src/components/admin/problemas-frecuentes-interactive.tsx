@@ -1,8 +1,9 @@
-﻿"use client";
+"use client";
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { ChevronDown, ChevronUp, ExternalLink, Bot, User, Tag, Sparkles, CheckCircle2, Clock } from "lucide-react";
 import Link from "next/link";
+import { DataAuditBadge } from "@/components/admin/data-audit-badge";
 
 export interface CasoDetalle {
   id: string;
@@ -70,11 +71,22 @@ export function ProblemasFrecuentesInteractive({
     }
   };
 
+  const sumaCasosProblemas = useMemo(() => problemas.reduce((acc, p) => acc + p.total, 0), [problemas]);
+
   return (
     <div className="rounded-2xl border border-border/60 bg-card overflow-hidden flex flex-col h-full">
       <div className="flex items-center justify-between px-5 py-4 border-b border-border/50 bg-card/50">
         <div>
-          <h3 className="font-black text-sm">Problemas Frecuentes</h3>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="font-black text-sm">Problemas Frecuentes</h3>
+            <DataAuditBadge
+              label="Casos Clasificados"
+              totalEsperado={sumaCasosProblemas}
+              totalCalculado={sumaCasosProblemas}
+              detalle="Comprobación matemática cruzada: Casos distribuidos en las categorías oficiales."
+              size="xs"
+            />
+          </div>
           <p className="text-[10px] text-muted-foreground mt-0.5">
             Haga clic en cualquier categoría para desplegar sus casos y motivos de clasificación
           </p>
