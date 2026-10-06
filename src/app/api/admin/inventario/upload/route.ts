@@ -1,7 +1,10 @@
 import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { inferBrand, inferCategory } from "@/lib/inventory-classifier";
+import { cacheDelete } from "@/lib/supabase/cache";
+import crypto from "crypto";
 
 export async function POST(req: NextRequest) {
   const supabase = createClient();
@@ -57,6 +60,7 @@ export async function POST(req: NextRequest) {
     // Procesar datos (omitir fila de headers)
     const items = [];
     const errors = [];
+    const nowIso = new Date().toISOString();
     
     for (let i = 1; i < data.length; i++) {
       const row = data[i];
@@ -82,28 +86,31 @@ export async function POST(req: NextRequest) {
       }
 
       items.push({
-        marca: marca || null,
+        id: crypto.randomUUID(),
+        marca: marca || "GENÉRICO",
         modelo: modelo || null,
-        nombre: nombre,
-        codigo: modelo || null, // Usar modelo como código si no hay otro
+        nombre: nombre || modelo,
+        codigo: modelo || null,
         cantidad: 1,
         categoria: categoria,
         ubicacion: null,
         notas: null,
-        date: new Date().toISOString().split("T")[0]
+        date: nowIso
       });
     }
 
     if (items.length === 0) {
-      return NextResponse.json({ error: "No se encontraron items válidos" }, { status: 400 });
+      return NextResponse.json({ error: "No se encontraron items válidos para importar" }, { status: 400 });
     }
 
-    // UPSERT: Eliminar inventario anterior y insertar nuevo
-    // Opción A: Truncar tabla e insertar todo (sobrescribir completo)
-    const { error: deleteError } = await supabase
+    // Usar cliente de servicio para omitir restricciones RLS en la carga masiva del catálogo
+    const serviceDb = createServiceClient();
+
+    // Limpiar inventario anterior
+    const { error: deleteError } = await serviceDb
       .from("sek_inventario")
       .delete()
-      .neq("id", ""); // Eliminar todos
+      .neq("id", "00000000-0000-0000-0000-000000000000");
 
     if (deleteError) {
       return NextResponse.json({ error: `Error al limpiar inventario: ${deleteError.message}` }, { status: 500 });
@@ -115,21 +122,26 @@ export async function POST(req: NextRequest) {
     
     for (let i = 0; i < items.length; i += batchSize) {
       const batch = items.slice(i, i + batchSize);
-      const { data: insertedData, error: insertError } = await supabase
+      const { data: insertedData, error: insertError } = await serviceDb
         .from("sek_inventario")
         .insert(batch)
-        .select();
+        .select("id");
 
       if (insertError) {
-        errors.push(`Batch ${i / batchSize + 1}: ${insertError.message}`);
+        errors.push(`Batch ${Math.floor(i / batchSize) + 1}: ${insertError.message}`);
       } else {
         inserted += insertedData?.length || 0;
       }
     }
 
+    // Invalidar caché en memoria del servidor
+    cacheDelete("admin_inventario_items_full_v2");
+    cacheDelete("admin_inventario_items_full");
+
     return NextResponse.json({ 
       success: true, 
-      message: `${inserted} items cargados. ${errors.length > 0 ? errors.length + " errores." : ""}`,
+      message: `${inserted} items cargados con éxito. ${errors.length > 0 ? errors.length + " errores." : ""}`,
+      insertedCount: inserted,
       errors: errors.length > 0 ? errors : undefined
     });
 
