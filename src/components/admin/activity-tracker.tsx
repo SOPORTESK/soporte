@@ -1019,7 +1019,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
     if (!isSilent) setRefreshing(true);
     try {
       const endParam = selectedEndDate ? `&endDate=${encodeURIComponent(selectedEndDate)}` : "";
-      const res = await fetch(`/api/activity/timeline?agent=${encodeURIComponent(selectedAgent)}&date=${selectedDate}${endParam}&_t=${Date.now()}`);
+      const res = await fetch(`/api/activity/timeline?agent=${encodeURIComponent(selectedAgent)}&date=${selectedDate}${endParam}&metrics=true&_t=${Date.now()}`);
       const data = await res.json();
       const newTimeline: TimelineEntry[] = data.timeline || [];
       setTimeline((prev) => {
@@ -1387,6 +1387,9 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
         firstLoginTime: serverMetrics.firstLoginTime,
         lastLogoutTime: serverMetrics.lastLogoutTime,
         isShiftActive: serverMetrics.isShiftActive,
+        pcWorkTime: serverMetrics.pcWorkTime || "0m",
+        manualJustificationTime: serverMetrics.manualJustificationTime || "0m",
+        totalIdleTime: serverMetrics.totalIdleTime || "0m",
       };
     }
 
@@ -1443,6 +1446,9 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
       firstLoginTime: computed.firstLoginTime,
       lastLogoutTime: computed.lastLogoutTime,
       isShiftActive: computed.isShiftActive,
+      pcWorkTime: computed.pcWorkTime || "0m",
+      manualJustificationTime: computed.manualJustificationTime || "0m",
+      totalIdleTime: computed.masterBuckets.Inactivo.formattedTime || "0m",
     };
   }, [serverMetrics, timeline, targetDailyHours, toleranceMinutes, scheduleStart, scheduleEnd, useMixedSchedule, daySchedules, appMappings, overtimeRequests, selectedAgent]);
 
@@ -1785,17 +1791,17 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                   <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-muted/60 border border-border text-foreground">
                     <Monitor className="h-3.5 w-3.5 text-sky-400" />
                     <span className="text-[10px] uppercase font-sans font-bold text-muted-foreground">PC:</span>
-                    <span className="font-bold">{serverMetrics?.pcWorkTime || "--"}</span>
+                    <span className="font-bold">{serverMetrics?.pcWorkTime || agentDailyCompliance.pcWorkTime || "--"}</span>
                   </div>
                   <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
                     <CheckCircle2 className="h-3.5 w-3.5" />
                     <span className="text-[10px] uppercase font-sans font-bold text-cyan-500/80">Justificación Manual:</span>
-                    <span className="font-bold">{serverMetrics?.manualJustificationTime || "0m"}</span>
+                    <span className="font-bold">{serverMetrics?.manualJustificationTime || agentDailyCompliance.manualJustificationTime || "0m"}</span>
                   </div>
                   <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300">
                     <Clock className="h-3.5 w-3.5" />
                     <span className="text-[10px] uppercase font-sans font-bold text-rose-400/80">Inactividad:</span>
-                    <span className="font-bold">{serverMetrics?.totalIdleTime || "0m"}</span>
+                    <span className="font-bold">{serverMetrics?.totalIdleTime || agentDailyCompliance.totalIdleTime || "0m"}</span>
                   </div>
                 </div>
 

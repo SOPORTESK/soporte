@@ -844,13 +844,7 @@ export function computeUnifiedActivityMetrics(
           (meta.minutes ? meta.minutes * 60000 : 0) ||
           (meta.duration_seconds ? meta.duration_seconds * 1000 : 0)
       );
-      const justTask = (meta.task || meta.reason || it.action.replace(/^justificaci[oó]n(\s*manual)?:\s*/i, "").split("(")[0]).toLowerCase().trim();
-      const taskAlreadyTrackedInLiveInterval = manualIntervals.some(
-        (inv) => inv.category !== "Justificación Manual" && (inv.label.toLowerCase().includes(justTask) || justTask.includes(inv.label.toLowerCase()))
-      );
-
-      // Si la labor ya fue cronometrada en vivo por el botón de taller en este día, no duplicar el tiempo
-      if (durMs > 0 && !taskAlreadyTrackedInLiveInterval) {
+      if (durMs > 0) {
         totalJustifiedMs += durMs;
       }
       let justStartMs = 0;
