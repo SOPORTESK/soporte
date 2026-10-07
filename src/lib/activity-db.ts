@@ -572,6 +572,7 @@ export async function getActivityMetrics(agentEmail: string, date: string, exist
     overtimeTime: formatDuration(rawOvertimeMs),
     firstLoginTime: computed.firstLoginTime,
     lastLogoutTime: computed.lastLogoutTime,
+    isShiftActive: computed.isShiftActive,
     productivityScore: computed.productivityScore,
     totalEvents: timeline.length,
     activeEvents: timeline.length,

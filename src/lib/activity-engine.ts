@@ -80,6 +80,7 @@ export interface UnifiedDayMetrics {
   totalWorkdayTime: string;
   firstLoginTime: string | null;
   lastLogoutTime: string | null;
+  isShiftActive: boolean;
   productivityScore: number;
   masterBuckets: Record<MasterCategory, MasterBucket>;
   masterList: MasterBucket[];
@@ -714,6 +715,7 @@ export function computeUnifiedActivityMetrics(
       totalWorkdayTime: "0s",
       firstLoginTime: null,
       lastLogoutTime: null,
+      isShiftActive: false,
       productivityScore: 100,
       masterBuckets: emptyMaster,
       masterList: Object.values(emptyMaster),
@@ -842,7 +844,13 @@ export function computeUnifiedActivityMetrics(
           (meta.minutes ? meta.minutes * 60000 : 0) ||
           (meta.duration_seconds ? meta.duration_seconds * 1000 : 0)
       );
-      if (durMs > 0) {
+      const justTask = (meta.task || meta.reason || it.action.replace(/^justificaci[oó]n(\s*manual)?:\s*/i, "").split("(")[0]).toLowerCase().trim();
+      const taskAlreadyTrackedInLiveInterval = manualIntervals.some(
+        (inv) => inv.category !== "Justificación Manual" && (inv.label.toLowerCase().includes(justTask) || justTask.includes(inv.label.toLowerCase()))
+      );
+
+      // Si la labor ya fue cronometrada en vivo por el botón de taller en este día, no duplicar el tiempo
+      if (durMs > 0 && !taskAlreadyTrackedInLiveInterval) {
         totalJustifiedMs += durMs;
       }
       let justStartMs = 0;
@@ -1515,7 +1523,32 @@ export function computeUnifiedActivityMetrics(
   }
 
   const manualJustificationMs = opTimes["Justificación Manual"] || 0;
-  const productiveMs = pcProductiveMs + manualJustificationMs;
+  let productiveMs = pcProductiveMs + manualJustificationMs;
+
+  // INVARIANTE FÍSICA INQUEBRANTABLE (TOPE DE RELOJ REAL):
+  // La suma total de actividades productivas (PC + taller + justificaciones)
+  // jamás puede exceder el tiempo físico transcurrido en el reloj entre el primer y último evento.
+  if (sorted.length > 0) {
+    const firstEventMs = new Date(sorted[0].created_at).getTime();
+    const lastEventRawMs = new Date(sorted[sorted.length - 1].created_at).getTime();
+    const crDateStr = new Date(firstEventMs).toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
+    const nowCostaRicaStr = new Date().toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
+    const isToday = crDateStr === nowCostaRicaStr;
+    const effectiveLastEventMs = isToday ? Math.max(lastEventRawMs, Date.now()) : lastEventRawMs;
+    const maxElapsedWallClockMs = Math.max(60000, (effectiveLastEventMs - firstEventMs) + 60000);
+    const nonProductiveMs = breakMs + sanitaryMs + Math.max(0, idleTotalMs);
+    const maxProductivePossible = Math.max(0, maxElapsedWallClockMs - nonProductiveMs);
+
+    if (productiveMs > maxProductivePossible) {
+      const scale = maxProductivePossible > 0 ? (maxProductivePossible / productiveMs) : 0;
+      OFFICIAL_OPERATIONAL_CATEGORIES.forEach((c) => {
+        if (c.id !== "Descansos" && c.id !== "Pausa Sanitaria" && opTimes[c.id]) {
+          opTimes[c.id] = Math.round(opTimes[c.id] * scale);
+        }
+      });
+      productiveMs = maxProductivePossible;
+    }
+  }
 
   const totalDayMs = Math.max(1, productiveMs + idleTotalMs + breakMs + sanitaryMs);
 
@@ -1594,11 +1627,18 @@ export function computeUnifiedActivityMetrics(
     }
   }
 
-  // La jornada laboral oficial comprende el tiempo de permanencia transcurrido desde la entrada
-  const totalWorkdayMs = Math.max(elapsedWorkdayMs, productiveMs + breakMs + sanitaryMs);
+  // La jornada laboral oficial comprende el tiempo de permanencia transcurrido desde la entrada (restringida al reloj real)
+  const effectiveMaxSpanMs = isTodayDayCalc
+    ? Math.max(60000, Date.now() - firstEventMs + 60000)
+    : Math.max(60000, lastEventRawMs - firstEventMs + 60000);
+  const totalWorkdayMs = Math.min(effectiveMaxSpanMs, Math.max(elapsedWorkdayMs, productiveMs + breakMs + sanitaryMs));
   const compliancePercent = Math.min(100, Math.round((totalWorkdayMs / (targetMs || 1)) * 100));
 
   const pcWorkMs = Math.max(0, productiveMs - manualJustificationMs);
+
+  const lastEventMs = sorted.length > 0 ? new Date(sorted[sorted.length - 1].created_at).getTime() : 0;
+  const minutesSinceLastEvent = lastEventMs > 0 ? Math.max(0, (Date.now() - lastEventMs) / 60000) : 999;
+  const isShiftActive = isTodayDayCalc && minutesSinceLastEvent < 25;
 
   return {
     totalDayMs,
@@ -1607,6 +1647,7 @@ export function computeUnifiedActivityMetrics(
     totalWorkdayTime: formatDurationMs(totalWorkdayMs),
     firstLoginTime,
     lastLogoutTime,
+    isShiftActive,
     productivityScore,
     masterBuckets,
     masterList: [masterBuckets.Productivo, masterBuckets.Inactivo, masterBuckets.Descanso, masterBuckets["Pausa Sanitaria"]],

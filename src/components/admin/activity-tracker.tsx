@@ -1386,6 +1386,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
         currentOtReq,
         firstLoginTime: serverMetrics.firstLoginTime,
         lastLogoutTime: serverMetrics.lastLogoutTime,
+        isShiftActive: serverMetrics.isShiftActive,
       };
     }
 
@@ -1441,6 +1442,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
       currentOtReq,
       firstLoginTime: computed.firstLoginTime,
       lastLogoutTime: computed.lastLogoutTime,
+      isShiftActive: computed.isShiftActive,
     };
   }, [serverMetrics, timeline, targetDailyHours, toleranceMinutes, scheduleStart, scheduleEnd, useMixedSchedule, daySchedules, appMappings, overtimeRequests, selectedAgent]);
 
@@ -1744,11 +1746,25 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                     <span className="text-[10px] uppercase font-sans font-bold text-emerald-500/80">Entrada:</span>
                     <span className="font-bold">{agentDailyCompliance.firstLoginTime || "--:--"}</span>
                   </div>
-                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-500/10 border border-slate-500/20 text-slate-300">
-                    <LogOut className="h-3.5 w-3.5" />
-                    <span className="text-[10px] uppercase font-sans font-bold text-slate-400">Salida:</span>
-                    <span className="font-bold">{agentDailyCompliance.lastLogoutTime || "--:--"}</span>
-                  </div>
+                  {agentDailyCompliance.isShiftActive ? (
+                    <div
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-bold shadow-sm shadow-emerald-500/10"
+                      title="Jornada en curso. Última actividad registrada en tiempo real."
+                    >
+                      <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                      </span>
+                      <span className="text-[10px] uppercase font-sans font-bold text-emerald-400">En curso:</span>
+                      <span className="font-bold">{agentDailyCompliance.lastLogoutTime || "--:--"}</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-500/10 border border-slate-500/20 text-slate-300">
+                      <LogOut className="h-3.5 w-3.5" />
+                      <span className="text-[10px] uppercase font-sans font-bold text-slate-400">Salida:</span>
+                      <span className="font-bold">{agentDailyCompliance.lastLogoutTime || "--:--"}</span>
+                    </div>
+                  )}
 
                   <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-violet-500/15 border border-violet-500/30 text-violet-300 font-bold" title="Tiempo total de permanencia de la jornada transcurrido desde la hora de entrada">
                     <Clock className="h-3.5 w-3.5 text-violet-400" />
