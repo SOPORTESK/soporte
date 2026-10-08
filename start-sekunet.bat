@@ -1,3 +1,3 @@
 @echo off
-cd /d "c:\Users\Taller SK\Documents\PROYECTOS\Chat de Atenci?n Sekunet"
+cd /d "%~dp0"
 call "C:\Users\Taller SK\AppData\Roaming\npm\pm2.cmd" resurrect

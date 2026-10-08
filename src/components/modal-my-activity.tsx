@@ -343,12 +343,13 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
   const officialActiveMs = metrics.masterBuckets.Productivo.durationMs;
   const officialBreakMs = metrics.masterBuckets.Descanso.durationMs;
   const officialSanitaryMs = metrics.masterBuckets["Pausa Sanitaria"].durationMs;
-  const officialDeficitMs = Math.max(0, targetMs - officialActiveMs);
+  const officialWorkdayMs = metrics.totalWorkdayMs || (officialActiveMs + officialBreakMs + officialSanitaryMs);
+  const officialDeficitMs = Math.max(0, targetMs - officialWorkdayMs);
   const officialCompliancePercent = metrics.compliancePercent;
   const firstLoginTime = metrics.firstLoginTime;
   const lastLogoutTime = metrics.lastLogoutTime;
   const isOvertimeApproved = overtimeInfo?.status === "approved";
-  const rawOvertimeMs = Math.max(0, officialActiveMs - targetMs);
+  const rawOvertimeMs = Math.max(0, officialWorkdayMs - targetMs);
 
   // Modo de visualización en la pestaña Resumen (Por Categorías oficiales vs Por Software/Labor)
   const [categoryViewMode, setCategoryViewMode] = useState<"categories" | "software">("categories");
@@ -899,20 +900,20 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                     <div className="flex flex-wrap justify-between items-center text-xs font-bold gap-2">
                       <div className="flex items-center gap-2">
                         <span className="text-emerald-400 text-[11px]">
-                          Cumplimiento: {officialCompliancePercent}% ({formatMinHours(officialActiveMs)} / {targetDailyHours}h)
+                          Cumplimiento: {officialCompliancePercent}% ({formatMinHours(officialWorkdayMs)} / {targetDailyHours}h)
                         </span>
                         <DataAuditBadge
-                          label="Activo"
-                          totalEsperado={Math.round(officialActiveMs / 60000)}
-                          totalCalculado={Math.round((metrics.pcWorkMs + metrics.manualJustificationMs) / 60000)}
-                          detalle={`Comprobación matemática: ${metrics.pcWorkTime} (PC) + ${metrics.manualJustificationTime} (Manuales) = ${formatMinHours(officialActiveMs)} de labor computable.`}
+                          label="Jornada"
+                          totalEsperado={Math.round(officialWorkdayMs / 60000)}
+                          totalCalculado={Math.round((officialActiveMs + officialBreakMs + officialSanitaryMs) / 60000)}
+                          detalle={`Comprobación matemática: ${formatMinHours(officialActiveMs)} (Activo) + ${formatMinHours(officialBreakMs + officialSanitaryMs)} (Descansos) = ${formatMinHours(officialWorkdayMs)} de jornada total.`}
                           size="xs"
                           tolerancia={1}
                           unidad="min"
                         />
                       </div>
                       <span className="text-sky-400 text-[11px]">
-                        {officialDeficitMs > 0 ? `Faltan ${formatMinHours(officialDeficitMs)} para completar` : "¡Jornada de 10h completada!"}
+                        {officialDeficitMs > 0 ? `Faltan ${formatMinHours(officialDeficitMs)} para completar` : `¡Jornada de ${targetDailyHours}h completada!`}
                       </span>
                     </div>
                     <div className="h-2 w-full rounded-full bg-slate-800/80 overflow-hidden flex shadow-inner">
@@ -1079,7 +1080,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                             {hoveredDonutItem
                               ? `${hoveredDonutItem.pct}% del total`
                               : categoryScope === "all"
-                                ? `Activo: ${formatMinHours(officialActiveMs)} (${officialCompliancePercent}%)`
+                                ? `Activo: ${formatMinHours(officialActiveMs)} (${officialWorkdayMs > 0 ? Math.round((officialActiveMs / officialWorkdayMs) * 100) : 0}%)`
                                 : `${officialCompliancePercent}% meta`}
                           </span>
                         </div>

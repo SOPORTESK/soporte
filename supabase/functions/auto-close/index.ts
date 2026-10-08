@@ -159,17 +159,7 @@ Deno.serve(async (req) => {
   // ── WARM-UP: despertar Render ANTES de procesar casos ──
   await warmUpEvolution();
 
-  // ── Verificar Modo No Atendido (jerarquía máxima) ──
-  const { data: unattendedRow } = await db
-    .from("sek_agent_config")
-    .select("modo_no_atendido")
-    .eq("email", "system_prompt@sekunet.com")
-    .maybeSingle();
-  const modoNoAtendido = unattendedRow?.modo_no_atendido ?? false;
-  if (modoNoAtendido) {
-    console.log("[auto-close] Modo No Atendido ON — auto-close desactivado, retornando sin procesar");
-    return new Response(JSON.stringify({ closed: 0, unattended: true }), { status: 200, headers: { "Content-Type": "application/json" } });
-  }
+
 
   // ── Leer Configuración Dinámica de Auto-Cierre y Cierre Diario desde sek_app_settings ──
   const { data: settingsRows } = await db
