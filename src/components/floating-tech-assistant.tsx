@@ -80,15 +80,33 @@ export function FloatingTechAssistant() {
     };
   };
 
+  const resolveCurrentCaseId = React.useCallback((): string | null => {
+    if (typeof window === "undefined") return null;
+    const globalId = (window as any).__CURRENT_OPEN_CASE_ID__;
+    const globalPhone = (window as any).__CURRENT_OPEN_CASE_PHONE__;
+    const params = new URLSearchParams(window.location.search);
+    const urlC = params.get("c");
+
+    if (urlC) {
+      if (urlC.startsWith("tel:") || urlC.startsWith("case:")) return urlC;
+      return /^\+?\d{8,15}$/.test(urlC) ? `tel:${urlC}` : `case:${urlC}`;
+    }
+    if (globalId) {
+      const gStr = String(globalId).trim();
+      if (gStr.startsWith("tel:") || gStr.startsWith("case:")) return gStr;
+      return /^\+?\d{8,15}$/.test(gStr) ? `tel:${gStr}` : `case:${gStr}`;
+    }
+    if (globalPhone) {
+      const cleanPhone = String(globalPhone).replace(/^tel:/, "").trim();
+      if (cleanPhone) return `tel:${cleanPhone}`;
+    }
+    return null;
+  }, []);
+
   // Detectar caso actual desde estado global, URL (?c=...) y eventos de navegación
   React.useEffect(() => {
     const readCaseId = () => {
-      if (typeof window === "undefined") return;
-      const globalId = (window as any).__CURRENT_OPEN_CASE_ID__;
-      const globalPhone = (window as any).__CURRENT_OPEN_CASE_PHONE__;
-      const params = new URLSearchParams(window.location.search);
-      const urlC = params.get("c");
-      const resolved = urlC || (globalId ? `case:${globalId}` : (globalPhone ? `tel:${globalPhone}` : null));
+      const resolved = resolveCurrentCaseId();
       setCaseId(prev => (prev !== resolved ? resolved : prev));
     };
     readCaseId();
@@ -163,10 +181,7 @@ export function FloatingTechAssistant() {
 
     const messagesToSend = currentMessages ?? messages;
 
-    const globalId = typeof window !== "undefined" ? (window as any).__CURRENT_OPEN_CASE_ID__ : null;
-    const globalPhone = typeof window !== "undefined" ? (window as any).__CURRENT_OPEN_CASE_PHONE__ : null;
-    const urlC = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("c") : null;
-    const effectiveCaseId = targetCaseId || caseId || urlC || (globalId ? `case:${globalId}` : (globalPhone ? `tel:${globalPhone}` : null));
+    const effectiveCaseId = targetCaseId || caseId || resolveCurrentCaseId();
 
     try {
       const res = await fetch("/api/tech-assistant/chat", {
@@ -341,10 +356,7 @@ La prioridad es proporcionar respuestas correctas, útiles y fáciles de compren
 
 Redacte la respuesta para el cliente basándose en el análisis integral de todo el caso abierto, el estado actual de la avería y la última intervención del cliente. Responda SOLO con el texto de la respuesta, sin explicaciones adicionales ni comentarios.`;
     setLoading(true);
-    const globalId = typeof window !== "undefined" ? (window as any).__CURRENT_OPEN_CASE_ID__ : null;
-    const globalPhone = typeof window !== "undefined" ? (window as any).__CURRENT_OPEN_CASE_PHONE__ : null;
-    const urlC = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("c") : null;
-    const effectiveCaseId = caseId || urlC || (globalId ? `case:${globalId}` : (globalPhone ? `tel:${globalPhone}` : null));
+    const effectiveCaseId = caseId || resolveCurrentCaseId();
     try {
       const res = await fetch("/api/tech-assistant/chat", {
         method: "POST",
@@ -379,10 +391,7 @@ Redacte la respuesta para el cliente basándose en el análisis integral de todo
   };
 
   const startNewCaseChat = async () => {
-    const globalId = typeof window !== "undefined" ? (window as any).__CURRENT_OPEN_CASE_ID__ : null;
-    const globalPhone = typeof window !== "undefined" ? (window as any).__CURRENT_OPEN_CASE_PHONE__ : null;
-    const urlC = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("c") : null;
-    const resolved = urlC || (globalId ? `case:${globalId}` : (globalPhone ? `tel:${globalPhone}` : null));
+    const resolved = resolveCurrentCaseId();
 
     setCaseId(resolved);
     setSessionId(null);

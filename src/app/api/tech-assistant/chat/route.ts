@@ -51,8 +51,14 @@ export async function POST(req: NextRequest) {
     let validCaseId: string | null = null;
 
     if (case_id) {
-      if (case_id.startsWith("tel:")) {
-        const phone = case_id.substring(4).trim();
+      let cleanId = String(case_id).trim();
+      while (cleanId.startsWith("case:")) {
+        cleanId = cleanId.substring(5).trim();
+      }
+
+      const isPhoneTarget = cleanId.startsWith("tel:") || /^\+?\d{8,15}$/.test(cleanId);
+      if (isPhoneTarget) {
+        const phone = cleanId.startsWith("tel:") ? cleanId.substring(4).trim() : cleanId;
         const { data: casesForPhone } = await serviceClient
           .from("sek_cases")
           .select("id, estado, created_at, canal, customer_phone, cliente, histcliente, histtecnico, title, marca, modelo")
@@ -80,11 +86,10 @@ export async function POST(req: NextRequest) {
           }
         }
       } else {
-        const rawId = case_id.startsWith("case:") ? case_id.substring(5) : case_id;
         const { data: caseData } = await serviceClient
           .from("sek_cases")
           .select("id, estado, created_at, canal, customer_phone, cliente, histcliente, histtecnico, title, marca, modelo")
-          .eq("id", rawId)
+          .eq("id", cleanId)
           .maybeSingle();
         if (caseData) {
           targetCase = caseData;

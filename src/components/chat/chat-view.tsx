@@ -252,12 +252,14 @@ export function ChatView({
   // Notificar al asistente técnico flotante el caso actualmente abierto en pantalla
   React.useEffect(() => {
     if (typeof window !== "undefined" && sekCase?.id) {
-      (window as any).__CURRENT_OPEN_CASE_ID__ = String(sekCase.id);
-      (window as any).__CURRENT_OPEN_CASE_PHONE__ = sekCase.customer_phone || "";
+      const targetId = (sekCase as any)?._group?.targetCaseId || (String(sekCase.id).startsWith("tel:") ? null : String(sekCase.id));
+      const targetPhone = sekCase.customer_phone || (String(sekCase.id).startsWith("tel:") ? String(sekCase.id).replace(/^tel:/, "") : "");
+      (window as any).__CURRENT_OPEN_CASE_ID__ = targetId || String(sekCase.id);
+      (window as any).__CURRENT_OPEN_CASE_PHONE__ = targetPhone;
       (window as any).__CURRENT_OPEN_CASE__ = sekCase;
       window.dispatchEvent(
         new CustomEvent("sek-open-case-change", {
-          detail: { caseId: String(sekCase.id), customerPhone: sekCase.customer_phone, sekCase }
+          detail: { caseId: targetId || String(sekCase.id), customerPhone: targetPhone, sekCase }
         })
       );
     }
