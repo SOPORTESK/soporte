@@ -53,7 +53,11 @@ export async function POST(req: NextRequest) {
       action = searchParams.get("action")!;
     }
 
-    let sanitizeResult: { removedDuplicates: number } | null = null;
+    let sanitizeResult: {
+      removedDuplicates: number;
+      sanitizedInventoryItems: number;
+      closedRunawayTimers: number;
+    } | null = null;
     if (action === "sanitize" || action === "fix") {
       sanitizeResult = await autoSanitizeIntegrity();
     }

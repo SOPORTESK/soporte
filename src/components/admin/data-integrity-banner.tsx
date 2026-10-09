@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   Sparkles,
 } from "lucide-react";
+import { toast } from "sonner";
 import type { IntegrityReport, IntegrityCheck } from "@/lib/data-integrity";
 
 export function DataIntegrityBanner() {
@@ -51,10 +52,21 @@ export function DataIntegrityBanner() {
         const json = await res.json();
         if (json.success && json.report) {
           setReport(json.report);
+          const s = json.sanitized || {};
+          const msg: string[] = [];
+          if (s.closedRunawayTimers > 0) msg.push(`${s.closedRunawayTimers} temporizador(es) desbordado(s) cerrado(s)`);
+          if (s.removedDuplicates > 0) msg.push(`${s.removedDuplicates} duplicado(s) eliminado(s)`);
+          if (s.sanitizedInventoryItems > 0) msg.push(`${s.sanitizedInventoryItems} artículos de catálogo saneados`);
+          toast.success(msg.length > 0 ? `Auto-saneado: ${msg.join(", ")}.` : "Base de datos saneada. Todos los checks en orden.");
+        } else {
+          toast.error("No se pudo completar el saneamiento.");
         }
+      } else {
+        toast.error("Error en la solicitud de saneamiento.");
       }
     } catch (err) {
       console.error("[DataIntegrityBanner] Error sanitizing:", err);
+      toast.error("Error al procesar auto-saneamiento.");
     } finally {
       setLoading(false);
     }

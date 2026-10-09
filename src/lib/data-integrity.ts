@@ -680,12 +680,17 @@ export function refreshIntegrityReport(): Promise<IntegrityReport> {
   return running;
 }
 
-export async function autoSanitizeIntegrity(): Promise<{ removedDuplicates: number; sanitizedInventoryItems: number }> {
+export async function autoSanitizeIntegrity(): Promise<{
+  removedDuplicates: number;
+  sanitizedInventoryItems: number;
+  closedRunawayTimers: number;
+}> {
   const sb = createServiceClient();
   const now = new Date();
   const days = [crDate(now), crDate(new Date(now.getTime() - 86_400_000))];
   let removedDuplicates = 0;
   let sanitizedInventoryItems = 0;
+  let closedRunawayTimers = 0;
 
   for (const day of days) {
     const all = await getActivityTimeline(undefined, day);
@@ -732,6 +737,76 @@ export async function autoSanitizeIntegrity(): Promise<{ removedDuplicates: numb
         console.error("[autoSanitizeIntegrity] error deleting duplicates:", error);
       }
     }
+
+    // 2. Auto-cerrar temporizadores que se quedaron corriendo sin finalizar
+    const starts = new Map<string, { item: ActivityLog; index: number }>();
+    for (let i = 0; i < sortedAll.length; i++) {
+      const it = sortedAll[i];
+      const act = (it.action || "").toLowerCase();
+      const meta = (it.metadata || {}) as Record<string, any>;
+      const isStart = (act.startsWith("inició:") || act.startsWith("inicio:")) && (meta.manual || meta.task);
+      const isEnd = (act.startsWith("terminó:") || act.startsWith("termino:")) && (meta.manual || meta.task);
+      const task = (meta.task || it.action.replace(/^inici[oó]:\s*/i, "").replace(/^termin[oó]:\s*/i, "").split("(")[0]).trim();
+      const taskKey = task.toLowerCase();
+      const email = (it.agent_email || "").toLowerCase();
+      const key = `${email}|${taskKey}`;
+
+      if (isStart) {
+        starts.set(key, { item: it, index: i });
+      } else if (isEnd) {
+        starts.delete(key);
+      }
+    }
+
+    for (const [, { item: it, index: i }] of starts.entries()) {
+      const startMs = new Date(it.created_at as string).getTime();
+      const meta = (it.metadata || {}) as Record<string, any>;
+      const cat = String(it.category || "").toLowerCase();
+      const isSanitary = cat.includes("sanitaria") || cat.includes("baño") || cat.includes("bano");
+      const isBreak = cat.includes("descanso") || cat.includes("almuerzo") || cat.includes("comida");
+      const limitMin = isBreak ? MAX_BREAK_MIN : isSanitary ? MAX_SANITARY_MIN : MAX_TASK_MIN;
+      const elapsedMin = (now.getTime() - startMs) / 60000;
+      const isPrevDay = day !== crDate(now);
+
+      if (elapsedMin > limitMin || isPrevDay) {
+        let cappedMs = (isSanitary ? 10 : isBreak ? 45 : 60) * 60000;
+        for (let j = i + 1; j < sortedAll.length; j++) {
+          const nextEv = sortedAll[j];
+          if ((nextEv.agent_email || "").toLowerCase() === (it.agent_email || "").toLowerCase()) {
+            const nextMs = new Date(nextEv.created_at as string).getTime();
+            if (nextMs > startMs) {
+              const diff = nextMs - startMs;
+              if (diff > 0 && diff < cappedMs) {
+                cappedMs = diff;
+              }
+              break;
+            }
+          }
+        }
+        const task = String(meta.task || it.action.replace(/^inici[oó]:\s*/i, "").split("(")[0]).trim();
+        const durationSec = Math.round(cappedMs / 1000);
+        const durMin = Math.round(durationSec / 60);
+
+        const { error: insErr } = await sb.from("activity_log").insert({
+          agent_email: it.agent_email,
+          agent_name: it.agent_name,
+          action: `Terminó: ${task} (${durMin}min)`,
+          category: it.category,
+          duration_ms: cappedMs,
+          created_at: new Date(startMs + cappedMs).toISOString(),
+          metadata: {
+            task,
+            manual: true,
+            subcategory: meta.subcategory || it.category,
+            duration_seconds: durationSec,
+            auto_sanitized: true,
+          },
+        });
+        if (!insErr) {
+          closedRunawayTimers++;
+        }
+      }
+    }
   }
 
   // Auto-sanitización de catálogo de inventario (marcas y categorías)
@@ -765,6 +840,6 @@ export async function autoSanitizeIntegrity(): Promise<{ removedDuplicates: numb
     console.error("[autoSanitizeIntegrity] error sanitizing inventory:", err);
   }
 
-  return { removedDuplicates, sanitizedInventoryItems };
+  return { removedDuplicates, sanitizedInventoryItems, closedRunawayTimers };
 }
 
