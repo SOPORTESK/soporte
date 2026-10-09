@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createGarantiasServiceClient } from "@/lib/supabase-garantias";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 import { cacheDelete } from "@/lib/supabase/cache";
 
 export const dynamic = "force-dynamic";
@@ -105,6 +106,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       return NextResponse.json({ error: updateError.message }, { status: 500 });
     }
 
+    if (!updated) {
+      console.error("[garantias update] Falló: 0 filas modificadas por RLS en Supabase (falta service_role key)");
+      return NextResponse.json({
+        error: "Permisos insuficientes en Supabase de Garantías (RLS): La base de datos externa rechazó la actualización porque falta la GARANTIAS_SUPABASE_SERVICE_ROLE_KEY."
+      }, { status: 403 });
+    }
+
     // Registrar en garantias_historial si hubo cambios
     if (prevRecord) {
       try {
@@ -154,6 +162,75 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       } catch (histErr) {
         console.warn("[garantias historial] No se pudo guardar historial:", histErr);
       }
+    }
+
+    // Sincronización automática hacia la base de datos de Soporte (sek_cases)
+    try {
+      const chatSupabase = createServiceClient();
+      const ticketVal = String(body.ticket || prevRecord?.ticket || "").trim().replace(/^#/, "");
+      const clientName = String(body.nombre || prevRecord?.nombre || "").trim();
+      const clientSerie = String(body.numero_serie || body.serie || prevRecord?.numero_serie || prevRecord?.serie || "").trim();
+
+      let matchedCases: any[] = [];
+
+      // 1. Prioridad: Buscar por ticket
+      if (ticketVal) {
+        const { data: byTicket } = await chatSupabase
+          .from("sek_cases")
+          .select("id, cliente, marca, modelo, problema")
+          .or(`cliente->>ticket.eq.${ticketVal},cliente->>ticket.eq.#${ticketVal},title.ilike.%${ticketVal}%`)
+          .limit(5);
+        if (byTicket && byTicket.length > 0) matchedCases = byTicket;
+      }
+
+      // 2. Prioridad: Buscar por serie
+      if (matchedCases.length === 0 && clientSerie && clientSerie.length >= 4) {
+        const { data: bySerie } = await chatSupabase
+          .from("sek_cases")
+          .select("id, cliente, marca, modelo, problema")
+          .or(`cliente->>serie.eq.${clientSerie},cliente->>modelo.eq.${clientSerie}`)
+          .limit(5);
+        if (bySerie && bySerie.length > 0) matchedCases = bySerie;
+      }
+
+      // 3. Prioridad: Buscar por nombre de cliente
+      if (matchedCases.length === 0 && clientName && clientName.length >= 4) {
+        const { data: byName } = await chatSupabase
+          .from("sek_cases")
+          .select("id, cliente, marca, modelo, problema")
+          .or(`cliente->>nombre.ilike.%${clientName}%,cliente->>cuenta.ilike.%${clientName}%`)
+          .limit(5);
+        if (byName && byName.length > 0) matchedCases = byName;
+      }
+
+      if (matchedCases.length > 0) {
+        for (const c of matchedCases) {
+          const cCliente = (c.cliente && typeof c.cliente === "object") ? { ...c.cliente } : {};
+          if (body.marca !== undefined) cCliente.marca = body.marca || "";
+          if (body.serie !== undefined) cCliente.modelo = body.serie || ""; // en garantias serie es modelo
+          if (body.numero_serie !== undefined) cCliente.serie = body.numero_serie || ""; // en garantias numero_serie es serial
+          if (body.falla !== undefined || body.descripcion !== undefined) {
+            cCliente.descripcion = body.falla || body.descripcion || "";
+          }
+          if (body.ticket !== undefined) cCliente.ticket = body.ticket;
+          if (body.boleta || prevRecord?.boleta) cCliente.boleta = body.boleta || prevRecord?.boleta;
+          if (body.estatus !== undefined) cCliente.estatus_garantia = body.estatus;
+          if (body.dev !== undefined) cCliente.dev = body.dev;
+
+          const updates: Record<string, any> = {
+            cliente: cCliente,
+            updated_at: now
+          };
+          if (body.marca !== undefined) updates.marca = body.marca || null;
+          if (body.serie !== undefined) updates.modelo = body.serie || null;
+          if (body.falla !== undefined) updates.problema = body.falla || null;
+
+          await chatSupabase.from("sek_cases").update(updates).eq("id", c.id);
+        }
+        console.log(`[garantias->soporte] Sincronizados ${matchedCases.length} casos para garantía ${params.id}`);
+      }
+    } catch (syncErr) {
+      console.warn("[garantias->soporte] Error sincronizando con sek_cases:", syncErr);
     }
 
     cacheDelete("admin_garantias_records");

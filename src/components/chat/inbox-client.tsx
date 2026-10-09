@@ -439,6 +439,7 @@ export function InboxClient({
   }, [escaladosPendientes.length]);
 
   React.useEffect(() => {
+    let isMounted = true;
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     const channel = supabase
       .channel("cases-list")
@@ -652,9 +653,14 @@ export function InboxClient({
         }
       )
       .subscribe((status) => {
-        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
-          console.warn(`[inbox] canal realtime ${status}, reintentando en 2s...`);
-          setTimeout(() => { try { channel.subscribe(); } catch {} }, 2000);
+        if (!isMounted) return;
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          console.warn(`[inbox] canal realtime ${status}, reintentando en 5s...`);
+          setTimeout(() => {
+            if (isMounted) {
+              try { channel.subscribe(); } catch {}
+            }
+          }, 5000);
         }
       });
 
@@ -700,12 +706,39 @@ export function InboxClient({
     window.addEventListener("focus", handleFocus);
     document.addEventListener("visibilitychange", handleVisibility);
 
+    const handleCaseUpdated = (e: any) => {
+      const detail = e.detail;
+      if (!detail?.id) return;
+      const targetIdStr = String(detail.id);
+      const updateFn = (c: any) => {
+        const matches = String(c.id) === targetIdStr || c._group?.caseIds?.some((cid: any) => String(cid) === targetIdStr);
+        if (!matches) return c;
+        const currentCliente = (c.cliente && typeof c.cliente === "object") ? c.cliente : {};
+        return {
+          ...c,
+          cliente: { ...currentCliente, ...detail.cliente },
+          marca: detail.marca !== undefined ? detail.marca : c.marca,
+          modelo: detail.modelo !== undefined ? detail.modelo : c.modelo,
+          problema: detail.problema !== undefined ? detail.problema : c.problema,
+          cat: detail.cat !== undefined ? detail.cat : c.cat,
+          prioridad: detail.prioridad !== undefined ? detail.prioridad : c.prioridad,
+        };
+      };
+      setCases(prev => prev.map(updateFn));
+      setAllCases(prev => prev.map(updateFn));
+    };
+    window.addEventListener("sek-case-updated", handleCaseUpdated);
+
     return () => {
+      isMounted = false;
       if (debounceTimer) clearTimeout(debounceTimer);
       clearInterval(poll);
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibility);
-      supabase.removeChannel(channel);
+      window.removeEventListener("sek-case-updated", handleCaseUpdated);
+      try {
+        supabase.removeChannel(channel);
+      } catch {}
     };
   }, [supabase, containerType, agentEmail, agentName, selectCase]);
 

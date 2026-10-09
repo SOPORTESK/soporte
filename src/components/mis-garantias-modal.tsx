@@ -51,7 +51,7 @@ function normalizeName(s: string) {
     .replace(/\s+/g, " ");
 }
 
-// Comparador exacto y canónico para asegurar que se empareje únicamente al propietario real
+// Comparador exacto y canónico para asegurar que se empareje al propietario real
 function isRecordOwnedByAgent(
   r: any,
   agent: { nombre?: string | null; apellido?: string | null; email?: string | null }
@@ -61,23 +61,31 @@ function isRecordOwnedByAgent(
   if (!regNorm) return false;
 
   const emailNorm = normalizeName(agent.email || "");
-  const emailPrefix = emailNorm.split("@")[0];
+  const emailPrefix = emailNorm.split("@")[0].replace(/[^a-z0-9]/g, "");
 
-  // 1. Coincidencia por correo o prefijo (ej. 'cbatista')
-  if (emailPrefix && (regNorm === emailNorm || regNorm === emailPrefix)) {
+  // 1. Coincidencia por correo o prefijo (ej. 'cbatista' en 'César Andrés Batista')
+  if (emailPrefix && (regNorm.includes(emailPrefix) || regNorm === emailNorm || (emailPrefix.includes("batista") && regNorm.includes("batista")))) {
     return true;
   }
 
-  // 2. Coincidencia exacta de nombre completo ('cesar andres batista')
+  // 2. Coincidencia exacta o parcial de nombre completo
   const agentFull = normalizeName(((agent.nombre || "") + " " + (agent.apellido || "")).trim());
-  if (agentFull && regNorm === agentFull) return true;
+  if (agentFull && (regNorm === agentFull || regNorm.includes(agentFull) || agentFull.includes(regNorm))) {
+    return true;
+  }
 
-  // 3. Coincidencia por primer nombre y apellido completo (ej. 'cesar batista')
-  const agentFirst = normalizeName(agent.nombre || "").split(" ")[0];
-  const agentLast = normalizeName(agent.apellido || "").split(" ").pop();
-  const regWords = regNorm.split(" ").filter((w) => w.length > 1);
+  // 3. Coincidencia por palabras del nombre del agente
+  const agentWords = normalizeName((agent.nombre || "") + " " + (agent.apellido || "") + " " + emailPrefix)
+    .split(" ")
+    .filter((w) => w.length > 2);
+  const regWords = regNorm.split(" ").filter((w) => w.length > 2);
 
-  if (agentFirst && agentLast && regWords.includes(agentFirst) && regWords.includes(agentLast)) {
+  const matchedWords = agentWords.filter((w) => regWords.includes(w) || regWords.some((rw) => rw.includes(w) || w.includes(rw)));
+  if (matchedWords.length >= 2) {
+    return true;
+  }
+
+  if (agentWords.length >= 1 && regWords.length >= 1 && agentWords[0] === regWords[0]) {
     return true;
   }
 
@@ -255,7 +263,7 @@ export function MisGarantiasModal({ isOpen, onClose, agent, canCreate = true, ca
       }}
     >
       <div
-        className="w-full max-w-7xl w-[96vw] h-[92vh] max-h-[940px] bg-card border border-border rounded-2xl shadow-2xl flex flex-col overflow-hidden text-foreground animate-in zoom-in-95 duration-200"
+        className="w-[98vw] max-w-[1480px] h-[92vh] max-h-[940px] bg-card border border-border rounded-2xl shadow-2xl flex flex-col overflow-hidden text-foreground animate-in zoom-in-95 duration-200"
         role="dialog"
         aria-modal="true"
       >
@@ -434,18 +442,18 @@ export function MisGarantiasModal({ isOpen, onClose, agent, canCreate = true, ca
               </p>
             </div>
           ) : (
-            <table className="w-full text-left border-collapse text-xs min-w-[1180px]">
+            <table className="w-full text-left border-collapse text-xs">
               <thead className="bg-muted/40 sticky top-0 z-10 border-b border-border backdrop-blur-sm text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
                 <tr>
-                  <th className="py-3.5 px-4 w-10"></th>
-                  <th className="py-3.5 px-4 w-32">Boleta</th>
-                  <th className="py-3.5 px-4 w-28">Fecha</th>
-                  <th className="py-3.5 px-4 w-24">Ticket</th>
-                  <th className="py-3.5 px-4 w-36">Categoría</th>
-                  <th className="py-3.5 px-4 min-w-[240px]">Cliente</th>
-                  <th className="py-3.5 px-4 min-w-[300px]">Artículo / Modelo & Serie</th>
-                  <th className="py-3.5 px-4 w-44">Estatus & DEV</th>
-                  <th className="py-3.5 px-4 w-28 text-right">Acciones</th>
+                  <th className="py-2.5 px-2 w-7 text-center"></th>
+                  <th className="py-2.5 px-2 w-24">Boleta</th>
+                  <th className="py-2.5 px-2 w-24">Fecha</th>
+                  <th className="py-2.5 px-2 w-16">Ticket</th>
+                  <th className="py-2.5 px-2 w-28">Categoría</th>
+                  <th className="py-2.5 px-2.5 min-w-[150px]">Cliente</th>
+                  <th className="py-2.5 px-2.5 min-w-[180px]">Artículo / Modelo & Serie</th>
+                  <th className="py-2.5 px-2 w-44">Estatus & DEV</th>
+                  <th className="py-2.5 px-2 w-20 text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -462,16 +470,16 @@ export function MisGarantiasModal({ isOpen, onClose, agent, canCreate = true, ca
                         onClick={() => setExpandedId(isExpanded ? null : rid)}
                         className="hover:bg-muted/40 transition-colors cursor-pointer group"
                       >
-                        <td className="py-3.5 px-4 text-muted-foreground">
+                        <td className="py-2.5 px-2 text-center text-muted-foreground">
                           {isExpanded ? (
-                            <ChevronDown className="h-4 w-4 text-brand-500" />
+                            <ChevronDown className="h-4 w-4 text-brand-500 mx-auto" />
                           ) : (
-                            <ChevronRight className="h-4 w-4 group-hover:text-foreground" />
+                            <ChevronRight className="h-4 w-4 group-hover:text-foreground mx-auto" />
                           )}
                         </td>
-                        <td className="py-3.5 px-4 font-mono font-bold whitespace-nowrap">
+                        <td className="py-2.5 px-2 font-mono font-bold whitespace-nowrap">
                           <span
-                            className={`px-2.5 py-1 rounded-lg text-xs font-mono border ${
+                            className={`px-2 py-0.5 rounded-lg text-xs font-mono border ${
                               (r.boleta || "").startsWith("GNC") || (r.boleta || "").startsWith("TNC")
                                 ? "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/25"
                                 : (r.boleta || "").startsWith("G")
@@ -482,21 +490,21 @@ export function MisGarantiasModal({ isOpen, onClose, agent, canCreate = true, ca
                             {r.boleta || "—"}
                           </span>
                         </td>
-                        <td className="py-3.5 px-4 text-muted-foreground whitespace-nowrap font-medium">
+                        <td className="py-2.5 px-2 text-muted-foreground whitespace-nowrap font-medium">
                           {r.fecha_creacion ? r.fecha_creacion.slice(0, 10) : "—"}
                         </td>
-                        <td className="py-3.5 px-4 font-mono font-medium whitespace-nowrap">
+                        <td className="py-2.5 px-2 font-mono font-medium whitespace-nowrap">
                           {r.ticket ? `#${r.ticket}` : "—"}
                         </td>
-                        <td className="py-3.5 px-4 whitespace-nowrap">
-                          <span className="px-2.5 py-0.5 rounded-md text-[11px] font-semibold bg-muted border border-border">
+                        <td className="py-2.5 px-2 whitespace-nowrap">
+                          <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-muted border border-border">
                             {CAT_LABELS[r.categoria || ""] || r.categoria || "—"}
                           </span>
                         </td>
-                        <td className="py-3.5 px-4 font-semibold text-foreground leading-snug">
+                        <td className="py-2.5 px-2.5 font-semibold text-foreground leading-snug">
                           {r.nombre || "—"}
                         </td>
-                        <td className="py-3.5 px-4">
+                        <td className="py-2.5 px-2.5">
                           <div className="font-semibold text-foreground leading-snug">
                             {r.serie || r.descripcion || "—"}
                           </div>
@@ -509,36 +517,36 @@ export function MisGarantiasModal({ isOpen, onClose, agent, canCreate = true, ca
                             {r.numero_serie && <span>S/N: {r.numero_serie}</span>}
                           </div>
                         </td>
-                        <td className="py-3.5 px-4 whitespace-nowrap">
+                        <td className="py-2.5 px-2 whitespace-nowrap">
                           {isDef ? (
                             hasDev ? (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-mono font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25">
                                 <Check className="h-3.5 w-3.5" />
                                 Aprobado • {r.dev}
                               </span>
                             ) : (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/25">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/25">
                                 <Clock className="h-3.5 w-3.5" />
                                 Por Aprobar (Sin DEV)
                               </span>
                             )
                           ) : hasDev ? (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25">
-                              <Check className="h-3.5 w-3.5" />
-                              {r.dev}
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-mono font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25">
+                                <Check className="h-3.5 w-3.5" />
+                                {r.dev}
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-muted text-muted-foreground border border-border">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium bg-muted text-muted-foreground border border-border">
                               {r.estatus ? (KPI_ESTATUS_LABELS[r.estatus] || r.estatus) : "Temporal Activa"}
                             </span>
                           )}
                         </td>
-                        <td className="py-3.5 px-4 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                        <td className="py-2.5 px-2 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                           {canEdit ? (
                             <button
                               type="button"
                               onClick={() => setEditingRecord(r)}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 text-xs font-bold border border-amber-500/25 transition-all cursor-pointer shadow-xs active:scale-95"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 text-xs font-bold border border-amber-500/25 transition-all cursor-pointer shadow-xs active:scale-95"
                               title="Editar este registro"
                             >
                               <Edit className="h-3.5 w-3.5" />

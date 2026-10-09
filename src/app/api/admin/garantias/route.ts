@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createGarantiasServiceClient, GarantiaRecord } from "@/lib/supabase-garantias";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 import { cacheDelete } from "@/lib/supabase/cache";
 
 export const dynamic = "force-dynamic";
@@ -179,6 +180,74 @@ export async function POST(req: NextRequest) {
 
     if (!savedRecord) {
       return NextResponse.json({ error: lastError?.message || "Error al insertar registro" }, { status: 500 });
+    }
+
+    // Sincronización automática hacia la base de datos de Soporte (sek_cases)
+    try {
+      const chatSupabase = createServiceClient();
+      const ticketVal = String(savedRecord.ticket || payload.ticket || "").trim().replace(/^#/, "");
+      const clientName = String(savedRecord.nombre || payload.nombre || "").trim();
+      const clientSerie = String(savedRecord.numero_serie || savedRecord.serie || payload.numero_serie || payload.serie || "").trim();
+
+      let matchedCases: any[] = [];
+
+      // 1. Buscar por ticket
+      if (ticketVal) {
+        const { data: byTicket } = await chatSupabase
+          .from("sek_cases")
+          .select("id, cliente, marca, modelo, problema")
+          .or(`cliente->>ticket.eq.${ticketVal},cliente->>ticket.eq.#${ticketVal},title.ilike.%${ticketVal}%`)
+          .limit(5);
+        if (byTicket && byTicket.length > 0) matchedCases = byTicket;
+      }
+
+      // 2. Buscar por número de serie
+      if (matchedCases.length === 0 && clientSerie && clientSerie.length >= 4) {
+        const { data: bySerie } = await chatSupabase
+          .from("sek_cases")
+          .select("id, cliente, marca, modelo, problema")
+          .or(`cliente->>serie.eq.${clientSerie},cliente->>modelo.eq.${clientSerie}`)
+          .limit(5);
+        if (bySerie && bySerie.length > 0) matchedCases = bySerie;
+      }
+
+      // 3. Buscar por cliente
+      if (matchedCases.length === 0 && clientName && clientName.length >= 4) {
+        const { data: byName } = await chatSupabase
+          .from("sek_cases")
+          .select("id, cliente, marca, modelo, problema")
+          .or(`cliente->>nombre.ilike.%${clientName}%,cliente->>cuenta.ilike.%${clientName}%`)
+          .limit(5);
+        if (byName && byName.length > 0) matchedCases = byName;
+      }
+
+      if (matchedCases.length > 0) {
+        for (const c of matchedCases) {
+          const cCliente = (c.cliente && typeof c.cliente === "object") ? { ...c.cliente } : {};
+          if (savedRecord.marca) cCliente.marca = savedRecord.marca;
+          if (savedRecord.serie) cCliente.modelo = savedRecord.serie;
+          if (savedRecord.numero_serie) cCliente.serie = savedRecord.numero_serie;
+          if (savedRecord.falla || savedRecord.descripcion) {
+            cCliente.descripcion = savedRecord.falla || savedRecord.descripcion;
+          }
+          if (savedRecord.ticket) cCliente.ticket = savedRecord.ticket;
+          if (savedRecord.boleta) cCliente.boleta = savedRecord.boleta;
+          if (savedRecord.estatus) cCliente.estatus_garantia = savedRecord.estatus;
+
+          const updates: Record<string, any> = {
+            cliente: cCliente,
+            updated_at: new Date().toISOString()
+          };
+          if (savedRecord.marca) updates.marca = savedRecord.marca;
+          if (savedRecord.serie) updates.modelo = savedRecord.serie;
+          if (savedRecord.falla) updates.problema = savedRecord.falla;
+
+          await chatSupabase.from("sek_cases").update(updates).eq("id", c.id);
+        }
+        console.log(`[garantias POST->soporte] Sincronizados ${matchedCases.length} casos para nueva boleta ${savedRecord.boleta}`);
+      }
+    } catch (syncErr) {
+      console.warn("[garantias POST->soporte] Error sincronizando con sek_cases:", syncErr);
     }
 
     cacheDelete("admin_garantias_records");

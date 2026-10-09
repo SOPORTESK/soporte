@@ -26,5 +26,13 @@ app.prepare().then(() => {
     } catch (e) {
       console.error('[AutoClose Backend] Error cargando motor:', e.message);
     }
+
+    // Motor autónomo de sincronización bidireccional de Garantías con Soporte
+    try {
+      const { initGarantiasSyncEngine } = require('./scripts/garantias-sync-engine.cjs');
+      initGarantiasSyncEngine();
+    } catch (e) {
+      console.error('[Sync Garantías] Error cargando motor de sincronización:', e.message);
+    }
   });
 });

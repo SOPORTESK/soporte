@@ -96,3 +96,51 @@ export async function DELETE(
     return NextResponse.json({ ok: true });
   }
 }
+
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const supabase = createServiceClient();
+    const id = params.id;
+    const body = await req.json();
+
+    let targetCaseId = id;
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+
+    if (!isUuid) {
+      const cleanPhone = id.replace(/^tel:/i, "").replace(/^case:/i, "").replace(/[^0-9]/g, "");
+      if (cleanPhone) {
+        const { data: phoneCase } = await supabase
+          .from("sek_cases")
+          .select("id")
+          .or(`customer_phone.eq.${cleanPhone},customer_phone.eq.${cleanPhone}@s.whatsapp.net,customer_phone.eq.${cleanPhone}@g.us,cliente->>telefono.eq.${cleanPhone}`)
+          .order("last_message_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (phoneCase?.id) {
+          targetCaseId = phoneCase.id;
+        }
+      }
+    }
+
+    const { data, error } = await supabase
+      .from("sek_cases")
+      .update({
+        ...body,
+        updated_at: new Date().toISOString()
+      })
+      .eq("id", targetCaseId)
+      .select()
+      .maybeSingle();
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ ok: true, data, id: targetCaseId });
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message }, { status: 500 });
+  }
+}

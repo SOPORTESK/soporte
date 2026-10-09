@@ -807,6 +807,44 @@ export async function autoSanitizeIntegrity(): Promise<{
         }
       }
     }
+
+    // 3. Auto-sanear temporizadores ya finalizados que excedieron el límite razonable
+    const finishedIntervals = parseManualIntervals(sortedAll, now.getTime());
+    for (const iv of finishedIntervals) {
+      if (iv.endMs === null) continue;
+      const cat = iv.category.toLowerCase();
+      const isSanitary = cat.includes("sanitaria") || cat.includes("baño") || cat.includes("bano");
+      const isBreak = cat.includes("descanso") || cat.includes("almuerzo") || cat.includes("comida");
+      const limitMin = isBreak ? MAX_BREAK_MIN : isSanitary ? MAX_SANITARY_MIN : MAX_TASK_MIN;
+      const mins = iv.durationMs / 60000;
+      if (mins > limitMin) {
+        const endEvent = sortedAll.find((e) => {
+          const act = (e.action || "").toLowerCase();
+          const meta = (e.metadata || {}) as Record<string, any>;
+          const isEnd = (act.startsWith("terminó:") || act.startsWith("termino:")) && (meta.manual || meta.task);
+          if (!isEnd) return false;
+          const t = new Date(e.created_at as string).getTime();
+          return Math.abs(t - (iv.endMs || 0)) < 5000;
+        });
+        if (endEvent && endEvent.id) {
+          const cappedMin = isSanitary ? 15 : isBreak ? 60 : 120;
+          const cappedMs = cappedMin * 60000;
+          const { error: updErr } = await sb.from("activity_log").update({
+            action: `Terminó: ${iv.task} (${cappedMin}min)`,
+            duration_ms: cappedMs,
+            created_at: new Date(iv.startMs + cappedMs).toISOString(),
+            metadata: {
+              ...(typeof endEvent.metadata === "object" ? endEvent.metadata : {}),
+              duration_seconds: cappedMin * 60,
+              auto_sanitized: true,
+            },
+          }).eq("id", endEvent.id);
+          if (!updErr) {
+            closedRunawayTimers++;
+          }
+        }
+      }
+    }
   }
 
   // Auto-sanitización de catálogo de inventario (marcas y categorías)

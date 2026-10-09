@@ -9,7 +9,7 @@ import {
   Download, X, ChevronDown, ChevronUp, History, HandMetal, Star, Tag, AlertTriangle,
   Mic, Play, Pause, Square, Smile, Trash2, UserCheck,
   Info, Copy, Forward, Pin, Edit, Clock, RotateCcw, Search, Globe, Loader2,
-  FileArchive, FileCode, FileSpreadsheet, Eye
+  FileArchive, FileCode, FileSpreadsheet, Eye, ShieldCheck
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { logActivity } from "@/lib/activity-client";
@@ -21,6 +21,7 @@ import { toast } from "sonner";
 import { CaseHistoryDrawer } from "./case-history-drawer";
 import { TemplateManager } from "./template-manager";
 import { MediaViewer } from "./media-viewer";
+import { HikvisionInspectorModal } from "./hikvision-inspector-modal";
 import { LinkPreviewCard, extractFirstUrl, FormattedTextWithLinks } from "./link-preview-card";
 import type { SekCase, SekHistEntry, ChannelKind } from "@/lib/types";
 
@@ -510,10 +511,30 @@ export function ChatView({
   ];
 
   async function updateClassification(field: "prioridad" | "cat", value: string) {
-    const { error } = await supabase.from("sek_cases").update({ [field]: value }).eq("id", targetId);
-    if (error) { toast.error("Error al actualizar"); return; }
-    setSekCase(prev => ({ ...prev, [field]: value }));
-    toast.success("Actualizado");
+    try {
+      const res = await fetch(`/api/cases/${targetId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [field]: value }),
+      });
+      if (!res.ok) {
+        const { error } = await supabase.from("sek_cases").update({ [field]: value }).eq("id", targetId);
+        if (error) throw error;
+      }
+      setSekCase(prev => {
+        const next = { ...prev, [field]: value };
+        caseHistoryCache.set(cacheKey, { sekCase: next, timestamp: Date.now() });
+        return next;
+      });
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("sek-case-updated", {
+          detail: { id: targetId, [field]: value }
+        }));
+      }
+      toast.success("Actualizado");
+    } catch {
+      toast.error("Error al actualizar");
+    }
   }
 
   const [previewMedia, setPreviewMedia] = React.useState<{
@@ -522,6 +543,12 @@ export function ChatView({
     name?: string;
     initialIndex?: number;
   } | null>(null);
+
+  const [hikvisionInspector, setHikvisionInspector] = React.useState<{
+    isOpen: boolean;
+    fileUrl?: string;
+    fileName?: string;
+  }>({ isOpen: false });
 
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const scrollerRef = React.useRef<HTMLDivElement>(null);
@@ -2152,13 +2179,28 @@ export function ChatView({
         throw new Error(err.error || "Error al guardar");
       }
       const data = await res.json();
-      setSekCase(prev => ({
-        ...prev,
-        cliente: data.cliente,
-        marca: clienteDraft.marca || null,
-        modelo: clienteDraft.modelo || null,
-        problema: clienteDraft.descripcion || null,
-      }));
+      setSekCase(prev => {
+        const next = {
+          ...prev,
+          cliente: data.cliente,
+          marca: clienteDraft.marca || null,
+          modelo: clienteDraft.modelo || null,
+          problema: clienteDraft.descripcion || null,
+        };
+        caseHistoryCache.set(cacheKey, { sekCase: next, timestamp: Date.now() });
+        return next;
+      });
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("sek-case-updated", {
+          detail: {
+            id: targetId,
+            cliente: data.cliente,
+            marca: clienteDraft.marca || null,
+            modelo: clienteDraft.modelo || null,
+            problema: clienteDraft.descripcion || null,
+          }
+        }));
+      }
       toast.success("Datos del cliente actualizados");
       setEditingCliente(false);
     } catch (e: any) {
@@ -2772,6 +2814,13 @@ export function ChatView({
                   next={next}
                   clienteName={ci.nombre}
                   onImageClick={handleOpenMedia}
+                  onHikvisionInspect={(url, name) => {
+                    setHikvisionInspector({
+                      isOpen: true,
+                      fileUrl: url,
+                      fileName: name,
+                    });
+                  }}
                   agentEmail={agentEmail}
                   onMessageUpdate={handleMessageUpdate}
                   fallbackCaseId={targetId}
@@ -3302,6 +3351,14 @@ export function ChatView({
           onClose={() => setPreviewMedia(null)}
         />
       )}
+
+      {/* Inspector de configuraciones y SADP Hikvision */}
+      <HikvisionInspectorModal
+        isOpen={hikvisionInspector.isOpen}
+        onClose={() => setHikvisionInspector({ isOpen: false })}
+        fileUrl={hikvisionInspector.fileUrl}
+        fileName={hikvisionInspector.fileName}
+      />
     </div>
   );
 }
@@ -3491,6 +3548,11 @@ function getFileInfo(name?: string, url?: string, type?: string) {
   const isWord = ["doc", "docx"].includes(ext) || (type || "").includes("word") || (type || "").includes("document");
   const isText = ["txt", "json", "log", "sql", "yaml", "yml", "html", "htm"].includes(ext) || (type || "").startsWith("text/");
 
+  const isHikConfig = cleanUrl.toLowerCase().includes("configurationdata") || 
+                      cleanUrl.toLowerCase().includes("configurationfile") ||
+                      (raw.toLowerCase().includes("configurationdata") || raw.toLowerCase().includes("configurationfile"));
+  const isSadpXml = isXml && /(?:DS-|iDS-|HIK-|AE-)[A-Za-z0-9\-\_\/]+/i.test(raw);
+
   let badge = ext ? ext.toUpperCase() : "DOC";
   let label = "Archivo adjunto";
   let cardBg = "from-slate-900/90 to-slate-950/90 border-slate-700/60";
@@ -3498,8 +3560,27 @@ function getFileInfo(name?: string, url?: string, type?: string) {
   let iconColor = "text-slate-300";
   let Icon = FileText;
   let canPreview = false;
+  let isHikvision = false;
 
-  if (isXml) {
+  if (isHikConfig) {
+    badge = "HIK";
+    label = "Configuración Hikvision";
+    cardBg = "from-red-950/70 to-neutral-950/90 border-red-500/50";
+    badgeColor = "bg-red-500/20 text-red-300 border-red-500/40";
+    iconColor = "text-red-400";
+    Icon = ShieldCheck;
+    canPreview = false;
+    isHikvision = true;
+  } else if (isSadpXml) {
+    badge = "SADP";
+    label = "Token Reseteo Hikvision";
+    cardBg = "from-red-950/70 to-neutral-950/90 border-red-500/50";
+    badgeColor = "bg-red-500/20 text-red-300 border-red-500/40";
+    iconColor = "text-red-400";
+    Icon = ShieldCheck;
+    canPreview = true;
+    isHikvision = true;
+  } else if (isXml) {
     badge = "XML";
     label = "Documento XML";
     cardBg = "from-amber-950/60 to-neutral-950/80 border-amber-500/40";
@@ -3551,10 +3632,16 @@ function getFileInfo(name?: string, url?: string, type?: string) {
 
   const displayName = name || (cleanUrl.split("/").pop()) || "archivo";
 
-  return { ext, badge, label, cardBg, badgeColor, iconColor, Icon, canPreview, displayName };
+  return { ext, badge, label, cardBg, badgeColor, iconColor, Icon, canPreview, isHikvision, displayName };
 }
 
-function MediaPreview({ url, type, name, onImageClick }: { url: string; type?: string; name?: string; onImageClick?: (url: string, type?: string, name?: string) => void }) {
+function MediaPreview({ url, type, name, onImageClick, onHikvisionInspect }: { 
+  url: string; 
+  type?: string; 
+  name?: string; 
+  onImageClick?: (url: string, type?: string, name?: string) => void;
+  onHikvisionInspect?: (url: string, name?: string) => void;
+}) {
   if (!url) return null;
   const ext = (name || url).split("?")[0].split(".").pop()?.toLowerCase() ?? "";
   const audioExts = ["webm", "ogg", "mp3", "wav", "m4a", "aac", "opus"];
@@ -3605,7 +3692,7 @@ function MediaPreview({ url, type, name, onImageClick }: { url: string; type?: s
     return <AudioPlayer url={url} />;
   }
 
-  const { badge, label, cardBg, badgeColor, iconColor, Icon, canPreview, displayName } = getFileInfo(name, url, t);
+  const { badge, label, cardBg, badgeColor, iconColor, Icon, canPreview, isHikvision, displayName } = getFileInfo(name, url, t);
     
   const handleDownload = async (e: React.MouseEvent<HTMLAnchorElement>) => {
     e.preventDefault();
@@ -3651,9 +3738,23 @@ function MediaPreview({ url, type, name, onImageClick }: { url: string; type?: s
         </div>
       </div>
 
-      {/* Botones de acción: Vista Previa y Descargar */}
+      {/* Botones de acción: Inspección Hikvision, Vista Previa y Descargar */}
       <div className="flex items-center gap-2 mt-3 pt-2.5 border-t border-white/10">
-        {canPreview && (
+        {isHikvision && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onHikvisionInspect?.(url, displayName);
+            }}
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600/30 hover:bg-red-600/50 border border-red-500/40 active:scale-[0.98] transition text-xs font-semibold text-red-200 shadow-sm"
+          >
+            <ShieldCheck className="h-3.5 w-3.5 text-red-400" />
+            <span>Inspeccionar</span>
+          </button>
+        )}
+        {canPreview && !isHikvision && (
           <button
             type="button"
             onClick={(e) => {
@@ -3673,7 +3774,7 @@ function MediaPreview({ url, type, name, onImageClick }: { url: string; type?: s
           download={displayName}
           className={cn(
             "flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 active:scale-[0.98] transition text-xs font-medium text-white shadow-sm",
-            canPreview ? "flex-1" : "w-full"
+            (canPreview || isHikvision) ? "flex-1" : "w-full"
           )}
         >
           <Download className="h-3.5 w-3.5 text-emerald-300" />
@@ -3684,12 +3785,13 @@ function MediaPreview({ url, type, name, onImageClick }: { url: string; type?: s
   );
 }
 
-function Bubble({ m, prev, next, clienteName, onImageClick, agentEmail, onMessageUpdate, onReply, fallbackCaseId, onRetrySend }: {
+function Bubble({ m, prev, next, clienteName, onImageClick, onHikvisionInspect, agentEmail, onMessageUpdate, onReply, fallbackCaseId, onRetrySend }: {
   m: UnifiedMessage;
   prev?: UnifiedMessage;
   next?: UnifiedMessage;
   clienteName: string;
   onImageClick?: (url: string, type?: string, name?: string) => void;
+  onHikvisionInspect?: (url: string, name?: string) => void;
   agentEmail: string | null;
   onMessageUpdate?: (historyType: "histcliente" | "histtecnico", originalIndex: number, fieldsToUpdate: any) => void;
   onReply?: (m: UnifiedMessage) => void;
@@ -4066,7 +4168,7 @@ function Bubble({ m, prev, next, clienteName, onImageClick, agentEmail, onMessag
           {isTecnico && <><User className="h-3 w-3" /> {m.authorName || "Técnico"}</>}
         </div>
 
-        {m.mediaUrl && <MediaPreview url={m.mediaUrl} type={m.mediaType} name={m.fileName} onImageClick={onImageClick} />}
+        {m.mediaUrl && <MediaPreview url={m.mediaUrl} type={m.mediaType} name={m.fileName} onImageClick={onImageClick} onHikvisionInspect={onHikvisionInspect} />}
         {!m.mediaUrl && (
           m.mediaType?.startsWith("video") ||
           (m.fileName && /\.(mp4|mov|webm|mkv)$/i.test(m.fileName)) ||
