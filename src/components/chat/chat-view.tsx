@@ -22,6 +22,7 @@ import { CaseHistoryDrawer } from "./case-history-drawer";
 import { TemplateManager } from "./template-manager";
 import { MediaViewer } from "./media-viewer";
 import { HikvisionInspectorModal } from "./hikvision-inspector-modal";
+import { InventoryBrandModelSelector } from "./inventory-brand-model-selector";
 import { LinkPreviewCard, extractFirstUrl, FormattedTextWithLinks } from "./link-preview-card";
 import type { SekCase, SekHistEntry, ChannelKind } from "@/lib/types";
 
@@ -2635,39 +2636,15 @@ export function ChatView({
                       </div>
                     </div>
 
-                    {/* Fila 4: Marca, Modelo y Serie (3 columnas) */}
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 p-3 rounded-2xl bg-muted/20 border border-border/50">
-                      <div>
-                        <label className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">Marca</label>
-                        <input
-                          type="text"
-                          value={clienteDraft.marca}
-                          onChange={e => setClienteDraft(d => ({ ...d, marca: e.target.value }))}
-                          placeholder="Ej: Hikvision, Dahua"
-                          className="mt-1 flex h-9 w-full rounded-lg border border-input bg-background/90 px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-brand-500/30 transition-all"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">Modelo</label>
-                        <input
-                          type="text"
-                          value={clienteDraft.modelo}
-                          onChange={e => setClienteDraft(d => ({ ...d, modelo: e.target.value }))}
-                          placeholder="Ej: DS-7208HQHI"
-                          className="mt-1 flex h-9 w-full rounded-lg border border-input bg-background/90 px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-brand-500/30 transition-all"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">N° de Serie</label>
-                        <input
-                          type="text"
-                          value={clienteDraft.serie}
-                          onChange={e => setClienteDraft(d => ({ ...d, serie: e.target.value }))}
-                          placeholder="Ej: 123456789"
-                          className="mt-1 flex h-9 w-full rounded-lg border border-input bg-background/90 px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-brand-500/30 transition-all"
-                        />
-                      </div>
-                    </div>
+                    {/* Fila 4: Marca, Modelo y Serie (Búsqueda Predictiva + Lista Desplegable + Libre) */}
+                    <InventoryBrandModelSelector
+                      marca={clienteDraft.marca}
+                      modelo={clienteDraft.modelo}
+                      serie={clienteDraft.serie}
+                      onChangeMarca={(val) => setClienteDraft(d => ({ ...d, marca: val }))}
+                      onChangeModelo={(val) => setClienteDraft(d => ({ ...d, modelo: val }))}
+                      onChangeSerie={(val) => setClienteDraft(d => ({ ...d, serie: val }))}
+                    />
 
                     {/* Fila 5: Descripción */}
                     <div>
