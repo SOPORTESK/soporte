@@ -36,47 +36,55 @@ export function RequireElectronToggle({ initialValue }: { initialValue: boolean 
   return (
     <div
       className={`rounded-2xl border-2 p-5 transition-all ${
-        requireElectron ? "border-brand-500/50 bg-brand-500/8 shadow-sm" : "border-border/60 bg-card"
+        requireElectron
+          ? "border-brand-500/40 bg-brand-500/5 shadow-xs"
+          : "border-border/60 bg-card"
       }`}
     >
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3.5">
           <div
-            className={`h-10 w-10 rounded-xl grid place-items-center shrink-0 ${
+            className={`h-10 w-10 rounded-xl grid place-items-center shrink-0 transition-colors ${
               requireElectron
-                ? "bg-brand-500/20 text-brand-600 dark:text-brand-400"
+                ? "bg-brand-500/15 text-brand-600 dark:text-brand-400"
                 : "bg-muted text-muted-foreground"
             }`}
           >
             {requireElectron ? <Laptop className="h-5 w-5" /> : <Globe className="h-5 w-5" />}
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <p className={`text-sm font-black ${requireElectron ? "text-brand-600 dark:text-brand-400" : "text-foreground"}`}>
-                {requireElectron ? "🔒 EXIGIR APP DE ESCRITORIO (ELECTRON) ACTIVO" : "Exigir App de Escritorio (Electron)"}
+            <div className="flex items-center gap-2 flex-wrap">
+              <p
+                className={`text-sm font-black tracking-tight ${
+                  requireElectron ? "text-brand-600 dark:text-brand-400" : "text-foreground"
+                }`}
+              >
+                {requireElectron ? "Exigir App de Escritorio: ACTIVO" : "Exigir App de Escritorio (Electron)"}
               </p>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+              <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-muted text-muted-foreground border border-border/70">
                 Localhost & Superadmin Exonerados
               </span>
             </div>
             <p className="text-[11px] text-muted-foreground mt-0.5 max-w-xl">
               {requireElectron
-                ? "Los usuarios que ingresen desde navegadores estándar (Chrome, Edge, etc.) en producción verán una pantalla de bloqueo obligándolos a descargar e instalar la app de escritorio."
-                : "Permite el acceso a la plataforma tanto desde navegadores web convencionales como desde la app de escritorio de Electron."}
+                ? "Acceso web en producción restringido para usuarios regulares. Deben usar la app oficial de Windows."
+                : "Permite el acceso a la plataforma tanto desde navegadores web como desde la aplicación de escritorio."}
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-3 shrink-0">
+
+        <div className="flex items-center gap-3 shrink-0 self-end sm:self-center">
           <a
             href="/api/download/electron"
             target="_blank"
             rel="noopener noreferrer"
-            title="Descargar instalador oficial (.exe)"
-            className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-border/80 bg-background hover:bg-muted text-foreground transition-colors"
+            title="Descargar instalador (.exe)"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl border border-border/70 bg-card hover:bg-muted text-foreground transition-all hover:border-brand-500/40"
           >
             <Download className="h-3.5 w-3.5 text-brand-500" />
-            <span>Descargar .EXE</span>
+            <span>Instalador (.exe)</span>
           </a>
+
           <button
             onClick={toggle}
             disabled={loading}

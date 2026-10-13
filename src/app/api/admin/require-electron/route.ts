@@ -74,6 +74,8 @@ export async function POST(req: NextRequest) {
         {
           key: SETTING_KEY,
           value: payload,
+          iv: "none",
+          tag: "none",
           updated_at: new Date().toISOString(),
         },
         { onConflict: "key" }
