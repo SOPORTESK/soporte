@@ -275,7 +275,10 @@ export async function POST(req: NextRequest) {
           `resolucion.ilike.%${t}%,problema.ilike.%${t}%,title.ilike.%${t}%,modelo.ilike.%${t}%`
         ).join(",");
 
-        const { data: matchedCases } = await query.or(orConditions).limit(4);
+        const { data: matchedCases } = await query
+          .or(orConditions)
+          .order("closed_at", { ascending: false })
+          .limit(15);
 
         if (matchedCases && matchedCases.length > 0) {
           const precedentSnippets: string[] = [];
@@ -295,9 +298,9 @@ export async function POST(req: NextRequest) {
 
             if (solText) {
               precedentSnippets.push(
-                `[Precedente #${idx + 1} | Equipo: ${mc.marca || "Seguridad"} ${mc.modelo || ""}]
-- Asunto/Falla reportada: ${mc.title || "Caso resuelto"}
-- Solución/Diagnóstico aplicado: ${solText.substring(0, 400)}`
+                `[Precedente Histórico #${idx + 1} | Equipo: ${mc.marca || "Sekunet"} ${mc.modelo || ""}]
+- Asunto/Falla: ${mc.title || "Caso resuelto"}
+- Solución comprobada por técnico: ${solText.substring(0, 600)}`
               );
             }
           }
@@ -333,17 +336,18 @@ ${ragContext ? `\n\nINFORMACIÓN DE LA BASE DE CONOCIMIENTO Y MANUALES (RAG):\n$
 ${historicalPrecedents ? `\n\nPRECEDENTES HISTÓRICOS Y SOLUCIONES DE OTROS TÉCNICOS EN SEKUNET (SOLO REFERENCIA TÉCNICA DE APOYO):\n${historicalPrecedents}` : ""}
 
 REGLAS DE ATENCIÓN TÉCNICA OBLIGATORIAS:
-1. FOCO Y DESTINATARIO: Tu respuesta va dirigida ÚNICA Y EXCLUSIVAMENTE al caso y cliente que está actualmente abierto en pantalla. NUNCA menciones nombres de clientes anteriores ni fechas pasadas de los precedentes. Los casos históricos anteriores son TU BASE DE CONOCIMIENTO INTERNA de taller para que te apoyes en las soluciones comprobadas que otros técnicos de Sekunet aplicaron con éxito a fallas similares.
-2. Si el técnico te pide un análisis del caso, o si la pregunta es sobre el caso en general (por ejemplo: "y el analisis del caso?", "analice el caso", "qué tiene?", "diagnóstico", "resumen del caso", etc.):
+1. MÁXIMA PRECISIÓN BASADA EN PRECEDENTES HISTÓRICOS: Si existen PRECEDENTES HISTÓRICOS listados arriba, TIENEN PRIORIDAD MÁXIMA como fuente de verdad técnica. Debes fundamentar tu respuesta técnica en las soluciones reales comprobadas que los técnicos de Sekunet ya aplicaron y resolvieron con éxito para esa misma falla o equipo, adaptando los pasos al caso actual.
+2. FOCO Y DESTINATARIO: Tu respuesta va dirigida ÚNICA Y EXCLUSIVAMENTE al caso y cliente que está actualmente abierto en pantalla. NUNCA menciones nombres de clientes anteriores ni fechas pasadas de los precedentes. Los casos históricos anteriores son TU BASE DE CONOCIMIENTO INTERNA de taller para que te apoyes en las soluciones comprobadas que otros técnicos de Sekunet aplicaron con éxito a fallas similares.
+3. Si el técnico te pide un análisis del caso, o si la pregunta es sobre el caso en general (por ejemplo: "y el analisis del caso?", "analice el caso", "qué tiene?", "diagnóstico", "resumen del caso", etc.):
    DEBES responder con un **Análisis Técnico Integral del Caso** estructurado así:
    - **Equipo y Síntoma:** Marca, modelo exacto y qué falla o problema presenta el equipo según el cliente.
    - **Evidencia en Adjuntos:** Qué se ve en las fotos (etiquetas, modelo, leds, cableado, estado físico) o qué se escuchó en los audios transcritos.
    - **Diagnóstico Técnico y Pruebas:** Pruebas que ya se realizaron y la causa raíz técnica más probable (respaldada si aplica por cómo se resolvió en casos históricos similares).
    - **Estado Actual y Próximos Pasos:** En qué quedó la conversación con el cliente y procedimiento exacto recomendado para resolverle.
-3. NUNCA respondas que el cliente no tiene preguntas o no reportó problemas basándote únicamente en el último mensaje de cortesía ("gracias", "de acuerdo", etc.). Todo el caso abierto contiene el contexto de la avería.
-4. Si el técnico te pregunta sobre las imágenes o los audios, responde DIRECTAMENTE y con precisión técnica basándote en los análisis y transcripciones que tienes en este contexto.
-5. Entrega diagnósticos certeros, marcas, modelos (ej. terminales ZKTeco, cámaras Hikvision, etc.), números de parte, especificaciones eléctricas y pasos claros de resolución.
-6. Comunícate con tono profesional, técnico, colaborativo y con calidez costarricense ("Pura vida, colega").`;
+4. NUNCA respondas que el cliente no tiene preguntas o no reportó problemas basándote únicamente en el último mensaje de cortesía ("gracias", "de acuerdo", etc.). Todo el caso abierto contiene el contexto de la avería.
+5. Si el técnico te pregunta sobre las imágenes o los audios, responde DIRECTAMENTE y con precisión técnica basándote en los análisis y transcripciones que tienes en este contexto.
+6. Entrega diagnósticos certeros, marcas, modelos (ej. terminales ZKTeco, cámaras Hikvision, etc.), números de parte, especificaciones eléctricas y pasos claros de resolución.
+7. Comunícate con tono profesional, técnico, colaborativo y con calidez costarricense ("Pura vida, colega").`;
 
     // ── 7. Generar respuesta con IA (Google Gemini 3.5 Flash Lite / 3.6 Flash / Config Chaining) ──
     let responseText = "Disculpe, no pude obtener una respuesta en este momento.";
