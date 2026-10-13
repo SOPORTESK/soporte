@@ -3480,23 +3480,23 @@ function AudioPlayer({ url }: { url: string }) {
           ? <Pause className="h-4 w-4" />
           : <Play className="h-4 w-4 ml-0.5" />}
       </button>
-      <div className="flex-1 min-w-0 space-y-1.5">
+      <div className="flex-1 min-w-0 space-y-1.5 overflow-hidden">
         <div
           ref={barRef}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
-          className={`flex items-center gap-1.5 py-1.5 ${durFinite ? "cursor-pointer" : "cursor-default"}`}
+          className={`flex items-center justify-between py-1.5 w-full select-none ${durFinite ? "cursor-pointer" : "cursor-default"}`}
           style={{ touchAction: "none" }}
         >
-          {[...Array(20)].map((_, i) => {
-            const h = 4 + Math.sin(i * 1.7) * 3 + Math.sin(i * 0.9) * 2;
-            const filled = (i / 20) * 100 <= progress;
+          {[...Array(22)].map((_, i) => {
+            const h = 4 + Math.sin(i * 1.5) * 4 + Math.sin(i * 0.8) * 3;
+            const filled = progress > 0 && (i / 21) * 100 <= progress;
             return (
               <div
                 key={i}
-                className={cn("w-1 rounded-full transition-colors shrink-0", filled ? "bg-white" : "bg-white/30")}
-                style={{ height: `${h + 4}px` }}
+                className={cn("w-[3px] rounded-full transition-colors shrink-0", filled ? "bg-white" : "bg-white/30")}
+                style={{ height: `${Math.max(4, h + 3)}px` }}
               />
             );
           })}
