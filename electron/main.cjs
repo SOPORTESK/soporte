@@ -299,6 +299,40 @@ ipcMain.on('notificar-mensaje-interno', (_, data) => {
   notif.show();
 });
 
+ipcMain.on('notificar-recordatorio', (_, data) => {
+  if (win && (!win.isFocused() || win.isMinimized())) {
+    win.flashFrame(true);
+  }
+  if (!Notification.isSupported()) return;
+
+  const tipo = data?.tipo || 'tarea'; // 'tarea_asignada' | 'tarea_vencida' | 'evento_proximo' | 'recordatorio'
+  let titulo = '⏰ RECORDATORIO DE AGENDA';
+  if (tipo === 'tarea_asignada') {
+    titulo = '📌 NUEVA TAREA ASIGNADA';
+  } else if (tipo === 'evento_proximo') {
+    titulo = '📅 REUNIÓN / EVENTO PROGRAMADO';
+  } else if (tipo === 'tarea_vencida') {
+    titulo = '⚠️ TAREA PENDIENTE / VENCIMIENTO';
+  }
+
+  const notif = new Notification({
+    title  : titulo,
+    body   : `${data?.titulo || 'Recordatorio'}${data?.detalle ? `\n${data.detalle}` : ''}`,
+    icon   : APP_ICON,
+    urgency: 'critical',
+  });
+
+  notif.on('click', () => {
+    if (win) {
+      if (win.isMinimized()) win.restore();
+      win.show();
+      win.focus();
+      win.flashFrame(false);
+    }
+  });
+  notif.show();
+});
+
 // ─── APP READY ────────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {

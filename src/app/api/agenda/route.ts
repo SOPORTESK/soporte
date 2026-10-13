@@ -163,6 +163,22 @@ export async function POST(req: NextRequest) {
       }
 
       await saveStoredData(supabase, EVENTS_KEY, events);
+
+      // Notificar vía Supabase Realtime a los clientes
+      try {
+        await supabase.channel("sek_agenda_events").send({
+          type: "broadcast",
+          event: "agenda_event_assigned",
+          payload: {
+            event: updatedEvent,
+            isNew: !item.id,
+            action: item.id ? "updated" : "created",
+          },
+        });
+      } catch (bcErr) {
+        console.warn("[agenda broadcast event err]", bcErr);
+      }
+
       return NextResponse.json({ success: true, item: updatedEvent, events });
     }
 
@@ -209,6 +225,22 @@ export async function POST(req: NextRequest) {
       }
 
       await saveStoredData(supabase, TASKS_KEY, tasks);
+
+      // Notificar vía Supabase Realtime a los clientes
+      try {
+        await supabase.channel("sek_agenda_events").send({
+          type: "broadcast",
+          event: "agenda_task_assigned",
+          payload: {
+            task: updatedTask,
+            isNew: !item.id,
+            action: item.id ? "updated" : "created",
+          },
+        });
+      } catch (bcErr) {
+        console.warn("[agenda broadcast task err]", bcErr);
+      }
+
       return NextResponse.json({ success: true, item: updatedTask, tasks });
     }
 

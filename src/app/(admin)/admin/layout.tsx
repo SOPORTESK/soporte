@@ -17,6 +17,7 @@ import { EscalatedCasesBanner } from "@/components/escalated-cases-banner";
 import { DataIntegrityBanner } from "@/components/admin/data-integrity-banner";
 import { FloatingTechAssistant } from "@/components/floating-tech-assistant";
 import { ActivityTrackerProvider } from "@/components/activity-tracker-provider";
+import { ElectronReminderListener } from "@/components/agenda/electron-reminder-listener";
 import { getUserWithTimeout, queryWithFallback } from "@/lib/supabase/resilient";
 import { getAgentGroupPermissions } from "@/lib/permissions";
 import { SidebarUserPanel } from "@/components/sidebar-user-panel";
@@ -261,6 +262,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         </div>
         <FloatingTechAssistant />
         <ActivityTrackerProvider agentEmail={a.email} agentName={fullName} />
+        <ElectronReminderListener currentAgentEmail={a.email} currentAgentName={fullName} />
       </GodModeAdminWrapper>
     </GodModeGuard>
   );

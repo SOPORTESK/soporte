@@ -16,6 +16,7 @@ import { SmartInboxBadge } from "@/components/smart-inbox-badge";
 import { EscalatedCasesBanner } from "@/components/escalated-cases-banner";
 import { FloatingTechAssistant } from "@/components/floating-tech-assistant";
 import { ActivityTrackerProvider } from "@/components/activity-tracker-provider";
+import { ElectronReminderListener } from "@/components/agenda/electron-reminder-listener";
 import { getUserWithTimeout, queryWithFallback } from "@/lib/supabase/resilient";
 import { getAgentGroupPermissions } from "@/lib/permissions";
 
@@ -217,6 +218,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     />
     <FloatingTechAssistant />
     <ActivityTrackerProvider agentEmail={currentAgent.email} agentName={fullName} enabled={true} />
+    <ElectronReminderListener currentAgentEmail={currentAgent.email} currentAgentName={fullName} />
     </div>
     </GodModeWrapper>
   );

@@ -196,8 +196,15 @@ export function AgendaView({ currentAgent, canManageGlobal = false }: AgendaView
   // Filtrado de eventos y tareas
   const filteredEvents = useMemo(() => {
     return events.filter((evt) => {
-      if (filterAssigned === "mine" && evt.assigned_to && evt.assigned_to !== "all" && evt.assigned_to !== currentAgent.email) {
-        return false;
+      if (filterAssigned === "mine") {
+        if (evt.assigned_to && evt.assigned_to !== "all" && evt.assigned_to !== currentAgent.email) {
+          return false;
+        }
+      } else if (filterAssigned !== "all") {
+        // Filtrar por un agente específico seleccionado
+        if (evt.assigned_to !== filterAssigned && evt.assigned_to !== "all") {
+          return false;
+        }
       }
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
@@ -212,8 +219,15 @@ export function AgendaView({ currentAgent, canManageGlobal = false }: AgendaView
 
   const filteredTasks = useMemo(() => {
     return tasks.filter((tsk) => {
-      if (filterAssigned === "mine" && tsk.assigned_to && tsk.assigned_to !== "all" && tsk.assigned_to !== currentAgent.email) {
-        return false;
+      if (filterAssigned === "mine") {
+        if (tsk.assigned_to && tsk.assigned_to !== "all" && tsk.assigned_to !== currentAgent.email) {
+          return false;
+        }
+      } else if (filterAssigned !== "all") {
+        // Filtrar por un agente específico seleccionado
+        if (tsk.assigned_to !== filterAssigned && tsk.assigned_to !== "all") {
+          return false;
+        }
       }
       if (filterPriority !== "all" && tsk.priority !== filterPriority) {
         return false;
@@ -478,10 +492,17 @@ export function AgendaView({ currentAgent, canManageGlobal = false }: AgendaView
             <select
               value={filterAssigned}
               onChange={(e) => setFilterAssigned(e.target.value as any)}
-              className="rounded-lg border border-border bg-background px-2.5 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-violet-500 cursor-pointer"
+              className="rounded-lg border border-border bg-background px-2.5 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-violet-500 cursor-pointer max-w-[170px] truncate"
             >
               <option value="all">Todo el equipo</option>
               <option value="mine">Solo asignado a mí</option>
+              <optgroup label="Ver compañero específico">
+                {agents.map((ag) => (
+                  <option key={ag.email} value={ag.email}>
+                    {[ag.nombre, ag.apellido].filter(Boolean).join(" ") || ag.email}
+                  </option>
+                ))}
+              </optgroup>
             </select>
           </div>
 
