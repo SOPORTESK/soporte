@@ -247,6 +247,70 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // ── 5.1. Búsqueda inteligente en históricos de casos resueltos (Precedentes técnicos) ──
+    let historicalPrecedents = "";
+    try {
+      // Extraer términos del query y del caso actual (marca, modelo, problema)
+      const searchTerms: string[] = [];
+      if (targetCase?.marca) searchTerms.push(String(targetCase.marca).trim());
+      if (targetCase?.modelo) searchTerms.push(String(targetCase.modelo).trim());
+
+      const queryNormalized = lastUserQuery.toLowerCase().replace(/[^a-z0-9\s\-áéíóúñ]/gi, "");
+      const queryWords = queryNormalized.split(/\s+/).filter((w: string) => w.length >= 4 && !["como", "donde", "para", "este", "esta", "tiene", "favor", "puede", "hola"].includes(w));
+      searchTerms.push(...queryWords.slice(0, 4));
+
+      if (searchTerms.length > 0) {
+        // Buscar casos cerrados anteriores distintos al caso actual
+        let query = serviceClient
+          .from("sek_cases")
+          .select("id, title, marca, modelo, problema, resolucion, histtecnico, closed_at")
+          .eq("estado", "cerrado");
+
+        if (validCaseId) {
+          query = query.neq("id", validCaseId);
+        }
+
+        // Armar filtro por coincidencia en resolucion, problema, title o modelo
+        const orConditions = searchTerms.map(t => 
+          `resolucion.ilike.%${t}%,problema.ilike.%${t}%,title.ilike.%${t}%,modelo.ilike.%${t}%`
+        ).join(",");
+
+        const { data: matchedCases } = await query.or(orConditions).limit(4);
+
+        if (matchedCases && matchedCases.length > 0) {
+          const precedentSnippets: string[] = [];
+          for (let idx = 0; idx < matchedCases.length; idx++) {
+            const mc = matchedCases[idx];
+            let solText = (mc.resolucion || mc.problema || "").trim();
+
+            // Si la columna resolucion no tiene texto suficiente, extraer el último mensaje técnico sustancial
+            if (solText.length < 30 && Array.isArray(mc.histtecnico) && mc.histtecnico.length > 0) {
+              const lastTecMsg = mc.histtecnico
+                .filter((m: any) => m.content && typeof m.content === "string" && m.content.length > 25)
+                .slice(-1)[0];
+              if (lastTecMsg?.content) {
+                solText = lastTecMsg.content.trim();
+              }
+            }
+
+            if (solText) {
+              precedentSnippets.push(
+                `[Precedente #${idx + 1} | Equipo: ${mc.marca || "Seguridad"} ${mc.modelo || ""}]
+- Asunto/Falla reportada: ${mc.title || "Caso resuelto"}
+- Solución/Diagnóstico aplicado: ${solText.substring(0, 400)}`
+              );
+            }
+          }
+
+          if (precedentSnippets.length > 0) {
+            historicalPrecedents = precedentSnippets.join("\n\n");
+          }
+        }
+      }
+    } catch (histErr: any) {
+      console.warn("[tech-assistant] Error consultando históricos precedentes:", histErr?.message);
+    }
+
     // ── 6. System Prompt Maestro del Asistente Técnico ──
     const equipoRegistrado = clienteData?.equipo || (targetCase?.marca ? `${targetCase.marca || ""} ${targetCase.modelo || ""}`.trim() : "");
     const equipoLinea = equipoRegistrado || "No registrado formalmente (consulte la conversación y las fotos)";
@@ -255,7 +319,7 @@ export async function POST(req: NextRequest) {
 
 Tienes acceso COMPLETO y VISIBILIDAD TOTAL de la conversación del caso que el técnico tiene actualmente abierto en pantalla, incluyendo las fotos enviadas, las transcripciones completas de notas de voz de audio, videos y documentos técnicos analizados.
 
-CONTEXTO DEL CASO ABIERTO EN PANTALLA:
+CONTEXTO DEL CASO ABIERTO EN PANTALLA (A QUIEN LE ESTAMOS DANDO SOPORTE):
 - Cliente: ${clienteData?.nombre || "No registrado"}
 - Teléfono: ${targetCase?.customer_phone || "No indicado"}
 - Cuenta/Empresa: ${clienteData?.cuenta || "No registrada"}
@@ -265,21 +329,21 @@ CONTEXTO DEL CASO ABIERTO EN PANTALLA:
 
 CONVERSACIÓN CRONOLÓGICA COMPLETA DEL CASO ABIERTO (con transcripciones y análisis de imágenes):
 ${openCaseConversation || "No hay mensajes registrados en este caso."}
-${ragContext ? `\n\nINFORMACIÓN DE LA BASE DE CONOCIMIENTO (RAG):\n${ragContext}` : ""}
+${ragContext ? `\n\nINFORMACIÓN DE LA BASE DE CONOCIMIENTO Y MANUALES (RAG):\n${ragContext}` : ""}
+${historicalPrecedents ? `\n\nPRECEDENTES HISTÓRICOS Y SOLUCIONES DE OTROS TÉCNICOS EN SEKUNET (SOLO REFERENCIA TÉCNICA DE APOYO):\n${historicalPrecedents}` : ""}
 
 REGLAS DE ATENCIÓN TÉCNICA OBLIGATORIAS:
-1. Te limitas ESTRICTAMENTE al caso que está actualmente abierto en pantalla. Conoces toda la conversación de este caso abierto (lo que el cliente y técnico dijeron en texto y en notas de voz transcritas, y las imágenes/videos analizados). NO traigas ni mezcles casos antiguos ni historiales pasados de otras fechas; tu alcance es única y exclusivamente el caso abierto actual.
-2. Si el técnico te pide un análisis del caso, o si la pregunta es sobre el caso en general (por ejemplo: "y el analisis del caso?", "analice el caso", "qué tiene?", "diagnóstico", "resumen del caso", etc.), o al iniciar un análisis del caso:
+1. FOCO Y DESTINATARIO: Tu respuesta va dirigida ÚNICA Y EXCLUSIVAMENTE al caso y cliente que está actualmente abierto en pantalla. NUNCA menciones nombres de clientes anteriores ni fechas pasadas de los precedentes. Los casos históricos anteriores son TU BASE DE CONOCIMIENTO INTERNA de taller para que te apoyes en las soluciones comprobadas que otros técnicos de Sekunet aplicaron con éxito a fallas similares.
+2. Si el técnico te pide un análisis del caso, o si la pregunta es sobre el caso en general (por ejemplo: "y el analisis del caso?", "analice el caso", "qué tiene?", "diagnóstico", "resumen del caso", etc.):
    DEBES responder con un **Análisis Técnico Integral del Caso** estructurado así:
    - **Equipo y Síntoma:** Marca, modelo exacto y qué falla o problema presenta el equipo según el cliente.
    - **Evidencia en Adjuntos:** Qué se ve en las fotos (etiquetas, modelo, leds, cableado, estado físico) o qué se escuchó en los audios transcritos.
-   - **Diagnóstico Técnico y Pruebas:** Pruebas que ya se realizaron (ej. cambio de fuente de poder, reinicios) y la causa raíz técnica más probable (ej. daño interno en tarjeta madre/display, firmware, etc.).
-   - **Estado Actual y Próximos Pasos:** En qué quedó la conversación con el cliente (ej. coordinar recepción en taller de Sekunet para revisión de hardware, garantía, cotización, etc.).
-3. NUNCA respondas que el cliente no tiene preguntas o no reportó problemas basándote únicamente en el último mensaje de cortesía ("gracias", "de acuerdo programaré el envío", etc.). Todo el caso abierto contiene el contexto de la avería.
-4. Si el técnico te pregunta sobre las imágenes o los audios (por ejemplo: "vea las imagenes", "el audio?", "qué problema tiene?", "cómo lo solucionamos?", "qué le respondo?"), responde DIRECTAMENTE y con precisión técnica basándote en los análisis y transcripciones que tienes en este contexto.
-5. NUNCA digas que no dispones de los archivos ni que el sistema no ha registrado adjuntos cuando están presentes en el contexto.
-6. Entrega diagnósticos certeros, marcas, modelos (ej. terminales ZKTeco, cámaras Hikvision, etc.), números de parte, especificaciones eléctricas y pasos claros de resolución.
-7. Comunícate con tono profesional, técnico, colaborativo y con calidez costarricense ("Pura vida, colega").`;
+   - **Diagnóstico Técnico y Pruebas:** Pruebas que ya se realizaron y la causa raíz técnica más probable (respaldada si aplica por cómo se resolvió en casos históricos similares).
+   - **Estado Actual y Próximos Pasos:** En qué quedó la conversación con el cliente y procedimiento exacto recomendado para resolverle.
+3. NUNCA respondas que el cliente no tiene preguntas o no reportó problemas basándote únicamente en el último mensaje de cortesía ("gracias", "de acuerdo", etc.). Todo el caso abierto contiene el contexto de la avería.
+4. Si el técnico te pregunta sobre las imágenes o los audios, responde DIRECTAMENTE y con precisión técnica basándote en los análisis y transcripciones que tienes en este contexto.
+5. Entrega diagnósticos certeros, marcas, modelos (ej. terminales ZKTeco, cámaras Hikvision, etc.), números de parte, especificaciones eléctricas y pasos claros de resolución.
+6. Comunícate con tono profesional, técnico, colaborativo y con calidez costarricense ("Pura vida, colega").`;
 
     // ── 7. Generar respuesta con IA (Google Gemini 3.5 Flash Lite / 3.6 Flash / Config Chaining) ──
     let responseText = "Disculpe, no pude obtener una respuesta en este momento.";
