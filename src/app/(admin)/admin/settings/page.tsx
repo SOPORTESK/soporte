@@ -19,6 +19,7 @@ import { Badge } from "@/components/ui/avatar";
 import type { SekAgent } from "@/lib/types";
 import { IaModeToggle } from "@/components/admin/ia-mode-toggle";
 import { UnattendedModeToggle } from "@/components/admin/unattended-mode-toggle";
+import { RequireElectronToggle } from "@/components/admin/require-electron-toggle";
 import { CompanySchedulePanel } from "@/components/admin/company-schedule-panel";
 import { AutoCloseConfigPanel } from "@/components/admin/auto-close-config-panel";
 
@@ -63,6 +64,20 @@ export default async function AdminSettingsPage() {
     .eq("email", "system_prompt@sekunet.com")
     .maybeSingle();
   const modoNoAtendido = unattendedConfig?.modo_no_atendido ?? false;
+
+  const { data: requireElectronSetting } = await supabase
+    .from("sek_app_settings")
+    .select("value")
+    .eq("key", "require_electron_desktop_app")
+    .maybeSingle();
+  let requireElectron = false;
+  if (requireElectronSetting?.value) {
+    try {
+      requireElectron = Boolean(JSON.parse(requireElectronSetting.value).enabled);
+    } catch {
+      requireElectron = requireElectronSetting.value === "true";
+    }
+  }
 
   const { count: msgCount } = isSuperadmin
     ? await supabase.from("sek_messages").select("id", { count: "exact", head: true })
@@ -128,11 +143,14 @@ export default async function AdminSettingsPage() {
         </div>
       </header>
 
-      {/* ── Controles Maestros de Operación (Side by Side en 2 Columnas) ── */}
+      {/* ── Controles Maestros de Operación ── */}
       {isAdmin && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <IaModeToggle initialValue={iaActiva} />
-          <UnattendedModeToggle initialValue={modoNoAtendido} />
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <IaModeToggle initialValue={iaActiva} />
+            <UnattendedModeToggle initialValue={modoNoAtendido} />
+          </div>
+          <RequireElectronToggle initialValue={requireElectron} />
         </div>
       )}
 

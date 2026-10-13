@@ -17,6 +17,7 @@ import { EscalatedCasesBanner } from "@/components/escalated-cases-banner";
 import { FloatingTechAssistant } from "@/components/floating-tech-assistant";
 import { ActivityTrackerProvider } from "@/components/activity-tracker-provider";
 import { ElectronReminderListener } from "@/components/agenda/electron-reminder-listener";
+import { ElectronGatekeeper } from "@/components/electron-gatekeeper";
 import { getUserWithTimeout, queryWithFallback } from "@/lib/supabase/resilient";
 import { getAgentGroupPermissions } from "@/lib/permissions";
 
@@ -38,6 +39,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     onlineAgentsResult,
     n2CountResult,
     smartCountResult,
+    requireElectronResult,
   ] = await Promise.all([
     queryWithFallback(
       `agent_config_${email}`,
@@ -88,6 +90,27 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       },
       0,
       5000 // 5s TTL
+    ),
+    queryWithFallback(
+      "require_electron_desktop_app",
+      async () => {
+        const { data, error } = await supabase
+          .from("sek_app_settings")
+          .select("value")
+          .eq("key", "require_electron_desktop_app")
+          .maybeSingle();
+        let enabled = false;
+        if (data?.value) {
+          try {
+            enabled = Boolean(JSON.parse(data.value).enabled);
+          } catch {
+            enabled = data.value === "true";
+          }
+        }
+        return { data: enabled, error };
+      },
+      false,
+      30000 // 30s TTL
     ),
   ]);
 
@@ -219,6 +242,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <FloatingTechAssistant />
     <ActivityTrackerProvider agentEmail={currentAgent.email} agentName={fullName} enabled={true} />
     <ElectronReminderListener currentAgentEmail={currentAgent.email} currentAgentName={fullName} />
+    <ElectronGatekeeper requireElectron={Boolean(requireElectronResult?.data)} userRole={currentAgent.rol} />
     </div>
     </GodModeWrapper>
   );
