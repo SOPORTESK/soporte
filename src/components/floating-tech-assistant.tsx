@@ -159,9 +159,15 @@ export function FloatingTechAssistant() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (parsed.messages) {
+        if (parsed.messages && Array.isArray(parsed.messages)) {
+          const cleaned = parsed.messages.map((m: any) => {
+            if (m.content && typeof m.content === "string" && m.content.includes("Instrucciones de atención al cliente") && m.content.includes("Redacte la respuesta")) {
+              return { ...m, content: "Redactar propuesta de respuesta para el cliente basada en el caso abierto" };
+            }
+            return m;
+          });
           setSessionId(parsed.session_id || null);
-          setMessages(parsed.messages.slice(-10));
+          setMessages(cleaned.slice(-10));
         }
       } catch { /* ignorar */ }
     }
@@ -313,48 +319,6 @@ export function FloatingTechAssistant() {
   };
 
   const insertReplyToClient = async () => {
-    const instructionText = `Instrucciones de atención al cliente
-
-Responda siempre como un agente humano, profesional y experto en servicio al cliente.
-
-Estilo de comunicación
-
-Utilice un lenguaje sencillo, claro, natural y fácil de entender.
-Sea puntual, directo y conciso. Evite explicaciones innecesarias o respuestas excesivamente extensas.
-Mantenga un tono cordial, profesional, cercano y orientado a resolver la necesidad del cliente.
-Adapte la respuesta al contexto y al nivel técnico del cliente.
-Evite emojis, asteriscos, adornos, signos de puntuación exagerados y expresiones que hagan que la respuesta parezca generada por un sistema automatizado.
-No utilice lenguaje excesivamente técnico cuando no sea necesario.
-No repita información que el cliente ya haya proporcionado.
-
-Contexto y comportamiento
-
-Consulte siempre sek_cases para comprender el contexto de la conversación, el historial del caso y la forma en que se atienden situaciones similares.
-Utilice sek_cases como referencia para mantener coherencia con el tono, los criterios de atención y la dinámica habitual de servicio al cliente.
-No copie literalmente respuestas anteriores. Utilice la información disponible para construir una respuesta natural y adecuada al caso actual.
-
-Búsqueda y validación de información
-
-Antes de realizar búsquedas en Internet, consulte siempre los RAG locales disponibles.
-Priorice la información encontrada en los RAG locales cuando sea suficiente, pertinente y verificable.
-Si la información disponible no es suficiente, actualizada o concluyente, realice una búsqueda en fuentes externas confiables.
-Para consultas técnicas, priorice documentación oficial del fabricante, manuales, fichas técnicas, bases de conocimiento y sitios oficiales.
-Cuando sea necesario complementar la información, consulte fuentes secundarias confiables, incluyendo foros técnicos, comunidades especializadas y redes sociales oficiales.
-Las búsquedas en Internet deben ser exhaustivas cuando la complejidad o importancia de la consulta lo requiera.
-No considere una fuente confiable únicamente por aparecer en los resultados de búsqueda. Evalúe su autoridad, actualidad, consistencia y relación con la consulta.
-
-Exactitud y confiabilidad
-
-No invente información, especificaciones, procedimientos, características, compatibilidades ni respuestas técnicas.
-No presente suposiciones, inferencias o información no confirmada como hechos.
-Toda información técnica proporcionada al cliente debe ser verificable y sustentable en una fuente confiable.
-Cuando existan diferencias entre fuentes, priorice la documentación oficial y más reciente del fabricante.
-Si después de consultar las fuentes disponibles no es posible confirmar una respuesta técnica de forma fiable, no improvise. Determine si el caso debe ser remitido a soporte avanzado.
-
-Objetivo
-La prioridad es proporcionar respuestas correctas, útiles y fáciles de comprender, manteniendo una experiencia de servicio profesional, humana y eficiente.
-
-Redacte la respuesta para el cliente basándose en el análisis integral de todo el caso abierto, el estado actual de la avería y la última intervención del cliente. Responda SOLO con el texto de la respuesta, sin explicaciones adicionales ni comentarios.`;
     setLoading(true);
     const effectiveCaseId = caseId || resolveCurrentCaseId();
     try {
@@ -362,7 +326,8 @@ Redacte la respuesta para el cliente basándose en el análisis integral de todo
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: instructionText,
+          action: "draft_client_reply",
+          displayMessage: "Redactar propuesta de respuesta para el cliente basada en el caso abierto",
           case_id: effectiveCaseId,
           messages: messages.slice(-9),
         }),
@@ -370,7 +335,7 @@ Redacte la respuesta para el cliente basándose en el análisis integral de todo
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Error del asistente");
       const aiResponse = data.messages?.[data.messages.length - 1]?.content || "";
-      if (aiResponse) {
+      if (aiResponse && !aiResponse.startsWith("Disculpe, no pude")) {
         const finalMessages = (data.messages || []).slice(-10);
         setMessages(finalMessages);
         localStorage.setItem("sek_tech_assistant_session", JSON.stringify({
@@ -380,7 +345,9 @@ Redacte la respuesta para el cliente basándose en el análisis integral de todo
         window.dispatchEvent(new CustomEvent("sek-insert-draft", { detail: { text: aiResponse } }));
         toast.success("Respuesta insertada en el chat del cliente");
       } else {
-        toast.error("El asistente no generó una respuesta");
+        const finalMessages = (data.messages || []).slice(-10);
+        setMessages(finalMessages);
+        toast.error("El asistente no pudo generar la respuesta en este momento");
       }
     } catch (e: any) {
       toast.error(e?.message || "Error al generar respuesta");
@@ -556,7 +523,11 @@ Redacte la respuesta para el cliente basándose en el análisis integral de todo
                       <span className="truncate max-w-[180px]">{m.fileName || "Adjunto"}</span>
                     </a>
                   )}
-                  <p className="whitespace-pre-wrap">{m.content}</p>
+                  <p className="whitespace-pre-wrap">
+                    {m.content && m.content.includes("Instrucciones de atención al cliente") && m.content.includes("Redacte la respuesta")
+                      ? "Redactar propuesta de respuesta para el cliente basada en el caso abierto"
+                      : m.content}
+                  </p>
                 </div>
               </div>
             ))}

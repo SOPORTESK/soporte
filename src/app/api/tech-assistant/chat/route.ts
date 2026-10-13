@@ -17,9 +17,9 @@ interface TechMessage {
 
 export async function POST(req: NextRequest) {
   try {
-    const { message, case_id, messages: clientMessages, mediaUrl, mediaType, fileName } = await req.json();
+    const { message, case_id, messages: clientMessages, mediaUrl, mediaType, fileName, action, displayMessage } = await req.json();
 
-    if ((!message || typeof message !== "string" || !message.trim()) && (!mediaUrl || typeof mediaUrl !== "string")) {
+    if ((!message || typeof message !== "string" || !message.trim()) && (!mediaUrl || typeof mediaUrl !== "string") && action !== "draft_client_reply") {
       return NextResponse.json({ error: "Mensaje o adjunto requerido" }, { status: 400 });
     }
 
@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
         const phone = cleanId.startsWith("tel:") ? cleanId.substring(4).trim() : cleanId;
         const { data: casesForPhone } = await serviceClient
           .from("sek_cases")
-          .select("id, estado, created_at, canal, customer_phone, cliente, histcliente, histtecnico, title, marca, modelo")
+          .select("id, estado, created_at, canal, customer_phone, cliente, histcliente, histtecnico, title, marca, modelo, problema, resolucion")
           .ilike("customer_phone", `%${phone}%`)
           .order("created_at", { ascending: false })
           .limit(10);
@@ -88,7 +88,7 @@ export async function POST(req: NextRequest) {
       } else {
         const { data: caseData } = await serviceClient
           .from("sek_cases")
-          .select("id, estado, created_at, canal, customer_phone, cliente, histcliente, histtecnico, title, marca, modelo")
+          .select("id, estado, created_at, canal, customer_phone, cliente, histcliente, histtecnico, title, marca, modelo, problema, resolucion")
           .eq("id", cleanId)
           .maybeSingle();
         if (caseData) {
@@ -102,7 +102,7 @@ export async function POST(req: NextRequest) {
           if (histLen <= 2 && caseData.customer_phone) {
             const { data: siblingCases } = await serviceClient
               .from("sek_cases")
-              .select("id, estado, created_at, canal, customer_phone, cliente, histcliente, histtecnico, title, marca, modelo")
+              .select("id, estado, created_at, canal, customer_phone, cliente, histcliente, histtecnico, title, marca, modelo, problema, resolucion")
               .ilike("customer_phone", `%${caseData.customer_phone}%`)
               .order("created_at", { ascending: false })
               .limit(6);
@@ -130,24 +130,32 @@ export async function POST(req: NextRequest) {
       const histCliente = Array.isArray(targetCase.histcliente) ? targetCase.histcliente : [];
       const histTecnico = Array.isArray(targetCase.histtecnico) ? targetCase.histtecnico : [];
 
-      // Analizar adjuntos pendientes (imágenes, audios, videos, documentos)
+      // Analizar adjuntos pendientes (máximo los 2 más recientes para evitar latencias altas)
       const allMsgs = [...histCliente, ...histTecnico];
       const attachments = allMsgs.filter((m: any) => m.mediaUrl && typeof m.mediaUrl === "string");
 
       if (attachments.length > 0) {
         let changed = false;
-        for (const att of attachments) {
-          let analysis = att._visionAnalysis || "";
-          if (!analysis || analysis.includes("[ANÁLISIS DE ADJUNTO NO DISPONIBLE")) {
+        const pendingAttachments = attachments.filter(
+          (m: any) => !m._visionAnalysis || m._visionAnalysis.includes("[ANÁLISIS DE ADJUNTO NO DISPONIBLE")
+        ).slice(-2);
+
+        for (const att of pendingAttachments) {
+          try {
             console.log(`[tech-assistant] Analizando adjunto pendiente en caso ${validCaseId}:`, att.mediaUrl);
-            const result = await analyzeMedia(att.mediaUrl, att.mediaType, att.content || "", att.fileName || "");
+            const result = await Promise.race([
+              analyzeMedia(att.mediaUrl, att.mediaType, att.content || "", att.fileName || ""),
+              new Promise<null>((r) => setTimeout(() => r(null), 5000))
+            ]);
             if (result) {
-              analysis = result;
+              const analysis = result;
               const patch = (m: any) => (m.mediaUrl === att.mediaUrl ? { ...m, _visionAnalysis: analysis } : m);
               for (let i = 0; i < histCliente.length; i++) histCliente[i] = patch(histCliente[i]);
               for (let i = 0; i < histTecnico.length; i++) histTecnico[i] = patch(histTecnico[i]);
               changed = true;
             }
+          } catch (err: any) {
+            console.warn("[tech-assistant] Error analizando adjunto:", err?.message);
           }
         }
         if (changed && validCaseId) {
@@ -209,10 +217,17 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const isDraftAction = action === "draft_client_reply" ||
+      (typeof message === "string" && message.includes("Instrucciones de atención al cliente") && message.includes("Redacte la respuesta para el cliente"));
+
+    const displayMsg = displayMessage || (isDraftAction
+      ? "Redactar propuesta de respuesta para el cliente basada en el caso abierto"
+      : (message || "").trim());
+
     const now = new Date().toISOString();
     const userMsgContent = techMediaAnalysis
-      ? `${(message || "").trim()}\n\n[ANÁLISIS DEL ARCHIVO ADJUNTO DEL TÉCNICO (${fileName || mediaType || "archivo"})]:\n${techMediaAnalysis}`.trim()
-      : (message || "").trim();
+      ? `${displayMsg}\n\n[ANÁLISIS DEL ARCHIVO ADJUNTO DEL TÉCNICO (${fileName || mediaType || "archivo"})]:\n${techMediaAnalysis}`.trim()
+      : displayMsg;
 
     const userMsg: TechMessage = {
       role: "user",
@@ -225,12 +240,15 @@ export async function POST(req: NextRequest) {
     const updatedMessages = [...messages, userMsg];
 
     // ── 5. Búsqueda RAG en base de conocimiento ──
-    const lastUserQuery = (message || "").trim();
+    const effectiveQuery = isDraftAction
+      ? `${targetCase?.problema || targetCase?.title || targetCase?.marca || ""} ${targetCase?.modelo || ""}`.trim()
+      : (message || "").trim();
+
     let ragContext = "";
-    if (lastUserQuery.length >= 3) {
+    if (effectiveQuery.length >= 3) {
       try {
-        const normalized = lastUserQuery.toLowerCase().replace(/[^a-z0-9\s\-áéíóúñ]/gi, "");
-        const terms = normalized.split(/\s+/).filter((t: string) => t.length >= 3);
+        const normalized = effectiveQuery.toLowerCase().replace(/[^a-z0-9\s\-áéíóúñ]/gi, "");
+        const terms = normalized.split(/\s+/).filter((t: string) => t.length >= 3 && !["como", "donde", "para", "este", "esta", "tiene", "favor", "puede", "hola", "redactar", "respuesta", "cliente", "propuesta", "basada", "abierto"].includes(t));
         if (terms.length > 0) {
           const orFilter = terms.slice(0, 5).map((t: string) => `content.ilike.%${t}%`).join(",");
           const { data: ragData } = await serviceClient
@@ -250,17 +268,15 @@ export async function POST(req: NextRequest) {
     // ── 5.1. Búsqueda inteligente en históricos de casos resueltos (Precedentes técnicos) ──
     let historicalPrecedents = "";
     try {
-      // Extraer términos del query y del caso actual (marca, modelo, problema)
       const searchTerms: string[] = [];
       if (targetCase?.marca) searchTerms.push(String(targetCase.marca).trim());
       if (targetCase?.modelo) searchTerms.push(String(targetCase.modelo).trim());
 
-      const queryNormalized = lastUserQuery.toLowerCase().replace(/[^a-z0-9\s\-áéíóúñ]/gi, "");
-      const queryWords = queryNormalized.split(/\s+/).filter((w: string) => w.length >= 4 && !["como", "donde", "para", "este", "esta", "tiene", "favor", "puede", "hola"].includes(w));
+      const queryNormalized = effectiveQuery.toLowerCase().replace(/[^a-z0-9\s\-áéíóúñ]/gi, "");
+      const queryWords = queryNormalized.split(/\s+/).filter((w: string) => w.length >= 4 && !["como", "donde", "para", "este", "esta", "tiene", "favor", "puede", "hola", "redactar", "respuesta", "cliente", "propuesta", "basada", "abierto"].includes(w));
       searchTerms.push(...queryWords.slice(0, 4));
 
       if (searchTerms.length > 0) {
-        // Buscar casos cerrados anteriores distintos al caso actual
         let query = serviceClient
           .from("sek_cases")
           .select("id, title, marca, modelo, problema, resolucion, histtecnico, closed_at")
@@ -270,7 +286,6 @@ export async function POST(req: NextRequest) {
           query = query.neq("id", validCaseId);
         }
 
-        // Armar filtro por coincidencia en resolucion, problema, title o modelo
         const orConditions = searchTerms.map(t => 
           `resolucion.ilike.%${t}%,problema.ilike.%${t}%,title.ilike.%${t}%,modelo.ilike.%${t}%`
         ).join(",");
@@ -286,7 +301,6 @@ export async function POST(req: NextRequest) {
             const mc = matchedCases[idx];
             let solText = (mc.resolucion || mc.problema || "").trim();
 
-            // Si la columna resolucion no tiene texto suficiente, extraer el último mensaje técnico sustancial
             if (solText.length < 30 && Array.isArray(mc.histtecnico) && mc.histtecnico.length > 0) {
               const lastTecMsg = mc.histtecnico
                 .filter((m: any) => m.content && typeof m.content === "string" && m.content.length > 25)
@@ -318,7 +332,7 @@ export async function POST(req: NextRequest) {
     const equipoRegistrado = clienteData?.equipo || (targetCase?.marca ? `${targetCase.marca || ""} ${targetCase.modelo || ""}`.trim() : "");
     const equipoLinea = equipoRegistrado || "No registrado formalmente (consulte la conversación y las fotos)";
 
-    const systemPrompt = `Eres el Asistente Técnico Senior de Sekunet, el copiloto experto para técnicos e ingenieros de soporte de CCTV, control de acceso, alarmas, redes y seguridad electrónica.
+    let systemPrompt = `Eres el Asistente Técnico Senior de Sekunet, el copiloto experto para técnicos e ingenieros de soporte de CCTV, control de acceso, alarmas, redes y seguridad electrónica.
 
 Tienes acceso COMPLETO y VISIBILIDAD TOTAL de la conversación del caso que el técnico tiene actualmente abierto en pantalla, incluyendo las fotos enviadas, las transcripciones completas de notas de voz de audio, videos y documentos técnicos analizados.
 
@@ -349,7 +363,19 @@ REGLAS DE ATENCIÓN TÉCNICA OBLIGATORIAS:
 6. Entrega diagnósticos certeros, marcas, modelos (ej. terminales ZKTeco, cámaras Hikvision, etc.), números de parte, especificaciones eléctricas y pasos claros de resolución.
 7. Comunícate con tono profesional, técnico, colaborativo y con calidez costarricense ("Pura vida, colega").`;
 
-    // ── 7. Generar respuesta con IA (Google Gemini 3.5 Flash Lite / 3.6 Flash / Config Chaining) ──
+    if (isDraftAction) {
+      systemPrompt += `\n\nOBJETIVO INMEDIATO PARA ESTA INTERVENCIÓN:
+El técnico solicitó redactar la propuesta de respuesta que él enviará directamente al cliente en el chat.
+PAUTAS ESTRICTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
+- Responda con un tono profesional, humano, cercano, cordial y resolutivo.
+- Lenguaje sencillo y claro. Evite explicaciones innecesarias o respuestas excesivamente largas.
+- Adáptese al contexto del caso abierto, a la avería reportada y al último mensaje del cliente.
+- NO use lenguaje robótico ni emojis excesivos.
+- Sustente los pasos en las soluciones técnicas comprobadas de los precedentes.
+- DEVUELVA ÚNICAMENTE el texto que el técnico debe enviarle al cliente. No incluya introducciones como "Aquí tiene la respuesta:" ni despedidas dirigidas al técnico.`;
+    }
+
+    // ── 7. Generar respuesta con IA (Multi-provider Fallback Chain) ──
     let responseText = "Disculpe, no pude obtener una respuesta en este momento.";
 
     try {

@@ -167,7 +167,7 @@ export async function generateText(
   const chain = await getChain(role);
   const { system, messages, temperature = 0.3, maxTokens = 2048, timeoutMs = 12_000, tools } = opts;
 
-  const timeoutPerModel = Math.min(timeoutMs, 8_000);
+  const timeoutPerModel = Math.min(timeoutMs, 6_000);
   for (const m of chain) {
     const t0 = Date.now();
     try {
@@ -212,12 +212,16 @@ export async function generateText(
           continue;
         }
         const data = await res.json();
-        text = data.choices?.[0]?.message?.content ?? "";
+        const choice = data.choices?.[0];
+        text = choice?.message?.content || choice?.message?.reasoning || "";
+        if (text) {
+          text = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+        }
       }
 
       if (text.trim()) {
         console.log(`[ai-fallback] ✅ Éxito con ${m.provider}/${m.modelo} en ${Date.now() - t0}ms`);
-        return { text, modelo: m.modelo, provider: m.provider };
+        return { text: text.trim(), modelo: m.modelo, provider: m.provider };
       }
     } catch (e: any) {
       console.warn(`[ai-fallback] ⚠️ Excepción/Timeout en ${m.provider}/${m.modelo} (${Date.now() - t0}ms): ${e?.message} -> Saltando al siguiente...`);
