@@ -293,7 +293,7 @@ REGLAS DE ATENCIÓN TÉCNICA OBLIGATORIAS:
         })),
         temperature: 0.2,
         maxTokens: 2048,
-        timeoutMs: 60_000,
+        timeoutMs: 15_000,
       });
 
       if (aiGen?.text) {
