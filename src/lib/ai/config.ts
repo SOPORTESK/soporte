@@ -167,8 +167,11 @@ export async function generateText(
   const chain = await getChain(role);
   const { system, messages, temperature = 0.3, maxTokens = 2048, timeoutMs = 12_000, tools } = opts;
 
+  const timeoutPerModel = Math.min(timeoutMs, 8_000);
   for (const m of chain) {
+    const t0 = Date.now();
     try {
+      console.log(`[ai-fallback] Intentando con ${m.provider}/${m.modelo}...`);
       let text = "";
 
       if (m.provider === "google") {
@@ -186,10 +189,11 @@ export async function generateText(
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
-          signal: AbortSignal.timeout(timeoutMs),
+          signal: AbortSignal.timeout(timeoutPerModel),
         });
         if (!res.ok) {
-          console.warn(`[ai-config] ${m.provider}/${m.modelo} respondió ${res.status}`);
+          const errBody = await res.text().catch(() => "");
+          console.warn(`[ai-fallback] ❌ ${m.provider}/${m.modelo} falló con status ${res.status} (${Date.now() - t0}ms): ${errBody.substring(0, 100)} -> Saltando al siguiente...`);
           continue;
         }
         const data = await res.json();
@@ -200,19 +204,23 @@ export async function generateText(
           method: "POST",
           headers: { "Content-Type": "application/json", "Authorization": `Bearer ${m.apiKey}` },
           body: JSON.stringify({ model: m.modelo, messages: msgs, temperature, max_tokens: maxTokens }),
-          signal: AbortSignal.timeout(timeoutMs),
+          signal: AbortSignal.timeout(timeoutPerModel),
         });
         if (!res.ok) {
-          console.warn(`[ai-config] ${m.provider}/${m.modelo} respondió ${res.status}`);
+          const errBody = await res.text().catch(() => "");
+          console.warn(`[ai-fallback] ❌ ${m.provider}/${m.modelo} falló con status ${res.status} (${Date.now() - t0}ms): ${errBody.substring(0, 100)} -> Saltando al siguiente...`);
           continue;
         }
         const data = await res.json();
         text = data.choices?.[0]?.message?.content ?? "";
       }
 
-      if (text.trim()) return { text, modelo: m.modelo, provider: m.provider };
+      if (text.trim()) {
+        console.log(`[ai-fallback] ✅ Éxito con ${m.provider}/${m.modelo} en ${Date.now() - t0}ms`);
+        return { text, modelo: m.modelo, provider: m.provider };
+      }
     } catch (e: any) {
-      console.warn(`[ai-config] ${m.provider}/${m.modelo} error:`, e?.message);
+      console.warn(`[ai-fallback] ⚠️ Excepción/Timeout en ${m.provider}/${m.modelo} (${Date.now() - t0}ms): ${e?.message} -> Saltando al siguiente...`);
     }
   }
 
