@@ -331,7 +331,7 @@ export async function POST(req: NextRequest) {
         const { data: directCases } = await query
           .or(orConditions)
           .order("closed_at", { ascending: false })
-          .limit(15);
+          .limit(30);
 
         if (directCases && directCases.length > 0) {
           matchedCases = directCases;
@@ -352,7 +352,7 @@ export async function POST(req: NextRequest) {
 
         const { data: recentClosed } = await fallbackQuery
           .order("closed_at", { ascending: false })
-          .limit(8);
+          .limit(15);
 
         if (recentClosed && recentClosed.length > 0) {
           matchedCases = recentClosed;
@@ -361,7 +361,7 @@ export async function POST(req: NextRequest) {
 
       if (matchedCases.length > 0) {
         const precedentSnippets: string[] = [];
-        for (let idx = 0; idx < matchedCases.length; idx++) {
+        for (let idx = 0; idx < Math.min(matchedCases.length, 10); idx++) {
           const mc = matchedCases[idx];
           let solText = (mc.resolucion || mc.problema || "").trim();
 
@@ -377,7 +377,7 @@ export async function POST(req: NextRequest) {
           if (solText) {
             const eq = `${mc.marca || "Equipo"} ${mc.modelo || ""}`.trim();
             precedentSnippets.push(
-              `[C${idx + 1}] Caso #${mc.id.substring(0, 8)} (${eq || "General"} | Falla: ${mc.title || mc.problema || "Resuelto"})
+              `[C${idx + 1}] Caso #${mc.id.substring(0, 8)} (${eq || "General"} | Falla: ${mc.title || mc.problema || "Avería resuelta"})
 Solución técnica comprobada: ${solText.substring(0, 500)}`
             );
           }
@@ -389,6 +389,43 @@ Solución técnica comprobada: ${solText.substring(0, 500)}`
       }
     } catch (histErr: any) {
       console.warn("[tech-assistant] Error consultando históricos precedentes:", histErr?.message);
+    }
+
+    // ── 5.2. Búsqueda Web Técnica en Vivo (Fichas Técnicas, Manuales Oficiales y Foros Especializados) ──
+    let webContext = "";
+    try {
+      const corpusForWeb = `${targetCase?.title || ""} ${targetCase?.problema || ""} ${openCaseConversation} ${(message || "")}`.toLowerCase();
+      const detectedBrand = [
+        "hikvision", "dahua", "zkteco", "ubiquiti", "mikrotik", "hilook", "ezviz", "imou", "dsc", "paradox", "axis", "uniview"
+      ].find(b => corpusForWeb.includes(b)) || (targetCase?.marca ? String(targetCase.marca).trim() : "");
+
+      const modelMatches = corpusForWeb.match(/\b([a-z]{1,4}[-][a-z0-9\/-]+|[a-z]{1,3}\d{2,5}[a-z0-9-]*)\b/gi) || [];
+      const cleanModels = [...new Set(modelMatches.map(m => m.trim().toLowerCase()))]
+        .filter(m => m.length >= 3 && !["http", "https", "jpeg", "webm", "html", "case", "auto", "json", "hora", "min", "react"].includes(m));
+      const detectedModel = cleanModels[0] || (targetCase?.modelo ? String(targetCase.modelo).trim() : "");
+
+      const detectedKw = [
+        "contraseña", "clave", "password", "reset", "desvincular", "pitido", "beep",
+        "no da video", "video loss", "pantalla negra", "disco no detectado", "hdd",
+        "firmware", "sadp", "configtool", "hik-connect", "smartpss", "biotime", "offline", "poe"
+      ].find(k => corpusForWeb.includes(k)) || "";
+
+      const queryParts = [detectedBrand, detectedModel, detectedKw].filter(Boolean);
+      if (detectedModel || (detectedBrand && detectedKw)) {
+        const webQuery = `${queryParts.join(" ")} solucion manual datasheet`.trim();
+        console.log(`[tech-assistant] 🌐 Ejecutando búsqueda web técnica en vivo: "${webQuery}"`);
+        const webResults = await searchTechnicalWeb(webQuery, 4);
+        if (webResults.length > 0) {
+          const webSnippets: string[] = [];
+          webResults.forEach((r, i) => {
+            webSnippets.push(`[W${i + 1}] ${r.title} (${r.url})\n${r.snippet}`);
+          });
+          webContext = webSnippets.join("\n\n");
+          console.log(`[tech-assistant] 🌐 Búsqueda web exitosa: ${webResults.length} fuentes encontradas`);
+        }
+      }
+    } catch (webErr: any) {
+      console.warn("[tech-assistant] Error en búsqueda web en vivo:", webErr?.message);
     }
 
     // ── 6. System Prompt Maestro del Asistente Técnico ──
@@ -413,14 +450,15 @@ CONVERSACIÓN CRONOLÓGICA COMPLETA DEL CASO ABIERTO (con transcripciones y aná
 ${openCaseConversation || "No hay mensajes registrados en este caso."}
 ${ragContext ? `\n\nMANUALES Y BASE DE CONOCIMIENTO (RAG):\n${ragContext}` : ""}
 ${historicalPrecedents ? `\n\nPRECEDENTES HISTÓRICOS Y SOLUCIONES DE OTROS TÉCNICOS EN SEKUNET (BASE DE CONOCIMIENTO DEL TALLER):\n${historicalPrecedents}` : ""}
+${webContext ? `\n\nBÚSQUEDA WEB EN VIVO (MANUALES OFICIALES, FICHAS TÉCNICAS Y FOROS ESPECIALIZADOS):\n${webContext}` : ""}
 
 REGLAS DE ATENCIÓN TÉCNICA OBLIGATORIAS:
-1. MÁXIMA PRIORIDAD A RESOLVER LA AVERÍA: El técnico te consulta para encontrar la SOLUCIÓN EXACTA. Debes fundamentar tu diagnóstico y procedimiento en las soluciones reales comprobadas que los técnicos de Sekunet ya aplicaron con éxito en los precedentes listados arriba.
+1. MÁXIMA PRIORIDAD A RESOLVER LA AVERÍA: El técnico te consulta para encontrar la SOLUCIÓN EXACTA. Debes fundamentar tu diagnóstico y procedimiento en las soluciones reales comprobadas que los técnicos de Sekunet ya aplicaron en los precedentes de taller Y en la información técnica oficial de manuales y fichas técnicas web.
 2. FOCO Y DESTINATARIO: Tu respuesta va dirigida ÚNICA Y EXCLUSIVAMENTE al caso y cliente abierto en pantalla. Nunca menciones nombres ni fechas de casos pasados.
 3. ESTRUCTURA DE RESOLUCIÓN TÉCNICA (OBLIGATORIA al pedir diagnóstico, análisis o solución):
    No des explicaciones teóricas vacías. Responde con un Plan Técnico Resolutivo estructurado en estas secciones directas:
-   • Falla y Causa Raíz: Diagnóstico certero del equipo (marca, modelo exacto) y la causa técnica real del fallo según la evidencia y precedentes.
-   • Solución Comprobada en Taller: Cómo otros técnicos de Sekunet resolvieron esta falla en los precedentes consultados.
+   • Falla y Causa Raíz: Diagnóstico certero del equipo (marca, modelo exacto) y la causa técnica real del fallo según la evidencia, precedentes y manuales.
+   • Solución Comprobada en Taller / Documentada: Cómo otros técnicos de Sekunet o los manuales del fabricante resolvieron esta avería.
    • Procedimiento de Resolución (Paso a Paso): Pasos técnicos exactos para resolver la falla (herramientas SADP/ConfigTool, comandos, reset por archivo XML, subredes IP, PoE, verificación de voltajes o cables).
    • Instrucción Concreta para el Cliente: Qué indicación, prueba o dato específico se le debe pedir al cliente en este momento.
 4. NUNCA respondas que el cliente no tiene preguntas basándote en un último mensaje de cortesía. Todo el historial del caso contiene la avería.
@@ -432,12 +470,13 @@ REGLAS ESTRICTAS DE FORMATO Y ESTILO (OBLIGATORIAS):
 - PROHIBIDO EL USO DE ENCABEZADOS MARKDOWN: No uses símbolos de almohadilla (#, ##, ###) ni líneas de separación (--- o ___).
 - VIÑETAS DECENTES: Si vas a enlistar puntos, usa viñetas sencillas con punto ("• ") de un solo nivel, sin sangrías complejas ni anidamientos. Usa pasos numerados (1., 2., 3.) únicamente si estás detallando un procedimiento secuencial.
 
-CITACIÓN DE FUENTES (AL FINAL DE LA RESPUESTA):
-- Al final de tu respuesta hacia el técnico, incluye EXACTAMENTE UNA SOLA LÍNEA indicando brevemente las fuentes consultadas:
-  Fuentes consultadas: [C1] Precedente similar (modelo y falla), [M1] Manual (título)
-  Si no se requirieron precedentes:
-  Fuentes consultadas: Conversación y adjuntos del caso actual.
-- No coloques referencias ni citas entre corchetes dentro del texto ni a mitad de frase. La mención va únicamente en esa línea final limpia.`;
+CITACIÓN OBLIGATORIA DE FUENTES REALES (UNA SOLA LÍNEA AL FINAL):
+- Al final de tu respuesta hacia el técnico, incluye EXACTAMENTE UNA SOLA LÍNEA con las fuentes reales consultadas con sus identificadores específicos. NUNCA uses frases genéricas de relleno como "Precedente similar (modelo y falla)".
+  Ejemplo con precedentes y web: Fuentes consultadas: [C1] Caso Sekunet #a18f23 (Hikvision DS-7208 - Falla pitido disco), [W1] Manual oficial Hikvision (hikvision.com), Conversación del caso actual.
+  Ejemplo con solo precedentes: Fuentes consultadas: [C1] Caso Sekunet #b491ec (ZKTeco K40 - Reset clave administrador), Conversación del caso actual.
+  Ejemplo con solo web: Fuentes consultadas: [W1] Ficha técnica oficial (hikvision.com), Conversación del caso actual.
+  Si solo se usó el hilo actual: Fuentes consultadas: Conversación y adjuntos del caso actual.
+- Cero corchetes ni llamadas de fuentes a mitad de frase en la redacción; las fuentes van únicamente en esa línea final limpia.`;
 
     if (isDraftAction) {
       systemPrompt += `\n\nOBJETIVO INMEDIATO PARA ESTA INTERVENCIÓN:
@@ -484,6 +523,9 @@ PAUTAS ESTRICTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
       if (historicalPrecedents) {
         fuentesUtilizadas.push("Precedentes históricos de Sekunet");
       }
+      if (webContext) {
+        fuentesUtilizadas.push("Fichas técnicas y manuales web");
+      }
       if (ragContext) {
         fuentesUtilizadas.push("Manuales técnicos");
       }
@@ -529,3 +571,50 @@ function cleanAiFormatting(raw: string): string {
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
+
+async function searchTechnicalWeb(
+  query: string,
+  limit = 4
+): Promise<{ title: string; url: string; snippet: string }[]> {
+  try {
+    const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return [];
+    const html = await res.text();
+    const results: { title: string; url: string; snippet: string }[] = [];
+
+    const blocks = html.split(/<div class="result\s+/i);
+    for (const block of blocks.slice(1)) {
+      const titleMatch = block.match(/<a[^>]*class="result__a"[^>]*>([\s\S]*?)<\/a>/i);
+      const snippetMatch = block.match(/<a[^>]*class="result__snippet"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/i);
+
+      if (titleMatch) {
+        const title = titleMatch[1].replace(/<[^>]+>/g, "").trim();
+        let targetUrl = "";
+        let snippet = "";
+        if (snippetMatch) {
+          const rawHref = snippetMatch[1];
+          const uddgMatch = rawHref.match(/[?&]uddg=([^&]+)/);
+          targetUrl = uddgMatch ? decodeURIComponent(uddgMatch[1]) : rawHref;
+          snippet = snippetMatch[2].replace(/<[^>]+>/g, "").trim();
+        }
+        if (title && snippet) {
+          results.push({ title, url: targetUrl, snippet });
+          if (results.length >= limit) break;
+        }
+      }
+    }
+    return results;
+  } catch (err: any) {
+    console.warn("[tech-assistant] Error en searchTechnicalWeb:", err?.message);
+    return [];
+  }
+}
+
