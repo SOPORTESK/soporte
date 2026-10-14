@@ -542,20 +542,17 @@ export async function getActivityMetrics(agentEmail: string, date: string, exist
   const totalWorkdayMs = computed.totalWorkdayMs || (productiveMs + breakMs + sanitaryMs);
   const rawOvertimeMs = Math.max(0, totalWorkdayMs - targetMs);
   const deficitMs = Math.max(0, targetMs - totalWorkdayMs);
-  const activeDisplayMs = (rawOvertimeMs > 0 && !isOvertimeApproved) ? targetMs : productiveMs;
-  const workdayDisplayMs = (rawOvertimeMs > 0 && !isOvertimeApproved) ? targetMs : totalWorkdayMs;
-
   const categoryTimeMs: Record<string, number> = {};
   computed.operationalBuckets.forEach((b) => {
     categoryTimeMs[b.label || b.id] = b.durationMs;
   });
 
   return {
-    totalActiveMs: activeDisplayMs,
+    totalActiveMs: productiveMs,
     rawActiveMs: productiveMs,
-    totalWorkdayMs: workdayDisplayMs,
+    totalWorkdayMs: totalWorkdayMs,
     rawWorkdayMs: totalWorkdayMs,
-    totalWorkdayTime: formatDuration(workdayDisplayMs),
+    totalWorkdayTime: formatDuration(totalWorkdayMs),
     targetDailyHours,
     deficitMs,
     rawOvertimeMs,
@@ -564,7 +561,7 @@ export async function getActivityMetrics(agentEmail: string, date: string, exist
     totalIdleMs: idleMs,
     totalBreakMs: breakMs,
     totalSanitaryMs: sanitaryMs,
-    totalActiveTime: formatDuration(activeDisplayMs),
+    totalActiveTime: formatDuration(productiveMs),
     totalBreakTime: formatDuration(breakMs),
     totalSanitaryTime: formatDuration(sanitaryMs),
     totalIdleTime: formatDuration(idleMs),

@@ -1353,10 +1353,11 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
       const targetMins = Math.round((serverMetrics.targetDailyHours || targetDailyHours || 10) * 60);
       const activeMins = Math.round((serverMetrics.totalActiveMs || 0) / 60000);
       const rawActiveMins = Math.round((serverMetrics.rawActiveMs || 0) / 60000);
-      const breakMins = Math.round(((serverMetrics.totalBreakMs || 0) + (serverMetrics.totalSanitaryMs || 0)) / 60000);
+      const breakMins = Math.round((serverMetrics.totalBreakMs || 0) / 60000);
+      const sanitaryMins = Math.round((serverMetrics.totalSanitaryMs || 0) / 60000);
       const workdayMins = serverMetrics.totalWorkdayMs
         ? Math.round(serverMetrics.totalWorkdayMs / 60000)
-        : (activeMins + breakMins);
+        : (activeMins + breakMins + sanitaryMins);
       const deficitMins = Math.round((serverMetrics.deficitMs || 0) / 60000);
       const rawOtMins = Math.round((serverMetrics.rawOvertimeMs || 0) / 60000);
       const percent = targetMins > 0 ? Math.min(100, Math.round((workdayMins / targetMins) * 100)) : 0;
@@ -1373,6 +1374,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
         activeMinutes: activeMins,
         workdayMinutes: workdayMins,
         breakMinutes: breakMins,
+        sanitaryMinutes: sanitaryMins,
         targetMinutes: targetMins,
         targetDailyHours: serverMetrics.targetDailyHours || targetDailyHours || 10,
         percent,
@@ -1390,6 +1392,8 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
         pcWorkTime: serverMetrics.pcWorkTime || "0m",
         manualJustificationTime: serverMetrics.manualJustificationTime || "0m",
         totalIdleTime: serverMetrics.totalIdleTime || "0m",
+        breakTime: serverMetrics.totalBreakTime || "0m",
+        sanitaryTime: serverMetrics.totalSanitaryTime || "0m",
       };
     }
 
@@ -1405,10 +1409,11 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
     const productiveMs = computed.masterBuckets.Productivo.durationMs;
     const breakMs = computed.masterBuckets.Descanso.durationMs;
     const sanitaryMs = computed.masterBuckets["Pausa Sanitaria"].durationMs;
-    const workdayMs = productiveMs + breakMs + sanitaryMs;
+    const workdayMs = computed.totalWorkdayMs || (productiveMs + breakMs + sanitaryMs);
     const workdayMinutes = Math.round(workdayMs / 60000);
     const rawActiveMinutes = Math.round(productiveMs / 60000);
-    const breakMinutes = Math.round((breakMs + sanitaryMs) / 60000);
+    const breakMinutes = Math.round(breakMs / 60000);
+    const sanitaryMinutes = Math.round(sanitaryMs / 60000);
     const targetMinutes = Math.round(targetDailyHours * 60);
     const diffMinutes = workdayMinutes - targetMinutes;
     const rawOvertimeMinutes = diffMinutes > 0 ? diffMinutes : 0;
@@ -1421,17 +1426,14 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
     const isOvertimePending = currentOtReq?.status === "pending";
     const isOvertimeRejected = currentOtReq?.status === "rejected";
 
-    const workdayMinutesDisplay = (rawOvertimeMinutes > 0 && !isOvertimeApproved)
-      ? targetMinutes
-      : workdayMinutes;
-
-    const percent = targetMinutes > 0 ? Math.min(100, Math.round((workdayMinutesDisplay / targetMinutes) * 100)) : 0;
+    const percent = targetMinutes > 0 ? Math.min(100, Math.round((workdayMinutes / targetMinutes) * 100)) : 0;
 
     return {
       rawActiveMinutes,
       activeMinutes: rawActiveMinutes,
-      workdayMinutes: workdayMinutesDisplay,
+      workdayMinutes,
       breakMinutes,
+      sanitaryMinutes,
       targetMinutes,
       targetDailyHours,
       percent,
@@ -1449,6 +1451,8 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
       pcWorkTime: computed.pcWorkTime || "0m",
       manualJustificationTime: computed.manualJustificationTime || "0m",
       totalIdleTime: computed.masterBuckets.Inactivo.formattedTime || "0m",
+      breakTime: computed.masterBuckets.Descanso.formattedTime || "0m",
+      sanitaryTime: computed.masterBuckets["Pausa Sanitaria"].formattedTime || "0m",
     };
   }, [serverMetrics, timeline, targetDailyHours, toleranceMinutes, scheduleStart, scheduleEnd, useMixedSchedule, daySchedules, appMappings, overtimeRequests, selectedAgent]);
 
@@ -1783,20 +1787,25 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
                     <span className="text-[10px] uppercase font-sans font-bold text-emerald-400/80">Activo:</span>
                     <span>{serverMetrics?.totalActiveTime || `${Math.floor(agentDailyCompliance.activeMinutes / 60)}h ${agentDailyCompliance.activeMinutes % 60}m`}</span>
                   </div>
-                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-300 font-bold">
-                    <Sandwich className="h-3.5 w-3.5 text-amber-400" />
-                    <span className="text-[10px] uppercase font-sans font-bold text-amber-400/80">Descansos:</span>
-                    <span>{serverMetrics?.totalBreakTime || `${agentDailyCompliance.breakMinutes}m`}</span>
-                  </div>
                   <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-muted/60 border border-border text-foreground">
                     <Monitor className="h-3.5 w-3.5 text-sky-400" />
                     <span className="text-[10px] uppercase font-sans font-bold text-muted-foreground">PC:</span>
-                    <span className="font-bold">{serverMetrics?.pcWorkTime || agentDailyCompliance.pcWorkTime || "--"}</span>
+                    <span className="font-bold">{serverMetrics?.pcWorkTime || agentDailyCompliance.pcWorkTime || "0m"}</span>
                   </div>
                   <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
                     <CheckCircle2 className="h-3.5 w-3.5" />
-                    <span className="text-[10px] uppercase font-sans font-bold text-cyan-500/80">Justificación Manual:</span>
+                    <span className="text-[10px] uppercase font-sans font-bold text-cyan-500/80">Manuales (Taller):</span>
                     <span className="font-bold">{serverMetrics?.manualJustificationTime || agentDailyCompliance.manualJustificationTime || "0m"}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-300 font-bold">
+                    <Sandwich className="h-3.5 w-3.5 text-amber-400" />
+                    <span className="text-[10px] uppercase font-sans font-bold text-amber-400/80">Descansos:</span>
+                    <span>{serverMetrics?.totalBreakTime || agentDailyCompliance.breakTime || "0m"}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-teal-500/15 border border-teal-500/30 text-teal-300 font-bold">
+                    <Toilet className="h-3.5 w-3.5 text-teal-400" />
+                    <span className="text-[10px] uppercase font-sans font-bold text-teal-400/80">Sanitaria:</span>
+                    <span>{serverMetrics?.totalSanitaryTime || agentDailyCompliance.sanitaryTime || "0m"}</span>
                   </div>
                   <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300">
                     <Clock className="h-3.5 w-3.5" />
