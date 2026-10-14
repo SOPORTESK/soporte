@@ -342,7 +342,7 @@ export function FloatingTechAssistant() {
           session_id: sessionId || null,
           messages: finalMessages,
         }));
-        window.dispatchEvent(new CustomEvent("sek-insert-draft", { detail: { text: aiResponse } }));
+        window.dispatchEvent(new CustomEvent("sek-insert-draft", { detail: { text: data.clientDraft || aiResponse } }));
         toast.success("Respuesta insertada en el chat del cliente");
       } else {
         const finalMessages = (data.messages || []).slice(-10);

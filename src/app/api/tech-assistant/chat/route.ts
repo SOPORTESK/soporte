@@ -311,10 +311,10 @@ export async function POST(req: NextRequest) {
             }
 
             if (solText) {
+              const eq = `${mc.marca || "Equipo"} ${mc.modelo || ""}`.trim();
               precedentSnippets.push(
-                `[Precedente Histórico #${idx + 1} | Equipo: ${mc.marca || "Sekunet"} ${mc.modelo || ""}]
-- Asunto/Falla: ${mc.title || "Caso resuelto"}
-- Solución comprobada por técnico: ${solText.substring(0, 600)}`
+                `[C${idx + 1}] Caso #${mc.id.substring(0, 8)} (${eq || "General"} | Falla: ${mc.title || mc.problema || "Resuelto"})
+Solución comprobada: ${solText.substring(0, 500)}`
               );
             }
           }
@@ -346,22 +346,34 @@ CONTEXTO DEL CASO ABIERTO EN PANTALLA (A QUIEN LE ESTAMOS DANDO SOPORTE):
 
 CONVERSACIÓN CRONOLÓGICA COMPLETA DEL CASO ABIERTO (con transcripciones y análisis de imágenes):
 ${openCaseConversation || "No hay mensajes registrados en este caso."}
-${ragContext ? `\n\nINFORMACIÓN DE LA BASE DE CONOCIMIENTO Y MANUALES (RAG):\n${ragContext}` : ""}
-${historicalPrecedents ? `\n\nPRECEDENTES HISTÓRICOS Y SOLUCIONES DE OTROS TÉCNICOS EN SEKUNET (SOLO REFERENCIA TÉCNICA DE APOYO):\n${historicalPrecedents}` : ""}
+${ragContext ? `\n\nMANUALES Y BASE DE CONOCIMIENTO (RAG):\n${ragContext}` : ""}
+${historicalPrecedents ? `\n\nPRECEDENTES HISTÓRICOS Y SOLUCIONES DE OTROS TÉCNICOS EN SEKUNET:\n${historicalPrecedents}` : ""}
 
 REGLAS DE ATENCIÓN TÉCNICA OBLIGATORIAS:
 1. MÁXIMA PRECISIÓN BASADA EN PRECEDENTES HISTÓRICOS: Si existen PRECEDENTES HISTÓRICOS listados arriba, TIENEN PRIORIDAD MÁXIMA como fuente de verdad técnica. Debes fundamentar tu respuesta técnica en las soluciones reales comprobadas que los técnicos de Sekunet ya aplicaron y resolvieron con éxito para esa misma falla o equipo, adaptando los pasos al caso actual.
 2. FOCO Y DESTINATARIO: Tu respuesta va dirigida ÚNICA Y EXCLUSIVAMENTE al caso y cliente que está actualmente abierto en pantalla. NUNCA menciones nombres de clientes anteriores ni fechas pasadas de los precedentes. Los casos históricos anteriores son TU BASE DE CONOCIMIENTO INTERNA de taller para que te apoyes en las soluciones comprobadas que otros técnicos de Sekunet aplicaron con éxito a fallas similares.
 3. Si el técnico te pide un análisis del caso, o si la pregunta es sobre el caso en general (por ejemplo: "y el analisis del caso?", "analice el caso", "qué tiene?", "diagnóstico", "resumen del caso", etc.):
-   DEBES responder con un **Análisis Técnico Integral del Caso** estructurado así:
-   - **Equipo y Síntoma:** Marca, modelo exacto y qué falla o problema presenta el equipo según el cliente.
-   - **Evidencia en Adjuntos:** Qué se ve en las fotos (etiquetas, modelo, leds, cableado, estado físico) o qué se escuchó en los audios transcritos.
-   - **Diagnóstico Técnico y Pruebas:** Pruebas que ya se realizaron y la causa raíz técnica más probable (respaldada si aplica por cómo se resolvió en casos históricos similares).
-   - **Estado Actual y Próximos Pasos:** En qué quedó la conversación con el cliente y procedimiento exacto recomendado para resolverle.
+   DEBES responder con un Análisis Técnico Integral del Caso estructurado con estas secciones:
+   • Equipo y Síntoma: Marca, modelo exacto y qué falla o problema presenta el equipo según el cliente.
+   • Evidencia en Adjuntos: Qué se ve en las fotos (etiquetas, modelo, leds, cableado, estado físico) o qué se escuchó en los audios transcritos.
+   • Diagnóstico Técnico y Pruebas: Pruebas que ya se realizaron y la causa raíz técnica más probable (respaldada si aplica por cómo se resolvió en casos históricos similares).
+   • Estado Actual y Próximos Pasos: En qué quedó la conversación con el cliente y procedimiento exacto recomendado para resolverle.
 4. NUNCA respondas que el cliente no tiene preguntas o no reportó problemas basándote únicamente en el último mensaje de cortesía ("gracias", "de acuerdo", etc.). Todo el caso abierto contiene el contexto de la avería.
 5. Si el técnico te pregunta sobre las imágenes o los audios, responde DIRECTAMENTE y con precisión técnica basándote en los análisis y transcripciones que tienes en este contexto.
 6. Entrega diagnósticos certeros, marcas, modelos (ej. terminales ZKTeco, cámaras Hikvision, etc.), números de parte, especificaciones eléctricas y pasos claros de resolución.
-7. Comunícate con tono profesional, técnico, colaborativo y con calidez costarricense ("Pura vida, colega").`;
+7. Comunícate con tono profesional, técnico, colaborativo y con calidez costarricense ("Pura vida, colega").
+
+REGLAS ESTRICTAS DE FORMATO Y ESTILO (OBLIGATORIAS):
+- PROHIBIDO EL USO DE ASTERISCOS: Absolutamente CERO asteriscos. No uses negritas con doble asterisco (**texto**), ni cursivas con asterisco (*texto*), ni viñetas de asterisco (* punto).
+- PROHIBIDO EL USO DE ENCABEZADOS MARKDOWN: No uses símbolos de almohadilla (#, ##, ###) ni líneas de separación (--- o ___).
+- VIÑETAS DECENTES: Si vas a enlistar puntos, usa viñetas sencillas con punto ("• ") de un solo nivel, sin sangrías complejas ni anidamientos. Usa pasos numerados (1., 2., 3.) únicamente si estás detallando un procedimiento secuencial.
+
+CITACIÓN DE FUENTES (AL FINAL DE LA RESPUESTA):
+- Al final de tu respuesta hacia el técnico, incluye EXACTAMENTE UNA SOLA LÍNEA indicando brevemente las fuentes consultadas:
+  Fuentes consultadas: [C1] Precedente similar (modelo y falla), [M1] Manual (título)
+  Si no se requirieron precedentes:
+  Fuentes consultadas: Conversación y adjuntos del caso actual.
+- No coloques referencias ni citas entre corchetes dentro del texto ni a mitad de frase. La mención va únicamente en esa línea final limpia.`;
 
     if (isDraftAction) {
       systemPrompt += `\n\nOBJETIVO INMEDIATO PARA ESTA INTERVENCIÓN:
@@ -372,7 +384,9 @@ PAUTAS ESTRICTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
 - Adáptese al contexto del caso abierto, a la avería reportada y al último mensaje del cliente.
 - NO use lenguaje robótico ni emojis excesivos.
 - Sustente los pasos en las soluciones técnicas comprobadas de los precedentes.
-- DEVUELVA ÚNICAMENTE el texto que el técnico debe enviarle al cliente. No incluya introducciones como "Aquí tiene la respuesta:" ni despedidas dirigidas al técnico.`;
+- CERO ASTERISCOS: Redacte en texto plano limpio sin negritas de asterisco (** ni *), sin encabezados con # y con viñetas decentes ("• ").
+- NO INCLUYAS la línea de fuentes consultadas en este texto, ya que el mensaje va dirigido al cliente final.
+- DEVUELVA ÚNICAMENTE el texto que el técnico debe enviarle al cliente. No incluya introducciones como "Aquí tiene la respuesta:" ni notas dirigidas al técnico.`;
     }
 
     // ── 7. Generar respuesta con IA (Multi-provider Fallback Chain) ──
@@ -391,16 +405,32 @@ PAUTAS ESTRICTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
       });
 
       if (aiGen?.text) {
-        responseText = aiGen.text.trim();
+        responseText = cleanAiFormatting(aiGen.text);
         console.log(`[tech-assistant] Respuesta generada exitosamente con ${aiGen.provider}/${aiGen.modelo}`);
       }
     } catch (aiErr: any) {
       console.error("[tech-assistant] Error generando respuesta:", aiErr?.message);
     }
 
+    let clientDraftText = responseText;
+    let assistantDisplayContent = responseText;
+
+    if (isDraftAction) {
+      const fuentesUtilizadas: string[] = [];
+      if (historicalPrecedents) {
+        fuentesUtilizadas.push("Precedentes históricos de Sekunet");
+      }
+      if (ragContext) {
+        fuentesUtilizadas.push("Manuales técnicos");
+      }
+      fuentesUtilizadas.push("Conversación del caso actual");
+      
+      assistantDisplayContent = `${responseText}\n\nFuentes consultadas: ${fuentesUtilizadas.join(", ")}.`;
+    }
+
     const assistantMsg: TechMessage = {
       role: "assistant",
-      content: responseText,
+      content: assistantDisplayContent,
       time: new Date().toISOString(),
     };
     const finalMessages = [...updatedMessages, assistantMsg];
@@ -408,10 +438,30 @@ PAUTAS ESTRICTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
     return NextResponse.json({
       ok: true,
       response: responseText,
+      clientDraft: clientDraftText,
       messages: finalMessages,
+      case_id: validCaseId,
     });
   } catch (e: any) {
     console.error("[tech-assistant] error general:", e.message);
     return NextResponse.json({ error: e?.message || "Error inesperado" }, { status: 500 });
   }
+}
+
+function cleanAiFormatting(raw: string): string {
+  if (!raw) return "";
+  return raw
+    // Eliminar líneas divisorias tipo ---, ___, ***
+    .replace(/^[ \t]*[-*_]{3,}[ \t]*$/gm, "")
+    // Eliminar encabezados markdown (# Título, ## Título, ### Título)
+    .replace(/^[ \t]*#{1,6}[ \t]+/gm, "")
+    // Normalizar viñetas decentes: convertir "- " o "* " o "+ " al inicio de línea en viñeta limpia "• "
+    .replace(/^[ \t]*[-*+][ \t]+/gm, "• ")
+    // Eliminar negritas/cursivas con asteriscos (**texto** o *texto* manteniendo el contenido)
+    .replace(/\*{1,3}([^*\n]+?)\*{1,3}/g, (_, content) => content)
+    // Eliminar cualquier asterisco residual
+    .replace(/\*/g, "")
+    // Limpiar saltos de línea excesivos (máximo 2 seguidos)
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
