@@ -376,8 +376,13 @@ export async function POST(req: NextRequest) {
 
           if (solText) {
             const eq = `${mc.marca || "Equipo"} ${mc.modelo || ""}`.trim();
+            const lastTecAuthor = Array.isArray(mc.histtecnico)
+              ? mc.histtecnico.filter((m: any) => m.role === "tecnico" && m.author && m.author !== "Soporte Sekunet" && !String(m.author).includes("Sistema")).slice(-1)[0]?.author
+              : null;
+            const resolverName = lastTecAuthor || (mc.assigned_to ? String(mc.assigned_to).split("@")[0] : "") || "Taller Sekunet";
+
             precedentSnippets.push(
-              `[C${idx + 1}] Caso #${mc.id.substring(0, 8)} (${eq || "General"} | Falla: ${mc.title || mc.problema || "Avería resuelta"})
+              `[C${idx + 1}] Caso #${mc.id.substring(0, 8)} resuelto por ${resolverName} (${eq || "General"} | Falla: ${mc.title || mc.problema || "Avería resuelta"})
 Solución técnica comprobada: ${solText.substring(0, 500)}`
             );
           }
@@ -471,24 +476,25 @@ REGLAS ESTRICTAS DE FORMATO Y ESTILO (OBLIGATORIAS):
 - VIÑETAS DECENTES: Si vas a enlistar puntos, usa viñetas sencillas con punto ("• ") de un solo nivel, sin sangrías complejas ni anidamientos. Usa pasos numerados (1., 2., 3.) únicamente si estás detallando un procedimiento secuencial.
 
 CITACIÓN OBLIGATORIA DE FUENTES REALES (UNA SOLA LÍNEA AL FINAL):
-- Al final de tu respuesta hacia el técnico, incluye EXACTAMENTE UNA SOLA LÍNEA con las fuentes reales consultadas con sus identificadores específicos. NUNCA uses frases genéricas de relleno como "Precedente similar (modelo y falla)".
-  Ejemplo con precedentes y web: Fuentes consultadas: [C1] Caso Sekunet #a18f23 (Hikvision DS-7208 - Falla pitido disco), [W1] Manual oficial Hikvision (hikvision.com), Conversación del caso actual.
-  Ejemplo con solo precedentes: Fuentes consultadas: [C1] Caso Sekunet #b491ec (ZKTeco K40 - Reset clave administrador), Conversación del caso actual.
-  Ejemplo con solo web: Fuentes consultadas: [W1] Ficha técnica oficial (hikvision.com), Conversación del caso actual.
+- Al final de tu respuesta hacia el técnico, incluye EXACTAMENTE UNA SOLA LÍNEA con las fuentes reales consultadas, el técnico que lo resolvió y la URL web:
+  Ejemplo con precedentes y web: Fuentes consultadas: [C1] Caso Sekunet #a18f23 resuelto por César Andrés Batista (Hikvision DS-7208 - Falla pitido disco), [W1] Manual oficial Hikvision (https://assets.hikvision.com/...), Conversación del caso actual.
+  Ejemplo con solo precedentes: Fuentes consultadas: [C1] Caso Sekunet #b491ec resuelto por Matthew Bermudez (ZKTeco K40 - Reset clave administrador), Conversación del caso actual.
+  Ejemplo con solo web: Fuentes consultadas: [W1] Ficha técnica oficial (https://dahuasecurity.com/...), Conversación del caso actual.
   Si solo se usó el hilo actual: Fuentes consultadas: Conversación y adjuntos del caso actual.
+- REGLA OBLIGATORIA: Si citas un caso precedente de Sekunet [C...], DEBES incluir el número de caso precedido por # y el nombre del técnico que lo resolvió indicado en el precedente ("resuelto por [Nombre]").
+- REGLA OBLIGATORIA: Si citas una fuente web [W...], DEBES incluir la URL completa (https://...) para que el técnico pueda dar clic y abrirla.
 - Cero corchetes ni llamadas de fuentes a mitad de frase en la redacción; las fuentes van únicamente en esa línea final limpia.`;
 
     if (isDraftAction) {
       systemPrompt += `\n\nOBJETIVO INMEDIATO PARA ESTA INTERVENCIÓN:
-El técnico solicitó redactar la propuesta de respuesta que él enviará directamente al cliente en el chat.
-PAUTAS ESTRICTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
-- Responda con un tono profesional, humano, cercano, cordial y resolutivo.
-- Lenguaje sencillo y claro. Evite explicaciones innecesarias o respuestas excesivamente largas.
-- Adáptese al contexto del caso abierto, a la avería reportada y al último mensaje del cliente.
-- NO use lenguaje robótico ni emojis excesivos.
-- Sustente los pasos en las soluciones técnicas comprobadas de los precedentes.
+El técnico solicitó redactar la propuesta de respuesta que él enviará directamente al cliente en el chat de WhatsApp.
+PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
+- Responda con un tono profesional, humano, cercano, cordial y resolutivo ("Buenas tardes", "Con gusto le asisto...").
+- Ve directo al grano: dale al cliente la respuesta clara a su pregunta o el procedimiento técnico exacto paso a paso de lo que debe hacer en su equipo.
+- Si le indicas pasos o pruebas al cliente, usa viñetas sencillas con punto ("• ") directas y numeradas si es secuencial, con instrucciones fáciles de seguir para alguien no técnico.
+- NUNCA uses jerga interna del taller ni menciones precedentes de otros clientes, manuales internos ni códigos de caso de Sekunet.
 - CERO ASTERISCOS: Redacte en texto plano limpio sin negritas de asterisco (** ni *), sin encabezados con # y con viñetas decentes ("• ").
-- NO INCLUYAS la línea de fuentes consultadas en este texto, ya que el mensaje va dirigido al cliente final.
+- NO INCLUYAS la línea de fuentes consultadas en este texto, ya que este mensaje va dirigido exclusivamente al cliente final por WhatsApp.
 - DEVUELVA ÚNICAMENTE el texto que el técnico debe enviarle al cliente. No incluya introducciones como "Aquí tiene la respuesta:" ni notas dirigidas al técnico.`;
     }
 

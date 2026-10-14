@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { MessageCircle, X, Send, Loader2, Minimize2, Maximize2, GripVertical, Paperclip, FileText, Image as ImageIcon, XCircle, RotateCcw, Reply } from "lucide-react";
+import { MessageCircle, X, Send, Loader2, Minimize2, Maximize2, GripVertical, Paperclip, FileText, Image as ImageIcon, XCircle, RotateCcw, Reply, ExternalLink, FolderArchive, Globe, BookOpen } from "lucide-react";
 import { toast } from "sonner";
 import ReactDraggable, { DraggableEvent, DraggableData } from "react-draggable";
 const Draggable = ReactDraggable as any;
@@ -373,6 +373,16 @@ export function FloatingTechAssistant() {
     }
   };
 
+  const handleOpenHistoricalCase = (cId: string) => {
+    window.dispatchEvent(new CustomEvent("sek-open-case", { detail: { caseId: cId } }));
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set("c", cId);
+      window.history.replaceState(window.history.state, "", url.pathname + url.search);
+    } catch {}
+    toast.info(`Cargando caso histórico #${cId.substring(0, 8)}...`);
+  };
+
   const openFromBubble = () => {
     const rect = bubbleRef.current?.getBoundingClientRect();
     const bubbleSize = 56;
@@ -523,11 +533,15 @@ export function FloatingTechAssistant() {
                       <span className="truncate max-w-[180px]">{m.fileName || "Adjunto"}</span>
                     </a>
                   )}
-                  <p className="whitespace-pre-wrap">
-                    {m.content && m.content.includes("Instrucciones de atención al cliente") && m.content.includes("Redacte la respuesta")
-                      ? "Redactar propuesta de respuesta para el cliente basada en el caso abierto"
-                      : m.content}
-                  </p>
+                  {m.role === "assistant" ? (
+                    renderAssistantMessage(m.content, handleOpenHistoricalCase)
+                  ) : (
+                    <p className="whitespace-pre-wrap">
+                      {m.content && m.content.includes("Instrucciones de atención al cliente") && m.content.includes("Redacte la respuesta")
+                        ? "Redactar propuesta de respuesta para el cliente basada en el caso abierto"
+                        : m.content}
+                    </p>
+                  )}
                 </div>
               </div>
             ))}
@@ -605,5 +619,100 @@ export function FloatingTechAssistant() {
       )}
     </div>
     </Draggable>
+  );
+}
+
+function renderAssistantMessage(content: string, onOpenCase: (caseId: string) => void) {
+  const sourcesPrefix = "Fuentes consultadas:";
+  const sIdx = content.lastIndexOf(sourcesPrefix);
+  let mainBody = content;
+  let sourcesPart = "";
+
+  if (sIdx !== -1) {
+    mainBody = content.substring(0, sIdx).trim();
+    sourcesPart = content.substring(sIdx + sourcesPrefix.length).trim();
+  }
+
+  return (
+    <div className="space-y-2">
+      <p className="whitespace-pre-wrap">{mainBody}</p>
+      {sourcesPart && renderSourcesFooter(sourcesPart, onOpenCase)}
+    </div>
+  );
+}
+
+function renderSourcesFooter(sourcesText: string, onOpenCase: (caseId: string) => void) {
+  const caseRegex = /\[(C\d+)\]\s*Caso(?:\s+Sekunet)?\s*#([0-9a-f]{6,36})(?:\s+resuelto\s+por\s+([^(,]+?))?(?:\s*\(([^)]+)\))?/gi;
+  const webRegex = /\[(W\d+)\]\s*([^(\n]+?)\s*\((https?:\/\/[^\s)]+)\)/gi;
+
+  const elements: React.ReactNode[] = [];
+
+  let match: RegExpExecArray | null;
+  while ((match = caseRegex.exec(sourcesText)) !== null) {
+    const label = match[1];
+    const caseId = match[2];
+    const resolver = match[3]?.trim();
+    const details = match[4]?.trim();
+
+    elements.push(
+      <button
+        key={`case-${caseId}-${label}`}
+        onClick={() => onOpenCase(caseId)}
+        className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-violet-500/10 hover:bg-violet-500/25 text-violet-700 dark:text-violet-300 font-medium transition-all border border-violet-500/25 text-left text-xs group cursor-pointer"
+        title={`Clic para abrir caso histórico #${caseId}`}
+      >
+        <FolderArchive className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400 flex-shrink-0" />
+        <span className="font-semibold">[{label}] #{caseId.substring(0, 8)}</span>
+        {resolver && <span className="opacity-90 text-[11px] text-violet-600 dark:text-violet-300">• {resolver}</span>}
+        {details && <span className="opacity-70 text-[11px] truncate max-w-[140px]">({details})</span>}
+        <ExternalLink className="h-3 w-3 opacity-50 group-hover:opacity-100 flex-shrink-0 ml-0.5" />
+      </button>
+    );
+  }
+
+  while ((match = webRegex.exec(sourcesText)) !== null) {
+    const label = match[1];
+    const title = match[2].trim();
+    const url = match[3].trim();
+
+    elements.push(
+      <a
+        key={`web-${url}-${label}`}
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-sky-500/10 hover:bg-sky-500/25 text-sky-700 dark:text-sky-300 font-medium transition-all border border-sky-500/25 text-left text-xs group cursor-pointer"
+        title={url}
+      >
+        <Globe className="h-3.5 w-3.5 text-sky-600 dark:text-sky-400 flex-shrink-0" />
+        <span className="font-semibold">[{label}]</span>
+        <span className="truncate max-w-[160px]">{title}</span>
+        <ExternalLink className="h-3 w-3 opacity-50 group-hover:opacity-100 flex-shrink-0 ml-0.5" />
+      </a>
+    );
+  }
+
+  if (/conversaci[oó]n/i.test(sourcesText) || elements.length === 0) {
+    elements.push(
+      <span
+        key="current-case"
+        className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-muted/70 text-muted-foreground text-[11px] border border-border/40"
+      >
+        <MessageCircle className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+        <span>Conversación del caso actual</span>
+      </span>
+    );
+  }
+
+  return (
+    <div className="mt-2.5 pt-2 border-t border-border/40 text-xs">
+      <div className="font-semibold text-[10px] uppercase tracking-wider text-muted-foreground/80 mb-1.5 flex items-center gap-1">
+        <BookOpen className="h-3 w-3 text-violet-500" />
+        <span>Fuentes técnicas consultadas (clic para abrir)</span>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {elements}
+      </div>
+    </div>
   );
 }

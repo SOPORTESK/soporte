@@ -344,7 +344,11 @@ export function InboxClient({
     } else {
       // No está en lista: marcar pendiente y cargarlo desde Supabase
       setPendingSelectId(id);
-      supabase.from("sek_cases").select("*").eq("id", id).maybeSingle().then(({ data }) => {
+      const query = id.length < 36
+        ? supabase.from("sek_cases").select("*").ilike("id", `${id}%`).limit(1).maybeSingle()
+        : supabase.from("sek_cases").select("*").eq("id", id).maybeSingle();
+
+      query.then(({ data }) => {
         if (data) {
           setCases(p => {
             if (p.some(c => String(c.id) === String(data.id))) return p;
@@ -354,7 +358,9 @@ export function InboxClient({
             if (p.some(c => String(c.id) === String(data.id))) return p;
             return [data as any, ...p];
           });
-          setSelectedId(id);
+          setSelectedId(String(data.id));
+          setPendingSelectId(null);
+        } else {
           setPendingSelectId(null);
         }
       });
@@ -729,6 +735,12 @@ export function InboxClient({
     };
     window.addEventListener("sek-case-updated", handleCaseUpdated);
 
+    const handleDirectOpenCase = (e: any) => {
+      const cid = e.detail?.caseId;
+      if (cid) selectCase(String(cid));
+    };
+    window.addEventListener("sek-open-case", handleDirectOpenCase);
+
     return () => {
       isMounted = false;
       if (debounceTimer) clearTimeout(debounceTimer);
@@ -736,6 +748,7 @@ export function InboxClient({
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibility);
       window.removeEventListener("sek-case-updated", handleCaseUpdated);
+      window.removeEventListener("sek-open-case", handleDirectOpenCase);
       try {
         supabase.removeChannel(channel);
       } catch {}
