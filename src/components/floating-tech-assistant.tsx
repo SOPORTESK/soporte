@@ -366,7 +366,7 @@ export function FloatingTechAssistant() {
     localStorage.removeItem("sek_tech_assistant_session");
     if (resolved) {
       await handleSend(
-        "Realice un análisis técnico integral del caso abierto:\n1. Equipo y síntoma principal reportado.\n2. Evidencia técnica en adjuntos (imágenes, audios o documentos).\n3. Diagnóstico técnico y pruebas realizadas.\n4. Estado actual y recomendación o próximos pasos.",
+        "Diagnostique y resuelva la avería de este caso: identifique el equipo y la falla reportada por el cliente, consulte los precedentes y casos similares resueltos en Sekunet, y brinde el procedimiento técnico exacto y comprobado para solucionarlo de inmediato.",
         [],
         resolved
       );

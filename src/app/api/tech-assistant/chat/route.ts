@@ -269,12 +269,50 @@ export async function POST(req: NextRequest) {
     let historicalPrecedents = "";
     try {
       const searchTerms: string[] = [];
+
+      // A. Extraer marca y modelo del caso registrado
       if (targetCase?.marca) searchTerms.push(String(targetCase.marca).trim());
       if (targetCase?.modelo) searchTerms.push(String(targetCase.modelo).trim());
 
-      const queryNormalized = effectiveQuery.toLowerCase().replace(/[^a-z0-9\s\-áéíóúñ]/gi, "");
-      const queryWords = queryNormalized.split(/\s+/).filter((w: string) => w.length >= 4 && !["como", "donde", "para", "este", "esta", "tiene", "favor", "puede", "hola", "redactar", "respuesta", "cliente", "propuesta", "basada", "abierto"].includes(w));
-      searchTerms.push(...queryWords.slice(0, 4));
+      // B. Extraer marcas y modelos reconocidos del texto de la conversación y adjuntos
+      const corpus = `${targetCase?.title || ""} ${targetCase?.problema || ""} ${openCaseConversation} ${(message || "")}`.toLowerCase();
+      
+      const KNOWN_BRANDS = [
+        "hikvision", "dahua", "zkteco", "zk", "honeywell", "ubiquiti", "mikrotik",
+        "hilook", "ezviz", "imou", "dsc", "paradox", "axis", "uniview", "epcom"
+      ];
+      for (const brand of KNOWN_BRANDS) {
+        if (corpus.includes(brand) && !searchTerms.map(s => s.toLowerCase()).includes(brand)) {
+          searchTerms.push(brand);
+        }
+      }
+
+      // C. Extraer palabras clave técnicas de síntomas y fallas frecuentes del taller
+      const TECH_KEYWORDS = [
+        "contraseñ", "clave", "password", "reset", "desvincul", "grabador",
+        "camara", "cámara", "nvr", "dvr", "biometrico", "biométrico", "offline",
+        "desconectado", "fuera de linea", "pitido", "beep", "no da video", "video loss",
+        "pantalla negra", "disco", "hdd", "firmware", "sadp", "hik-connect", "hikconnect",
+        "puerto", "poe", "subred", "estatica", "dhcp", "ip"
+      ];
+      for (const kw of TECH_KEYWORDS) {
+        if (corpus.includes(kw) && !searchTerms.some(s => s.toLowerCase().includes(kw))) {
+          searchTerms.push(kw);
+          if (searchTerms.length >= 6) break;
+        }
+      }
+
+      // D. Extraer modelos técnicos detectados (patrones alfanuméricos como DS-2CD..., K40, etc.)
+      const modelMatches = corpus.match(/\b([a-z]{1,4}[-][a-z0-9\/-]+|[a-z]{1,3}\d{2,5}[a-z0-9-]*)\b/gi) || [];
+      const cleanModels = [...new Set(modelMatches.map(m => m.trim().toLowerCase()))]
+        .filter(m => m.length >= 3 && !["http", "https", "jpeg", "webm", "html", "case", "auto", "json", "hora", "min"].includes(m));
+      for (const cm of cleanModels.slice(0, 3)) {
+        if (!searchTerms.map(s => s.toLowerCase()).includes(cm)) {
+          searchTerms.push(cm);
+        }
+      }
+
+      let matchedCases: any[] = [];
 
       if (searchTerms.length > 0) {
         let query = serviceClient
@@ -290,38 +328,63 @@ export async function POST(req: NextRequest) {
           `resolucion.ilike.%${t}%,problema.ilike.%${t}%,title.ilike.%${t}%,modelo.ilike.%${t}%`
         ).join(",");
 
-        const { data: matchedCases } = await query
+        const { data: directCases } = await query
           .or(orConditions)
           .order("closed_at", { ascending: false })
           .limit(15);
 
-        if (matchedCases && matchedCases.length > 0) {
-          const precedentSnippets: string[] = [];
-          for (let idx = 0; idx < matchedCases.length; idx++) {
-            const mc = matchedCases[idx];
-            let solText = (mc.resolucion || mc.problema || "").trim();
+        if (directCases && directCases.length > 0) {
+          matchedCases = directCases;
+        }
+      }
 
-            if (solText.length < 30 && Array.isArray(mc.histtecnico) && mc.histtecnico.length > 0) {
-              const lastTecMsg = mc.histtecnico
-                .filter((m: any) => m.content && typeof m.content === "string" && m.content.length > 25)
-                .slice(-1)[0];
-              if (lastTecMsg?.content) {
-                solText = lastTecMsg.content.trim();
-              }
-            }
+      // Si la búsqueda específica no arrojó resultados, respaldo con los casos cerrados con soluciones técnicas más recientes del taller
+      if (matchedCases.length === 0) {
+        let fallbackQuery = serviceClient
+          .from("sek_cases")
+          .select("id, title, marca, modelo, problema, resolucion, histtecnico, closed_at")
+          .eq("estado", "cerrado")
+          .not("resolucion", "is", null);
 
-            if (solText) {
-              const eq = `${mc.marca || "Equipo"} ${mc.modelo || ""}`.trim();
-              precedentSnippets.push(
-                `[C${idx + 1}] Caso #${mc.id.substring(0, 8)} (${eq || "General"} | Falla: ${mc.title || mc.problema || "Resuelto"})
-Solución comprobada: ${solText.substring(0, 500)}`
-              );
+        if (validCaseId) {
+          fallbackQuery = fallbackQuery.neq("id", validCaseId);
+        }
+
+        const { data: recentClosed } = await fallbackQuery
+          .order("closed_at", { ascending: false })
+          .limit(8);
+
+        if (recentClosed && recentClosed.length > 0) {
+          matchedCases = recentClosed;
+        }
+      }
+
+      if (matchedCases.length > 0) {
+        const precedentSnippets: string[] = [];
+        for (let idx = 0; idx < matchedCases.length; idx++) {
+          const mc = matchedCases[idx];
+          let solText = (mc.resolucion || mc.problema || "").trim();
+
+          if (solText.length < 30 && Array.isArray(mc.histtecnico) && mc.histtecnico.length > 0) {
+            const lastTecMsg = mc.histtecnico
+              .filter((m: any) => m.content && typeof m.content === "string" && m.content.length > 25)
+              .slice(-1)[0];
+            if (lastTecMsg?.content) {
+              solText = lastTecMsg.content.trim();
             }
           }
 
-          if (precedentSnippets.length > 0) {
-            historicalPrecedents = precedentSnippets.join("\n\n");
+          if (solText) {
+            const eq = `${mc.marca || "Equipo"} ${mc.modelo || ""}`.trim();
+            precedentSnippets.push(
+              `[C${idx + 1}] Caso #${mc.id.substring(0, 8)} (${eq || "General"} | Falla: ${mc.title || mc.problema || "Resuelto"})
+Solución técnica comprobada: ${solText.substring(0, 500)}`
+            );
           }
+        }
+
+        if (precedentSnippets.length > 0) {
+          historicalPrecedents = precedentSnippets.join("\n\n");
         }
       }
     } catch (histErr: any) {
@@ -333,6 +396,8 @@ Solución comprobada: ${solText.substring(0, 500)}`
     const equipoLinea = equipoRegistrado || "No registrado formalmente (consulte la conversación y las fotos)";
 
     let systemPrompt = `Eres el Asistente Técnico Senior de Sekunet, el copiloto experto para técnicos e ingenieros de soporte de CCTV, control de acceso, alarmas, redes y seguridad electrónica.
+
+Tu función esencial es RESOLVER LA AVERÍA TÉCNICA junto con el técnico, no hacer meros resúmenes pasivos ni explicaciones redundantes de lo que el cliente ya dijo.
 
 Tienes acceso COMPLETO y VISIBILIDAD TOTAL de la conversación del caso que el técnico tiene actualmente abierto en pantalla, incluyendo las fotos enviadas, las transcripciones completas de notas de voz de audio, videos y documentos técnicos analizados.
 
@@ -347,21 +412,20 @@ CONTEXTO DEL CASO ABIERTO EN PANTALLA (A QUIEN LE ESTAMOS DANDO SOPORTE):
 CONVERSACIÓN CRONOLÓGICA COMPLETA DEL CASO ABIERTO (con transcripciones y análisis de imágenes):
 ${openCaseConversation || "No hay mensajes registrados en este caso."}
 ${ragContext ? `\n\nMANUALES Y BASE DE CONOCIMIENTO (RAG):\n${ragContext}` : ""}
-${historicalPrecedents ? `\n\nPRECEDENTES HISTÓRICOS Y SOLUCIONES DE OTROS TÉCNICOS EN SEKUNET:\n${historicalPrecedents}` : ""}
+${historicalPrecedents ? `\n\nPRECEDENTES HISTÓRICOS Y SOLUCIONES DE OTROS TÉCNICOS EN SEKUNET (BASE DE CONOCIMIENTO DEL TALLER):\n${historicalPrecedents}` : ""}
 
 REGLAS DE ATENCIÓN TÉCNICA OBLIGATORIAS:
-1. MÁXIMA PRECISIÓN BASADA EN PRECEDENTES HISTÓRICOS: Si existen PRECEDENTES HISTÓRICOS listados arriba, TIENEN PRIORIDAD MÁXIMA como fuente de verdad técnica. Debes fundamentar tu respuesta técnica en las soluciones reales comprobadas que los técnicos de Sekunet ya aplicaron y resolvieron con éxito para esa misma falla o equipo, adaptando los pasos al caso actual.
-2. FOCO Y DESTINATARIO: Tu respuesta va dirigida ÚNICA Y EXCLUSIVAMENTE al caso y cliente que está actualmente abierto en pantalla. NUNCA menciones nombres de clientes anteriores ni fechas pasadas de los precedentes. Los casos históricos anteriores son TU BASE DE CONOCIMIENTO INTERNA de taller para que te apoyes en las soluciones comprobadas que otros técnicos de Sekunet aplicaron con éxito a fallas similares.
-3. Si el técnico te pide un análisis del caso, o si la pregunta es sobre el caso en general (por ejemplo: "y el analisis del caso?", "analice el caso", "qué tiene?", "diagnóstico", "resumen del caso", etc.):
-   DEBES responder con un Análisis Técnico Integral del Caso estructurado con estas secciones:
-   • Equipo y Síntoma: Marca, modelo exacto y qué falla o problema presenta el equipo según el cliente.
-   • Evidencia en Adjuntos: Qué se ve en las fotos (etiquetas, modelo, leds, cableado, estado físico) o qué se escuchó en los audios transcritos.
-   • Diagnóstico Técnico y Pruebas: Pruebas que ya se realizaron y la causa raíz técnica más probable (respaldada si aplica por cómo se resolvió en casos históricos similares).
-   • Estado Actual y Próximos Pasos: En qué quedó la conversación con el cliente y procedimiento exacto recomendado para resolverle.
-4. NUNCA respondas que el cliente no tiene preguntas o no reportó problemas basándote únicamente en el último mensaje de cortesía ("gracias", "de acuerdo", etc.). Todo el caso abierto contiene el contexto de la avería.
-5. Si el técnico te pregunta sobre las imágenes o los audios, responde DIRECTAMENTE y con precisión técnica basándote en los análisis y transcripciones que tienes en este contexto.
-6. Entrega diagnósticos certeros, marcas, modelos (ej. terminales ZKTeco, cámaras Hikvision, etc.), números de parte, especificaciones eléctricas y pasos claros de resolución.
-7. Comunícate con tono profesional, técnico, colaborativo y con calidez costarricense ("Pura vida, colega").
+1. MÁXIMA PRIORIDAD A RESOLVER LA AVERÍA: El técnico te consulta para encontrar la SOLUCIÓN EXACTA. Debes fundamentar tu diagnóstico y procedimiento en las soluciones reales comprobadas que los técnicos de Sekunet ya aplicaron con éxito en los precedentes listados arriba.
+2. FOCO Y DESTINATARIO: Tu respuesta va dirigida ÚNICA Y EXCLUSIVAMENTE al caso y cliente abierto en pantalla. Nunca menciones nombres ni fechas de casos pasados.
+3. ESTRUCTURA DE RESOLUCIÓN TÉCNICA (OBLIGATORIA al pedir diagnóstico, análisis o solución):
+   No des explicaciones teóricas vacías. Responde con un Plan Técnico Resolutivo estructurado en estas secciones directas:
+   • Falla y Causa Raíz: Diagnóstico certero del equipo (marca, modelo exacto) y la causa técnica real del fallo según la evidencia y precedentes.
+   • Solución Comprobada en Taller: Cómo otros técnicos de Sekunet resolvieron esta falla en los precedentes consultados.
+   • Procedimiento de Resolución (Paso a Paso): Pasos técnicos exactos para resolver la falla (herramientas SADP/ConfigTool, comandos, reset por archivo XML, subredes IP, PoE, verificación de voltajes o cables).
+   • Instrucción Concreta para el Cliente: Qué indicación, prueba o dato específico se le debe pedir al cliente en este momento.
+4. NUNCA respondas que el cliente no tiene preguntas basándote en un último mensaje de cortesía. Todo el historial del caso contiene la avería.
+5. Si el técnico te pregunta sobre imágenes o audios, responde DIRECTAMENTE con la información técnica visible en las fotos y audios analizados.
+6. Comunícate con tono profesional, técnico, directo, seguro y colaborativo ("Pura vida, colega").
 
 REGLAS ESTRICTAS DE FORMATO Y ESTILO (OBLIGATORIAS):
 - PROHIBIDO EL USO DE ASTERISCOS: Absolutamente CERO asteriscos. No uses negritas con doble asterisco (**texto**), ni cursivas con asterisco (*texto*), ni viñetas de asterisco (* punto).
