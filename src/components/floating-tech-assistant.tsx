@@ -623,14 +623,13 @@ export function FloatingTechAssistant() {
 }
 
 function renderAssistantMessage(content: string, onOpenCase: (caseId: string) => void) {
-  const sourcesPrefix = "Fuentes consultadas:";
-  const sIdx = content.lastIndexOf(sourcesPrefix);
+  const sourcesMatch = content.match(/\n*(?:Fuentes(?:\s+t[eé]cnicas)?\s+consultadas|Fuentes:)([\s\S]*)$/i);
   let mainBody = content;
   let sourcesPart = "";
 
-  if (sIdx !== -1) {
-    mainBody = content.substring(0, sIdx).trim();
-    sourcesPart = content.substring(sIdx + sourcesPrefix.length).trim();
+  if (sourcesMatch && sourcesMatch.index !== undefined) {
+    mainBody = content.substring(0, sourcesMatch.index).trim();
+    sourcesPart = sourcesMatch[1].trim();
   }
 
   return (
@@ -642,7 +641,7 @@ function renderAssistantMessage(content: string, onOpenCase: (caseId: string) =>
 }
 
 function renderSourcesFooter(sourcesText: string, onOpenCase: (caseId: string) => void) {
-  const caseRegex = /\[(C\d+)\]\s*Caso(?:\s+Sekunet)?\s*#([0-9a-f]{6,36})(?:\s+resuelto\s+por\s+([^(,]+?))?(?:\s*\(([^)]+)\))?/gi;
+  const caseRegex = /\[(C\d+)\]\s*Caso(?:\s+Sekunet)?\s*#([0-9a-f]{6,36})(?:\s+resuelto\s+por\s+([^(,\n]+))?(?:\s*\(([^)\n]+)\))?/gi;
   const webRegex = /\[(W\d+)\]\s*([^(\n]+?)\s*\((https?:\/\/[^\s)]+)\)/gi;
 
   const elements: React.ReactNode[] = [];
@@ -658,14 +657,28 @@ function renderSourcesFooter(sourcesText: string, onOpenCase: (caseId: string) =
       <button
         key={`case-${caseId}-${label}`}
         onClick={() => onOpenCase(caseId)}
-        className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-violet-500/10 hover:bg-violet-500/25 text-violet-700 dark:text-violet-300 font-medium transition-all border border-violet-500/25 text-left text-xs group cursor-pointer"
+        className="w-full text-left p-2 rounded-xl bg-violet-500/10 hover:bg-violet-500/20 text-violet-950 dark:text-violet-100 transition-all border border-violet-500/25 group cursor-pointer shadow-xs flex flex-col gap-1"
         title={`Clic para abrir caso histórico #${caseId}`}
       >
-        <FolderArchive className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400 flex-shrink-0" />
-        <span className="font-semibold">[{label}] #{caseId.substring(0, 8)}</span>
-        {resolver && <span className="opacity-90 text-[11px] text-violet-600 dark:text-violet-300">• {resolver}</span>}
-        {details && <span className="opacity-70 text-[11px] truncate max-w-[140px]">({details})</span>}
-        <ExternalLink className="h-3 w-3 opacity-50 group-hover:opacity-100 flex-shrink-0 ml-0.5" />
+        <div className="flex items-center justify-between w-full gap-2">
+          <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+            <span className="inline-flex items-center gap-1 font-bold text-xs text-violet-700 dark:text-violet-300">
+              <FolderArchive className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400 shrink-0" />
+              [{label}] #{caseId.substring(0, 8)}
+            </span>
+            {resolver && (
+              <span className="text-[11px] font-medium text-foreground/80">
+                • {resolver}
+              </span>
+            )}
+          </div>
+          <ExternalLink className="h-3.5 w-3.5 opacity-60 group-hover:opacity-100 text-violet-600 dark:text-violet-400 shrink-0" />
+        </div>
+        {details && (
+          <p className="text-[11px] text-muted-foreground leading-snug break-words">
+            {details}
+          </p>
+        )}
       </button>
     );
   }
@@ -681,36 +694,43 @@ function renderSourcesFooter(sourcesText: string, onOpenCase: (caseId: string) =
         href={url}
         target="_blank"
         rel="noreferrer"
-        className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-sky-500/10 hover:bg-sky-500/25 text-sky-700 dark:text-sky-300 font-medium transition-all border border-sky-500/25 text-left text-xs group cursor-pointer"
+        className="w-full text-left p-2 rounded-xl bg-sky-500/10 hover:bg-sky-500/20 text-sky-950 dark:text-sky-100 transition-all border border-sky-500/25 group cursor-pointer shadow-xs flex flex-col gap-1"
         title={url}
       >
-        <Globe className="h-3.5 w-3.5 text-sky-600 dark:text-sky-400 flex-shrink-0" />
-        <span className="font-semibold">[{label}]</span>
-        <span className="truncate max-w-[160px]">{title}</span>
-        <ExternalLink className="h-3 w-3 opacity-50 group-hover:opacity-100 flex-shrink-0 ml-0.5" />
+        <div className="flex items-center justify-between w-full gap-2">
+          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+            <Globe className="h-3.5 w-3.5 text-sky-600 dark:text-sky-400 shrink-0" />
+            <span className="font-bold text-xs text-sky-700 dark:text-sky-300 shrink-0">[{label}]</span>
+            <span className="font-semibold text-xs text-foreground/90 truncate flex-1">{title}</span>
+          </div>
+          <ExternalLink className="h-3.5 w-3.5 opacity-60 group-hover:opacity-100 text-sky-600 dark:text-sky-400 shrink-0" />
+        </div>
+        <span className="text-[10px] text-sky-600/80 dark:text-sky-400/80 truncate max-w-full">
+          {url}
+        </span>
       </a>
     );
   }
 
   if (/conversaci[oó]n/i.test(sourcesText) || elements.length === 0) {
     elements.push(
-      <span
+      <div
         key="current-case"
-        className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-muted/70 text-muted-foreground text-[11px] border border-border/40"
+        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-muted/60 text-muted-foreground text-[11px] border border-border/40 w-full"
       >
-        <MessageCircle className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-        <span>Conversación del caso actual</span>
-      </span>
+        <MessageCircle className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+        <span>Conversación y adjuntos del caso actual</span>
+      </div>
     );
   }
 
   return (
-    <div className="mt-2.5 pt-2 border-t border-border/40 text-xs">
-      <div className="font-semibold text-[10px] uppercase tracking-wider text-muted-foreground/80 mb-1.5 flex items-center gap-1">
-        <BookOpen className="h-3 w-3 text-violet-500" />
-        <span>Fuentes técnicas consultadas (clic para abrir)</span>
+    <div className="mt-3 pt-2.5 border-t border-border/50 text-xs w-full space-y-1.5">
+      <div className="font-semibold text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 mb-1">
+        <BookOpen className="h-3.5 w-3.5 text-violet-500" />
+        <span>Fuentes y Precedentes Consultados (clic para abrir)</span>
       </div>
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-col gap-1.5 w-full">
         {elements}
       </div>
     </div>

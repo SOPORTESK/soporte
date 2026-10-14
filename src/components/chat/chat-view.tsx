@@ -9,7 +9,7 @@ import {
   Download, X, ChevronDown, ChevronUp, History, HandMetal, Star, Tag, AlertTriangle,
   Mic, Play, Pause, Square, Smile, Trash2, UserCheck,
   Info, Copy, Forward, Pin, Edit, Clock, RotateCcw, Search, Globe, Loader2,
-  FileArchive, FileCode, FileSpreadsheet, Eye, ShieldCheck
+  FileArchive, FileCode, FileSpreadsheet, Eye, ShieldCheck, Cpu, Plus
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { logActivity } from "@/lib/activity-client";
@@ -617,6 +617,10 @@ export function ChatView({
       ...target,
       id: baseCase.id,
       cliente: baseCase.cliente ?? target.cliente,
+      marca: target.marca || baseCase.marca || (target.cliente as any)?.marca || (baseCase.cliente as any)?.marca || null,
+      modelo: target.modelo || baseCase.modelo || (target.cliente as any)?.modelo || (baseCase.cliente as any)?.modelo || null,
+      problema: target.problema || baseCase.problema || (target.cliente as any)?.tipo_consulta || null,
+      resolucion: target.resolucion || baseCase.resolucion || (target.cliente as any)?.descripcion || null,
       estado: mergedEstado as SekCase["estado"],
       histcliente: mergeFrom.flatMap(c => tag(c.histcliente, c.id)),
       histtecnico: mergeFrom.flatMap(c => tag(c.histtecnico, c.id)),
@@ -629,7 +633,7 @@ export function ChatView({
      Recargar solo el caso objetivo borraba del chat los mensajes que viven en
      casos hermanos abiertos del mismo teléfono. */
   const reloadCaseFromDb = React.useCallback(async (baseCase: SekCase, fallbackId: string | number) => {
-    const HIST_FIELDS = "id,estado,canal,cliente,assigned_to,customer_phone,created_at,updated_at,last_message_at,last_message_preview,histcliente,histtecnico,accepted_at,closed_at,tags,prioridad,title";
+    const HIST_FIELDS = "id,estado,canal,cliente,assigned_to,customer_phone,created_at,updated_at,last_message_at,last_message_preview,histcliente,histtecnico,accepted_at,closed_at,tags,prioridad,title,marca,modelo,problema,resolucion";
     const ids = baseCase._group?.openCaseIds?.length
       ? baseCase._group.openCaseIds
       : (baseCase._group?.caseIds?.length ? baseCase._group.caseIds : [fallbackId]);
@@ -655,7 +659,7 @@ export function ChatView({
           : (initialCase._group?.caseIds?.length ? initialCase._group.caseIds : [initialCase.id]);
         const { data } = await supabase
           .from("sek_cases")
-          .select("id,estado,canal,cliente,assigned_to,customer_phone,created_at,updated_at,last_message_at,last_message_preview,histcliente,histtecnico")
+          .select("id,estado,canal,cliente,assigned_to,customer_phone,created_at,updated_at,last_message_at,last_message_preview,histcliente,histtecnico,marca,modelo,problema,resolucion,title")
           .in("id", ids);
         if (!data || !mounted) return;
         const merged = buildMergedCase(initialCase, data as SekCase[]);
@@ -813,6 +817,46 @@ export function ChatView({
     return () => { mounted = false; };
   }, [supabase]);
 
+  // Auto-enriquecimiento de equipo (marca y modelo) en segundo plano si faltan datos en un caso con historial
+  React.useEffect(() => {
+    if (!targetId) return;
+    const hasHistory = (Array.isArray(sekCase.histcliente) && sekCase.histcliente.length > 0) ||
+                       (Array.isArray(sekCase.histtecnico) && sekCase.histtecnico.length > 0);
+    const missingEquipment = (!sekCase.marca || !sekCase.modelo) && !(sekCase.cliente as any)?.marca;
+    if (!hasHistory || !missingEquipment) return;
+
+    const timer = setTimeout(() => {
+      fetch(`/api/cases/${targetId}/auto-extract`, { method: "POST" })
+        .then(r => r.json())
+        .then(data => {
+          if (data?.ok && data?.extracted) {
+            const ext = data.extracted;
+            setSekCase(prev => {
+              const updatedCliente = {
+                ...(typeof prev.cliente === "object" ? prev.cliente : {}),
+                ...(ext.marca ? { marca: ext.marca } : {}),
+                ...(ext.modelo ? { modelo: ext.modelo } : {}),
+                ...(ext.nombre ? { nombre: ext.nombre } : {}),
+                ...(ext.cuenta ? { cuenta: ext.cuenta } : {}),
+              };
+              const next = {
+                ...prev,
+                marca: ext.marca || prev.marca,
+                modelo: ext.modelo || prev.modelo,
+                problema: ext.tema || prev.problema,
+                cliente: updatedCliente,
+              };
+              caseHistoryCache.set(cacheKey, { sekCase: next, timestamp: Date.now() });
+              return next;
+            });
+          }
+        })
+        .catch(() => {});
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [targetId, sekCase.marca, sekCase.modelo, (sekCase.cliente as any)?.marca, cacheKey]);
+
   React.useEffect(() => {
     let mounted = true;
     const channel = supabase
@@ -830,7 +874,7 @@ export function ChatView({
           try {
             const { data } = await supabase
               .from("sek_cases")
-              .select("id,estado,canal,cliente,assigned_to,customer_phone,created_at,updated_at,last_message_at,last_message_preview,histcliente,histtecnico")
+              .select("id,estado,canal,cliente,assigned_to,customer_phone,created_at,updated_at,last_message_at,last_message_preview,histcliente,histtecnico,marca,modelo,problema,resolucion,title")
               .in("id", groupIds);
             if (data && mounted) {
               const merged = buildMergedCase(initialCaseRef.current, data as SekCase[]);
@@ -898,7 +942,7 @@ export function ChatView({
           // Para chats agrupados, recargar el historial de los casos activos
           const { data } = await supabase
             .from("sek_cases")
-            .select("id,estado,canal,cliente,assigned_to,customer_phone,created_at,updated_at,last_message_at,last_message_preview,histcliente,histtecnico")
+            .select("id,estado,canal,cliente,assigned_to,customer_phone,created_at,updated_at,last_message_at,last_message_preview,histcliente,histtecnico,marca,modelo,problema,resolucion,title")
             .in("id", pollGroupIds);
           if (data && mounted) {
             const merged = buildMergedCase(initialCaseRef.current, data as SekCase[]);
@@ -910,7 +954,7 @@ export function ChatView({
 
         const { data, error } = await supabase
           .from("sek_cases")
-          .select("id,estado,assigned_to,last_message_at,last_message_preview,histcliente,histtecnico")
+          .select("id,estado,assigned_to,last_message_at,last_message_preview,histcliente,histtecnico,marca,modelo,problema,resolucion,title,cliente")
           .eq("id", targetId)
           .maybeSingle();
         if (error) { console.error(`[chat-view] polling error:`, error); return; }
@@ -921,6 +965,11 @@ export function ChatView({
               assigned_to: data.assigned_to,
               last_message_at: data.last_message_at,
               last_message_preview: data.last_message_preview,
+              ...(data.marca ? { marca: data.marca } : {}),
+              ...(data.modelo ? { modelo: data.modelo } : {}),
+              ...(data.problema ? { problema: data.problema } : {}),
+              ...(data.title ? { title: data.title } : {}),
+              ...(data.cliente ? { cliente: data.cliente } : {}),
             };
             // No reemplazar historial real por arrays vacíos recibidos en polling
             if (!(Array.isArray(data.histcliente) && data.histcliente.length === 0 && Array.isArray(prev.histcliente) && prev.histcliente.length > 0)) {
@@ -2240,6 +2289,40 @@ export function ChatView({
               )}
               {sekCase.prioridad && sekCase.prioridad !== "normal" && (
                 <Badge variant={sekCase.prioridad === "urgente" ? "danger" : sekCase.prioridad === "alta" ? "warning" : "muted"} className="capitalize text-[10px]">{sekCase.prioridad}</Badge>
+              )}
+
+              {/* Equipo del caso (Marca / Modelo) */}
+              {(sekCase.marca || sekCase.modelo || (sekCase.cliente as any)?.marca || (sekCase.cliente as any)?.modelo) ? (
+                <button
+                  type="button"
+                  onClick={startEditingCliente}
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-violet-500/15 hover:bg-violet-500/25 text-violet-700 dark:text-violet-300 border border-violet-500/30 transition-colors cursor-pointer"
+                  title="Marca y modelo del equipo del caso (clic para editar)"
+                >
+                  <Cpu className="h-3 w-3 text-violet-500 shrink-0" />
+                  <span>
+                    {[
+                      sekCase.marca || (sekCase.cliente as any)?.marca,
+                      sekCase.modelo || (sekCase.cliente as any)?.modelo
+                    ].filter(Boolean).join(" • ")}
+                  </span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={startEditingCliente}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-muted hover:bg-muted/80 text-muted-foreground border border-dashed border-border transition-colors cursor-pointer"
+                  title="Asignar marca y modelo al caso"
+                >
+                  <Plus className="h-2.5 w-2.5" /> Equipo
+                </button>
+              )}
+
+              {/* Problema / Tipo de consulta */}
+              {(sekCase.problema || (sekCase.cliente as any)?.tipo_consulta) && (
+                <Badge variant="muted" className="text-[10px] uppercase font-mono tracking-wider">
+                  {sekCase.problema || (sekCase.cliente as any)?.tipo_consulta}
+                </Badge>
               )}
             </div>
             <div className="flex items-center gap-2 sm:gap-3 mt-0.5 text-xs text-muted-foreground flex-wrap">

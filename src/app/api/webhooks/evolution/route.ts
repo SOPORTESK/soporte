@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getEvolutionConfig } from "@/lib/evolution-config";
+import { performAutoExtract } from "@/lib/ai/auto-extract";
 
 export const maxDuration = 60; // Evita el timeout de 10s en Vercel Hobby
 
@@ -1669,7 +1670,7 @@ export async function POST(req: NextRequest) {
   try {
     const { data: openCases } = await supabase
       .from("sek_cases")
-      .select("id, histcliente, histtecnico, estado, customer_phone, cliente, title, created_at, accepted_at, escalado_at, tags, assigned_to")
+      .select("id, histcliente, histtecnico, estado, customer_phone, cliente, title, created_at, accepted_at, escalado_at, tags, assigned_to, marca, modelo, problema")
       .eq("canal", "whatsapp")
       .order("created_at", { ascending: false })
       .limit(50);
@@ -1840,6 +1841,13 @@ export async function POST(req: NextRequest) {
         await supabase.from("sek_cases").update(metaUpdate).eq("id", existing.id);
         
         console.log("[evo-webhook] Paso 9 OK - mensaje guardado en histcliente");
+
+        // Enriquecer caso con marca/modelo/cliente si aún no los tiene
+        if ((existing as any)?.id && (!(existing as any)?.marca || !(existing as any)?.modelo)) {
+          performAutoExtract(String((existing as any).id)).catch(e =>
+            console.warn("[evo-webhook] auto-extract background:", e?.message)
+          );
+        }
       }
 
       if (needsOptimizer && existing?.id) {

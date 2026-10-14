@@ -400,26 +400,60 @@ Solución técnica comprobada: ${solText.substring(0, 500)}`
     let webContext = "";
     try {
       const corpusForWeb = `${targetCase?.title || ""} ${targetCase?.problema || ""} ${openCaseConversation} ${(message || "")}`.toLowerCase();
-      const detectedBrand = [
-        "hikvision", "dahua", "zkteco", "ubiquiti", "mikrotik", "hilook", "ezviz", "imou", "dsc", "paradox", "axis", "uniview"
-      ].find(b => corpusForWeb.includes(b)) || (targetCase?.marca ? String(targetCase.marca).trim() : "");
+      
+      const KNOWN_BRANDS = [
+        "hikvision", "dahua", "zkteco", "ubiquiti", "mikrotik", "hilook", "ezviz", "imou", 
+        "dsc", "paradox", "axis", "uniview", "honeywell", "tp-link", "intelbras", "western digital", "seagate"
+      ];
+      const detectedBrand = KNOWN_BRANDS.find(b => corpusForWeb.includes(b)) || 
+        (targetCase?.marca ? String(targetCase.marca).trim() : "") ||
+        (clienteData?.marca ? String(clienteData.marca).trim() : "");
 
-      const modelMatches = corpusForWeb.match(/\b([a-z]{1,4}[-][a-z0-9\/-]+|[a-z]{1,3}\d{2,5}[a-z0-9-]*)\b/gi) || [];
+      const modelMatches = corpusForWeb.match(/\b([a-z]{1,4}[-][a-z0-9\/-]+|[a-z]{1,3}\d{2,5}[a-z0-9-]*|hikcentral|ivms-?\d+|smartpss|biotime|configtool|sadp)\b/gi) || [];
       const cleanModels = [...new Set(modelMatches.map(m => m.trim().toLowerCase()))]
         .filter(m => m.length >= 3 && !["http", "https", "jpeg", "webm", "html", "case", "auto", "json", "hora", "min", "react"].includes(m));
-      const detectedModel = cleanModels[0] || (targetCase?.modelo ? String(targetCase.modelo).trim() : "");
+      const detectedModel = cleanModels[0] || 
+        (targetCase?.modelo ? String(targetCase.modelo).trim() : "") ||
+        (clienteData?.modelo ? String(clienteData.modelo).trim() : "");
 
-      const detectedKw = [
+      const TECH_KEYWORDS = [
         "contraseña", "clave", "password", "reset", "desvincular", "pitido", "beep",
         "no da video", "video loss", "pantalla negra", "disco no detectado", "hdd",
-        "firmware", "sadp", "configtool", "hik-connect", "smartpss", "biotime", "offline", "poe"
-      ].find(k => corpusForWeb.includes(k)) || "";
+        "firmware", "sadp", "configtool", "hik-connect", "smartpss", "biotime", "offline", "poe",
+        "puerto", "puertos", "firewall", "ping", "subred", "ip", "red", "conexion", "conexión",
+        "no conecta", "no responde", "grabar", "formatear", "bloqueo", "ivms", "hikcentral",
+        "dvr", "nvr", "xvr", "camara", "cámara", "biometrico", "biométrico", "alarma", "switch", "router"
+      ];
+      const foundKws = TECH_KEYWORDS.filter(k => corpusForWeb.includes(k));
+      const detectedKw = foundKws.slice(0, 3).join(" ");
 
-      const queryParts = [detectedBrand, detectedModel, detectedKw].filter(Boolean);
-      if (detectedModel || (detectedBrand && detectedKw)) {
-        const webQuery = `${queryParts.join(" ")} solucion manual datasheet`.trim();
+      const cleanMsg = (message || "").replace(/^(como|por que|porque|ayuda|cual|cuales|que|quien|donde|cuando|favor|puedes|necesito|hola|buen dia|buenas)\s+/i, "").trim();
+
+      let webQuery = "";
+      if (detectedBrand && detectedModel) {
+        webQuery = `${detectedBrand} ${detectedModel} ${detectedKw || "solucion soporte manual"}`.trim();
+      } else if (detectedModel) {
+        webQuery = `${detectedModel} ${detectedKw || "solucion soporte manual"}`.trim();
+      } else if (detectedBrand && detectedKw) {
+        webQuery = `${detectedBrand} ${detectedKw} solucion soporte manual`.trim();
+      } else if (detectedKw) {
+        webQuery = `${detectedKw} seguridad electronica cctv solucion soporte`.trim();
+      } else if (cleanMsg.length > 5) {
+        webQuery = `${cleanMsg} cctv soporte solucion`.trim();
+      } else if (targetCase?.title) {
+        webQuery = `${targetCase.title} soporte tecnico solucion`.trim();
+      }
+
+      if (webQuery) {
         console.log(`[tech-assistant] 🌐 Ejecutando búsqueda web técnica en vivo: "${webQuery}"`);
-        const webResults = await searchTechnicalWeb(webQuery, 4);
+        let webResults = await searchTechnicalWeb(webQuery, 4);
+
+        if (webResults.length === 0 && (detectedBrand || detectedModel)) {
+          const fallbackQuery = `${detectedBrand || detectedModel} soporte tecnico manual solucion`.trim();
+          console.log(`[tech-assistant] 🌐 Reintentando con consulta web de respaldo: "${fallbackQuery}"`);
+          webResults = await searchTechnicalWeb(fallbackQuery, 3);
+        }
+
         if (webResults.length > 0) {
           const webSnippets: string[] = [];
           webResults.forEach((r, i) => {
@@ -481,6 +515,7 @@ CITACIÓN OBLIGATORIA DE FUENTES REALES (UNA SOLA LÍNEA AL FINAL):
   Ejemplo con solo precedentes: Fuentes consultadas: [C1] Caso Sekunet #b491ec resuelto por Matthew Bermudez (ZKTeco K40 - Reset clave administrador), Conversación del caso actual.
   Ejemplo con solo web: Fuentes consultadas: [W1] Ficha técnica oficial (https://dahuasecurity.com/...), Conversación del caso actual.
   Si solo se usó el hilo actual: Fuentes consultadas: Conversación y adjuntos del caso actual.
+- REGLA OBLIGATORIA: Si se suministraron resultados en BÚSQUEDA WEB EN VIVO [W1, W2, etc.], ES ESTRICTAMENTE OBLIGATORIO utilizarlos para contrastar y citar al menos 1 fuente web [W...] con su URL completa (https://...) en la línea final de fuentes.
 - REGLA OBLIGATORIA: Si citas un caso precedente de Sekunet [C...], DEBES incluir el número de caso precedido por # y el nombre del técnico que lo resolvió indicado en el precedente ("resuelto por [Nombre]").
 - REGLA OBLIGATORIA: Si citas una fuente web [W...], DEBES incluir la URL completa (https://...) para que el técnico pueda dar clic y abrirla.
 - Cero corchetes ni llamadas de fuentes a mitad de frase en la redacción; las fuentes van únicamente en esa línea final limpia.`;

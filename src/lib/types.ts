@@ -75,6 +75,10 @@ export interface SekCase {
   assigned_to: string | null;
   channel_id: string | null;
   customer_phone: string | null;
+  marca?: string | null;
+  modelo?: string | null;
+  problema?: string | null;
+  resolucion?: string | null;
   updated_at: string;
   escalado_at: string | null;
   accepted_at: string | null;

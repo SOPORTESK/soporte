@@ -144,26 +144,52 @@ Responde ÚNICAMENTE en formato JSON:
 
     // 2. Modelo
     if (!extracted.modelo) {
-      const isLikelyModel = (str: string) => {
-        if (!str || str.length < 3 || str.length > 25) return false;
-        if (/^(nota|voz|audio|image|video|photo|file|http|https|jpeg|webm|png|wifi|case|auto|json|hora|min|react|whatsapp|guia|manual|hik-connect|smartpss|sadp)/i.test(str)) return false;
-        if (/^[0-9a-f]{4,8}-[0-9a-f]{4}/i.test(str)) return false;
-        if (!/\d/.test(str)) return false;
-        return true;
-      };
+      if (/hikcentral/i.test(fullText)) {
+        extracted.modelo = "HikCentral";
+        if (!extracted.marca) extracted.marca = "HIKVISION";
+        if (!extracted.tema) extracted.tema = "Software";
+      } else if (/ivms-?4200|ivms/i.test(fullText)) {
+        extracted.modelo = "iVMS-4200";
+        if (!extracted.marca) extracted.marca = "HIKVISION";
+        if (!extracted.tema) extracted.tema = "Software";
+      } else if (/smartpss/i.test(fullText)) {
+        extracted.modelo = "SmartPSS";
+        if (!extracted.marca) extracted.marca = "DAHUA";
+        if (!extracted.tema) extracted.tema = "Software";
+      } else if (/biotime/i.test(fullText)) {
+        extracted.modelo = "BioTime";
+        if (!extracted.marca) extracted.marca = "ZKTECO";
+        if (!extracted.tema) extracted.tema = "Software";
+      } else if (/configtool/i.test(fullText)) {
+        extracted.modelo = "ConfigTool";
+        if (!extracted.marca) extracted.marca = "DAHUA";
+        if (!extracted.tema) extracted.tema = "Software";
+      } else if (/sadp/i.test(fullText)) {
+        extracted.modelo = "SADP Tool";
+        if (!extracted.marca) extracted.marca = "HIKVISION";
+        if (!extracted.tema) extracted.tema = "Software";
+      } else {
+        const isLikelyModel = (str: string) => {
+          if (!str || str.length < 3 || str.length > 25) return false;
+          if (/^(nota|voz|audio|image|video|photo|file|http|https|jpeg|webm|png|wifi|case|auto|json|hora|min|react|whatsapp|guia|manual|hik-connect|smartpss|sadp)/i.test(str)) return false;
+          if (/^[0-9a-f]{4,8}-[0-9a-f]{4}/i.test(str)) return false;
+          if (!/\d/.test(str)) return false;
+          return true;
+        };
 
-      const modelMatches = fullText.match(/\b([A-Z0-9]{1,4}[-][A-Z0-9\/-]+|[A-Z]{1,3}\d{2,5}[A-Z0-9-]*)\b/gi) || [];
-      const cleanModels = [...new Set(modelMatches.map(m => m.trim()))].filter(isLikelyModel);
-      if (cleanModels.length > 0) {
-        extracted.modelo = cleanModels[0].toUpperCase();
+        const modelMatches = fullText.match(/\b([A-Z0-9]{1,4}[-][A-Z0-9\/-]+|[A-Z]{1,3}\d{2,5}[A-Z0-9-]*)\b/gi) || [];
+        const cleanModels = [...new Set(modelMatches.map(m => m.trim()))].filter(isLikelyModel);
+        if (cleanModels.length > 0) {
+          extracted.modelo = cleanModels[0].toUpperCase();
+        }
       }
     }
 
     // 2.1 Deducción de marca por prefijo de modelo
     if (!extracted.marca && extracted.modelo) {
-      if (/^(DS-|HWI-|HIK-|HS-)/i.test(extracted.modelo)) extracted.marca = "HIKVISION";
-      else if (/^(DH-|XVR|DHI-)/i.test(extracted.modelo)) extracted.marca = "DAHUA";
-      else if (/^(K\d|MB\d|INBIO|F\d|SF\d|ZK)/i.test(extracted.modelo)) extracted.marca = "ZKTECO";
+      if (/^(DS-|HWI-|HIK-|HS-|IVMS|HIKCENTRAL)/i.test(extracted.modelo)) extracted.marca = "HIKVISION";
+      else if (/^(DH-|XVR|DHI-|SMARTPSS|CONFIGTOOL)/i.test(extracted.modelo)) extracted.marca = "DAHUA";
+      else if (/^(K\d|MB\d|INBIO|F\d|SF\d|ZK|BIOTIME)/i.test(extracted.modelo)) extracted.marca = "ZKTECO";
     }
 
     // 3. Correo
@@ -179,7 +205,8 @@ Responde ÚNICAMENTE en formato JSON:
       else if (/firmware/i.test(fullText)) extracted.tema = "Firmware";
       else if (/licencia/i.test(fullText)) extracted.tema = "Licencias";
       else if (/repara|garant|dañ|quemad|taller/i.test(fullText)) extracted.tema = "Reparación / Diagnóstico";
-      else if (/nvr|dvr|camara|cámara|grabador|poe|ip|red|subred|sadp|configtool|smartpss|ivms|biotime/i.test(fullText)) extracted.tema = "Configuraciones";
+      else if (/hikcentral|ivms|smartpss|biotime|configtool|sadp|software/i.test(fullText)) extracted.tema = "Software";
+      else if (/nvr|dvr|camara|cámara|grabador|poe|ip|red|subred/i.test(fullText)) extracted.tema = "Configuraciones";
     }
 
     const updates: Record<string, unknown> = {};
@@ -199,15 +226,24 @@ Responde ÚNICAMENTE en formato JSON:
     if (extractNombre && !currentCliente.nombre) {
       updatedCliente.nombre = extractNombre;
       clienteChanged = true;
+    } else if (!updatedCliente.nombre && currentCliente.whatsapp_name && !/^[+\d\s()-]{6,}$/.test(String(currentCliente.whatsapp_name))) {
+      updatedCliente.nombre = String(currentCliente.whatsapp_name).trim();
+      clienteChanged = true;
     }
+
     if (extractCorreo && !currentCliente.correo) {
       updatedCliente.correo = extractCorreo;
       clienteChanged = true;
     }
+
     if (extractCuenta && !currentCliente.cuenta) {
       updatedCliente.cuenta = extractCuenta;
       clienteChanged = true;
+    } else if (!updatedCliente.cuenta && currentCliente.whatsapp_name && !/^[+\d\s()-]{6,}$/.test(String(currentCliente.whatsapp_name))) {
+      updatedCliente.cuenta = String(currentCliente.whatsapp_name).trim();
+      clienteChanged = true;
     }
+
     if (extractVendedor && !currentCliente.vendedor) {
       updatedCliente.vendedor = extractVendedor;
       clienteChanged = true;
@@ -256,7 +292,18 @@ Responde ÚNICAMENTE en formato JSON:
       console.log(`[auto-extract] Caso ${id} enriquecido automáticamente en segundo plano:`, updates);
     }
 
-    return { ok: true, extracted: { tema, marca, modelo, descripcion_problema: descProblema, nombre: extractNombre, correo: extractCorreo, cuenta: extractCuenta } };
+    return {
+      ok: true,
+      extracted: {
+        tema: tema || caseData.problema,
+        marca: marca || caseData.marca || (updatedCliente.marca as string),
+        modelo: modelo || caseData.modelo || (updatedCliente.modelo as string),
+        descripcion_problema: descProblema || caseData.resolucion,
+        nombre: (updatedCliente.nombre as string) || extractNombre,
+        correo: (updatedCliente.correo as string) || extractCorreo,
+        cuenta: (updatedCliente.cuenta as string) || extractCuenta
+      }
+    };
   } catch (err: any) {
     console.error(`[auto-extract] Error inesperado en caso ${id}:`, err?.message);
     return { ok: false, error: err?.message };
