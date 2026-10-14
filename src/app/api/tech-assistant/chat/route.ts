@@ -267,6 +267,9 @@ export async function POST(req: NextRequest) {
 
     // ── 5.1. Búsqueda inteligente en históricos de casos resueltos (Precedentes técnicos) ──
     let historicalPrecedents = "";
+    let matchedCases: any[] = [];
+    let webContext = "";
+    let retrievedWebResults: { title: string; url: string; snippet: string }[] = [];
     try {
       const searchTerms: string[] = [];
 
@@ -311,8 +314,6 @@ export async function POST(req: NextRequest) {
           searchTerms.push(cm);
         }
       }
-
-      let matchedCases: any[] = [];
 
       if (searchTerms.length > 0) {
         let query = serviceClient
@@ -397,7 +398,6 @@ Solución técnica comprobada: ${solText.substring(0, 500)}`
     }
 
     // ── 5.2. Búsqueda Web Técnica en Vivo (Fichas Técnicas, Manuales Oficiales y Foros Especializados) ──
-    let webContext = "";
     try {
       const corpusForWeb = `${targetCase?.title || ""} ${targetCase?.problema || ""} ${openCaseConversation} ${(message || "")}`.toLowerCase();
       
@@ -455,6 +455,7 @@ Solución técnica comprobada: ${solText.substring(0, 500)}`
         }
 
         if (webResults.length > 0) {
+          retrievedWebResults = webResults;
           const webSnippets: string[] = [];
           webResults.forEach((r, i) => {
             webSnippets.push(`[W${i + 1}] ${r.title} (${r.url})\n${r.snippet}`);
@@ -570,9 +571,41 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
       if (ragContext) {
         fuentesUtilizadas.push("Manuales técnicos");
       }
-      fuentesUtilizadas.push("Conversación del caso actual");
+      fuentesUtilizadas.push(validCaseId ? "Conversación del caso actual" : "Consulta técnica directa");
       
       assistantDisplayContent = `${responseText}\n\nFuentes consultadas: ${fuentesUtilizadas.join(", ")}.`;
+    } else {
+      // Si la IA respondió pero no incluyó los precedentes o enlaces web que encontramos
+      const hasCaseCitations = /\[C\d+\]/.test(responseText);
+      const hasWebCitations = /\[W\d+\]/.test(responseText);
+
+      if ((!hasCaseCitations && matchedCases.length > 0) || (!hasWebCitations && retrievedWebResults.length > 0)) {
+        // Remover cualquier línea débil de fuentes previa generada por la IA
+        const cleanBody = responseText.replace(/\n*(?:Fuentes(?:\s+t[eé]cnicas)?\s+consultadas|Fuentes:).*$/is, "").trim();
+        
+        const enforcedSources: string[] = [];
+        if (matchedCases.length > 0) {
+          for (let i = 0; i < Math.min(matchedCases.length, 3); i++) {
+            const mc = matchedCases[i];
+            const lastTecAuthor = Array.isArray(mc.histtecnico)
+              ? mc.histtecnico.filter((m: any) => m.role === "tecnico" && m.author && m.author !== "Soporte Sekunet" && !String(m.author).includes("Sistema")).slice(-1)[0]?.author
+              : null;
+            const resolver = lastTecAuthor || (mc.assigned_to ? String(mc.assigned_to).split("@")[0] : "") || "Taller Sekunet";
+            const eq = `${mc.marca || "Equipo"} ${mc.modelo || ""}`.trim();
+            const falla = mc.title || mc.problema || "Avería resuelta";
+            enforcedSources.push(`[C${i + 1}] Caso Sekunet #${mc.id.substring(0, 8)} resuelto por ${resolver} (${eq} - ${falla})`);
+          }
+        }
+        if (retrievedWebResults.length > 0) {
+          for (let i = 0; i < Math.min(retrievedWebResults.length, 3); i++) {
+            const wr = retrievedWebResults[i];
+            enforcedSources.push(`[W${i + 1}] ${wr.title} (${wr.url})`);
+          }
+        }
+        enforcedSources.push(validCaseId ? "Conversación del caso actual" : "Consulta técnica directa");
+
+        assistantDisplayContent = `${cleanBody}\n\nFuentes consultadas: ${enforcedSources.join(", ")}.`;
+      }
     }
 
     const assistantMsg: TechMessage = {
