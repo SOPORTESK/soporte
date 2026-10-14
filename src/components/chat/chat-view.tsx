@@ -1601,6 +1601,8 @@ export function ChatView({
       if (error) { toast.error("Error al cerrar caso"); return; }
       setSekCase(prev => ({ ...prev, estado: "cerrado" }));
       toast.success("Caso cerrado");
+      fetch(`/api/cases/${targetId}/auto-extract`, { method: "POST" })
+        .catch(e => console.warn("[modoNoAtendido] auto-extract:", e));
       logActivity({
         agent_email: agentEmail,
         agent_name: agentName || agentEmail,
@@ -1837,6 +1839,8 @@ export function ChatView({
         modalShownRef.current = true;
         setSekCase(prev => ({ ...prev, cliente: updatedCliente }));
         toast.success("Calificación del agente guardada");
+        fetch(`/api/cases/${targetId}/auto-extract`, { method: "POST" })
+          .catch(e => console.warn("[confirmClose] auto-extract:", e));
         setShowRatingModal(false);
         fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online" }) });
       } else {

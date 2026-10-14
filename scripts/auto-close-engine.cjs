@@ -136,6 +136,8 @@ async function runAutoClose() {
           if (canalLower === "whatsapp" && realPhone) {
             await sendWhatsApp(realPhone, msg);
           }
+          fetch(`http://localhost:3100/api/cases/${caso.id}/auto-extract`, { method: "POST" })
+            .catch(err => console.warn(`[auto-close] Auto-extract error en ${caso.id}:`, err?.message));
         }
         continue;
       }
@@ -215,6 +217,8 @@ async function runAutoClose() {
             if (canalLower === "whatsapp" && realPhone) {
               await sendWhatsApp(realPhone, msg);
             }
+            fetch(`http://localhost:3100/api/cases/${caso.id}/auto-extract`, { method: "POST" })
+              .catch(err => console.warn(`[auto-close] Auto-extract error en ${caso.id}:`, err?.message));
           }
         }
         continue;
@@ -246,6 +250,8 @@ async function runAutoClose() {
         if (canalLower === "whatsapp" && realPhone) {
           await sendWhatsApp(realPhone, msg);
         }
+        fetch(`http://localhost:3100/api/cases/${caso.id}/auto-extract`, { method: "POST" })
+          .catch(err => console.warn(`[auto-close] Auto-extract error en ${caso.id}:`, err?.message));
       }
     }
   } catch (err) {

@@ -1,5 +1,5 @@
 import { createServiceClient } from "@/lib/supabase/service";
-import { getModel } from "@/lib/ai/config";
+import { generateText } from "@/lib/ai/config";
 
 const TEMAS_VALIDOS = [
   "Configuraciones", "Reset", "Desvinculación", "Firmware",
@@ -24,7 +24,7 @@ export async function performAutoExtract(id: string) {
 
     const { data: caseData, error: fetchError } = await supabase
       .from("sek_cases")
-      .select("id, title, problema, marca, modelo, tags, histcliente, histtecnico, cliente")
+      .select("id, title, problema, marca, modelo, tags, histcliente, histtecnico, cliente, resolucion")
       .eq("id", id)
       .maybeSingle();
 
@@ -33,7 +33,7 @@ export async function performAutoExtract(id: string) {
     }
 
     const cli = (caseData.cliente && typeof caseData.cliente === "object") ? caseData.cliente as Record<string, unknown> : {};
-    const hasEquipmentData = caseData.problema && caseData.marca;
+    const hasEquipmentData = caseData.problema && caseData.marca && caseData.modelo;
     const hasClientData = !!(cli.nombre && (cli.correo || cli.cuenta));
     if (hasEquipmentData && hasClientData) {
       return { ok: true, skipped: true, reason: "already_has_data" };
@@ -62,23 +62,16 @@ export async function performAutoExtract(id: string) {
       .join("\n")
       .slice(0, 4000);
 
-    const aiModel = await getModel("extract");
+    const prompt = `Eres un analista de soporte técnico de Sekunet (Costa Rica). Analiza la siguiente conversación de soporte técnico y extrae con máxima precisión los datos técnicos del equipo y del cliente:
 
-    const prompt = `Eres un analista de soporte técnico de Sekunet (Costa Rica). Analiza la siguiente conversación de WhatsApp entre un cliente y un agente de soporte, y extrae los datos técnicos y de contacto:
-
-1. "nombre": El nombre completo del cliente (nombre y apellido).
-2. "correo": El correo electrónico del cliente. Solo si contiene @. Si el cliente dijo que no tiene, pon "Sin correo".
-3. "cuenta": El nombre de la empresa, negocio o cuenta afiliada a Sekunet.
-   REGLA DE CUENTA AFILIADA:
-   - Muchos instaladores independientes o clientes finales tienen la cuenta registrada a su propio nombre personal.
-   - Si el cliente responde con su nombre dos veces (ej: "Nombre \n correo \n Nombre"), o si indica que la cuenta está a nombre propio, asigna ese mismo nombre como "cuenta". NO lo dejes vacío.
-   - Si menciona una empresa (ej: "Sistemas DJC", "Coopesantos", "RIMTEC"), pon la empresa.
-   - Si dice que no tiene cuenta, pon "Sin cuenta".
-4. "vendedor": Nombre del vendedor o agente comercial encargado de su cuenta (si lo menciona).
-5. "tema": El tema principal de la consulta. Debe ser exactamente uno de: ${TEMAS_VALIDOS.join(", ")}. Si no se planteó problema antes de cerrar, pon "Otro".
-6. "marca": La marca del equipo mencionado (ej: HIKVISION, Dahua, Epcom, ZKTeco). Si no se menciona, deja vacío.
-7. "modelo": El modelo del equipo (ej: DS-2CD2043G2-I, NVR-108MH, IPC-T221H). Si no se menciona, deja vacío.
-8. "descripcion_problema": Un resumen breve del problema o motivo de cierre (máximo 200 caracteres).
+1. "nombre": Nombre del cliente (si aparece).
+2. "correo": Correo electrónico (si aparece).
+3. "cuenta": Empresa o cuenta afiliada a Sekunet.
+4. "vendedor": Vendedor mencionado (si aplica).
+5. "tema": Tema de la consulta. Debe ser exactamente uno de: ${TEMAS_VALIDOS.join(", ")}.
+6. "marca": Marca exacta del equipo (ej: HIKVISION, DAHUA, ZKTECO, EPCOM, HILOOK, EZVIZ, IMOU, MIKROTIK, UBIQUITI). Si no se menciona explícitamente pero se deduce, indícala.
+7. "modelo": Modelo alfanumérico exacto del equipo (ej: DS-2CD2043G2-I, DS-7208HQHI-K1, K40, XVR5108, IPC-B120H).
+8. "descripcion_problema": Resumen conciso de la falla y solución técnica aplicada (máximo 250 caracteres).
 
 DATOS ACTUALES DEL CLIENTE:
 - nombre: ${String(cli.nombre || "")}
@@ -88,30 +81,23 @@ DATOS ACTUALES DEL CLIENTE:
 CONVERSACIÓN:
 ${conversationText}
 
-Responde SOLO en formato JSON:
+Responde ÚNICAMENTE en formato JSON:
 {"nombre": "...", "correo": "...", "cuenta": "...", "vendedor": "...", "tema": "...", "marca": "...", "modelo": "...", "descripcion_problema": "..."}`;
 
     let rawContent = "";
-    const apiKey = aiModel?.apiKey || process.env.GEMINI_API_KEY;
-
-    if (apiKey) {
-      try {
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${apiKey}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { temperature: 0.1, maxOutputTokens: 500 },
-          }),
-          signal: AbortSignal.timeout(25000),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          rawContent = data.candidates?.[0]?.content?.parts?.map((p: any) => p.text).filter(Boolean).join("") || "";
-        }
-      } catch (e: any) {
-        console.warn("[auto-extract] Gemini fetch error:", e?.message);
+    try {
+      const aiGen = await generateText("extract", {
+        system: "Eres un analista técnico de soporte que extrae marcas, modelos y datos de equipos de seguridad electrónica. Devuelve estrictamente JSON válido.",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.1,
+        maxTokens: 500,
+        timeoutMs: 8_000,
+      });
+      if (aiGen?.text) {
+        rawContent = aiGen.text;
       }
+    } catch (e: any) {
+      console.warn("[auto-extract] generateText error:", e?.message);
     }
 
     let extracted: { nombre?: string; correo?: string; cuenta?: string; vendedor?: string; tema?: string; marca?: string; modelo?: string; descripcion_problema?: string } = {};
@@ -124,11 +110,76 @@ Responde SOLO en formato JSON:
       }
     }
 
-    // Fallback por regex si la IA no extrajo
+    // ── Fallbacks deterministas por reglas y regex si la IA no extrajo o falló ──
     const fullText = allMsgs.map(m => m.content).join("\n");
+
+    // 1. Marca
+    if (!extracted.marca) {
+      const KNOWN_BRANDS: [string, string][] = [
+        ["hikvision", "HIKVISION"],
+        ["hilook", "HILOOK"],
+        ["ezviz", "EZVIZ"],
+        ["dahua", "DAHUA"],
+        ["imou", "IMOU"],
+        ["zkteco", "ZKTECO"],
+        ["zk", "ZKTECO"],
+        ["epcom", "EPCOM"],
+        ["ubiquiti", "UBIQUITI"],
+        ["unifi", "UBIQUITI"],
+        ["mikrotik", "MIKROTIK"],
+        ["dsc", "DSC"],
+        ["paradox", "PARADOX"],
+        ["axis", "AXIS"],
+        ["uniview", "UNIVIEW"],
+        ["honeywell", "HONEYWELL"],
+      ];
+      for (const [kw, brandName] of KNOWN_BRANDS) {
+        const regex = new RegExp(`\\b${kw}\\b`, "i");
+        if (regex.test(fullText)) {
+          extracted.marca = brandName;
+          break;
+        }
+      }
+    }
+
+    // 2. Modelo
+    if (!extracted.modelo) {
+      const isLikelyModel = (str: string) => {
+        if (!str || str.length < 3 || str.length > 25) return false;
+        if (/^(nota|voz|audio|image|video|photo|file|http|https|jpeg|webm|png|wifi|case|auto|json|hora|min|react|whatsapp|guia|manual|hik-connect|smartpss|sadp)/i.test(str)) return false;
+        if (/^[0-9a-f]{4,8}-[0-9a-f]{4}/i.test(str)) return false;
+        if (!/\d/.test(str)) return false;
+        return true;
+      };
+
+      const modelMatches = fullText.match(/\b([A-Z0-9]{1,4}[-][A-Z0-9\/-]+|[A-Z]{1,3}\d{2,5}[A-Z0-9-]*)\b/gi) || [];
+      const cleanModels = [...new Set(modelMatches.map(m => m.trim()))].filter(isLikelyModel);
+      if (cleanModels.length > 0) {
+        extracted.modelo = cleanModels[0].toUpperCase();
+      }
+    }
+
+    // 2.1 Deducción de marca por prefijo de modelo
+    if (!extracted.marca && extracted.modelo) {
+      if (/^(DS-|HWI-|HIK-|HS-)/i.test(extracted.modelo)) extracted.marca = "HIKVISION";
+      else if (/^(DH-|XVR|DHI-)/i.test(extracted.modelo)) extracted.marca = "DAHUA";
+      else if (/^(K\d|MB\d|INBIO|F\d|SF\d|ZK)/i.test(extracted.modelo)) extracted.marca = "ZKTECO";
+    }
+
+    // 3. Correo
     if (!extracted.correo) {
       const emailMatch = fullText.match(/[\w.-]+@[\w.-]+\.[a-zA-Z]{2,}/);
       if (emailMatch) extracted.correo = emailMatch[0];
+    }
+
+    // 4. Tema si está vacío
+    if (!extracted.tema) {
+      if (/contraseñ|clave|password|reset/i.test(fullText)) extracted.tema = "Reset";
+      else if (/desvincul/i.test(fullText)) extracted.tema = "Desvinculación";
+      else if (/firmware/i.test(fullText)) extracted.tema = "Firmware";
+      else if (/licencia/i.test(fullText)) extracted.tema = "Licencias";
+      else if (/repara|garant|dañ|quemad|taller/i.test(fullText)) extracted.tema = "Reparación / Diagnóstico";
+      else if (/nvr|dvr|camara|cámara|grabador|poe|ip|red|subred|sadp|configtool|smartpss|ivms|biotime/i.test(fullText)) extracted.tema = "Configuraciones";
     }
 
     const updates: Record<string, unknown> = {};
@@ -196,7 +247,7 @@ Responde SOLO en formato JSON:
       updates.title = titleParts.join(" — ").substring(0, 120);
     }
 
-    if (descProblema && !caseData.problema) {
+    if (descProblema && !caseData.resolucion) {
       updates.resolucion = descProblema;
     }
 
