@@ -1097,11 +1097,9 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
     const todayDateStr = new Date(now).toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
     const isSameDay = taskStartDateStr === todayDateStr;
 
-    // Si la labor se inició un día anterior o hace más de 8 horas, pertenece a la jornada anterior y no se acumula hoy
     let duration = 0;
     if (isSameDay) {
-      const rawDuration = now - taskToStop.start;
-      duration = Math.min(rawDuration, 4 * 60 * 60 * 1000);
+      duration = Math.max(0, now - taskToStop.start);
     }
 
     if (duration > 0) {

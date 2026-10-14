@@ -1190,7 +1190,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
           (meta.duration_seconds ? meta.duration_seconds * 1000 : 0) ||
           (meta.minutes ? meta.minutes * 60000 : 0)
         ) || 0;
-        const durMs = Math.min(discreteMs, 4 * 3600 * 1000);
+        const durMs = discreteMs;
         if (durMs > 0) {
           manualRanges.push({ startMs: endMs - durMs, endMs });
         }

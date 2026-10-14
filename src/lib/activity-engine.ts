@@ -660,8 +660,8 @@ export function computeUnifiedActivityMetrics(
       if (act.includes("mystify") || act.includes(".scr") || act.includes("scrnsave")) {
         return false;
       }
-      // Descartar registros nocturnos corruptos con duraciones irreales (> 4 horas en un solo evento)
-      if (t.duration_ms && t.duration_ms > 4 * 3600 * 1000) {
+      // Descartar registros con duraciones negativas o inválidas
+      if (t.duration_ms && (t.duration_ms < 0 || isNaN(t.duration_ms))) {
         return false;
       }
       return true;
@@ -788,7 +788,8 @@ export function computeUnifiedActivityMetrics(
         }
       }
       if (foundEndMs > tMs) {
-        const actualEndMs = explicitDurMs > 0 ? Math.min(foundEndMs, tMs + explicitDurMs) : foundEndMs;
+        const rawElapsed = foundEndMs - tMs;
+        const actualEndMs = explicitDurMs > 0 ? tMs + Math.max(explicitDurMs, rawElapsed) : foundEndMs;
         manualIntervals.push({
           startMs: tMs,
           endMs: actualEndMs,
@@ -799,8 +800,8 @@ export function computeUnifiedActivityMetrics(
         // Tarea manual en curso (sin evento de finalización aún)
         const nowMs = Date.now();
         const elapsedSinceStart = nowMs - tMs;
-        if (elapsedSinceStart > 0 && elapsedSinceStart < 8 * 3600 * 1000) {
-          const ongoingEndMs = Math.min(nowMs, tMs + 4 * 3600 * 1000);
+        if (elapsedSinceStart > 0) {
+          const ongoingEndMs = nowMs;
           manualIntervals.push({
             startMs: tMs,
             endMs: ongoingEndMs,
@@ -1057,7 +1058,7 @@ export function computeUnifiedActivityMetrics(
         if (isManualStart) {
           const nowMs = Date.now();
           const elapsed = nowMs - currTime;
-          dur = (elapsed > 0 && elapsed < 8 * 3600 * 1000) ? Math.min(elapsed, 4 * 3600 * 1000) : 60000;
+          dur = elapsed > 0 ? elapsed : 60000;
         } else if (isManualEnd || it.duration_ms) {
           dur = Number(it.duration_ms);
         }
@@ -1132,14 +1133,13 @@ export function computeUnifiedActivityMetrics(
           (nextMeta.task?.toLowerCase() === taskLabel || nextAct.includes(taskLabel))
         ) {
           const explicitMs = Number(nextIt.duration_ms || (nextMeta.duration_seconds ? nextMeta.duration_seconds * 1000 : 0));
-          if (explicitMs > 0) {
-            manualDuration = Math.min(rawGap, explicitMs);
-          }
+          const elapsedToEnd = new Date(nextIt.created_at).getTime() - currTime;
+          manualDuration = explicitMs > 0 ? Math.max(explicitMs, elapsedToEnd) : elapsedToEnd;
           break;
         }
       }
 
-      const dur = Math.min(manualDuration, 4 * 3600 * 1000);
+      const dur = manualDuration > 0 ? manualDuration : 60000;
       opTimes[opCategory] = (opTimes[opCategory] || 0) + dur;
       recordSoftwareTime(itemName, dur, opCategory);
       const crHour =
@@ -1164,12 +1164,9 @@ export function computeUnifiedActivityMetrics(
                 (meta.minutes ? meta.minutes * 60000 : 0) ||
                 (meta.duration_seconds ? meta.duration_seconds * 1000 : 0)
             ) || 0;
-          // TOPE ESTRICTO DE SEGURIDAD / HORARIO:
-          // Si no hubo "Inició:" hoy, la labor se inició un día anterior o fuera de horario.
-          // El tiempo atribuible a la jornada de HOY no puede exceder el tiempo transcurrido desde el primer evento del día.
           const firstDayEventMs = new Date(sorted[0].created_at).getTime();
           const maxElapsedSinceDayStart = Math.max(0, currTime - firstDayEventMs);
-          const dur = Math.min(discreteMs, maxElapsedSinceDayStart, 4 * 3600 * 1000);
+          const dur = discreteMs > 0 ? (maxElapsedSinceDayStart > 0 ? Math.min(discreteMs, maxElapsedSinceDayStart) : discreteMs) : 0;
           if (dur > 0) {
             opTimes[opCategory] = (opTimes[opCategory] || 0) + dur;
             recordSoftwareTime(itemName, dur, opCategory);
@@ -1188,7 +1185,7 @@ export function computeUnifiedActivityMetrics(
               (meta.minutes ? meta.minutes * 60000 : 0) ||
               (meta.duration_seconds ? meta.duration_seconds * 1000 : 0)
           ) || 0;
-        const dur = Math.min(discreteMs, 4 * 3600 * 1000);
+        const dur = discreteMs;
         if (dur > 0) {
           recordSoftwareTime(itemName, dur, "Justificación Manual");
           const crHour =
@@ -1204,12 +1201,12 @@ export function computeUnifiedActivityMetrics(
 
     // Caso C2: Pausas / Descansos explícitos (NO son software ni URLs, son tiempos de pausa laboral)
     if (opCategory === "Descansos") {
-      const dur = Math.min(rawGap, 2 * 3600 * 1000);
+      const dur = rawGap;
       opTimes["Descansos"] = (opTimes["Descansos"] || 0) + dur;
       continue;
     }
     if (opCategory === "Pausa Sanitaria") {
-      const dur = Math.min(rawGap, 30 * 60 * 1000);
+      const dur = rawGap;
       opTimes["Pausa Sanitaria"] = (opTimes["Pausa Sanitaria"] || 0) + dur;
       continue;
     }
@@ -1249,7 +1246,7 @@ export function computeUnifiedActivityMetrics(
       }
     }
 
-    if (dCurrStr !== dNextStr || rawGap > 4 * 3600 * 1000 || isOutsideWorkingHours) {
+    if (dCurrStr !== dNextStr || isOutsideWorkingHours) {
       // Transición nocturna entre días, fuera de turno o fuera de horario: se contabiliza el evento pero no la brecha
       const dur = 60000;
       opTimes[opCategory] = (opTimes[opCategory] || 0) + dur;
@@ -1308,7 +1305,7 @@ export function computeUnifiedActivityMetrics(
         } else {
           // Superó la tolerancia en 3 o más minutos: se respeta la tolerancia oficial como productiva y el exceso es la laguna
           const productivePart = TOLERANCE_GAP_MS;
-          const idlePart = Math.min(excessMs, 4 * 3600 * 1000);
+          const idlePart = excessMs;
 
           opTimes[opCategory] = (opTimes[opCategory] || 0) + productivePart;
           recordSoftwareTime(itemName, productivePart, opCategory);
@@ -1628,7 +1625,13 @@ export function computeUnifiedActivityMetrics(
   const totalWorkdayMs = Math.min(effectiveMaxSpanMs, Math.max(elapsedWorkdayMs, productiveMs + breakMs + sanitaryMs));
   const compliancePercent = Math.min(100, Math.round((totalWorkdayMs / (targetMs || 1)) * 100));
 
-  const pcWorkMs = Math.max(0, productiveMs - manualJustificationMs);
+  // Todas las labores manuales de taller físicas (Limpieza, Bodega, Diagnóstico, etc.) registradas
+  const workshopManualMs = manualIntervals
+    .filter((inv) => inv.category !== "Descansos" && inv.category !== "Pausa Sanitaria" && inv.category !== "Justificación Manual")
+    .reduce((acc, inv) => acc + Math.max(0, inv.endMs - inv.startMs), 0);
+  const rawManualJustificationMs = opTimes["Justificación Manual"] || 0;
+  const totalManualMs = Math.min(productiveMs, workshopManualMs + rawManualJustificationMs);
+  const pcWorkMs = Math.max(0, productiveMs - totalManualMs);
 
   const lastEventMs = sorted.length > 0 ? new Date(sorted[sorted.length - 1].created_at).getTime() : 0;
   const minutesSinceLastEvent = lastEventMs > 0 ? Math.max(0, (Date.now() - lastEventMs) / 60000) : 999;
@@ -1653,7 +1656,7 @@ export function computeUnifiedActivityMetrics(
     compliancePercent,
     pcWorkMs,
     pcWorkTime: formatDurationMs(pcWorkMs),
-    manualJustificationMs,
-    manualJustificationTime: formatDurationMs(manualJustificationMs),
+    manualJustificationMs: totalManualMs,
+    manualJustificationTime: formatDurationMs(totalManualMs),
   };
 }
