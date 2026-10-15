@@ -285,16 +285,19 @@ async function checkActivity(checks: IntegrityCheck[]) {
         catsViol.push(`${tag}: categorías ${fmtMin(catsSum)} ≠ ${fmtMin(catsExpected)}`);
       }
 
-      // Temporizadores sospechosos
+      // Solo alertar si un temporizador se quedó REALMENTE abierto sin cerrar de días anteriores
       const intervals = parseManualIntervals(sorted, now.getTime());
       for (const iv of intervals) {
         const cat = iv.category.toLowerCase();
-        const limit = cat === "descansos" ? MAX_BREAK_MIN : cat === "pausa sanitaria" ? MAX_SANITARY_MIN : MAX_TASK_MIN;
-        const mins = iv.durationMs / 60000;
         const open = iv.endMs === null;
-        if (mins > limit) {
+        // Si el temporizador ya fue finalizado, es un registro cerrado legítimo y no se cuestiona
+        if (!open) continue;
+
+        const isPrevDay = day !== crDate(now);
+        const mins = iv.durationMs / 60000;
+        if (isPrevDay || mins > 720) {
           runaway.push(
-            `${tag}: ${iv.task} ${open ? "abierto desde hace" : "duró"} ${fmtMin(iv.durationMs)} (límite razonable ${limit}m)`
+            `${tag}: ${iv.task} quedó abierto sin finalizar (${fmtMin(iv.durationMs)})`
           );
         }
         // Actividad humana mientras el agente figuraba en descanso
@@ -738,113 +741,8 @@ export async function autoSanitizeIntegrity(): Promise<{
       }
     }
 
-    // 2. Auto-cerrar temporizadores que se quedaron corriendo sin finalizar
-    const starts = new Map<string, { item: ActivityLog; index: number }>();
-    for (let i = 0; i < sortedAll.length; i++) {
-      const it = sortedAll[i];
-      const act = (it.action || "").toLowerCase();
-      const meta = (it.metadata || {}) as Record<string, any>;
-      const isStart = (act.startsWith("inició:") || act.startsWith("inicio:")) && (meta.manual || meta.task);
-      const isEnd = (act.startsWith("terminó:") || act.startsWith("termino:")) && (meta.manual || meta.task);
-      const task = (meta.task || it.action.replace(/^inici[oó]:\s*/i, "").replace(/^termin[oó]:\s*/i, "").split("(")[0]).trim();
-      const taskKey = task.toLowerCase();
-      const email = (it.agent_email || "").toLowerCase();
-      const key = `${email}|${taskKey}`;
-
-      if (isStart) {
-        starts.set(key, { item: it, index: i });
-      } else if (isEnd) {
-        starts.delete(key);
-      }
-    }
-
-    for (const [, { item: it, index: i }] of starts.entries()) {
-      const startMs = new Date(it.created_at as string).getTime();
-      const meta = (it.metadata || {}) as Record<string, any>;
-      const cat = String(it.category || "").toLowerCase();
-      const isSanitary = cat.includes("sanitaria") || cat.includes("baño") || cat.includes("bano");
-      const isBreak = cat.includes("descanso") || cat.includes("almuerzo") || cat.includes("comida");
-      const limitMin = isBreak ? MAX_BREAK_MIN : isSanitary ? MAX_SANITARY_MIN : MAX_TASK_MIN;
-      const elapsedMin = (now.getTime() - startMs) / 60000;
-      const isPrevDay = day !== crDate(now);
-
-      if (elapsedMin > limitMin || isPrevDay) {
-        let cappedMs = (isSanitary ? 10 : isBreak ? 45 : 60) * 60000;
-        for (let j = i + 1; j < sortedAll.length; j++) {
-          const nextEv = sortedAll[j];
-          if ((nextEv.agent_email || "").toLowerCase() === (it.agent_email || "").toLowerCase()) {
-            const nextMs = new Date(nextEv.created_at as string).getTime();
-            if (nextMs > startMs) {
-              const diff = nextMs - startMs;
-              if (diff > 0 && diff < cappedMs) {
-                cappedMs = diff;
-              }
-              break;
-            }
-          }
-        }
-        const task = String(meta.task || it.action.replace(/^inici[oó]:\s*/i, "").split("(")[0]).trim();
-        const durationSec = Math.round(cappedMs / 1000);
-        const durMin = Math.round(durationSec / 60);
-
-        const { error: insErr } = await sb.from("activity_log").insert({
-          agent_email: it.agent_email,
-          agent_name: it.agent_name,
-          action: `Terminó: ${task} (${durMin}min)`,
-          category: it.category,
-          duration_ms: cappedMs,
-          created_at: new Date(startMs + cappedMs).toISOString(),
-          metadata: {
-            task,
-            manual: true,
-            subcategory: meta.subcategory || it.category,
-            duration_seconds: durationSec,
-            auto_sanitized: true,
-          },
-        });
-        if (!insErr) {
-          closedRunawayTimers++;
-        }
-      }
-    }
-
-    // 3. Auto-sanear temporizadores ya finalizados que excedieron el límite razonable
-    const finishedIntervals = parseManualIntervals(sortedAll, now.getTime());
-    for (const iv of finishedIntervals) {
-      if (iv.endMs === null) continue;
-      const cat = iv.category.toLowerCase();
-      const isSanitary = cat.includes("sanitaria") || cat.includes("baño") || cat.includes("bano");
-      const isBreak = cat.includes("descanso") || cat.includes("almuerzo") || cat.includes("comida");
-      const limitMin = isBreak ? MAX_BREAK_MIN : isSanitary ? MAX_SANITARY_MIN : MAX_TASK_MIN;
-      const mins = iv.durationMs / 60000;
-      if (mins > limitMin) {
-        const endEvent = sortedAll.find((e) => {
-          const act = (e.action || "").toLowerCase();
-          const meta = (e.metadata || {}) as Record<string, any>;
-          const isEnd = (act.startsWith("terminó:") || act.startsWith("termino:")) && (meta.manual || meta.task);
-          if (!isEnd) return false;
-          const t = new Date(e.created_at as string).getTime();
-          return Math.abs(t - (iv.endMs || 0)) < 5000;
-        });
-        if (endEvent && endEvent.id) {
-          const cappedMin = isSanitary ? 15 : isBreak ? 60 : 120;
-          const cappedMs = cappedMin * 60000;
-          const { error: updErr } = await sb.from("activity_log").update({
-            action: `Terminó: ${iv.task} (${cappedMin}min)`,
-            duration_ms: cappedMs,
-            created_at: new Date(iv.startMs + cappedMs).toISOString(),
-            metadata: {
-              ...(typeof endEvent.metadata === "object" ? endEvent.metadata : {}),
-              duration_seconds: cappedMin * 60,
-              auto_sanitized: true,
-            },
-          }).eq("id", endEvent.id);
-          if (!updErr) {
-            closedRunawayTimers++;
-          }
-        }
-      }
-    }
+    // Las tareas manuales y descansos no se truncan ni se modifican automáticamente.
+    // El tiempo registrado corre sin interferencias del sistema y cualquier ajuste se realiza manualmente.
   }
 
   // Auto-sanitización de catálogo de inventario (marcas y categorías)
