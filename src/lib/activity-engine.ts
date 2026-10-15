@@ -759,6 +759,7 @@ export function computeUnifiedActivityMetrics(
     label: string;
   }
   const manualIntervals: ActiveInterval[] = [];
+  const handledEndIndices = new Set<number>();
   let totalJustifiedMs = 0;
 
   for (let i = 0; i < sorted.length; i++) {
@@ -784,6 +785,7 @@ export function computeUnifiedActivityMetrics(
         ) {
           foundEndMs = new Date(nextIt.created_at).getTime();
           explicitDurMs = Number(nextIt.duration_ms || (nextMeta.duration_seconds ? nextMeta.duration_seconds * 1000 : 0));
+          handledEndIndices.add(j);
           break;
         }
       }
@@ -811,11 +813,15 @@ export function computeUnifiedActivityMetrics(
         }
       }
     } else if (isEnd) {
+      // Si este evento de fin ya fue emparejado con su inició previo, no duplicar el intervalo
+      if (handledEndIndices.has(i)) {
+        continue;
+      }
       const durSec = Number(meta.duration_seconds || (meta.duration_ms ? meta.duration_ms / 1000 : 0));
       if (durSec > 0) {
         const startMs = tMs - durSec * 1000;
         const alreadyCovered = manualIntervals.some(
-          (inv) => Math.abs(inv.endMs - tMs) < 15000 && Math.abs(inv.startMs - startMs) < 15000
+          (inv) => Math.abs(inv.endMs - tMs) < 60000 && Math.abs(inv.startMs - startMs) < 60000
         );
         if (!alreadyCovered) {
           const taskLabel = meta.task || it.action.replace(/^termin[oó]:\s*/i, "").split("(")[0].trim();
@@ -1154,10 +1160,15 @@ export function computeUnifiedActivityMetrics(
     // Caso B: Tarea manual finalizada o justificación discreta
     if (isManualEnd || isJustification) {
       if (!isJustification) {
-        const prev = i > 0 ? sorted[i - 1] : null;
-        const prevAct = (prev?.action || "").toLowerCase();
-        const prevWasStart = prev && (prevAct.startsWith("inició:") || prevAct.startsWith("inicio:"));
-        if (!prevWasStart) {
+        const alreadyHandled = handledEndIndices.has(i) || sorted.slice(0, i).some((prev) => {
+          const prevAct = (prev.action || "").toLowerCase();
+          const prevMeta = (prev.metadata || {}) as Record<string, any>;
+          const prevIsStart = (prevAct.startsWith("inició:") || prevAct.startsWith("inicio:")) && (prevMeta.manual || prevMeta.task);
+          const taskLabel = (meta.task || it.action.replace(/^termin[oó]:\s*/i, "").split("(")[0].trim()).toLowerCase();
+          return prevIsStart && (prevMeta.task?.toLowerCase() === taskLabel || prevAct.includes(taskLabel));
+        });
+
+        if (!alreadyHandled) {
           const discreteMs =
             Number(
               it.duration_ms ||
@@ -1274,16 +1285,18 @@ export function computeUnifiedActivityMetrics(
       const effectiveIdleGap = Math.max(0, rawGap - coveredMs - workReportedMs);
 
       if (effectiveIdleGap <= TOLERANCE_GAP_MS) {
-        const dur = Math.min(effectiveIdleGap > 0 ? effectiveIdleGap : TOLERANCE_GAP_MS, rawGap);
-        opTimes[opCategory] = (opTimes[opCategory] || 0) + dur;
-        recordSoftwareTime(itemName, dur, opCategory);
+        const dur = Math.min(effectiveIdleGap, rawGap);
+        if (dur > 0) {
+          opTimes[opCategory] = (opTimes[opCategory] || 0) + dur;
+          recordSoftwareTime(itemName, dur, opCategory);
 
-        const crHour =
-          parseInt(
-            new Date(currTime).toLocaleString("en-US", { timeZone: "America/Costa_Rica", hour: "numeric", hour12: false }),
-            10
-          ) % 24;
-        if (hourlyTrend[crHour] !== undefined) hourlyTrend[crHour] += dur;
+          const crHour =
+            parseInt(
+              new Date(currTime).toLocaleString("en-US", { timeZone: "America/Costa_Rica", hour: "numeric", hour12: false }),
+              10
+            ) % 24;
+          if (hourlyTrend[crHour] !== undefined) hourlyTrend[crHour] += dur;
+        }
       } else {
         // Brecha no cubierta que supera la tolerancia oficial configurada
         const excessMs = effectiveIdleGap - TOLERANCE_GAP_MS;
