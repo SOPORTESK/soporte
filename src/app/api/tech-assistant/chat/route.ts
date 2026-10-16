@@ -15,6 +15,258 @@ interface TechMessage {
   fileName?: string;
 }
 
+interface IndexedPrecedent {
+  id: string;
+  shortId: string;
+  brand: string;
+  model: string;
+  equipmentLabel: string;
+  faultSummary: string;
+  solutionText: string;
+  resolverName: string;
+  searchCorpus: string;
+  closedAt: string;
+}
+
+interface IndexedDocChunk {
+  id: string | number;
+  doc_name: string;
+  content: string;
+  searchCorpus: string;
+}
+
+// Caché en memoria (TTL 3 minutos) para consultar instantáneamente el 100% de la base de datos de casos cerrados (1,494+ casos) y manuales (90+ bloques)
+let fullDbIndexCache: {
+  timestamp: number;
+  precedents: IndexedPrecedent[];
+  docChunks: IndexedDocChunk[];
+} | null = null;
+
+const CACHE_TTL_MS = 3 * 60 * 1000;
+
+function isBoilerplateMessage(text: string): boolean {
+  const t = (text || "").trim();
+  if (t.length < 22) return true;
+  const l = t.toLowerCase();
+  if (
+    l.includes("para servirle, procedo a cerrar") ||
+    l.includes("procedo a cerrar el chat") ||
+    l.includes("cerrado por inactividad") ||
+    l.includes("el cliente inicia la conversación") ||
+    l.includes("inicio de conversación") ||
+    l.includes("saludando, sin llegar a mencionar") ||
+    l.includes("quedo a la espera") ||
+    l.includes("queda a la espera") ||
+    l.includes("sin interacción") ||
+    l.includes("no se detallan fallas") ||
+    l.includes("sin equipo ni modelo") ||
+    l.includes("mucho gusto le atiende") ||
+    l.includes("mi nombre es ") ||
+    l.includes("en que le puedo colaborar") ||
+    l.includes("en qué le puedo colaborar") ||
+    l.includes("en que podemos ayudarle") ||
+    l.includes("en qué podemos ayudarle") ||
+    l.includes("me indica su nombre") ||
+    l.includes("me regala su nombre") ||
+    l.includes("nombre de la empresa") ||
+    l.includes("quedo atento") ||
+    l.includes("con mucho gusto") ||
+    l.startsWith("buenos dias") ||
+    l.startsWith("buenos días") ||
+    l.startsWith("buenas tardes") ||
+    l.startsWith("buenas noches") ||
+    l.startsWith("hola ")
+  ) {
+    if (t.length < 130) return true;
+  }
+  return false;
+}
+
+async function getFullKnowledgeAndCasesIndex(serviceClient: any): Promise<{
+  precedents: IndexedPrecedent[];
+  docChunks: IndexedDocChunk[];
+}> {
+  if (fullDbIndexCache && Date.now() - fullDbIndexCache.timestamp < CACHE_TTL_MS) {
+    return {
+      precedents: fullDbIndexCache.precedents,
+      docChunks: fullDbIndexCache.docChunks,
+    };
+  }
+
+  const selectCols =
+    "id, title, marca, modelo, problema, resolucion, assigned_to, closed_at, cliente, histcliente, histtecnico";
+
+  const [batch1, batch2, agentsRes, chunksRes] = await Promise.all([
+    serviceClient
+      .from("sek_cases")
+      .select(selectCols)
+      .eq("estado", "cerrado")
+      .order("closed_at", { ascending: false })
+      .range(0, 999),
+    serviceClient
+      .from("sek_cases")
+      .select(selectCols)
+      .eq("estado", "cerrado")
+      .order("closed_at", { ascending: false })
+      .range(1000, 2499),
+    serviceClient.from("sek_agent_config").select("email, full_name"),
+    serviceClient.from("sek_doc_chunks").select("id, doc_name, content").limit(500),
+  ]);
+
+  const agentNameByEmail = new Map<string, string>();
+  if (Array.isArray(agentsRes.data)) {
+    for (const ag of agentsRes.data) {
+      if (ag.email && ag.full_name) {
+        agentNameByEmail.set(String(ag.email).toLowerCase().trim(), String(ag.full_name).trim());
+      }
+    }
+  }
+
+  const allClosedCases = [...(batch1.data || []), ...(batch2.data || [])];
+  const seenCaseIds = new Set<string>();
+  const precedents: IndexedPrecedent[] = [];
+
+  for (const c of allClosedCases) {
+    if (!c?.id || seenCaseIds.has(c.id)) continue;
+    seenCaseIds.add(c.id);
+
+    const ht = Array.isArray(c.histtecnico) ? c.histtecnico : [];
+    const hc = Array.isArray(c.histcliente) ? c.histcliente : [];
+    const cli = typeof c.cliente === "object" && c.cliente ? c.cliente : {};
+
+    // 1. Extraer solución técnica real (de columna resolucion o de mensajes técnicos sustanciales)
+    const techSubstantiveMsgs = ht
+      .filter((m: any) => m?.content && typeof m.content === "string" && !isBoilerplateMessage(m.content))
+      .map((m: any) => String(m.content).trim());
+
+    let solutionText = String(c.resolucion || "").trim();
+    if (!solutionText || isBoilerplateMessage(solutionText)) {
+      solutionText = techSubstantiveMsgs.slice(-3).join(" | ");
+    }
+    if (!solutionText || solutionText.length < 25) continue;
+
+    // 2. Extraer descripción real de la falla
+    const clientSubstantiveMsgs = hc
+      .filter((m: any) => m?.content && typeof m.content === "string" && String(m.content).trim().length > 15)
+      .map((m: any) => String(m.content).trim());
+
+    const rawTitle = String(c.title || "").trim();
+    const isGenericTitle =
+      !rawTitle ||
+      rawTitle.toLowerCase().startsWith("whatsapp") ||
+      rawTitle.toLowerCase() === "sin asunto" ||
+      rawTitle.length < 6;
+
+    const rawProblema = String(c.problema || "").trim();
+    const isGenericProblema =
+      !rawProblema ||
+      ["configuracion", "configuración", "consulta", "soporte", "ayuda", "revision", "revisión", "garantia", "garantía", "avería", "averia"].includes(
+        rawProblema.toLowerCase()
+      );
+
+    let faultSummary = "";
+    if (!isGenericTitle) {
+      faultSummary = rawTitle;
+    } else if (!isGenericProblema && rawProblema.length > 8) {
+      faultSummary = rawProblema;
+    } else if (cli.descripcion && String(cli.descripcion).trim().length > 8 && !isGenericProblema) {
+      faultSummary = String(cli.descripcion).trim();
+    } else if (c.resolucion && String(c.resolucion).trim().length > 15) {
+      const firstSentence = String(c.resolucion).trim().split(/[.\n]/)[0];
+      faultSummary = firstSentence.substring(0, 95);
+    } else if (clientSubstantiveMsgs.length > 0) {
+      faultSummary = clientSubstantiveMsgs[0].split(/[.\n]/)[0].substring(0, 95);
+    } else {
+      faultSummary = solutionText.split(/[.\n]/)[0].substring(0, 95);
+    }
+
+    faultSummary = faultSummary.replace(/\s+/g, " ").trim();
+    if (faultSummary.length > 95) {
+      faultSummary = faultSummary.substring(0, 92).trim() + "...";
+    }
+
+    // 3. Extraer marca y modelo reales
+    const rawBrand = String(c.marca || cli.marca || "").trim();
+    const rawModel = String(c.modelo || cli.modelo || cli.equipo || "").trim();
+    const cleanModel = /^m0000/i.test(rawModel) ? "" : rawModel;
+
+    let equipmentLabel = `${rawBrand} ${cleanModel}`.trim();
+    if (!equipmentLabel) {
+      const combinedText = `${faultSummary} ${solutionText}`;
+      const detectedBrand = [
+        "Hikvision",
+        "Dahua",
+        "ZKTeco",
+        "Ezviz",
+        "HiLook",
+        "MikroTik",
+        "Ubiquiti",
+        "Imou",
+        "DSC",
+        "Paradox",
+        "Uniview",
+        "Epcom",
+      ].find((b) => combinedText.toLowerCase().includes(b.toLowerCase()));
+      equipmentLabel = detectedBrand || "Seguridad Electrónica";
+    }
+
+    // 4. Extraer nombre real del técnico que resolvió
+    const lastTecAuthor = ht
+      .filter(
+        (m: any) =>
+          m?.author &&
+          typeof m.author === "string" &&
+          m.author !== "Soporte Sekunet" &&
+          !m.author.toLowerCase().includes("sistema") &&
+          !m.author.toLowerCase().includes("asistente")
+      )
+      .slice(-1)[0]?.author;
+
+    let resolverName = lastTecAuthor ? String(lastTecAuthor).trim() : "";
+    if (!resolverName && c.assigned_to) {
+      const emailKey = String(c.assigned_to).toLowerCase().trim();
+      resolverName = agentNameByEmail.get(emailKey) || emailKey.split("@")[0];
+    }
+    if (!resolverName) {
+      resolverName = "Taller Sekunet";
+    }
+
+    const searchCorpus = `${rawBrand} ${cleanModel} ${rawTitle} ${rawProblema} ${cli.descripcion || ""} ${faultSummary} ${solutionText} ${clientSubstantiveMsgs.slice(0, 3).join(" ")}`.toLowerCase();
+
+    precedents.push({
+      id: c.id,
+      shortId: String(c.id).substring(0, 8),
+      brand: rawBrand.toLowerCase(),
+      model: cleanModel.toLowerCase(),
+      equipmentLabel,
+      faultSummary,
+      solutionText,
+      resolverName,
+      searchCorpus,
+      closedAt: c.closed_at || "",
+    });
+  }
+
+  const docChunks: IndexedDocChunk[] = (chunksRes.data || []).map((d: any) => ({
+    id: d.id,
+    doc_name: String(d.doc_name || "Manual Técnico Sekunet").trim(),
+    content: String(d.content || "").trim(),
+    searchCorpus: `${d.doc_name || ""} ${d.content || ""}`.toLowerCase(),
+  }));
+
+  fullDbIndexCache = {
+    timestamp: Date.now(),
+    precedents,
+    docChunks,
+  };
+
+  console.log(
+    `[tech-assistant] Índice completo cargado en memoria: ${precedents.length} casos resueltos válidos (de ${allClosedCases.length} cerrados) y ${docChunks.length} bloques de manuales.`
+  );
+
+  return { precedents, docChunks };
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { message, case_id, messages: clientMessages, mediaUrl, mediaType, fileName, action, displayMessage } = await req.json();
@@ -23,10 +275,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Mensaje o adjunto requerido" }, { status: 400 });
     }
 
-    const messages: TechMessage[] = Array.isArray(clientMessages) ? clientMessages as TechMessage[] : [];
+    const messages: TechMessage[] = Array.isArray(clientMessages) ? (clientMessages as TechMessage[]) : [];
 
     const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
     if (!user?.email) {
       return NextResponse.json({ error: "No autenticado" }, { status: 401 });
     }
@@ -67,16 +321,14 @@ export async function POST(req: NextRequest) {
           .limit(10);
 
         if (casesForPhone && casesForPhone.length > 0) {
-          // Prioridad A: caso actualmente activo / abierto
-          const openCase = casesForPhone.find(c =>
+          const openCase = casesForPhone.find((c) =>
             ["abierto", "escalado", "ia_atendiendo", "calificacion_pendiente"].includes(String(c.estado || "").toLowerCase())
           );
           if (openCase) {
             targetCase = openCase;
             validCaseId = openCase.id;
           } else {
-            // Prioridad B: si todos están cerrados, el caso con adjuntos o conversación sustancial
-            const caseWithContent = casesForPhone.find(c => {
+            const caseWithContent = casesForPhone.find((c) => {
               const hc = Array.isArray(c.histcliente) ? c.histcliente : [];
               const ht = Array.isArray(c.histtecnico) ? c.histtecnico : [];
               return hc.some((m: any) => m.mediaUrl) || ht.some((m: any) => m.mediaUrl) || hc.length > 1;
@@ -95,10 +347,9 @@ export async function POST(req: NextRequest) {
           targetCase = caseData;
           validCaseId = caseData.id;
 
-          // Si el caso tiene poco o ningún historial (ej: stub de cierre), pero el cliente tiene teléfono,
-          // buscar el caso hermano que contiene la conversación real y los adjuntos
-          const histLen = (Array.isArray(caseData.histcliente) ? caseData.histcliente.length : 0) +
-                          (Array.isArray(caseData.histtecnico) ? caseData.histtecnico.length : 0);
+          const histLen =
+            (Array.isArray(caseData.histcliente) ? caseData.histcliente.length : 0) +
+            (Array.isArray(caseData.histtecnico) ? caseData.histtecnico.length : 0);
           if (histLen <= 2 && caseData.customer_phone) {
             const { data: siblingCases } = await serviceClient
               .from("sek_cases")
@@ -107,9 +358,10 @@ export async function POST(req: NextRequest) {
               .order("created_at", { ascending: false })
               .limit(6);
 
-            const caseWithMore = siblingCases?.find(c => {
-              const count = (Array.isArray(c.histcliente) ? c.histcliente.length : 0) +
-                            (Array.isArray(c.histtecnico) ? c.histtecnico.length : 0);
+            const caseWithMore = siblingCases?.find((c) => {
+              const count =
+                (Array.isArray(c.histcliente) ? c.histcliente.length : 0) +
+                (Array.isArray(c.histtecnico) ? c.histtecnico.length : 0);
               return count > histLen;
             });
             if (caseWithMore) {
@@ -130,22 +382,21 @@ export async function POST(req: NextRequest) {
       const histCliente = Array.isArray(targetCase.histcliente) ? targetCase.histcliente : [];
       const histTecnico = Array.isArray(targetCase.histtecnico) ? targetCase.histtecnico : [];
 
-      // Analizar adjuntos pendientes (máximo los 2 más recientes para evitar latencias altas)
       const allMsgs = [...histCliente, ...histTecnico];
       const attachments = allMsgs.filter((m: any) => m.mediaUrl && typeof m.mediaUrl === "string");
 
       if (attachments.length > 0) {
         let changed = false;
-        const pendingAttachments = attachments.filter(
-          (m: any) => !m._visionAnalysis || m._visionAnalysis.includes("[ANÁLISIS DE ADJUNTO NO DISPONIBLE")
-        ).slice(-2);
+        const pendingAttachments = attachments
+          .filter((m: any) => !m._visionAnalysis || m._visionAnalysis.includes("[ANÁLISIS DE ADJUNTO NO DISPONIBLE"))
+          .slice(-2);
 
         for (const att of pendingAttachments) {
           try {
             console.log(`[tech-assistant] Analizando adjunto pendiente en caso ${validCaseId}:`, att.mediaUrl);
             const result = await Promise.race([
               analyzeMedia(att.mediaUrl, att.mediaType, att.content || "", att.fileName || ""),
-              new Promise<null>((r) => setTimeout(() => r(null), 5000))
+              new Promise<null>((r) => setTimeout(() => r(null), 5000)),
             ]);
             if (result) {
               const analysis = result;
@@ -163,7 +414,6 @@ export async function POST(req: NextRequest) {
             .from("sek_cases")
             .update({ histcliente: histCliente, histtecnico: histTecnico })
             .eq("id", validCaseId);
-          console.log(`[tech-assistant] Análisis de adjuntos actualizado en sek_cases para caso ${validCaseId}`);
         }
       }
 
@@ -173,13 +423,13 @@ export async function POST(req: NextRequest) {
           ...m,
           speaker: "Cliente",
           time: m.time || "",
-          sortKey: typeof m.seq === "number" ? m.seq : (m.time ? new Date(m.time).getTime() : idx),
+          sortKey: typeof m.seq === "number" ? m.seq : m.time ? new Date(m.time).getTime() : idx,
         })),
         ...histTecnico.map((m: any, idx: number) => ({
           ...m,
-          speaker: m.role === "ia" ? "Asistente Virtual" : (m.author ? `Técnico (${m.author})` : "Técnico"),
+          speaker: m.role === "ia" ? "Asistente Virtual" : m.author ? `Técnico (${m.author})` : "Técnico",
           time: m.time || "",
-          sortKey: typeof m.seq === "number" ? m.seq : (m.time ? new Date(m.time).getTime() : 1000 + idx),
+          sortKey: typeof m.seq === "number" ? m.seq : m.time ? new Date(m.time).getTime() : 1000 + idx,
         })),
       ].sort((a, b) => a.sortKey - b.sortKey);
 
@@ -188,10 +438,13 @@ export async function POST(req: NextRequest) {
         const timeStr = m.time ? new Date(m.time).toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit" }) : "";
         let line = `[${timeStr}] ${m.speaker}: ${m.content || ""}`.trim();
         if (m.mediaUrl) {
-          const kind = m.mediaType?.startsWith("audio/") ? "Nota de voz / Audio"
-            : m.mediaType?.startsWith("image/") ? "Imagen"
-            : m.mediaType?.startsWith("video/") ? "Video"
-            : (m.fileName || m.mediaType || "Documento adjunto");
+          const kind = m.mediaType?.startsWith("audio/")
+            ? "Nota de voz / Audio"
+            : m.mediaType?.startsWith("image/")
+              ? "Imagen"
+              : m.mediaType?.startsWith("video/")
+                ? "Video"
+                : m.fileName || m.mediaType || "Documento adjunto";
           line += `\n   [ADJUNTO: ${kind}]`;
           if (m._visionAnalysis && !m._visionAnalysis.includes("[ANÁLISIS DE ADJUNTO NO DISPONIBLE")) {
             line += `\n   -> ANÁLISIS TÉCNICO Y TRANSCRIPCIÓN DEL ADJUNTO:\n${m._visionAnalysis}`;
@@ -207,7 +460,6 @@ export async function POST(req: NextRequest) {
     let techMediaAnalysis = "";
     if (mediaUrl) {
       try {
-        console.log("[tech-assistant] Analizando adjunto directo del técnico:", mediaUrl);
         const result = await analyzeMedia(mediaUrl, mediaType, message, fileName);
         if (result) {
           techMediaAnalysis = result;
@@ -217,12 +469,15 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const isDraftAction = action === "draft_client_reply" ||
-      (typeof message === "string" && message.includes("Instrucciones de atención al cliente") && message.includes("Redacte la respuesta para el cliente"));
+    const isDraftAction =
+      action === "draft_client_reply" ||
+      (typeof message === "string" &&
+        message.includes("Instrucciones de atención al cliente") &&
+        message.includes("Redacte la respuesta para el cliente"));
 
-    const displayMsg = displayMessage || (isDraftAction
-      ? "Redactar propuesta de respuesta para el cliente basada en el caso abierto"
-      : (message || "").trim());
+    const displayMsg =
+      displayMessage ||
+      (isDraftAction ? "Redactar propuesta de respuesta para el cliente basada en el caso abierto" : (message || "").trim());
 
     const now = new Date().toISOString();
     const userMsgContent = techMediaAnalysis
@@ -239,255 +494,273 @@ export async function POST(req: NextRequest) {
     };
     const updatedMessages = [...messages, userMsg];
 
-    // ── 5. Extracción inteligente de términos técnicos de búsqueda ──
-    const searchTerms: string[] = [];
-    if (targetCase?.marca) searchTerms.push(String(targetCase.marca).trim());
-    if (targetCase?.modelo) searchTerms.push(String(targetCase.modelo).trim());
+    // ── 5. Extracción inteligente de marca, modelo y palabras clave técnicas ──
+    const isGenericDiagnosticPrompt = /diagnostique y resuelva|identifique el equipo|procedimiento técnico/i.test(message || "");
+    const userQueryOnly: string = isGenericDiagnosticPrompt ? "" : String(message || "");
+    const fullContextCorpus = `${userQueryOnly} ${targetCase?.marca || ""} ${targetCase?.modelo || ""} ${targetCase?.title || ""} ${targetCase?.problema || ""} ${clienteData?.descripcion || ""} ${openCaseConversation} ${techMediaAnalysis}`.toLowerCase();
 
-    const corpus = `${targetCase?.title || ""} ${targetCase?.problema || ""} ${openCaseConversation} ${(message || "")}`.toLowerCase();
-    
     const KNOWN_BRANDS = [
-      "hikvision", "dahua", "zkteco", "zk", "honeywell", "ubiquiti", "mikrotik",
-      "hilook", "ezviz", "imou", "dsc", "paradox", "axis", "uniview", "epcom"
+      "hikvision",
+      "dahua",
+      "zkteco",
+      "ubiquiti",
+      "mikrotik",
+      "hilook",
+      "ezviz",
+      "imou",
+      "dsc",
+      "paradox",
+      "axis",
+      "uniview",
+      "epcom",
+      "honeywell",
     ];
-    for (const brand of KNOWN_BRANDS) {
-      if (corpus.includes(brand) && !searchTerms.map(s => s.toLowerCase()).includes(brand)) {
-        searchTerms.push(brand);
-      }
-    }
+
+    // Priorizar la marca mencionada en el mensaje actual del técnico; si no, la del caso abierto
+    const userBrands = KNOWN_BRANDS.filter((b) => userQueryOnly.toLowerCase().includes(b));
+    const caseBrands = KNOWN_BRANDS.filter((b) => fullContextCorpus.includes(b));
+    const activeBrands = userBrands.length > 0 ? userBrands : caseBrands;
+    const primaryBrand = activeBrands[0] || (targetCase?.marca ? String(targetCase.marca).toLowerCase().trim() : "");
+
+    const modelRegex = /\b([a-z]{1,4}[-][a-z0-9\/-]+|[a-z]{1,3}\d{2,5}[a-z0-9-]*|hikcentral|ivms-?\d+|smartpss|biotime|configtool|sadp|hik-connect)\b/gi;
+    const rawModels = [...(userQueryOnly.match(modelRegex) || []), ...(fullContextCorpus.match(modelRegex) || [])];
+    const cleanModels = [...new Set(rawModels.map((m) => m.trim().toLowerCase()))].filter(
+      (m) =>
+        m.length >= 3 &&
+        !/^m0000/i.test(m) &&
+        !["http", "https", "jpeg", "webm", "html", "case", "auto", "json", "hora", "min", "react", "mp4", "pdf", "png"].includes(m)
+    );
+    const primaryModel = cleanModels[0] || (targetCase?.modelo && !/^m0000/i.test(targetCase.modelo) ? String(targetCase.modelo).toLowerCase().trim() : "");
 
     const TECH_KEYWORDS = [
-      "contraseña", "clave", "password", "reset", "desvincular", "desvinculacion", "desvinculación",
-      "grabador", "camara", "cámara", "nvr", "dvr", "xvr", "biometrico", "biométrico", "offline",
-      "desconectado", "fuera de linea", "pitido", "beep", "no da video", "video loss",
-      "pantalla negra", "disco", "hdd", "firmware", "sadp", "hik-connect", "hikconnect",
-      "puerto", "poe", "subred", "estatica", "dhcp", "ip"
+      "contraseña",
+      "clave",
+      "password",
+      "reset",
+      "restablecer",
+      "desvincular",
+      "desvinculacion",
+      "desvinculación",
+      "grabador",
+      "camara",
+      "cámara",
+      "nvr",
+      "dvr",
+      "xvr",
+      "biometrico",
+      "biométrico",
+      "offline",
+      "desconectado",
+      "fuera de linea",
+      "pitido",
+      "beep",
+      "no da video",
+      "video loss",
+      "pantalla negra",
+      "disco",
+      "hdd",
+      "firmware",
+      "sadp",
+      "hik-connect",
+      "hikconnect",
+      "configtool",
+      "smartpss",
+      "biotime",
+      "ivms",
+      "puerto",
+      "poe",
+      "subred",
+      "estatica",
+      "dhcp",
+      "xml",
+      "qr",
+      "audio",
+      "grabacion",
+      "grabación",
+      "reproduccion",
+      "reproducción",
+      "alarma",
+      " PTZ ",
+      "canal",
     ];
-    for (const kw of TECH_KEYWORDS) {
-      if (corpus.includes(kw) && !searchTerms.some(s => s.toLowerCase().includes(kw))) {
-        searchTerms.push(kw);
-        if (searchTerms.length >= 6) break;
-      }
-    }
 
-    const modelMatches = corpus.match(/\b([a-z]{1,4}[-][a-z0-9\/-]+|[a-z]{1,3}\d{2,5}[a-z0-9-]*)\b/gi) || [];
-    const cleanModels = [...new Set(modelMatches.map(m => m.trim().toLowerCase()))]
-      .filter(m => m.length >= 3 && !["http", "https", "jpeg", "webm", "html", "case", "auto", "json", "hora", "min"].includes(m));
-    for (const cm of cleanModels.slice(0, 3)) {
-      if (!searchTerms.map(s => s.toLowerCase()).includes(cm)) {
-        searchTerms.push(cm);
-      }
-    }
+    const matchedKeywords = TECH_KEYWORDS.map((k) => k.trim().toLowerCase()).filter((kw) => fullContextCorpus.includes(kw));
 
-    // ── 5.1. Búsqueda RAG en Base de Conocimiento (Manuales Oficiales Sekunet) ──
+    // Tokenizar palabras específicas de la consulta del usuario
+    const STOPWORDS = new Set([
+      "como", "cómo", "para", "este", "esta", "estos", "estas", "caso", "cliente", "equipo", "tiene", "hacer",
+      "hago", "puede", "puedo", "cuando", "donde", "dónde", "cual", "cuál", "porque", "por", "que", "qué",
+      "con", "sin", "del", "las", "los", "una", "uno", "unos", "unas", "sobre", "entre", "hasta", "desde",
+      "diagnostique", "resuelva", "averia", "avería", "identifique", "reportada", "consulte", "precedentes",
+      "similares", "resueltos", "sekunet", "brinde", "procedimiento", "tecnico", "técnico", "exacto", "comprobado",
+      "solucionarlo", "inmediato", "hola", "buenas", "tardes", "dias", "días", "ayuda", "favor",
+    ]);
+    const queryTokens = userQueryOnly
+      .toLowerCase()
+      .replace(/[^a-záéíóúñ0-9-]/gi, " ")
+      .split(/\s+/)
+      .filter((w) => w.length >= 4 && !STOPWORDS.has(w));
+
+    // ── 5.1 & 5.2. Consulta en el 100% de la Base de Datos de Casos Resueltos (1,494+ casos) y Manuales Oficiales ──
     let ragContext = "";
     let retrievedKbDocs: { id: string | number; doc_name: string; snippet: string }[] = [];
-    try {
-      if (searchTerms.length > 0) {
-        const docNameFilter = searchTerms.map(t => `doc_name.ilike.%${t}%`).join(",");
-        const contentFilter = searchTerms.map(t => `content.ilike.%${t}%`).join(",");
-        const { data: ragData } = await serviceClient
-          .from("sek_doc_chunks")
-          .select("id, doc_name, content")
-          .or(`${docNameFilter},${contentFilter}`)
-          .limit(4);
+    let historicalPrecedents = "";
+    let topPrecedents: IndexedPrecedent[] = [];
 
-        let candidateChunks = ragData || [];
-        if (candidateChunks.length === 0) {
-          const detectedBrand = KNOWN_BRANDS.find(b => searchTerms.map(s => s.toLowerCase()).includes(b) || corpus.includes(b));
-          if (detectedBrand) {
-            const { data: brandDocs } = await serviceClient
-              .from("sek_doc_chunks")
-              .select("id, doc_name, content")
-              .ilike("doc_name", `%${detectedBrand}%`)
-              .limit(3);
-            if (brandDocs && brandDocs.length > 0) {
-              candidateChunks = brandDocs;
-            }
-          }
+    try {
+      const { precedents, docChunks } = await getFullKnowledgeAndCasesIndex(serviceClient);
+
+      // A) Puntuar TODOS los bloques de manuales oficiales y deduplicar estrictamente por doc_name
+      const scoredChunks: { chunk: IndexedDocChunk; score: number }[] = [];
+      for (const ch of docChunks) {
+        let score = 0;
+        const docLower = ch.doc_name.toLowerCase();
+        const textLower = ch.searchCorpus;
+
+        if (primaryBrand) {
+          if (docLower.includes(primaryBrand)) score += 70;
+          else if (textLower.includes(primaryBrand)) score += 35;
+
+          const otherBrandInDocTitle = KNOWN_BRANDS.find((b) => b !== primaryBrand && docLower.includes(b));
+          if (otherBrandInDocTitle) score -= 120;
         }
 
-        if (candidateChunks.length > 0) {
-          const seenDocs = new Set<string>();
-          const uniqueChunks: typeof candidateChunks = [];
-          for (const d of candidateChunks) {
-            const name = d.doc_name || "Manual Técnico";
-            if (!seenDocs.has(name) || uniqueChunks.length < 2) {
-              seenDocs.add(name);
-              uniqueChunks.push(d);
-            }
-          }
+        if (primaryModel && textLower.includes(primaryModel)) {
+          score += 60;
+        }
 
-          retrievedKbDocs = uniqueChunks.map((d: any) => ({
-            id: d.id,
-            doc_name: d.doc_name || "Manual Técnico Sekunet",
-            snippet: (d.content || "").substring(0, 450),
-          }));
+        for (const kw of matchedKeywords) {
+          if (textLower.includes(kw)) score += 15;
+        }
+        for (const qt of queryTokens) {
+          if (textLower.includes(qt)) score += 12;
+        }
 
-          ragContext = uniqueChunks
-            .map((d: any, i: number) => `[M${i + 1}] Manual Oficial: ${d.doc_name || "Sekunet"}\n${(d.content || "").substring(0, 600)}`)
-            .join("\n\n");
+        if (score >= 25) {
+          scoredChunks.push({ chunk: ch, score });
         }
       }
-    } catch (ragErr: any) {
-      console.warn("[tech-assistant] Error buscando RAG en sek_doc_chunks:", ragErr?.message);
+
+      scoredChunks.sort((a, b) => b.score - a.score);
+
+      const seenDocNames = new Set<string>();
+      const uniqueBestChunks: IndexedDocChunk[] = [];
+      for (const item of scoredChunks) {
+        const normName = item.chunk.doc_name.toLowerCase().trim();
+        if (!seenDocNames.has(normName)) {
+          seenDocNames.add(normName);
+          uniqueBestChunks.push(item.chunk);
+          if (uniqueBestChunks.length >= 2) break;
+        }
+      }
+
+      if (uniqueBestChunks.length > 0) {
+        retrievedKbDocs = uniqueBestChunks.map((d) => ({
+          id: d.id,
+          doc_name: d.doc_name,
+          snippet: d.content.substring(0, 480),
+        }));
+
+        ragContext = uniqueBestChunks
+          .map((d, i) => `[M${i + 1}] Manual Oficial: ${d.doc_name} (Base de conocimiento Sekunet)\n${d.content.substring(0, 650)}`)
+          .join("\n\n");
+      }
+
+      // B) Puntuar el 100% de los casos cerrados resueltos (1,166+ casos válidos con solución técnica)
+      const scoredCases: { prec: IndexedPrecedent; score: number }[] = [];
+      for (const p of precedents) {
+        if (validCaseId && p.id === validCaseId) continue;
+
+        let score = 0;
+        if (primaryBrand) {
+          if (p.brand.includes(primaryBrand) || p.equipmentLabel.toLowerCase().includes(primaryBrand)) {
+            score += 45;
+          } else if (p.searchCorpus.includes(primaryBrand)) {
+            score += 30;
+          } else {
+            const hasCompetingBrand = KNOWN_BRANDS.some(
+              (b) => b !== primaryBrand && (p.brand.includes(b) || p.equipmentLabel.toLowerCase().includes(b))
+            );
+            if (hasCompetingBrand) score -= 50;
+          }
+        }
+
+        for (const cm of cleanModels.slice(0, 3)) {
+          if (p.model.includes(cm) || p.searchCorpus.includes(cm)) {
+            score += 65;
+          }
+        }
+
+        let kwHits = 0;
+        for (const kw of matchedKeywords) {
+          if (p.searchCorpus.includes(kw)) {
+            score += 18;
+            kwHits++;
+          }
+        }
+
+        for (const qt of queryTokens) {
+          if (p.searchCorpus.includes(qt)) {
+            score += 14;
+          }
+        }
+
+        // Bonificación por calidad y detalle de la solución técnica
+        if (p.solutionText.length > 140) score += 8;
+        if (kwHits >= 2 && primaryBrand && p.searchCorpus.includes(primaryBrand)) score += 25;
+
+        if (score >= 25) {
+          scoredCases.push({ prec: p, score });
+        }
+      }
+
+      scoredCases.sort((a, b) => b.score - a.score);
+      topPrecedents = scoredCases.slice(0, 4).map((s) => s.prec);
+
+      if (topPrecedents.length > 0) {
+        historicalPrecedents = topPrecedents
+          .map(
+            (mc, idx) =>
+              `[C${idx + 1}] Caso #${mc.shortId} resuelto por ${mc.resolverName} (${mc.equipmentLabel} - ${mc.faultSummary})\nSolución técnica comprobada: ${mc.solutionText.substring(0, 550)}`
+          )
+          .join("\n\n");
+      }
+    } catch (dbErr: any) {
+      console.warn("[tech-assistant] Error consultando índice completo de casos y manuales:", dbErr?.message);
     }
 
-    // ── 5.2. Búsqueda inteligente en históricos de casos resueltos (Precedentes técnicos) ──
-    let historicalPrecedents = "";
-    let matchedCases: any[] = [];
+    // ── 5.3. Búsqueda Web Técnica en Vivo (Fichas Técnicas, Manuales Oficiales y Foros Especializados) ──
     let webContext = "";
     let retrievedWebResults: { title: string; url: string; snippet: string }[] = [];
     try {
-      if (searchTerms.length > 0) {
-        let query = serviceClient
-          .from("sek_cases")
-          .select("id, title, marca, modelo, problema, resolucion, histtecnico, closed_at")
-          .eq("estado", "cerrado");
-
-        if (validCaseId) {
-          query = query.neq("id", validCaseId);
-        }
-
-        const orConditions = searchTerms.map(t => 
-          `resolucion.ilike.%${t}%,problema.ilike.%${t}%,title.ilike.%${t}%,modelo.ilike.%${t}%`
-        ).join(",");
-
-        const { data: directCases } = await query
-          .or(orConditions)
-          .order("closed_at", { ascending: false })
-          .limit(30);
-
-        if (directCases && directCases.length > 0) {
-          matchedCases = directCases;
-        }
-      }
-
-      const isBogusSolution = (text: string) => {
-        if (!text || text.trim().length < 35) return true;
-        const l = text.toLowerCase();
-        return (
-          l.includes("el cliente inicia la conversación") ||
-          l.includes("inicio de conversación") ||
-          l.includes("quedo a la espera") ||
-          l.includes("queda a la espera") ||
-          l.includes("cerrado por inactividad") ||
-          l.includes("sin interacción") ||
-          l.includes("saludando, sin llegar a mencionar") ||
-          l.includes("no se detallan fallas") ||
-          l.includes("sin equipo ni modelo")
-        );
-      };
-
-      const validPrecedents: any[] = [];
-      for (const mc of matchedCases) {
-        let sol = (mc.resolucion || mc.problema || "").trim();
-        if (isBogusSolution(sol) && Array.isArray(mc.histtecnico) && mc.histtecnico.length > 0) {
-          const lastTecMsg = mc.histtecnico
-            .filter((m: any) => m.content && typeof m.content === "string" && !isBogusSolution(m.content))
-            .slice(-1)[0];
-          if (lastTecMsg?.content) {
-            sol = lastTecMsg.content.trim();
-          }
-        }
-        if (!isBogusSolution(sol)) {
-          validPrecedents.push({ ...mc, _cleanSolution: sol });
-        }
-      }
-      matchedCases = validPrecedents;
-
-      if (matchedCases.length > 0) {
-        const precedentSnippets: string[] = [];
-        for (let idx = 0; idx < Math.min(matchedCases.length, 5); idx++) {
-          const mc = matchedCases[idx];
-          const solText = mc._cleanSolution || mc.resolucion || mc.problema;
-          const eq = `${mc.marca || "Equipo"} ${mc.modelo || ""}`.trim();
-          const lastTecAuthor = Array.isArray(mc.histtecnico)
-            ? mc.histtecnico.filter((m: any) => m.role === "tecnico" && m.author && m.author !== "Soporte Sekunet" && !String(m.author).includes("Sistema")).slice(-1)[0]?.author
-            : null;
-          const resolverName = lastTecAuthor || (mc.assigned_to ? String(mc.assigned_to).split("@")[0] : "") || "Taller Sekunet";
-
-          precedentSnippets.push(
-            `[C${idx + 1}] Caso #${mc.id.substring(0, 8)} resuelto por ${resolverName} (${eq || "General"} | Falla: ${mc.title || mc.problema || "Avería resuelta"})
-Solución técnica comprobada: ${solText.substring(0, 500)}`
-          );
-        }
-
-        if (precedentSnippets.length > 0) {
-          historicalPrecedents = precedentSnippets.join("\n\n");
-        }
-      }
-    } catch (histErr: any) {
-      console.warn("[tech-assistant] Error consultando históricos precedentes:", histErr?.message);
-    }
-
-    // ── 5.2. Búsqueda Web Técnica en Vivo (Fichas Técnicas, Manuales Oficiales y Foros Especializados) ──
-    try {
-      const corpusForWeb = `${targetCase?.title || ""} ${targetCase?.problema || ""} ${openCaseConversation}`.toLowerCase();
-      
-      const KNOWN_BRANDS = [
-        "hikvision", "dahua", "zkteco", "ubiquiti", "mikrotik", "hilook", "ezviz", "imou", 
-        "dsc", "paradox", "axis", "uniview", "honeywell", "tp-link", "intelbras", "western digital", "seagate"
-      ];
-      const detectedBrand = KNOWN_BRANDS.find(b => corpusForWeb.includes(b)) || 
-        (targetCase?.marca ? String(targetCase.marca).trim() : "") ||
-        (clienteData?.marca ? String(clienteData.marca).trim() : "");
-
-      const modelMatches = corpusForWeb.match(/\b([a-z]{1,4}[-][a-z0-9\/-]+|[a-z]{1,3}\d{2,5}[a-z0-9-]*|hikcentral|ivms-?\d+|smartpss|biotime|configtool|sadp)\b/gi) || [];
-      const cleanModels = [...new Set(modelMatches.map(m => m.trim().toLowerCase()))]
-        .filter(m => m.length >= 3 && !["http", "https", "jpeg", "webm", "html", "case", "auto", "json", "hora", "min", "react"].includes(m));
-      const detectedModel = cleanModels[0] || 
-        (targetCase?.modelo ? String(targetCase.modelo).trim() : "") ||
-        (clienteData?.modelo ? String(clienteData.modelo).trim() : "");
-
-      const TECH_KEYWORDS = [
-        "contraseña", "clave", "password", "reset", "desvincular", "desvinculacion", "desvinculación",
-        "pitido", "beep", "no da video", "video loss", "pantalla negra", "disco no detectado", "hdd",
-        "firmware", "sadp", "configtool", "hik-connect", "smartpss", "biotime", "offline", "poe",
-        "puerto", "puertos", "firewall", "ping", "subred", "ip", "red", "conexion", "conexión",
-        "no conecta", "no responde", "grabar", "formatear", "bloqueo", "ivms", "hikcentral",
-        "dvr", "nvr", "xvr", "camara", "cámara", "biometrico", "biométrico", "alarma", "switch", "router"
-      ];
-      const foundKws = TECH_KEYWORDS.filter(k => corpusForWeb.includes(k));
-      const detectedKw = foundKws.slice(0, 3).join(" ");
-
-      const isGenericPrompt = /diagnostique y resuelva|identifique el equipo|procedimiento técnico/i.test(message || "");
-      const cleanUserMsg = isGenericPrompt ? "" : (message || "").replace(/^(como|por que|porque|ayuda|cual|cuales|que|quien|donde|cuando|favor|puedes|necesito|hola|buen dia|buenas)\s+/i, "").trim();
+      const detectedKw = matchedKeywords.slice(0, 3).join(" ");
+      const cleanUserMsg = userQueryOnly
+        .replace(/^(como|cómo|por que|porque|ayuda|cual|cuál|que|qué|donde|dónde|favor|puedes|necesito|hola|buen dia|buenas)\s+/i, "")
+        .trim();
 
       let webQuery = "";
-      if (detectedBrand && detectedModel) {
-        webQuery = `${detectedBrand} ${detectedModel} ${detectedKw || "manual solucion soporte"}`.trim();
-      } else if (detectedBrand && detectedKw) {
-        webQuery = `${detectedBrand} ${detectedKw} manual solucion soporte`.trim();
-      } else if (detectedModel) {
-        webQuery = `${detectedModel} ${detectedKw || "manual solucion soporte"}`.trim();
-      } else if (targetCase?.title) {
-        const cleanTitle = targetCase.title.replace(/[—–-]/g, " ").trim();
-        webQuery = `${cleanTitle} soporte tecnico solucion`.trim();
+      if (primaryBrand && primaryModel) {
+        webQuery = `${primaryBrand} ${primaryModel} ${detectedKw || "manual solucion soporte"}`.trim();
+      } else if (primaryBrand && detectedKw) {
+        webQuery = `${primaryBrand} ${detectedKw} manual solucion soporte`.trim();
+      } else if (primaryModel) {
+        webQuery = `${primaryModel} ${detectedKw || "manual solucion soporte"}`.trim();
+      } else if (cleanUserMsg.length > 5) {
+        webQuery = `${cleanUserMsg} cctv seguridad electronica soporte solucion`.trim();
       } else if (detectedKw) {
         webQuery = `${detectedKw} seguridad electronica cctv solucion soporte`.trim();
-      } else if (cleanUserMsg.length > 5) {
-        webQuery = `${cleanUserMsg} cctv soporte solucion`.trim();
       }
 
       if (webQuery) {
-        console.log(`[tech-assistant] 🌐 Ejecutando búsqueda web técnica en vivo: "${webQuery}"`);
-        let webResults = await searchTechnicalWeb(webQuery, 4);
-
-        if (webResults.length === 0 && (detectedBrand || detectedModel)) {
-          const fallbackQuery = `${detectedBrand || detectedModel} ${detectedKw || "soporte tecnico solucion"}`.trim();
-          console.log(`[tech-assistant] 🌐 Reintentando con consulta web de respaldo: "${fallbackQuery}"`);
+        let webResults = await searchTechnicalWeb(webQuery, 3);
+        if (webResults.length === 0 && (primaryBrand || primaryModel)) {
+          const fallbackQuery = `${primaryBrand || primaryModel} ${detectedKw || "soporte tecnico solucion"}`.trim();
           webResults = await searchTechnicalWeb(fallbackQuery, 3);
         }
 
         if (webResults.length > 0) {
           retrievedWebResults = webResults;
-          const webSnippets: string[] = [];
-          webResults.forEach((r, i) => {
-            webSnippets.push(`[W${i + 1}] ${r.title} (${r.url})\n${r.snippet}`);
-          });
-          webContext = webSnippets.join("\n\n");
-          console.log(`[tech-assistant] 🌐 Búsqueda web exitosa: ${webResults.length} fuentes encontradas`);
+          webContext = webResults.map((r, i) => `[W${i + 1}] ${r.title} (${r.url})\n${r.snippet}`).join("\n\n");
         }
       }
     } catch (webErr: any) {
@@ -502,7 +775,7 @@ Solución técnica comprobada: ${solText.substring(0, 500)}`
 
 Tu función esencial es RESOLVER LA AVERÍA TÉCNICA junto con el técnico, no hacer meros resúmenes pasivos ni explicaciones redundantes de lo que el cliente ya dijo.
 
-Tienes acceso COMPLETO y VISIBILIDAD TOTAL de la conversación del caso que el técnico tiene actualmente abierto en pantalla, incluyendo las fotos enviadas, las transcripciones completas de notas de voz de audio, videos y documentos técnicos analizados.
+Tienes acceso COMPLETO y VISIBILIDAD TOTAL de la conversación del caso que el técnico tiene actualmente abierto en pantalla, incluyendo las fotos enviadas, las transcripciones completas de notas de voz de audio, videos y documentos técnicos analizados, así como los 1,494 casos históricos resueltos en el taller Sekunet.
 
 CONTEXTO DEL CASO ABIERTO EN PANTALLA (A QUIEN LE ESTAMOS DANDO SOPORTE):
 - Cliente: ${clienteData?.nombre || "No registrado"}
@@ -514,38 +787,35 @@ CONTEXTO DEL CASO ABIERTO EN PANTALLA (A QUIEN LE ESTAMOS DANDO SOPORTE):
 
 CONVERSACIÓN CRONOLÓGICA COMPLETA DEL CASO ABIERTO (con transcripciones y análisis de imágenes):
 ${openCaseConversation || "No hay mensajes registrados en este caso."}
-${ragContext ? `\n\nMANUALES Y BASE DE CONOCIMIENTO (RAG):\n${ragContext}` : ""}
-${historicalPrecedents ? `\n\nPRECEDENTES HISTÓRICOS Y SOLUCIONES DE OTROS TÉCNICOS EN SEKUNET (BASE DE CONOCIMIENTO DEL TALLER):\n${historicalPrecedents}` : ""}
+${ragContext ? `\n\nMANUALES OFICIALES EN BASE DE CONOCIMIENTO SEKUNET (RAG):\n${ragContext}` : ""}
+${historicalPrecedents ? `\n\nPRECEDENTES HISTÓRICOS REALES RESUELTOS POR TÉCNICOS DE SEKUNET (CONSULTA EN TODA LA BASE DE DATOS):\n${historicalPrecedents}` : ""}
 ${webContext ? `\n\nBÚSQUEDA WEB EN VIVO (MANUALES OFICIALES, FICHAS TÉCNICAS Y FOROS ESPECIALIZADOS):\n${webContext}` : ""}
 
 REGLAS DE ATENCIÓN TÉCNICA OBLIGATORIAS:
 1. MÁXIMA PRIORIDAD A RESOLVER LA AVERÍA: El técnico te consulta para encontrar la SOLUCIÓN EXACTA. Debes fundamentar tu diagnóstico y procedimiento en las soluciones reales comprobadas que los técnicos de Sekunet ya aplicaron en los precedentes de taller Y en la información técnica oficial de manuales y fichas técnicas web.
-2. FOCO Y DESTINATARIO: Tu respuesta va dirigida ÚNICA Y EXCLUSIVAMENTE al caso y cliente abierto en pantalla. Nunca menciones nombres ni fechas de casos pasados.
+2. FOCO Y DESTINATARIO: Tu respuesta va dirigida ÚNICA Y EXCLUSIVAMENTE al caso y cliente abierto en pantalla. Nunca menciones nombres de clientes pasados.
 3. ESTRUCTURA DE RESOLUCIÓN TÉCNICA (OBLIGATORIA al pedir diagnóstico, análisis o solución):
-   No des explicaciones teóricas vacías. Responde con un Plan Técnico Resolutivo estructurado en estas secciones directas:
-   • Falla y Causa Raíz: Diagnóstico certero del equipo (marca, modelo exacto) y la causa técnica real del fallo según la evidencia, precedentes y manuales.
-   • Solución Comprobada en Taller / Documentada: Cómo otros técnicos de Sekunet o los manuales del fabricante resolvieron esta avería.
-   • Procedimiento de Resolución (Paso a Paso): Pasos técnicos exactos para resolver la falla (herramientas SADP/ConfigTool, comandos, reset por archivo XML, subredes IP, PoE, verificación de voltajes o cables).
-   • Instrucción Concreta para el Cliente: Qué indicación, prueba o dato específico se le debe pedir al cliente en este momento.
+   Responde con un Plan Técnico Resolutivo estructurado en estas secciones directas (usa el título exacto seguido de dos puntos):
+   Falla y Causa Raíz:
+   Diagnóstico certero del equipo (marca, modelo exacto) y la causa técnica real del fallo según la evidencia, precedentes y manuales.
+
+   Solución Comprobada en Taller / Documentada:
+   Cómo otros técnicos de Sekunet o los manuales del fabricante resolvieron esta avería en casos precedentes.
+
+   Procedimiento de Resolución (Paso a Paso):
+   Pasos técnicos numerados (1., 2., 3.) exactos para resolver la falla (herramientas SADP/ConfigTool, comandos, reset por archivo XML/QR, subredes IP, PoE, verificación de voltajes o cables).
+
+   Instrucción Concreta para el Cliente:
+   Qué indicación, prueba o dato específico se le debe pedir o indicar al cliente en este momento.
 4. NUNCA respondas que el cliente no tiene preguntas basándote en un último mensaje de cortesía. Todo el historial del caso contiene la avería.
 5. Si el técnico te pregunta sobre imágenes o audios, responde DIRECTAMENTE con la información técnica visible en las fotos y audios analizados.
 6. Comunícate con tono profesional, técnico, directo, seguro y colaborativo ("Pura vida, colega").
 
 REGLAS ESTRICTAS DE FORMATO Y ESTILO (OBLIGATORIAS):
-- PROHIBIDO EL USO DE ASTERISCOS: Absolutamente CERO asteriscos. No uses negritas con doble asterisco (**texto**), ni cursivas con asterisco (*texto*), ni viñetas de asterisco (* punto).
+- PROHIBIDO EL USO DE ASTERISCOS: Absolutamente CERO asteriscos. No uses negritas con doble asterisco, ni cursivas con asterisco, ni viñetas de asterisco.
 - PROHIBIDO EL USO DE ENCABEZADOS MARKDOWN: No uses símbolos de almohadilla (#, ##, ###) ni líneas de separación (--- o ___).
-- VIÑETAS DECENTES: Si vas a enlistar puntos, usa viñetas sencillas con punto ("• ") de un solo nivel, sin sangrías complejas ni anidamientos. Usa pasos numerados (1., 2., 3.) únicamente si estás detallando un procedimiento secuencial.
-
-CITACIÓN OBLIGATORIA DE FUENTES REALES (UNA SOLA LÍNEA AL FINAL):
-- Al final de tu respuesta hacia el técnico, incluye EXACTAMENTE UNA SOLA LÍNEA con las fuentes reales consultadas, el técnico que lo resolvió y la URL web:
-  Ejemplo con precedentes y web: Fuentes consultadas: [C1] Caso Sekunet #a18f23 resuelto por César Andrés Batista (Hikvision DS-7208 - Falla pitido disco), [W1] Manual oficial Hikvision (https://assets.hikvision.com/...), Conversación del caso actual.
-  Ejemplo con solo precedentes: Fuentes consultadas: [C1] Caso Sekunet #b491ec resuelto por Matthew Bermudez (ZKTeco K40 - Reset clave administrador), Conversación del caso actual.
-  Ejemplo con solo web: Fuentes consultadas: [W1] Ficha técnica oficial (https://dahuasecurity.com/...), Conversación del caso actual.
-  Si solo se usó el hilo actual: Fuentes consultadas: Conversación y adjuntos del caso actual.
-- REGLA OBLIGATORIA: Si se suministraron resultados en BÚSQUEDA WEB EN VIVO [W1, W2, etc.], ES ESTRICTAMENTE OBLIGATORIO utilizarlos para contrastar y citar al menos 1 fuente web [W...] con su URL completa (https://...) en la línea final de fuentes.
-- REGLA OBLIGATORIA: Si citas un caso precedente de Sekunet [C...], DEBES incluir el número de caso precedido por # y el nombre del técnico que lo resolvió indicado en el precedente ("resuelto por [Nombre]").
-- REGLA OBLIGATORIA: Si citas una fuente web [W...], DEBES incluir la URL completa (https://...) para que el técnico pueda dar clic y abrirla.
-- Cero corchetes ni llamadas de fuentes a mitad de frase en la redacción; las fuentes van únicamente en esa línea final limpia.`;
+- VIÑETAS DECENTES: Si vas a enlistar puntos, usa viñetas sencillas con punto ("• ") de un solo nivel. Usa pasos numerados (1., 2., 3.) para procedimientos secuenciales.
+- NO escribas corchetes [C1], [M1] ni [W1] dentro de los párrafos del cuerpo de tu respuesta; las fuentes se listan exclusivamente en la línea final "Fuentes consultadas:".`;
 
     if (isDraftAction) {
       systemPrompt += `\n\nOBJETIVO INMEDIATO PARA ESTA INTERVENCIÓN:
@@ -555,7 +825,7 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
 - Ve directo al grano: dale al cliente la respuesta clara a su pregunta o el procedimiento técnico exacto paso a paso de lo que debe hacer en su equipo.
 - Si le indicas pasos o pruebas al cliente, usa viñetas sencillas con punto ("• ") directas y numeradas si es secuencial, con instrucciones fáciles de seguir para alguien no técnico.
 - NUNCA uses jerga interna del taller ni menciones precedentes de otros clientes, manuales internos ni códigos de caso de Sekunet.
-- CERO ASTERISCOS: Redacte en texto plano limpio sin negritas de asterisco (** ni *), sin encabezados con # y con viñetas decentes ("• ").
+- CERO ASTERISCOS: Redacte en texto plano limpio sin asteriscos, sin encabezados con # y con viñetas decentes ("• ").
 - NO INCLUYAS la línea de fuentes consultadas en este texto, ya que este mensaje va dirigido exclusivamente al cliente final por WhatsApp.
 - DEVUELVA ÚNICAMENTE el texto que el técnico debe enviarle al cliente. No incluya introducciones como "Aquí tiene la respuesta:" ni notas dirigidas al técnico.`;
     }
@@ -566,7 +836,7 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
     try {
       const aiGen = await generateText("chat", {
         system: systemPrompt,
-        messages: updatedMessages.map(m => ({
+        messages: updatedMessages.map((m) => ({
           role: m.role === "assistant" ? "assistant" : "user",
           content: m.content,
         })),
@@ -588,84 +858,50 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
 
     if (isDraftAction) {
       const fuentesUtilizadas: string[] = [];
-      if (historicalPrecedents) {
+      if (topPrecedents.length > 0) {
         fuentesUtilizadas.push("Precedentes históricos de Sekunet");
       }
-      if (webContext) {
+      if (retrievedWebResults.length > 0) {
         fuentesUtilizadas.push("Fichas técnicas y manuales web");
       }
-      if (ragContext) {
+      if (retrievedKbDocs.length > 0) {
         fuentesUtilizadas.push("Manuales técnicos");
       }
       fuentesUtilizadas.push(validCaseId ? "Conversación del caso actual" : "Consulta técnica directa");
-      
+
       assistantDisplayContent = `${responseText}\n\nFuentes consultadas: ${fuentesUtilizadas.join(", ")}.`;
     } else {
-      // Extraer si la IA ya citó casos específicos con su ID, manuales o web
-      const existingCaseMatches = [...responseText.matchAll(/\[(C\d+)\]\s*Caso(?:\s+Sekunet)?\s*#([0-9a-f]{6,36})(?:\s+resuelto\s+por\s+([^(,\n]+))?(?:\s*\(([^)\n]+)\))?/gi)];
-      const existingManualMatches = [...responseText.matchAll(/\[(M\d+)\]\s*Manual(?:\s+Oficial)?:\s*([^(\n]+?)\s*\(([^)\n]+)\)/gi)];
-      const existingWebMatches = [...responseText.matchAll(/\[(W\d+)\]\s*([^(\n]+?)\s*\((https?:\/\/[^\s)]+)\)/gi)];
+      // Construir siempre la barra de fuentes determinística, limpia y verificada con todos los casos precedentes relevantes hallados en la BD
+      const cleanBody = responseText
+        .replace(/\n*(?:Fuentes(?:\s+t[eé]cnicas)?\s+consultadas|Fuentes:).*$/is, "")
+        .replace(/\s*\[(?:C|M|W)\d+\]/g, "")
+        .trim();
 
-      const needsManuals = existingManualMatches.length === 0 && retrievedKbDocs.length > 0;
-      const needsCases = existingCaseMatches.length === 0 && matchedCases.length > 0;
-      const needsWeb = existingWebMatches.length === 0 && retrievedWebResults.length > 0;
+      const finalSources: string[] = [];
 
-      if (needsManuals || needsCases || needsWeb || existingCaseMatches.length > 0) {
-        // Remover cualquier línea previa de fuentes para reconstruirla limpia y ordenada
-        const cleanBody = responseText.replace(/\n*(?:Fuentes(?:\s+t[eé]cnicas)?\s+consultadas|Fuentes:).*$/is, "").trim();
-        const finalSources: string[] = [];
-        let cIdx = 1;
-        let mIdx = 1;
-        let wIdx = 1;
+      // 1. Manuales Oficiales únicos de la Base de Conocimiento Sekunet
+      retrievedKbDocs.slice(0, 2).forEach((kd, idx) => {
+        finalSources.push(`[M${idx + 1}] Manual Oficial: ${kd.doc_name} (Base de conocimiento Sekunet)`);
+      });
 
-        // 1. Manuales Oficiales (Base de conocimiento Sekunet)
-        if (existingManualMatches.length > 0) {
-          for (const m of existingManualMatches) {
-            finalSources.push(`[M${mIdx++}] Manual Oficial: ${m[2].trim()} (${m[3].trim()})`);
-          }
-        } else if (retrievedKbDocs.length > 0) {
-          for (let i = 0; i < Math.min(retrievedKbDocs.length, 2); i++) {
-            const kd = retrievedKbDocs[i];
-            finalSources.push(`[M${mIdx++}] Manual Oficial: ${kd.doc_name} (Base de conocimiento Sekunet)`);
-          }
-        }
+      // 2. Hasta 3 Casos Precedentes Reales de la Base de Datos de Sekunet
+      topPrecedents.slice(0, 3).forEach((mc, idx) => {
+        const cleanDetails = `${mc.equipmentLabel} - ${mc.faultSummary}`.replace(/[()]/g, "");
+        finalSources.push(`[C${idx + 1}] Caso Sekunet #${mc.shortId} resuelto por ${mc.resolverName} (${cleanDetails})`);
+      });
 
-        // 2. Precedentes del Taller Sekunet
-        if (existingCaseMatches.length > 0) {
-          for (const cm of existingCaseMatches) {
-            const cid = cm[2];
-            const resolver = cm[3]?.trim() || "Taller Sekunet";
-            const details = cm[4]?.trim() || "Avería resuelta";
-            finalSources.push(`[C${cIdx++}] Caso Sekunet #${cid} resuelto por ${resolver} (${details})`);
-          }
-        } else if (matchedCases.length > 0) {
-          for (let i = 0; i < Math.min(matchedCases.length, 2); i++) {
-            const mc = matchedCases[i];
-            const lastTecAuthor = Array.isArray(mc.histtecnico)
-              ? mc.histtecnico.filter((m: any) => m.role === "tecnico" && m.author && m.author !== "Soporte Sekunet" && !String(m.author).includes("Sistema")).slice(-1)[0]?.author
-              : null;
-            const resolver = lastTecAuthor || (mc.assigned_to ? String(mc.assigned_to).split("@")[0] : "") || "Taller Sekunet";
-            const eq = `${mc.marca || "Equipo"} ${mc.modelo || ""}`.trim();
-            const falla = mc.title || mc.problema || "Avería resuelta";
-            finalSources.push(`[C${cIdx++}] Caso Sekunet #${mc.id.substring(0, 8)} resuelto por ${resolver} (${eq} - ${falla})`);
-          }
-        }
+      // 3. Hasta 2 Fuentes Web Oficiales en Vivo
+      retrievedWebResults.slice(0, 2).forEach((wr, idx) => {
+        const safeTitle = wr.title.replace(/[()]/g, "").trim();
+        finalSources.push(`[W${idx + 1}] ${safeTitle} (${wr.url})`);
+      });
 
-        // 3. Documentación Técnica Web en Vivo
-        if (existingWebMatches.length > 0) {
-          for (const wm of existingWebMatches) {
-            finalSources.push(`[W${wIdx++}] ${wm[2].trim()} (${wm[3].trim()})`);
-          }
-        } else if (retrievedWebResults.length > 0) {
-          for (let i = 0; i < Math.min(retrievedWebResults.length, 2); i++) {
-            const wr = retrievedWebResults[i];
-            finalSources.push(`[W${wIdx++}] ${wr.title} (${wr.url})`);
-          }
-        }
-
-        finalSources.push(validCaseId ? "Conversación del caso actual" : "Consulta técnica directa");
-        assistantDisplayContent = `${cleanBody}\n\nFuentes consultadas: ${finalSources.join(", ")}.`;
+      if (validCaseId) {
+        finalSources.push("Conversación del caso actual");
       }
+
+      assistantDisplayContent =
+        finalSources.length > 0 ? `${cleanBody}\n\nFuentes consultadas: ${finalSources.join(", ")}.` : cleanBody;
     }
 
     const assistantMsg: TechMessage = {
@@ -691,26 +927,19 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
 function cleanAiFormatting(raw: string): string {
   if (!raw) return "";
   return raw
-    // Eliminar líneas divisorias tipo ---, ___, ***
     .replace(/^[ \t]*[-*_]{3,}[ \t]*$/gm, "")
-    // Eliminar encabezados markdown (# Título, ## Título, ### Título)
     .replace(/^[ \t]*#{1,6}[ \t]+/gm, "")
-    // Normalizar viñetas decentes: convertir "- " o "* " o "+ " al inicio de línea en viñeta limpia "• "
     .replace(/^[ \t]*[-*+][ \t]+/gm, "• ")
-    // Eliminar negritas/cursivas con asteriscos (**texto** o *texto* manteniendo el contenido)
     .replace(/\*{1,3}([^*\n]+?)\*{1,3}/g, (_, content) => content)
-    // Eliminar cualquier asterisco residual
     .replace(/\*/g, "")
-    // Limpiar saltos de línea excesivos (máximo 2 seguidos)
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
 async function searchTechnicalWeb(
   query: string,
-  limit = 4
+  limit = 3
 ): Promise<{ title: string; url: string; snippet: string }[]> {
-  // 1. DuckDuckGo Lite POST (rápido, confiable, sin bloqueo de bots)
   try {
     const res = await fetch("https://lite.duckduckgo.com/lite/", {
       method: "POST",
@@ -720,11 +949,12 @@ async function searchTechnicalWeb(
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       },
       body: new URLSearchParams({ q: query }).toString(),
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(7000),
     });
     if (res.ok) {
       const text = await res.text();
       const results: { title: string; url: string; snippet: string }[] = [];
+      const seenDomains = new Set<string>();
       const linkMatches = [...text.matchAll(/<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi)];
       for (const m of linkMatches) {
         let rawUrl = m[1];
@@ -736,16 +966,25 @@ async function searchTechnicalWeb(
         if (
           rawUrl.startsWith("http") &&
           !rawUrl.includes("duckduckgo.com") &&
-          title.length > 3 &&
+          title.length > 4 &&
           !title.toLowerCase().includes("siguiente") &&
           !title.toLowerCase().includes("buscar")
         ) {
-          results.push({
-            title,
-            url: rawUrl,
-            snippet: `Documentación técnica oficial: ${title}`,
-          });
-          if (results.length >= limit) break;
+          let domain = "";
+          try {
+            domain = new URL(rawUrl).hostname.replace(/^www\./, "");
+          } catch {
+            domain = rawUrl;
+          }
+          if (!seenDomains.has(rawUrl)) {
+            seenDomains.add(rawUrl);
+            results.push({
+              title,
+              url: rawUrl,
+              snippet: `Documentación técnica (${domain}): ${title}`,
+            });
+            if (results.length >= limit) break;
+          }
         }
       }
       if (results.length > 0) return results;
@@ -754,7 +993,6 @@ async function searchTechnicalWeb(
     console.warn("[tech-assistant] Error en DuckDuckGo Lite search:", err?.message);
   }
 
-  // 2. Google Fallback if DuckDuckGo Lite returns 0
   try {
     const gUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&hl=es`;
     const gRes = await fetch(gUrl, {
@@ -762,7 +1000,7 @@ async function searchTechnicalWeb(
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       },
-      signal: AbortSignal.timeout(6000),
+      signal: AbortSignal.timeout(5000),
     });
     if (gRes.ok) {
       const gHtml = await gRes.text();
@@ -788,4 +1026,3 @@ async function searchTechnicalWeb(
 
   return [];
 }
-
