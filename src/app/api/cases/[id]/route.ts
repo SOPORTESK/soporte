@@ -1,6 +1,36 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const supabase = createServiceClient();
+    const id = params.id;
+    let query = supabase
+      .from("sek_cases")
+      .select("id, title, marca, modelo, problema, resolucion, histtecnico, histcliente, cliente, assigned_to, estado, closed_at, created_at");
+
+    if (id.length < 36) {
+      query = query.ilike("id", `${id}%`).limit(1);
+    } else {
+      query = query.eq("id", id).limit(1);
+    }
+
+    const { data, error } = await query.maybeSingle();
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    if (!data) {
+      return NextResponse.json({ error: "Caso no encontrado" }, { status: 404 });
+    }
+    return NextResponse.json({ ok: true, case: data });
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message }, { status: 500 });
+  }
+}
+
 export async function DELETE(
   _req: NextRequest,
   { params }: { params: { id: string } }

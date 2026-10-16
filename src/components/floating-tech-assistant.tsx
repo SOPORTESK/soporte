@@ -38,6 +38,14 @@ export function FloatingTechAssistant() {
   const [pendingAttachment, setPendingAttachment] = React.useState<PendingAttachment | null>(null);
   const [bubblePosition, setBubblePosition] = React.useState<Position>({ x: 0, y: 0 });
   const [panelPosition, setPanelPosition] = React.useState<Position>({ x: 0, y: 0 });
+  const [previewPrecedent, setPreviewPrecedent] = React.useState<{
+    id: string;
+    label?: string;
+    resolver?: string;
+    details?: string;
+    loading: boolean;
+    caseData?: any;
+  } | null>(null);
   const bubbleRef = React.useRef<HTMLButtonElement>(null);
   const panelRef = React.useRef<HTMLDivElement>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
@@ -147,7 +155,7 @@ export function FloatingTechAssistant() {
       setMessages([]);
       setSessionId(null);
       setPendingAttachment(null);
-      localStorage.removeItem("sek_tech_assistant_session");
+      localStorage.removeItem("sek_tech_assistant_session_v6");
     }
     prevCaseRef.current = caseId;
   }, [caseId]);
@@ -155,7 +163,13 @@ export function FloatingTechAssistant() {
   // Cargar sesión previa desde localStorage (máx 10 mensajes)
   React.useEffect(() => {
     if (!isOpen) return;
-    const saved = localStorage.getItem("sek_tech_assistant_session");
+    try {
+      localStorage.removeItem("sek_tech_assistant_session");
+      localStorage.removeItem("sek_tech_assistant_session_v3");
+      localStorage.removeItem("sek_tech_assistant_session_v4");
+      localStorage.removeItem("sek_tech_assistant_session_v5");
+    } catch { /* ignorar */ }
+    const saved = localStorage.getItem("sek_tech_assistant_session_v6");
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -208,7 +222,7 @@ export function FloatingTechAssistant() {
       const finalMessages = (data.messages || []).slice(-10);
       setPendingAttachment(null);
       setMessages(finalMessages);
-      localStorage.setItem("sek_tech_assistant_session", JSON.stringify({
+      localStorage.setItem("sek_tech_assistant_session_v6", JSON.stringify({
         session_id: sessionId || null,
         messages: finalMessages,
       }));
@@ -314,7 +328,7 @@ export function FloatingTechAssistant() {
     setMessages([]);
     setSessionId(null);
     setPendingAttachment(null);
-    localStorage.removeItem("sek_tech_assistant_session");
+    localStorage.removeItem("sek_tech_assistant_session_v6");
     inputRef.current?.focus();
   };
 
@@ -338,7 +352,7 @@ export function FloatingTechAssistant() {
       if (aiResponse && !aiResponse.startsWith("Disculpe, no pude")) {
         const finalMessages = (data.messages || []).slice(-10);
         setMessages(finalMessages);
-        localStorage.setItem("sek_tech_assistant_session", JSON.stringify({
+        localStorage.setItem("sek_tech_assistant_session_v6", JSON.stringify({
           session_id: sessionId || null,
           messages: finalMessages,
         }));
@@ -363,7 +377,7 @@ export function FloatingTechAssistant() {
     setCaseId(resolved);
     setSessionId(null);
     setMessages([]);
-    localStorage.removeItem("sek_tech_assistant_session");
+    localStorage.removeItem("sek_tech_assistant_session_v6");
     if (resolved) {
       await handleSend(
         "Diagnostique y resuelva la avería de este caso: identifique el equipo y la falla reportada por el cliente, consulte los precedentes y casos similares resueltos en Sekunet, y brinde el procedimiento técnico exacto y comprobado para solucionarlo de inmediato.",
@@ -373,21 +387,34 @@ export function FloatingTechAssistant() {
     }
   };
 
-  const handleOpenHistoricalCase = (cId: string) => {
-    window.dispatchEvent(new CustomEvent("sek-open-case", { detail: { caseId: cId } }));
-    try {
-      const url = new URL(window.location.href);
-      url.searchParams.set("c", cId);
-      window.history.replaceState(window.history.state, "", url.pathname + url.search);
-    } catch {}
-    toast.info(`Cargando caso histórico #${cId.substring(0, 8)}...`);
+  const handleOpenHistoricalCase = (cId: string, label?: string, resolver?: string, details?: string) => {
+    setPreviewPrecedent({
+      id: cId,
+      label,
+      resolver,
+      details,
+      loading: true,
+      caseData: null,
+    });
+    fetch(`/api/cases/${cId}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.ok && data.case) {
+          setPreviewPrecedent((prev) => (prev && prev.id === cId ? { ...prev, loading: false, caseData: data.case } : prev));
+        } else {
+          setPreviewPrecedent((prev) => (prev && prev.id === cId ? { ...prev, loading: false } : prev));
+        }
+      })
+      .catch(() => {
+        setPreviewPrecedent((prev) => (prev && prev.id === cId ? { ...prev, loading: false } : prev));
+      });
   };
 
   const openFromBubble = () => {
     const rect = bubbleRef.current?.getBoundingClientRect();
     const bubbleSize = 56;
-    const panelWidth = typeof window !== "undefined" && window.innerWidth >= 640 ? 384 : 320;
-    const panelHeight = 500;
+    const panelWidth = typeof window !== "undefined" && window.innerWidth >= 640 ? 460 : 340;
+    const panelHeight = 540;
     const padding = 8;
     // Posicionar el panel con su esquina inferior-derecha en la esquina inferior-derecha de la burbuja
     // (expande desde la burbuja hacia arriba-izquierda)
@@ -424,18 +451,19 @@ export function FloatingTechAssistant() {
   }
 
   return (
+    <>
     <Draggable
       nodeRef={panelRef as any}
       position={panelPosition}
       onDrag={handlePanelDrag}
       onStop={handlePanelDragStop}
-      bounds={typeof window !== "undefined" ? { left: 8, top: 8, right: window.innerWidth - 392, bottom: window.innerHeight - 508 } : undefined}
+      bounds={typeof window !== "undefined" ? { left: 8, top: 8, right: window.innerWidth - 468, bottom: window.innerHeight - 548 } : undefined}
       handle=".sek-tech-drag-handle"
     >
       <div
         ref={panelRef}
         suppressHydrationWarning
-        className={`fixed top-0 left-0 z-50 flex flex-col rounded-2xl border border-border bg-card shadow-2xl overflow-hidden ${isMinimized ? "h-14 w-72" : "h-[500px] w-80 sm:w-96"}`}
+        className={`fixed top-0 left-0 z-50 flex flex-col rounded-2xl border border-border bg-card shadow-2xl overflow-hidden ${isMinimized ? "h-14 w-72" : "h-[540px] w-80 sm:w-[460px]"}`}
       >
         {/* Header arrastrable */}
         <div
@@ -451,10 +479,10 @@ export function FloatingTechAssistant() {
               onClick={startNewCaseChat}
               onMouseDown={(e) => e.stopPropagation()}
               onTouchStart={(e) => e.stopPropagation()}
-              className="ml-2 text-[10px] bg-white/20 hover:bg-white/30 px-1.5 py-0.5 rounded cursor-pointer"
-              title="Iniciar nueva conversación con el caso abierto"
+              className="ml-2 text-[11px] font-medium bg-white/20 hover:bg-white/30 px-2 py-0.5 rounded-md cursor-pointer transition-colors"
+              title="Analizar y diagnosticar el caso abierto en pantalla"
             >
-              Caso
+              Analizar Caso
             </button>
           )}
           {messages.length > 0 && (
@@ -463,10 +491,11 @@ export function FloatingTechAssistant() {
               onClick={startNewChat}
               onMouseDown={(e) => e.stopPropagation()}
               onTouchStart={(e) => e.stopPropagation()}
-              className="ml-1 p-1 rounded hover:bg-white/20 cursor-pointer"
+              className="ml-1 text-[11px] flex items-center gap-1 bg-white/10 hover:bg-white/20 px-1.5 py-0.5 rounded-md cursor-pointer transition-colors"
               title="Borrar conversación y empezar de cero"
             >
-              <RotateCcw className="h-3.5 w-3.5" />
+              <RotateCcw className="h-3 w-3" />
+              <span>Limpiar</span>
             </button>
           )}
         </div>
@@ -619,10 +648,111 @@ export function FloatingTechAssistant() {
       )}
     </div>
     </Draggable>
+
+    {/* Modal flotante de consulta de caso precedente (sin desarmar ni cambiar el caso activo) */}
+    {previewPrecedent && (
+      <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+        <div className="w-full max-w-lg rounded-2xl bg-card border border-border shadow-2xl overflow-hidden flex flex-col max-h-[85vh] animate-in fade-in zoom-in-95 duration-150">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted/40">
+            <div className="flex items-center gap-2 min-w-0">
+              <FolderArchive className="h-4 w-4 text-violet-500 shrink-0" />
+              <h3 className="font-bold text-sm truncate">
+                Precedente #{previewPrecedent.id.substring(0, 8)}
+                {previewPrecedent.resolver ? ` • ${previewPrecedent.resolver}` : ""}
+              </h3>
+            </div>
+            <button
+              onClick={() => setPreviewPrecedent(null)}
+              className="h-7 w-7 rounded-lg hover:bg-muted grid place-items-center text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="p-4 space-y-3.5 overflow-y-auto flex-1 text-sm">
+            {previewPrecedent.loading ? (
+              <div className="flex flex-col items-center justify-center py-10 gap-2 text-muted-foreground">
+                <Loader2 className="h-6 w-6 animate-spin text-violet-500" />
+                <p className="text-xs">Consultando detalles de la solución del caso...</p>
+              </div>
+            ) : (
+              <>
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Caso y Falla Reportada</span>
+                  <p className="font-semibold text-foreground text-sm">
+                    {previewPrecedent.caseData?.title || previewPrecedent.details || "Avería resuelta"}
+                  </p>
+                  {(previewPrecedent.caseData?.marca || previewPrecedent.caseData?.modelo) && (
+                    <p className="text-xs text-muted-foreground">
+                      Equipo: {previewPrecedent.caseData.marca || ""} {previewPrecedent.caseData.modelo || ""}
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-1.5 rounded-xl bg-violet-500/10 border border-violet-500/20 p-3">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-violet-600 dark:text-violet-400 block">
+                    Procedimiento / Solución Técnica Registrada
+                  </span>
+                  <p className="text-xs text-foreground whitespace-pre-wrap leading-relaxed">
+                    {previewPrecedent.caseData?.resolucion ||
+                      previewPrecedent.caseData?.problema ||
+                      previewPrecedent.details ||
+                      "Caso resuelto en taller."}
+                  </p>
+                </div>
+
+                {Array.isArray(previewPrecedent.caseData?.histtecnico) && previewPrecedent.caseData.histtecnico.length > 0 && (
+                  <div className="space-y-1.5">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                      Últimas Notas Técnicas
+                    </span>
+                    <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
+                      {previewPrecedent.caseData.histtecnico
+                        .filter((n: any) => n.content && typeof n.content === "string")
+                        .slice(-3)
+                        .map((n: any, idx: number) => (
+                          <div key={idx} className="p-2 rounded-lg bg-muted/50 border border-border/50 text-xs">
+                            <span className="font-semibold text-[11px] text-violet-600 dark:text-violet-400 block mb-0.5">
+                              {n.author || "Técnico"}
+                            </span>
+                            <p className="text-muted-foreground leading-snug">{n.content}</p>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          <div className="p-3 border-t border-border bg-muted/30 flex items-center justify-between gap-2">
+            <button
+              onClick={() => {
+                window.open(`/inbox?c=${previewPrecedent.id}`, "_blank");
+              }}
+              className="px-3 py-1.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold flex items-center gap-1.5 shadow-xs"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              <span>Abrir chat completo en pestaña nueva</span>
+            </button>
+            <button
+              onClick={() => setPreviewPrecedent(null)}
+              className="px-3 py-1.5 rounded-xl bg-muted hover:bg-muted/80 text-foreground text-xs font-semibold"
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
 
-function renderAssistantMessage(content: string, onOpenCase: (caseId: string) => void) {
+function renderAssistantMessage(
+  content: string,
+  onOpenCase: (caseId: string, label?: string, resolver?: string, details?: string) => void
+) {
   const sourcesMatch = content.match(/\n*(?:Fuentes(?:\s+t[eé]cnicas)?\s+consultadas|Fuentes:)([\s\S]*)$/i);
   let mainBody = content;
   let sourcesPart = "";
@@ -640,42 +770,75 @@ function renderAssistantMessage(content: string, onOpenCase: (caseId: string) =>
   );
 }
 
-function renderSourcesFooter(sourcesText: string, onOpenCase: (caseId: string) => void) {
+function renderSourcesFooter(
+  sourcesText: string,
+  onOpenCase: (caseId: string, label?: string, resolver?: string, details?: string) => void
+) {
+  const manualRegex = /\[(M\d+)\]\s*Manual(?:\s+Oficial)?:\s*([^(\n]+?)\s*\(([^)\n]+)\)/gi;
   const caseRegex = /\[(C\d+)\]\s*Caso(?:\s+Sekunet)?\s*#([0-9a-f]{6,36})(?:\s+resuelto\s+por\s+([^(,\n]+))?(?:\s*\(([^)\n]+)\))?/gi;
   const webRegex = /\[(W\d+)\]\s*([^(\n]+?)\s*\((https?:\/\/[^\s)]+)\)/gi;
 
   const elements: React.ReactNode[] = [];
 
   let match: RegExpExecArray | null;
+
+  let manualCounter = 0;
+  while ((match = manualRegex.exec(sourcesText)) !== null) {
+    manualCounter++;
+    const displayLabel = `M${manualCounter}`;
+    const docName = match[2].trim();
+    const sourceInfo = match[3].trim();
+
+    elements.push(
+      <div
+        key={`manual-${docName}-${manualCounter}`}
+        className="w-full text-left p-2.5 rounded-xl bg-amber-500/10 text-amber-950 dark:text-amber-100 border border-amber-500/25 shadow-xs flex flex-col gap-1"
+      >
+        <div className="flex items-start justify-between w-full gap-2">
+          <div className="flex items-start gap-1.5 min-w-0 flex-1">
+            <BookOpen className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <span className="font-bold text-xs text-amber-700 dark:text-amber-300 shrink-0">[{displayLabel}]</span>
+            <span className="font-semibold text-xs text-foreground/90 break-words flex-1 leading-snug">{docName}</span>
+          </div>
+        </div>
+        <span className="text-[11px] text-amber-700/80 dark:text-amber-400/80 break-words">
+          {sourceInfo}
+        </span>
+      </div>
+    );
+  }
+
+  let caseCounter = 0;
   while ((match = caseRegex.exec(sourcesText)) !== null) {
-    const label = match[1];
+    caseCounter++;
+    const displayLabel = `C${caseCounter}`;
     const caseId = match[2];
     const resolver = match[3]?.trim();
     const details = match[4]?.trim();
 
     elements.push(
       <button
-        key={`case-${caseId}-${label}`}
-        onClick={() => onOpenCase(caseId)}
-        className="w-full text-left p-2 rounded-xl bg-violet-500/10 hover:bg-violet-500/20 text-violet-950 dark:text-violet-100 transition-all border border-violet-500/25 group cursor-pointer shadow-xs flex flex-col gap-1"
-        title={`Clic para abrir caso histórico #${caseId}`}
+        key={`case-${caseId}-${caseCounter}`}
+        onClick={() => onOpenCase(caseId, displayLabel, resolver, details)}
+        className="w-full text-left p-2.5 rounded-xl bg-violet-500/10 hover:bg-violet-500/20 text-violet-950 dark:text-violet-100 transition-all border border-violet-500/25 group cursor-pointer shadow-xs flex flex-col gap-1.5"
+        title={`Clic para consultar solución del precedente #${caseId}`}
       >
         <div className="flex items-center justify-between w-full gap-2">
           <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
             <span className="inline-flex items-center gap-1 font-bold text-xs text-violet-700 dark:text-violet-300">
-              <FolderArchive className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400 shrink-0" />
-              [{label}] #{caseId.substring(0, 8)}
+              <FolderArchive className="h-4 w-4 text-violet-600 dark:text-violet-400 shrink-0" />
+              [{displayLabel}] #{caseId.substring(0, 8)}
             </span>
             {resolver && (
-              <span className="text-[11px] font-medium text-foreground/80">
+              <span className="text-xs font-semibold text-foreground/90">
                 • {resolver}
               </span>
             )}
           </div>
-          <ExternalLink className="h-3.5 w-3.5 opacity-60 group-hover:opacity-100 text-violet-600 dark:text-violet-400 shrink-0" />
+          <ExternalLink className="h-4 w-4 opacity-60 group-hover:opacity-100 text-violet-600 dark:text-violet-400 shrink-0" />
         </div>
         {details && (
-          <p className="text-[11px] text-muted-foreground leading-snug break-words">
+          <p className="text-xs text-muted-foreground leading-relaxed break-words">
             {details}
           </p>
         )}
@@ -683,29 +846,31 @@ function renderSourcesFooter(sourcesText: string, onOpenCase: (caseId: string) =
     );
   }
 
+  let webCounter = 0;
   while ((match = webRegex.exec(sourcesText)) !== null) {
-    const label = match[1];
+    webCounter++;
+    const displayLabel = `W${webCounter}`;
     const title = match[2].trim();
     const url = match[3].trim();
 
     elements.push(
       <a
-        key={`web-${url}-${label}`}
+        key={`web-${url}-${webCounter}`}
         href={url}
         target="_blank"
         rel="noreferrer"
-        className="w-full text-left p-2 rounded-xl bg-sky-500/10 hover:bg-sky-500/20 text-sky-950 dark:text-sky-100 transition-all border border-sky-500/25 group cursor-pointer shadow-xs flex flex-col gap-1"
+        className="w-full text-left p-2.5 rounded-xl bg-sky-500/10 hover:bg-sky-500/20 text-sky-950 dark:text-sky-100 transition-all border border-sky-500/25 group cursor-pointer shadow-xs flex flex-col gap-1"
         title={url}
       >
-        <div className="flex items-center justify-between w-full gap-2">
-          <div className="flex items-center gap-1.5 min-w-0 flex-1">
-            <Globe className="h-3.5 w-3.5 text-sky-600 dark:text-sky-400 shrink-0" />
-            <span className="font-bold text-xs text-sky-700 dark:text-sky-300 shrink-0">[{label}]</span>
-            <span className="font-semibold text-xs text-foreground/90 truncate flex-1">{title}</span>
+        <div className="flex items-start justify-between w-full gap-2">
+          <div className="flex items-start gap-1.5 min-w-0 flex-1">
+            <Globe className="h-4 w-4 text-sky-600 dark:text-sky-400 shrink-0 mt-0.5" />
+            <span className="font-bold text-xs text-sky-700 dark:text-sky-300 shrink-0">[{displayLabel}]</span>
+            <span className="font-semibold text-xs text-foreground/90 break-words flex-1 leading-snug">{title}</span>
           </div>
-          <ExternalLink className="h-3.5 w-3.5 opacity-60 group-hover:opacity-100 text-sky-600 dark:text-sky-400 shrink-0" />
+          <ExternalLink className="h-4 w-4 opacity-60 group-hover:opacity-100 text-sky-600 dark:text-sky-400 shrink-0 mt-0.5" />
         </div>
-        <span className="text-[10px] text-sky-600/80 dark:text-sky-400/80 truncate max-w-full">
+        <span className="text-[11px] text-sky-600/80 dark:text-sky-400/80 break-all leading-snug">
           {url}
         </span>
       </a>
