@@ -168,6 +168,14 @@ function parseManualIntervals(sorted: ActivityLog[], nowMs: number): ManualInter
         explicitMs = Number(nx.duration_ms || (nMeta.duration_seconds ? nMeta.duration_seconds * 1000 : 0)) || 0;
         break;
       }
+      // Si el colaborador inició otra labor manual o descanso posterior sin cerrar la anterior,
+      // la labor previa finalizó naturalmente al momento de iniciar la nueva actividad
+      const isOtherStart = (nAct.startsWith("inició:") || nAct.startsWith("inicio:")) && (nMeta.manual || nMeta.task);
+      if (isOtherStart) {
+        endMs = new Date(nx.created_at as string).getTime();
+        explicitMs = endMs - startMs;
+        break;
+      }
     }
     const durationMs = endMs !== null ? (explicitMs > 0 ? explicitMs : endMs - startMs) : nowMs - startMs;
     out.push({ task, category: String(it.category || ""), startMs, endMs, durationMs });
@@ -741,8 +749,47 @@ export async function autoSanitizeIntegrity(): Promise<{
       }
     }
 
-    // Las tareas manuales y descansos no se truncan ni se modifican automáticamente.
-    // El tiempo registrado corre sin interferencias del sistema y cualquier ajuste se realiza manualmente.
+    // Auto-sanear temporizadores que quedaron abiertos sin finalizar de días anteriores
+    const intervals = parseManualIntervals(sortedAll, now.getTime());
+    for (const iv of intervals) {
+      if (iv.endMs === null) {
+        const isPrevDay = day !== crDate(now);
+        const mins = iv.durationMs / 60000;
+        if (isPrevDay || mins > 720) {
+          // Buscar el agente correspondiente al intervalo
+          const startEvent = sortedAll.find(
+            (e) => (e.metadata?.task === iv.task || (e.action || "").includes(iv.task)) && (e.action || "").toLowerCase().startsWith("inici")
+          );
+          if (startEvent) {
+            const cappedMs = Math.min(iv.durationMs, 30 * 60 * 1000); // Tope de 30 min para cierres automáticos
+            const endIso = new Date(iv.startMs + cappedMs).toISOString();
+            const durSec = Math.round(cappedMs / 1000);
+            const m = Math.floor(durSec / 60);
+            const s = durSec % 60;
+            const endAction = `Terminó: ${iv.task} (${m}min ${s}s)`;
+            const endRow = {
+              agent_email: startEvent.agent_email,
+              agent_name: startEvent.agent_name,
+              action: endAction,
+              category: iv.category || "Gestión del Taller",
+              case_id: null,
+              metadata: {
+                task: iv.task,
+                manual: true,
+                auto_sanitized: true,
+                duration_seconds: durSec,
+              },
+              duration_ms: cappedMs,
+              created_at: endIso,
+            };
+            const { error: insErr } = await sb.from("activity_log").insert(endRow);
+            if (!insErr) {
+              closedRunawayTimers++;
+            }
+          }
+        }
+      }
+    }
   }
 
   // Auto-sanitización de catálogo de inventario (marcas y categorías)
