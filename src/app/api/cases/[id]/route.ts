@@ -1,17 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 
-function isBoilerplateNote(text?: string | null): boolean {
+function isBoilerplateOrFileNote(text?: string | null): boolean {
   if (!text || typeof text !== "string") return true;
   const t = text.trim();
   if (t.length < 18) return true;
   const l = t.toLowerCase();
+  if (/^(nota-voz-[\w.-]+|image\.\w+|[\w-]+\.(webm|ogg|mp3|wav|jpg|jpeg|png|gif|pdf|zip|rar))$/i.test(t)) {
+    return true;
+  }
   return (
     l.includes("bienvenido al soporte") ||
     l.includes("gracias por contactarnos") ||
     l.includes("para el registro, por favor") ||
+    l.includes("marca y modelo del equipo a consultar") ||
+    l.includes("nombre del vendedor encargado") ||
     l.includes("ha sido un placer atenderle") ||
     l.includes("cerramos la conversación") ||
+    l.includes("procederemos a cerrar esta conversación") ||
+    l.includes("al no haber recibido respuesta") ||
     l.includes("quedamos a su disposición") ||
     l.includes("cualquier consulta quedamos atentos") ||
     l.includes("caso reasignado de") ||
@@ -20,7 +27,30 @@ function isBoilerplateNote(text?: string | null): boolean {
     l.includes("no se detallan fallas") ||
     l.includes("cerrado por inactividad") ||
     l.includes("quedo a la espera") ||
-    l.includes("queda a la espera")
+    l.includes("queda a la espera") ||
+    l.includes("algo mas en lo que te pueda ayudar") ||
+    l.includes("algo más en lo que le pueda ayudar") ||
+    l.includes("podría brindarnos más detalles sobre su consulta")
+  );
+}
+
+function isClientQuestionSummary(text?: string | null): boolean {
+  if (!text || typeof text !== "string") return true;
+  const t = text.trim();
+  if (/soluci[oó]n:|se recomienda|se indic[oó]|se brind[oó]|se realiz[oó]|debe reemplazar|bajar la resoluci[oó]n/i.test(t)) {
+    return false;
+  }
+  return /^(el cliente consulta|cliente consulta|el cliente solicita|cliente solicita|consulta sobre|solicitud de|inicio de conversaci[oó]n)/i.test(
+    t
+  );
+}
+
+function isGenericCaseTitle(title?: string | null): boolean {
+  if (!title || typeof title !== "string") return true;
+  const t = title.trim();
+  if (t.length < 8) return true;
+  return /^(whatsapp|configuraciones|configuraci[oó]n|consulta|soporte|firmware|reparaci[oó]n\s*\/?\s*diagn[oó]stico|garant[ií]a|reset|aver[ií]a|sin asunto)(\s*[—–-].*)?$/i.test(
+    t
   );
 }
 
@@ -72,34 +102,59 @@ export async function GET(
       return NextResponse.json({ error: "Caso no encontrado" }, { status: 404 });
     }
 
+    // Filtrar mensajes técnicos reales (excluyendo saludos, cierres y nombres de archivo sueltos)
     const tecNotes = Array.isArray(data.histtecnico)
       ? data.histtecnico.filter(
           (n: any) =>
             n.content &&
             typeof n.content === "string" &&
             n.role !== "ia" &&
-            !isBoilerplateNote(n.content)
+            n.role !== "nota" &&
+            !isBoilerplateOrFileNote(n.content)
         )
       : [];
+
+    // Mensajes técnicos resolutivos (que no son simples preguntas cortas al cliente)
+    const substantiveTecSolutions = tecNotes.filter((n: any) => {
+      const c = String(n.content).trim();
+      if (c.endsWith("?") && c.length < 95) return false;
+      return c.length >= 25;
+    });
 
     const cliNotes = Array.isArray(data.histcliente)
       ? data.histcliente.filter(
-          (n: any) => n.content && typeof n.content === "string" && n.content.trim().length > 10
+          (n: any) =>
+            n.content &&
+            typeof n.content === "string" &&
+            n.content.trim().length > 12 &&
+            !isBoilerplateOrFileNote(n.content)
         )
       : [];
 
-    let cleanResolucion = !isBoilerplateNote(data.resolucion) ? String(data.resolucion).trim() : "";
-    if (!cleanResolucion && tecNotes.length > 0) {
-      cleanResolucion = tecNotes.map((n: any) => n.content.trim()).join("\n\n");
+    const rawRes = String(data.resolucion || "").trim();
+    const clienteDesc = data.cliente?.descripcion ? String(data.cliente.descripcion).trim() : "";
+
+    let cleanResolucion = "";
+    if (rawRes && !isBoilerplateOrFileNote(rawRes) && !isClientQuestionSummary(rawRes)) {
+      cleanResolucion = rawRes;
+      if (substantiveTecSolutions.length > 0 && rawRes.length < 140) {
+        const extraTec = substantiveTecSolutions.map((n: any) => String(n.content).trim()).join("\n\n");
+        if (!extraTec.includes(rawRes)) {
+          cleanResolucion = `${rawRes}\n\n${extraTec}`;
+        }
+      }
+    } else if (substantiveTecSolutions.length > 0) {
+      cleanResolucion = substantiveTecSolutions.map((n: any) => String(n.content).trim()).join("\n\n");
+    } else if (rawRes && !isBoilerplateOrFileNote(rawRes)) {
+      cleanResolucion = rawRes;
     }
 
-    let cleanTitle = data.title || "";
-    if (!cleanTitle || cleanTitle.startsWith("WhatsApp —") || cleanTitle.toLowerCase() === "consulta") {
-      const desc = data.cliente?.descripcion && !isBoilerplateNote(data.cliente.descripcion)
-        ? String(data.cliente.descripcion).trim()
-        : "";
-      const firstCli = cliNotes[0]?.content ? String(cliNotes[0].content).trim().substring(0, 120) : "";
-      cleanTitle = desc || firstCli || data.problema || cleanTitle || "Caso técnico resuelto";
+    let cleanTitle = String(data.title || "").trim();
+    if (isGenericCaseTitle(cleanTitle)) {
+      const desc = clienteDesc && !isBoilerplateOrFileNote(clienteDesc) ? clienteDesc : "";
+      const resAsSummary = isClientQuestionSummary(rawRes) && !isBoilerplateOrFileNote(rawRes) ? rawRes : "";
+      const firstCli = cliNotes[0]?.content ? String(cliNotes[0].content).trim().substring(0, 140) : "";
+      cleanTitle = desc || resAsSummary || firstCli || cleanTitle || "Caso técnico resuelto";
     }
 
     return NextResponse.json({
@@ -107,8 +162,8 @@ export async function GET(
       case: {
         ...data,
         title: cleanTitle,
-        resolucion: cleanResolucion || data.resolucion || "Resuelto en asistencia técnica directa.",
-        histtecnico: tecNotes.length > 0 ? tecNotes : (data.histtecnico || []),
+        resolucion: cleanResolucion || "Resuelto en asistencia técnica directa.",
+        histtecnico: substantiveTecSolutions.length > 0 ? substantiveTecSolutions : tecNotes,
       },
     });
   } catch (e: any) {
@@ -123,74 +178,45 @@ export async function DELETE(
   const supabase = createServiceClient();
   const id = params.id;
 
-  console.log("[DELETE /api/cases/[id]] Iniciando eliminación", { id });
-
-  // Verificar si es un ID de grupo (contiene prefijos como tel:, mail:, nom: o case:) o un ID numérico
   const isGroupId = id.includes(":") || isNaN(Number(id));
-
-  console.log("[DELETE /api/cases/[id]] isGroupId:", isGroupId);
 
   if (isGroupId) {
     let query = supabase.from("sek_cases").select("id");
 
     if (id.startsWith("tel:")) {
       const phone = id.substring(4);
-      console.log("[DELETE /api/cases/[id]] Buscando casos con teléfono:", phone);
-      // Coincidencia exacta o con sufijo @s.whatsapp.net/@g.us.
-      // NO usar ilike parcial: "63381153" coincidiría con "50663381153" y borraría ambos.
       query = query.or(`customer_phone.eq.${phone},customer_phone.eq.${phone}@s.whatsapp.net,customer_phone.eq.${phone}@g.us`);
     } else if (id.startsWith("mail:")) {
       const email = id.substring(5);
-      console.log("[DELETE /api/cases/[id]] Buscando casos con email:", email);
       query = query.ilike("cliente->>correo", email);
     } else if (id.startsWith("nom:")) {
-      // nom:canal:nombre
       const parts = id.split(":");
       const name = parts[parts.length - 1];
-      console.log("[DELETE /api/cases/[id]] Buscando casos con nombre de cliente:", name);
       query = query.ilike("cliente->>nombre", name);
     } else if (id.startsWith("cuenta:")) {
       const cuenta = id.substring(7);
-      console.log("[DELETE /api/cases/[id]] Buscando casos con cuenta B2B:", cuenta);
       query = query.or(`cliente->>cuenta.ilike.${cuenta},cliente->>empresa.ilike.${cuenta}`);
     } else if (id.startsWith("case:")) {
       const caseId = id.substring(5);
-      console.log("[DELETE /api/cases/[id]] Buscando caso individual por clave:", caseId);
       query = query.eq("id", caseId);
     } else {
-      // Búsqueda genérica por si acaso
-      console.log("[DELETE /api/cases/[id]] Búsqueda genérica por id original:", id);
       query = query.eq("id", id);
     }
 
     const { data: cases, error: fetchError } = await query.limit(100);
 
     if (fetchError) {
-      console.error("[DELETE /api/cases/[id]] Error al buscar casos:", fetchError);
       return NextResponse.json({ ok: false, error: fetchError.message }, { status: 500 });
     }
 
-    console.log("[DELETE /api/cases/[id]] Casos encontrados:", cases?.length || 0);
-
     if (cases && cases.length > 0) {
-      const ids = cases.map(c => c.id);
-      console.log("[DELETE /api/cases/[id]] IDs a eliminar:", ids);
-      
-      const { error: deleteError } = await supabase
-        .from("sek_cases")
-        .delete()
-        .in("id", ids);
-
+      const ids = cases.map((c) => c.id);
+      const { error: deleteError } = await supabase.from("sek_cases").delete().in("id", ids);
       if (deleteError) {
-        console.error("[DELETE /api/cases/[id]] Error al eliminar:", deleteError);
         return NextResponse.json({ ok: false, error: deleteError.message }, { status: 500 });
       }
-      
-      console.log("[DELETE /api/cases/[id]] Eliminación de grupo exitosa");
       return NextResponse.json({ ok: true, deleted: cases.length });
     } else {
-      console.log("[DELETE /api/cases/[id]] No se encontraron casos para eliminar con esa clave de grupo");
-      // Intentar una eliminación directa por si el id era directamente el ID del caso
       const { error: directDeleteError } = await supabase.from("sek_cases").delete().eq("id", id);
       if (directDeleteError) {
         return NextResponse.json({ ok: false, error: "No se encontraron casos y falló eliminación directa" }, { status: 404 });
@@ -198,16 +224,10 @@ export async function DELETE(
       return NextResponse.json({ ok: true, deleted: 1 });
     }
   } else {
-    // Es un ID numérico individual
-    console.log("[DELETE /api/cases/[id]] Eliminando caso individual con ID:", id);
-    
     const { error } = await supabase.from("sek_cases").delete().eq("id", id);
     if (error) {
-      console.error("[DELETE /api/cases/[id]] Error al eliminar caso individual:", error);
       return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
     }
-    
-    console.log("[DELETE /api/cases/[id]] Eliminación individual exitosa");
     return NextResponse.json({ ok: true });
   }
 }
@@ -244,7 +264,7 @@ export async function PATCH(
       .from("sek_cases")
       .update({
         ...body,
-        updated_at: new Date().toISOString()
+        updated_at: new Date().toISOString(),
       })
       .eq("id", targetCaseId)
       .select()
