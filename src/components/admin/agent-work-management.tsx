@@ -358,28 +358,9 @@ export function AgentWorkManagement({ agentEmail, agentName }: AgentWorkManageme
 
   return (
     <div className="space-y-6">
-      {/* ── BARRA EJECUTIVA SUPERIOR DE NAVEGACIÓN INTERNA Y SELECTOR DE COLABORADOR ── */}
+      {/* ── BARRA EJECUTIVA SUPERIOR DE NAVEGACIÓN INTERNA ── */}
       <div className="rounded-2xl border border-border bg-card/90 backdrop-blur-md p-2.5 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Selector de Colaborador para consultar Asistencia, Horas Extras y Horario de cualquier miembro */}
-          {agentsList.length > 0 && (
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-border bg-background">
-              <UserCheck className="h-3.5 w-3.5 text-brand-500 shrink-0" />
-              <span className="text-[11px] font-bold text-muted-foreground">Colaborador:</span>
-              <select
-                value={selectedEmail}
-                onChange={(e) => setSelectedEmail(e.target.value)}
-                className="bg-transparent text-xs font-black text-foreground focus:outline-none cursor-pointer"
-              >
-                {agentsList.map((ag) => (
-                  <option key={ag.email} value={ag.email} className="bg-card text-foreground">
-                    {ag.name} ({ag.email})
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
+        <div className="flex items-center gap-1.5 flex-wrap">
           <button
             type="button"
             onClick={() => setActiveSubTab("asistencia")}
