@@ -148,17 +148,21 @@ export async function GET(req: NextRequest) {
           offScheduleMs = productiveMs;
         } else {
           const targetMs = targetDailyHours * 3600 * 1000;
-          const overTargetMs = Math.max(0, totalWorkdayMs - targetMs);
+          const overTargetMs = Math.max(0, productiveMs - targetMs);
           const schedStartMs = new Date(`${dStr}T${schedStart.padStart(5, "0")}:00-06:00`).getTime();
           const schedEndMs = new Date(`${dStr}T${schedEnd.padStart(5, "0")}:00-06:00`).getTime();
           let outsideWindowMs = 0;
           for (const ev of dayLogs) {
             const catL = String(ev.category || "").toLowerCase();
             if (catL === "inactividad" || catL === "descansos" || catL === "pausa sanitaria") continue;
-            const evMs = new Date(ev.created_at || "").getTime();
-            const dur = Number(ev.duration_ms || (ev.metadata?.duration_seconds ? ev.metadata.duration_seconds * 1000 : 0)) || 0;
-            if (!isNaN(evMs) && dur > 0 && (evMs < schedStartMs || evMs >= schedEndMs)) {
-              outsideWindowMs += Math.min(dur, 30 * 60 * 1000);
+            const evEndMs = new Date(ev.created_at || "").getTime();
+            const rawDur = Number(ev.duration_ms || (ev.metadata?.duration_seconds ? ev.metadata.duration_seconds * 1000 : 0)) || 0;
+            const dur = Math.min(Math.max(0, rawDur), 30 * 60 * 1000);
+            if (!isNaN(evEndMs) && dur > 0) {
+              const evStartMs = evEndMs - dur;
+              const beforeShiftMs = Math.max(0, Math.min(evEndMs, schedStartMs) - evStartMs);
+              const afterShiftMs = Math.max(0, evEndMs - Math.max(evStartMs, schedEndMs));
+              outsideWindowMs += beforeShiftMs + afterShiftMs;
             }
           }
           offScheduleMs = Math.max(overTargetMs, outsideWindowMs);

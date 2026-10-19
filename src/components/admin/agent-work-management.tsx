@@ -663,28 +663,32 @@ export function AgentWorkManagement({ agentEmail, agentName }: AgentWorkManageme
           </div>
 
           {/* ── TABLA TIMESHEET DE CONTROL DE ASISTENCIA DIARIA ── */}
-          <section className="rounded-2xl border border-border bg-card overflow-hidden shadow-xs">
-            {/* Cabecera de la tabla con filtros de fila */}
-            <div className="p-5 border-b border-border/80 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <div className="flex items-center gap-2">
-                  <FileSpreadsheet className="h-4.5 w-4.5 text-brand-500" />
-                  <h3 className="text-base font-black tracking-tight text-foreground">
-                    Historial Diario de Entradas, Salidas y Horas Extras
-                  </h3>
+          <section className="rounded-2xl border border-border bg-card overflow-hidden shadow-sm">
+            {/* Cabecera de la tabla con filtros de fila en una sola barra segmentada */}
+            <div className="px-6 py-4 border-b border-border/80 bg-gradient-to-r from-card via-card to-muted/20 flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2.5">
+                  <div className="h-8 w-8 rounded-xl bg-brand-500/15 border border-brand-500/30 text-brand-400 grid place-items-center shrink-0">
+                    <FileSpreadsheet className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black tracking-tight text-foreground">
+                      Historial Diario de Entradas, Salidas y Horas Extras
+                    </h3>
+                    <p className="text-[11px] text-muted-foreground">
+                      Control independiente de cumplimiento de horario y tiempo activo fuera de jornada
+                    </p>
+                  </div>
                 </div>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Control independiente de cumplimiento de horario (tardías y salidas) y tiempo activo fuera de jornada (horas extras).
-                </p>
               </div>
 
-              <div className="flex items-center gap-1.5 flex-wrap">
+              <div className="inline-flex items-center p-1 rounded-xl bg-muted/50 border border-border/80 gap-1 overflow-x-auto max-w-full shrink-0">
                 {(
                   [
                     { id: "all", label: "Todos" },
-                    { id: "worked", label: "Días Laborados" },
+                    { id: "worked", label: "Laborados" },
                     { id: "late", label: `Con Tardía (${summary.lateDaysCount})` },
-                    { id: "overtime", label: "Con Horas Extras" },
+                    { id: "overtime", label: "Horas Extras" },
                     { id: "absent", label: "Incidencias" },
                   ] as { id: RowFilter; label: string }[]
                 ).map((f) => (
@@ -692,10 +696,10 @@ export function AgentWorkManagement({ agentEmail, agentName }: AgentWorkManageme
                     key={f.id}
                     type="button"
                     onClick={() => setRowFilter(f.id)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    className={`px-3 py-1.5 rounded-lg text-[11px] font-bold whitespace-nowrap transition-all cursor-pointer ${
                       rowFilter === f.id
                         ? "bg-brand-500 text-white shadow-xs"
-                        : "bg-muted/50 text-muted-foreground hover:text-foreground hover:bg-muted"
+                        : "text-muted-foreground hover:text-foreground hover:bg-card/60"
                     }`}
                   >
                     {f.label}
@@ -720,39 +724,50 @@ export function AgentWorkManagement({ agentEmail, agentName }: AgentWorkManageme
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-muted/40 border-b border-border/80 text-[10px] uppercase font-black tracking-wider text-muted-foreground">
-                    <tr>
-                      <th className="py-3.5 px-4">Fecha / Día</th>
-                      <th className="py-3.5 px-4">Turno Asignado</th>
-                      <th className="py-3.5 px-4">Entrada Real</th>
-                      <th className="py-3.5 px-4">Salida Real</th>
-                      <th className="py-3.5 px-4">Cumplimiento Jornada</th>
-                      <th className="py-3.5 px-4">Horas Extras (Activo)</th>
-                      <th className="py-3.5 px-4 text-right">Estado / Acción</th>
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-muted/30 border-b border-border/80 text-[10px] uppercase font-black tracking-wider text-muted-foreground">
+                      <th className="py-3.5 px-5 whitespace-nowrap">Fecha / Día</th>
+                      <th className="py-3.5 px-4 whitespace-nowrap">Turno Asignado</th>
+                      <th className="py-3.5 px-4 whitespace-nowrap">Entrada Real</th>
+                      <th className="py-3.5 px-4 whitespace-nowrap">Salida Real</th>
+                      <th className="py-3.5 px-5 whitespace-nowrap min-w-[270px]">Cumplimiento de Jornada</th>
+                      <th className="py-3.5 px-4 whitespace-nowrap">Horas Extras (Activo)</th>
+                      <th className="py-3.5 px-5 text-right whitespace-nowrap">Estado de Jornada</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-border/60">
+                  <tbody className="divide-y divide-border/50">
                     {filteredRecords.map((row) => {
                       const isProcessing = processingDate === row.date;
                       const targetMins = Math.round(row.targetDailyHours * 60);
+                      const cleanTime = (t: string | null) =>
+                        t ? t.replace(/\s*a\.\s*m\./i, " AM").replace(/\s*p\.\s*m\./i, " PM") : "—";
+                      const format24ToAmPm = (hhmm: string) => {
+                        if (!hhmm || !hhmm.includes(":")) return hhmm;
+                        const [hStr, mStr] = hhmm.split(":");
+                        const h = parseInt(hStr, 10);
+                        if (isNaN(h)) return hhmm;
+                        const suffix = h >= 12 ? "PM" : "AM";
+                        const h12 = h % 12 === 0 ? 12 : h % 12;
+                        return `${String(h12).padStart(2, "0")}:${mStr} ${suffix}`;
+                      };
 
                       return (
                         <tr
                           key={row.date}
                           className={`transition-colors ${
                             !row.isWorkDay && row.activeMinutes === 0
-                              ? "bg-muted/15 opacity-65 hover:opacity-100"
-                              : "hover:bg-muted/30"
+                              ? "bg-muted/10 opacity-60 hover:opacity-100"
+                              : "hover:bg-muted/25"
                           }`}
                         >
                           {/* 1. Fecha y Día */}
-                          <td className="py-3.5 px-4 whitespace-nowrap">
-                            <div className="flex items-center gap-2.5">
+                          <td className="py-4 px-5 whitespace-nowrap">
+                            <div className="flex items-center gap-3">
                               <div
-                                className={`h-8 w-8 rounded-xl grid place-items-center font-black text-[11px] shrink-0 border ${
+                                className={`h-9 w-9 rounded-xl grid place-items-center font-black text-[11px] shrink-0 border ${
                                   row.isToday
-                                    ? "bg-brand-500/15 text-brand-400 border-brand-500/30"
+                                    ? "bg-brand-500/15 text-brand-400 border-brand-500/35 shadow-xs"
                                     : row.isWorkDay
                                     ? "bg-muted/60 text-foreground border-border"
                                     : "bg-muted/30 text-muted-foreground border-border/50"
@@ -762,14 +777,14 @@ export function AgentWorkManagement({ agentEmail, agentName }: AgentWorkManageme
                               </div>
                               <div>
                                 <div className="flex items-center gap-1.5">
-                                  <span className="font-bold text-foreground">{row.dateFormatted}</span>
+                                  <span className="font-black text-foreground text-xs">{row.dateFormatted}</span>
                                   {row.isToday && (
-                                    <span className="px-1.5 py-0.2 rounded text-[9px] font-black uppercase bg-brand-500/20 text-brand-400 border border-brand-500/30">
+                                    <span className="px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase bg-brand-500/20 text-brand-400 border border-brand-500/30">
                                       Hoy
                                     </span>
                                   )}
                                 </div>
-                                <span className="text-[10px] font-mono text-muted-foreground block">
+                                <span className="text-[10px] font-mono text-muted-foreground tabular-nums block mt-0.5">
                                   {row.date}
                                 </span>
                               </div>
@@ -777,39 +792,39 @@ export function AgentWorkManagement({ agentEmail, agentName }: AgentWorkManageme
                           </td>
 
                           {/* 2. Turno Asignado */}
-                          <td className="py-3.5 px-4 whitespace-nowrap">
+                          <td className="py-4 px-4 whitespace-nowrap">
                             {row.isWorkDay ? (
-                              <div>
-                                <span className="font-mono font-bold text-foreground block">
-                                  {row.scheduledStart} — {row.scheduledEnd}
+                              <div className="space-y-1">
+                                <span className="font-mono font-bold text-foreground text-xs tabular-nums block">
+                                  {format24ToAmPm(row.scheduledStart)} – {format24ToAmPm(row.scheduledEnd)}
                                 </span>
-                                <span className="text-[10px] text-muted-foreground">
-                                  Meta: {row.targetDailyHours}h
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-muted/60 border border-border/70 text-[10px] font-semibold text-muted-foreground">
+                                  Meta: {row.targetDailyHours}h ({row.scheduledStart}–{row.scheduledEnd})
                                 </span>
                               </div>
                             ) : (
-                              <span className="px-2 py-0.5 rounded-md bg-muted text-muted-foreground text-[10px] font-bold uppercase">
+                              <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-muted/50 border border-border/60 text-muted-foreground text-[10px] font-bold uppercase">
                                 Día Libre
                               </span>
                             )}
                           </td>
 
                           {/* 3. Entrada Real */}
-                          <td className="py-3.5 px-4 whitespace-nowrap">
+                          <td className="py-4 px-4 whitespace-nowrap">
                             {row.firstLoginTime ? (
                               <div className="space-y-1">
-                                <span className="font-mono font-bold text-foreground block">
-                                  {row.firstLoginTime}
+                                <span className="font-mono font-black text-foreground text-xs tabular-nums block">
+                                  {cleanTime(row.firstLoginTime)}
                                 </span>
                                 {row.isWorkDay && (
                                   row.lateMinutes > 0 ? (
-                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">
-                                      <AlertTriangle className="h-2.5 w-2.5" />
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 whitespace-nowrap">
+                                      <AlertTriangle className="h-2.5 w-2.5 shrink-0" />
                                       Tardía +{formatMin(row.lateMinutes)}
                                     </span>
                                   ) : (
-                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                                      <CheckCircle2 className="h-2.5 w-2.5" />
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 whitespace-nowrap">
+                                      <CheckCircle2 className="h-2.5 w-2.5 shrink-0" />
                                       Puntual
                                     </span>
                                   )
@@ -821,27 +836,36 @@ export function AgentWorkManagement({ agentEmail, agentName }: AgentWorkManageme
                           </td>
 
                           {/* 4. Salida Real */}
-                          <td className="py-3.5 px-4 whitespace-nowrap">
+                          <td className="py-4 px-4 whitespace-nowrap">
                             {row.lastLogoutTime ? (
                               <div className="space-y-1">
-                                <span className="font-mono font-bold text-foreground block">
-                                  {row.isToday && row.isShiftActive ? "En turno activo" : row.lastLogoutTime}
-                                </span>
-                                {row.isWorkDay && (
-                                  row.isToday && row.isShiftActive ? (
-                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-sky-500/15 text-sky-400 border border-sky-500/30">
-                                      <Clock className="h-2.5 w-2.5 animate-pulse" />
-                                      Últ. act: {row.lastLogoutTime}
+                                {row.isToday && row.isShiftActive ? (
+                                  <>
+                                    <span className="inline-flex items-center gap-1.5 font-bold text-sky-400 text-xs whitespace-nowrap">
+                                      <span className="h-2 w-2 rounded-full bg-sky-400 animate-ping" />
+                                      Jornada en curso
                                     </span>
-                                  ) : row.earlyLeaveMinutes > 0 ? (
-                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-500/15 text-rose-400 border border-rose-500/30">
-                                      Anticipada -{formatMin(row.earlyLeaveMinutes)}
+                                    <span className="block font-mono text-[10px] text-muted-foreground tabular-nums">
+                                      Últ. reg: {cleanTime(row.lastLogoutTime)}
                                     </span>
-                                  ) : (
-                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                                      Completa
+                                  </>
+                                ) : (
+                                  <>
+                                    <span className="font-mono font-black text-foreground text-xs tabular-nums block">
+                                      {cleanTime(row.lastLogoutTime)}
                                     </span>
-                                  )
+                                    {row.isWorkDay && (
+                                      row.earlyLeaveMinutes > 0 ? (
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-500/15 text-rose-400 border border-rose-500/30 whitespace-nowrap">
+                                          Anticipada -{formatMin(row.earlyLeaveMinutes)}
+                                        </span>
+                                      ) : (
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 whitespace-nowrap">
+                                          Salida cumplida
+                                        </span>
+                                      )
+                                    )}
+                                  </>
                                 )}
                               </div>
                             ) : (
@@ -849,12 +873,12 @@ export function AgentWorkManagement({ agentEmail, agentName }: AgentWorkManageme
                             )}
                           </td>
 
-                          {/* 5. Cumplimiento de Jornada */}
-                          <td className="py-3.5 px-4 min-w-[180px]">
+                          {/* 5. Cumplimiento de Jornada (sin saltos de línea rotos) */}
+                          <td className="py-4 px-5 min-w-[270px] whitespace-nowrap">
                             {row.workdayMinutes > 0 || row.activeMinutes > 0 ? (
-                              <div className="space-y-1.5">
-                                <div className="flex items-center justify-between text-[11px]">
-                                  <span className="font-mono font-bold text-foreground">
+                              <div className="space-y-2">
+                                <div className="flex items-center justify-between gap-3 text-xs">
+                                  <span className="font-mono font-black text-foreground tabular-nums">
                                     {formatMin(row.workdayMinutes)}
                                     {row.isWorkDay && (
                                       <span className="text-muted-foreground font-normal">
@@ -863,9 +887,11 @@ export function AgentWorkManagement({ agentEmail, agentName }: AgentWorkManageme
                                     )}
                                   </span>
                                   <span
-                                    className={`font-black tabular-nums ${
+                                    className={`font-mono font-black text-xs tabular-nums ${
                                       row.compliancePercent >= 95
                                         ? "text-emerald-400"
+                                        : row.isToday && row.isShiftActive
+                                        ? "text-sky-400"
                                         : row.compliancePercent >= 75
                                         ? "text-amber-400"
                                         : "text-rose-400"
@@ -874,41 +900,54 @@ export function AgentWorkManagement({ agentEmail, agentName }: AgentWorkManageme
                                     {row.compliancePercent}%
                                   </span>
                                 </div>
-                                <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                                <div className="h-2 w-full rounded-full bg-muted/80 overflow-hidden p-0.5 border border-border/50">
                                   <div
                                     className={`h-full rounded-full transition-all ${
                                       row.compliancePercent >= 95
-                                        ? "bg-emerald-500"
+                                        ? "bg-gradient-to-r from-emerald-500 to-teal-400"
+                                        : row.isToday && row.isShiftActive
+                                        ? "bg-gradient-to-r from-sky-500 to-brand-400"
                                         : row.compliancePercent >= 75
-                                        ? "bg-amber-500"
-                                        : "bg-rose-500"
+                                        ? "bg-gradient-to-r from-amber-500 to-orange-400"
+                                        : "bg-gradient-to-r from-rose-500 to-pink-500"
                                     }`}
                                     style={{ width: `${Math.min(100, row.compliancePercent)}%` }}
                                   />
                                 </div>
-                                <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                                  <span>Activo: {formatMin(row.activeMinutes)}</span>
-                                  {row.breakMinutes > 0 && <span>· Pausa: {formatMin(row.breakMinutes)}</span>}
+                                <div className="flex items-center gap-1.5 whitespace-nowrap">
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-semibold text-emerald-300 whitespace-nowrap">
+                                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                                    Activo: {formatMin(row.activeMinutes)}
+                                  </span>
+                                  {row.breakMinutes > 0 && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-sky-500/10 border border-sky-500/20 text-[10px] font-semibold text-sky-300 whitespace-nowrap">
+                                      <span className="h-1.5 w-1.5 rounded-full bg-sky-400" />
+                                      Pausa: {formatMin(row.breakMinutes)}
+                                    </span>
+                                  )}
                                   {row.idleMinutes > 0 && (
-                                    <span className="text-amber-400">· Inact: {formatMin(row.idleMinutes)}</span>
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/20 text-[10px] font-semibold text-amber-300 whitespace-nowrap">
+                                      <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                                      Inact: {formatMin(row.idleMinutes)}
+                                    </span>
                                   )}
                                 </div>
                               </div>
                             ) : (
-                              <span className="text-[11px] text-muted-foreground">—</span>
+                              <span className="text-[11px] text-muted-foreground font-mono">—</span>
                             )}
                           </td>
 
-                          {/* 6. Horas Extras (solo tiempo activo fuera de horario) */}
-                          <td className="py-3.5 px-4 whitespace-nowrap">
+                          {/* 6. Horas Extras (control unificado) */}
+                          <td className="py-4 px-4 whitespace-nowrap">
                             {row.overtimeMinutes > 0 ? (
-                              <div className="flex items-center gap-2">
-                                <span className="px-2.5 py-1 rounded-lg font-mono font-black text-xs bg-violet-500/15 text-violet-300 border border-violet-500/30">
+                              <div className="inline-flex items-center gap-1.5 p-1 rounded-xl border border-violet-500/25 bg-violet-500/10">
+                                <span className="px-2 py-0.5 rounded-lg font-mono font-black text-xs text-violet-300 tabular-nums">
                                   +{formatMin(row.overtimeMinutes)}
                                 </span>
                                 {row.overtimeStatus === "approved" && (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                                    <CheckCircle2 className="h-3 w-3" /> Aprobada
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                    <CheckCircle2 className="h-3 w-3" /> Autorizada
                                   </span>
                                 )}
                                 {row.overtimeStatus === "pending" && (
@@ -917,16 +956,16 @@ export function AgentWorkManagement({ agentEmail, agentName }: AgentWorkManageme
                                       type="button"
                                       disabled={isProcessing}
                                       onClick={() => handleOvertimeDecision(row, "approved")}
-                                      className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] flex items-center gap-1 transition-all cursor-pointer disabled:opacity-50"
+                                      className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] flex items-center gap-1 transition-all cursor-pointer disabled:opacity-50"
                                       title="Autorizar horas extras"
                                     >
-                                      <Check className="h-3 w-3" /> Aprobar
+                                      <Check className="h-3 w-3" /> Autorizar
                                     </button>
                                     <button
                                       type="button"
                                       disabled={isProcessing}
                                       onClick={() => handleOvertimeDecision(row, "rejected")}
-                                      className="p-1 rounded-lg border border-border hover:bg-rose-500/15 text-muted-foreground hover:text-rose-400 transition-all cursor-pointer disabled:opacity-50"
+                                      className="px-2 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 font-bold text-[10px] flex items-center gap-1 transition-all cursor-pointer disabled:opacity-50"
                                       title="Rechazar horas extras"
                                     >
                                       <X className="h-3 w-3" />
@@ -934,55 +973,55 @@ export function AgentWorkManagement({ agentEmail, agentName }: AgentWorkManageme
                                   </div>
                                 )}
                                 {row.overtimeStatus === "rejected" && (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/15 text-rose-400 border border-rose-500/30">
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
                                     <XCircle className="h-3 w-3" /> Rechazada
                                   </span>
                                 )}
                               </div>
                             ) : (
-                              <span className="text-[11px] text-muted-foreground">—</span>
+                              <span className="text-[11px] text-muted-foreground font-mono">—</span>
                             )}
                           </td>
 
                           {/* 7. Estado General */}
-                          <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                          <td className="py-4 px-5 text-right whitespace-nowrap">
                             {row.status === "puntual" && (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                                <CheckCircle2 className="h-3 w-3" /> Jornada Cumplida
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-[11px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                                <CheckCircle2 className="h-3.5 w-3.5" /> Jornada Cumplida
                               </span>
                             )}
                             {row.status === "en_curso" && (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-sky-500/15 text-sky-400 border border-sky-500/30">
-                                <Clock className="h-3 w-3 animate-pulse" /> En Curso
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-[11px] font-bold bg-sky-500/15 text-sky-400 border border-sky-500/30">
+                                <Clock className="h-3.5 w-3.5 animate-pulse" /> En Curso
                               </span>
                             )}
                             {row.status === "tardia" && (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">
-                                <AlertTriangle className="h-3 w-3" /> Con Tardía
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-[11px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                                <AlertTriangle className="h-3.5 w-3.5" /> {row.isToday && row.isShiftActive ? "En Curso · Con Tardía" : "Con Tardía"}
                               </span>
                             )}
                             {row.status === "salida_anticipada" && (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-500/15 text-rose-400 border border-rose-500/30">
-                                <LogOut className="h-3 w-3" /> Salida Anticipada
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-[11px] font-bold bg-rose-500/15 text-rose-400 border border-rose-500/30">
+                                <LogOut className="h-3.5 w-3.5" /> Salida Anticipada
                               </span>
                             )}
                             {row.status === "justificado" && (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-indigo-500/15 text-indigo-400 border border-indigo-500/30">
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-[11px] font-bold bg-indigo-500/15 text-indigo-400 border border-indigo-500/30">
                                 Justificado
                               </span>
                             )}
                             {row.status === "extra_dia_libre" && (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-violet-500/15 text-violet-300 border border-violet-500/30">
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-[11px] font-bold bg-violet-500/15 text-violet-300 border border-violet-500/30">
                                 Extra en Día Libre
                               </span>
                             )}
                             {row.status === "ausente" && (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-500/15 text-rose-400 border border-rose-500/30">
-                                <XCircle className="h-3 w-3" /> Sin Registro
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-[11px] font-bold bg-rose-500/15 text-rose-400 border border-rose-500/30">
+                                <XCircle className="h-3.5 w-3.5" /> Sin Registro
                               </span>
                             )}
                             {row.status === "dia_libre" && (
-                              <span className="text-[11px] text-muted-foreground font-medium">
+                              <span className="text-[11px] text-muted-foreground font-semibold">
                                 Descanso Semanal
                               </span>
                             )}

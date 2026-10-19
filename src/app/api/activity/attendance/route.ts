@@ -199,31 +199,38 @@ export async function GET(req: NextRequest) {
       const lateMinutes = isWorkDay && lateGap ? lateGap.minutes : 0;
       const earlyLeaveMinutes = isWorkDay && earlyGap ? earlyGap.minutes : 0;
 
-      // Calcular minutos activos realizados fuera del horario laboral (antes de entrada, después de salida o en día libre)
+      // Calcular minutos activos realizados estrictamente fuera del horario laboral (antes de entrada, después de salida o en día libre)
       let offScheduleActiveMs = 0;
       const schedStartMs = new Date(`${dateStr}T${scheduledStart.padStart(5, "0")}:00-06:00`).getTime();
       const schedEndMs = new Date(`${dateStr}T${scheduledEnd.padStart(5, "0")}:00-06:00`).getTime();
+      const isShiftStillOpenToday = isToday && Date.now() < schedEndMs;
 
       if (!isWorkDay) {
         offScheduleActiveMs = productiveMs;
       } else {
         const targetMs = targetDailyHours * 3600 * 1000;
-        const overTargetMs = Math.max(0, totalWorkdayMs - targetMs);
+        const overTargetMs = Math.max(0, productiveMs - targetMs);
         let outsideWindowMs = 0;
         for (const ev of dayLogs) {
           const catL = String(ev.category || "").toLowerCase();
           if (catL === "inactividad" || catL === "descansos" || catL === "pausa sanitaria") continue;
-          const evMs = new Date(ev.created_at || "").getTime();
-          const dur = Number(ev.duration_ms || (ev.metadata?.duration_seconds ? ev.metadata.duration_seconds * 1000 : 0)) || 0;
-          if (!isNaN(evMs) && dur > 0 && (evMs < schedStartMs || evMs >= schedEndMs)) {
-            outsideWindowMs += Math.min(dur, 30 * 60 * 1000);
+          const evEndMs = new Date(ev.created_at || "").getTime();
+          const rawDur = Number(ev.duration_ms || (ev.metadata?.duration_seconds ? ev.metadata.duration_seconds * 1000 : 0)) || 0;
+          const dur = Math.min(Math.max(0, rawDur), 30 * 60 * 1000);
+          if (!isNaN(evEndMs) && dur > 0) {
+            const evStartMs = evEndMs - dur;
+            const beforeShiftMs = Math.max(0, Math.min(evEndMs, schedStartMs) - evStartMs);
+            const afterShiftMs = Math.max(0, evEndMs - Math.max(evStartMs, schedEndMs));
+            outsideWindowMs += beforeShiftMs + afterShiftMs;
           }
         }
         offScheduleActiveMs = Math.max(overTargetMs, outsideWindowMs);
       }
 
-      const detectedOvertimeMin = Math.round(offScheduleActiveMs / 60000);
-      const overtimeMinutes = otReq ? Math.max(otReq.overtime_minutes || 0, detectedOvertimeMin) : detectedOvertimeMin;
+      const rawDetectedOvertimeMin = Math.round(offScheduleActiveMs / 60000);
+      // Evitar falsos positivos por 1-4 minutos residuales al cerrar sesión tras la hora de salida
+      const detectedOvertimeMin = rawDetectedOvertimeMin >= 5 ? rawDetectedOvertimeMin : 0;
+      const overtimeMinutes = otReq ? (otReq.overtime_minutes || detectedOvertimeMin) : detectedOvertimeMin;
       const overtimeStatus: AttendanceDayRecord["overtimeStatus"] = otReq
         ? otReq.status
         : overtimeMinutes > 0
@@ -235,10 +242,12 @@ export async function GET(req: NextRequest) {
         ? Math.min(100, Math.round((workdayMinutes / targetMinutes) * 100))
         : (activeMinutes > 0 ? 100 : 0);
 
+      const effectiveShiftActive = Boolean(computed.isShiftActive || isShiftStillOpenToday);
+
       let status: AttendanceDayRecord["status"] = "puntual";
       if (!isWorkDay) {
         status = activeMinutes > 0 || overtimeMinutes > 0 ? "extra_dia_libre" : "dia_libre";
-      } else if (isToday && computed.isShiftActive) {
+      } else if (isToday && effectiveShiftActive) {
         status = lateMinutes > 0 ? "tardia" : "en_curso";
       } else if (activeMinutes === 0 && justifiedMinutes > 0) {
         status = "justificado";
@@ -264,7 +273,7 @@ export async function GET(req: NextRequest) {
         targetDailyHours,
         firstLoginTime: computed.firstLoginTime,
         lastLogoutTime: computed.lastLogoutTime,
-        isShiftActive: computed.isShiftActive,
+        isShiftActive: effectiveShiftActive,
         lateMinutes,
         earlyLeaveMinutes,
         activeMinutes,
