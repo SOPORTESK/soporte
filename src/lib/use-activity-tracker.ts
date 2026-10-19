@@ -54,45 +54,10 @@ export function useActivityTracker(agentEmail: string, agentName: string, enable
   // ── Track route changes only (no search params) ──
   useEffect(() => {
     if (!agentEmail || !enabled) return;
+    const isElectron = typeof window !== "undefined" && Boolean((window as any).electronAPI?.isElectron);
+    if (isElectron) return;
 
     const now = Date.now();
-    const currentCaseId = getCaseIdFromURL();
-    const caseChanged = currentCaseId !== lastCaseIdRef.current;
-
-    // Si cambió de caso, loguear el tiempo del caso anterior como Mensajería
-    if (caseChanged && lastCaseIdRef.current) {
-      const caseDuration = now - caseEnterRef.current;
-      const keys = keyCountRef.current;
-      const clicks = clickCountRef.current;
-      const totalInteractions = clicks + keys + scrollCountRef.current;
-
-      if (caseDuration >= 15000 || keys > 0) {
-        const cleanCase = String(lastCaseIdRef.current).replace(/^tel:/i, "+");
-        const dwellStr = formatExecutiveDuration(caseDuration);
-        logActivity({
-          agent_email: agentEmail,
-          agent_name: agentName,
-          action: `Atención por Chat: Caso ${cleanCase}`,
-          category: "Soporte Mensajería",
-          case_id: lastCaseIdRef.current,
-          duration_ms: caseDuration,
-          metadata: {
-            case_id: lastCaseIdRef.current,
-            duration_seconds: Math.round(caseDuration / 1000),
-            page: lastPathRef.current,
-            executive_report: true
-          },
-        });
-      }
-
-      clickCountRef.current = 0;
-      keyCountRef.current = 0;
-      scrollCountRef.current = 0;
-      interactionLoggedRef.current = new Set();
-      caseEnterRef.current = now;
-    }
-
-    // Si cambió de ruta, loguear tiempo en página anterior como Navegación
     if (pathname !== lastPathRef.current) {
       // Reset tracking on path change without spamming the log
       clickCountRef.current = 0;
@@ -100,11 +65,8 @@ export function useActivityTracker(agentEmail: string, agentName: string, enable
       scrollCountRef.current = 0;
       lastPathRef.current = pathname;
       pageEnterRef.current = now;
-      caseEnterRef.current = now;
     }
-
-    lastCaseIdRef.current = currentCaseId;
-  }, [pathname, agentEmail, agentName]);
+  }, [pathname, agentEmail, agentName, enabled]);
 
   // ── Track interactions, idle, focus, heartbeat ──
   useEffect(() => {
@@ -229,9 +191,7 @@ export function useActivityTracker(agentEmail: string, agentName: string, enable
     };
 
     const handleUnload = () => {
-      const sessionDuration = Date.now() - sessionStart;
-      const pageLabel = pathnameToLabel(lastPathRef.current);
-      const dwellSec = Math.round((Date.now() - pageEnterRef.current) / 1000);
+      if (isElectron) return;
       const activeCaseId = lastCaseIdRef.current;
       const isOnCase = !!activeCaseId && ["/inbox", "/smart-inbox", "/mi-gestion", "/soporte-avanzado"].includes(lastPathRef.current);
 
@@ -270,8 +230,9 @@ export function useActivityTracker(agentEmail: string, agentName: string, enable
 
     const heartbeatInterval = setInterval(logHeartbeat, HEARTBEAT_INTERVAL);
 
-    // Polling ligero: detectar cambios de caso (c=) sin useSearchParams
+    // Polling ligero: detectar cambios de caso (c=) sin useSearchParams (solo para usuarios web fuera de Electron)
     const casePoll = setInterval(() => {
+      if (isElectron) return;
       const currentCaseId = getCaseIdFromURL();
       if (currentCaseId !== lastCaseIdRef.current) {
         const now = Date.now();
@@ -279,12 +240,14 @@ export function useActivityTracker(agentEmail: string, agentName: string, enable
         if (prevCaseId) {
           const caseDuration = now - caseEnterRef.current;
           const totalInteractions = clickCountRef.current + keyCountRef.current + scrollCountRef.current;
-          if (caseDuration > 3000) {
+          if (caseDuration >= 15000) {
+            const cleanCase = String(prevCaseId).replace(/^tel:/i, "+");
+            const dwellStr = formatExecutiveDuration(caseDuration);
             logActivity({
               agent_email: agentEmail,
               agent_name: agentName,
-              action: `Atendió caso ${prevCaseId} durante ${formatDwell(caseDuration / 1000)} (${totalInteractions} interacciones)`,
-              category: "Mensajería",
+              action: `Atención por Chat: Caso ${cleanCase} (${dwellStr})`,
+              category: "Soporte Mensajería",
               case_id: prevCaseId,
               duration_ms: caseDuration,
               metadata: {
@@ -292,6 +255,7 @@ export function useActivityTracker(agentEmail: string, agentName: string, enable
                 duration_seconds: Math.round(caseDuration / 1000),
                 total_interactions: totalInteractions,
                 page: lastPathRef.current,
+                executive_report: true,
               },
             });
           }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getActivityTimeline, getActivityMetrics } from "@/lib/activity-db";
+import { getActivityTimeline, getActivityMetrics, getTodayCostaRica } from "@/lib/activity-db";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const agent = searchParams.get("agent") || undefined;
-    const date = searchParams.get("date") || new Date().toISOString().split("T")[0];
+    const date = searchParams.get("date") || getTodayCostaRica();
     const endDate = searchParams.get("endDate") || undefined;
     const metricsParam = searchParams.get("metrics");
     const lastMinutes = searchParams.get("lastMinutes");

@@ -23,6 +23,25 @@ function findActiveWinExe() {
   return null;
 }
 
+function isIgnoredSystemWindow(procName, procTitle) {
+  const p = (procName || '').toLowerCase().replace(/\.exe$/i, '').trim();
+  const t = (procTitle || '').toLowerCase().trim();
+  if (!p || p === 'unknown' || p === 'idle') return true;
+  if (
+    p === 'lockapp' ||
+    p === 'logonui' ||
+    p === 'screenclippinghost' ||
+    p.endsWith('.scr') ||
+    p.includes('mystify') ||
+    p.includes('scrnsave') ||
+    t.includes('mystify') ||
+    t.includes('pantalla de bloqueo predeterminada')
+  ) {
+    return true;
+  }
+  return false;
+}
+
 let _activeWinFn = null;
 async function getActiveWindow() {
   try {
@@ -37,13 +56,14 @@ async function getActiveWindow() {
         const procPath = parsed.Path || parsed.path || '';
         const procPid = parsed.Id || parsed.pid || 0;
         const procUrl = parsed.URL || parsed.url || '';
-        if (procName && procName !== 'Unknown' && procName !== 'Idle' && procName !== '') {
+        if (!isIgnoredSystemWindow(procName, procTitle) && procTitle) {
           return {
             title: procTitle,
             url: procUrl,
             owner: { name: procName.replace(/\.exe$/i, ''), path: procPath, processId: procPid }
           };
         }
+        return null;
       }
     }
   } catch (e) {}
@@ -59,7 +79,9 @@ async function getActiveWindow() {
   if (typeof _activeWinFn === 'function') {
     try {
       const w = await _activeWinFn();
-      if (w && (w.owner?.name || w.title)) return w;
+      if (w && (w.owner?.name || w.title) && !isIgnoredSystemWindow(w.owner?.name, w.title)) {
+        return w;
+      }
     } catch (e) {}
   }
   return null;
@@ -396,16 +418,18 @@ function saveToDB(type, action, category, metadata, screenshotPath) {
 }
 
 // ─── SEND LOG ─────────────────────────────────────────────────────────────────
-async function sendLog(action, category, metadata) {
-  if (!_agentEmail) return;
+async function sendLog(action, category, metadata, createdAt = null, fromSyncQueue = false) {
+  if (!_agentEmail) return false;
   const payload = {
     agent_email: _agentEmail,
     agent_name: _agentName || _agentEmail,
-    action, category,
+    action,
+    category,
     metadata: metadata || null,
     duration_ms: metadata?.duration_ms || null,
+    created_at: createdAt || undefined,
   };
-  // Intentar enviar directo; si falla, guardar en SQLite para sync posterior
+  // Intentar enviar directo; si falla y NO viene ya de la cola SQLite, guardar en SQLite para sync posterior
   try {
     const res = await fetch(ACTIVITY_API, {
       method: 'POST',
@@ -413,20 +437,29 @@ async function sendLog(action, category, metadata) {
       body: JSON.stringify(payload),
       signal: AbortSignal.timeout(10000),
     });
-    if (res.ok) return;
+    if (res.ok) return true;
   } catch (e) { /* offline o timeout */ }
-  saveToDB('log', action, category, metadata, null);
+  if (!fromSyncQueue) {
+    saveToDB('log', action, category, metadata, null);
+  }
+  return false;
 }
 
 // ─── SYNC ─────────────────────────────────────────────────────────────────────
 async function syncDB() {
   if (!_db || !_agentEmail) return;
   try {
+    // Limpiar cualquier basura histórica de LockApp en la cola local antes de sincronizar
+    try {
+      _db.prepare("DELETE FROM activity_queue WHERE action LIKE '%LockApp%' OR metadata LIKE '%LockApp%'").run();
+    } catch (e) {}
+
     const rows = _db.prepare('SELECT * FROM activity_queue WHERE synced = 0 ORDER BY id ASC LIMIT ?').all(SYNC_BATCH_SIZE);
     if (rows.length === 0) return;
 
     for (const row of rows) {
       try {
+        let sentOk = false;
         if (row.type === 'screenshot' && row.screenshot_path) {
           // Subir screenshot
           if (fs.existsSync(row.screenshot_path)) {
@@ -442,15 +475,23 @@ async function syncDB() {
               const data = await res.json();
               const meta = JSON.parse(row.metadata || '{}');
               meta.screenshot_url = data.url;
-              await sendLog(row.action, row.category, meta);
-              fs.unlinkSync(row.screenshot_path);
+              sentOk = await sendLog(row.action, row.category, meta, row.created_at, true);
+              if (sentOk) {
+                try { fs.unlinkSync(row.screenshot_path); } catch (e) {}
+              }
             }
+          } else {
+            sentOk = true; // archivo ya no existe, marcar como procesado
           }
         } else {
           const meta = JSON.parse(row.metadata || '{}');
-          await sendLog(row.action, row.category, meta);
+          sentOk = await sendLog(row.action, row.category, meta, row.created_at, true);
         }
-        _db.prepare('UPDATE activity_queue SET synced = 1 WHERE id = ?').run(row.id);
+        if (sentOk) {
+          _db.prepare('UPDATE activity_queue SET synced = 1 WHERE id = ?').run(row.id);
+        } else {
+          break; // Servidor offline, reintentar en el próximo ciclo sin duplicar filas
+        }
       } catch (e) { /* dejar para próximo intento */ break; }
     }
 
@@ -468,25 +509,32 @@ async function pollActivity() {
     const idleSec = powerMonitor.getSystemIdleTime ? powerMonitor.getSystemIdleTime() : 0;
     if (idleSec * 1000 > IDLE_THRESHOLD && !_isIdle) {
       _isIdle = true;
-      if (_lastApp) {
+      if (_lastApp && !isIgnoredSystemWindow(_lastApp, _lastTitle)) {
         const dwellSec = Math.round((Date.now() - _appEnterTime) / 1000);
-        const { category, label } = categorizeApp(_lastApp, _lastTitle);
+        const { label } = categorizeApp(_lastApp, _lastTitle, _lastUrl);
         await sendLog(`Sin actividad por 15 minutos mientras "${label}" estaba abierta`, 'Inactividad', { app: _lastApp, title: (_lastTitle || '').substring(0, 100), dwell_seconds: dwellSec });
       }
+      _lastApp = null; _lastTitle = null; _lastUrl = null;
       return;
     }
 
     const win = await getActiveWindow();
     if (!win) {
       if (!_isIdle && _lastApp) {
-        const dwellSec = Math.round((Date.now() - _appEnterTime) / 1000);
-        if (Date.now() - _appEnterTime >= 10000) {
+        const rawDwell = Date.now() - _appEnterTime;
+        const dwellMs = Math.min(rawDwell, 30 * 60 * 1000);
+        const dwellSec = Math.round(dwellMs / 1000);
+        if (dwellMs >= 10000 && !isIgnoredSystemWindow(_lastApp, _lastTitle)) {
           const { category, label } = categorizeApp(_lastApp, _lastTitle, _lastUrl);
-          await sendLog(`Dejó de usar "${label}" (pantalla bloqueada) después de ${formatDwell(dwellSec)}`, category, { app: _lastApp, title: _lastTitle, url: _lastUrl || undefined, dwell_seconds: dwellSec, reason: 'no_window' });
+          await sendLog(`Dejó de usar "${label}" (pantalla bloqueada) después de ${formatDwell(dwellSec)}`, category, { app: _lastApp, title: _lastTitle, url: _lastUrl || undefined, dwell_seconds: dwellSec, duration_ms: dwellMs, reason: 'no_window' });
         }
         _lastApp = null; _lastTitle = null; _lastUrl = null;
       }
       _isIdle = true;
+      return;
+    }
+
+    if (idleSec * 1000 > IDLE_THRESHOLD) {
       return;
     }
 
@@ -496,10 +544,17 @@ async function pollActivity() {
     const url = win.url || '';
     const now = Date.now();
 
-    if (appName !== _lastApp) {
-      const dwellMs = now - _appEnterTime;
-      if (_lastApp && dwellMs >= 15000) {
-        const lastCatInfo = categorizeApp(_lastApp, _lastTitle, _lastUrl);
+    const curCatInfo = categorizeApp(appName, title, url);
+    const lastCatInfo = _lastApp ? categorizeApp(_lastApp, _lastTitle, _lastUrl) : null;
+    const isAppOrSystemSwitch =
+      appName !== _lastApp ||
+      (lastCatInfo && curCatInfo.label !== lastCatInfo.label) ||
+      (title !== _lastTitle && Math.abs(now - _appEnterTime) > 30000);
+
+    if (isAppOrSystemSwitch) {
+      const rawDwell = now - _appEnterTime;
+      const dwellMs = Math.min(rawDwell, 30 * 60 * 1000);
+      if (_lastApp && lastCatInfo && dwellMs >= 15000) {
         const execAction = formatExecutiveAction(lastCatInfo.category, lastCatInfo.label, lastCatInfo.context, dwellMs);
         await sendLog(execAction, lastCatInfo.category, {
           app: _lastApp,
@@ -529,7 +584,7 @@ async function pollActivity() {
       if (heartbeatBucket > _lastHeartbeatSec && dwellSec >= HEARTBEAT_EVERY) {
         _lastHeartbeatSec = heartbeatBucket;
         const catInfo = categorizeApp(appName, title, url || _lastUrl);
-        const dwellMs = now - _appEnterTime;
+        const dwellMs = Math.min(now - _appEnterTime, 30 * 60 * 1000);
         const execAction = formatExecutiveAction(catInfo.category, catInfo.label, catInfo.context, dwellMs);
         await sendLog(execAction, catInfo.category, {
           app: appName,

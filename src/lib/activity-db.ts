@@ -353,14 +353,18 @@ export async function updateOvertimeStatus(
   return currentRequests[idx];
 }
 
+export function getTodayCostaRica(): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
+}
+
 export async function hasActiveManualTask(agentEmail: string): Promise<boolean> {
   const supabase = getClient();
-  const today = new Date().toISOString().split("T")[0];
+  const today = getTodayCostaRica();
   const { data, error } = await supabase
     .from("activity_log")
     .select("id, action, category, metadata, created_at")
     .eq("agent_email", agentEmail)
-    .gte("created_at", `${today}T00:00:00`)
+    .gte("created_at", `${today}T00:00:00-06:00`)
     .order("created_at", { ascending: false })
     .limit(20);
 
@@ -383,11 +387,15 @@ export async function hasActiveManualTask(agentEmail: string): Promise<boolean> 
 const recentInsertsCache = new Map<string, number>();
 
 export async function insertActivityLog(entry: ActivityLog): Promise<void> {
-  const dedupKey = `${entry.agent_email}|${entry.action}|${entry.created_at || ""}`;
+  const normAction = String(entry.action || "")
+    .toLowerCase()
+    .replace(/\s*\(\d+[^)]*\)\s*$/i, "")
+    .trim();
+  const dedupKey = `${(entry.agent_email || "").toLowerCase()}|${normAction}`;
   const now = Date.now();
   const lastInsert = recentInsertsCache.get(dedupKey);
   if (lastInsert && (now - lastInsert < 15000)) {
-    // Duplicado idéntico en menos de 15s (reintento de red o doble evento), omitir silenciosamente
+    // Duplicado en menos de 15s (reintento de red o doble proceso), omitir silenciosamente
     return;
   }
   recentInsertsCache.set(dedupKey, now);
@@ -432,9 +440,9 @@ export async function getActivityTimeline(
 
     if (agentEmail) query = query.eq("agent_email", agentEmail);
     if (date) {
-      const start = `${date}T00:00:00`;
+      const start = `${date}T00:00:00-06:00`;
       const finalDate = endDate || date;
-      const end = `${finalDate}T23:59:59`;
+      const end = `${finalDate}T23:59:59.999-06:00`;
       query = query.gte("created_at", start).lte("created_at", end);
     }
 

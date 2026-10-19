@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { computeUnifiedActivityMetrics } from "@/lib/activity-engine";
+import { getAppMappings, getWorkSchedule, getTodayCostaRica } from "@/lib/activity-db";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -32,16 +33,20 @@ export async function GET(_req: NextRequest) {
 
     if (agentErr) throw agentErr;
 
-    // 2. Obtener los eventos de actividad del día de hoy
-    const todayStr = now.toISOString().split("T")[0];
-    const startOfToday = `${todayStr}T00:00:00`;
+    // 2. Obtener los eventos de actividad del día de hoy en horario de Costa Rica (-06:00)
+    const todayStr = getTodayCostaRica();
+    const startOfToday = `${todayStr}T00:00:00-06:00`;
 
-    const { data: recentLogs, error: logErr } = await supabase
-      .from("activity_log")
-      .select("id, agent_email, agent_name, action, category, case_id, metadata, duration_ms, created_at")
-      .gte("created_at", startOfToday)
-      .order("created_at", { ascending: false })
-      .limit(10000);
+    const [{ data: recentLogs, error: logErr }, appMappings, globalSchedule] = await Promise.all([
+      supabase
+        .from("activity_log")
+        .select("id, agent_email, agent_name, action, category, case_id, metadata, duration_ms, created_at")
+        .gte("created_at", startOfToday)
+        .order("created_at", { ascending: false })
+        .limit(10000),
+      getAppMappings(),
+      getWorkSchedule(),
+    ]);
 
     if (logErr) throw logErr;
 
@@ -51,10 +56,19 @@ export async function GET(_req: NextRequest) {
       const agLogs = (recentLogs || []).filter((l) => (l.agent_email || "").toLowerCase() === email);
       const latestLog = agLogs[0] || null;
 
-      const todayLogs = agLogs.filter((l) => l.created_at && l.created_at.startsWith(todayStr));
-      const sortedLogs = [...todayLogs].sort((a, b) => new Date(a.created_at!).getTime() - new Date(b.created_at!).getTime());
+      const todayLogs = agLogs;
+      const customSched = globalSchedule.agentSchedules?.[email];
+      const useCustom = Boolean(customSched?.custom);
 
-      const computed = computeUnifiedActivityMetrics(todayLogs as any[]);
+      const computed = computeUnifiedActivityMetrics(todayLogs as any[], {
+        toleranceMinutes: globalSchedule.toleranceMinutes || 15,
+        targetDailyHours: (useCustom ? customSched?.targetDailyHours : globalSchedule.targetDailyHours) || 10,
+        scheduleStart: (useCustom ? customSched?.scheduleStart : globalSchedule.scheduleStart) || "08:00",
+        scheduleEnd: (useCustom ? customSched?.scheduleEnd : globalSchedule.scheduleEnd) || "17:00",
+        useMixedSchedule: useCustom ? customSched?.useMixedSchedule : globalSchedule.useMixedSchedule,
+        daySchedules: useCustom ? customSched?.daySchedules : globalSchedule.daySchedules,
+        appMappings,
+      });
       const activeMs = computed.masterBuckets.Productivo.durationMs;
       const idleMs = computed.masterBuckets.Inactivo.durationMs;
       const productivityScore = computed.productivityScore;

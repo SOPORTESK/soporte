@@ -18,6 +18,26 @@ export async function POST(req: NextRequest) {
 
     const actLower = String(action).toLowerCase();
     const catLower = String(category || "").toLowerCase();
+    const appMetaLower = String(metadata?.app || metadata?.app_name || metadata?.process || "").toLowerCase();
+
+    // Descartar eventos de pantallas de bloqueo o protectores de pantalla disfrazados de apps o spam repetitivo de clientes antiguos
+    if (
+      appMetaLower === "lockapp" ||
+      appMetaLower === "logonui" ||
+      appMetaLower.endsWith(".scr") ||
+      actLower.includes("mientras \"lockapp\" estaba abierta") ||
+      actLower.startsWith("en curso • lockapp") ||
+      actLower.startsWith("lockapp:") ||
+      actLower.includes("mystify") ||
+      actLower.includes(".scr")
+    ) {
+      return NextResponse.json({
+        success: true,
+        discarded: true,
+        message: "Evento de protector/bloqueo de pantalla ignorado",
+      });
+    }
+
     const isManualAction = Boolean(
       metadata?.manual ||
       metadata?.task ||
@@ -69,15 +89,27 @@ export async function POST(req: NextRequest) {
             });
           }
 
-          // 2. Descartar si está fuera de la hora de jornada
-          const [startH, startM] = (sched.scheduleStart || "07:00").split(":").map(Number);
-          const [endH, endM] = (sched.scheduleEnd || "17:00").split(":").map(Number);
+          // 2. Descartar si está fuera de la hora de jornada (soportando horario mixto por día)
+          let effectiveStart = sched.scheduleStart || "07:00";
+          let effectiveEnd = sched.scheduleEnd || "17:00";
+          if (sched.useMixedSchedule && sched.daySchedules && sched.daySchedules[dayOfWeek]) {
+            const ds = sched.daySchedules[dayOfWeek];
+            if (ds.start) effectiveStart = ds.start;
+            if (ds.end) effectiveEnd = ds.end;
+          }
+
+          const [startH, startM] = effectiveStart.split(":").map(Number);
+          const [endH, endM] = effectiveEnd.split(":").map(Number);
 
           const currentMinutes = nowCostaRica.getHours() * 60 + nowCostaRica.getMinutes();
           const startMinutes = startH * 60 + startM;
           const endMinutes = endH * 60 + endM;
 
-          if (currentMinutes < startMinutes || currentMinutes > endMinutes) {
+          const isWithin = startMinutes <= endMinutes
+            ? (currentMinutes >= startMinutes && currentMinutes <= endMinutes)
+            : (currentMinutes >= startMinutes || currentMinutes <= endMinutes);
+
+          if (!isWithin) {
             return NextResponse.json({
               success: true,
               discarded: true,

@@ -1,8 +1,17 @@
 const { createClient } = require('@supabase/supabase-js');
-const { execFile } = require('child_process');
+const { execFile, execFileSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 require('dotenv').config({ path: 'C:\\Users\\Taller SK\\Documents\\PROYECTOS\\Chat de Atención Sekunet\\.env.local' });
+
+// Evitar duplicación: Soporte Sekunet.exe (electron/tracker.cjs) es el tracker maestro oficial.
+try {
+  const tasks = execFileSync('tasklist.exe', ['/FI', 'IMAGENAME eq Soporte Sekunet.exe', '/NH'], { encoding: 'utf8', windowsHide: true });
+  if (tasks && tasks.toLowerCase().includes('soporte sekunet.exe')) {
+    console.log('[Windows Agent] Soporte Sekunet.exe está activo. Saliendo para evitar registros duplicados.');
+    process.exit(0);
+  }
+} catch {}
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 const ps1Path = path.join(__dirname, 'get_active_win.ps1');
