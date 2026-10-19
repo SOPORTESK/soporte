@@ -2286,7 +2286,7 @@ export function ChatView({
             name={display}
             channel={canalKind as any}
             size={40}
-            onClickPic={(url) => setPreviewMedia({ url, type: "image/jpeg", name: `Foto de perfil - ${display}` })}
+            zoomOnClick
           />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
