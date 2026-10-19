@@ -135,10 +135,11 @@ export function AnalyticsClientView(props: AnalyticsClientViewProps) {
         }
       });
 
-    // 2. Auto-polling preventivo cada 30 segundos
+    // 2. Auto-polling preventivo cada 90 segundos (con pausa en pestaña oculta; Realtime actualiza al instante)
     const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       refreshData();
-    }, 30000);
+    }, 90000);
 
     return () => {
       supabase.removeChannel(channel);

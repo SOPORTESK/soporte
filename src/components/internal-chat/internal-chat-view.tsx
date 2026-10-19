@@ -145,9 +145,12 @@ export function InternalChatView({
     };
   }, [channelId]);
 
-  // Polling automático cada 2.5s para garantizar entrega 100% confiable
+  // Polling de respaldo cada 30s (la entrega instantánea va por Supabase Broadcast)
   useEffect(() => {
-    const interval = setInterval(fetchMessagesSilent, 2500);
+    const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      fetchMessagesSilent();
+    }, 30000);
     return () => clearInterval(interval);
   }, [fetchMessagesSilent]);
 

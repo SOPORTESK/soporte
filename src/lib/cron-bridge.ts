@@ -73,16 +73,18 @@ export function startLocalCronJobs() {
 
       const supabase = createServiceClient();
       
-      // Consultar solo casos de whatsapp ABIERTOS (no cerrados/resueltos/escalados)
-      // Los casos cerrados ya fueron atendidos por auto-close, no reenviar nada.
+      // Consultar solo casos de whatsapp ABIERTOS modificados en los últimos 10 minutos
+      // Esto evita descargar 50 historiales completos cada pocos segundos (ahorra ~2.5 GB/mes de Egress)
+      const recentCutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
       const { data: cases, error } = await supabase
         .from("sek_cases")
         .select("id, canal, customer_phone, cliente, histcliente, histtecnico, estado")
         .eq("canal", "whatsapp")
         .not("estado", "in", '("cerrado","resuelto","escalado")')
         .neq("es_test", true)
+        .gte("updated_at", recentCutoff)
         .order("updated_at", { ascending: false })
-        .limit(50);
+        .limit(25);
 
       if (error || !cases) return;
 
@@ -160,7 +162,7 @@ export function startLocalCronJobs() {
     } finally {
       running = false;
     }
-  }, 15000);
+  }, 45000);
 
   // Cleanup de activity_log >60 días, 1 vez al día
   let lastCleanup = 0;

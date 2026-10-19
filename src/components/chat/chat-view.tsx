@@ -1006,8 +1006,11 @@ export function ChatView({
       }
     };
 
-    /* Polling de respaldo cada 25s con campos mínimos */
-    const poll = setInterval(doPoll, 25000);
+    /* Polling de respaldo cada 60s con pausa en pestaña oculta (Realtime entrega al instante) */
+    const poll = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      doPoll();
+    }, 60000);
 
     /* Refetch inmediato al volver a la pestaña/ventana. Cubre el caso donde el
        navegador o el sistema operativo pausó los timers en segundo plano (pestaña

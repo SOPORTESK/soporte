@@ -815,7 +815,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
   const [searchFilter, setSearchFilter] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [autoRefreshSec, setAutoRefreshSec] = useState<number>(30);
+  const [autoRefreshSec, setAutoRefreshSec] = useState<number>(60);
 
   // Estados para rangos de horarios laborales manuales
   const [scheduleEnabled, setScheduleEnabled] = useState<boolean>(() => {
@@ -1125,6 +1125,7 @@ export function ActivityTracker({ agentEmail, agentName, isAdmin = false }: Prop
   useEffect(() => {
     if (autoRefreshSec <= 0) return;
     const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       fetchLive();
       fetchTimeline(true);
       fetchOvertime();
