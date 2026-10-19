@@ -253,6 +253,13 @@ const FAULT_DOMAINS: FaultDomainDef[] = [
       "4007",
       "ax pro",
       "axpro",
+      "ax-pro",
+      "teclado",
+      "relay",
+      "relé",
+      "salida de rele",
+      "codigo de usuario",
+      "código de usuario",
     ],
   },
   {
@@ -386,6 +393,25 @@ function isBoilerplateOrFileMessage(text?: string | null): boolean {
     return true;
   }
   return false;
+}
+
+// Elimina las líneas de plantilla (ej. "Para el registro, por favor indiquenos:") pero conserva las respuestas reales del cliente
+function stripTemplateLines(text?: string | null): string {
+  if (!text || typeof text !== "string") return "";
+  return text
+    .split(/\n+/)
+    .map((line) =>
+      line
+        .replace(/para el registro,?\s*por favor ind[ií]quenos:?/gi, "")
+        .replace(/-?\s*marca y modelo del equipo a consultar:?/gi, "")
+        .replace(/-?\s*motivo de la consulta o solicitud:?/gi, "")
+        .replace(/-?\s*nombre del vendedor encargado de su cuenta:?/gi, "")
+        .replace(/con esta informaci[oó]n podremos brindarle una atenci[oó]n m[aá]s precisa\.?/gi, "")
+        .trim()
+    )
+    .filter((l) => l.length >= 3)
+    .join(" ")
+    .trim();
 }
 
 function isClientQuestionSummary(text?: string | null): boolean {
@@ -871,6 +897,9 @@ export async function POST(req: NextRequest) {
         let line = `[${timeStr}] ${m.speaker}: ${m.content || ""}`.trim();
         if (m.content && !isBoilerplateOrFileMessage(m.content)) {
           substantiveParts.push(String(m.content));
+        } else if (m.content && m.speaker === "Cliente") {
+          const stripped = stripTemplateLines(String(m.content));
+          if (stripped.length >= 6) substantiveParts.push(stripped);
         }
         if (m.mediaUrl) {
           const kind = m.mediaType?.startsWith("audio/")
@@ -972,7 +1001,26 @@ export async function POST(req: NextRequest) {
     const userBrands = KNOWN_BRANDS.filter((b) => userQueryOnly.toLowerCase().includes(b));
     const caseBrands = KNOWN_BRANDS.filter((b) => fullContextCorpus.includes(b));
     const activeBrands = userBrands.length > 0 ? userBrands : caseBrands;
-    const primaryBrand = activeBrands[0] || (targetCase?.marca ? String(targetCase.marca).toLowerCase().trim() : "");
+
+    // Inferir fabricante por línea de producto o app (AX-Pro / Hik-Connect = Hikvision, DMSS = Dahua, BioTime = ZKTeco)
+    const PRODUCT_LINE_HINTS: { re: RegExp; brand: string; line: string }[] = [
+      { re: /\bax[\s-]?pro\b/i, brand: "hikvision", line: "AX PRO" },
+      { re: /\bax[\s-]?hub\b/i, brand: "hikvision", line: "AX Hub" },
+      { re: /hik[\s-]?connect/i, brand: "hikvision", line: "Hik-Connect" },
+      { re: /\bivms[\s-]?4200\b/i, brand: "hikvision", line: "iVMS-4200" },
+      { re: /hikcentral/i, brand: "hikvision", line: "HikCentral" },
+      { re: /\bsadp\b/i, brand: "hikvision", line: "SADP" },
+      { re: /\bds-[a-z0-9]/i, brand: "hikvision", line: "" },
+      { re: /\bdmss\b|smartpss/i, brand: "dahua", line: "DMSS / SmartPSS" },
+      { re: /biotime|zkbio/i, brand: "zkteco", line: "BioTime" },
+    ];
+    const productHint = PRODUCT_LINE_HINTS.find((h) => h.re.test(fullContextCorpus));
+    const primaryBrand =
+      activeBrands[0] ||
+      (targetCase?.marca ? String(targetCase.marca).toLowerCase().trim() : "") ||
+      productHint?.brand ||
+      "";
+    const productLine = productHint?.line || "";
 
     const cleanModels = [
       ...new Set([
@@ -1189,38 +1237,46 @@ export async function POST(req: NextRequest) {
 
     // ── 5.3. Búsqueda Web Técnica en Vivo alineada al Caso ──
     let webContext = "";
-    let retrievedWebResults: { title: string; url: string; snippet: string }[] = [];
+    let retrievedWebResults: { title: string; url: string; snippet: string; kind: "oficial" | "foro" | "manual" }[] = [];
     try {
       const topFaultTerms = activeFaultTerms.slice(0, 3).join(" ");
-      const domainHint = activeDomainDef ? activeDomainDef.webSearchHint : "";
       const tokenHint = queryTokens.slice(0, 5).join(" ");
       const cleanUserMsg = userQueryOnly
         .replace(/^(como|cómo|por que|porque|ayuda|cual|cuál|que|qué|donde|dónde|favor|puedes|necesito|hola|buen dia|buenas)\s+/i, "")
-        .trim();
+        .trim()
+        .substring(0, 90);
 
-      let webQuery = "";
-      if (cleanUserMsg.length > 8) {
-        webQuery = `${primaryBrand} ${primaryModel} ${cleanUserMsg} solucion soporte`.replace(/\s+/g, " ").trim();
-      } else if ((primaryBrand || primaryModel) && (topFaultTerms || tokenHint || domainHint)) {
-        webQuery = `${primaryBrand} ${primaryModel} ${topFaultTerms || tokenHint || domainHint}`.replace(/\s+/g, " ").trim();
-      } else if (topFaultTerms || tokenHint || domainHint) {
-        webQuery = `${primaryBrand || "hikvision"} ${topFaultTerms || tokenHint || domainHint} soporte configuracion`.replace(/\s+/g, " ").trim();
-      } else if (primaryBrand || primaryModel) {
-        webQuery = `${primaryBrand} ${primaryModel} manual tecnico configuracion`.replace(/\s+/g, " ").trim();
-      }
+      const subject = cleanUserMsg.length > 8 ? cleanUserMsg : topFaultTerms || tokenHint;
+      const baseQuery = `${primaryBrand} ${productLine} ${primaryModel} ${subject}`.replace(/\s+/g, " ").trim();
+      const queryForWeb = baseQuery.length >= 3 ? baseQuery : "soporte tecnico CCTV alarmas configuracion";
 
-      if (webQuery) {
-        console.log(`[tech-assistant] 🌐 Búsqueda web técnica alineada al problema: "${webQuery}" (dominio: ${activeFaultDomain || "general"})`);
-        let webResults = await searchTechnicalWeb(webQuery, 3, primaryBrand, activeFaultDomain);
-        if (webResults.length === 0) {
-          const fallbackQuery = `${primaryBrand || "hikvision"} ${domainHint || topFaultTerms || tokenHint || "manual soporte tecnico"}`.replace(/\s+/g, " ").trim();
-          webResults = await searchTechnicalWeb(fallbackQuery, 2, primaryBrand, activeFaultDomain);
-        }
+      const officialQuery = `${queryForWeb} manual configuracion`;
+      const forumQuery = `${queryForWeb} solucion`;
+      console.log(`[tech-assistant] 🌐 Web oficial: "${officialQuery}" | Foros: "${forumQuery}"`);
 
-        if (webResults.length > 0) {
-          retrievedWebResults = webResults;
-          webContext = webResults.map((r, i) => `[W${i + 1}] ${r.title} (${r.url})\n${r.snippet}`).join("\n\n");
-        }
+      const [officialRes, forumRes] = await Promise.all([
+        searchTechnicalWeb(officialQuery, 4, false, primaryBrand, activeFaultDomain),
+        searchTechnicalWeb(forumQuery, 4, true, primaryBrand, activeFaultDomain),
+      ]);
+
+      const seen = new Set<string>();
+      const merged: typeof retrievedWebResults = [];
+      const pushRes = (r: { title: string; url: string; snippet: string }) => {
+        const key = r.url.replace(/[#?].*$/, "").toLowerCase();
+        if (seen.has(key)) return;
+        seen.add(key);
+        merged.push({ ...r, kind: classifyWebSource(r.url) });
+      };
+      // Prioridad: 2 oficiales/manuales + 2 foros, luego completar
+      officialRes.slice(0, 2).forEach(pushRes);
+      forumRes.filter((r) => classifyWebSource(r.url) === "foro").slice(0, 2).forEach(pushRes);
+      [...officialRes, ...forumRes].forEach((r) => merged.length < 4 && pushRes(r));
+
+      retrievedWebResults = merged.slice(0, 4);
+      if (retrievedWebResults.length > 0) {
+        webContext = retrievedWebResults
+          .map((r, i) => `[W${i + 1}] (${r.kind === "foro" ? "Foro técnico" : r.kind === "manual" ? "Manual" : "Sitio oficial"}) ${r.title} (${r.url})\n${r.snippet}`)
+          .join("\n\n");
       }
     } catch (webErr: any) {
       console.warn("[tech-assistant] Error en búsqueda web en vivo:", webErr?.message);
@@ -1317,66 +1373,56 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
     let clientDraftText = responseText;
     let assistantDisplayContent = responseText;
 
+    const aiSourcesMatch = responseText.match(/\n*(?:Fuentes(?:\s+t[eé]cnicas)?\s+consultadas|Fuentes:)([\s\S]*)$/i);
+    const aiSourcesRaw = aiSourcesMatch ? aiSourcesMatch[1] : "";
+
+    const cleanBody = responseText
+      .replace(/\n*(?:Fuentes(?:\s+t[eé]cnicas)?\s+consultadas|Fuentes:).*$/is, "")
+      .replace(/\s*\[(?:C|M|W)\d+\]/g, "")
+      .trim();
+
+    // Detectar qué etiquetas específicas ([C1], [M1], [W1]) seleccionó la IA, o incluir las mejores encontradas si omitió las etiquetas
+    const aiCitedM = new Set([...aiSourcesRaw.matchAll(/\[?M(\d+)\]?/gi)].map((m) => Number(m[1]) - 1));
+    const aiCitedC = new Set([...aiSourcesRaw.matchAll(/\[?C(\d+)\]?/gi)].map((m) => Number(m[1]) - 1));
+    const aiCitedW = new Set([...aiSourcesRaw.matchAll(/\[?W(\d+)\]?/gi)].map((m) => Number(m[1]) - 1));
+
+    const finalSources: string[] = [];
+
+    // 1. Manuales Oficiales en Base de Conocimiento
+    let mOutIdx = 1;
+    retrievedKbDocs.forEach((kd, idx) => {
+      if (aiCitedM.size > 0 ? aiCitedM.has(idx) : idx < 2) {
+        const safeDoc = kd.doc_name.replace(/[()]/g, "").trim();
+        finalSources.push(`[M${mOutIdx++}] Manual Oficial: ${safeDoc} (Base de conocimiento Sekunet)`);
+      }
+    });
+
+    // 2. Casos Precedentes Reales de Sekunet
+    let cOutIdx = 1;
+    topPrecedents.forEach((mc, idx) => {
+      if (aiCitedC.size > 0 ? aiCitedC.has(idx) : idx < 2) {
+        const cleanDetails = `${mc.equipmentLabel} - ${mc.faultSummary}`.replace(/[()]/g, "").trim();
+        finalSources.push(`[C${cOutIdx++}] Caso Sekunet #${mc.shortId} resuelto por ${mc.resolverName} (${cleanDetails})`);
+      }
+    });
+
+    // 3. Fuentes Web Oficiales en Vivo
+    let wOutIdx = 1;
+    retrievedWebResults.forEach((wr, idx) => {
+      if (aiCitedW.size > 0 ? aiCitedW.has(idx) : idx < 3) {
+        const safeTitle = wr.title.replace(/[()]/g, "").replace(/\s+/g, " ").trim();
+        finalSources.push(`[W${wOutIdx++}] ${safeTitle} (${wr.url})`);
+      }
+    });
+
+    if (validCaseId) {
+      finalSources.push("Conversación del caso actual");
+    }
+
     if (isDraftAction) {
-      const fuentesUtilizadas: string[] = [];
-      if (topPrecedents.length > 0) {
-        fuentesUtilizadas.push("Precedentes históricos de Sekunet");
-      }
-      if (retrievedWebResults.length > 0) {
-        fuentesUtilizadas.push("Fichas técnicas y manuales web");
-      }
-      if (retrievedKbDocs.length > 0) {
-        fuentesUtilizadas.push("Manuales técnicos");
-      }
-      fuentesUtilizadas.push(validCaseId ? "Conversación del caso actual" : "Consulta técnica directa");
-
-      assistantDisplayContent = `${responseText}\n\nFuentes consultadas: ${fuentesUtilizadas.join(", ")}.`;
+      assistantDisplayContent =
+        finalSources.length > 0 ? `${responseText}\n\nFuentes consultadas: ${finalSources.join(", ")}.` : responseText;
     } else {
-      const aiSourcesMatch = responseText.match(/\n*(?:Fuentes(?:\s+t[eé]cnicas)?\s+consultadas|Fuentes:)([\s\S]*)$/i);
-      const aiSourcesRaw = aiSourcesMatch ? aiSourcesMatch[1] : "";
-
-      const cleanBody = responseText
-        .replace(/\n*(?:Fuentes(?:\s+t[eé]cnicas)?\s+consultadas|Fuentes:).*$/is, "")
-        .replace(/\s*\[(?:C|M|W)\d+\]/g, "")
-        .trim();
-
-      // Detectar qué etiquetas específicas ([C1], [M1], [W1]) seleccionó la IA, o incluir las mejores encontradas si omitió las etiquetas
-      const aiCitedM = new Set([...aiSourcesRaw.matchAll(/\[?M(\d+)\]?/gi)].map((m) => Number(m[1]) - 1));
-      const aiCitedC = new Set([...aiSourcesRaw.matchAll(/\[?C(\d+)\]?/gi)].map((m) => Number(m[1]) - 1));
-      const aiCitedW = new Set([...aiSourcesRaw.matchAll(/\[?W(\d+)\]?/gi)].map((m) => Number(m[1]) - 1));
-
-      const finalSources: string[] = [];
-
-      // 1. Manuales Oficiales en Base de Conocimiento
-      let mOutIdx = 1;
-      retrievedKbDocs.forEach((kd, idx) => {
-        if (aiCitedM.size > 0 ? aiCitedM.has(idx) : idx < 2) {
-          finalSources.push(`[M${mOutIdx++}] Manual Oficial: ${kd.doc_name} (Base de conocimiento Sekunet)`);
-        }
-      });
-
-      // 2. Casos Precedentes Reales de Sekunet
-      let cOutIdx = 1;
-      topPrecedents.forEach((mc, idx) => {
-        if (aiCitedC.size > 0 ? aiCitedC.has(idx) : idx < 2) {
-          const cleanDetails = `${mc.equipmentLabel} - ${mc.faultSummary}`.replace(/[()]/g, "");
-          finalSources.push(`[C${cOutIdx++}] Caso Sekunet #${mc.shortId} resuelto por ${mc.resolverName} (${cleanDetails})`);
-        }
-      });
-
-      // 3. Fuentes Web Oficiales en Vivo
-      let wOutIdx = 1;
-      retrievedWebResults.forEach((wr, idx) => {
-        if (aiCitedW.size > 0 ? aiCitedW.has(idx) : idx < 2) {
-          const safeTitle = wr.title.replace(/[()]/g, "").trim();
-          finalSources.push(`[W${wOutIdx++}] ${safeTitle} (${wr.url})`);
-        }
-      });
-
-      if (validCaseId) {
-        finalSources.push("Conversación del caso actual");
-      }
-
       assistantDisplayContent =
         finalSources.length > 0 ? `${cleanBody}\n\nFuentes consultadas: ${finalSources.join(", ")}.` : cleanBody;
     }
@@ -1413,140 +1459,182 @@ function cleanAiFormatting(raw: string): string {
     .trim();
 }
 
+function classifyWebSource(url: string): "oficial" | "foro" | "manual" {
+  const u = (url || "").toLowerCase();
+  if (
+    u.includes("manualslib") ||
+    u.includes("user-manual") ||
+    u.includes(".pdf") ||
+    u.includes("/support/how-to/") ||
+    u.includes("/guide") ||
+    u.includes("quick-start") ||
+    u.includes("datasheet") ||
+    u.includes("manual")
+  ) {
+    return "manual";
+  }
+  if (
+    u.includes("forum") ||
+    u.includes("foro") ||
+    u.includes("reddit") ||
+    u.includes("ipcamtalk") ||
+    u.includes("cctvforum") ||
+    u.includes("youtube") ||
+    u.includes("community") ||
+    u.includes("comunidad")
+  ) {
+    return "foro";
+  }
+  return "oficial";
+}
+
+function decodeBingUrl(rawUrl: string): string {
+  if (rawUrl.includes("bing.com/ck/a")) {
+    const matchU = rawUrl.match(/[?&]u=a1([a-zA-Z0-9_-]+)/);
+    if (matchU) {
+      try {
+        let b64 = matchU[1].replace(/-/g, "+").replace(/_/g, "/");
+        while (b64.length % 4) b64 += "=";
+        return Buffer.from(b64, "base64").toString("utf-8");
+      } catch {}
+    }
+  }
+  return rawUrl;
+}
+
 async function searchTechnicalWeb(
   query: string,
   limit = 3,
+  isForum = false,
   brandHint = "",
   domainId = ""
 ): Promise<{ title: string; url: string; snippet: string }[]> {
-  // 1. DuckDuckGo HTML endpoint
-  try {
-    const res = await fetch("https://html.duckduckgo.com/html/", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-      },
-      body: new URLSearchParams({ q: query }).toString(),
-      signal: AbortSignal.timeout(6000),
-    });
-    if (res.ok) {
-      const text = await res.text();
-      const results: { title: string; url: string; snippet: string }[] = [];
-      const seenUrls = new Set<string>();
-      const linkMatches = [...text.matchAll(/<a[^>]+class="[^"]*result__a[^"]*"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi)];
-      for (const m of linkMatches) {
-        let rawUrl = m[1];
-        if (rawUrl.includes("uddg=")) {
-          const matchUddg = rawUrl.match(/[?&]uddg=([^&]+)/);
-          if (matchUddg) rawUrl = decodeURIComponent(matchUddg[1]);
-        }
-        const title = m[2].replace(/<[^>]+>/g, "").trim();
-        if (rawUrl.startsWith("http") && !rawUrl.includes("duckduckgo.com") && title.length > 4 && !seenUrls.has(rawUrl)) {
-          seenUrls.add(rawUrl);
-          let domain = rawUrl;
-          try {
-            domain = new URL(rawUrl).hostname.replace(/^www\./, "");
-          } catch {}
-          results.push({
-            title,
-            url: rawUrl,
-            snippet: `Documentación técnica (${domain}): ${title}`,
-          });
-          if (results.length >= limit) break;
-        }
-      }
-      if (results.length > 0) return results;
-    }
-  } catch (err: any) {
-    console.warn("[tech-assistant] Error en DuckDuckGo HTML search:", err?.message);
-  }
+  const finalQuery = isForum ? `${query} foro comunidad` : query;
+  const results: { title: string; url: string; snippet: string }[] = [];
+  const seenUrls = new Set<string>();
 
-  // 2. DuckDuckGo Lite fallback
+  const pushResult = (title: string, url: string, snippet: string) => {
+    if (!url || !url.startsWith("http")) return;
+    if (url.includes("duckduckgo.com") || url.includes("bing.com")) return;
+    const cleanTitle = title.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/[()]/g, "").trim();
+    if (cleanTitle.length < 4) return;
+    const key = url.replace(/[#?].*$/, "").toLowerCase();
+    if (seenUrls.has(key)) return;
+    seenUrls.add(key);
+    let domain = url;
+    try {
+      domain = new URL(url).hostname.replace(/^www\./, "");
+    } catch {}
+    const cleanSnippet = snippet
+      ? snippet.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").trim()
+      : `Documentación técnica (${domain}): ${cleanTitle}`;
+    results.push({
+      title: cleanTitle,
+      url,
+      snippet: cleanSnippet,
+    });
+  };
+
+  // 1. Motor Bing Search (alta disponibilidad y enlaces oficiales/manuales de fabricantes)
   try {
-    const res = await fetch("https://lite.duckduckgo.com/lite/", {
-      method: "POST",
+    const res = await fetch(`https://www.bing.com/search?q=${encodeURIComponent(finalQuery)}`, {
       headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
       },
-      body: new URLSearchParams({ q: query }).toString(),
       signal: AbortSignal.timeout(5000),
     });
     if (res.ok) {
-      const text = await res.text();
-      const results: { title: string; url: string; snippet: string }[] = [];
-      const seenDomains = new Set<string>();
-      const linkMatches = [...text.matchAll(/<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi)];
-      for (const m of linkMatches) {
-        let rawUrl = m[1];
-        if (rawUrl.includes("uddg=")) {
-          const matchUddg = rawUrl.match(/[?&]uddg=([^&]+)/);
-          if (matchUddg) rawUrl = decodeURIComponent(matchUddg[1]);
-        }
-        const title = m[2].replace(/<[^>]+>/g, "").trim();
-        if (
-          rawUrl.startsWith("http") &&
-          !rawUrl.includes("duckduckgo.com") &&
-          title.length > 4 &&
-          !title.toLowerCase().includes("siguiente") &&
-          !title.toLowerCase().includes("buscar")
-        ) {
-          let domain = "";
-          try {
-            domain = new URL(rawUrl).hostname.replace(/^www\./, "");
-          } catch {
-            domain = rawUrl;
-          }
-          if (!seenDomains.has(rawUrl)) {
-            seenDomains.add(rawUrl);
-            results.push({
-              title,
-              url: rawUrl,
-              snippet: `Documentación técnica (${domain}): ${title}`,
-            });
-            if (results.length >= limit) break;
-          }
-        }
+      const html = await res.text();
+      const matches = [
+        ...html.matchAll(
+          /<li[^>]+class="b_algo"[^>]*>[\s\S]*?<h2><a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a><\/h2>([\s\S]*?<p[^>]*>([\s\S]*?)<\/p>)?/gi
+        ),
+      ];
+      for (const m of matches) {
+        const rawUrl = m[1].replace(/&amp;/g, "&");
+        const cleanUrl = decodeBingUrl(rawUrl);
+        const title = m[2];
+        const snippet = m[4] || "";
+        pushResult(title, cleanUrl, snippet);
+        if (results.length >= limit) return results;
       }
-      if (results.length > 0) return results;
     }
   } catch (err: any) {
-    console.warn("[tech-assistant] Error en DuckDuckGo Lite search:", err?.message);
+    console.warn("[tech-assistant] Error en Bing search:", err?.message);
   }
 
-  // 3. Respaldo garantizado de portales técnicos oficiales del fabricante según marca/dominio
+  // 2. DuckDuckGo Lite endpoint (fallback alternativo)
+  if (results.length < limit) {
+    try {
+      const res = await fetch("https://lite.duckduckgo.com/lite/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        },
+        body: new URLSearchParams({ q: finalQuery }).toString(),
+        signal: AbortSignal.timeout(5000),
+      });
+      if (res.ok) {
+        const text = await res.text();
+        const linkMatches = [...text.matchAll(/<a\s+[^>]*class=['"]result-link['"][^>]*>([\s\S]*?)<\/a>/gi)];
+        for (const m of linkMatches) {
+          const hrefMatch = m[0].match(/href=['"]([^'"]+)['"]/i);
+          let rawUrl = hrefMatch ? hrefMatch[1] : "";
+          if (rawUrl.includes("uddg=")) {
+            const matchUddg = rawUrl.match(/[?&]uddg=([^&]+)/);
+            if (matchUddg) rawUrl = decodeURIComponent(matchUddg[1]);
+          }
+          const title = m[1];
+          pushResult(title, rawUrl, "");
+          if (results.length >= limit) return results;
+        }
+      }
+    } catch (err: any) {
+      console.warn("[tech-assistant] Error en DuckDuckGo Lite search:", err?.message);
+    }
+  }
+
+  if (results.length > 0) return results;
+
+  // 3. Portales oficiales garantizados según marca/dominio si los buscadores no devolvieron resultados
   const b = (brandHint || query).toLowerCase();
   const fallbackRefs: { title: string; url: string; snippet: string }[] = [];
   if (b.includes("hikvision") || b.includes("hik-connect") || b.includes("hilook") || b.includes("ivms") || b.includes("sadp")) {
     fallbackRefs.push({
-      title: `Soporte Técnico y Manuales Oficiales Hikvision — ${query.substring(0, 48)}`,
+      title: `Soporte Técnico y Guías Oficiales Hikvision - ${query.substring(0, 48)}`,
       url: `https://www.hikvision.com/es-la/support/how-to/`,
       snippet: "Centro oficial de guías de configuración Hikvision, Hik-Connect, SADP e iVMS-4200.",
     });
+    fallbackRefs.push({
+      title: `Portal de Descargas y Firmware Oficial Hikvision`,
+      url: `https://www.hikvision.com/es-la/support/download/`,
+      snippet: "Herramientas de configuración, SADP Tool y manuales de usuario oficiales.",
+    });
   } else if (b.includes("dahua") || b.includes("smartpss") || b.includes("dmss")) {
     fallbackRefs.push({
-      title: `Base de Conocimiento Oficial Dahua Technology — ${query.substring(0, 48)}`,
+      title: `Base de Conocimiento Oficial Dahua Technology - ${query.substring(0, 48)}`,
       url: `https://dahuawiki.com/`,
       snippet: "Documentación técnica oficial de configuración Dahua, DMSS y SmartPSS.",
     });
   } else if (b.includes("zkteco") || b.includes("biotime") || b.includes("zkbio")) {
     fallbackRefs.push({
-      title: `Centro de Soporte Técnico Oficial ZKTeco — ${query.substring(0, 48)}`,
+      title: `Centro de Soporte Técnico Oficial ZKTeco - ${query.substring(0, 48)}`,
       url: `https://www.zkteco.com/en/support`,
       snippet: "Manuales de terminales biométricas, control de acceso y BioTime.",
     });
   } else if (b.includes("dsc") || b.includes("paradox") || domainId === "alarma_incendio_sensores") {
     fallbackRefs.push({
-      title: `Guía Técnica de Paneles de Alarma y Programación de Códigos — ${query.substring(0, 48)}`,
+      title: `Guía Técnica de Paneles de Alarma y Programación - ${query.substring(0, 48)}`,
       url: `https://www.dsc.com/index.php?o=ag`,
       snippet: "Documentación técnica de paneles de intrusión, teclados y gestión de códigos de usuario.",
     });
   } else {
     fallbackRefs.push({
-      title: `Documentación Técnica de Seguridad Electrónica y CCTV — ${query.substring(0, 48)}`,
+      title: `Documentación Técnica de Seguridad Electrónica y CCTV - ${query.substring(0, 48)}`,
       url: `https://www.hikvision.com/es-la/support/`,
       snippet: "Guías técnicas oficiales de configuración y diagnóstico de equipos de seguridad.",
     });

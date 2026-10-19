@@ -124,14 +124,16 @@ export function FloatingTechAssistant() {
     const params = new URLSearchParams(window.location.search);
     const urlC = params.get("c");
 
-    if (urlC) {
-      if (urlC.startsWith("tel:") || urlC.startsWith("case:")) return urlC;
-      return /^\+?\d{8,15}$/.test(urlC) ? `tel:${urlC}` : `case:${urlC}`;
-    }
     if (globalId) {
       const gStr = String(globalId).trim();
-      if (gStr.startsWith("tel:") || gStr.startsWith("case:")) return gStr;
-      return /^\+?\d{8,15}$/.test(gStr) ? `tel:${gStr}` : `case:${gStr}`;
+      if (gStr && !gStr.startsWith("cuenta:")) {
+        if (gStr.startsWith("tel:") || gStr.startsWith("case:")) return gStr;
+        return /^\+?\d{8,15}$/.test(gStr) ? `tel:${gStr}` : `case:${gStr}`;
+      }
+    }
+    if (urlC && !urlC.startsWith("cuenta:")) {
+      if (urlC.startsWith("tel:") || urlC.startsWith("case:")) return urlC;
+      return /^\+?\d{8,15}$/.test(urlC) ? `tel:${urlC}` : `case:${urlC}`;
     }
     if (globalPhone) {
       const cleanPhone = String(globalPhone).replace(/^tel:/, "").trim();
@@ -180,7 +182,7 @@ export function FloatingTechAssistant() {
       setMessages([]);
       setSessionId(null);
       setPendingAttachment(null);
-      localStorage.removeItem("sek_tech_assistant_session_v7");
+      localStorage.removeItem("sek_tech_assistant_session_v8");
     }
     prevCaseRef.current = caseId;
   }, [caseId]);
@@ -193,10 +195,11 @@ export function FloatingTechAssistant() {
       localStorage.removeItem("sek_tech_assistant_session_v4");
       localStorage.removeItem("sek_tech_assistant_session_v5");
       localStorage.removeItem("sek_tech_assistant_session_v6");
+      localStorage.removeItem("sek_tech_assistant_session_v7");
     } catch {
       /* ignorar */
     }
-    const saved = localStorage.getItem("sek_tech_assistant_session_v7");
+    const saved = localStorage.getItem("sek_tech_assistant_session_v8");
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -265,7 +268,7 @@ export function FloatingTechAssistant() {
       setPendingAttachment(null);
       setMessages(finalMessages);
       localStorage.setItem(
-        "sek_tech_assistant_session_v7",
+        "sek_tech_assistant_session_v8",
         JSON.stringify({
           session_id: sessionId || null,
           messages: finalMessages,
@@ -380,7 +383,7 @@ export function FloatingTechAssistant() {
     setMessages([]);
     setSessionId(null);
     setPendingAttachment(null);
-    localStorage.removeItem("sek_tech_assistant_session_v7");
+    localStorage.removeItem("sek_tech_assistant_session_v8");
     inputRef.current?.focus();
   };
 
@@ -405,7 +408,7 @@ export function FloatingTechAssistant() {
         const finalMessages = (data.messages || []).slice(-10);
         setMessages(finalMessages);
         localStorage.setItem(
-          "sek_tech_assistant_session_v7",
+          "sek_tech_assistant_session_v8",
           JSON.stringify({
             session_id: sessionId || null,
             messages: finalMessages,
@@ -431,7 +434,7 @@ export function FloatingTechAssistant() {
     setCaseId(resolved);
     setSessionId(null);
     setMessages([]);
-    localStorage.removeItem("sek_tech_assistant_session_v7");
+    localStorage.removeItem("sek_tech_assistant_session_v8");
     if (resolved) {
       await handleSend(
         "Diagnostique y resuelva la avería de este caso: identifique el equipo y la falla reportada por el cliente, consulte los precedentes y casos similares resueltos en Sekunet, y brinde el procedimiento técnico exacto y comprobado para solucionarlo de inmediato.",
@@ -1120,10 +1123,10 @@ function renderSourcesFooter(
   onOpenCase: (caseId: string, label?: string, resolver?: string, details?: string) => void,
   onOpenManual: (docName: string, label?: string) => void
 ) {
-  const manualRegex = /\[(M\d+)\]\s*Manual(?:\s+Oficial)?:\s*([^(\n]+?)\s*\(([^)\n]+)\)/gi;
+  const manualRegex = /\[(M\d+)\]\s*Manual(?:\s+Oficial)?:\s*(.+?)\s*\(([^)\n]+)\)/gi;
   const caseRegex =
     /\[(C\d+)\]\s*Caso(?:\s+Sekunet)?\s*#([0-9a-f]{6,36})(?:\s+resuelto\s+por\s+([^(,\n]+))?(?:\s*\(([^)\n]+)\))?/gi;
-  const webRegex = /\[(W\d+)\]\s*([^(\n]+?)\s*\((https?:\/\/[^\s)]+)\)/gi;
+  const webRegex = /\[(W\d+)\]\s*(.+?)\s*\((https?:\/\/[^\s)]+)\)/gi;
 
   const cards: React.ReactNode[] = [];
   let match: RegExpExecArray | null;
