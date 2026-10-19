@@ -34,6 +34,7 @@ export function clienteInfo(cliente: unknown): {
   cedula: string;
   cuenta: string;
   whatsapp_name: string;
+  avatar_url: string;
   displayName: string;
 } {
   if (!cliente || typeof cliente !== "object") {
@@ -45,6 +46,7 @@ export function clienteInfo(cliente: unknown): {
       cedula: "",
       cuenta: "",
       whatsapp_name: "",
+      avatar_url: "",
       displayName: raw,
     };
   }
@@ -55,6 +57,7 @@ export function clienteInfo(cliente: unknown): {
   const nombreReal = s(c.nombre ?? c.full_name ?? c.name);
   const whatsappName = s(c.whatsapp_name ?? c.pushName ?? c.profileName ?? c.verifiedName);
   const tel = s(c.telefono ?? c.phone ?? c.tel);
+  const avatarUrl = s(c.avatar_url ?? c.profilePicUrl ?? c.profilePictureUrl ?? c.picture);
 
   return {
     nombre: nombreReal,
@@ -63,6 +66,7 @@ export function clienteInfo(cliente: unknown): {
     cedula: s(c.cedula ?? c.identificacion ?? c.id_fiscal),
     cuenta: s(c.cuenta ?? c.account ?? c.empresa ?? c.company),
     whatsapp_name: whatsappName,
+    avatar_url: avatarUrl,
     displayName: nombreReal || whatsappName || tel || "Cliente",
   };
 }

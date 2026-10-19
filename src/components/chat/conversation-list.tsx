@@ -568,7 +568,13 @@ export function ConversationList({
                   active ? "bg-brand-50 dark:bg-brand-900/30" : "hover:bg-muted/60"
                 )}
               >
-                <Avatar name={display} channel={canalKind as any} size={44} />
+                <Avatar
+                  src={ci.avatar_url || null}
+                  phone={canalKind === "whatsapp" ? ((c as any).customer_phone || ci.telefono || null) : null}
+                  name={display}
+                  channel={canalKind as any}
+                  size={44}
+                />
                 <div className="flex-1 min-w-0 overflow-hidden">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">

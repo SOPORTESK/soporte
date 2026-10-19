@@ -1,21 +1,120 @@
+"use client";
 import * as React from "react";
-import { cn } from "@/lib/utils";
-import { initials as getInitials } from "@/lib/utils";
+import { cn, initials as getInitials } from "@/lib/utils";
+
+const clientProfilePicCache = new Map<string, string | null>();
+const inflightPicRequests = new Map<string, Promise<string | null>>();
+
+function fetchWhatsAppProfilePic(rawPhone: string): Promise<string | null> {
+  const cleanPhone = rawPhone.replace(/\D/g, "");
+  if (cleanPhone.length < 8) return Promise.resolve(null);
+  const key = cleanPhone.length === 8 ? `506${cleanPhone}` : cleanPhone;
+
+  if (clientProfilePicCache.has(key)) {
+    return Promise.resolve(clientProfilePicCache.get(key) ?? null);
+  }
+  const existing = inflightPicRequests.get(key);
+  if (existing) return existing;
+
+  const p = fetch(`/api/evolution/profile-pic?phone=${encodeURIComponent(key)}`)
+    .then((r) => (r.ok ? r.json() : { url: null }))
+    .then((d) => {
+      const url = typeof d?.url === "string" && d.url.startsWith("http") ? d.url : null;
+      clientProfilePicCache.set(key, url);
+      return url;
+    })
+    .catch(() => {
+      clientProfilePicCache.set(key, null);
+      return null;
+    })
+    .finally(() => {
+      inflightPicRequests.delete(key);
+    });
+
+  inflightPicRequests.set(key, p);
+  return p;
+}
 
 export function Avatar({
-  src, name, size = 40, className, channel
-}: { src?: string | null; name?: string | null; size?: number; className?: string; channel?: "whatsapp" | "messenger" | "web" | "email" }) {
+  src,
+  name,
+  phone,
+  size = 40,
+  className,
+  channel,
+  onClickPic,
+}: {
+  src?: string | null;
+  name?: string | null;
+  phone?: string | null;
+  size?: number;
+  className?: string;
+  channel?: "whatsapp" | "messenger" | "web" | "email";
+  onClickPic?: (url: string) => void;
+}) {
+  const [resolvedSrc, setResolvedSrc] = React.useState<string | null>(src || null);
+  const [imgFailed, setImgFailed] = React.useState(false);
+
+  React.useEffect(() => {
+    setImgFailed(false);
+    if (src) {
+      setResolvedSrc(src);
+      return;
+    }
+    if (!phone) {
+      setResolvedSrc(null);
+      return;
+    }
+    const cleanPhone = phone.replace(/\D/g, "");
+    const key = cleanPhone.length === 8 ? `506${cleanPhone}` : cleanPhone;
+    if (clientProfilePicCache.has(key)) {
+      setResolvedSrc(clientProfilePicCache.get(key) ?? null);
+      return;
+    }
+    let active = true;
+    fetchWhatsAppProfilePic(phone).then((url) => {
+      if (active) setResolvedSrc(url);
+    });
+    return () => {
+      active = false;
+    };
+  }, [src, phone]);
+
+  const showImg = Boolean(resolvedSrc && !imgFailed);
   const dim = { width: size, height: size };
+
   return (
-    <div className={cn("relative shrink-0", className)} style={dim}>
+    <div
+      className={cn("relative shrink-0", showImg && onClickPic && "cursor-pointer", className)}
+      style={dim}
+      onClick={
+        showImg && onClickPic && resolvedSrc
+          ? (e) => {
+              e.stopPropagation();
+              onClickPic(resolvedSrc);
+            }
+          : undefined
+      }
+      title={showImg && onClickPic ? "Ver foto de perfil" : undefined}
+    >
       <div
         className="h-full w-full rounded-full overflow-hidden bg-gradient-to-br from-brand-500 to-accent-500 grid place-items-center text-white font-semibold"
         style={{ fontSize: size * 0.38 }}
-        aria-hidden={!!src}
+        aria-hidden={showImg}
         suppressHydrationWarning
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        {src ? <img src={src} alt={name || "avatar"} className="h-full w-full object-cover" /> : getInitials(name || "?")}
+        {showImg && resolvedSrc ? (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            src={resolvedSrc}
+            alt={name || "avatar"}
+            loading="lazy"
+            onError={() => setImgFailed(true)}
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          getInitials(name || "?")
+        )}
       </div>
       {channel && (
         <span

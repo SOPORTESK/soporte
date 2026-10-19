@@ -2280,7 +2280,14 @@ export function ChatView({
           <button onClick={onBack} className="md:hidden p-2 -ml-1 rounded-xl hover:bg-muted active:bg-muted/80 touch-target" aria-label="Volver">
             <ArrowLeft className="h-5 w-5" />
           </button>
-          <Avatar name={display} channel={canalKind as any} size={40} />
+          <Avatar
+            src={ci.avatar_url || null}
+            phone={canalKind === "whatsapp" ? ((sekCase as any).customer_phone || ci.telefono || null) : null}
+            name={display}
+            channel={canalKind as any}
+            size={40}
+            onClickPic={(url) => setLightbox({ url, type: "image/jpeg", name: `Foto de perfil - ${display}` })}
+          />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
               <p className="font-semibold truncate">{display}</p>
