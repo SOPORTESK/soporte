@@ -488,60 +488,64 @@ async function poll() {
           });
         }
 
-        // 2. Registrar el inicio del bloque de Inactividad respetando la tolerancia del panel
+        // 2. Registrar el inicio del bloque de Inactividad SOLO si está dentro del horario laboral
         const idleStartMs = Math.max(activeEndMs, now - idleOffsetMs);
         _idleStartTime = idleStartMs;
         _lastIdleHeartbeat = now;
-        const initialIdleMs = Math.max(0, now - idleStartMs);
-        const idleStartIso = new Date(idleStartMs).toISOString();
-        const idleAction = isScreenLockedOrScreensaver
-          ? (_lastLabel ? `Pantalla bloqueada mientras usaba "${_lastLabel}"` : 'Inactividad: Pantalla bloqueada / Protector de pantalla')
-          : (_lastLabel ? `Sin actividad por ${toleranceMin} minutos mientras "${_lastLabel}" estaba abierta` : `Sin actividad por ${toleranceMin} minutos`);
+        if (isWithinSchedule(sched)) {
+          const initialIdleMs = Math.max(0, now - idleStartMs);
+          const idleStartIso = new Date(idleStartMs).toISOString();
+          const idleAction = isScreenLockedOrScreensaver
+            ? (_lastLabel ? `Pantalla bloqueada mientras usaba "${_lastLabel}"` : 'Inactividad: Pantalla bloqueada / Protector de pantalla')
+            : (_lastLabel ? `Sin actividad por ${toleranceMin} minutos mientras "${_lastLabel}" estaba abierta` : `Sin actividad por ${toleranceMin} minutos`);
 
-        await supabase.from('activity_log').insert({
-          agent_email: AGENT_EMAIL,
-          agent_name: AGENT_NAME,
-          action: idleAction,
-          category: 'Inactividad',
-          duration_ms: initialIdleMs > 0 ? initialIdleMs : undefined,
-          created_at: idleStartIso,
-          metadata: {
-            app: _lastProcess || undefined,
-            app_name: _lastLabel || undefined,
-            title: (_lastTitle || '').substring(0, 100),
-            idle_seconds: idleSec,
-            tolerance_minutes: toleranceMin,
-            reason: isScreenLockedOrScreensaver ? 'lock_screen' : 'idle_timeout',
-            source: 'desktop'
-          }
-        });
-        console.log(`[Windows Agent] [Inactividad] ${idleAction}`);
+          await supabase.from('activity_log').insert({
+            agent_email: AGENT_EMAIL,
+            agent_name: AGENT_NAME,
+            action: idleAction,
+            category: 'Inactividad',
+            duration_ms: initialIdleMs > 0 ? initialIdleMs : undefined,
+            created_at: idleStartIso,
+            metadata: {
+              app: _lastProcess || undefined,
+              app_name: _lastLabel || undefined,
+              title: (_lastTitle || '').substring(0, 100),
+              idle_seconds: idleSec,
+              tolerance_minutes: toleranceMin,
+              reason: isScreenLockedOrScreensaver ? 'lock_screen' : 'idle_timeout',
+              source: 'desktop'
+            }
+          });
+          console.log(`[Windows Agent] [Inactividad] ${idleAction}`);
+        }
 
         _lastLabel = '';
         _lastTitle = '';
         _lastUrl = '';
         _enterTime = now;
       } else if (now - _lastIdleHeartbeat >= IDLE_HEARTBEAT_INTERVAL) {
-        // Pulso continuo de inactividad 24/7 cada 5 minutos mientras siga inactivo o con pantalla bloqueada
+        // Pulso continuo de inactividad cada 5 minutos SOLO dentro del horario laboral (fuera de horario el inactivo no se envía a ningún proceso)
         const sliceMs = now - _lastIdleHeartbeat;
         const totalIdleMs = now - (_idleStartTime || _lastIdleHeartbeat);
         _lastIdleHeartbeat = now;
-        const idleAction = isScreenLockedOrScreensaver
-          ? `Inactividad continua: Pantalla bloqueada (${formatExecutiveDuration(totalIdleMs)})`
-          : `Inactividad continua: Sin actividad (${formatExecutiveDuration(totalIdleMs)})`;
-        await supabase.from('activity_log').insert({
-          agent_email: AGENT_EMAIL,
-          agent_name: AGENT_NAME,
-          action: idleAction,
-          category: 'Inactividad',
-          duration_ms: sliceMs,
-          metadata: {
-            idle_seconds: Math.round(totalIdleMs / 1000),
-            tolerance_minutes: toleranceMin,
-            reason: isScreenLockedOrScreensaver ? 'lock_screen_ongoing' : 'idle_ongoing',
-            source: 'desktop'
-          }
-        });
+        if (isWithinSchedule(sched)) {
+          const idleAction = isScreenLockedOrScreensaver
+            ? `Inactividad continua: Pantalla bloqueada (${formatExecutiveDuration(totalIdleMs)})`
+            : `Inactividad continua: Sin actividad (${formatExecutiveDuration(totalIdleMs)})`;
+          await supabase.from('activity_log').insert({
+            agent_email: AGENT_EMAIL,
+            agent_name: AGENT_NAME,
+            action: idleAction,
+            category: 'Inactividad',
+            duration_ms: sliceMs,
+            metadata: {
+              idle_seconds: Math.round(totalIdleMs / 1000),
+              tolerance_minutes: toleranceMin,
+              reason: isScreenLockedOrScreensaver ? 'lock_screen_ongoing' : 'idle_ongoing',
+              source: 'desktop'
+            }
+          });
+        }
       }
       return;
     }

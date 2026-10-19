@@ -75,14 +75,46 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // El tracking opera 24/7 sin interrupción (necesario para medir horas extras e inactividad continua).
-      // La regla de tolerancia y el filtro de horario se evalúan por separado sin descartar eventos.
+      // El tracking mide tiempo activo 24/7 (para horas extras), pero el tiempo inactivo SOLO se envía dentro del horario laboral.
       let configuredToleranceMin = 3;
+      let withinSchedule = true;
       try {
         const sched = await getAgentSchedule(agent_email);
         configuredToleranceMin = Math.max(1, Number(sched.toleranceMinutes) || 3);
+
+        if (sched && sched.scheduleEnabled !== false) {
+          const refDate = created_at ? new Date(created_at) : new Date();
+          const crDate = new Date(refDate.toLocaleString("en-US", { timeZone: "America/Costa_Rica" }));
+          const day = crDate.getDay();
+          if (Array.isArray(sched.workDays) && !sched.workDays.includes(day)) {
+            withinSchedule = false;
+          } else {
+            let sStart = sched.scheduleStart || "08:00";
+            let sEnd = sched.scheduleEnd || "17:00";
+            if (sched.useMixedSchedule && sched.daySchedules && sched.daySchedules[day]) {
+              if (sched.daySchedules[day].start) sStart = sched.daySchedules[day].start;
+              if (sched.daySchedules[day].end) sEnd = sched.daySchedules[day].end;
+            }
+            const [startH, startM] = sStart.split(":").map(Number);
+            const [endH, endM] = sEnd.split(":").map(Number);
+            const curMin = crDate.getHours() * 60 + crDate.getMinutes();
+            const startMin = startH * 60 + startM;
+            const endMin = endH * 60 + endM;
+            withinSchedule = startMin <= endMin
+              ? (curMin >= startMin && curMin <= endMin)
+              : (curMin >= startMin || curMin <= endMin);
+          }
+        }
       } catch (err) {
         console.error("[activity/log] Error checking schedule:", err);
+      }
+
+      if (catLower === "inactividad" && !withinSchedule) {
+        return NextResponse.json({
+          success: true,
+          discarded: true,
+          message: "Tiempo inactivo fuera de horario laboral no se envía a ningún proceso.",
+        });
       }
 
       const finalAction = catLower === "inactividad"

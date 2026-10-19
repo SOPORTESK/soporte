@@ -970,6 +970,25 @@ export function computeUnifiedActivityMetrics(
     }
   }
 
+  const getScheduleBoundsForMs = (refMs: number): { startMs: number | null; endMs: number | null; isWithin: boolean } => {
+    const crDateStr = new Date(refMs).toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
+    const currDay = new Date(new Date(refMs).toLocaleString("en-US", { timeZone: "America/Costa_Rica" })).getDay();
+    let sStart = options.scheduleStart;
+    let sEnd = options.scheduleEnd;
+    if (options.useMixedSchedule && options.daySchedules && options.daySchedules[currDay]) {
+      if (options.daySchedules[currDay].start) sStart = options.daySchedules[currDay].start;
+      if (options.daySchedules[currDay].end) sEnd = options.daySchedules[currDay].end;
+    }
+    const startMs = sStart ? new Date(`${crDateStr}T${sStart.padStart(5, "0")}:00-06:00`).getTime() : null;
+    const endMs = sEnd ? new Date(`${crDateStr}T${sEnd.padStart(5, "0")}:00-06:00`).getTime() : null;
+    const validStart = startMs !== null && !isNaN(startMs) ? startMs : null;
+    const validEnd = endMs !== null && !isNaN(endMs) ? endMs : null;
+    let isWithin = true;
+    if (validStart !== null && refMs < validStart) isWithin = false;
+    if (validEnd !== null && refMs >= validEnd) isWithin = false;
+    return { startMs: validStart, endMs: validEnd, isWithin };
+  };
+
   let currentIdleBlock: {
     start: number;
     end: number;
@@ -979,16 +998,26 @@ export function computeUnifiedActivityMetrics(
 
   const flushIdleBlock = () => {
     if (!currentIdleBlock) return;
-    const coveredMs = getCoveredOverlap(currentIdleBlock.start, currentIdleBlock.end);
-    const effectiveDur = Math.max(0, currentIdleBlock.durationMs - coveredMs);
+    // Regla de filtro de horario: fuera del horario laboral (antes o después) el tiempo inactivo no se envía a ningún proceso
+    const bounds = getScheduleBoundsForMs(currentIdleBlock.start);
+    if (!bounds.isWithin) {
+      currentIdleBlock = null;
+      return;
+    }
+    const clampedStart = bounds.startMs !== null ? Math.max(currentIdleBlock.start, bounds.startMs) : currentIdleBlock.start;
+    const clampedEnd = bounds.endMs !== null ? Math.min(currentIdleBlock.end, bounds.endMs) : currentIdleBlock.end;
+    const clampedDur = Math.max(0, clampedEnd - clampedStart);
+
+    const coveredMs = getCoveredOverlap(clampedStart, clampedEnd);
+    const effectiveDur = Math.max(0, clampedDur - coveredMs);
     // Respetar estrictamente el panel de Tolerancia de Inactividad:
     // "Pausas menores a este límite cuentan como trabajo activo dentro de la jornada laboral."
     // Si la inactividad alcanza o supera el límite de tolerancia (ej. >= 3 min), se contabiliza íntegra como Inactivo.
     if (effectiveDur >= TOLERANCE_GAP_MS) {
       const idleMin = Math.max(1, Math.round(effectiveDur / 60000));
       idleTotalMs += effectiveDur;
-      const dStart = new Date(currentIdleBlock.start + coveredMs);
-      const dEnd = new Date(currentIdleBlock.end);
+      const dStart = new Date(clampedStart + coveredMs);
+      const dEnd = new Date(clampedEnd);
       let cleanReason = currentIdleBlock.reason
         .replace(/^Sin actividad por \d+ minutos mientras /i, "Inactividad en ")
         .replace(/^Pausa prolongada de \d+ minutos sin interacción en /i, "Sin interacción en ")
@@ -1000,7 +1029,7 @@ export function computeUnifiedActivityMetrics(
         cleanReason = "Inactividad (Pantalla bloqueada)";
       }
       detectedGaps.push({
-        id: `idle-${currentIdleBlock.start}`,
+        id: `idle-${clampedStart}`,
         dateStr: dStart.toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" }),
         dateFormatted: dStart.toLocaleDateString("es-CR", { day: "numeric", month: "short", timeZone: "America/Costa_Rica" }),
         startTime: formatTimeCR(dStart.toISOString()),
@@ -1069,20 +1098,27 @@ export function computeUnifiedActivityMetrics(
       const opCategory = assignToOperationalCategory(itemName, it.action, it.category, meta, options.appMappings);
 
       if (opCategory === "Inactividad") {
+        const bounds = getScheduleBoundsForMs(currTime);
+        if (!bounds.isWithin) {
+          if (currentIdleBlock) flushIdleBlock();
+          break;
+        }
         const nowMs = Date.now();
         const explicitIdleMs = Number(it.duration_ms || (meta.duration_seconds ? meta.duration_seconds * 1000 : 0) || (meta.idle_seconds ? meta.idle_seconds * 1000 : 0)) || 0;
         const ongoingIdleMs = isTodayDay ? Math.min(Math.max(explicitIdleMs, Math.max(0, nowMs - currTime)), 24 * 3600 * 1000) : explicitIdleMs;
-        const endIdleMs = currTime + ongoingIdleMs;
+        const rawEndIdleMs = currTime + ongoingIdleMs;
+        const endIdleMs = bounds.endMs !== null ? Math.min(rawEndIdleMs, bounds.endMs) : rawEndIdleMs;
+        const clampedOngoingMs = Math.max(0, endIdleMs - currTime);
         if (!currentIdleBlock) {
           currentIdleBlock = {
             start: currTime,
             end: endIdleMs,
-            durationMs: ongoingIdleMs,
+            durationMs: clampedOngoingMs,
             reason: it.action || "Inactividad del sistema",
           };
         } else {
           currentIdleBlock.end = Math.max(currentIdleBlock.end, endIdleMs);
-          currentIdleBlock.durationMs += ongoingIdleMs;
+          currentIdleBlock.durationMs = Math.max(0, currentIdleBlock.end - currentIdleBlock.start);
         }
         flushIdleBlock();
         break;
@@ -1148,20 +1184,28 @@ export function computeUnifiedActivityMetrics(
     const itemName = extractCleanItemName(it, options.appMappings);
     const opCategory = assignToOperationalCategory(itemName, it.action, it.category, meta, options.appMappings);
 
-    // Caso C: Inactividad del sistema 24/7 (sin tope artificial de 2 horas)
+    // Caso C: Inactividad del sistema (solo se envía dentro del horario laboral; fuera de horario el inactivo no se envía a ningún proceso)
     if (opCategory === "Inactividad") {
+      const bounds = getScheduleBoundsForMs(currTime);
+      if (!bounds.isWithin) {
+        if (currentIdleBlock) flushIdleBlock();
+        continue;
+      }
       const explicitIdleMs = Number(it.duration_ms || (meta.duration_seconds ? meta.duration_seconds * 1000 : 0)) || 0;
-      const dur = Math.min(Math.max(rawGap, explicitIdleMs), 24 * 3600 * 1000);
+      const rawDur = Math.min(Math.max(rawGap, explicitIdleMs), 24 * 3600 * 1000);
+      const rawEnd = Math.max(nextTime, currTime + rawDur);
+      const clampedEnd = bounds.endMs !== null ? Math.min(rawEnd, bounds.endMs) : rawEnd;
+      const dur = Math.max(0, clampedEnd - currTime);
       if (!currentIdleBlock) {
         currentIdleBlock = {
           start: currTime,
-          end: Math.max(nextTime, currTime + dur),
+          end: clampedEnd,
           durationMs: dur,
           reason: it.action || "Inactividad del sistema",
         };
       } else {
-        currentIdleBlock.end = Math.max(currentIdleBlock.end, nextTime, currTime + dur);
-        currentIdleBlock.durationMs += dur;
+        currentIdleBlock.end = Math.max(currentIdleBlock.end, clampedEnd);
+        currentIdleBlock.durationMs = Math.max(0, currentIdleBlock.end - currentIdleBlock.start);
       }
       continue;
     }

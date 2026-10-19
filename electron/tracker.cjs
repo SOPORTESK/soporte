@@ -111,23 +111,54 @@ const KEYLOG_FLUSH_INTERVAL = 30000;   // 30s — flush keystrokes
 const SCREENSHOT_INTERVAL = 60000;     // 60s — captura de pantalla
 const SYNC_INTERVAL = 60000;           // 60s — sync con servidor
 let _toleranceMinutes = 3;             // Respetar panel de Tolerancia de Inactividad (por defecto 3 min)
+let _scheduleConfig = null;            // Regla de horario laboral (para no enviar tiempo inactivo fuera de horario)
 const HEARTBEAT_EVERY = 300;           // 5 min (300s) para puntos de control ejecutivos
 const SYNC_BATCH_SIZE = 50;
 const MASK_PASSWORDS = false;          // true = enmascara teclas en ventanas con "password"
 
 async function refreshToleranceConfig() {
-  for (const url of [SCHEDULE_API_LOCAL, SCHEDULE_API_PROD]) {
+  const qs = _agentEmail ? `?agentEmail=${encodeURIComponent(_agentEmail)}` : '';
+  for (const baseUrl of [SCHEDULE_API_LOCAL, SCHEDULE_API_PROD]) {
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+      const res = await fetch(`${baseUrl}${qs}`, { signal: AbortSignal.timeout(4000) });
       if (res.ok) {
         const data = await res.json();
-        if (data && Number(data.toleranceMinutes) >= 1) {
-          _toleranceMinutes = Math.max(1, Math.min(60, Number(data.toleranceMinutes)));
+        if (data) {
+          _scheduleConfig = data;
+          if (Number(data.toleranceMinutes) >= 1) {
+            _toleranceMinutes = Math.max(1, Math.min(60, Number(data.toleranceMinutes)));
+          }
           return;
         }
       }
     } catch {}
   }
+}
+
+function isWithinSchedule(refMs = Date.now()) {
+  const sched = _scheduleConfig;
+  if (!sched || sched.scheduleEnabled === false) return true;
+  const nowCostaRica = new Date(new Date(refMs).toLocaleString('en-US', { timeZone: 'America/Costa_Rica' }));
+  const day = nowCostaRica.getDay();
+  if (Array.isArray(sched.workDays) && !sched.workDays.includes(day)) return false;
+
+  let sStart = sched.scheduleStart || '08:00';
+  let sEnd = sched.scheduleEnd || '17:00';
+  if (sched.useMixedSchedule && sched.daySchedules && sched.daySchedules[day]) {
+    if (sched.daySchedules[day].start) sStart = sched.daySchedules[day].start;
+    if (sched.daySchedules[day].end) sEnd = sched.daySchedules[day].end;
+  }
+
+  const [startH, startM] = sStart.split(':').map(Number);
+  const [endH, endM] = sEnd.split(':').map(Number);
+  const curMin = nowCostaRica.getHours() * 60 + nowCostaRica.getMinutes();
+  const startMin = startH * 60 + startM;
+  const endMin = endH * 60 + endM;
+
+  if (startMin <= endMin) {
+    return curMin >= startMin && curMin <= endMin;
+  }
+  return curMin >= startMin || curMin <= endMin;
 }
 
 // ─── STATE ────────────────────────────────────────────────────────────────────
@@ -437,6 +468,12 @@ function saveToDB(type, action, category, metadata, screenshotPath) {
 // ─── SEND LOG ─────────────────────────────────────────────────────────────────
 async function sendLog(action, category, metadata, createdAt = null, fromSyncQueue = false) {
   if (!_agentEmail) return false;
+  const catLower = String(category || '').toLowerCase();
+  const refMs = createdAt ? new Date(createdAt).getTime() : Date.now();
+  // Fuera del horario laboral solo se envía el tiempo activo; el inactivo no se envía a ningún proceso
+  if (catLower === 'inactividad' && !isWithinSchedule(refMs)) {
+    return true;
+  }
   const payload = {
     agent_email: _agentEmail,
     agent_name: _agentName || _agentEmail,
