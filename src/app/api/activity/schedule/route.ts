@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({
         success: true,
         ...schedule,
-        toleranceMinutes: globalConfig.toleranceMinutes || 15,
+        toleranceMinutes: Math.max(1, Number(globalConfig.toleranceMinutes) || 3),
       });
     }
     return NextResponse.json({ success: true, ...globalConfig });
@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
       scheduleEnabled: scheduleEnabled !== undefined ? Boolean(scheduleEnabled) : true,
       workDays: Array.isArray(workDays) && workDays.length > 0 ? workDays : [1, 2, 3, 4, 5],
       targetDailyHours: Number(targetDailyHours) || 8,
-      toleranceMinutes: Number(toleranceMinutes) || 15,
+      toleranceMinutes: Math.max(1, Number(toleranceMinutes) || 3),
       useMixedSchedule: Boolean(useMixedSchedule),
       daySchedules: daySchedules && typeof daySchedules === "object" ? daySchedules : undefined,
     });

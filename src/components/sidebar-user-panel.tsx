@@ -273,7 +273,7 @@ export function SidebarUserPanel({
   }, [status]);
 
   // Tolerancia oficial de inactividad configurada por los administradores (en minutos)
-  const [toleranceMin, setToleranceMin] = useState<number>(15);
+  const [toleranceMin, setToleranceMin] = useState<number>(3);
 
   useEffect(() => {
     fetch("/api/activity/schedule")

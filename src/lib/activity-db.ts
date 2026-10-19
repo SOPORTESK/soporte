@@ -76,7 +76,7 @@ const SCHEDULE_SETTING_KEY = "activity_work_schedule";
 const OVERTIME_SETTING_KEY = "activity_overtime_requests";
 
 export async function getWorkSchedule(): Promise<WorkScheduleConfig> {
-  const cached = cacheGetFresh("app_work_schedule", 300000);
+  const cached = cacheGetFresh("app_work_schedule", 15000);
   if (cached) return cached;
 
   const supabase = getClient();
@@ -95,7 +95,7 @@ export async function getWorkSchedule(): Promise<WorkScheduleConfig> {
         scheduleEnabled: parsed.scheduleEnabled !== undefined ? Boolean(parsed.scheduleEnabled) : true,
         workDays: Array.isArray(parsed.workDays) && parsed.workDays.length > 0 ? parsed.workDays : [1, 2, 3, 4, 5],
         targetDailyHours: Number(parsed.targetDailyHours) || 10,
-        toleranceMinutes: Number(parsed.toleranceMinutes) || 15,
+        toleranceMinutes: Math.max(1, Number(parsed.toleranceMinutes) || 3),
         useMixedSchedule: Boolean(parsed.useMixedSchedule),
         daySchedules: parsed.daySchedules && typeof parsed.daySchedules === "object" ? parsed.daySchedules : undefined,
         agentSchedules: parsed.agentSchedules && typeof parsed.agentSchedules === "object" ? parsed.agentSchedules : {},
@@ -107,7 +107,7 @@ export async function getWorkSchedule(): Promise<WorkScheduleConfig> {
     console.error("[getWorkSchedule] error:", err);
   }
 
-  const def: WorkScheduleConfig = { scheduleStart: "06:00", scheduleEnd: "18:00", scheduleEnabled: true, workDays: [1, 2, 3, 4, 5], targetDailyHours: 10, toleranceMinutes: 15, agentSchedules: {} };
+  const def: WorkScheduleConfig = { scheduleStart: "06:00", scheduleEnd: "18:00", scheduleEnabled: true, workDays: [1, 2, 3, 4, 5], targetDailyHours: 10, toleranceMinutes: 3, agentSchedules: {} };
   cacheSet("app_work_schedule", def);
   return def;
 }
@@ -161,7 +161,7 @@ export async function saveWorkSchedule(config: WorkScheduleConfig): Promise<void
     scheduleEnabled: Boolean(config.scheduleEnabled),
     workDays: Array.isArray(config.workDays) && config.workDays.length > 0 ? config.workDays : [1, 2, 3, 4, 5],
     targetDailyHours: Number(config.targetDailyHours) || 10,
-    toleranceMinutes: Math.max(1, Math.min(60, Number(config.toleranceMinutes) || 5)),
+    toleranceMinutes: Math.max(1, Math.min(60, Number(config.toleranceMinutes) || 3)),
     useMixedSchedule: Boolean(config.useMixedSchedule),
     daySchedules: config.daySchedules || existing.daySchedules || undefined,
     agentSchedules: config.agentSchedules || existing.agentSchedules || {},
@@ -530,7 +530,7 @@ export async function getActivityMetrics(agentEmail: string, date: string, exist
   let targetDailyHours = schedule.targetDailyHours || 10;
   let scheduleStart = schedule.scheduleStart || "08:00";
   let scheduleEnd = schedule.scheduleEnd || "17:00";
-  const toleranceMinutes = schedule.toleranceMinutes || 15;
+  const toleranceMinutes = Math.max(1, Number(schedule.toleranceMinutes) || 3);
 
   if (schedule.useMixedSchedule && schedule.daySchedules && date) {
     const parts = date.split("-").map(Number);

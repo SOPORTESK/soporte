@@ -645,7 +645,7 @@ export function computeUnifiedActivityMetrics(
   } = {}
 ): UnifiedDayMetrics {
   let targetDailyHours = options.targetDailyHours || 10;
-  const toleranceMin = Math.max(1, options.toleranceMinutes ?? 15);
+  const toleranceMin = Math.max(1, options.toleranceMinutes ?? 3);
   const TOLERANCE_GAP_MS = toleranceMin * 60 * 1000;
 
   // 1. Filtrar y ordenar cronológicamente
@@ -653,11 +653,13 @@ export function computeUnifiedActivityMetrics(
     .filter((t) => {
       if (!t.created_at || isNaN(new Date(t.created_at).getTime())) return false;
       const act = (t.action || "").toLowerCase();
-      // Descartar falsos positivos de pestañas de navegador en segundo plano y protectores de pantalla
+      const cat = (t.category || "").toLowerCase();
+      // Descartar falsos positivos de pestañas de navegador en segundo plano
       if (act.includes("pausa prolongada") && act.includes("sin interacción en")) {
         return false;
       }
-      if (act.includes("mystify") || act.includes(".scr") || act.includes("scrnsave")) {
+      // Si no está clasificado como Inactividad, descartar protectores de pantalla disfrazados de apps
+      if (cat !== "inactividad" && (act.includes("mystify") || act.includes(".scr") || act.includes("scrnsave"))) {
         return false;
       }
       // Descartar registros con duraciones negativas o inválidas
@@ -668,16 +670,37 @@ export function computeUnifiedActivityMetrics(
     })
     .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 
-  // 1.1 Deduplicar eventos de finalización manual repetidos por doble clic o sincronización concurrente
+  // 1.1 Deduplicar eventos de finalización manual repetidos y descartar latidos "En curso •" emitidos por clientes antiguos mientras el equipo está en Inactividad continua
   const sorted: typeof rawSorted = [];
   for (let i = 0; i < rawSorted.length; i++) {
     const cur = rawSorted[i];
     const curAct = (cur.action || "").toLowerCase();
+    const curTime = new Date(cur.created_at).getTime();
+    const prevAccepted = sorted[sorted.length - 1];
+
+    // Si es un latido automático "En curso •" pero está rodeado de eventos de Inactividad (< 120s antes y después),
+    // significa que el usuario seguía inactivo y una ventana abierta en segundo plano emitió un checkpoint falso.
+    const isCheckpoint = Boolean(cur.metadata?.checkpoint_5min || curAct.startsWith("en curso •"));
+    if (isCheckpoint && prevAccepted) {
+      const prevCat = (prevAccepted.category || "").toLowerCase();
+      const prevAct = (prevAccepted.action || "").toLowerCase();
+      const prevIsIdle = prevCat === "inactividad" || prevAct.startsWith("sin actividad por") || prevAct.startsWith("pantalla bloqueada");
+      const prevTime = new Date(prevAccepted.created_at).getTime();
+
+      const nextEv = rawSorted[i + 1];
+      const nextCat = (nextEv?.category || "").toLowerCase();
+      const nextAct = (nextEv?.action || "").toLowerCase();
+      const nextIsIdle = Boolean(nextEv && (nextCat === "inactividad" || nextAct.startsWith("sin actividad por") || nextAct.startsWith("pantalla bloqueada")));
+      const nextTime = nextEv ? new Date(nextEv.created_at).getTime() : 0;
+
+      if (prevIsIdle && (curTime - prevTime < 120_000) && (!nextEv || (nextIsIdle && (nextTime - curTime < 120_000)))) {
+        continue;
+      }
+    }
+
     const isCurEnd = (curAct.startsWith("terminó:") || curAct.startsWith("termino:")) && (cur.metadata?.manual || cur.metadata?.task);
     if (isCurEnd) {
       const curTask = (cur.metadata?.task || cur.action.replace(/^termin[oó]:\s*/i, "").split("(")[0]).toLowerCase().trim();
-      const curTime = new Date(cur.created_at).getTime();
-      const prevAccepted = sorted[sorted.length - 1];
       if (prevAccepted) {
         const prevAct = (prevAccepted.action || "").toLowerCase();
         const isPrevEnd = (prevAct.startsWith("terminó:") || prevAct.startsWith("termino:")) && (prevAccepted.metadata?.manual || prevAccepted.metadata?.task);
@@ -956,39 +979,38 @@ export function computeUnifiedActivityMetrics(
 
   const flushIdleBlock = () => {
     if (!currentIdleBlock) return;
-    const dur = currentIdleBlock.durationMs;
-    // La tolerancia configurada protege las pausas normales.
-    // Solo si la inactividad supera la tolerancia oficial se evalúa como posible laguna.
-    if (dur > TOLERANCE_GAP_MS) {
-      const excessMs = dur - TOLERANCE_GAP_MS;
-      const excessMin = Math.round(excessMs / 60000);
-      // Solo si el exceso sobre la tolerancia es de al menos 3 minutos se crea laguna justificable.
-      // Pequeños excesos de 1 o 2 minutos sobre la tolerancia se absorben como margen operativo normal.
-      if (excessMin >= 3) {
-        idleTotalMs += excessMs;
-        const dStart = new Date(currentIdleBlock.start + TOLERANCE_GAP_MS);
-        const dEnd = new Date(currentIdleBlock.end);
-        let cleanReason = currentIdleBlock.reason
-          .replace(/^Sin actividad por \d+ minutos mientras /i, "Inactividad en ")
-          .replace(/^Pausa prolongada de \d+ minutos sin interacción en /i, "Sin interacción en ")
-          .replace(/^Dejó de usar "[^"]+" \(([^)]+)\).*/i, "$1")
-          .trim();
-        if (cleanReason.toLowerCase().includes("mystify")) {
-          cleanReason = "Protector de pantalla (Mystify.scr)";
-        }
-        detectedGaps.push({
-          id: `idle-${currentIdleBlock.start}`,
-          dateStr: dStart.toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" }),
-          dateFormatted: dStart.toLocaleDateString("es-CR", { day: "numeric", month: "short", timeZone: "America/Costa_Rica" }),
-          startTime: formatTimeCR(dStart.toISOString()),
-          endTime: formatTimeCR(dEnd.toISOString()),
-          startTimeVal: dStart.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }),
-          endTimeVal: dEnd.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }),
-          durationMs: excessMs,
-          minutes: excessMin,
-          reason: cleanReason || "Inactividad del sistema",
-        });
+    const coveredMs = getCoveredOverlap(currentIdleBlock.start, currentIdleBlock.end);
+    const effectiveDur = Math.max(0, currentIdleBlock.durationMs - coveredMs);
+    // Respetar estrictamente el panel de Tolerancia de Inactividad:
+    // "Pausas menores a este límite cuentan como trabajo activo dentro de la jornada laboral."
+    // Si la inactividad alcanza o supera el límite de tolerancia (ej. >= 3 min), se contabiliza íntegra como Inactivo.
+    if (effectiveDur >= TOLERANCE_GAP_MS) {
+      const idleMin = Math.max(1, Math.round(effectiveDur / 60000));
+      idleTotalMs += effectiveDur;
+      const dStart = new Date(currentIdleBlock.start + coveredMs);
+      const dEnd = new Date(currentIdleBlock.end);
+      let cleanReason = currentIdleBlock.reason
+        .replace(/^Sin actividad por \d+ minutos mientras /i, "Inactividad en ")
+        .replace(/^Pausa prolongada de \d+ minutos sin interacción en /i, "Sin interacción en ")
+        .replace(/^Dejó de usar "[^"]+" \(([^)]+)\).*/i, "$1")
+        .trim();
+      if (cleanReason.toLowerCase().includes("mystify") || cleanReason.toLowerCase().includes(".scr")) {
+        cleanReason = "Inactividad (Protector de pantalla)";
+      } else if (cleanReason.toLowerCase().includes("lockapp") || cleanReason.toLowerCase().includes("pantalla bloqueada")) {
+        cleanReason = "Inactividad (Pantalla bloqueada)";
       }
+      detectedGaps.push({
+        id: `idle-${currentIdleBlock.start}`,
+        dateStr: dStart.toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" }),
+        dateFormatted: dStart.toLocaleDateString("es-CR", { day: "numeric", month: "short", timeZone: "America/Costa_Rica" }),
+        startTime: formatTimeCR(dStart.toISOString()),
+        endTime: formatTimeCR(dEnd.toISOString()),
+        startTimeVal: dStart.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }),
+        endTimeVal: dEnd.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }),
+        durationMs: effectiveDur,
+        minutes: idleMin,
+        reason: cleanReason || "Inactividad del sistema",
+      });
     }
     currentIdleBlock = null;
   };
@@ -1041,11 +1063,35 @@ export function computeUnifiedActivityMetrics(
     const currTime = new Date(it.created_at).getTime();
 
     if (i === sorted.length - 1) {
+      const meta = (it.metadata || {}) as Record<string, any>;
+      const act = (it.action || "").toLowerCase();
+      const itemName = extractCleanItemName(it, options.appMappings);
+      const opCategory = assignToOperationalCategory(itemName, it.action, it.category, meta, options.appMappings);
+
+      if (opCategory === "Inactividad") {
+        const nowMs = Date.now();
+        const explicitIdleMs = Number(it.duration_ms || (meta.duration_seconds ? meta.duration_seconds * 1000 : 0) || (meta.idle_seconds ? meta.idle_seconds * 1000 : 0)) || 0;
+        const ongoingIdleMs = isTodayDay ? Math.min(Math.max(explicitIdleMs, Math.max(0, nowMs - currTime)), 2 * 3600 * 1000) : explicitIdleMs;
+        const endIdleMs = currTime + ongoingIdleMs;
+        if (!currentIdleBlock) {
+          currentIdleBlock = {
+            start: currTime,
+            end: endIdleMs,
+            durationMs: ongoingIdleMs,
+            reason: it.action || "Inactividad del sistema",
+          };
+        } else {
+          currentIdleBlock.end = Math.max(currentIdleBlock.end, endIdleMs);
+          currentIdleBlock.durationMs += ongoingIdleMs;
+        }
+        flushIdleBlock();
+        break;
+      }
+
       if (currentIdleBlock) {
         flushIdleBlock();
       }
-      const meta = (it.metadata || {}) as Record<string, any>;
-      const act = (it.action || "").toLowerCase();
+
       const isJustification = Boolean(
         meta.justification ||
           meta.manual_justification ||
@@ -1069,8 +1115,6 @@ export function computeUnifiedActivityMetrics(
           dur = Number(it.duration_ms);
         }
 
-        const itemName = extractCleanItemName(it, options.appMappings);
-        const opCategory = assignToOperationalCategory(itemName, it.action, it.category, meta, options.appMappings);
         opTimes[opCategory] = (opTimes[opCategory] || 0) + dur;
         recordSoftwareTime(itemName, dur, opCategory);
         const crHour =
@@ -1106,16 +1150,17 @@ export function computeUnifiedActivityMetrics(
 
     // Caso C: Inactividad del sistema (NO es software ni descanso)
     if (opCategory === "Inactividad") {
-      const dur = Math.min(rawGap, 2 * 3600 * 1000);
+      const explicitIdleMs = Number(it.duration_ms || (meta.duration_seconds ? meta.duration_seconds * 1000 : 0)) || 0;
+      const dur = Math.min(Math.max(rawGap, explicitIdleMs), 2 * 3600 * 1000);
       if (!currentIdleBlock) {
         currentIdleBlock = {
           start: currTime,
-          end: nextTime,
+          end: Math.max(nextTime, currTime + dur),
           durationMs: dur,
           reason: it.action || "Inactividad del sistema",
         };
       } else {
-        currentIdleBlock.end = nextTime;
+        currentIdleBlock.end = Math.max(currentIdleBlock.end, nextTime, currTime + dur);
         currentIdleBlock.durationMs += dur;
       }
       continue;
@@ -1298,28 +1343,13 @@ export function computeUnifiedActivityMetrics(
           if (hourlyTrend[crHour] !== undefined) hourlyTrend[crHour] += dur;
         }
       } else {
-        // Brecha no cubierta que supera la tolerancia oficial configurada
-        const excessMs = effectiveIdleGap - TOLERANCE_GAP_MS;
-        const excessMin = Math.round(excessMs / 60000);
+        // Brecha no cubierta que supera la tolerancia oficial configurada en el panel (ej. 3 min)
+        const hasExplicitDurations = Boolean(workReportedMs > 0 || it.duration_ms || meta.duration_seconds);
+        const productivePart = hasExplicitDurations ? workReportedMs : TOLERANCE_GAP_MS;
+        const idlePart = hasExplicitDurations ? effectiveIdleGap : (effectiveIdleGap - TOLERANCE_GAP_MS);
+        const idleMin = Math.max(1, Math.round(idlePart / 60000));
 
-        // Si el exceso no supera los 2 minutos (ej. pausas normales apenas encima del límite),
-        // se mantiene cubierto por la tolerancia y margen operativo normal de la jornada.
-        if (excessMin < 3) {
-          const dur = effectiveIdleGap;
-          opTimes[opCategory] = (opTimes[opCategory] || 0) + dur;
-          recordSoftwareTime(itemName, dur, opCategory);
-
-          const crHour =
-            parseInt(
-              new Date(currTime).toLocaleString("en-US", { timeZone: "America/Costa_Rica", hour: "numeric", hour12: false }),
-              10
-            ) % 24;
-          if (hourlyTrend[crHour] !== undefined) hourlyTrend[crHour] += dur;
-        } else {
-          // Superó la tolerancia en 3 o más minutos: se respeta la tolerancia oficial como productiva y el exceso es la laguna
-          const productivePart = TOLERANCE_GAP_MS;
-          const idlePart = excessMs;
-
+        if (productivePart > 0) {
           opTimes[opCategory] = (opTimes[opCategory] || 0) + productivePart;
           recordSoftwareTime(itemName, productivePart, opCategory);
 
@@ -1329,25 +1359,25 @@ export function computeUnifiedActivityMetrics(
               10
             ) % 24;
           if (hourlyTrend[crHour] !== undefined) hourlyTrend[crHour] += productivePart;
-
-          idleTotalMs += idlePart;
-
-          const dStart = new Date(currTime + coveredMs + TOLERANCE_GAP_MS);
-          const dEnd = new Date(nextTime);
-          const totalAbsenceMin = Math.round(effectiveIdleGap / 60000);
-          detectedGaps.push({
-            id: `gap-${i}`,
-            dateStr: dStart.toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" }),
-            dateFormatted: dStart.toLocaleDateString("es-CR", { day: "numeric", month: "short", timeZone: "America/Costa_Rica" }),
-            startTime: formatTimeCR(dStart.toISOString()),
-            endTime: formatTimeCR(dEnd.toISOString()),
-            startTimeVal: dStart.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }),
-            endTimeVal: dEnd.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }),
-            durationMs: idlePart,
-            minutes: excessMin,
-            reason: `Ausencia de ${totalAbsenceMin} min (${formatTimeCR(dStart.toISOString())} - ${formatTimeCR(dEnd.toISOString())}) — excede tolerancia (${toleranceMin} min) en ${excessMin} min`,
-          });
         }
+
+        idleTotalMs += idlePart;
+
+        const dStart = new Date(currTime + coveredMs + (hasExplicitDurations ? 0 : TOLERANCE_GAP_MS));
+        const dEnd = new Date(nextTime - (hasExplicitDurations ? workReportedMs : 0));
+        const totalAbsenceMin = Math.max(1, Math.round(effectiveIdleGap / 60000));
+        detectedGaps.push({
+          id: `gap-${i}`,
+          dateStr: dStart.toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" }),
+          dateFormatted: dStart.toLocaleDateString("es-CR", { day: "numeric", month: "short", timeZone: "America/Costa_Rica" }),
+          startTime: formatTimeCR(dStart.toISOString()),
+          endTime: formatTimeCR(dEnd.toISOString()),
+          startTimeVal: dStart.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }),
+          endTimeVal: dEnd.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }),
+          durationMs: idlePart,
+          minutes: idleMin,
+          reason: `Ausencia de ${totalAbsenceMin} min (${formatTimeCR(dStart.toISOString())} - ${formatTimeCR(dEnd.toISOString())}) — supera tolerancia (${toleranceMin} min)`,
+        });
       }
     }
   }

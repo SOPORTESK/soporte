@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { logActivity } from "@/lib/activity-client";
 
 const HEARTBEAT_INTERVAL = 2 * 60 * 1000; // 2 minutos para mantener telemetría activa continua
-const IDLE_THRESHOLD = 15 * 60 * 1000; // 15 minutos (tolerancia real de lectura/taller antes de marcar pausa)
+let _webIdleThresholdMs = 3 * 60 * 1000; // Respetar panel de Tolerancia de Inactividad (por defecto 3 min)
 
 // Flags globales para evitar duplicar entre layouts
 let sessionLogged = false;
@@ -74,6 +74,15 @@ export function useActivityTracker(agentEmail: string, agentName: string, enable
     if (mountedRef.current) return;
     mountedRef.current = true;
 
+    fetch("/api/activity/schedule")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.toleranceMinutes && Number(d.toleranceMinutes) >= 1) {
+          _webIdleThresholdMs = Math.max(1, Number(d.toleranceMinutes)) * 60 * 1000;
+        }
+      })
+      .catch(() => {});
+
     let idleTimer: ReturnType<typeof setTimeout>;
     let scrollTimer: ReturnType<typeof setTimeout>;
 
@@ -128,17 +137,6 @@ export function useActivityTracker(agentEmail: string, agentName: string, enable
       const now = Date.now();
       if (isIdleRef.current) {
         isIdleRef.current = false;
-        const idleDurationSec = (now - lastHeartbeatRef.current) / 1000;
-        const pageLabel = pathnameToLabel(lastPathRef.current);
-        if (idleDurationSec >= 30) {
-          logActivity({
-            agent_email: agentEmail,
-            agent_name: agentName,
-            action: `Reanudó labores tras ${formatDwell(idleDurationSec)} de pausa en "${pageLabel}"`,
-            category: "Navegación",
-            metadata: { idle_seconds: Math.round(idleDurationSec), page: lastPathRef.current },
-          });
-        }
       }
       lastHeartbeatRef.current = now;
 
@@ -149,7 +147,7 @@ export function useActivityTracker(agentEmail: string, agentName: string, enable
       clearTimeout(idleTimer);
       idleTimer = setTimeout(() => {
         isIdleRef.current = true;
-      }, IDLE_THRESHOLD);
+      }, _webIdleThresholdMs);
     };
 
     // ── Track clicks (solo contar e idle reset, sin spamear logs individuales) ──

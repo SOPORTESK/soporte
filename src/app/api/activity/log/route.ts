@@ -20,21 +20,24 @@ export async function POST(req: NextRequest) {
     const catLower = String(category || "").toLowerCase();
     const appMetaLower = String(metadata?.app || metadata?.app_name || metadata?.process || "").toLowerCase();
 
-    // Descartar eventos de pantallas de bloqueo o protectores de pantalla disfrazados de apps o spam repetitivo de clientes antiguos
+    // Descartar únicamente cuando clientes antiguos intentan reportar LockApp o protectores .scr como software productivo repetitivo,
+    // pero PERMITIR siempre los registros legítimos de categoría 'Inactividad'.
     if (
-      appMetaLower === "lockapp" ||
-      appMetaLower === "logonui" ||
-      appMetaLower.endsWith(".scr") ||
-      actLower.includes("mientras \"lockapp\" estaba abierta") ||
-      actLower.startsWith("en curso • lockapp") ||
-      actLower.startsWith("lockapp:") ||
-      actLower.includes("mystify") ||
-      actLower.includes(".scr")
+      catLower !== "inactividad" &&
+      (
+        appMetaLower === "lockapp" ||
+        appMetaLower === "logonui" ||
+        appMetaLower.endsWith(".scr") ||
+        actLower.startsWith("en curso • lockapp") ||
+        actLower.startsWith("lockapp:") ||
+        actLower.includes("mystify") ||
+        actLower.includes(".scr")
+      )
     ) {
       return NextResponse.json({
         success: true,
         discarded: true,
-        message: "Evento de protector/bloqueo de pantalla ignorado",
+        message: "Evento de protector/bloqueo de pantalla como software productivo ignorado",
       });
     }
 
@@ -73,8 +76,10 @@ export async function POST(req: NextRequest) {
       }
 
       // Jerarquía de Horario: Prioriza horario individual del empleado; si no tiene, usa el horario operativo global
+      let configuredToleranceMin = 3;
       try {
         const sched = await getAgentSchedule(agent_email);
+        configuredToleranceMin = Math.max(1, Number(sched.toleranceMinutes) || 3);
         if (sched.scheduleEnabled) {
           const nowCostaRica = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Costa_Rica" }));
           const dayOfWeek = nowCostaRica.getDay(); // 0 = Domingo, 1 = Lunes, ..., 6 = Sábado
@@ -120,6 +125,27 @@ export async function POST(req: NextRequest) {
       } catch (err) {
         console.error("[activity/log] Error checking schedule:", err);
       }
+
+      const finalAction = catLower === "inactividad"
+        ? String(action).replace(/^Sin actividad por \d+ minutos/i, `Sin actividad por ${configuredToleranceMin} minutos`)
+        : action;
+
+      try {
+        await insertActivityLog({
+          agent_email,
+          agent_name: agent_name || agent_email,
+          action: finalAction,
+          category,
+          case_id: case_id || null,
+          metadata: metadata || null,
+          duration_ms: duration_ms || null,
+          created_at: created_at || undefined,
+        });
+      } catch (e: any) {
+        console.error("[activity/log] Async insert error:", e.message);
+      }
+
+      return NextResponse.json({ success: true });
     }
 
     try {

@@ -278,10 +278,11 @@ const HEARTBEAT_INTERVAL = 60000;   // 1 minuto (60s) para puntos de control con
 
 let _cachedSchedule = null;
 let _lastScheduleFetch = 0;
+let _isIdle = false;
 
 async function getEffectiveSchedule(agentEmail) {
   const now = Date.now();
-  if (_cachedSchedule && (now - _lastScheduleFetch < 60000)) {
+  if (_cachedSchedule && (now - _lastScheduleFetch < 15000)) {
     return _cachedSchedule;
   }
   try {
@@ -295,6 +296,7 @@ async function getEffectiveSchedule(agentEmail) {
       const parsed = typeof data.value === 'string' ? JSON.parse(data.value) : data.value;
       const normalizedEmail = (agentEmail || '').trim().toLowerCase();
       const custom = parsed.agentSchedules ? parsed.agentSchedules[normalizedEmail] : null;
+      const toleranceMinutes = Math.max(1, Number(parsed.toleranceMinutes) || 3);
 
       if (custom && custom.custom) {
         _cachedSchedule = {
@@ -304,6 +306,7 @@ async function getEffectiveSchedule(agentEmail) {
           workDays: Array.isArray(custom.workDays) && custom.workDays.length > 0 ? custom.workDays : (parsed.workDays || [1, 2, 3, 4, 5]),
           useMixedSchedule: Boolean(custom.useMixedSchedule !== undefined ? custom.useMixedSchedule : parsed.useMixedSchedule),
           daySchedules: custom.daySchedules || parsed.daySchedules || undefined,
+          toleranceMinutes,
           isCustom: true,
         };
       } else {
@@ -314,6 +317,7 @@ async function getEffectiveSchedule(agentEmail) {
           workDays: Array.isArray(parsed.workDays) && parsed.workDays.length > 0 ? parsed.workDays : [1, 2, 3, 4, 5],
           useMixedSchedule: Boolean(parsed.useMixedSchedule),
           daySchedules: parsed.daySchedules || undefined,
+          toleranceMinutes,
           isCustom: false,
         };
       }
@@ -328,6 +332,7 @@ async function getEffectiveSchedule(agentEmail) {
     scheduleEnd: '17:00',
     scheduleEnabled: true,
     workDays: [1, 2, 3, 4, 5],
+    toleranceMinutes: 3,
     isCustom: false,
   };
 }
@@ -435,27 +440,100 @@ async function poll() {
     const procName = win.Process || 'Unknown';
     const title = win.Title || '';
     const url = win.URL || '';
+    const idleSec = Number(win.IdleSeconds) || 0;
     const now = Date.now();
 
     const pLower = procName.toLowerCase();
     const tLower = title.toLowerCase();
+    const toleranceMin = Math.max(1, Number(sched?.toleranceMinutes) || 3);
+    const idleThresholdSec = toleranceMin * 60;
 
-    if (
-      procName === 'Idle' ||
+    const isScreenLockedOrScreensaver =
       procName === 'LockApp' ||
-      procName === 'ScreenClippingHost' ||
+      procName === 'LogonUI' ||
       pLower.endsWith('.scr') ||
       pLower.includes('mystify') ||
       pLower.includes('scrnsave') ||
       tLower.includes('mystify') ||
-      !title
-    ) {
-      // Reiniciar enterTime para que el protector de pantalla o bloqueo no acumule horas fantasma
-      _enterTime = now;
-      _lastLabel = '';
-      _lastTitle = '';
-      _lastUrl = '';
+      tLower.includes('pantalla de bloqueo');
+
+    const isUserIdle = idleSec >= idleThresholdSec;
+
+    if (isScreenLockedOrScreensaver || isUserIdle) {
+      if (!_isIdle) {
+        _isIdle = true;
+        // 1. Cerrar la aplicación productiva previa hasta el instante en que inició la inactividad
+        const idleOffsetMs = isUserIdle ? (idleSec * 1000) : 0;
+        const activeEndMs = Math.max(_enterTime, now - idleOffsetMs);
+        const rawActiveDwell = Math.max(0, activeEndMs - _enterTime);
+        const activeDwellMs = Math.min(rawActiveDwell, 30 * 60 * 1000);
+        const minDwell = _lastContextType === 'system' ? 60000 : MIN_SESSION_MS;
+
+        if (_lastLabel && activeDwellMs >= minDwell) {
+          const execAction = formatExecutiveAction(_lastCategory, _lastLabel, _lastContext, activeDwellMs);
+          await supabase.from('activity_log').insert({
+            agent_email: AGENT_EMAIL,
+            agent_name: AGENT_NAME,
+            action: execAction,
+            category: _lastCategory,
+            duration_ms: activeDwellMs,
+            created_at: new Date(activeEndMs).toISOString(),
+            metadata: {
+              app_name: _lastLabel,
+              label: _lastLabel,
+              process: _lastProcess,
+              title: _lastTitle,
+              url: _lastUrl || undefined,
+              source: 'desktop',
+              duration_seconds: Math.round(activeDwellMs / 1000),
+              context: _lastContext,
+              context_type: _lastContextType,
+              executive_report: true
+            }
+          });
+        }
+
+        // 2. Registrar el inicio del bloque de Inactividad respetando la tolerancia del panel
+        const idleStartIso = new Date(Math.max(activeEndMs, now - idleOffsetMs)).toISOString();
+        const idleAction = isScreenLockedOrScreensaver
+          ? (_lastLabel ? `Pantalla bloqueada mientras usaba "${_lastLabel}"` : 'Inactividad: Pantalla bloqueada / Protector de pantalla')
+          : (_lastLabel ? `Sin actividad por ${toleranceMin} minutos mientras "${_lastLabel}" estaba abierta` : `Sin actividad por ${toleranceMin} minutos`);
+
+        await supabase.from('activity_log').insert({
+          agent_email: AGENT_EMAIL,
+          agent_name: AGENT_NAME,
+          action: idleAction,
+          category: 'Inactividad',
+          created_at: idleStartIso,
+          metadata: {
+            app: _lastProcess || undefined,
+            app_name: _lastLabel || undefined,
+            title: (_lastTitle || '').substring(0, 100),
+            idle_seconds: idleSec,
+            tolerance_minutes: toleranceMin,
+            reason: isScreenLockedOrScreensaver ? 'lock_screen' : 'idle_timeout',
+            source: 'desktop'
+          }
+        });
+        console.log(`[Windows Agent] [Inactividad] ${idleAction}`);
+
+        _lastLabel = '';
+        _lastTitle = '';
+        _lastUrl = '';
+        _enterTime = now;
+      }
       return;
+    }
+
+    // Ventanas transitorias del sistema cuando el usuario sigue activo (< tolerancia): ignorar sin borrar la sesión en curso
+    if (procName === 'Idle' || procName === 'ScreenClippingHost' || !title) {
+      return;
+    }
+
+    if (_isIdle) {
+      _isIdle = false;
+      _enterTime = now;
+      _lastHeartbeat = now;
     }
 
     const { category, label, context, context_type } = categorizeWindow(procName, title, url);

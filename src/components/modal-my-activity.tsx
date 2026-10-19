@@ -133,7 +133,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
   const ITEMS_PER_PAGE = 8;
 
   // Tolerancia oficial de inactividad configurada por los administradores (en minutos)
-  const [toleranceMin, setToleranceMin] = useState<number>(15);
+  const [toleranceMin, setToleranceMin] = useState<number>(3);
   const [scheduleStart, setScheduleStart] = useState<string>("07:00");
   const [scheduleEnd, setScheduleEnd] = useState<string>("17:00");
   const [showManualJustify, setShowManualJustify] = useState(false);

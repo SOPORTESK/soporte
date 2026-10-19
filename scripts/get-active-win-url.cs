@@ -17,12 +17,39 @@ namespace ActiveWinUrl
         [DllImport("user32.dll", SetLastError = true)]
         static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
+        [StructLayout(LayoutKind.Sequential)]
+        struct LASTINPUTINFO
+        {
+            public uint cbSize;
+            public uint dwTime;
+        }
+
+        [DllImport("user32.dll")]
+        static extern bool GetLastInputInfo(ref LASTINPUTINFO plii);
+
+        static int GetIdleSeconds()
+        {
+            try
+            {
+                LASTINPUTINFO lii = new LASTINPUTINFO();
+                lii.cbSize = (uint)Marshal.SizeOf(typeof(LASTINPUTINFO));
+                if (GetLastInputInfo(ref lii))
+                {
+                    uint elapsedTicks = unchecked((uint)Environment.TickCount - lii.dwTime);
+                    return (int)(elapsedTicks / 1000);
+                }
+            }
+            catch {}
+            return 0;
+        }
+
         static void Main(string[] args)
         {
+            int idleSec = GetIdleSeconds();
             IntPtr hWnd = GetForegroundWindow();
             if (hWnd == IntPtr.Zero)
             {
-                Console.WriteLine("{\"Process\":\"Idle\",\"Title\":\"\",\"URL\":\"\",\"Id\":0,\"Time\":\"" + DateTime.Now.ToString("HH:mm:ss") + "\"}");
+                Console.WriteLine("{\"Process\":\"Idle\",\"Title\":\"\",\"URL\":\"\",\"Id\":0,\"IdleSeconds\":" + idleSec + ",\"Time\":\"" + DateTime.Now.ToString("HH:mm:ss") + "\"}");
                 return;
             }
 
@@ -52,11 +79,12 @@ namespace ActiveWinUrl
             }
 
             string json = string.Format(
-                "{{\"Process\":{0},\"Title\":{1},\"URL\":{2},\"Id\":{3},\"Time\":{4}}}",
+                "{{\"Process\":{0},\"Title\":{1},\"URL\":{2},\"Id\":{3},\"IdleSeconds\":{4},\"Time\":{5}}}",
                 EscapeJson(processName),
                 EscapeJson(title),
                 EscapeJson(url),
                 processId,
+                idleSec,
                 EscapeJson(DateTime.Now.ToString("HH:mm:ss"))
             );
 

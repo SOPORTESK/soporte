@@ -103,15 +103,32 @@ try { Database = require('better-sqlite3'); } catch (e) { console.log('[tracker]
 const isDev = process.env.NODE_ENV === 'development';
 const ACTIVITY_API = isDev ? 'http://localhost:3100/api/activity/log' : 'https://sekachat.vercel.app/api/activity/log';
 const SCREENSHOT_API = isDev ? 'http://localhost:3100/api/activity/screenshot' : 'https://sekachat.vercel.app/api/activity/screenshot';
+const SCHEDULE_API_LOCAL = 'http://localhost:3100/api/activity/schedule';
+const SCHEDULE_API_PROD = 'https://sekachat.vercel.app/api/activity/schedule';
 
 const POLL_INTERVAL = 5000;            // 5s — polling ventana activa
 const KEYLOG_FLUSH_INTERVAL = 30000;   // 30s — flush keystrokes
 const SCREENSHOT_INTERVAL = 60000;     // 60s — captura de pantalla
 const SYNC_INTERVAL = 60000;           // 60s — sync con servidor
-const IDLE_THRESHOLD = 5 * 60 * 1000;  // 5 min
-const HEARTBEAT_EVERY = 300;            // 5 min (300s) para puntos de control ejecutivos
+let _toleranceMinutes = 3;             // Respetar panel de Tolerancia de Inactividad (por defecto 3 min)
+const HEARTBEAT_EVERY = 300;           // 5 min (300s) para puntos de control ejecutivos
 const SYNC_BATCH_SIZE = 50;
 const MASK_PASSWORDS = false;          // true = enmascara teclas en ventanas con "password"
+
+async function refreshToleranceConfig() {
+  for (const url of [SCHEDULE_API_LOCAL, SCHEDULE_API_PROD]) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && Number(data.toleranceMinutes) >= 1) {
+          _toleranceMinutes = Math.max(1, Math.min(60, Number(data.toleranceMinutes)));
+          return;
+        }
+      }
+    } catch {}
+  }
+}
 
 // ─── STATE ────────────────────────────────────────────────────────────────────
 let _agentEmail = null;
@@ -498,6 +515,7 @@ async function syncDB() {
     // Limpiar entries ya synced (older than 24h)
     const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     _db.prepare('DELETE FROM activity_queue WHERE synced = 1 AND created_at < ?').run(cutoff);
+    await refreshToleranceConfig();
   } catch (e) { console.error('[tracker] syncDB error:', e.message); }
 }
 
@@ -505,14 +523,48 @@ async function syncDB() {
 async function pollActivity() {
   if (!_agentEmail) return;
   try {
+    const idleThresholdMs = Math.max(1, _toleranceMinutes) * 60 * 1000;
     // Idle detection via powerMonitor
     const idleSec = powerMonitor.getSystemIdleTime ? powerMonitor.getSystemIdleTime() : 0;
-    if (idleSec * 1000 > IDLE_THRESHOLD && !_isIdle) {
+    if (idleSec * 1000 >= idleThresholdMs && !_isIdle) {
       _isIdle = true;
+      const now = Date.now();
+      const idleOffsetMs = idleSec * 1000;
+      const activeEndMs = Math.max(_appEnterTime, now - idleOffsetMs);
+
       if (_lastApp && !isIgnoredSystemWindow(_lastApp, _lastTitle)) {
-        const dwellSec = Math.round((Date.now() - _appEnterTime) / 1000);
-        const { label } = categorizeApp(_lastApp, _lastTitle, _lastUrl);
-        await sendLog(`Sin actividad por 15 minutos mientras "${label}" estaba abierta`, 'Inactividad', { app: _lastApp, title: (_lastTitle || '').substring(0, 100), dwell_seconds: dwellSec });
+        const rawActiveDwell = Math.max(0, activeEndMs - _appEnterTime);
+        const activeDwellMs = Math.min(rawActiveDwell, 30 * 60 * 1000);
+        const lastCatInfo = categorizeApp(_lastApp, _lastTitle, _lastUrl);
+        if (activeDwellMs >= 15000) {
+          const execAction = formatExecutiveAction(lastCatInfo.category, lastCatInfo.label, lastCatInfo.context, activeDwellMs);
+          await sendLog(execAction, lastCatInfo.category, {
+            app: _lastApp,
+            app_name: lastCatInfo.label,
+            label: lastCatInfo.label,
+            title: _lastTitle,
+            url: _lastUrl || undefined,
+            dwell_seconds: Math.round(activeDwellMs / 1000),
+            duration_ms: activeDwellMs,
+            source: 'desktop',
+            context: lastCatInfo.context,
+            context_type: lastCatInfo.context_type,
+            executive_report: true
+          }, new Date(activeEndMs).toISOString());
+        }
+        await sendLog(
+          `Sin actividad por ${_toleranceMinutes} minutos mientras "${lastCatInfo.label}" estaba abierta`,
+          'Inactividad',
+          { app: _lastApp, app_name: lastCatInfo.label, title: (_lastTitle || '').substring(0, 100), idle_seconds: idleSec, tolerance_minutes: _toleranceMinutes, reason: 'idle_timeout' },
+          new Date(Math.max(activeEndMs, now - idleOffsetMs)).toISOString()
+        );
+      } else {
+        await sendLog(
+          `Sin actividad por ${_toleranceMinutes} minutos`,
+          'Inactividad',
+          { idle_seconds: idleSec, tolerance_minutes: _toleranceMinutes, reason: 'idle_timeout' },
+          new Date(now - idleOffsetMs).toISOString()
+        );
       }
       _lastApp = null; _lastTitle = null; _lastUrl = null;
       return;
@@ -524,9 +576,25 @@ async function pollActivity() {
         const rawDwell = Date.now() - _appEnterTime;
         const dwellMs = Math.min(rawDwell, 30 * 60 * 1000);
         const dwellSec = Math.round(dwellMs / 1000);
-        if (dwellMs >= 10000 && !isIgnoredSystemWindow(_lastApp, _lastTitle)) {
-          const { category, label } = categorizeApp(_lastApp, _lastTitle, _lastUrl);
-          await sendLog(`Dejó de usar "${label}" (pantalla bloqueada) después de ${formatDwell(dwellSec)}`, category, { app: _lastApp, title: _lastTitle, url: _lastUrl || undefined, dwell_seconds: dwellSec, duration_ms: dwellMs, reason: 'no_window' });
+        if (!isIgnoredSystemWindow(_lastApp, _lastTitle)) {
+          const lastCatInfo = categorizeApp(_lastApp, _lastTitle, _lastUrl);
+          if (dwellMs >= 10000) {
+            const execAction = formatExecutiveAction(lastCatInfo.category, lastCatInfo.label, lastCatInfo.context, dwellMs);
+            await sendLog(execAction, lastCatInfo.category, {
+              app: _lastApp,
+              app_name: lastCatInfo.label,
+              label: lastCatInfo.label,
+              title: _lastTitle,
+              url: _lastUrl || undefined,
+              dwell_seconds: dwellSec,
+              duration_ms: dwellMs,
+              source: 'desktop',
+              context: lastCatInfo.context,
+              context_type: lastCatInfo.context_type,
+              executive_report: true
+            });
+          }
+          await sendLog(`Pantalla bloqueada mientras usaba "${lastCatInfo.label}"`, 'Inactividad', { app: _lastApp, app_name: lastCatInfo.label, title: _lastTitle, reason: 'lock_screen' });
         }
         _lastApp = null; _lastTitle = null; _lastUrl = null;
       }
@@ -534,11 +602,16 @@ async function pollActivity() {
       return;
     }
 
-    if (idleSec * 1000 > IDLE_THRESHOLD) {
+    if (idleSec * 1000 >= idleThresholdMs) {
       return;
     }
 
-    _isIdle = false;
+    if (_isIdle) {
+      _isIdle = false;
+      _appEnterTime = Date.now();
+      _lastActivityTime = Date.now();
+      _lastHeartbeatSec = 0;
+    }
     const appName = win.owner?.name || 'Unknown';
     const title = win.title || '';
     const url = win.url || '';
@@ -762,6 +835,7 @@ function startDesktopTracking(agentEmail, agentName) {
 
   // Inicializar SQLite
   initDB();
+  refreshToleranceConfig();
 
   // Ventana activa
   if (_pollTimer) clearInterval(_pollTimer);

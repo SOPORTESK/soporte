@@ -20,7 +20,7 @@ export function CompanySchedulePanel() {
   const [scheduleEnabled, setScheduleEnabled] = useState<boolean>(true);
   const [workDays, setWorkDays] = useState<number[]>([1, 2, 3, 4, 5]);
   const [targetDailyHours, setTargetDailyHours] = useState<number>(10);
-  const [toleranceMinutes, setToleranceMinutes] = useState<number>(5);
+  const [toleranceMinutes, setToleranceMinutes] = useState<number>(3);
   const [loading, setLoading] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
   const [savedSuccess, setSavedSuccess] = useState<boolean>(false);
@@ -100,6 +100,8 @@ export function CompanySchedulePanel() {
           localStorage.setItem("sekunet_activity_schedule_end", scheduleEnd);
           localStorage.setItem("sekunet_activity_schedule_enabled", String(scheduleEnabled));
           localStorage.setItem("sekunet_activity_target_daily_hours", String(targetDailyHours));
+          localStorage.setItem("sekunet_activity_tolerance_minutes", String(toleranceMinutes));
+          window.dispatchEvent(new Event("storage"));
         } catch {}
         setTimeout(() => setSavedSuccess(false), 3000);
       } else {
