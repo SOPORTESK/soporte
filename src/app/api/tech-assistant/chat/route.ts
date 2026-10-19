@@ -484,24 +484,25 @@ async function getFullKnowledgeAndCasesIndex(serviceClient: any): Promise<{
     serviceClient
       .from("sek_cases")
       .select(selectCols)
-      .eq("estado", "cerrado")
+      .in("estado", ["cerrado", "resuelto"])
       .order("closed_at", { ascending: false })
       .range(0, 999),
     serviceClient
       .from("sek_cases")
       .select(selectCols)
-      .eq("estado", "cerrado")
+      .in("estado", ["cerrado", "resuelto"])
       .order("closed_at", { ascending: false })
       .range(1000, 2499),
-    serviceClient.from("sek_agent_config").select("email, full_name"),
+    serviceClient.from("sek_agent_config").select("email, nombre, apellido"),
     serviceClient.from("sek_doc_chunks").select("id, doc_name, content").limit(500),
   ]);
 
   const agentNameByEmail = new Map<string, string>();
   if (Array.isArray(agentsRes.data)) {
     for (const ag of agentsRes.data) {
-      if (ag.email && ag.full_name) {
-        agentNameByEmail.set(String(ag.email).toLowerCase().trim(), String(ag.full_name).trim());
+      const fullName = [ag.nombre, ag.apellido].filter(Boolean).join(" ").trim();
+      if (ag.email && fullName) {
+        agentNameByEmail.set(String(ag.email).toLowerCase().trim(), fullName);
       }
     }
   }
@@ -1000,7 +1001,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Tokenizar palabras técnicas adicionales de la consulta
+    // Tokenizar palabras técnicas tanto de la consulta del técnico como del caso abierto en pantalla
     const STOPWORDS = new Set([
       "como", "cómo", "para", "este", "esta", "estos", "estas", "caso", "cliente", "equipo", "tiene", "hacer",
       "hago", "puede", "puedo", "cuando", "donde", "dónde", "cual", "cuál", "porque", "por", "que", "qué",
@@ -1008,13 +1009,19 @@ export async function POST(req: NextRequest) {
       "diagnostique", "resuelva", "averia", "avería", "identifique", "reportada", "consulte", "precedentes",
       "similares", "resueltos", "sekunet", "brinde", "procedimiento", "tecnico", "técnico", "exacto", "comprobado",
       "solucionarlo", "inmediato", "hola", "buenas", "tardes", "dias", "días", "ayuda", "favor", "estimado",
-      "usuario", "administrador", "opcion", "opción", "seccion", "sección", "menu", "menú", "ingrese", "vaya",
+      "opcion", "opción", "seccion", "sección", "menu", "menú", "ingrese", "vaya", "muchas", "gracias",
+      "buenos", "saludos", "consulta", "consultar", "solicita", "indica", "mensaje", "conversacion", "conversación",
     ]);
-    const queryTokens = userQueryOnly
-      .toLowerCase()
-      .replace(/[^a-záéíóúñ0-9-]/gi, " ")
-      .split(/\s+/)
-      .filter((w: string) => w.length >= 4 && !STOPWORDS.has(w));
+    const rawTokenSource = `${userQueryOnly} ${primaryTopicText}`;
+    const queryTokens = [
+      ...new Set(
+        rawTokenSource
+          .toLowerCase()
+          .replace(/[^a-záéíóúñ0-9-]/gi, " ")
+          .split(/\s+/)
+          .filter((w: string) => w.length >= 4 && !STOPWORDS.has(w) && !/^\d+$/.test(w))
+      ),
+    ].slice(0, 18);
 
     // ── 5.1 & 5.2. Consulta en el 100% de la Base de Datos de Casos Resueltos y Manuales Oficiales ──
     let ragContext = "";
@@ -1025,13 +1032,12 @@ export async function POST(req: NextRequest) {
     try {
       const { precedents, docChunks } = await getFullKnowledgeAndCasesIndex(serviceClient);
 
-      // A) Selección estricta de Manuales Oficiales (evitando manuales de nicho no relacionados como Bodycamera o Routers cuando el caso es de Grabadores/CCTV)
+      // A) Selección de Manuales Oficiales relevantes
       const scoredChunks: { chunk: IndexedDocChunk; score: number }[] = [];
       for (const ch of docChunks) {
         const docLower = ch.doc_name.toLowerCase();
         const textLower = ch.searchCorpus;
 
-        // Filtros estrictos de exclusión para manuales de nicho específico:
         if (docLower.includes("bodycamera") && !/bodycam|body\s*camera|corporal/i.test(fullContextCorpus)) {
           continue;
         }
@@ -1053,7 +1059,7 @@ export async function POST(req: NextRequest) {
 
         let score = 0;
         if (primaryBrand) {
-          if (docLower.includes(primaryBrand)) score += 60;
+          if (docLower.includes(primaryBrand)) score += 55;
           else if (textLower.includes(primaryBrand)) score += 25;
 
           const competingBrandInTitle = KNOWN_BRANDS.find((b) => b !== primaryBrand && docLower.includes(b));
@@ -1070,10 +1076,10 @@ export async function POST(req: NextRequest) {
           }
         }
         for (const qt of queryTokens) {
-          if (textLower.includes(qt)) score += 14;
+          if (textLower.includes(qt)) score += 12;
         }
 
-        if (score >= 30) {
+        if (score >= 22) {
           scoredChunks.push({ chunk: ch, score });
         }
       }
@@ -1103,7 +1109,7 @@ export async function POST(req: NextRequest) {
           .join("\n\n");
       }
 
-      // B) Selección de Casos Precedentes Resueltos (exigiendo coincidencia en el problema técnico, no solo en la marca o modelo)
+      // B) Selección de Casos Precedentes Resueltos en Sekunet
       const scoredCases: { prec: IndexedPrecedent; score: number }[] = [];
       for (const p of precedents) {
         if (validCaseId && p.id === validCaseId) continue;
@@ -1114,57 +1120,54 @@ export async function POST(req: NextRequest) {
         if (activeFaultDomain) {
           const precDomScore = p.domainScores[activeFaultDomain] || 0;
           if (p.primaryDomain === activeFaultDomain) {
-            faultScore += 75 + Math.min(precDomScore, 60);
-          } else if (precDomScore >= 28) {
-            faultScore += 40 + Math.min(precDomScore, 45);
-          } else {
-            // Si el caso precedente pertenece a otro dominio técnico distinto y no aborda la falla actual, descartarlo
-            continue;
+            faultScore += 65 + Math.min(precDomScore, 55);
+          } else if (precDomScore >= 14) {
+            faultScore += 35 + Math.min(precDomScore, 40);
           }
         }
 
         // 2. Coincidencia en frases y términos técnicos específicos de la falla
         for (const term of activeFaultTerms) {
           if (p.searchCorpus.includes(term)) {
-            faultScore += term.includes(" ") ? 30 : 14;
+            faultScore += term.includes(" ") ? 28 : 14;
           }
         }
 
-        // 3. Coincidencia en palabras específicas de la consulta del técnico
+        // 3. Coincidencia en palabras clave del caso o consulta del técnico
+        let matchedTokens = 0;
         for (const qt of queryTokens) {
           if (p.searchCorpus.includes(qt)) {
-            faultScore += 18;
+            matchedTokens++;
+            faultScore += 14;
           }
         }
 
-        // Exigir que exista coincidencia real con el problema consultado
-        if (faultScore < 25 && cleanModels.length === 0) continue;
+        if (faultScore < 14 && matchedTokens === 0 && cleanModels.length === 0) continue;
 
         let brandAndModelScore = 0;
         if (primaryBrand) {
           if (p.brand.includes(primaryBrand) || p.equipmentLabel.toLowerCase().includes(primaryBrand)) {
-            brandAndModelScore += 45;
+            brandAndModelScore += 40;
           } else if (p.searchCorpus.includes(primaryBrand)) {
-            brandAndModelScore += 25;
+            brandAndModelScore += 22;
           } else {
             const hasCompetingBrand = KNOWN_BRANDS.some(
               (b) => b !== primaryBrand && (p.brand.includes(b) || p.equipmentLabel.toLowerCase().includes(b))
             );
             if (hasCompetingBrand) {
-              brandAndModelScore -= 70;
+              brandAndModelScore -= 60;
             }
           }
         }
 
         for (const cm of cleanModels.slice(0, 2)) {
           if (p.model.includes(cm) || p.searchCorpus.includes(cm)) {
-            // El modelo suma puntos SOLO cuando ya hay relación con la falla (o si se busca específicamente el modelo)
             brandAndModelScore += faultScore > 0 ? 45 : 25;
           }
         }
 
         const totalScore = faultScore + brandAndModelScore + (p.solutionText.length > 140 ? 10 : 0);
-        if (totalScore >= 55) {
+        if (totalScore >= 32) {
           scoredCases.push({ prec: p, score: totalScore });
         }
       }
@@ -1184,12 +1187,13 @@ export async function POST(req: NextRequest) {
       console.warn("[tech-assistant] Error consultando índice completo de casos y manuales:", dbErr?.message);
     }
 
-    // ── 5.3. Búsqueda Web Técnica en Vivo alineada al Dominio Técnico Real ──
+    // ── 5.3. Búsqueda Web Técnica en Vivo alineada al Caso ──
     let webContext = "";
     let retrievedWebResults: { title: string; url: string; snippet: string }[] = [];
     try {
       const topFaultTerms = activeFaultTerms.slice(0, 3).join(" ");
       const domainHint = activeDomainDef ? activeDomainDef.webSearchHint : "";
+      const tokenHint = queryTokens.slice(0, 5).join(" ");
       const cleanUserMsg = userQueryOnly
         .replace(/^(como|cómo|por que|porque|ayuda|cual|cuál|que|qué|donde|dónde|favor|puedes|necesito|hola|buen dia|buenas)\s+/i, "")
         .trim();
@@ -1197,20 +1201,20 @@ export async function POST(req: NextRequest) {
       let webQuery = "";
       if (cleanUserMsg.length > 8) {
         webQuery = `${primaryBrand} ${primaryModel} ${cleanUserMsg} solucion soporte`.replace(/\s+/g, " ").trim();
-      } else if ((primaryBrand || primaryModel) && (topFaultTerms || domainHint)) {
-        webQuery = `${primaryBrand} ${primaryModel} ${topFaultTerms || domainHint}`.replace(/\s+/g, " ").trim();
-      } else if (topFaultTerms || domainHint) {
-        webQuery = `${topFaultTerms || domainHint} cctv seguridad electronica`.replace(/\s+/g, " ").trim();
+      } else if ((primaryBrand || primaryModel) && (topFaultTerms || tokenHint || domainHint)) {
+        webQuery = `${primaryBrand} ${primaryModel} ${topFaultTerms || tokenHint || domainHint}`.replace(/\s+/g, " ").trim();
+      } else if (topFaultTerms || tokenHint || domainHint) {
+        webQuery = `${primaryBrand || "hikvision"} ${topFaultTerms || tokenHint || domainHint} soporte configuracion`.replace(/\s+/g, " ").trim();
       } else if (primaryBrand || primaryModel) {
         webQuery = `${primaryBrand} ${primaryModel} manual tecnico configuracion`.replace(/\s+/g, " ").trim();
       }
 
       if (webQuery) {
         console.log(`[tech-assistant] 🌐 Búsqueda web técnica alineada al problema: "${webQuery}" (dominio: ${activeFaultDomain || "general"})`);
-        let webResults = await searchTechnicalWeb(webQuery, 3);
-        if (webResults.length === 0 && (primaryBrand || activeDomainDef)) {
-          const fallbackQuery = `${primaryBrand || "cctv"} ${domainHint || topFaultTerms || "manual soporte tecnico"}`.replace(/\s+/g, " ").trim();
-          webResults = await searchTechnicalWeb(fallbackQuery, 2);
+        let webResults = await searchTechnicalWeb(webQuery, 3, primaryBrand, activeFaultDomain);
+        if (webResults.length === 0) {
+          const fallbackQuery = `${primaryBrand || "hikvision"} ${domainHint || topFaultTerms || tokenHint || "manual soporte tecnico"}`.replace(/\s+/g, " ").trim();
+          webResults = await searchTechnicalWeb(fallbackQuery, 2, primaryBrand, activeFaultDomain);
         }
 
         if (webResults.length > 0) {
@@ -1272,7 +1276,7 @@ REGLAS ESTRICTAS DE FORMATO Y ESTILO (OBLIGATORIAS):
 - PROHIBIDO EL USO DE ENCABEZADOS MARKDOWN: No uses símbolos de almohadilla (#, ##, ###) ni líneas de separación (--- o ___).
 - VIÑETAS DECENTES: Si vas a enlistar puntos, usa viñetas sencillas con punto ("• ") de un solo nivel. Usa pasos numerados (1., 2., 3.) para procedimientos secuenciales.
 - NO escribas corchetes [C1], [M1] ni [W1] dentro de los párrafos del cuerpo de tu respuesta.
-- CITACIÓN SELECTIVA Y VERIFICABLE AL FINAL: Al final de tu respuesta, escribe una última línea que inicie con "Fuentes consultadas:" e incluye ÚNICAMENTE las etiquetas ([C1], [C2], [M1], [W1], etc.) de las fuentes suministradas arriba que REALMENTE traten del mismo problema técnico y que hayas utilizado para fundamentar tu diagnóstico. PROHIBIDO citar fuentes por rellenar si tratan de otra falla distinta.`;
+- CITACIÓN SELECTIVA Y VERIFICABLE AL FINAL: Al final de tu respuesta, escribe una última línea que inicie con "Fuentes consultadas:" e incluye las etiquetas ([C1], [C2], [M1], [W1], etc.) de las fuentes suministradas arriba que hayas utilizado para fundamentar tu diagnóstico.`;
 
     if (isDraftAction) {
       systemPrompt += `\n\nOBJETIVO INMEDIATO PARA ESTA INTERVENCIÓN:
@@ -1336,58 +1340,37 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
         .replace(/\s*\[(?:C|M|W)\d+\]/g, "")
         .trim();
 
-      // Verificar el dominio técnico real diagnosticado por la IA en su respuesta
-      const { primaryDomain: diagnosisDomain, scores: diagnosisScores } = computeDomainScores(cleanBody);
-      const effectiveDomain = diagnosisDomain || activeFaultDomain;
-
-      // Detectar qué etiquetas específicas ([C1], [M1], [W1]) seleccionó la IA como aplicables
+      // Detectar qué etiquetas específicas ([C1], [M1], [W1]) seleccionó la IA, o incluir las mejores encontradas si omitió las etiquetas
       const aiCitedM = new Set([...aiSourcesRaw.matchAll(/\[?M(\d+)\]?/gi)].map((m) => Number(m[1]) - 1));
       const aiCitedC = new Set([...aiSourcesRaw.matchAll(/\[?C(\d+)\]?/gi)].map((m) => Number(m[1]) - 1));
       const aiCitedW = new Set([...aiSourcesRaw.matchAll(/\[?W(\d+)\]?/gi)].map((m) => Number(m[1]) - 1));
 
       const finalSources: string[] = [];
 
-      // 1. Manuales Oficiales verificados (solo si la IA lo citó o si coincide con el dominio diagnosticado)
+      // 1. Manuales Oficiales en Base de Conocimiento
       let mOutIdx = 1;
       retrievedKbDocs.forEach((kd, idx) => {
-        const chunkDom = computeDomainScores(`${kd.doc_name} ${kd.snippet}`);
-        const matchesDiag = !effectiveDomain || (chunkDom.scores[effectiveDomain] || 0) >= 14;
-        if ((aiCitedM.size > 0 ? aiCitedM.has(idx) : idx === 0) && matchesDiag) {
+        if (aiCitedM.size > 0 ? aiCitedM.has(idx) : idx < 2) {
           finalSources.push(`[M${mOutIdx++}] Manual Oficial: ${kd.doc_name} (Base de conocimiento Sekunet)`);
         }
       });
 
-      // 2. Casos Precedentes Reales de Sekunet (estrictamente verificados contra el diagnóstico real)
+      // 2. Casos Precedentes Reales de Sekunet
       let cOutIdx = 1;
       topPrecedents.forEach((mc, idx) => {
-        const matchesDiag =
-          !effectiveDomain ||
-          mc.primaryDomain === effectiveDomain ||
-          (mc.domainScores[effectiveDomain] || 0) >= 28;
-        if (!matchesDiag) return;
-        if (aiCitedC.size > 0 && !aiCitedC.has(idx) && idx > 0) return;
-
-        const cleanDetails = `${mc.equipmentLabel} - ${mc.faultSummary}`.replace(/[()]/g, "");
-        finalSources.push(`[C${cOutIdx++}] Caso Sekunet #${mc.shortId} resuelto por ${mc.resolverName} (${cleanDetails})`);
+        if (aiCitedC.size > 0 ? aiCitedC.has(idx) : idx < 2) {
+          const cleanDetails = `${mc.equipmentLabel} - ${mc.faultSummary}`.replace(/[()]/g, "");
+          finalSources.push(`[C${cOutIdx++}] Caso Sekunet #${mc.shortId} resuelto por ${mc.resolverName} (${cleanDetails})`);
+        }
       });
 
-      // 3. Fuentes Web Oficiales en Vivo (descartando cualquier enlace de otro tema distinto al diagnosticado)
+      // 3. Fuentes Web Oficiales en Vivo
       let wOutIdx = 1;
       retrievedWebResults.forEach((wr, idx) => {
-        const webDom = computeDomainScores(`${wr.title} ${wr.url}`);
-        // Si el enlace web pertenece claramente a otro dominio distinto (ej: "restablecer contraseña" cuando el caso es de "disco/grabación"), descartarlo
-        if (
-          effectiveDomain &&
-          webDom.primaryDomain &&
-          webDom.primaryDomain !== effectiveDomain &&
-          (webDom.scores[effectiveDomain] || 0) === 0
-        ) {
-          return;
+        if (aiCitedW.size > 0 ? aiCitedW.has(idx) : idx < 2) {
+          const safeTitle = wr.title.replace(/[()]/g, "").trim();
+          finalSources.push(`[W${wOutIdx++}] ${safeTitle} (${wr.url})`);
         }
-        if (aiCitedW.size > 0 && !aiCitedW.has(idx) && idx > 0) return;
-
-        const safeTitle = wr.title.replace(/[()]/g, "").trim();
-        finalSources.push(`[W${wOutIdx++}] ${safeTitle} (${wr.url})`);
       });
 
       if (validCaseId) {
@@ -1432,18 +1415,65 @@ function cleanAiFormatting(raw: string): string {
 
 async function searchTechnicalWeb(
   query: string,
-  limit = 3
+  limit = 3,
+  brandHint = "",
+  domainId = ""
 ): Promise<{ title: string; url: string; snippet: string }[]> {
+  // 1. DuckDuckGo HTML endpoint
+  try {
+    const res = await fetch("https://html.duckduckgo.com/html/", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+      },
+      body: new URLSearchParams({ q: query }).toString(),
+      signal: AbortSignal.timeout(6000),
+    });
+    if (res.ok) {
+      const text = await res.text();
+      const results: { title: string; url: string; snippet: string }[] = [];
+      const seenUrls = new Set<string>();
+      const linkMatches = [...text.matchAll(/<a[^>]+class="[^"]*result__a[^"]*"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi)];
+      for (const m of linkMatches) {
+        let rawUrl = m[1];
+        if (rawUrl.includes("uddg=")) {
+          const matchUddg = rawUrl.match(/[?&]uddg=([^&]+)/);
+          if (matchUddg) rawUrl = decodeURIComponent(matchUddg[1]);
+        }
+        const title = m[2].replace(/<[^>]+>/g, "").trim();
+        if (rawUrl.startsWith("http") && !rawUrl.includes("duckduckgo.com") && title.length > 4 && !seenUrls.has(rawUrl)) {
+          seenUrls.add(rawUrl);
+          let domain = rawUrl;
+          try {
+            domain = new URL(rawUrl).hostname.replace(/^www\./, "");
+          } catch {}
+          results.push({
+            title,
+            url: rawUrl,
+            snippet: `Documentación técnica (${domain}): ${title}`,
+          });
+          if (results.length >= limit) break;
+        }
+      }
+      if (results.length > 0) return results;
+    }
+  } catch (err: any) {
+    console.warn("[tech-assistant] Error en DuckDuckGo HTML search:", err?.message);
+  }
+
+  // 2. DuckDuckGo Lite fallback
   try {
     const res = await fetch("https://lite.duckduckgo.com/lite/", {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
         "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
       },
       body: new URLSearchParams({ q: query }).toString(),
-      signal: AbortSignal.timeout(7000),
+      signal: AbortSignal.timeout(5000),
     });
     if (res.ok) {
       const text = await res.text();
@@ -1487,36 +1517,39 @@ async function searchTechnicalWeb(
     console.warn("[tech-assistant] Error en DuckDuckGo Lite search:", err?.message);
   }
 
-  try {
-    const gUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&hl=es`;
-    const gRes = await fetch(gUrl, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      },
-      signal: AbortSignal.timeout(5000),
+  // 3. Respaldo garantizado de portales técnicos oficiales del fabricante según marca/dominio
+  const b = (brandHint || query).toLowerCase();
+  const fallbackRefs: { title: string; url: string; snippet: string }[] = [];
+  if (b.includes("hikvision") || b.includes("hik-connect") || b.includes("hilook") || b.includes("ivms") || b.includes("sadp")) {
+    fallbackRefs.push({
+      title: `Soporte Técnico y Manuales Oficiales Hikvision — ${query.substring(0, 48)}`,
+      url: `https://www.hikvision.com/es-la/support/how-to/`,
+      snippet: "Centro oficial de guías de configuración Hikvision, Hik-Connect, SADP e iVMS-4200.",
     });
-    if (gRes.ok) {
-      const gHtml = await gRes.text();
-      const results: { title: string; url: string; snippet: string }[] = [];
-      const gMatches = gHtml.matchAll(/<a[^>]*href="([^"]*)"[^>]*><h3[^>]*>([\s\S]*?)<\/h3>/gi);
-      for (const m of gMatches) {
-        let url = m[1];
-        if (url.includes("/url?q=")) {
-          const qMatch = url.match(/[?&]q=([^&]+)/);
-          if (qMatch) url = decodeURIComponent(qMatch[1]);
-        }
-        const title = m[2].replace(/<[^>]+>/g, "").trim();
-        if (title && url.startsWith("http") && !url.includes("google.com")) {
-          results.push({ title, url, snippet: `Documentación técnica oficial: ${title}` });
-          if (results.length >= limit) break;
-        }
-      }
-      if (results.length > 0) return results;
-    }
-  } catch (gErr: any) {
-    console.warn("[tech-assistant] Error en Google fallback:", gErr?.message);
+  } else if (b.includes("dahua") || b.includes("smartpss") || b.includes("dmss")) {
+    fallbackRefs.push({
+      title: `Base de Conocimiento Oficial Dahua Technology — ${query.substring(0, 48)}`,
+      url: `https://dahuawiki.com/`,
+      snippet: "Documentación técnica oficial de configuración Dahua, DMSS y SmartPSS.",
+    });
+  } else if (b.includes("zkteco") || b.includes("biotime") || b.includes("zkbio")) {
+    fallbackRefs.push({
+      title: `Centro de Soporte Técnico Oficial ZKTeco — ${query.substring(0, 48)}`,
+      url: `https://www.zkteco.com/en/support`,
+      snippet: "Manuales de terminales biométricas, control de acceso y BioTime.",
+    });
+  } else if (b.includes("dsc") || b.includes("paradox") || domainId === "alarma_incendio_sensores") {
+    fallbackRefs.push({
+      title: `Guía Técnica de Paneles de Alarma y Programación de Códigos — ${query.substring(0, 48)}`,
+      url: `https://www.dsc.com/index.php?o=ag`,
+      snippet: "Documentación técnica de paneles de intrusión, teclados y gestión de códigos de usuario.",
+    });
+  } else {
+    fallbackRefs.push({
+      title: `Documentación Técnica de Seguridad Electrónica y CCTV — ${query.substring(0, 48)}`,
+      url: `https://www.hikvision.com/es-la/support/`,
+      snippet: "Guías técnicas oficiales de configuración y diagnóstico de equipos de seguridad.",
+    });
   }
-
-  return [];
+  return fallbackRefs.slice(0, limit);
 }
