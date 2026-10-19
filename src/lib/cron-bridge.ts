@@ -73,16 +73,16 @@ export function startLocalCronJobs() {
 
       const supabase = createServiceClient();
       
-      // Consultar solo casos de whatsapp ABIERTOS modificados en los últimos 10 minutos
+      // Consultar solo casos de whatsapp ABIERTOS con actividad en los últimos 15 minutos
       // Esto evita descargar 50 historiales completos cada pocos segundos (ahorra ~2.5 GB/mes de Egress)
-      const recentCutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+      const recentCutoff = new Date(Date.now() - 15 * 60 * 1000).toISOString();
       const { data: cases, error } = await supabase
         .from("sek_cases")
         .select("id, canal, customer_phone, cliente, histcliente, histtecnico, estado")
         .eq("canal", "whatsapp")
         .not("estado", "in", '("cerrado","resuelto","escalado")')
         .neq("es_test", true)
-        .gte("updated_at", recentCutoff)
+        .or(`updated_at.gte.${recentCutoff},last_message_at.gte.${recentCutoff},created_at.gte.${recentCutoff}`)
         .order("updated_at", { ascending: false })
         .limit(25);
 

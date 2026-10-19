@@ -1609,7 +1609,7 @@ export function ChatView({
     setUploadingFile(true);
     try {
       const file = await compressImageIfApplicable(rawFile);
-      const ext = file.name.split(".").pop() || "webp";
+      const ext = file.name.split(".").pop() || "jpg";
       const path = `cases/${targetId}/${Date.now()}.${ext}`;
       const { error: upErr } = await supabase.storage
         .from("attachments")

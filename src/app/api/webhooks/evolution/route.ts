@@ -1558,20 +1558,21 @@ export async function POST(req: NextRequest) {
 
         let uploadBuffer = directDecryptedBuffer || Buffer.from(dataStr, "base64");
 
-        // Comprimir imágenes entrantes de WhatsApp a WebP ligero (máx 1600px, calidad 78)
-        if (mime.startsWith("image/") && mime !== "image/gif" && mime !== "image/svg+xml") {
+        // Comprimir fotografías entrantes de WhatsApp a JPEG optimizado ligero (máx 1600px, calidad 78)
+        // Se conserva image/jpeg para compatibilidad total con WhatsApp, PDFs (jsPDF), OCR e IA Vision
+        if (mime.startsWith("image/") && mime !== "image/gif" && mime !== "image/svg+xml" && mime !== "image/webp") {
           try {
             const sharpMod = await import("sharp");
             const sharpFn = sharpMod.default || (sharpMod as any);
             const compressed = await sharpFn(uploadBuffer)
               .rotate()
               .resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true })
-              .webp({ quality: 78 })
+              .jpeg({ quality: 78, mozjpeg: true })
               .toBuffer();
             if (compressed && compressed.length < uploadBuffer.length) {
               uploadBuffer = compressed;
-              mime = "image/webp";
-              finalExt = "webp";
+              mime = "image/jpeg";
+              finalExt = "jpg";
             }
           } catch {
             // Fallback seguro al buffer original si sharp no está disponible
@@ -1580,7 +1581,7 @@ export async function POST(req: NextRequest) {
 
         const storageKey = `${Date.now()}_${phone || "media"}.${finalExt}`;
         fileName = originalFileName
-          ? (finalExt === "webp" ? originalFileName.replace(/\.[^.]+$/, ".webp") : originalFileName)
+          ? (finalExt === "jpg" ? originalFileName.replace(/\.[^.]+$/, ".jpg") : originalFileName)
           : storageKey;
 
         // Si el buffer supera 25MB, delegarlo al sidecar de la VPS para no saturar Supabase ni Vercel
