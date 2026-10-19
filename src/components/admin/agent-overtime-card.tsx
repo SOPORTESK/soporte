@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Clock,
   CheckCircle2,
@@ -9,8 +9,7 @@ import {
   Plus,
   RefreshCw,
   Calendar,
-  UserCheck,
-  ShieldAlert,
+  Users,
   FileText,
   Check,
   X,
@@ -31,6 +30,12 @@ interface OvertimeItem {
   notes: string | null;
 }
 
+interface AgentOption {
+  email: string;
+  name: string;
+  rol?: string;
+}
+
 interface AgentOvertimeCardProps {
   agentEmail: string;
   agentName?: string;
@@ -40,10 +45,13 @@ export function AgentOvertimeCard({ agentEmail, agentName }: AgentOvertimeCardPr
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [records, setRecords] = useState<OvertimeItem[]>([]);
+  const [agentsList, setAgentsList] = useState<AgentOption[]>([]);
+  const [selectedFilterAgent, setSelectedFilterAgent] = useState<string>("all");
   const [processingId, setProcessingId] = useState<string | null>(null);
 
-  // Formulario para registro manual de horas extras
+  // Formulario para registro manual de horas extras (permite elegir cualquier colaborador)
   const [showAddModal, setShowAddModal] = useState(false);
+  const [manualTargetEmail, setManualTargetEmail] = useState<string>(agentEmail || "");
   const [manualDate, setManualDate] = useState(() => {
     const d = new Date();
     return d.toISOString().split("T")[0];
@@ -51,6 +59,12 @@ export function AgentOvertimeCard({ agentEmail, agentName }: AgentOvertimeCardPr
   const [manualMinutes, setManualMinutes] = useState(60);
   const [manualNotes, setManualNotes] = useState("Autorizado por supervisor");
   const [savingManual, setSavingManual] = useState(false);
+
+  useEffect(() => {
+    if (agentEmail) {
+      setManualTargetEmail(agentEmail.toLowerCase());
+    }
+  }, [agentEmail]);
 
   const formatMin = (m: number) => {
     if (!m || m <= 0) return "0m";
@@ -60,15 +74,20 @@ export function AgentOvertimeCard({ agentEmail, agentName }: AgentOvertimeCardPr
     return `${h}h ${rem > 0 ? `${rem}m` : ""}`.trim();
   };
 
-  const fetchOvertimeRecords = async () => {
+  const fetchOvertimeRecords = useCallback(async () => {
     try {
       setRefreshing(true);
-      const res = await fetch(`/api/activity/overtime?agent=${encodeURIComponent(agentEmail)}`);
+      const queryAgent = selectedFilterAgent === "all" ? "all" : selectedFilterAgent;
+      const res = await fetch(`/api/activity/overtime?agent=${encodeURIComponent(queryAgent)}`);
       const data = await res.json();
-      if (data?.success && Array.isArray(data.requests)) {
-        // Ordenar por fecha descendente
-        const sorted = [...data.requests].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-        setRecords(sorted);
+      if (data?.success) {
+        if (Array.isArray(data.agents)) {
+          setAgentsList(data.agents);
+        }
+        if (Array.isArray(data.requests)) {
+          const sorted = [...data.requests].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+          setRecords(sorted);
+        }
       }
     } catch (err) {
       console.error("[AgentOvertimeCard] Error loading records:", err);
@@ -76,24 +95,29 @@ export function AgentOvertimeCard({ agentEmail, agentName }: AgentOvertimeCardPr
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [selectedFilterAgent]);
 
   useEffect(() => {
     fetchOvertimeRecords();
-  }, [agentEmail]);
+  }, [fetchOvertimeRecords]);
 
-  const handleReview = async (id: string, status: "approved" | "rejected", notes?: string) => {
+  const handleReview = async (item: OvertimeItem, status: "approved" | "rejected", notes?: string) => {
     try {
-      setProcessingId(id);
+      setProcessingId(item.id);
       const res = await fetch("/api/activity/overtime", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "review",
-          id,
+          id: item.id,
           status,
           reviewedBy: "Superadmin",
           notes: notes || (status === "approved" ? "Autorizado por la administración" : "Rechazado"),
+          agentEmail: item.agent_email,
+          agentName: item.agent_name || item.agent_email,
+          date: item.date,
+          overtimeMinutes: item.overtime_minutes,
+          totalActiveMinutes: item.total_active_minutes,
         }),
       });
 
@@ -104,8 +128,8 @@ export function AgentOvertimeCard({ agentEmail, agentName }: AgentOvertimeCardPr
 
       toast.success(
         status === "approved"
-          ? "Tiempo extra AUTORIZADO con éxito."
-          : "Tiempo extra RECHAZADO."
+          ? `Tiempo extra de ${item.agent_name || item.agent_email} AUTORIZADO.`
+          : `Tiempo extra de ${item.agent_name || item.agent_email} RECHAZADO.`
       );
       await fetchOvertimeRecords();
     } catch (err: any) {
@@ -117,21 +141,26 @@ export function AgentOvertimeCard({ agentEmail, agentName }: AgentOvertimeCardPr
 
   const handleCreateManualOvertime = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!manualDate || manualMinutes <= 0) {
-      toast.error("Indica una fecha válida y minutos mayores a 0");
+    const targetEmail = (manualTargetEmail || agentEmail || "").trim().toLowerCase();
+    if (!targetEmail || !manualDate || manualMinutes <= 0) {
+      toast.error("Selecciona un colaborador, fecha válida y minutos mayores a 0");
       return;
     }
 
+    const foundAgent = agentsList.find((a) => a.email.toLowerCase() === targetEmail);
+    const targetName =
+      foundAgent?.name ||
+      (targetEmail === agentEmail.toLowerCase() ? agentName || agentEmail : targetEmail);
+
     try {
       setSavingManual(true);
-      // 1. Crear solicitud
       const resReq = await fetch("/api/activity/overtime", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "request",
-          agentEmail,
-          agentName: agentName || agentEmail,
+          agentEmail: targetEmail,
+          agentName: targetName,
           date: manualDate,
           overtimeMinutes: manualMinutes,
           totalActiveMinutes: manualMinutes,
@@ -142,7 +171,6 @@ export function AgentOvertimeCard({ agentEmail, agentName }: AgentOvertimeCardPr
         throw new Error(dataReq.error || "Error al registrar tiempo extra");
       }
 
-      // 2. Aprobar inmediatamente
       const reqId = dataReq.request.id;
       await fetch("/api/activity/overtime", {
         method: "POST",
@@ -156,7 +184,7 @@ export function AgentOvertimeCard({ agentEmail, agentName }: AgentOvertimeCardPr
         }),
       });
 
-      toast.success("Tiempo extra registrado y aprobado correctamente.");
+      toast.success(`Tiempo extra registrado y aprobado para ${targetName}.`);
       setShowAddModal(false);
       await fetchOvertimeRecords();
     } catch (err: any) {
@@ -166,7 +194,6 @@ export function AgentOvertimeCard({ agentEmail, agentName }: AgentOvertimeCardPr
     }
   };
 
-  // Métricas agregadas
   const totalApprovedMinutes = records
     .filter((r) => r.status === "approved")
     .reduce((acc, r) => acc + (r.overtime_minutes || 0), 0);
@@ -179,10 +206,15 @@ export function AgentOvertimeCard({ agentEmail, agentName }: AgentOvertimeCardPr
     .filter((r) => r.status === "rejected")
     .reduce((acc, r) => acc + (r.overtime_minutes || 0), 0);
 
+  const selectedAgentLabel =
+    selectedFilterAgent === "all"
+      ? "todos los colaboradores del equipo"
+      : agentsList.find((a) => a.email === selectedFilterAgent)?.name || agentName || selectedFilterAgent;
+
   return (
     <div className="rounded-2xl border border-border bg-card p-6 lg:p-8 space-y-6 shadow-xs">
       {/* ── HEADER ── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border/70 pb-5">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-border/70 pb-5">
         <div className="flex items-start sm:items-center gap-3.5">
           <div className="h-11 w-11 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-500 grid place-items-center shrink-0">
             <Clock className="h-5 w-5" />
@@ -200,13 +232,31 @@ export function AgentOvertimeCard({ agentEmail, agentName }: AgentOvertimeCardPr
             </div>
             <p className="text-xs text-muted-foreground mt-1">
               Revisa, aprueba o rechaza el tiempo laborado fuera del horario para{" "}
-              <span className="font-semibold text-foreground">{agentName || agentEmail}</span>.
+              <span className="font-semibold text-foreground">{selectedAgentLabel}</span>.
             </p>
           </div>
         </div>
 
-        {/* BOTONES DE ACCIÓN */}
-        <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+        {/* SELECTOR DE COLABORADOR + BOTONES DE ACCIÓN */}
+        <div className="flex flex-wrap items-center gap-2 self-start lg:self-auto shrink-0">
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-border bg-background">
+            <Users className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+            <select
+              value={selectedFilterAgent}
+              onChange={(e) => setSelectedFilterAgent(e.target.value)}
+              className="bg-transparent text-xs font-bold text-foreground focus:outline-none cursor-pointer"
+            >
+              <option value="all" className="bg-card text-foreground">
+                Todos los colaboradores ({agentsList.length || "Equipo"})
+              </option>
+              {agentsList.map((ag) => (
+                <option key={ag.email} value={ag.email} className="bg-card text-foreground">
+                  {ag.name} ({ag.email})
+                </option>
+              ))}
+            </select>
+          </div>
+
           <button
             type="button"
             onClick={fetchOvertimeRecords}
@@ -218,7 +268,14 @@ export function AgentOvertimeCard({ agentEmail, agentName }: AgentOvertimeCardPr
           </button>
           <button
             type="button"
-            onClick={() => setShowAddModal(true)}
+            onClick={() => {
+              if (selectedFilterAgent !== "all") {
+                setManualTargetEmail(selectedFilterAgent);
+              } else if (agentEmail) {
+                setManualTargetEmail(agentEmail.toLowerCase());
+              }
+              setShowAddModal(true);
+            }}
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-xs shadow-sm transition-all cursor-pointer active:scale-95"
           >
             <Plus className="h-3.5 w-3.5" />
@@ -229,7 +286,6 @@ export function AgentOvertimeCard({ agentEmail, agentName }: AgentOvertimeCardPr
 
       {/* ── TARJETAS KPI DE RESUMEN ── */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        {/* Aprobadas */}
         <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-between">
           <div>
             <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400 block">
@@ -245,7 +301,6 @@ export function AgentOvertimeCard({ agentEmail, agentName }: AgentOvertimeCardPr
           </div>
         </div>
 
-        {/* Pendientes */}
         <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-between">
           <div>
             <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 block">
@@ -254,14 +309,13 @@ export function AgentOvertimeCard({ agentEmail, agentName }: AgentOvertimeCardPr
             <span className="text-2xl font-black text-amber-300 font-mono tracking-tight mt-0.5 block">
               +{formatMin(totalPendingMinutes)}
             </span>
-            <span className="text-[10.5px] text-amber-500/80 font-medium">Detectadas por el sistema</span>
+            <span className="text-[10.5px] text-amber-500/80 font-medium">Detectadas por actividad fuera de turno</span>
           </div>
           <div className="h-10 w-10 rounded-xl bg-amber-500/20 text-amber-400 grid place-items-center shrink-0">
             <Clock className="h-5 w-5" />
           </div>
         </div>
 
-        {/* Rechazadas */}
         <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-between">
           <div>
             <span className="text-[10px] font-black uppercase tracking-wider text-rose-400 block">
@@ -283,20 +337,20 @@ export function AgentOvertimeCard({ agentEmail, agentName }: AgentOvertimeCardPr
         <div className="flex items-center justify-between px-1">
           <span className="text-xs font-black uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
             <FileText className="h-3.5 w-3.5" />
-            Registros Históricos de Tiempo Extra ({records.length})
+            Registros de Tiempo Extra ({records.length})
           </span>
         </div>
 
         {loading ? (
           <div className="p-8 text-center text-xs text-muted-foreground">
-            Cargando solicitudes de tiempo extra...
+            Cargando y detectando tiempo extra del equipo...
           </div>
         ) : records.length === 0 ? (
           <div className="p-8 text-center rounded-xl bg-muted/20 border border-border/60 space-y-1.5">
             <Clock className="h-6 w-6 text-muted-foreground/60 mx-auto" />
-            <p className="text-xs font-bold text-foreground">Sin horas extras registradas</p>
+            <p className="text-xs font-bold text-foreground">Sin horas extras registradas en este filtro</p>
             <p className="text-[11px] text-muted-foreground">
-              Este colaborador no tiene jornadas que hayan superado su meta de trabajo configurada.
+              Puedes seleccionar otro colaborador arriba o registrar tiempo extra manualmente con el botón superior.
             </p>
           </div>
         ) : (
@@ -305,10 +359,11 @@ export function AgentOvertimeCard({ agentEmail, agentName }: AgentOvertimeCardPr
               <table className="w-full text-left text-xs">
                 <thead className="bg-muted/50 border-b border-border/80 text-[10px] uppercase font-black tracking-wider text-muted-foreground">
                   <tr>
+                    <th className="py-3 px-4">Colaborador</th>
                     <th className="py-3 px-4">Fecha</th>
                     <th className="py-3 px-4">Tiempo Extra</th>
                     <th className="py-3 px-4">Estado</th>
-                    <th className="py-3 px-4">Revisado Por / Notas</th>
+                    <th className="py-3 px-4">Detalle / Notas</th>
                     <th className="py-3 px-4 text-right">Acciones</th>
                   </tr>
                 </thead>
@@ -317,7 +372,11 @@ export function AgentOvertimeCard({ agentEmail, agentName }: AgentOvertimeCardPr
                     const isProcessing = processingId === r.id;
                     return (
                       <tr key={r.id} className="hover:bg-muted/30 transition-colors">
-                        {/* Fecha */}
+                        <td className="py-3 px-4 whitespace-nowrap">
+                          <div className="font-bold text-foreground">{r.agent_name || r.agent_email}</div>
+                          <div className="text-[10px] text-muted-foreground font-mono">{r.agent_email}</div>
+                        </td>
+
                         <td className="py-3 px-4 font-mono font-semibold text-foreground whitespace-nowrap">
                           <div className="flex items-center gap-2">
                             <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
@@ -325,14 +384,12 @@ export function AgentOvertimeCard({ agentEmail, agentName }: AgentOvertimeCardPr
                           </div>
                         </td>
 
-                        {/* Tiempo Extra */}
                         <td className="py-3 px-4 font-mono font-bold text-foreground whitespace-nowrap">
                           <span className="px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/25">
                             +{formatMin(r.overtime_minutes)}
                           </span>
                         </td>
 
-                        {/* Estado */}
                         <td className="py-3 px-4 whitespace-nowrap">
                           {r.status === "approved" && (
                             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
@@ -351,7 +408,6 @@ export function AgentOvertimeCard({ agentEmail, agentName }: AgentOvertimeCardPr
                           )}
                         </td>
 
-                        {/* Notas */}
                         <td className="py-3 px-4 text-muted-foreground text-[11px] max-w-xs truncate" title={r.notes || ""}>
                           {r.reviewed_by ? (
                             <span>
@@ -359,18 +415,19 @@ export function AgentOvertimeCard({ agentEmail, agentName }: AgentOvertimeCardPr
                               {r.notes ? ` — ${r.notes}` : ""}
                             </span>
                           ) : (
-                            <span className="italic text-muted-foreground/70">Pendiente de revisión administrativa</span>
+                            <span className="text-muted-foreground">
+                              {r.notes || "Pendiente de revisión administrativa"}
+                            </span>
                           )}
                         </td>
 
-                        {/* Botones de acción */}
                         <td className="py-3 px-4 text-right whitespace-nowrap">
                           <div className="flex items-center justify-end gap-1.5">
                             {r.status !== "approved" && (
                               <button
                                 type="button"
                                 disabled={isProcessing}
-                                onClick={() => handleReview(r.id, "approved")}
+                                onClick={() => handleReview(r, "approved")}
                                 className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] transition-all flex items-center gap-1 cursor-pointer disabled:opacity-50"
                                 title="Autorizar este tiempo extra"
                               >
@@ -382,7 +439,7 @@ export function AgentOvertimeCard({ agentEmail, agentName }: AgentOvertimeCardPr
                               <button
                                 type="button"
                                 disabled={isProcessing}
-                                onClick={() => handleReview(r.id, "rejected")}
+                                onClick={() => handleReview(r, "rejected")}
                                 className="px-2 py-1 rounded-lg border border-border bg-background hover:bg-rose-500/10 text-muted-foreground hover:text-rose-400 font-semibold text-[11px] transition-all flex items-center gap-1 cursor-pointer disabled:opacity-50"
                                 title="Rechazar este tiempo extra"
                               >
@@ -402,80 +459,123 @@ export function AgentOvertimeCard({ agentEmail, agentName }: AgentOvertimeCardPr
         )}
       </div>
 
-      {/* ── MODAL: AÑADIR TIEMPO EXTRA MANUAL ── */}
+      {/* ── MODAL PARA AÑADIR TIEMPO EXTRA A CUALQUIER COLABORADOR ── */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
-          <div className="w-full max-w-md rounded-2xl bg-card border border-border p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-border/70 pb-3">
-              <div className="flex items-center gap-2">
-                <Clock className="h-4 w-4 text-amber-400" />
-                <h3 className="font-bold text-sm text-foreground">Registrar Tiempo Extra</h3>
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between border-b border-border pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="h-9 w-9 rounded-xl bg-violet-500/15 text-violet-400 grid place-items-center">
+                  <Plus className="h-4.5 w-4.5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-foreground">
+                    Añadir y Autorizar Tiempo Extra
+                  </h3>
+                  <p className="text-[11px] text-muted-foreground">
+                    Disponible para todos los colaboradores del sistema
+                  </p>
+                </div>
               </div>
               <button
                 type="button"
                 onClick={() => setShowAddModal(false)}
-                className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted"
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateManualOvertime} className="space-y-3.5 text-xs">
-              <div>
-                <label className="font-bold text-foreground block mb-1">Fecha</label>
+            <form onSubmit={handleCreateManualOvertime} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-foreground block">Colaborador</label>
+                <select
+                  value={manualTargetEmail}
+                  onChange={(e) => setManualTargetEmail(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-border bg-background text-xs font-bold text-foreground focus:outline-none focus:ring-2 focus:ring-violet-500/40"
+                  required
+                >
+                  {agentsList.map((ag) => (
+                    <option key={ag.email} value={ag.email} className="bg-card text-foreground">
+                      {ag.name} ({ag.email})
+                    </option>
+                  ))}
+                  {agentsList.length === 0 && agentEmail && (
+                    <option value={agentEmail.toLowerCase()}>
+                      {agentName || agentEmail} ({agentEmail})
+                    </option>
+                  )}
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-foreground block">Fecha de la Jornada</label>
                 <input
                   type="date"
                   value={manualDate}
                   onChange={(e) => setManualDate(e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-xl border border-border bg-background text-sm font-mono text-foreground focus:outline-none focus:ring-2 focus:ring-violet-500/40"
                   required
-                  className="w-full px-3 py-2 rounded-xl border border-border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-amber-500 font-mono text-xs"
                 />
               </div>
 
-              <div>
-                <label className="font-bold text-foreground block mb-1">Tiempo Extra (Minutos)</label>
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-foreground block">
+                  Minutos de Tiempo Extra
+                </label>
                 <div className="flex items-center gap-2">
                   <input
                     type="number"
-                    min="5"
-                    max="600"
-                    step="5"
+                    min={15}
+                    max={720}
+                    step={15}
                     value={manualMinutes}
-                    onChange={(e) => setManualMinutes(Number(e.target.value))}
+                    onChange={(e) => setManualMinutes(Number(e.target.value) || 0)}
+                    className="flex-1 px-3.5 py-2 rounded-xl border border-border bg-background text-sm font-mono font-bold text-foreground focus:outline-none focus:ring-2 focus:ring-violet-500/40"
                     required
-                    className="w-full px-3 py-2 rounded-xl border border-border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-amber-500 font-mono text-xs font-bold"
                   />
-                  <span className="font-mono text-muted-foreground font-bold shrink-0">
-                    ≈ {formatMin(manualMinutes)}
-                  </span>
+                  {[30, 60, 120, 180].map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setManualMinutes(m)}
+                      className={`px-2.5 py-2 rounded-xl border text-xs font-mono font-bold transition-all cursor-pointer ${
+                        manualMinutes === m
+                          ? "bg-violet-600 text-white border-violet-500"
+                          : "bg-muted/50 text-muted-foreground border-border hover:text-foreground"
+                      }`}
+                    >
+                      {formatMin(m)}
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              <div>
-                <label className="font-bold text-foreground block mb-1">Notas / Motivo de Autorización</label>
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-foreground block">Notas / Autorización</label>
                 <input
                   type="text"
                   value={manualNotes}
                   onChange={(e) => setManualNotes(e.target.value)}
-                  placeholder="Ej: Cobertura de turno o atención especial"
-                  className="w-full px-3 py-2 rounded-xl border border-border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-amber-500 text-xs"
+                  placeholder="Ej. Atención de soporte fuera de horario"
+                  className="w-full px-3.5 py-2 rounded-xl border border-border bg-background text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-violet-500/40"
                 />
               </div>
 
-              <div className="flex justify-end gap-2 pt-2 border-t border-border/70">
+              <div className="flex items-center justify-end gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
-                  className="px-3.5 py-2 rounded-xl border border-border hover:bg-muted text-muted-foreground text-xs font-semibold cursor-pointer"
+                  className="px-4 py-2 rounded-xl border border-border text-xs font-bold text-muted-foreground hover:text-foreground"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={savingManual}
-                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-sm cursor-pointer disabled:opacity-50"
+                  className="px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold shadow-sm disabled:opacity-50 cursor-pointer"
                 >
-                  {savingManual ? "Guardando..." : "Autorizar Tiempo Extra"}
+                  {savingManual ? "Guardando..." : "Registrar y Autorizar"}
                 </button>
               </div>
             </form>

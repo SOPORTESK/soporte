@@ -58,6 +58,46 @@ export function AgentWorkManagement({ agentEmail, agentName }: AgentWorkManageme
   const [customEnd, setCustomEnd] = useState<string>("");
   const [rowFilter, setRowFilter] = useState<RowFilter>("all");
 
+  const [agentsList, setAgentsList] = useState<Array<{ email: string; name: string }>>([]);
+  const [selectedEmail, setSelectedEmail] = useState<string>(agentEmail);
+
+  useEffect(() => {
+    if (agentEmail) setSelectedEmail(agentEmail);
+  }, [agentEmail]);
+
+  useEffect(() => {
+    let mounted = true;
+    fetch("/api/admin/agentes")
+      .then((r) => r.json())
+      .then((d) => {
+        if (!mounted || !Array.isArray(d?.agents)) return;
+        const mapped = d.agents
+          .filter((a: any) => a?.email && !String(a.email).toLowerCase().includes("claudia"))
+          .map((a: any) => ({
+            email: String(a.email).trim(),
+            name:
+              [a.nombre, a.apellido].filter(Boolean).join(" ").trim() ||
+              String(a.email).split("@")[0],
+          }));
+        setAgentsList(mapped);
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const selectedName = React.useMemo(() => {
+    const found = agentsList.find(
+      (a) => a.email.toLowerCase() === selectedEmail.toLowerCase()
+    );
+    if (found) return found.name;
+    if (selectedEmail.toLowerCase() === agentEmail.toLowerCase() && agentName) {
+      return agentName;
+    }
+    return selectedEmail;
+  }, [agentsList, selectedEmail, agentEmail, agentName]);
+
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [records, setRecords] = useState<AttendanceDayRecord[]>([]);
@@ -99,12 +139,12 @@ export function AgentWorkManagement({ agentEmail, agentName }: AgentWorkManageme
 
   const fetchAttendance = useCallback(
     async (silent = false) => {
-      if (!agentEmail) return;
+      if (!selectedEmail) return;
       try {
         if (!silent) setLoading(true);
         setRefreshing(true);
 
-        const params = new URLSearchParams({ agent: agentEmail });
+        const params = new URLSearchParams({ agent: selectedEmail });
         if (periodPreset === "custom" && customStart && customEnd) {
           params.set("startDate", customStart);
           params.set("endDate", customEnd);
@@ -129,7 +169,7 @@ export function AgentWorkManagement({ agentEmail, agentName }: AgentWorkManageme
         setRefreshing(false);
       }
     },
-    [agentEmail, periodPreset, customStart, customEnd]
+    [selectedEmail, periodPreset, customStart, customEnd]
   );
 
   useEffect(() => {
@@ -150,8 +190,8 @@ export function AgentWorkManagement({ agentEmail, agentName }: AgentWorkManageme
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             action: "request",
-            agentEmail,
-            agentName: agentName || agentEmail,
+            agentEmail: selectedEmail,
+            agentName: selectedName || selectedEmail,
             date: row.date,
             overtimeMinutes: row.overtimeMinutes,
             totalActiveMinutes: row.activeMinutes,
@@ -209,8 +249,8 @@ export function AgentWorkManagement({ agentEmail, agentName }: AgentWorkManageme
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "request",
-          agentEmail,
-          agentName: agentName || agentEmail,
+          agentEmail: selectedEmail,
+          agentName: selectedName || selectedEmail,
           date: manualOtDate,
           overtimeMinutes: manualOtMinutes,
           totalActiveMinutes: manualOtMinutes,
@@ -300,7 +340,7 @@ export function AgentWorkManagement({ agentEmail, agentName }: AgentWorkManageme
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `planilla-asistencia-${agentEmail.split("@")[0]}-${new Date().toISOString().split("T")[0]}.csv`;
+    a.download = `planilla-asistencia-${selectedEmail.split("@")[0]}-${new Date().toISOString().split("T")[0]}.csv`;
     a.click();
     URL.revokeObjectURL(url);
     toast.success("Reporte de asistencia y horas extras exportado a CSV");
@@ -318,9 +358,28 @@ export function AgentWorkManagement({ agentEmail, agentName }: AgentWorkManageme
 
   return (
     <div className="space-y-6">
-      {/* ── BARRA EJECUTIVA SUPERIOR DE NAVEGACIÓN INTERNA ── */}
+      {/* ── BARRA EJECUTIVA SUPERIOR DE NAVEGACIÓN INTERNA Y SELECTOR DE COLABORADOR ── */}
       <div className="rounded-2xl border border-border bg-card/90 backdrop-blur-md p-2.5 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-        <div className="flex items-center gap-1.5 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Selector de Colaborador para consultar Asistencia, Horas Extras y Horario de cualquier miembro */}
+          {agentsList.length > 0 && (
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-border bg-background">
+              <UserCheck className="h-3.5 w-3.5 text-brand-500 shrink-0" />
+              <span className="text-[11px] font-bold text-muted-foreground">Colaborador:</span>
+              <select
+                value={selectedEmail}
+                onChange={(e) => setSelectedEmail(e.target.value)}
+                className="bg-transparent text-xs font-black text-foreground focus:outline-none cursor-pointer"
+              >
+                {agentsList.map((ag) => (
+                  <option key={ag.email} value={ag.email} className="bg-card text-foreground">
+                    {ag.name} ({ag.email})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <button
             type="button"
             onClick={() => setActiveSubTab("asistencia")}
@@ -941,12 +1000,12 @@ export function AgentWorkManagement({ agentEmail, agentName }: AgentWorkManageme
 
       {/* ── CONTENIDO DE PESTAÑA 2: APROBACIÓN E HISTORIAL DE HORAS EXTRAS ── */}
       {activeSubTab === "horas_extras" && (
-        <AgentOvertimeCard agentEmail={agentEmail} agentName={agentName} />
+        <AgentOvertimeCard agentEmail={selectedEmail} agentName={selectedName} />
       )}
 
       {/* ── CONTENIDO DE PESTAÑA 3: CONFIGURACIÓN DE HORARIO DE TRABAJO ── */}
       {activeSubTab === "horario" && (
-        <AgentScheduleCard agentEmail={agentEmail} agentName={agentName} />
+        <AgentScheduleCard agentEmail={selectedEmail} agentName={selectedName} />
       )}
 
       {/* ── MODAL PARA AÑADIR TIEMPO EXTRA MANUAL ── */}
@@ -962,7 +1021,7 @@ export function AgentWorkManagement({ agentEmail, agentName }: AgentWorkManageme
                   <h3 className="text-sm font-black text-foreground">
                     Registrar y Autorizar Horas Extras
                   </h3>
-                  <p className="text-[11px] text-muted-foreground">{agentName || agentEmail}</p>
+                  <p className="text-[11px] text-muted-foreground">{selectedName || selectedEmail}</p>
                 </div>
               </div>
               <button

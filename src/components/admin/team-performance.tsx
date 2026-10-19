@@ -94,10 +94,16 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
       const res = await fetch("/api/admin/agentes", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: formData.email, rol: formData.rol })
+        body: JSON.stringify({
+          email: formData.email,
+          rol: formData.rol,
+          nombre: formData.nombre,
+          apellido: formData.apellido,
+          telefono: formData.telefono,
+        })
       });
       if (res.ok) { window.location.reload(); }
-      else { alert("Error al actualizar rol"); }
+      else { alert("Error al actualizar usuario"); }
     } catch { alert("Error de conexión"); }
     setEditingAgent(null);
   };
@@ -658,26 +664,56 @@ export function TeamPerformance({ agents, isSuperadmin, globalStats }: TeamPerfo
         </Modal>
       )}
 
-      {/* Cambiar Rol */}
+      {/* Editar Usuario */}
       {editingAgent && (
-        <Modal title="Cambiar Rol" onClose={() => setEditingAgent(null)}>
-          <div className="space-y-4">
+        <Modal title="Editar Usuario" onClose={() => setEditingAgent(null)}>
+          <div className="space-y-3.5">
             <div className="p-3 rounded-xl bg-muted/40 border border-border">
-              <p className="text-xs text-muted-foreground">Agente: <strong className="text-foreground">{editingAgent.email}</strong></p>
+              <p className="text-xs text-muted-foreground">Correo: <strong className="text-foreground">{editingAgent.email}</strong></p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5 block">Nombre</label>
+                <input
+                  type="text"
+                  value={formData.nombre || ""}
+                  onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
+                  className="w-full p-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30 transition-all"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5 block">Apellido</label>
+                <input
+                  type="text"
+                  value={formData.apellido || ""}
+                  onChange={(e) => setFormData({ ...formData, apellido: e.target.value })}
+                  className="w-full p-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30 transition-all"
+                />
+              </div>
             </div>
             <div>
-              <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5 block">Nuevo Rol</label>
+              <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5 block">Teléfono</label>
+              <input
+                type="text"
+                value={formData.telefono || ""}
+                onChange={(e) => setFormData({ ...formData, telefono: e.target.value })}
+                placeholder="Ej. +506 8888-8888"
+                className="w-full p-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30 transition-all"
+              />
+            </div>
+            <div>
+              <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5 block">Rol en el Sistema</label>
               <select value={formData.rol || ""} onChange={(e) => setFormData({...formData, rol: e.target.value})}
                 className="w-full p-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30 transition-all">
                 <option value="tecnico">Soporte Avanzado</option>
                 <option value="admin">Admin</option>
-                <option value="superadmin">Superadmin</option>
+                {isSuperadmin && <option value="superadmin">Superadmin</option>}
               </select>
             </div>
             <div className="flex gap-2 pt-2">
               <button onClick={handleSaveRole}
                 className="flex-1 py-3 bg-brand-600 text-white rounded-xl font-bold text-sm hover:bg-brand-700 flex justify-center items-center gap-2 transition-all">
-                <Save className="h-4 w-4" /> Guardar
+                <Save className="h-4 w-4" /> Guardar Cambios
               </button>
               <button onClick={() => setEditingAgent(null)}
                 className="px-6 py-3 rounded-xl border border-border text-sm font-bold hover:bg-muted transition-all">

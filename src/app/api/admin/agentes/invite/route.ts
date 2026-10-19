@@ -68,6 +68,19 @@ export async function POST(req: NextRequest) {
 
     if (dbError) throw dbError;
 
+    try {
+      const { cacheDelete } = await import("@/lib/supabase/cache");
+      const { revalidatePath } = await import("next/cache");
+      cacheDelete("all_agents_config");
+      cacheDelete("app_work_schedule");
+      cacheDelete("app_overtime_all");
+      cacheDelete(`agent_config_${email}`);
+      cacheDelete(`agent_full_${email}`);
+      revalidatePath("/admin/equipo");
+      revalidatePath("/admin/actividad");
+      revalidatePath("/admin/settings");
+    } catch {}
+
     return NextResponse.json({ success: true, user: authUser?.user || null });
 
   } catch (error: any) {
