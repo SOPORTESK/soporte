@@ -1059,6 +1059,9 @@ export async function POST(req: NextRequest) {
       "solucionarlo", "inmediato", "hola", "buenas", "tardes", "dias", "días", "ayuda", "favor", "estimado",
       "opcion", "opción", "seccion", "sección", "menu", "menú", "ingrese", "vaya", "muchas", "gracias",
       "buenos", "saludos", "consulta", "consultar", "solicita", "indica", "mensaje", "conversacion", "conversación",
+      "matthew", "joshua", "isaac", "cesar", "cbatista", "vendedor", "cuenta", "chat", "whatsapp", "pasada",
+      "semana", "conversando", "reparacion", "reparación", "diagnostico", "diagnóstico", "señor", "senor",
+      "gracias", "saludos", "cordial", "cordiales", "atentamente", "compañero", "amigo", "porfa"
     ]);
     const rawTokenSource = `${userQueryOnly} ${primaryTopicText}`;
     const queryTokens = [
@@ -1240,23 +1243,23 @@ export async function POST(req: NextRequest) {
     let retrievedWebResults: { title: string; url: string; snippet: string; kind: "oficial" | "foro" | "manual" }[] = [];
     try {
       const topFaultTerms = activeFaultTerms.slice(0, 3).join(" ");
-      const tokenHint = queryTokens.slice(0, 5).join(" ");
+      const tokenHint = queryTokens.slice(0, 3).join(" ");
       const cleanUserMsg = userQueryOnly
         .replace(/^(como|cómo|por que|porque|ayuda|cual|cuál|que|qué|donde|dónde|favor|puedes|necesito|hola|buen dia|buenas)\s+/i, "")
         .trim()
-        .substring(0, 90);
+        .substring(0, 80);
 
       const subject = cleanUserMsg.length > 8 ? cleanUserMsg : topFaultTerms || tokenHint;
       const baseQuery = `${primaryBrand} ${productLine} ${primaryModel} ${subject}`.replace(/\s+/g, " ").trim();
-      const queryForWeb = baseQuery.length >= 3 ? baseQuery : "soporte tecnico CCTV alarmas configuracion";
+      const queryForWeb = baseQuery.length >= 3 ? baseQuery : `${primaryBrand} ${primaryModel} manual configuracion`.trim();
 
       const officialQuery = `${queryForWeb} manual configuracion`;
       const forumQuery = `${queryForWeb} solucion`;
       console.log(`[tech-assistant] 🌐 Web oficial: "${officialQuery}" | Foros: "${forumQuery}"`);
 
       const [officialRes, forumRes] = await Promise.all([
-        searchTechnicalWeb(officialQuery, 4, false, primaryBrand, activeFaultDomain),
-        searchTechnicalWeb(forumQuery, 4, true, primaryBrand, activeFaultDomain),
+        searchTechnicalWeb(officialQuery, 4, false, primaryBrand, primaryModel, activeFaultDomain),
+        searchTechnicalWeb(forumQuery, 4, true, primaryBrand, primaryModel, activeFaultDomain),
       ]);
 
       const seen = new Set<string>();
@@ -1502,11 +1505,123 @@ function decodeBingUrl(rawUrl: string): string {
   return rawUrl;
 }
 
+function isStrictlyRelevant(
+  title: string,
+  url: string,
+  snippet: string,
+  brandHint = "",
+  modelHint = ""
+): boolean {
+  const full = `${title} ${url} ${snippet}`.toLowerCase();
+
+  // 1. Blacklist estricta de dominios de streaming, entretenimiento, redes y foros espurios
+  const JUNK_DOMAINS = [
+    "youtube.com", "youtu.be", "facebook.com", "instagram.com", "tiktok.com",
+    "twitter.com", "x.com", "reddit.com", "lowyat.net", "answers.microsoft.com",
+    "support.google.com", "wikipedia.org", "xvideos", "pornhub", "twitch.tv",
+    "spotify.com", "netflix.com", "github.io", "thestempedia.com", "unimart.com"
+  ];
+  for (const jd of JUNK_DOMAINS) {
+    if (url.toLowerCase().includes(jd)) return false;
+  }
+
+  // 2. Blacklist de tópicos espurios ajenos a seguridad electrónica (ej. OBS Studio, grabación de pantalla)
+  const BAD_TOPICS = [
+    "obs", "stream", "voiceover", "minecraft", "gameplay", "screen record",
+    "grabar pantalla", "reproducir video", "netflix", "whatsapp web down", "gmail"
+  ];
+  for (const bt of BAD_TOPICS) {
+    if (full.includes(bt)) return false;
+  }
+
+  // 3. Verificación de relevancia con la marca, modelo o dominio técnico de seguridad
+  const b = (brandHint || "").toLowerCase().trim();
+  const m = (modelHint || "").toLowerCase().trim();
+
+  const hasBrand = b && full.includes(b);
+  const hasModel = m && full.includes(m);
+  const isKnownTechnicalDomain = [
+    "hikvision.com", "dahuasecurity.com", "dahuawiki.com", "zkteco.com",
+    "manualslib.com", "dsc.com", "epcom.net", "syscom.mx", "anviz.com",
+    "cctvforum.com", "ipcamtalk.com", "ipvm.com", "use-ip.co.uk", "axis.com",
+    "ubnt.com", "ui.com", "mikrotik.com"
+  ].some((td) => url.toLowerCase().includes(td));
+
+  const isManualOrPdf = url.toLowerCase().endsWith(".pdf") || full.includes("manual") || full.includes("datasheet") || full.includes("user guide");
+
+  return Boolean((hasBrand && isManualOrPdf) || hasModel || isKnownTechnicalDomain);
+}
+
+function getManufacturerFallback(
+  brandHint: string,
+  modelHint: string,
+  query: string,
+  domainId: string
+): { title: string; url: string; snippet: string }[] {
+  const b = (brandHint || query).toLowerCase();
+  const m = (modelHint || "").toUpperCase().trim();
+  const refs: { title: string; url: string; snippet: string }[] = [];
+
+  if (b.includes("zkteco") || b.includes("biotime") || b.includes("zkbio")) {
+    if (m) {
+      refs.push({
+        title: `ZKTeco ${m} — Especificaciones Técnicas y Manual de Usuario Oficial`,
+        url: `https://www.zkteco.com/en/product_detail/${m}.html`,
+        snippet: `Documentación técnica oficial de hardware, conexión y configuración para ZKTeco ${m}.`,
+      });
+    }
+    refs.push({
+      title: `Centro Oficial de Soporte y Descarga de Manuales ZKTeco`,
+      url: `https://www.zkteco.com/en/support`,
+      snippet: `Centro oficial de soporte técnico de control de acceso, barreras vehiculares y terminales ZKTeco.`,
+    });
+  } else if (b.includes("hikvision") || b.includes("hik-connect") || b.includes("hilook") || b.includes("ivms") || b.includes("sadp")) {
+    if (m) {
+      refs.push({
+        title: `Hikvision ${m} — Guías Técnicas de Configuración y Diagnóstico Oficiales`,
+        url: `https://www.hikvision.com/es-la/support/how-to/`,
+        snippet: `Guías paso a paso oficiales de configuración y resolución de averías para equipos Hikvision.`,
+      });
+    }
+    refs.push({
+      title: `Portal de Descargas, Herramientas SADP y Firmware Oficial Hikvision`,
+      url: `https://www.hikvision.com/es-la/support/download/`,
+      snippet: `Herramientas oficiales SADP, iVMS-4200 y documentación técnica oficial.`,
+    });
+  } else if (b.includes("dahua") || b.includes("smartpss") || b.includes("dmss")) {
+    refs.push({
+      title: `DahuaWiki — Base de Conocimiento Técnico Oficial Dahua`,
+      url: `https://dahuawiki.com/`,
+      snippet: `Guías oficiales paso a paso, configuración de red, DMSS, SmartPSS y solución de averías.`,
+    });
+    refs.push({
+      title: `Centro de Soporte Técnico Oficial Dahua Technology`,
+      url: `https://www.dahuasecurity.com/support/`,
+      snippet: `Documentación técnica, firmware y guías de configuración oficial de equipos Dahua.`,
+    });
+  } else if (b.includes("dsc") || b.includes("paradox") || domainId === "alarma_incendio_sensores") {
+    refs.push({
+      title: `Guía Técnica de Paneles de Alarma y Programación DSC`,
+      url: `https://www.dsc.com/index.php?o=ag`,
+      snippet: `Documentación técnica de paneles de intrusión, teclados y gestión de códigos de usuario.`,
+    });
+  } else {
+    refs.push({
+      title: `Documentación Técnica de Seguridad Electrónica y CCTV`,
+      url: `https://www.hikvision.com/es-la/support/`,
+      snippet: `Guías técnicas oficiales de configuración y diagnóstico de equipos de seguridad electrónica.`,
+    });
+  }
+
+  return refs;
+}
+
 async function searchTechnicalWeb(
   query: string,
   limit = 3,
   isForum = false,
   brandHint = "",
+  modelHint = "",
   domainId = ""
 ): Promise<{ title: string; url: string; snippet: string }[]> {
   const finalQuery = isForum ? `${query} foro comunidad` : query;
@@ -1518,6 +1633,12 @@ async function searchTechnicalWeb(
     if (url.includes("duckduckgo.com") || url.includes("bing.com")) return;
     const cleanTitle = title.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/[()]/g, "").trim();
     if (cleanTitle.length < 4) return;
+
+    // Validación estricta: descartar OBS, YouTube y sitios no técnicos
+    if (!isStrictlyRelevant(cleanTitle, url, snippet, brandHint, modelHint)) {
+      return;
+    }
+
     const key = url.replace(/[#?].*$/, "").toLowerCase();
     if (seenUrls.has(key)) return;
     seenUrls.add(key);
@@ -1535,7 +1656,7 @@ async function searchTechnicalWeb(
     });
   };
 
-  // 1. Motor Bing Search (alta disponibilidad y enlaces oficiales/manuales de fabricantes)
+  // 1. Motor Bing Search (filtrado estrictamente para evitar recomendaciones o videos espurios)
   try {
     const res = await fetch(`https://www.bing.com/search?q=${encodeURIComponent(finalQuery)}`, {
       headers: {
@@ -1565,7 +1686,7 @@ async function searchTechnicalWeb(
     console.warn("[tech-assistant] Error en Bing search:", err?.message);
   }
 
-  // 2. DuckDuckGo Lite endpoint (fallback alternativo)
+  // 2. DuckDuckGo Lite endpoint (fallback filtrado)
   if (results.length < limit) {
     try {
       const res = await fetch("https://lite.duckduckgo.com/lite/", {
@@ -1598,46 +1719,12 @@ async function searchTechnicalWeb(
     }
   }
 
-  if (results.length > 0) return results;
-
-  // 3. Portales oficiales garantizados según marca/dominio si los buscadores no devolvieron resultados
-  const b = (brandHint || query).toLowerCase();
-  const fallbackRefs: { title: string; url: string; snippet: string }[] = [];
-  if (b.includes("hikvision") || b.includes("hik-connect") || b.includes("hilook") || b.includes("ivms") || b.includes("sadp")) {
-    fallbackRefs.push({
-      title: `Soporte Técnico y Guías Oficiales Hikvision - ${query.substring(0, 48)}`,
-      url: `https://www.hikvision.com/es-la/support/how-to/`,
-      snippet: "Centro oficial de guías de configuración Hikvision, Hik-Connect, SADP e iVMS-4200.",
-    });
-    fallbackRefs.push({
-      title: `Portal de Descargas y Firmware Oficial Hikvision`,
-      url: `https://www.hikvision.com/es-la/support/download/`,
-      snippet: "Herramientas de configuración, SADP Tool y manuales de usuario oficiales.",
-    });
-  } else if (b.includes("dahua") || b.includes("smartpss") || b.includes("dmss")) {
-    fallbackRefs.push({
-      title: `Base de Conocimiento Oficial Dahua Technology - ${query.substring(0, 48)}`,
-      url: `https://dahuawiki.com/`,
-      snippet: "Documentación técnica oficial de configuración Dahua, DMSS y SmartPSS.",
-    });
-  } else if (b.includes("zkteco") || b.includes("biotime") || b.includes("zkbio")) {
-    fallbackRefs.push({
-      title: `Centro de Soporte Técnico Oficial ZKTeco - ${query.substring(0, 48)}`,
-      url: `https://www.zkteco.com/en/support`,
-      snippet: "Manuales de terminales biométricas, control de acceso y BioTime.",
-    });
-  } else if (b.includes("dsc") || b.includes("paradox") || domainId === "alarma_incendio_sensores") {
-    fallbackRefs.push({
-      title: `Guía Técnica de Paneles de Alarma y Programación - ${query.substring(0, 48)}`,
-      url: `https://www.dsc.com/index.php?o=ag`,
-      snippet: "Documentación técnica de paneles de intrusión, teclados y gestión de códigos de usuario.",
-    });
-  } else {
-    fallbackRefs.push({
-      title: `Documentación Técnica de Seguridad Electrónica y CCTV - ${query.substring(0, 48)}`,
-      url: `https://www.hikvision.com/es-la/support/`,
-      snippet: "Guías técnicas oficiales de configuración y diagnóstico de equipos de seguridad.",
-    });
+  // 3. Portales oficiales del fabricante garantizados según marca/modelo para completar resultados faltantes
+  const fallbacks = getManufacturerFallback(brandHint, modelHint, query, domainId);
+  for (const fb of fallbacks) {
+    if (results.length >= limit) break;
+    pushResult(fb.title, fb.url, fb.snippet);
   }
-  return fallbackRefs.slice(0, limit);
+
+  return results.slice(0, limit);
 }

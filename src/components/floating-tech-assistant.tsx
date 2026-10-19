@@ -182,7 +182,7 @@ export function FloatingTechAssistant() {
       setMessages([]);
       setSessionId(null);
       setPendingAttachment(null);
-      localStorage.removeItem("sek_tech_assistant_session_v8");
+      localStorage.removeItem("sek_tech_assistant_session_v9");
     }
     prevCaseRef.current = caseId;
   }, [caseId]);
@@ -196,10 +196,11 @@ export function FloatingTechAssistant() {
       localStorage.removeItem("sek_tech_assistant_session_v5");
       localStorage.removeItem("sek_tech_assistant_session_v6");
       localStorage.removeItem("sek_tech_assistant_session_v7");
+      localStorage.removeItem("sek_tech_assistant_session_v8");
     } catch {
       /* ignorar */
     }
-    const saved = localStorage.getItem("sek_tech_assistant_session_v8");
+    const saved = localStorage.getItem("sek_tech_assistant_session_v9");
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -268,7 +269,7 @@ export function FloatingTechAssistant() {
       setPendingAttachment(null);
       setMessages(finalMessages);
       localStorage.setItem(
-        "sek_tech_assistant_session_v8",
+        "sek_tech_assistant_session_v9",
         JSON.stringify({
           session_id: sessionId || null,
           messages: finalMessages,
@@ -383,7 +384,7 @@ export function FloatingTechAssistant() {
     setMessages([]);
     setSessionId(null);
     setPendingAttachment(null);
-    localStorage.removeItem("sek_tech_assistant_session_v8");
+    localStorage.removeItem("sek_tech_assistant_session_v9");
     inputRef.current?.focus();
   };
 
@@ -408,7 +409,7 @@ export function FloatingTechAssistant() {
         const finalMessages = (data.messages || []).slice(-10);
         setMessages(finalMessages);
         localStorage.setItem(
-          "sek_tech_assistant_session_v8",
+          "sek_tech_assistant_session_v9",
           JSON.stringify({
             session_id: sessionId || null,
             messages: finalMessages,
@@ -434,7 +435,7 @@ export function FloatingTechAssistant() {
     setCaseId(resolved);
     setSessionId(null);
     setMessages([]);
-    localStorage.removeItem("sek_tech_assistant_session_v8");
+    localStorage.removeItem("sek_tech_assistant_session_v9");
     if (resolved) {
       await handleSend(
         "Diagnostique y resuelva la avería de este caso: identifique el equipo y la falla reportada por el cliente, consulte los precedentes y casos similares resueltos en Sekunet, y brinde el procedimiento técnico exacto y comprobado para solucionarlo de inmediato.",
