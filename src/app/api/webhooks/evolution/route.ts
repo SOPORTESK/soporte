@@ -1557,8 +1557,31 @@ export async function POST(req: NextRequest) {
         }
 
         let uploadBuffer = directDecryptedBuffer || Buffer.from(dataStr, "base64");
+
+        // Comprimir imágenes entrantes de WhatsApp a WebP ligero (máx 1600px, calidad 78)
+        if (mime.startsWith("image/") && mime !== "image/gif" && mime !== "image/svg+xml") {
+          try {
+            const sharpMod = await import("sharp");
+            const sharpFn = sharpMod.default || (sharpMod as any);
+            const compressed = await sharpFn(uploadBuffer)
+              .rotate()
+              .resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true })
+              .webp({ quality: 78 })
+              .toBuffer();
+            if (compressed && compressed.length < uploadBuffer.length) {
+              uploadBuffer = compressed;
+              mime = "image/webp";
+              finalExt = "webp";
+            }
+          } catch {
+            // Fallback seguro al buffer original si sharp no está disponible
+          }
+        }
+
         const storageKey = `${Date.now()}_${phone || "media"}.${finalExt}`;
-        fileName = originalFileName || storageKey;
+        fileName = originalFileName
+          ? (finalExt === "webp" ? originalFileName.replace(/\.[^.]+$/, ".webp") : originalFileName)
+          : storageKey;
 
         // Si el buffer supera 25MB, delegarlo al sidecar de la VPS para no saturar Supabase ni Vercel
         if (uploadBuffer.length >= 25 * 1024 * 1024) {
@@ -1573,7 +1596,7 @@ export async function POST(req: NextRequest) {
           // Archivo estándar (< 25MB): subida directa a Supabase Storage con storageKey único
           const { data: uploadData, error: uploadErr } = await supabase.storage
             .from("attachments")
-            .upload(`cases/evolution/${storageKey}`, uploadBuffer, { contentType: mime, upsert: true });
+            .upload(`cases/evolution/${storageKey}`, uploadBuffer, { contentType: mime, upsert: true, cacheControl: "31536000" });
 
           if (uploadErr) {
             console.error("[evo-webhook] Error subiendo media a Supabase", uploadErr.message || uploadErr);

@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { computeUnifiedActivityMetrics } from "@/lib/activity-engine";
-import { getAppMappings, getWorkSchedule, getTodayCostaRica } from "@/lib/activity-db";
+import { getAppMappings, getWorkSchedule, getTodayCostaRica, cleanupOldEvents } from "@/lib/activity-db";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 let liveCache: { data: any; expires: number } | null = null;
-const LIVE_CACHE_TTL_MS = 5000;
+const LIVE_CACHE_TTL_MS = 20000;
+let lastDailyCleanupAt = 0;
 
 export async function GET(_req: NextRequest) {
   try {
@@ -17,6 +18,11 @@ export async function GET(_req: NextRequest) {
       res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
       res.headers.set("X-Cache", "HIT");
       return res;
+    }
+
+    if (now.getTime() - lastDailyCleanupAt > 12 * 60 * 60 * 1000) {
+      lastDailyCleanupAt = now.getTime();
+      cleanupOldEvents(60).catch(() => {});
     }
 
     const supabase = createServiceClient();

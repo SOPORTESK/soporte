@@ -9,7 +9,7 @@ interface CacheEntry {
   expires: number;
 }
 const timelineCache = new Map<string, CacheEntry>();
-const CACHE_TTL_MS = 8000; // 8s TTL para navegación instantánea entre pestañas sin saturar Supabase
+const CACHE_TTL_MS = 20000; // 20s TTL para navegación instantánea y ahorro de cuota gratuita de Supabase
 
 export async function GET(req: NextRequest) {
   try {

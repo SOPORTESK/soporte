@@ -76,7 +76,7 @@ const SCHEDULE_SETTING_KEY = "activity_work_schedule";
 const OVERTIME_SETTING_KEY = "activity_overtime_requests";
 
 export async function getWorkSchedule(): Promise<WorkScheduleConfig> {
-  const cached = cacheGetFresh("app_work_schedule", 60000);
+  const cached = cacheGetFresh("app_work_schedule", 300000);
   if (cached) return cached;
 
   const supabase = getClient();
@@ -358,6 +358,11 @@ export function getTodayCostaRica(): string {
 }
 
 export async function hasActiveManualTask(agentEmail: string): Promise<boolean> {
+  const normEmail = (agentEmail || "").toLowerCase().trim();
+  const cacheKey = `active_manual_${normEmail}`;
+  const cached = cacheGetFresh(cacheKey, 30000);
+  if (cached !== null && cached !== undefined) return Boolean(cached);
+
   const supabase = getClient();
   const today = getTodayCostaRica();
   const { data, error } = await supabase
@@ -368,30 +373,45 @@ export async function hasActiveManualTask(agentEmail: string): Promise<boolean> 
     .order("created_at", { ascending: false })
     .limit(20);
 
-  if (error || !data || data.length === 0) return false;
+  if (error || !data || data.length === 0) {
+    cacheSet(cacheKey, false);
+    return false;
+  }
 
   for (const it of data) {
     const act = (it.action || "").toLowerCase();
     const meta = (it.metadata || {}) as Record<string, any>;
     const isEnd = act.startsWith("terminó:") || act.startsWith("termino:");
     const isStart = (act.startsWith("inició:") || act.startsWith("inicio:")) && (meta.manual || meta.task);
-    if (isEnd) return false;
+    if (isEnd) {
+      cacheSet(cacheKey, false);
+      return false;
+    }
     if (isStart) {
       const startMs = new Date(it.created_at).getTime();
-      return Date.now() - startMs < 10 * 60 * 60 * 1000;
+      const active = Date.now() - startMs < 10 * 60 * 60 * 1000;
+      cacheSet(cacheKey, active);
+      return active;
     }
   }
+  cacheSet(cacheKey, false);
   return false;
 }
 
 const recentInsertsCache = new Map<string, number>();
 
 export async function insertActivityLog(entry: ActivityLog): Promise<void> {
+  const normEmail = (entry.agent_email || "").toLowerCase().trim();
   const normAction = String(entry.action || "")
     .toLowerCase()
     .replace(/\s*\(\d+[^)]*\)\s*$/i, "")
     .trim();
-  const dedupKey = `${(entry.agent_email || "").toLowerCase()}|${normAction}`;
+
+  if (normAction.startsWith("inició:") || normAction.startsWith("inicio:") || normAction.startsWith("terminó:") || normAction.startsWith("termino:")) {
+    cacheDelete(`active_manual_${normEmail}`);
+  }
+
+  const dedupKey = `${normEmail}|${normAction}`;
   const now = Date.now();
   const lastInsert = recentInsertsCache.get(dedupKey);
   if (lastInsert && (now - lastInsert < 15000)) {
@@ -481,7 +501,7 @@ export async function getActivitySummaries(
 }
 
 export async function getAppMappings(): Promise<Record<string, any>> {
-  const cached = cacheGetFresh("app_activity_categories", 60000);
+  const cached = cacheGetFresh("app_activity_categories", 300000);
   if (cached) return cached;
   try {
     const supabase = createServiceClient();
@@ -605,7 +625,7 @@ export async function insertActivitySummary(entry: ActivitySummary): Promise<voi
   if (error) console.error("[activity-db] summary insert error:", error.message);
 }
 
-export async function cleanupOldEvents(daysToKeep: number = 60): Promise<void> {
+export async function cleanupOldEvents(daysToKeep: number = 60, storageRetentionDays: number = 30): Promise<void> {
   const supabase = getClient();
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - daysToKeep);
@@ -613,6 +633,39 @@ export async function cleanupOldEvents(daysToKeep: number = 60): Promise<void> {
 
   await supabase.from("activity_log").delete().lt("created_at", cutoffStr);
   await supabase.from("activity_summary").delete().lt("created_at", cutoffStr);
+
+  // Retención automática de adjuntos pesados en Storage (> 30 días) sin tocar conversaciones ni manuales
+  try {
+    const retentionMs = Math.max(30, storageRetentionDays) * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const queue: string[] = ["cases", "internal-chat"];
+    const toRemove: string[] = [];
+
+    while (queue.length > 0) {
+      const batch = queue.splice(0, 15);
+      const lists = await Promise.all(
+        batch.map(async (prefix) => {
+          const { data } = await supabase.storage.from("attachments").list(prefix, { limit: 1000 });
+          return (data || []).map((item) => ({ ...item, fullPath: `${prefix}/${item.name}` }));
+        })
+      );
+      for (const list of lists) {
+        for (const item of list) {
+          if (!item.id) {
+            queue.push(item.fullPath);
+          } else if (item.created_at && now - new Date(item.created_at).getTime() > retentionMs) {
+            toRemove.push(item.fullPath);
+          }
+        }
+      }
+    }
+
+    for (let i = 0; i < toRemove.length; i += 100) {
+      await supabase.storage.from("attachments").remove(toRemove.slice(i, i + 100));
+    }
+  } catch (err) {
+    console.error("[activity-db] storage retention error:", err);
+  }
 }
 
 function formatDuration(ms: number): string {

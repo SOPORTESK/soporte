@@ -25,6 +25,7 @@ import { HikvisionInspectorModal } from "./hikvision-inspector-modal";
 import { InventoryBrandModelSelector } from "./inventory-brand-model-selector";
 import { LinkPreviewCard, extractFirstUrl, FormattedTextWithLinks } from "./link-preview-card";
 import type { SekCase, SekHistEntry, ChannelKind } from "@/lib/types";
+import { compressImageIfApplicable } from "@/lib/compress-media";
 
 type UnifiedMessage = {
   id: string;
@@ -1455,8 +1456,10 @@ export function ChatView({
   }
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file || !agentEmail) return;
+    const rawFile = e.target.files?.[0];
+    if (!rawFile || !agentEmail) return;
+
+    const file = await compressImageIfApplicable(rawFile);
 
     const isWhatsApp = String(sekCase.canal || "").toLowerCase() === "whatsapp";
     const MAX_DRIVE_MB = 5120; // 5 GB tope para Google Drive
@@ -1498,7 +1501,7 @@ export function ChatView({
         try {
           const { error: upErr } = await supabase.storage
             .from("attachments")
-            .upload(path, file, { upsert: true, contentType: file.type || undefined });
+            .upload(path, file, { upsert: true, contentType: file.type || undefined, cacheControl: "31536000" });
           if (upErr) throw upErr;
           const { data: pub } = supabase.storage.from("attachments").getPublicUrl(path);
           pubUrl = pub.publicUrl;
@@ -1550,7 +1553,7 @@ export function ChatView({
         const path = `cases/${targetId}/${Date.now()}.${ext}`;
         const { error: upErr } = await supabase.storage
           .from("attachments")
-          .upload(path, file, { upsert: true, contentType: file.type || undefined });
+          .upload(path, file, { upsert: true, contentType: file.type || undefined, cacheControl: "31536000" });
         if (upErr) throw upErr;
         const { data: urlData } = supabase.storage.from("attachments").getPublicUrl(path);
         await send("", urlData.publicUrl, file.type, file.name);
@@ -1585,15 +1588,15 @@ export function ChatView({
     const fileItem = items.find(item => item.kind === "file");
     if (!fileItem) return;
     
-    const file = fileItem.getAsFile();
-    if (!file) return;
+    const rawFile = fileItem.getAsFile();
+    if (!rawFile) return;
     
     // Crear ID único para este archivo
-    const fileId = `${file.name}-${file.size}-${file.lastModified}`;
+    const fileId = `${rawFile.name}-${rawFile.size}-${rawFile.lastModified}`;
     
     // Verificar si ya procesamos este archivo
     if (processedFilesRef.current.has(fileId)) {
-      console.log("[handlePaste] Archivo ya procesado, ignorando:", file.name);
+      console.log("[handlePaste] Archivo ya procesado, ignorando:", rawFile.name);
       return;
     }
     
@@ -1602,11 +1605,12 @@ export function ChatView({
     
     setUploadingFile(true);
     try {
-      const ext = file.name.split(".").pop() || "png";
+      const file = await compressImageIfApplicable(rawFile);
+      const ext = file.name.split(".").pop() || "webp";
       const path = `cases/${targetId}/${Date.now()}.${ext}`;
       const { error: upErr } = await supabase.storage
         .from("attachments")
-        .upload(path, file, { upsert: true, contentType: file.type || undefined });
+        .upload(path, file, { upsert: true, contentType: file.type || undefined, cacheControl: "31536000" });
       if (upErr) throw upErr;
       const { data: urlData } = supabase.storage.from("attachments").getPublicUrl(path);
       await send("", urlData.publicUrl, file.type, file.name);

@@ -26,6 +26,7 @@ import {
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import type { InternalMessage } from "@/lib/internal-chat-types";
+import { compressImageIfApplicable } from "@/lib/compress-media";
 
 interface InternalChatViewProps {
   channelId: string;
@@ -234,18 +235,19 @@ export function InternalChatView({
 
   // Subida de archivos (imágenes, documentos, videos)
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const rawFile = e.target.files?.[0];
+    if (!rawFile) return;
 
     setUploadingFile(true);
-    const toastId = toast.loading(`Subiendo ${file.name}...`);
+    const toastId = toast.loading(`Subiendo ${rawFile.name}...`);
     try {
+      const file = await compressImageIfApplicable(rawFile);
       const cleanName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
       const path = `internal-chat/${channelId}/${Date.now()}_${cleanName}`;
 
       const { error: upErr } = await supabase.storage
         .from("attachments")
-        .upload(path, file, { upsert: true, contentType: file.type || undefined });
+        .upload(path, file, { upsert: true, contentType: file.type || undefined, cacheControl: "31536000" });
 
       if (upErr) throw upErr;
 
