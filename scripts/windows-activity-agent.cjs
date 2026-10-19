@@ -409,21 +409,16 @@ async function checkActiveManualTask(agentEmail) {
   }
 }
 
+let _idleStartTime = 0;
+let _lastIdleHeartbeat = 0;
+const IDLE_HEARTBEAT_INTERVAL = 5 * 60 * 1000; // 5 min para pulsos continuos de inactividad 24/7
+
 async function poll() {
   try {
-    // 1. Validar jerarquía de horario: Empleado individual -> Horario operativo global
+    // 1. Obtener configuración de tolerancia (el tracking corre 24/7 sin apagarse por horario para medir horas extras e inactividad continua)
     const sched = await getEffectiveSchedule(AGENT_EMAIL);
-    if (!isWithinSchedule(sched)) {
-      // Al salir de horario, reiniciar estado para que no acumule tiempo nocturno
-      _enterTime = 0;
-      _lastLabel = '';
-      _lastTitle = '';
-      _lastProcess = '';
-      return;
-    }
 
-    // Al reingresar al horario o tras una pausa prolongada, reiniciar enterTime
-    if (!_enterTime || (Date.now() - _enterTime > 2 * 3600 * 1000)) {
+    if (!_enterTime) {
       _enterTime = Date.now();
     }
 
@@ -494,7 +489,11 @@ async function poll() {
         }
 
         // 2. Registrar el inicio del bloque de Inactividad respetando la tolerancia del panel
-        const idleStartIso = new Date(Math.max(activeEndMs, now - idleOffsetMs)).toISOString();
+        const idleStartMs = Math.max(activeEndMs, now - idleOffsetMs);
+        _idleStartTime = idleStartMs;
+        _lastIdleHeartbeat = now;
+        const initialIdleMs = Math.max(0, now - idleStartMs);
+        const idleStartIso = new Date(idleStartMs).toISOString();
         const idleAction = isScreenLockedOrScreensaver
           ? (_lastLabel ? `Pantalla bloqueada mientras usaba "${_lastLabel}"` : 'Inactividad: Pantalla bloqueada / Protector de pantalla')
           : (_lastLabel ? `Sin actividad por ${toleranceMin} minutos mientras "${_lastLabel}" estaba abierta` : `Sin actividad por ${toleranceMin} minutos`);
@@ -504,6 +503,7 @@ async function poll() {
           agent_name: AGENT_NAME,
           action: idleAction,
           category: 'Inactividad',
+          duration_ms: initialIdleMs > 0 ? initialIdleMs : undefined,
           created_at: idleStartIso,
           metadata: {
             app: _lastProcess || undefined,
@@ -521,6 +521,27 @@ async function poll() {
         _lastTitle = '';
         _lastUrl = '';
         _enterTime = now;
+      } else if (now - _lastIdleHeartbeat >= IDLE_HEARTBEAT_INTERVAL) {
+        // Pulso continuo de inactividad 24/7 cada 5 minutos mientras siga inactivo o con pantalla bloqueada
+        const sliceMs = now - _lastIdleHeartbeat;
+        const totalIdleMs = now - (_idleStartTime || _lastIdleHeartbeat);
+        _lastIdleHeartbeat = now;
+        const idleAction = isScreenLockedOrScreensaver
+          ? `Inactividad continua: Pantalla bloqueada (${formatExecutiveDuration(totalIdleMs)})`
+          : `Inactividad continua: Sin actividad (${formatExecutiveDuration(totalIdleMs)})`;
+        await supabase.from('activity_log').insert({
+          agent_email: AGENT_EMAIL,
+          agent_name: AGENT_NAME,
+          action: idleAction,
+          category: 'Inactividad',
+          duration_ms: sliceMs,
+          metadata: {
+            idle_seconds: Math.round(totalIdleMs / 1000),
+            tolerance_minutes: toleranceMin,
+            reason: isScreenLockedOrScreensaver ? 'lock_screen_ongoing' : 'idle_ongoing',
+            source: 'desktop'
+          }
+        });
       }
       return;
     }
@@ -532,6 +553,8 @@ async function poll() {
 
     if (_isIdle) {
       _isIdle = false;
+      _idleStartTime = 0;
+      _lastIdleHeartbeat = 0;
       _enterTime = now;
       _lastHeartbeat = now;
     }

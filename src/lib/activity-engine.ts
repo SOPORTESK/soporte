@@ -919,7 +919,7 @@ export function computeUnifiedActivityMetrics(
 
   const softTimes: Record<string, { durationMs: number; count: number; category: string }> = {};
   const hourlyTrend: Record<number, number> = {};
-  for (let h = 6; h <= 19; h++) hourlyTrend[h] = 0;
+  for (let h = 0; h < 24; h++) hourlyTrend[h] = 0;
 
   let idleTotalMs = 0;
   const detectedGaps: DetectedAbsenceGap[] = [];
@@ -1071,7 +1071,7 @@ export function computeUnifiedActivityMetrics(
       if (opCategory === "Inactividad") {
         const nowMs = Date.now();
         const explicitIdleMs = Number(it.duration_ms || (meta.duration_seconds ? meta.duration_seconds * 1000 : 0) || (meta.idle_seconds ? meta.idle_seconds * 1000 : 0)) || 0;
-        const ongoingIdleMs = isTodayDay ? Math.min(Math.max(explicitIdleMs, Math.max(0, nowMs - currTime)), 2 * 3600 * 1000) : explicitIdleMs;
+        const ongoingIdleMs = isTodayDay ? Math.min(Math.max(explicitIdleMs, Math.max(0, nowMs - currTime)), 24 * 3600 * 1000) : explicitIdleMs;
         const endIdleMs = currTime + ongoingIdleMs;
         if (!currentIdleBlock) {
           currentIdleBlock = {
@@ -1148,10 +1148,10 @@ export function computeUnifiedActivityMetrics(
     const itemName = extractCleanItemName(it, options.appMappings);
     const opCategory = assignToOperationalCategory(itemName, it.action, it.category, meta, options.appMappings);
 
-    // Caso C: Inactividad del sistema (NO es software ni descanso)
+    // Caso C: Inactividad del sistema 24/7 (sin tope artificial de 2 horas)
     if (opCategory === "Inactividad") {
       const explicitIdleMs = Number(it.duration_ms || (meta.duration_seconds ? meta.duration_seconds * 1000 : 0)) || 0;
-      const dur = Math.min(Math.max(rawGap, explicitIdleMs), 2 * 3600 * 1000);
+      const dur = Math.min(Math.max(rawGap, explicitIdleMs), 24 * 3600 * 1000);
       if (!currentIdleBlock) {
         currentIdleBlock = {
           start: currTime,
@@ -1267,8 +1267,7 @@ export function computeUnifiedActivityMetrics(
       continue;
     }
 
-    // Caso D: Trabajo estándar en PC
-    // Transición de día, fin de jornada laboral nocturna o fuera de horario asignado:
+    // Caso D: Trabajo estándar en PC (medido 24/7 para soportar jornada regular y horas extras)
     const dCurrStr = new Date(currTime).toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
     const dNextStr = new Date(nextTime).toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
 
@@ -1302,11 +1301,11 @@ export function computeUnifiedActivityMetrics(
       }
     }
 
-    if (dCurrStr !== dNextStr || isOutsideWorkingHours) {
-      // Transición nocturna entre días, fuera de turno o fuera de horario: se contabiliza el evento pero no la brecha
-      const dur = 60000;
-      opTimes[opCategory] = (opTimes[opCategory] || 0) + dur;
-      recordSoftwareTime(itemName, dur, opCategory);
+    // Salto entre dos fechas distintas en consultas multidiarias: contabilizar la duración explícita del evento sin unir la noche entre días
+    if (dCurrStr !== dNextStr) {
+      const explicitDur = Number(it.duration_ms || (meta.duration_seconds ? meta.duration_seconds * 1000 : 0)) || 60000;
+      opTimes[opCategory] = (opTimes[opCategory] || 0) + explicitDur;
+      recordSoftwareTime(itemName, explicitDur, opCategory);
       continue;
     }
 
@@ -1330,7 +1329,7 @@ export function computeUnifiedActivityMetrics(
       const effectiveIdleGap = Math.max(0, rawGap - coveredMs - workReportedMs);
 
       if (effectiveIdleGap <= TOLERANCE_GAP_MS) {
-        const dur = Math.min(effectiveIdleGap, rawGap);
+        const dur = Math.min(effectiveIdleGap + workReportedMs, rawGap);
         if (dur > 0) {
           opTimes[opCategory] = (opTimes[opCategory] || 0) + dur;
           recordSoftwareTime(itemName, dur, opCategory);
@@ -1361,23 +1360,28 @@ export function computeUnifiedActivityMetrics(
           if (hourlyTrend[crHour] !== undefined) hourlyTrend[crHour] += productivePart;
         }
 
-        idleTotalMs += idlePart;
+        // Si la brecha sin eventos ocurre dentro del horario laboral, es ausencia no justificada de turno;
+        // si ocurre fuera de horario (ej. desconexión entre fin de jornada y conexión nocturna para horas extras),
+        // no penaliza como ausencia de turno (la inactividad explícita con PC encendida ya la mide Caso C 24/7).
+        if (!isOutsideWorkingHours) {
+          idleTotalMs += idlePart;
 
-        const dStart = new Date(currTime + coveredMs + (hasExplicitDurations ? 0 : TOLERANCE_GAP_MS));
-        const dEnd = new Date(nextTime - (hasExplicitDurations ? workReportedMs : 0));
-        const totalAbsenceMin = Math.max(1, Math.round(effectiveIdleGap / 60000));
-        detectedGaps.push({
-          id: `gap-${i}`,
-          dateStr: dStart.toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" }),
-          dateFormatted: dStart.toLocaleDateString("es-CR", { day: "numeric", month: "short", timeZone: "America/Costa_Rica" }),
-          startTime: formatTimeCR(dStart.toISOString()),
-          endTime: formatTimeCR(dEnd.toISOString()),
-          startTimeVal: dStart.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }),
-          endTimeVal: dEnd.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }),
-          durationMs: idlePart,
-          minutes: idleMin,
-          reason: `Ausencia de ${totalAbsenceMin} min (${formatTimeCR(dStart.toISOString())} - ${formatTimeCR(dEnd.toISOString())}) — supera tolerancia (${toleranceMin} min)`,
-        });
+          const dStart = new Date(currTime + coveredMs + (hasExplicitDurations ? 0 : TOLERANCE_GAP_MS));
+          const dEnd = new Date(nextTime - (hasExplicitDurations ? workReportedMs : 0));
+          const totalAbsenceMin = Math.max(1, Math.round(effectiveIdleGap / 60000));
+          detectedGaps.push({
+            id: `gap-${i}`,
+            dateStr: dStart.toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" }),
+            dateFormatted: dStart.toLocaleDateString("es-CR", { day: "numeric", month: "short", timeZone: "America/Costa_Rica" }),
+            startTime: formatTimeCR(dStart.toISOString()),
+            endTime: formatTimeCR(dEnd.toISOString()),
+            startTimeVal: dStart.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }),
+            endTimeVal: dEnd.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" }),
+            durationMs: idlePart,
+            minutes: idleMin,
+            reason: `Ausencia de ${totalAbsenceMin} min (${formatTimeCR(dStart.toISOString())} - ${formatTimeCR(dEnd.toISOString())}) — supera tolerancia (${toleranceMin} min)`,
+          });
+        }
       }
     }
   }

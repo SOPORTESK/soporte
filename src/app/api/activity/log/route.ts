@@ -75,53 +75,12 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // Jerarquía de Horario: Prioriza horario individual del empleado; si no tiene, usa el horario operativo global
+      // El tracking opera 24/7 sin interrupción (necesario para medir horas extras e inactividad continua).
+      // La regla de tolerancia y el filtro de horario se evalúan por separado sin descartar eventos.
       let configuredToleranceMin = 3;
       try {
         const sched = await getAgentSchedule(agent_email);
         configuredToleranceMin = Math.max(1, Number(sched.toleranceMinutes) || 3);
-        if (sched.scheduleEnabled) {
-          const nowCostaRica = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Costa_Rica" }));
-          const dayOfWeek = nowCostaRica.getDay(); // 0 = Domingo, 1 = Lunes, ..., 6 = Sábado
-          const workDays = sched.workDays && sched.workDays.length > 0 ? sched.workDays : [1, 2, 3, 4, 5];
-
-          // 1. Descartar si hoy no es día laboral
-          if (!workDays.includes(dayOfWeek)) {
-            return NextResponse.json({
-              success: true,
-              discarded: true,
-              message: "Día no laboral: nada se mide",
-            });
-          }
-
-          // 2. Descartar si está fuera de la hora de jornada (soportando horario mixto por día)
-          let effectiveStart = sched.scheduleStart || "07:00";
-          let effectiveEnd = sched.scheduleEnd || "17:00";
-          if (sched.useMixedSchedule && sched.daySchedules && sched.daySchedules[dayOfWeek]) {
-            const ds = sched.daySchedules[dayOfWeek];
-            if (ds.start) effectiveStart = ds.start;
-            if (ds.end) effectiveEnd = ds.end;
-          }
-
-          const [startH, startM] = effectiveStart.split(":").map(Number);
-          const [endH, endM] = effectiveEnd.split(":").map(Number);
-
-          const currentMinutes = nowCostaRica.getHours() * 60 + nowCostaRica.getMinutes();
-          const startMinutes = startH * 60 + startM;
-          const endMinutes = endH * 60 + endM;
-
-          const isWithin = startMinutes <= endMinutes
-            ? (currentMinutes >= startMinutes && currentMinutes <= endMinutes)
-            : (currentMinutes >= startMinutes || currentMinutes <= endMinutes);
-
-          if (!isWithin) {
-            return NextResponse.json({
-              success: true,
-              discarded: true,
-              message: "Fuera de horario laboral: nada se mide",
-            });
-          }
-        }
       } catch (err) {
         console.error("[activity/log] Error checking schedule:", err);
       }
