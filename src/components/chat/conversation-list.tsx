@@ -574,6 +574,7 @@ export function ConversationList({
                   name={display}
                   channel={canalKind as any}
                   size={44}
+                  zoomOnClick
                 />
                 <div className="flex-1 min-w-0 overflow-hidden">
                   <div className="flex items-center justify-between gap-2">
