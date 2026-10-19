@@ -3714,48 +3714,73 @@ function MediaPreview({ url, type, name, onImageClick, onHikvisionInspect }: {
   onHikvisionInspect?: (url: string, name?: string) => void;
 }) {
   if (!url) return null;
-  const ext = (name || url).split("?")[0].split(".").pop()?.toLowerCase() ?? "";
+  const cleanUrl = url.split("?")[0];
+  const nameExt = name && name.includes(".") ? name.split("?")[0].split(".").pop()?.toLowerCase() ?? "" : "";
+  const urlExt = cleanUrl.includes(".") ? cleanUrl.split(".").pop()?.toLowerCase() ?? "" : "";
   const audioExts = ["webm", "ogg", "mp3", "wav", "m4a", "aac", "opus"];
   const videoExts = ["mp4", "mov", "webm", "mkv"];
-  const imageExts = ["jpg", "jpeg", "png", "gif", "webp", "svg"];
-  // Si el type es genérico, inferir por extensión
+  const imageExts = ["jpg", "jpeg", "png", "gif", "webp", "svg", "bmp"];
+  const knownExts = [...audioExts, ...videoExts, ...imageExts, "pdf", "xml", "zip", "rar", "7z", "csv", "xls", "xlsx", "doc", "docx", "txt"];
+  const ext = (knownExts.includes(nameExt) ? nameExt : urlExt) || nameExt || "";
+
+  // Si el type es genérico, inferir por extensión de nombre o de URL
   const isGeneric = !type || type === "application/octet-stream";
   const t = (!isGeneric ? type : "")
-    || (audioExts.includes(ext) ? `audio/${ext === "mp3" ? "mpeg" : ext}` : "")
+    || (imageExts.includes(ext) ? `image/${ext === "jpg" ? "jpeg" : ext}` : "")
     || (videoExts.includes(ext) ? `video/${ext}` : "")
-    || (imageExts.includes(ext) ? `image/${ext}` : "")
+    || (audioExts.includes(ext) ? `audio/${ext === "mp3" ? "mpeg" : ext}` : "")
+    || (ext === "pdf" ? "application/pdf" : "")
     || type
     || "";
+
   if (t.startsWith("image/")) {
     return (
       <div 
         onClick={() => onImageClick?.(url, t, name)} 
-        className="block mt-1 cursor-pointer transition-transform hover:scale-[1.02] active:scale-[0.98]"
+        className="block mt-1 cursor-pointer transition-transform hover:scale-[1.01] active:scale-[0.99]"
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={url} alt={name || "imagen"} className="max-w-[240px] max-h-48 rounded-lg object-cover border border-white/20 shadow-sm" />
+        <img
+          src={url}
+          alt={name || "imagen"}
+          loading="lazy"
+          className="max-w-[280px] max-h-60 rounded-xl object-cover border border-white/20 shadow-sm bg-black/20"
+        />
       </div>
     );
   }
   if (t.startsWith("video/")) {
     const isNote = (name || url).includes("nota-video");
     if (isNote) return <VideoNote url={url} type={t} />;
+    const videoSrcWithThumb = url.includes("#") ? url : `${url}#t=0.1`;
     return (
-      <div
-        onClick={() => onImageClick?.(url, t, name)}
-        className="block mt-1 cursor-pointer relative group rounded-xl overflow-hidden bg-neutral-900/90 border border-white/15 max-w-[260px] p-3 hover:bg-neutral-800 transition-all shadow-sm active:scale-[0.98]"
-      >
-        <div className="flex items-center gap-3">
-          <div className="h-11 w-11 rounded-xl bg-violet-600/30 text-violet-400 border border-violet-500/30 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform shadow-md">
-            <Play className="h-5 w-5 fill-violet-400 ml-0.5" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-xs font-semibold text-white truncate">{name || "Video adjunto"}</p>
-            <p className="text-[11px] text-white/60 mt-0.5 flex items-center gap-1">
-              <span>▶ Clic para reproducir</span>
-            </p>
-          </div>
+      <div className="mt-1.5 rounded-xl overflow-hidden bg-neutral-950/90 border border-white/20 max-w-[300px] shadow-md">
+        <div className="relative group">
+          <video
+            src={videoSrcWithThumb}
+            preload="metadata"
+            controls
+            playsInline
+            className="w-full max-h-56 object-contain bg-black"
+          />
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onImageClick?.(url, t, name);
+            }}
+            title="Ampliar video en pantalla completa"
+            className="absolute top-2 right-2 px-2 py-1 rounded-lg bg-black/70 hover:bg-black/90 text-white text-[10px] font-semibold flex items-center gap-1 border border-white/20 opacity-85 hover:opacity-100 transition"
+          >
+            <Eye className="h-3 w-3 text-violet-300" />
+            <span>Ampliar</span>
+          </button>
         </div>
+        {name && (
+          <div className="px-2.5 py-1.5 flex items-center justify-between gap-2 border-t border-white/10 bg-neutral-900/90">
+            <p className="text-[11px] font-medium text-white/85 truncate" title={name}>{name}</p>
+          </div>
+        )}
       </div>
     );
   }
@@ -3764,6 +3789,7 @@ function MediaPreview({ url, type, name, onImageClick, onHikvisionInspect }: {
   }
 
   const { badge, label, cardBg, badgeColor, iconColor, Icon, canPreview, isHikvision, displayName } = getFileInfo(name, url, t);
+  const isPdfDoc = badge === "PDF" || t === "application/pdf" || ext === "pdf";
     
   const handleDownload = async (e: React.MouseEvent<HTMLAnchorElement>) => {
     e.preventDefault();
@@ -3788,6 +3814,26 @@ function MediaPreview({ url, type, name, onImageClick, onHikvisionInspect }: {
       "mt-1.5 flex flex-col rounded-xl border p-3 min-w-[280px] max-w-[460px] w-full shadow-md transition-all bg-gradient-to-br",
       cardBg
     )}>
+      {isPdfDoc && (
+        <div
+          onClick={() => onImageClick?.(url, "application/pdf", displayName)}
+          className="relative mb-2.5 rounded-lg overflow-hidden border border-white/15 bg-white h-40 cursor-pointer group"
+          title="Clic para abrir vista previa completa del PDF"
+        >
+          <iframe
+            src={`${url}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`}
+            title={displayName}
+            loading="lazy"
+            className="w-full h-full pointer-events-none border-0"
+          />
+          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/25 transition flex items-end justify-end p-2">
+            <span className="px-2 py-1 rounded-md bg-black/75 text-white text-[10px] font-semibold flex items-center gap-1 shadow">
+              <Eye className="h-3 w-3 text-amber-300" />
+              Ampliar PDF
+            </span>
+          </div>
+        </div>
+      )}
       <div className="flex items-start gap-3">
         <div className={cn(
           "h-11 w-11 rounded-xl flex flex-col items-center justify-center shrink-0 border shadow-inner mt-0.5",
