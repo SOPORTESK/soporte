@@ -1230,6 +1230,7 @@ export function computeUnifiedActivityMetrics(
           const explicitMs = Number(nextIt.duration_ms || (nextMeta.duration_seconds ? nextMeta.duration_seconds * 1000 : 0));
           const elapsedToEnd = new Date(nextIt.created_at).getTime() - currTime;
           manualDuration = explicitMs > 0 ? Math.max(explicitMs, elapsedToEnd) : elapsedToEnd;
+          handledEndIndices.add(j);
           break;
         }
       }
