@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { insertActivityLog, hasActiveManualTask, getAgentSchedule } from "@/lib/activity-db";
+import { clearTimelineCache } from "@/lib/timeline-cache";
 import { createServiceClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
@@ -136,7 +137,9 @@ export async function POST(req: NextRequest) {
         console.error("[activity/log] Async insert error:", e.message);
       }
 
-      return NextResponse.json({ success: true });
+      clearTimelineCache(agent_email);
+      clearTimelineCache(agent_email);
+    return NextResponse.json({ success: true });
     }
 
     try {
@@ -154,6 +157,7 @@ export async function POST(req: NextRequest) {
       console.error("[activity/log] Async insert error:", e.message);
     }
 
+    clearTimelineCache(agent_email);
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error("[activity/log] Error:", error);

@@ -658,6 +658,14 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
           return null;
         }
       }
+      const stoppedRaw = localStorage.getItem("sekunet_manual_task_stopped");
+      if (stoppedRaw) {
+        const stopped = JSON.parse(stoppedRaw);
+        if (stopped?.label?.toLowerCase() === parsed?.label?.toLowerCase() && (parsed.start <= stopped.stoppedAt || Date.now() - stopped.stoppedAt < 60000)) {
+          localStorage.removeItem("sekunet_manual_task");
+          return null;
+        }
+      }
       return parsed;
     } catch {
       return null;
@@ -665,6 +673,14 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
   });
   const [hoveredManualTask, setHoveredManualTask] = useState<any>(null);
   const isStoppingTaskRef = useRef(false);
+  const stoppedTombstoneRef = useRef<{ label: string; stoppedAt: number } | null>(null);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("sekunet_manual_task_stopped");
+      if (saved) stoppedTombstoneRef.current = JSON.parse(saved);
+    } catch {}
+  }, []);
 
   // Categorías dinámicas sincronizadas con "Gestionar Categorías"
   const [categoriesConfig, setCategoriesConfig] = useState<any[]>(() => {
@@ -910,6 +926,7 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
       if (e.key === "sekunet_manual_task") {
         if (e.newValue) {
           try {
+            stoppedTombstoneRef.current = null;
             setManualTask(JSON.parse(e.newValue));
           } catch {}
         } else {
@@ -929,6 +946,8 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
           setManualTask(null);
           try { localStorage.removeItem("sekunet_manual_task"); } catch {}
         } else if (data.action === "start" && data.task) {
+          stoppedTombstoneRef.current = null;
+          try { localStorage.removeItem("sekunet_manual_task_stopped"); } catch {}
           setManualTask(data.task);
           try { localStorage.setItem("sekunet_manual_task", JSON.stringify(data.task)); } catch {}
         }
@@ -965,11 +984,16 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
                 const a = (it.action || "").toLowerCase();
                 return (a.startsWith("terminó:") || a.startsWith("termino:")) && new Date(it.created_at).getTime() > startMs;
               });
-              if (hasEnd || isDifferentDay || (Date.now() - startMs > 8 * 60 * 60 * 1000)) {
+              const label = lastManual.metadata?.task || lastManual.metadata?.label || lastManual.action.replace(/^inici[oó]:\s*/i, "").trim();
+              const stopped = stoppedTombstoneRef.current;
+              const wasRecentlyStopped = stopped && (
+                stopped.label.toLowerCase() === label.toLowerCase() &&
+                (startMs <= stopped.stoppedAt || Date.now() - stopped.stoppedAt < 60000)
+              );
+              if (hasEnd || isDifferentDay || wasRecentlyStopped || (Date.now() - startMs > 8 * 60 * 60 * 1000)) {
                 setManualTask(null);
                 try { localStorage.removeItem("sekunet_manual_task"); } catch {}
               } else {
-                const label = lastManual.metadata?.task || lastManual.metadata?.label || lastManual.action.replace(/^inici[oó]:\s*/i, "").trim();
                 const restored = {
                   type: lastManual.category || "Labores manuales",
                   label,
@@ -1059,6 +1083,10 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
 
   const startManualTask = (type: string, label: string, subcategory?: string) => {
     if (manualTask) return;
+    stoppedTombstoneRef.current = null;
+    try {
+      localStorage.removeItem("sekunet_manual_task_stopped");
+    } catch {}
     const taskObj = { type, label, subcategory, start: Date.now() };
     setManualTask(taskObj);
     try {
@@ -1087,6 +1115,10 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
     if (!manualTask || isStoppingTaskRef.current) return;
     isStoppingTaskRef.current = true;
     const taskToStop = manualTask;
+    stoppedTombstoneRef.current = { label: taskToStop.label, stoppedAt: Date.now() };
+    try {
+      localStorage.setItem("sekunet_manual_task_stopped", JSON.stringify({ label: taskToStop.label, stoppedAt: Date.now() }));
+    } catch {}
     setManualTask(null);
     try {
       localStorage.removeItem("sekunet_manual_task");
@@ -1127,7 +1159,7 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
     fetchActivity();
     setTimeout(() => {
       isStoppingTaskRef.current = false;
-    }, 2000);
+    }, 400);
   };
 
   const handleSync = async () => {

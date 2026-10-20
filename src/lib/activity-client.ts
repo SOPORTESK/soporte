@@ -53,7 +53,15 @@ export function logActivity(params: LogActivityParams): void {
     }
 
     const payload = JSON.stringify(params);
-    if (typeof navigator !== "undefined" && navigator.sendBeacon) {
+    // Para acciones manuales críticas (iniciar o terminar descansos y tareas), usar fetch directo con alta prioridad
+    if (isManualAction) {
+      fetch("/api/activity/log", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: payload,
+        keepalive: true,
+      }).catch(() => {});
+    } else if (typeof navigator !== "undefined" && navigator.sendBeacon) {
       const blob = new Blob([payload], { type: "application/json" });
       navigator.sendBeacon("/api/activity/log", blob);
     } else {

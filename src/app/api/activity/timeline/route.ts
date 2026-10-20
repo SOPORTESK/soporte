@@ -1,15 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getActivityTimeline, getActivityMetrics, getTodayCostaRica } from "@/lib/activity-db";
+import { timelineCache, CACHE_TTL_MS } from "@/lib/timeline-cache";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-interface CacheEntry {
-  data: any;
-  expires: number;
-}
-const timelineCache = new Map<string, CacheEntry>();
-const CACHE_TTL_MS = 20000; // 20s TTL para navegación instantánea y ahorro de cuota gratuita de Supabase
 
 export async function GET(req: NextRequest) {
   try {
@@ -21,7 +15,8 @@ export async function GET(req: NextRequest) {
     const lastMinutes = searchParams.get("lastMinutes");
 
     const cacheKey = `${agent || "all"}_${date}_${endDate || ""}_${metricsParam || ""}_${lastMinutes || ""}`;
-    const cached = timelineCache.get(cacheKey);
+    const hasCacheBuster = searchParams.has("_t") || Boolean(lastMinutes) || req.headers.get("cache-control")?.includes("no-cache");
+    const cached = !hasCacheBuster ? timelineCache.get(cacheKey) : null;
     if (cached && Date.now() < cached.expires) {
       const res = NextResponse.json(cached.data);
       res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
