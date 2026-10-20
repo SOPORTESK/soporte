@@ -70,9 +70,10 @@ export function AgentWorkManagement({ agentEmail, agentName }: AgentWorkManageme
     fetch("/api/admin/agentes")
       .then((r) => r.json())
       .then((d) => {
-        if (!mounted || !Array.isArray(d?.agents)) return;
-        const mapped = d.agents
-          .filter((a: any) => a?.email && !String(a.email).toLowerCase().includes("claudia"))
+        const rawList = Array.isArray(d?.data) ? d.data : Array.isArray(d?.agents) ? d.agents : [];
+        if (!mounted || !rawList.length) return;
+        const mapped = rawList
+          .filter((a: any) => a?.email)
           .map((a: any) => ({
             email: String(a.email).trim(),
             name:

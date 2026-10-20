@@ -35,12 +35,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "La contraseña inicial es obligatoria y debe tener al menos 6 caracteres" }, { status: 400 });
     }
 
+    const fullName = [nombre, apellido].filter(Boolean).join(" ").trim();
+    const assignedRole = rol || "tecnico";
+
     // 1. Crear usuario en Auth directamente (flujo original que funciona sin SMTP)
     const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
       email_confirm: true,
-      user_metadata: { nombre, apellido }
+      user_metadata: {
+        nombre,
+        apellido,
+        full_name: fullName || email,
+        rol: assignedRole,
+      }
     });
 
     if (authError) {
@@ -74,11 +82,15 @@ export async function POST(req: NextRequest) {
       cacheDelete("all_agents_config");
       cacheDelete("app_work_schedule");
       cacheDelete("app_overtime_all");
+      cacheDelete("equipo_all_casos");
       cacheDelete(`agent_config_${email}`);
       cacheDelete(`agent_full_${email}`);
+      cacheDelete(`agent_casos_${email}`);
       revalidatePath("/admin/equipo");
+      revalidatePath("/admin/equipo/perfil");
       revalidatePath("/admin/actividad");
       revalidatePath("/admin/settings");
+      revalidatePath("/admin");
     } catch {}
 
     return NextResponse.json({ success: true, user: authUser?.user || null });

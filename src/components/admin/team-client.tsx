@@ -102,6 +102,7 @@ export function TeamClient({ humanAgents, sekaAgent, isSuperadmin }: TeamClientP
         alert("Agente creado exitosamente");
         setIsInviting(false);
         setFormData({});
+        window.location.reload();
       } else {
         const d = await res.json();
         alert("Error: " + d.error);
