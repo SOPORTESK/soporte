@@ -239,9 +239,13 @@ async function checkActivity(checks: IntegrityCheck[]) {
       const tag = `${name} · ${shortDate(day)}`;
 
       const m = await getActivityMetrics(email, day, sorted);
-      const spanMs =
-        new Date(sorted[sorted.length - 1].created_at as string).getTime() -
-        new Date(sorted[0].created_at as string).getTime();
+      const isTodayDay = day === crDate(now);
+      const firstEventTime = new Date(sorted[0].created_at as string).getTime();
+      const lastEventTime = new Date(sorted[sorted.length - 1].created_at as string).getTime();
+      // En una jornada en curso (hoy), si hay inactividad o turno en progreso hasta 'now',
+      // la ventana de reloj real llega hasta 'now' y no se congela en el último evento del log.
+      const effectiveEndTime = isTodayDay ? Math.max(lastEventTime, now.getTime()) : lastEventTime;
+      const spanMs = Math.max(0, effectiveEndTime - firstEventTime);
       const total = m.rawActiveMs + m.totalBreakMs + m.totalSanitaryMs + m.totalIdleMs;
 
       // Si el motor imputó tardanza al inicio de jornada o salida anticipada respecto al horario programado,
