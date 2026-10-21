@@ -1362,7 +1362,7 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
         })),
         temperature: 0.2,
         maxTokens: 2048,
-        timeoutMs: 15_000,
+        timeoutMs: 25_000,
       });
 
       if (aiGen?.text) {

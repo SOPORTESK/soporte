@@ -32,15 +32,25 @@ const DEFAULT_BASE: Record<string, string> = {
 
 /** Red de seguridad si la BD no tiene configuración para un rol. */
 const FALLBACK_CHAINS: Record<AiRole, { provider: string; modelo: string }[]> = {
-  chat:       [{ provider: "google", modelo: "gemini-3.5-flash-lite" }, { provider: "google", modelo: "gemini-flash-lite-latest" }],
+  chat: [
+    { provider: "google", modelo: "gemini-3.5-flash" },
+    { provider: "google", modelo: "gemini-3-flash-preview" },
+    { provider: "openrouter", modelo: "meta-llama/llama-3.3-70b-instruct" },
+    { provider: "groq", modelo: "openai/gpt-oss-120b" },
+    { provider: "google", modelo: "gemini-3.5-flash-lite" },
+  ],
   web_search: [{ provider: "google", modelo: "gemini-3.5-flash" }],
-  vision:     [{ provider: "google", modelo: "gemini-3.5-flash-lite" }],
-  transcribe: [{ provider: "google", modelo: "gemini-3.5-flash-lite" }],
-  meta_chat:  [{ provider: "google", modelo: "gemini-3.5-flash-lite" }, { provider: "google", modelo: "gemini-3.5-flash" }],
-  learn:      [{ provider: "google", modelo: "gemini-3.5-flash-lite" }],
-  auto_close: [{ provider: "google", modelo: "gemini-3.5-flash-lite" }],
-  extract:    [{ provider: "google", modelo: "gemini-3.5-flash-lite" }],
-  activity:   [{ provider: "google", modelo: "gemini-3.5-flash-lite" }],
+  vision:     [{ provider: "google", modelo: "gemini-3.5-flash" }, { provider: "google", modelo: "gemini-3.5-flash-lite" }],
+  transcribe: [{ provider: "google", modelo: "gemini-3.5-flash" }, { provider: "google", modelo: "gemini-3.5-flash-lite" }],
+  meta_chat:  [
+    { provider: "google", modelo: "gemini-3.5-flash" },
+    { provider: "google", modelo: "gemini-3-flash-preview" },
+    { provider: "openrouter", modelo: "meta-llama/llama-3.3-70b-instruct" },
+  ],
+  learn:      [{ provider: "google", modelo: "gemini-3.5-flash" }],
+  auto_close: [{ provider: "google", modelo: "gemini-3.5-flash" }],
+  extract:    [{ provider: "google", modelo: "gemini-3.5-flash" }],
+  activity:   [{ provider: "google", modelo: "gemini-3.5-flash" }],
 };
 
 function envKey(provider: string): string | undefined {
@@ -167,7 +177,7 @@ export async function generateText(
   const chain = await getChain(role);
   const { system, messages, temperature = 0.3, maxTokens = 2048, timeoutMs = 12_000, tools } = opts;
 
-  const timeoutPerModel = Math.min(timeoutMs, 6_000);
+  const timeoutPerModel = Math.min(timeoutMs, 10_000);
   for (const m of chain) {
     const t0 = Date.now();
     try {
