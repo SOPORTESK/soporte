@@ -58,20 +58,41 @@ export async function POST(req: NextRequest) {
   if (phone) {
     to = `${normalizePhone(phone)}@s.whatsapp.net`;
   } else {
-    const row = await supabase.from("sek_cases").select("id, canal, customer_phone, cliente").eq("id", case_id).maybeSingle();
+    const row = await supabase.from("sek_cases").select("id, canal, customer_phone, cliente, histcliente, histtecnico").eq("id", case_id).maybeSingle();
     c = row.data;
     if (!c || String(c.canal).toLowerCase() !== "whatsapp") return NextResponse.json({ error: "case_not_whatsapp" }, { status: 400 });
     to = pickPhone(c);
   }
   if (!to) return NextResponse.json({ error: "no_phone" }, { status: 400 });
 
+  if (case_id && !c) {
+    const row = await supabase.from("sek_cases").select("id, canal, customer_phone, cliente, histcliente, histtecnico").eq("id", case_id).maybeSingle();
+    c = row.data;
+  }
+
   try {
     let msgId: string | null = null;
 
     // Cita / respuesta a mensaje previo en WhatsApp (requiere id, remoteJid y fromMe)
-    const targetQuotedId = quotedMessageId || entry?.replyTo?.messageId;
-    const targetQuotedText = quotedText || entry?.replyTo?.content || "";
-    const targetQuotedFromMe = quotedFromMe !== undefined ? Boolean(quotedFromMe) : Boolean(entry?.replyTo?.fromMe);
+    let targetQuotedId = quotedMessageId || entry?.replyTo?.messageId;
+    let targetQuotedText = quotedText || entry?.replyTo?.content || "";
+    let targetQuotedFromMe = quotedFromMe !== undefined ? Boolean(quotedFromMe) : Boolean(entry?.replyTo?.fromMe);
+
+    // Auto-resolver si no viene el messageId pero sí el texto citado (ej: cliente con frontend en caché)
+    if (!targetQuotedId && targetQuotedText && c) {
+      try {
+        const allMsgs = [
+          ...(Array.isArray(c.histcliente) ? c.histcliente : []),
+          ...(Array.isArray(c.histtecnico) ? c.histtecnico : []),
+        ];
+        const match = allMsgs.slice().reverse().find((m: any) => m && m.content && m.content.trim() === targetQuotedText.trim() && m.messageId);
+        if (match) {
+          targetQuotedId = match.messageId;
+          targetQuotedFromMe = Boolean(match.fromMe || match.role === "tecnico" || match.role === "assistant");
+          console.log("[evo-send] Cita vinculada automáticamente por texto:", { targetQuotedId, targetQuotedFromMe });
+        }
+      } catch {}
+    }
 
     const quoted = targetQuotedId ? {
       key: {
