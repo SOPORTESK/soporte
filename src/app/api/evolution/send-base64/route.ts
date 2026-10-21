@@ -15,7 +15,7 @@ function detectMediaType(mime: string): "image" | "video" | "audio" | "document"
 
 export async function POST(req: NextRequest) {
   try {
-    const { case_id, base64, mediaUrl, mimeType, fileName, quotedMessageId, quotedText } = await req.json().catch(() => ({}));
+    const { case_id, base64, mediaUrl, mimeType, fileName, quotedMessageId, quotedText, quotedFromMe } = await req.json().catch(() => ({}));
 
     if (!case_id || (!base64 && !mediaUrl) || !mimeType || !fileName) {
       return NextResponse.json({ error: "Faltan parámetros" }, { status: 400 });
@@ -44,8 +44,14 @@ export async function POST(req: NextRequest) {
     const baseUrl = evoCfg.url.replace(/\/$/, "");
     const instance = encodeURIComponent(evoCfg.instance);
 
+    const isFromMe = quotedFromMe === true || quotedFromMe === "true";
     const quoted = quotedMessageId ? {
-      key: { id: quotedMessageId },
+      key: {
+        id: quotedMessageId,
+        remoteJid: to,
+        fromMe: isFromMe,
+        ...(isFromMe ? {} : { participant: to }),
+      },
       message: { conversation: quotedText || "" }
     } : undefined;
 

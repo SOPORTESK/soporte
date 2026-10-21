@@ -1154,6 +1154,7 @@ export function ChatView({
             entry: entry as any,
             quotedMessageId: replyTo?.messageId || undefined,
             quotedText: replyTo?.content?.slice(0, 200) || undefined,
+            quotedFromMe: replyTo?.fromMe ?? false,
           })
         });
         const data = await res.json().catch(() => ({}));
@@ -1539,6 +1540,7 @@ export function ChatView({
             fileName: file.name,
             quotedMessageId: replyTo?.messageId || undefined,
             quotedText: replyTo?.content?.slice(0, 200) || undefined,
+            quotedFromMe: replyTo?.fromMe ? "true" : "false",
           };
         } else {
           payload = {
@@ -1548,6 +1550,7 @@ export function ChatView({
             fileName: file.name,
             quotedMessageId: replyTo?.messageId || undefined,
             quotedText: replyTo?.content?.slice(0, 200) || undefined,
+            quotedFromMe: replyTo?.fromMe ? "true" : "false",
           };
         }
 

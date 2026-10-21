@@ -41,7 +41,7 @@ function detectMediaType(mime: string | null | undefined): "image" | "video" | "
 }
 
 export async function POST(req: NextRequest) {
-  const { case_id, phone, text, mediaUrl, mediaType, fileName, entry, quotedMessageId, quotedText } = await req.json().catch(() => ({}));
+  const { case_id, phone, text, mediaUrl, mediaType, fileName, entry, quotedMessageId, quotedText, quotedFromMe } = await req.json().catch(() => ({}));
   if ((!case_id && !phone) || (!text && !mediaUrl)) return NextResponse.json({ error: "invalid" }, { status: 400 });
 
   const evoCfg = await getEvolutionConfig();
@@ -68,12 +68,17 @@ export async function POST(req: NextRequest) {
   try {
     let msgId: string | null = null;
 
-    // Cita / respuesta a mensaje previo en WhatsApp
+    // Cita / respuesta a mensaje previo en WhatsApp (requiere id, remoteJid y fromMe)
     const targetQuotedId = quotedMessageId || entry?.replyTo?.messageId;
     const targetQuotedText = quotedText || entry?.replyTo?.content || "";
+    const targetQuotedFromMe = quotedFromMe !== undefined ? Boolean(quotedFromMe) : Boolean(entry?.replyTo?.fromMe);
+
     const quoted = targetQuotedId ? {
       key: {
         id: targetQuotedId,
+        remoteJid: to,
+        fromMe: targetQuotedFromMe,
+        ...(targetQuotedFromMe ? {} : { participant: to }),
       },
       message: {
         conversation: targetQuotedText,
@@ -142,11 +147,12 @@ export async function POST(req: NextRequest) {
     // WhatsApp confirmó la entrega. Ahora sí guardar en la BD con el ID real.
     if (msgId && case_id && entry) {
       const finalEntry = { ...entry, messageId: msgId, fromMe: true };
-      if (targetQuotedId && !finalEntry.replyTo?.messageId) {
+      if (targetQuotedId) {
         finalEntry.replyTo = {
           ...(finalEntry.replyTo || {}),
           messageId: targetQuotedId,
           content: targetQuotedText || finalEntry.replyTo?.content || "",
+          fromMe: targetQuotedFromMe,
         };
       }
       const { error: appendErr } = await supabase.rpc("sek_append_hist", {
