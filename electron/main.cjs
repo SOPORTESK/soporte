@@ -5,6 +5,21 @@ const fs   = require('fs');
 const { autoUpdater } = require('electron-updater');
 
 // Desactivar aceleración por hardware en Windows para evitar pantallas negras/azules por GPU
+// Prevenir multiples instancias duplicadas en segundo plano
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+  process.exit(0);
+}
+
+app.on('second-instance', () => {
+  if (win) {
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+  }
+});
+
 app.disableHardwareAcceleration();
 app.commandLine.appendSwitch('disable-gpu');
 app.commandLine.appendSwitch('disable-software-rasterizer');

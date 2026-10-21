@@ -47,11 +47,11 @@ export default async function MiGestionPage({ searchParams }: { searchParams: { 
         .eq("assigned_to", agentEmail)
         .order("last_message_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false })
-        .limit(1500);
+        .limit(350);
       return { data, error };
     },
     [],
-    10000 // 10s fresh TTL para navegación instantánea
+    60000 // 60s fresh TTL para navegación instantánea
   );
 
   if (casesError) console.error("[mi-gestion] sek_cases error:", casesError);

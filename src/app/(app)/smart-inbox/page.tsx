@@ -19,11 +19,11 @@ export default async function SmartInboxPage({ searchParams }: { searchParams: {
         .neq("es_test", true)
         .order("last_message_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false })
-        .limit(1500);
+        .limit(300);
       return { data, error };
     },
     [],
-    10000 // 10s fresh TTL para navegación instantánea
+    60000 // 60s fresh TTL para navegación instantánea
   );
   if (error) console.error("[smart-inbox] sek_cases error:", error);
 
