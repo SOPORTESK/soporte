@@ -536,6 +536,20 @@ function unwrapMsg(msg: any): any {
   return cur;
 }
 
+// Busca contextInfo recursivamente en cualquier nivel del mensaje (directo o anidado)
+function findContextInfo(obj: any, depth = 0): any {
+  if (!obj || typeof obj !== "object" || depth > 8) return null;
+  if (obj.contextInfo && typeof obj.contextInfo === "object") return obj.contextInfo;
+  for (const k of Object.keys(obj)) {
+    if (k === "quotedMessage") continue;
+    if (typeof obj[k] === "object" && obj[k] !== null) {
+      const found = findContextInfo(obj[k], depth + 1);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
 // Descarga y desencripta media de WhatsApp directamente (AES-256-CBC + HKDF),
 // sin depender de getBase64FromMediaMessage de Evolution (que falla en Render).
 async function decryptWhatsAppMedia(
@@ -1243,6 +1257,7 @@ export async function POST(req: NextRequest) {
 
   // Detectar si es un mensaje saliente (enviado desde nuestro número)
   let isOutgoing = false;
+  let officialPhone = "50662777500";
   try {
     const fromMe = rawFromMe;
     const pushNameRaw = get(payload, "data.pushName") || 
@@ -1260,7 +1275,7 @@ export async function POST(req: NextRequest) {
                          get(payload, "wuid") || 
                          get(payload, "data.wuid") || 
                          "";
-    const officialPhone = jidToPhone(instanceUser) || "50662777500";
+    officialPhone = jidToPhone(instanceUser) || "50662777500";
     const participantPhone = jidToPhone(participant);
     const isOfficialNumber = !!(participantPhone && participantPhone === officialPhone);
     isOutgoing = !!(fromMe || isBotName || isOfficialNumber);
@@ -1629,57 +1644,78 @@ export async function POST(req: NextRequest) {
   // time = hora de WhatsApp (msgTime), no la de recepción, para que el orden
   // en el chat coincida con el de la app.
   // Extraer cita (reply) del mensaje de WhatsApp si existe
-  let replyTo: { content: string; author: string } | null = null;
+  let replyTo: { content: string; author: string; messageId?: string; fromMe?: boolean } | null = null;
+  let quotedStanzaId: string | null = null;
   try {
-    const msgObj = get(payload, "data.messages.0.message") || get(payload, "data.message") || get(payload, "message") || {};
-    // contextInfo puede venir en cualquier tipo de mensaje (conversation, extendedText, image, video, document, etc.)
-    const ctx = msgObj?.extendedTextMessage?.contextInfo
-      || msgObj?.conversation?.contextInfo
-      || msgObj?.imageMessage?.contextInfo
-      || msgObj?.videoMessage?.contextInfo
-      || msgObj?.ptvMessage?.contextInfo
-      || msgObj?.audioMessage?.contextInfo
-      || msgObj?.documentMessage?.contextInfo
-      || msgObj?.documentWithCaptionMessage?.message?.contextInfo
-      || msgObj?.viewOnceMessage?.message?.contextInfo
-      || msgObj?.ephemeralMessage?.message?.extendedTextMessage?.contextInfo
-      || msgObj?.ephemeralMessage?.message?.conversation?.contextInfo
-      || msgObj?.ephemeralMessage?.message?.imageMessage?.contextInfo
-      || msgObj?.ephemeralMessage?.message?.videoMessage?.contextInfo
-      || msgObj?.contextInfo;
-    if (ctx?.quotedMessage) {
+    const rawData = payload?.data;
+    const rawMsgObj =
+      get(payload, "data.messages.0.message") ||
+      (Array.isArray(rawData) ? rawData[0]?.message : undefined) ||
+      (Array.isArray(rawData?.messages) ? rawData.messages[0]?.message : undefined) ||
+      get(payload, "data.message") ||
+      get(payload, "message") ||
+      (Array.isArray(rawData) ? rawData[0] : undefined) ||
+      rawData ||
+      {};
+
+    const ctx = findContextInfo(rawMsgObj) || findContextInfo(payload?.data) || findContextInfo(payload);
+    if (ctx) {
+      if (ctx.stanzaId) quotedStanzaId = String(ctx.stanzaId);
+
       let qm = ctx.quotedMessage;
-      // Desempaquetar si está envuelto en ephemeralMessage, viewOnceMessage o documentWithCaption
-      if (qm?.ephemeralMessage?.message) qm = qm.ephemeralMessage.message;
-      if (qm?.viewOnceMessage?.message) qm = qm.viewOnceMessage.message;
-      if (qm?.viewOnceMessageV2?.message) qm = qm.viewOnceMessageV2.message;
-      if (qm?.documentWithCaptionMessage?.message) qm = qm.documentWithCaptionMessage.message;
+      if (qm) {
+        qm = unwrapMsg(qm);
+        let quotedText = qm?.conversation
+          || qm?.extendedTextMessage?.text
+          || qm?.imageMessage?.caption
+          || qm?.videoMessage?.caption
+          || qm?.documentMessage?.caption
+          || qm?.documentMessage?.fileName
+          || qm?.documentMessage?.title
+          || "";
 
-      let quotedText = qm?.conversation
-        || qm?.extendedTextMessage?.text
-        || qm?.imageMessage?.caption
-        || qm?.videoMessage?.caption
-        || qm?.documentMessage?.caption
-        || qm?.documentMessage?.fileName
-        || "";
+        if (!quotedText) {
+          try {
+            const extracted = extractText({ message: qm });
+            if (extracted) quotedText = extracted;
+          } catch {}
+        }
 
-      if (!quotedText) {
-        if (qm?.imageMessage) quotedText = "📷 Imagen";
-        else if (qm?.audioMessage) quotedText = "🎵 Nota de voz";
-        else if (qm?.videoMessage) quotedText = "📹 Video";
-        else if (qm?.documentMessage) quotedText = "📎 Documento";
-        else if (qm?.stickerMessage) quotedText = "👾 Sticker";
-        else if (qm?.contactMessage) quotedText = "👤 Contacto";
-        else if (qm?.locationMessage) quotedText = "📍 Ubicación";
-      }
+        if (!quotedText) {
+          if (qm?.imageMessage) quotedText = "📷 Imagen";
+          else if (qm?.audioMessage) quotedText = "🎵 Nota de voz";
+          else if (qm?.videoMessage || qm?.ptvMessage) quotedText = "📹 Video";
+          else if (qm?.documentMessage) quotedText = "📎 Documento";
+          else if (qm?.stickerMessage) quotedText = "👾 Sticker";
+          else if (qm?.contactMessage) quotedText = "👤 Contacto";
+          else if (qm?.locationMessage) quotedText = "📍 Ubicación";
+        }
 
-      if (quotedText) {
         const rawPart = ctx.participant || "";
-        const authorPhone = jidToPhone(rawPart) || rawPart.split("@")[0] || "Contacto";
-        replyTo = { content: quotedText.slice(0, 200), author: authorPhone };
+        const phonePart = jidToPhone(rawPart);
+        const isOfficial = Boolean(phonePart && officialPhone && phonePart === officialPhone) || rawPart.includes("@lid");
+
+        let author = isOutgoing ? "Cliente" : "Soporte Sekunet";
+        if (phonePart && phone && phonePart === phone) {
+          author = "Cliente";
+        } else if (isOfficial || !isOutgoing) {
+          author = "Soporte Sekunet";
+        }
+
+        if (quotedText || quotedStanzaId) {
+          replyTo = {
+            content: (quotedText || "Mensaje").slice(0, 200),
+            author,
+            ...(quotedStanzaId ? { messageId: quotedStanzaId } : {}),
+            fromMe: author === "Soporte Sekunet",
+          };
+        }
       }
     }
-  } catch {}
+  } catch (err: any) {
+    console.warn("[evo-webhook] Error extrayendo contextInfo de cita:", err?.message);
+    replyTo = null;
+  }
 
   if (text?.startsWith("[Archivo adjunto:") || text?.startsWith("[Procesando") || text === "[Video en optimización...]") {
     text = "";
@@ -1699,6 +1735,38 @@ export async function POST(req: NextRequest) {
       .order("created_at", { ascending: false })
       .limit(50);
     console.log("[evo-webhook] Paso 6 OK - casos encontrados:", openCases?.length || 0);
+
+    // Si la cita tenía un messageId / stanzaId, enriquecer con el texto real del mensaje previo en la BD
+    try {
+      if (quotedStanzaId && openCases && Array.isArray(openCases)) {
+        for (const oc of openCases) {
+          const allMsgs = [...(Array.isArray(oc.histtecnico) ? oc.histtecnico : []), ...(Array.isArray(oc.histcliente) ? oc.histcliente : [])];
+          const found = allMsgs.find((m: any) => m && m.messageId === quotedStanzaId);
+          if (found) {
+            const authorResolved = found.author || (found.role === "tecnico" || found.fromMe ? "Soporte Sekunet" : "Cliente");
+            const textResolved = (found.content && !found.content.startsWith("[Procesando") && !found.content.startsWith("[Archivo"))
+              ? found.content
+              : (found.fileName ? `📎 ${found.fileName}` : (found.mediaType ? `[${found.mediaType}]` : "Mensaje"));
+
+            if (!replyTo) {
+              replyTo = { content: textResolved.slice(0, 200), author: authorResolved, messageId: quotedStanzaId, fromMe: found.fromMe ?? false };
+            } else {
+              replyTo.author = authorResolved;
+              if (!replyTo.content || replyTo.content.startsWith("📷") || replyTo.content.startsWith("🎵") || replyTo.content.startsWith("📹") || replyTo.content === "Mensaje") {
+                replyTo.content = textResolved.slice(0, 200);
+              }
+            }
+            if (entry) {
+              entry.replyTo = replyTo;
+            }
+            console.log("[evo-webhook] Cita vinculada con mensaje previo en BD:", { quotedStanzaId, author: authorResolved, text: textResolved.slice(0, 40) });
+            break;
+          }
+        }
+      }
+    } catch (err: any) {
+      console.warn("[evo-webhook] Error enriqueciendo cita con historial:", err?.message);
+    }
 
     let existing = null;
     let reopenClosedCase = false;

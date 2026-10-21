@@ -15,7 +15,7 @@ function detectMediaType(mime: string): "image" | "video" | "audio" | "document"
 
 export async function POST(req: NextRequest) {
   try {
-    const { case_id, base64, mediaUrl, mimeType, fileName } = await req.json().catch(() => ({}));
+    const { case_id, base64, mediaUrl, mimeType, fileName, quotedMessageId, quotedText, quotedFromMe } = await req.json().catch(() => ({}));
 
     if (!case_id || (!base64 && !mediaUrl) || !mimeType || !fileName) {
       return NextResponse.json({ error: "Faltan parámetros" }, { status: 400 });
@@ -44,6 +44,17 @@ export async function POST(req: NextRequest) {
     const baseUrl = evoCfg.url.replace(/\/$/, "");
     const instance = encodeURIComponent(evoCfg.instance);
 
+    const isFromMe = quotedFromMe === true || quotedFromMe === "true";
+    const quoted = quotedMessageId ? {
+      key: {
+        id: quotedMessageId,
+        remoteJid: to,
+        fromMe: isFromMe,
+        ...(isFromMe ? {} : { participant: to }),
+      },
+      message: { conversation: quotedText || "" }
+    } : undefined;
+
     let evoBody: Record<string, unknown>;
     let evoEndpoint: string;
 
@@ -51,27 +62,38 @@ export async function POST(req: NextRequest) {
       // WhatsApp requiere un endpoint separado para audios (notas de voz / PTT)
       evoEndpoint = `${baseUrl}/message/sendWhatsAppAudio/${instance}`;
       if (mediaUrl) {
-        evoBody = { number: to, audio: mediaUrl };
+        evoBody = { number: to, audio: mediaUrl, ...(quoted ? { quoted } : {}) };
       } else {
         const mediaData = base64.startsWith("data:") ? base64.split(",")[1] : base64;
-        evoBody = { number: to, audio: mediaData };
+        evoBody = { number: to, audio: mediaData, ...(quoted ? { quoted } : {}) };
       }
     } else if (mediaUrl) {
       // Archivo grande: enviar por URL pública (sin pasar base64 por Vercel)
       evoEndpoint = `${baseUrl}/message/sendMedia/${instance}`;
-      evoBody = { number: to, mediatype, mimetype: mimeType, media: mediaUrl, fileName };
+      evoBody = { number: to, mediatype, mimetype: mimeType, media: mediaUrl, fileName, ...(quoted ? { quoted } : {}) };
     } else {
       // Archivo pequeño: base64 directo
       const mediaData = base64.startsWith("data:") ? base64.split(",")[1] : base64;
       evoEndpoint = `${baseUrl}/message/sendMedia/${instance}`;
-      evoBody = { number: to, mediatype, mimetype: mimeType, media: mediaData, fileName };
+      evoBody = { number: to, mediatype, mimetype: mimeType, media: mediaData, fileName, ...(quoted ? { quoted } : {}) };
     }
 
-    const res = await fetch(evoEndpoint, {
+    let res = await fetch(evoEndpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json", apikey: evoCfg.apiKey },
       body: JSON.stringify(evoBody),
     });
+
+    if (!res.ok && quoted) {
+      console.warn("[send-base64] Falló con cita, reintentando sin cita como respaldo...");
+      const fallbackBody = { ...evoBody };
+      delete fallbackBody.quoted;
+      res = await fetch(evoEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: evoCfg.apiKey },
+        body: JSON.stringify(fallbackBody),
+      });
+    }
 
     if (!res.ok) {
       const errText = await res.text().catch(() => "");

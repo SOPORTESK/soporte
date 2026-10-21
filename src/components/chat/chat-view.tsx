@@ -46,7 +46,7 @@ type UnifiedMessage = {
   sourceCaseId?: string | number;
   messageId?: string;
   fromMe?: boolean;
-  replyTo?: { content: string; author: string } | null;
+  replyTo?: { content: string; author: string; messageId?: string; fromMe?: boolean } | null;
   transcription?: string;
   edited?: boolean;
   pinned?: boolean;
@@ -1082,7 +1082,14 @@ export function ChatView({
       content: body || (fileName ?? "Archivo adjunto"),
       author: agentName || agentEmail,
       ...(mediaUrl ? { mediaUrl, mediaType, fileName } : {}),
-      ...(replyTo && !isNota ? { replyTo: { content: replyTo.content?.slice(0, 200) || "", author: replyTo.authorName || "Cliente" } } : {}),
+      ...(replyTo && !isNota ? {
+        replyTo: {
+          content: replyTo.content?.slice(0, 200) || "",
+          author: replyTo.authorName || "Cliente",
+          messageId: replyTo.messageId || undefined,
+          fromMe: replyTo.fromMe ?? false,
+        }
+      } : {}),
     };
     console.log("[DEBUG send] entry.author:", entry.author);
     const optimisticMsg: UnifiedMessage = {
@@ -1146,6 +1153,9 @@ export function ChatView({
             mediaType: mediaType || undefined,
             fileName: fileName || undefined,
             entry: entry as any,
+            quotedMessageId: replyTo?.messageId || undefined,
+            quotedText: replyTo?.content?.slice(0, 200) || undefined,
+            quotedFromMe: replyTo?.fromMe ?? false,
           })
         });
         const data = await res.json().catch(() => ({}));
@@ -1516,7 +1526,7 @@ export function ChatView({
         }
 
         // 2. Preparar payload de envío para Evolution API
-        let payload: Record<string, string>;
+        let payload: Record<string, string | undefined>;
         if (file.size <= DIRECT_BASE64_LIMIT) {
           const reader = new FileReader();
           const base64 = await new Promise<string>((resolve, reject) => {
@@ -1524,9 +1534,25 @@ export function ChatView({
             reader.onerror = reject;
             reader.readAsDataURL(file);
           });
-          payload = { case_id: caseIdStr, base64, mimeType: file.type || "application/octet-stream", fileName: file.name };
+          payload = {
+            case_id: caseIdStr,
+            base64,
+            mimeType: file.type || "application/octet-stream",
+            fileName: file.name,
+            quotedMessageId: replyTo?.messageId || undefined,
+            quotedText: replyTo?.content?.slice(0, 200) || undefined,
+            quotedFromMe: replyTo?.fromMe ? "true" : "false",
+          };
         } else {
-          payload = { case_id: caseIdStr, mediaUrl: pubUrl, mimeType: file.type || "application/octet-stream", fileName: file.name };
+          payload = {
+            case_id: caseIdStr,
+            mediaUrl: pubUrl,
+            mimeType: file.type || "application/octet-stream",
+            fileName: file.name,
+            quotedMessageId: replyTo?.messageId || undefined,
+            quotedText: replyTo?.content?.slice(0, 200) || undefined,
+            quotedFromMe: replyTo?.fromMe ? "true" : "false",
+          };
         }
 
         // 3. Intentar envío directo a WhatsApp

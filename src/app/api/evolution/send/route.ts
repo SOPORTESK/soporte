@@ -41,7 +41,7 @@ function detectMediaType(mime: string | null | undefined): "image" | "video" | "
 }
 
 export async function POST(req: NextRequest) {
-  const { case_id, phone, text, mediaUrl, mediaType, fileName, entry } = await req.json().catch(() => ({}));
+  const { case_id, phone, text, mediaUrl, mediaType, fileName, entry, quotedMessageId, quotedText, quotedFromMe } = await req.json().catch(() => ({}));
   if ((!case_id && !phone) || (!text && !mediaUrl)) return NextResponse.json({ error: "invalid" }, { status: 400 });
 
   const evoCfg = await getEvolutionConfig();
@@ -68,6 +68,23 @@ export async function POST(req: NextRequest) {
   try {
     let msgId: string | null = null;
 
+    // Cita / respuesta a mensaje previo en WhatsApp (requiere id, remoteJid y fromMe)
+    const targetQuotedId = quotedMessageId || entry?.replyTo?.messageId;
+    const targetQuotedText = quotedText || entry?.replyTo?.content || "";
+    const targetQuotedFromMe = quotedFromMe !== undefined ? Boolean(quotedFromMe) : Boolean(entry?.replyTo?.fromMe);
+
+    const quoted = targetQuotedId ? {
+      key: {
+        id: targetQuotedId,
+        remoteJid: to,
+        fromMe: targetQuotedFromMe,
+        ...(targetQuotedFromMe ? {} : { participant: to }),
+      },
+      message: {
+        conversation: targetQuotedText,
+      }
+    } : undefined;
+
     if (mediaUrl) {
       let finalMimeType = mediaType;
       if (!finalMimeType || finalMimeType === "application/octet-stream") {
@@ -86,7 +103,7 @@ export async function POST(req: NextRequest) {
 
       if (mediatype === "audio") {
         evoEndpoint = `${baseUrl}/message/sendWhatsAppAudio/${instance}`;
-        evoBody = { number: to, audio: mediaUrl };
+        evoBody = { number: to, audio: mediaUrl, ...(quoted ? { quoted } : {}) };
       } else {
         evoEndpoint = `${baseUrl}/message/sendMedia/${instance}`;
         evoBody = {
@@ -96,25 +113,54 @@ export async function POST(req: NextRequest) {
           caption: text || undefined,
           media: mediaUrl,
           fileName: fileName || undefined,
+          ...(quoted ? { quoted } : {}),
         };
       }
 
-      const res = await fetch(evoEndpoint, {
+      let res = await fetch(evoEndpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json", apikey: EVO_KEY },
         body: JSON.stringify(evoBody),
       });
+
+      // Si falla y venía con cita, reintentar sin cita como respaldo
+      if (!res.ok && quoted) {
+        console.warn("[evo-send] Falló con cita, reintentando envío de media sin cita como respaldo...");
+        const fallbackBody = { ...evoBody };
+        delete fallbackBody.quoted;
+        res = await fetch(evoEndpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", apikey: EVO_KEY },
+          body: JSON.stringify(fallbackBody),
+        });
+      }
       const mediaRes = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(`evolution ${res.status}: ${JSON.stringify(mediaRes)}`);
       msgId = mediaRes?.key?.id || mediaRes?.messageId || null;
       console.log("[evo-send] Éxito enviando media. messageId:", msgId);
     } else {
       console.log("[evo-send] Intentando enviar texto a:", to);
-      const res = await fetch(`${EVO_URL.replace(/\/$/, "")}/message/sendText/${encodeURIComponent(EVO_INSTANCE)}`, {
+      const sendTextBody: Record<string, unknown> = {
+        number: to,
+        text,
+        ...(quoted ? { quoted } : {}),
+      };
+
+      let res = await fetch(`${EVO_URL.replace(/\/$/, "")}/message/sendText/${encodeURIComponent(EVO_INSTANCE)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", apikey: EVO_KEY },
-        body: JSON.stringify({ number: to, text })
+        body: JSON.stringify(sendTextBody)
       });
+
+      // Si falla y venía con cita, reintentar sin cita como respaldo para garantizar entrega
+      if (!res.ok && quoted) {
+        console.warn("[evo-send] Falló sendText con cita, reintentando sin cita como respaldo...");
+        res = await fetch(`${EVO_URL.replace(/\/$/, "")}/message/sendText/${encodeURIComponent(EVO_INSTANCE)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", apikey: EVO_KEY },
+          body: JSON.stringify({ number: to, text })
+        });
+      }
       const resData = await res.json().catch(() => ({}));
       if (!res.ok) {
         console.error("[evo-send] Error en respuesta de Evolution:", res.status, resData);
@@ -127,6 +173,15 @@ export async function POST(req: NextRequest) {
     // WhatsApp confirmó la entrega. Ahora sí guardar en la BD con el ID real.
     if (msgId && case_id && entry) {
       const finalEntry = { ...entry, messageId: msgId, fromMe: true };
+      if (targetQuotedId) {
+        finalEntry.replyTo = {
+          ...(finalEntry.replyTo || {}),
+          messageId: targetQuotedId,
+          content: targetQuotedText || finalEntry.replyTo?.content || "",
+          fromMe: targetQuotedFromMe,
+          author: entry?.replyTo?.author || (targetQuotedFromMe ? "Soporte Sekunet" : "Cliente"),
+        };
+      }
       const { error: appendErr } = await supabase.rpc("sek_append_hist", {
         p_case_id: String(case_id),
         p_entry: finalEntry as any,
