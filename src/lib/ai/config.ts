@@ -36,7 +36,6 @@ const FALLBACK_CHAINS: Record<AiRole, { provider: string; modelo: string }[]> = 
     { provider: "google", modelo: "gemini-3.5-flash" },
     { provider: "google", modelo: "gemini-3-flash-preview" },
     { provider: "openrouter", modelo: "meta-llama/llama-3.3-70b-instruct" },
-    { provider: "groq", modelo: "openai/gpt-oss-120b" },
     { provider: "google", modelo: "gemini-3.5-flash-lite" },
   ],
   web_search: [{ provider: "google", modelo: "gemini-3.5-flash" }],
