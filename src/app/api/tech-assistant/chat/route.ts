@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
-import { analyzeMedia } from "@/lib/ai/vision";
+import { analyzeMedia, transcribeAudio } from "@/lib/ai/vision";
 import { generateText } from "@/lib/ai/config";
 
 export const dynamic = "force-dynamic";
@@ -844,22 +844,34 @@ export async function POST(req: NextRequest) {
 
       if (attachments.length > 0) {
         let changed = false;
+        // Priorizar adjuntos pendientes de transcripción o análisis
         const pendingAttachments = attachments
-          .filter((m: any) => !m._visionAnalysis || m._visionAnalysis.includes("[ANÁLISIS DE ADJUNTO NO DISPONIBLE"))
-          .slice(-2);
+          .filter((m: any) => !m.transcription && (!m._visionAnalysis || m._visionAnalysis.includes("[ANÁLISIS DE ADJUNTO NO DISPONIBLE")))
+          .slice(-3);
 
         for (const att of pendingAttachments) {
           try {
-            const result = await Promise.race([
-              analyzeMedia(att.mediaUrl, att.mediaType, att.content || "", att.fileName || ""),
-              new Promise<null>((r) => setTimeout(() => r(null), 5000)),
-            ]);
-            if (result) {
-              const analysis = result;
-              const patch = (m: any) => (m.mediaUrl === att.mediaUrl ? { ...m, _visionAnalysis: analysis } : m);
-              for (let i = 0; i < histCliente.length; i++) histCliente[i] = patch(histCliente[i]);
-              for (let i = 0; i < histTecnico.length; i++) histTecnico[i] = patch(histTecnico[i]);
-              changed = true;
+            const isAudio = String(att.mediaType || "").includes("audio") || String(att.fileName || "").match(/\.(ogg|opus|mp3|m4a|wav)$/i);
+            if (isAudio) {
+              const transText = await transcribeAudio(att.mediaUrl, att.mediaType);
+              if (transText) {
+                const analysis = `Transcripción de nota de voz: "${transText}"`;
+                const patch = (m: any) => (m.mediaUrl === att.mediaUrl ? { ...m, transcription: transText, _visionAnalysis: analysis } : m);
+                for (let i = 0; i < histCliente.length; i++) histCliente[i] = patch(histCliente[i]);
+                for (let i = 0; i < histTecnico.length; i++) histTecnico[i] = patch(histTecnico[i]);
+                changed = true;
+              }
+            } else {
+              const result = await Promise.race([
+                analyzeMedia(att.mediaUrl, att.mediaType, att.content || "", att.fileName || ""),
+                new Promise<null>((r) => setTimeout(() => r(null), 15000)),
+              ]);
+              if (result) {
+                const patch = (m: any) => (m.mediaUrl === att.mediaUrl ? { ...m, _visionAnalysis: result } : m);
+                for (let i = 0; i < histCliente.length; i++) histCliente[i] = patch(histCliente[i]);
+                for (let i = 0; i < histTecnico.length; i++) histTecnico[i] = patch(histTecnico[i]);
+                changed = true;
+              }
             }
           } catch (err: any) {
             console.warn("[tech-assistant] Error analizando adjunto:", err?.message);
@@ -910,7 +922,10 @@ export async function POST(req: NextRequest) {
                 ? "Video"
                 : m.fileName || m.mediaType || "Documento adjunto";
           line += `\n   [ADJUNTO: ${kind}]`;
-          if (m._visionAnalysis && !m._visionAnalysis.includes("[ANÁLISIS DE ADJUNTO NO DISPONIBLE")) {
+          if (m.transcription) {
+            line += `\n   -> TRANSCRIPCIÓN LITERAL DEL AUDIO:\n"${m.transcription}"`;
+            substantiveParts.push(`Audio del cliente: "${m.transcription}"`);
+          } else if (m._visionAnalysis && !m._visionAnalysis.includes("[ANÁLISIS DE ADJUNTO NO DISPONIBLE")) {
             line += `\n   -> ANÁLISIS TÉCNICO Y TRANSCRIPCIÓN DEL ADJUNTO:\n${m._visionAnalysis}`;
             substantiveParts.push(String(m._visionAnalysis));
           }
@@ -1110,11 +1125,12 @@ export async function POST(req: NextRequest) {
 
         let score = 0;
         if (primaryBrand) {
+          const docMentionsBrand = docLower.includes(primaryBrand) || textLower.includes(primaryBrand);
+          const competingBrandInTitle = KNOWN_BRANDS.find((b) => b !== primaryBrand && docLower.includes(b));
+          if (competingBrandInTitle || !docMentionsBrand) continue;
+
           if (docLower.includes(primaryBrand)) score += 55;
           else if (textLower.includes(primaryBrand)) score += 25;
-
-          const competingBrandInTitle = KNOWN_BRANDS.find((b) => b !== primaryBrand && docLower.includes(b));
-          if (competingBrandInTitle) continue;
         }
 
         if (primaryModel && textLower.includes(primaryModel)) {
@@ -1197,17 +1213,15 @@ export async function POST(req: NextRequest) {
 
         let brandAndModelScore = 0;
         if (primaryBrand) {
-          if (p.brand.includes(primaryBrand) || p.equipmentLabel.toLowerCase().includes(primaryBrand)) {
-            brandAndModelScore += 40;
-          } else if (p.searchCorpus.includes(primaryBrand)) {
-            brandAndModelScore += 22;
-          } else {
-            const hasCompetingBrand = KNOWN_BRANDS.some(
-              (b) => b !== primaryBrand && (p.brand.includes(b) || p.equipmentLabel.toLowerCase().includes(b))
-            );
-            if (hasCompetingBrand) {
-              brandAndModelScore -= 60;
-            }
+          const matchBrand = p.brand.includes(primaryBrand) || p.equipmentLabel.toLowerCase().includes(primaryBrand) || p.searchCorpus.includes(primaryBrand);
+          const hasCompetingBrand = KNOWN_BRANDS.some(
+            (b) => b !== primaryBrand && (p.brand.includes(b) || p.equipmentLabel.toLowerCase().includes(b))
+          );
+          if (hasCompetingBrand && !matchBrand) {
+            continue; // Descartar absolutamente precedentes de fabricantes que no son de este caso
+          }
+          if (matchBrand) {
+            brandAndModelScore += 45;
           }
         }
 
@@ -1311,6 +1325,13 @@ ${historicalPrecedents ? `\n\nPRECEDENTES HISTÓRICOS REALES RESUELTOS POR TÉCN
 ${webContext ? `\n\nBÚSQUEDA WEB EN VIVO (MANUALES OFICIALES, FICHAS TÉCNICAS Y FOROS ESPECIALIZADOS):\n${webContext}` : ""}
 
 REGLAS DE ATENCIÓN TÉCNICA OBLIGATORIAS:
+0. REGLA SUPREMA DE AISLAMIENTO DE MARCA:
+La marca del caso abierto es: "${primaryBrand || "No especificada"}".
+Está TERMINANTEMENTE PROHIBIDO mezclar marcas o sugerir herramientas/procedimientos de otros fabricantes:
+- Si el equipo es ZKTeco, JAMÁS menciones SADP, HiTools ni Hikvision.
+- Si el equipo es Simplex, JAMÁS menciones DSC, Paradox, Dahua ni Hikvision.
+- Si el equipo es Hikvision, JAMÁS menciones SmartPSS, DMSS ni ZKTeco.
+Toda recomendación técnica debe pertenecer con total exactitud a la marca del equipo del cliente. Si no tienes un procedimiento certero para esta marca, indícalo con honestidad en vez de inventar datos.
 1. MÁXIMA PRIORIDAD A RESOLVER LA AVERÍA: El técnico te consulta para encontrar la SOLUCIÓN EXACTA. Debes fundamentar tu diagnóstico y procedimiento en las soluciones reales comprobadas que los técnicos de Sekunet ya aplicaron en los precedentes de taller Y en la información técnica oficial de manuales y fichas técnicas web.
 2. FOCO Y DESTINATARIO: Tu respuesta va dirigida ÚNICA Y EXCLUSIVAMENTE al caso y cliente abierto en pantalla. Nunca menciones nombres de clientes pasados.
 3. ESTRUCTURA DE RESOLUCIÓN TÉCNICA (OBLIGATORIA al pedir diagnóstico, análisis o solución):
@@ -1391,28 +1412,31 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
 
     const finalSources: string[] = [];
 
-    // 1. Manuales Oficiales en Base de Conocimiento
+    // 1. Manuales Oficiales en Base de Conocimiento (SOLO si fueron citados y corresponden a la marca)
     let mOutIdx = 1;
     retrievedKbDocs.forEach((kd, idx) => {
-      if (aiCitedM.size > 0 ? aiCitedM.has(idx) : idx < 2) {
+      const matchBrand = !primaryBrand || kd.doc_name.toLowerCase().includes(primaryBrand);
+      if (aiCitedM.has(idx) && matchBrand) {
         const safeDoc = kd.doc_name.replace(/[()]/g, "").trim();
         finalSources.push(`[M${mOutIdx++}] Manual Oficial: ${safeDoc} (Base de conocimiento Sekunet)`);
       }
     });
 
-    // 2. Casos Precedentes Reales de Sekunet
+    // 2. Casos Precedentes Reales de Sekunet (SOLO si fueron citados y corresponden a la marca)
     let cOutIdx = 1;
     topPrecedents.forEach((mc, idx) => {
-      if (aiCitedC.size > 0 ? aiCitedC.has(idx) : idx < 2) {
+      const matchBrand = !primaryBrand || mc.equipmentLabel.toLowerCase().includes(primaryBrand) || mc.brand.toLowerCase().includes(primaryBrand);
+      if (aiCitedC.has(idx) && matchBrand) {
         const cleanDetails = `${mc.equipmentLabel} - ${mc.faultSummary}`.replace(/[()]/g, "").trim();
         finalSources.push(`[C${cOutIdx++}] Caso Sekunet #${mc.shortId} resuelto por ${mc.resolverName} (${cleanDetails})`);
       }
     });
 
-    // 3. Fuentes Web Oficiales en Vivo
+    // 3. Fuentes Web Oficiales en Vivo (SOLO si fueron citadas y corresponden a la marca)
     let wOutIdx = 1;
     retrievedWebResults.forEach((wr, idx) => {
-      if (aiCitedW.size > 0 ? aiCitedW.has(idx) : idx < 3) {
+      const matchBrand = !primaryBrand || wr.title.toLowerCase().includes(primaryBrand) || wr.url.toLowerCase().includes(primaryBrand);
+      if (aiCitedW.has(idx) && matchBrand) {
         const safeTitle = wr.title.replace(/[()]/g, "").replace(/\s+/g, " ").trim();
         finalSources.push(`[W${wOutIdx++}] ${safeTitle} (${wr.url})`);
       }
@@ -1534,22 +1558,44 @@ function isStrictlyRelevant(
     if (full.includes(bt)) return false;
   }
 
-  // 3. Verificación de relevancia con la marca, modelo o dominio técnico de seguridad
+  // 3. AISLAMIENTO ESTRICTO DE MARCA:
+  // Si tenemos una marca definida para el caso, descartar CUALQUIER resultado de marcas competidoras
   const b = (brandHint || "").toLowerCase().trim();
-  const m = (modelHint || "").toLowerCase().trim();
+  if (b) {
+    const COMPETING_DOMAINS: Record<string, string[]> = {
+      simplex: ["dsc.com", "hikvision.com", "dahuasecurity.com", "dahuawiki.com", "zkteco.com"],
+      zkteco: ["hikvision.com", "dahuasecurity.com", "dahuawiki.com", "dsc.com"],
+      hikvision: ["dahuasecurity.com", "dahuawiki.com", "zkteco.com", "dsc.com"],
+      dahua: ["hikvision.com", "zkteco.com", "dsc.com"],
+      dsc: ["hikvision.com", "dahuasecurity.com", "zkteco.com", "johnsoncontrols.com"],
+    };
+    const bannedDomains = COMPETING_DOMAINS[b] || [];
+    for (const bd of bannedDomains) {
+      if (url.toLowerCase().includes(bd)) return false;
+    }
 
+    const mentionsOurBrand = full.includes(b);
+    const hasCompetingBrandInTitle = ["hikvision", "dahua", "zkteco", "dsc", "paradox", "axis", "uniview"]
+      .filter((k) => k !== b)
+      .some((k) => title.toLowerCase().includes(k));
+    if (hasCompetingBrandInTitle && !mentionsOurBrand) {
+      return false;
+    }
+  }
+
+  const m = (modelHint || "").toLowerCase().trim();
   const hasBrand = b && full.includes(b);
   const hasModel = m && full.includes(m);
   const isKnownTechnicalDomain = [
     "hikvision.com", "dahuasecurity.com", "dahuawiki.com", "zkteco.com",
     "manualslib.com", "dsc.com", "epcom.net", "syscom.mx", "anviz.com",
     "cctvforum.com", "ipcamtalk.com", "ipvm.com", "use-ip.co.uk", "axis.com",
-    "ubnt.com", "ui.com", "mikrotik.com"
+    "ubnt.com", "ui.com", "mikrotik.com", "johnsoncontrols.com"
   ].some((td) => url.toLowerCase().includes(td));
 
   const isManualOrPdf = url.toLowerCase().endsWith(".pdf") || full.includes("manual") || full.includes("datasheet") || full.includes("user guide");
 
-  return Boolean((hasBrand && isManualOrPdf) || hasModel || isKnownTechnicalDomain);
+  return Boolean((hasBrand && isManualOrPdf) || hasModel || isKnownTechnicalDomain || hasBrand);
 }
 
 function getManufacturerFallback(
@@ -1599,17 +1645,17 @@ function getManufacturerFallback(
       url: `https://www.dahuasecurity.com/support/`,
       snippet: `Documentación técnica, firmware y guías de configuración oficial de equipos Dahua.`,
     });
-  } else if (b.includes("dsc") || b.includes("paradox") || domainId === "alarma_incendio_sensores") {
+  } else if (b.includes("simplex") || b.includes("sinplex") || b.includes("johnson controls")) {
+    refs.push({
+      title: `Simplex Fire Detection — Johnson Controls Soporte Oficial`,
+      url: `https://www.johnsoncontrols.com/es_la/fire-detection/simplex`,
+      snippet: `Documentación técnica oficial de paneles de incendio, estaciones manuales, módulos y detectores Simplex.`,
+    });
+  } else if (b.includes("dsc")) {
     refs.push({
       title: `Guía Técnica de Paneles de Alarma y Programación DSC`,
       url: `https://www.dsc.com/index.php?o=ag`,
       snippet: `Documentación técnica de paneles de intrusión, teclados y gestión de códigos de usuario.`,
-    });
-  } else {
-    refs.push({
-      title: `Documentación Técnica de Seguridad Electrónica y CCTV`,
-      url: `https://www.hikvision.com/es-la/support/`,
-      snippet: `Guías técnicas oficiales de configuración y diagnóstico de equipos de seguridad electrónica.`,
     });
   }
 

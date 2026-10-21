@@ -16,6 +16,7 @@ function getMimeType(url: string, declaredType?: string): string {
     mov: "video/quicktime",
     mp3: "audio/mpeg",
     ogg: "audio/ogg",
+    opus: "audio/ogg",
     wav: "audio/wav",
     m4a: "audio/mp4",
     aac: "audio/aac",
@@ -35,8 +36,128 @@ function getMimeType(url: string, declaredType?: string): string {
 }
 
 /**
+ * Transcribe un archivo de audio directamente usando Groq Whisper (ultra rápido y preciso en español).
+ * Con fallback a Google Gemini en caso de contingencia.
+ */
+export async function transcribeAudio(
+  mediaUrl: string,
+  mediaType?: string
+): Promise<string | null> {
+  if (!mediaUrl || typeof mediaUrl !== "string") return null;
+
+  try {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+    let groqKey = process.env.GROQ_API_KEY || "";
+    let googleKey = process.env.GEMINI_API_KEY || "";
+
+    if (supabaseUrl && serviceKey) {
+      try {
+        const supabase = createClient(supabaseUrl, serviceKey);
+        const { data: provs } = await supabase
+          .from("sek_ai_providers")
+          .select("id, api_key")
+          .in("id", ["groq", "google"]);
+        if (provs) {
+          for (const p of provs) {
+            if (p.id === "groq" && p.api_key) groqKey = p.api_key;
+            if (p.id === "google" && p.api_key) googleKey = p.api_key;
+          }
+        }
+      } catch {}
+    }
+
+    const fileRes = await fetch(mediaUrl);
+    if (!fileRes.ok) {
+      console.warn("[transcribe] Error descargando audio:", fileRes.status, mediaUrl);
+      return null;
+    }
+
+    const arrayBuf = await fileRes.arrayBuffer();
+    const buf = Buffer.from(arrayBuf);
+    if (buf.byteLength > 25 * 1024 * 1024) {
+      console.warn("[transcribe] Audio supera 25MB:", buf.byteLength);
+      return null;
+    }
+
+    // 1. Intento primario ultra rápido con Groq Whisper
+    if (groqKey) {
+      try {
+        const blob = new Blob([buf], { type: mediaType || "audio/ogg" });
+        const formData = new FormData();
+        formData.append("file", blob, "audio.ogg");
+        formData.append("model", "whisper-large-v3");
+        formData.append("language", "es");
+
+        const t0 = Date.now();
+        const res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${groqKey}` },
+          body: formData,
+          signal: AbortSignal.timeout(12000),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          const text = String(data?.text || "").trim();
+          if (text) {
+            console.log(`[transcribe] Groq Whisper transcribió audio en ${Date.now() - t0}ms: "${text.substring(0, 60)}..."`);
+            return text;
+          }
+        } else {
+          const errBody = await res.text().catch(() => "");
+          console.warn("[transcribe] Groq Whisper error:", res.status, errBody.substring(0, 100));
+        }
+      } catch (err: any) {
+        console.warn("[transcribe] Excepción Groq Whisper:", err?.message);
+      }
+    }
+
+    // 2. Fallback con Google Gemini
+    if (googleKey) {
+      try {
+        const mimeType = getMimeType(mediaUrl, mediaType);
+        const base64Data = buf.toString("base64");
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${googleKey}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{
+                parts: [
+                  { text: "Transcribe literalmente este audio en español. Devuelve únicamente el texto transcrito, sin explicaciones ni introducciones." },
+                  { inline_data: { mime_type: mimeType, data: base64Data } }
+                ]
+              }],
+              generationConfig: { maxOutputTokens: 2048, temperature: 0 }
+            }),
+            signal: AbortSignal.timeout(12000),
+          }
+        );
+        if (res.ok) {
+          const d = await res.json();
+          const text = String(d?.candidates?.[0]?.content?.parts?.[0]?.text || "").trim();
+          if (text) {
+            console.log(`[transcribe] Gemini transcribió audio: "${text.substring(0, 60)}..."`);
+            return text;
+          }
+        }
+      } catch (err: any) {
+        console.warn("[transcribe] Excepción Gemini transcribe:", err?.message);
+      }
+    }
+
+    return null;
+  } catch (e: any) {
+    console.error("[transcribe] Error general transcribeAudio:", e?.message);
+    return null;
+  }
+}
+
+/**
  * Analiza cualquier archivo multimedia (imagen, video, audio, PDF, texto)
- * usando Gemini Vision con Node.js Buffer nativo (sin desbordamiento de pila).
+ * usando Groq Whisper para audio o Gemini Vision para imágenes/video.
  */
 export async function analyzeMedia(
   mediaUrl: string,
@@ -47,6 +168,21 @@ export async function analyzeMedia(
   if (!mediaUrl || typeof mediaUrl !== "string") return null;
 
   try {
+    const mimeType = getMimeType(mediaUrl, mediaType);
+    const isImage = mimeType.startsWith("image/");
+    const isAudio = mimeType.startsWith("audio/");
+    const isVideo = mimeType.startsWith("video/");
+    const isPdf = mimeType === "application/pdf";
+
+    // Si es audio, transcribirlo directamente con Groq Whisper / Gemini
+    if (isAudio) {
+      const transcription = await transcribeAudio(mediaUrl, mimeType);
+      if (transcription) {
+        return `Transcripción de nota de voz: "${transcription}"`;
+      }
+      return null;
+    }
+
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
     let apiKey = process.env.GEMINI_API_KEY || "";
@@ -69,12 +205,6 @@ export async function analyzeMedia(
       console.warn("[vision] No se encontró API key para Google Gemini");
       return null;
     }
-
-    const mimeType = getMimeType(mediaUrl, mediaType);
-    const isImage = mimeType.startsWith("image/");
-    const isAudio = mimeType.startsWith("audio/");
-    const isVideo = mimeType.startsWith("video/");
-    const isPdf = mimeType === "application/pdf";
 
     let prompt = "";
     if (isImage) {
@@ -103,10 +233,6 @@ Realiza un análisis técnico exhaustivo de esta imagen:
 - Pasos específicos ordenados por prioridad que el técnico debe verificar o realizar para resolver el problema.
 
 Sé sumamente detallado, preciso y profesional. Transcribe cualquier texto o código relevante de la imagen.`;
-    } else if (isAudio) {
-      prompt = `Eres un experto técnico de Sekunet. ${userText ? `Mensaje o consulta adjunta: "${userText}".` : ""}
-
-Transcribe COMPLETAMENTE este audio y analiza los síntomas reportados, equipos mencionados (marcas/modelos), causa probable y diagnóstico preliminar sugerido.`;
     } else if (isVideo) {
       prompt = `Eres un ingeniero senior en videovigilancia y sistemas de seguridad. ${userText ? `Mensaje o consulta adjunta: "${userText}".` : ""}
 
@@ -151,7 +277,8 @@ Analiza el contenido de este archivo técnico (${fileName || mimeType}): extrae 
                 ]
               }],
               generationConfig: { maxOutputTokens: 2048, temperature: 0.1 }
-            })
+            }),
+            signal: AbortSignal.timeout(12000),
           }
         );
         if (gRes.ok) {
