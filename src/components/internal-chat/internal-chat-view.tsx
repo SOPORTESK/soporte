@@ -721,8 +721,8 @@ export function InternalChatView({
             )}
           </div>
 
-          <div className="min-w-0 flex-1">
-            <h3 className="text-xs font-black text-foreground truncate leading-tight">
+          <div className="min-w-0 flex-1 pr-1">
+            <h3 className="text-xs font-bold text-foreground truncate leading-tight tracking-tight">
               {channelName}
             </h3>
             <p className="text-[10px] text-muted-foreground truncate leading-none mt-0.5">
@@ -741,21 +741,7 @@ export function InternalChatView({
 
         {/* Acciones de la derecha: Expandir prioritario + Sincronizar */}
         <div className="flex items-center gap-1 shrink-0">
-                    {/* Botón de Zumbido MSN */}
-          <button
-            type="button"
-            onClick={handleSendNudge}
-            disabled={nudgeCooldown}
-            className={`h-7 px-2 rounded-lg text-[10px] font-bold flex items-center gap-1 border transition-all cursor-pointer ${
-              nudgeCooldown
-                ? "bg-muted/40 text-muted-foreground/60 border-border/40 cursor-not-allowed"
-                : "bg-amber-500/15 hover:bg-amber-500/25 text-amber-500 border-amber-500/30 active:scale-90 shadow-2xs hover:shadow-amber-500/20"
-            }`}
-            title={nudgeCooldown ? "Zumbido en enfriamiento (15s)" : "¡Enviar un ZUMBIDO de MSN!"}
-          >
-            <Zap className="h-3 w-3 fill-amber-500" />
-            <span className="hidden sm:inline">Zumbido</span>
-          </button>
+
 
           {onToggleExpand && (
             <button
@@ -1141,14 +1127,29 @@ export function InternalChatView({
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={uploadingFile}
-            className="h-8 w-8 rounded-lg bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground flex items-center justify-center border border-border/50 transition-all shrink-0 cursor-pointer disabled:opacity-50 active:scale-95 shadow-2xs"
-            title="Adjuntar archivo, foto o documento"
+            className="h-8 w-8 rounded-xl bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground flex items-center justify-center border border-border/60 transition-all shrink-0 cursor-pointer disabled:opacity-50 active:scale-95"
+            title="Adjuntar archivo o imagen"
           >
             {uploadingFile ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-500" />
             ) : (
               <Paperclip className="h-3.5 w-3.5" />
             )}
+          </button>
+
+          {/* Botón Zumbido MSN Elegante e Integrado */}
+          <button
+            type="button"
+            onClick={handleSendNudge}
+            disabled={nudgeCooldown}
+            className={`h-8 w-8 rounded-xl flex items-center justify-center border transition-all shrink-0 cursor-pointer active:scale-90 ${
+              nudgeCooldown
+                ? "bg-muted/30 text-muted-foreground/40 border-border/40 cursor-not-allowed"
+                : "bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 hover:text-amber-400 border-amber-500/30 hover:border-amber-500/50 shadow-xs"
+            }`}
+            title={nudgeCooldown ? "Zumbido en enfriamiento (15s)" : "Enviar Zumbido (Zumbón de MSN)"}
+          >
+            <Zap className={`h-3.5 w-3.5 ${nudgeCooldown ? "opacity-40" : "fill-amber-500"}`} />
           </button>
 
           {/* Campo de Texto Central con altura h-8 */}
