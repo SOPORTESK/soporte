@@ -48,12 +48,32 @@ interface InternalChatViewProps {
 }
 
 
-// ── SONIDO SINTETIZADO OFICIAL ESTILO MSN NUDGE CON WEB AUDIO API ──
+// ── REPRODUCTOR DE SONIDO OFICIAL MSN NUDGE CON AUDIO Y WEBAUDIO DUAL ──
 function playMsnNudgeSound() {
+  try {
+    // 1. Intentar reproducir el archivo auténtico de audio
+    const audio = new Audio("/msn_nudge.wav");
+    audio.volume = 1.0;
+    const playPromise = audio.play();
+    if (playPromise !== undefined) {
+      playPromise.catch(() => {
+        // Fallback a Web Audio API si el navegador bloquea la carga de archivo
+        synthesizeNudgeFallback();
+      });
+    }
+  } catch {
+    synthesizeNudgeFallback();
+  }
+}
+
+function synthesizeNudgeFallback() {
   try {
     const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
     if (!AudioCtx) return;
     const ctx = new AudioCtx();
+    if (ctx.state === "suspended") {
+      ctx.resume().catch(() => {});
+    }
 
     const now = ctx.currentTime;
 
@@ -63,7 +83,7 @@ function playMsnNudgeSound() {
     osc1.type = "sawtooth";
     osc1.frequency.setValueAtTime(140, now);
     osc1.frequency.exponentialRampToValueAtTime(70, now + 0.18);
-    gain1.gain.setValueAtTime(0.7, now);
+    gain1.gain.setValueAtTime(0.9, now);
     gain1.gain.exponentialRampToValueAtTime(0.01, now + 0.18);
     osc1.connect(gain1);
     gain1.connect(ctx.destination);
@@ -77,29 +97,27 @@ function playMsnNudgeSound() {
     osc2.frequency.setValueAtTime(260, now + 0.08);
     osc2.frequency.exponentialRampToValueAtTime(90, now + 0.32);
     gain2.gain.setValueAtTime(0, now);
-    gain2.gain.setValueAtTime(0.85, now + 0.08);
+    gain2.gain.setValueAtTime(1.0, now + 0.08);
     gain2.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
     osc2.connect(gain2);
     gain2.connect(ctx.destination);
     osc2.start(now + 0.08);
     osc2.stop(now + 0.36);
 
-    // Tercer golpe de resonancia (zumbido vibratorio agudo / metálico)
+    // Tercer golpe de resonancia (zumbido vibratorio)
     const osc3 = ctx.createOscillator();
     const gain3 = ctx.createGain();
     osc3.type = "sine";
     osc3.frequency.setValueAtTime(420, now + 0.14);
     osc3.frequency.exponentialRampToValueAtTime(120, now + 0.45);
     gain3.gain.setValueAtTime(0, now);
-    gain3.gain.setValueAtTime(0.6, now + 0.14);
+    gain3.gain.setValueAtTime(0.7, now + 0.14);
     gain3.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
     osc3.connect(gain3);
     gain3.connect(ctx.destination);
     osc3.start(now + 0.14);
     osc3.stop(now + 0.46);
-  } catch (e) {
-    console.warn("No se pudo sintetizar el sonido de zumbido:", e);
-  }
+  } catch {}
 }
 
 // ── UTILIDADES PREMIUM PARA EL CHAT INTERNO ──
@@ -364,6 +382,12 @@ export function InternalChatView({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ channelId }),
           }).catch(() => {});
+        }
+      })
+      .on("broadcast", { event: "nudge_received" }, ({ payload }) => {
+        if (payload && payload.channelId === channelId) {
+          // Activar sacudida y sonido en la pantalla del receptor
+          triggerNudgeEffect(payload.senderName || "Compañero", false);
         }
       })
       .subscribe();

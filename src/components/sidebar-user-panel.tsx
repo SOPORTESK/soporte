@@ -471,6 +471,7 @@ export function SidebarUserPanel({
   const [chatUnreadCounts, setChatUnreadCounts] = useState<Record<string, number>>({});
   const [totalChatUnread, setTotalChatUnread] = useState<number>(0);
   const [teamChatExpanded, setTeamChatExpanded] = useState<boolean>(false);
+  const [isPanelShaking, setIsPanelShaking] = useState<boolean>(false);
 
   // Popup flotante en el centro superior (6 segundos de duración, 100% visual)
   const [incomingPopup, setIncomingPopup] = useState<{
@@ -595,7 +596,25 @@ export function SidebarUserPanel({
         }
         loadChatConversations();
       }
-    }).subscribe();
+    })
+    .on("broadcast", { event: "nudge_received" }, ({ payload }) => {
+      const p = payload as any;
+      if (p && p.senderEmail?.toLowerCase() !== (safeAgent.email || "").toLowerCase()) {
+        setIsPanelShaking(true);
+        try {
+          const a = new Audio("/msn_nudge.wav");
+          a.volume = 1.0;
+          a.play().catch(() => {});
+        } catch {}
+
+        if (typeof navigator !== "undefined" && navigator.vibrate) {
+          try { navigator.vibrate([120, 80, 200, 100, 250]); } catch {}
+        }
+
+        setTimeout(() => setIsPanelShaking(false), 900);
+      }
+    })
+    .subscribe();
 
     return () => {
       window.removeEventListener("focus", handleFocus);
@@ -1350,7 +1369,7 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
   }, [teamAgents, safeAgent.email]);
 
   return (
-    <div className="border-t border-border">
+    <div className={`border-t border-border transition-transform ${isPanelShaking ? "animate-nudge-shake ring-4 ring-amber-500/60" : ""}`}>
       {/* Panel expandible */}
       {open && (
         <div className="border-b border-border bg-card relative">
@@ -2232,7 +2251,7 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
           onClick={() => setTeamChatExpanded(false)}
         >
           <div
-            className="bg-card border border-border/80 rounded-3xl shadow-2xl w-full max-w-5xl h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150 ring-1 ring-border/50"
+            className={`bg-card border border-border/80 rounded-3xl shadow-2xl w-full max-w-5xl h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150 ring-1 ring-border/50 ${isPanelShaking ? "animate-nudge-shake ring-4 ring-amber-500/80" : ""}`}
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header del Modal Expandido */}
