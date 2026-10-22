@@ -27,6 +27,7 @@ import {
   Globe,
   Sparkles,
   Zap,
+  Smile,
 } from "lucide-react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
@@ -47,6 +48,23 @@ interface InternalChatViewProps {
   onToggleExpand?: () => void;
 }
 
+
+
+// ── COLECCIÓN CURADA DE STICKERS PREMIUM SEKUNET ──
+const SEK_STICKERS = [
+  { id: "thumbs_up", emoji: "👍", label: "Aprobado", url: "https://fonts.gstatic.com/s/e/notoemoji/latest/1f44d/512.webp" },
+  { id: "fire", emoji: "🔥", label: "Fuego", url: "https://fonts.gstatic.com/s/e/notoemoji/latest/1f525/512.webp" },
+  { id: "rocket", emoji: "🚀", label: "Despegando", url: "https://fonts.gstatic.com/s/e/notoemoji/latest/1f680/512.webp" },
+  { id: "check_double", emoji: "✅", label: "Listo", url: "https://fonts.gstatic.com/s/e/notoemoji/latest/2705/512.webp" },
+  { id: "eyes", emoji: "👀", label: "Revisando", url: "https://fonts.gstatic.com/s/e/notoemoji/latest/1f440/512.webp" },
+  { id: "wrench", emoji: "🔧", label: "En Taller", url: "https://fonts.gstatic.com/s/e/notoemoji/latest/1f527/512.webp" },
+  { id: "heart", emoji: "❤️", label: "Excelente", url: "https://fonts.gstatic.com/s/e/notoemoji/latest/2764_fe0f/512.webp" },
+  { id: "clap", emoji: "👏", label: "Buen trabajo", url: "https://fonts.gstatic.com/s/e/notoemoji/latest/1f44f/512.webp" },
+  { id: "mind_blown", emoji: "🤯", label: "Increíble", url: "https://fonts.gstatic.com/s/e/notoemoji/latest/1f92f/512.webp" },
+  { id: "coffee", emoji: "☕", label: "Café", url: "https://fonts.gstatic.com/s/e/notoemoji/latest/2615/512.webp" },
+  { id: "salute", emoji: "🫡", label: "Entendido", url: "https://fonts.gstatic.com/s/e/notoemoji/latest/1fae1/512.webp" },
+  { id: "partying", emoji: "🥳", label: "Meta lograda", url: "https://fonts.gstatic.com/s/e/notoemoji/latest/1f973/512.webp" },
+];
 
 // ── REPRODUCTOR DE SONIDO OFICIAL Y AUTÉNTICO MSN NUDGE ──
 function playMsnNudgeSound() {
@@ -178,6 +196,7 @@ export function InternalChatView({
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [isShaking, setIsShaking] = useState(false);
   const [nudgeCooldown, setNudgeCooldown] = useState(false);
+  const [showStickers, setShowStickers] = useState(false);
   const [sending, setSending] = useState(false);
   const [uploadingFile, setUploadingFile] = useState(false);
   const [previewMedia, setPreviewMedia] = useState<{ url: string; type?: string; name?: string } | null>(null);
@@ -444,11 +463,8 @@ export function InternalChatView({
     }
   };
 
-  // Subida de archivos (imágenes, documentos, videos)
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const rawFile = e.target.files?.[0];
-    if (!rawFile) return;
-
+  // Subida de archivos genérica (soporta selector, pegar del portapapeles y stickers)
+  const uploadAndSendFile = async (rawFile: File) => {
     setUploadingFile(true);
     const toastId = toast.loading(`Subiendo ${rawFile.name}...`);
     try {
@@ -497,6 +513,58 @@ export function InternalChatView({
     } finally {
       setUploadingFile(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const rawFile = e.target.files?.[0];
+    if (rawFile) await uploadAndSendFile(rawFile);
+  };
+
+  // Pegar directamente desde el portapapeles (imágenes o archivos con Ctrl+V)
+  const handlePaste = async (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.kind === "file") {
+        const file = item.getAsFile();
+        if (file) {
+          e.preventDefault();
+          const ext = file.type.split("/")[1] || "png";
+          const namedFile = new File([file], `captura_${Date.now()}.${ext}`, { type: file.type });
+          await uploadAndSendFile(namedFile);
+          return;
+        }
+      }
+    }
+  };
+
+  // Enviar sticker
+  const handleSendSticker = async (sticker: typeof SEK_STICKERS[0]) => {
+    setShowStickers(false);
+    try {
+      const res = await fetch("/api/internal-chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          channelId,
+          content: sticker.emoji,
+          mediaUrl: sticker.url,
+          mediaType: "image/webp+sticker",
+          fileName: `sticker_${sticker.id}.webp`,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.message) {
+        setMessages((prev) => [...prev, data.message]);
+        setTimeout(() => scrollToBottom("smooth"), 80);
+        broadcastMessage(data.message);
+        if (onNewMessageSent) onNewMessageSent(data.message);
+      }
+    } catch (e: any) {
+      toast.error("Error al enviar sticker");
     }
   };
 
@@ -809,8 +877,18 @@ export function InternalChatView({
                           </div>
                         )}
 
-                        {/* IMAGEN ADJUNTA CON PREVIEW PREMIUM */}
-                        {isImage && m.mediaUrl && (
+                        {/* STICKER ANIMADO / TRANSPARENTE */}
+                        {m.mediaType === "image/webp+sticker" && m.mediaUrl ? (
+                          <div className="py-1 flex items-center justify-center">
+                            <img
+                              src={m.mediaUrl}
+                              alt={m.content || "Sticker"}
+                              className="h-28 w-28 object-contain drop-shadow-md hover:scale-110 transition-transform cursor-pointer select-none"
+                              onClick={() => setPreviewMedia({ url: m.mediaUrl!, type: "image", name: "Sticker" })}
+                            />
+                          </div>
+                        ) : isImage && m.mediaUrl ? (
+                          /* IMAGEN ADJUNTA CON PREVIEW PREMIUM */
                           <div
                             onClick={() => setPreviewMedia({ url: m.mediaUrl!, type: "image", name: m.fileName || "Foto" })}
                             className="cursor-pointer overflow-hidden rounded-xl border border-black/10 max-h-56 group/img relative shadow-xs"
@@ -826,7 +904,7 @@ export function InternalChatView({
                               </span>
                             </div>
                           </div>
-                        )}
+                        ) : null}
 
                         {/* VIDEO ADJUNTO */}
                         {isVideo && m.mediaUrl && (
@@ -1066,7 +1144,7 @@ export function InternalChatView({
             ref={fileInputRef}
             onChange={handleFileSelect}
             className="hidden"
-            accept="image/*,video/*,audio/*,.pdf,.xml,.xlsx,.xls,.doc,.docx,.txt"
+            accept="*/*"
           />
 
           {/* Botón Adjuntar Archivo */}
@@ -1099,12 +1177,59 @@ export function InternalChatView({
             <Zap className={`h-3.5 w-3.5 ${nudgeCooldown ? "opacity-40" : "fill-amber-500"}`} />
           </button>
 
+          {/* Botón Stickers Premium */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowStickers(!showStickers)}
+              className={`h-8 w-8 rounded-xl flex items-center justify-center border transition-all shrink-0 cursor-pointer active:scale-95 ${
+                showStickers
+                  ? "bg-violet-600 text-white border-violet-500 shadow-sm"
+                  : "bg-muted/40 hover:bg-muted text-muted-foreground hover:text-violet-400 border-border/60 shadow-2xs"
+              }`}
+              title="Stickers"
+            >
+              <Smile className="h-3.5 w-3.5" />
+            </button>
+
+            {/* Selector Flotante de Stickers */}
+            {showStickers && (
+              <div className="absolute bottom-11 right-0 sm:left-0 z-50 w-64 p-3 bg-card/95 border border-border/80 rounded-2xl shadow-xl backdrop-blur-md animate-in zoom-in-95 duration-150">
+                <div className="flex items-center justify-between pb-2 mb-2 border-b border-border/60">
+                  <span className="text-[11px] font-bold text-foreground">Stickers de Sekunet</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowStickers(false)}
+                    className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+                <div className="grid grid-cols-4 gap-2 max-h-48 overflow-y-auto pr-1">
+                  {SEK_STICKERS.map((stk) => (
+                    <button
+                      key={stk.id}
+                      type="button"
+                      onClick={() => handleSendSticker(stk)}
+                      className="p-1.5 rounded-xl hover:bg-violet-500/10 border border-transparent hover:border-violet-500/30 transition-all flex flex-col items-center gap-1 cursor-pointer group/stk active:scale-95"
+                      title={stk.label}
+                    >
+                      <img src={stk.url} alt={stk.label} className="h-9 w-9 object-contain group-hover/stk:scale-110 transition-transform" />
+                      <span className="text-[9px] text-muted-foreground truncate max-w-full leading-none">{stk.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Campo de Texto Central con altura h-8 */}
           <div className="flex-1 min-w-0 h-8 bg-muted/30 hover:bg-muted/50 focus-within:bg-muted/70 focus-within:ring-1 focus-within:ring-violet-500/30 focus-within:border-violet-500/50 border border-border/60 rounded-lg px-2.5 flex items-center transition-all">
             <input
               type="text"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
+              onPaste={handlePaste}
               placeholder={isExpanded ? "Escribe un mensaje o presiona Enter..." : "Mensaje..."}
               className="w-full bg-transparent text-xs text-foreground placeholder:text-muted-foreground/70 focus:outline-none"
             />
