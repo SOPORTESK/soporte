@@ -22,6 +22,7 @@ import {
   Volume2,
   RotateCw,
   CornerUpLeft,
+  ChevronDown,
   Copy,
   ExternalLink,
   Globe,
@@ -212,6 +213,15 @@ export function InternalChatView({
 
   const realtimeChannelRef = useRef<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  const handleScroll = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    setShowScrollBottom(distanceToBottom > 250);
+  }, []);
 
   // Función para activar la vibración MSN con sonido
   const triggerNudgeEffect = useCallback((senderName: string, isFromMe: boolean) => {
@@ -796,7 +806,12 @@ export function InternalChatView({
       </div>
 
       {/* ── CUERPO DE MENSAJES (SCROLL PREMIUM) ── */}
-      <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3 min-h-0 bg-gradient-to-b from-background/40 to-background/70">
+      <div className="flex-1 relative min-h-0 flex flex-col">
+        <div
+          ref={scrollContainerRef}
+          onScroll={handleScroll}
+          className="flex-1 overflow-y-auto px-3 py-3 space-y-3 min-h-0 bg-gradient-to-b from-background/40 to-background/70"
+        >
         {loading ? (
           <div className="h-full flex flex-col items-center justify-center gap-2 py-6 text-muted-foreground">
             <Loader2 className="h-6 w-6 animate-spin text-violet-500" />
@@ -1029,6 +1044,20 @@ export function InternalChatView({
           })()
         )}
         <div ref={messagesEndRef} />
+        </div>
+
+        {/* Botón flotante para volver al final */}
+        {showScrollBottom && (
+          <button
+            type="button"
+            onClick={() => scrollToBottom("smooth")}
+            className="absolute bottom-3 right-3 z-20 h-9 w-9 rounded-full bg-violet-600 hover:bg-violet-500 text-white shadow-lg shadow-violet-600/30 flex items-center justify-center transition-all animate-in fade-in zoom-in-90 hover:scale-110 active:scale-95 border border-white/20 cursor-pointer"
+            title="Volver al final"
+            aria-label="Volver al final"
+          >
+            <ChevronDown className="h-4 w-4" />
+          </button>
+        )}
       </div>
 
       {/* ── BARRA DE GRABACIÓN DE AUDIO (SIMÉTRICA) ── */}

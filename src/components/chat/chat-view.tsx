@@ -554,6 +554,20 @@ export function ChatView({
 
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const scrollerRef = React.useRef<HTMLDivElement>(null);
+  const [showScrollBottom, setShowScrollBottom] = React.useState(false);
+
+  const handleScroll = React.useCallback(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    setShowScrollBottom(distanceToBottom > 280);
+  }, []);
+
+  const scrollToBottomSmooth = React.useCallback(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  }, []);
   const typingTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const presenceChannelRef = React.useRef<ReturnType<typeof supabase.channel> | null>(null);
 
@@ -2924,7 +2938,12 @@ export function ChatView({
       )}
 
       {/* ── Mensajes ── */}
-      <div ref={scrollerRef} className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-2 bg-muted/20 px-safe scrollbar-none">
+      <div className="flex-1 relative min-h-0 flex flex-col">
+        <div
+          ref={scrollerRef}
+          onScroll={handleScroll}
+          className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-2 bg-muted/20 px-safe scrollbar-none"
+        >
         {messages.length === 0 && (
           <p className="text-center text-sm text-muted-foreground py-12">Sin mensajes en este caso.</p>
         )}
@@ -2979,6 +2998,20 @@ export function ChatView({
               </div>
             </div>
           </div>
+        )}
+        </div>
+
+        {/* Botón flotante para volver al final con un solo clic */}
+        {showScrollBottom && (
+          <button
+            type="button"
+            onClick={scrollToBottomSmooth}
+            className="absolute bottom-4 right-4 z-20 h-10 w-10 rounded-full bg-brand-700 hover:bg-brand-600 text-white shadow-lg shadow-black/25 flex items-center justify-center transition-all animate-in fade-in zoom-in-90 hover:scale-110 active:scale-95 border border-white/20 cursor-pointer"
+            title="Volver al final"
+            aria-label="Volver al final del chat"
+          >
+            <ChevronDown className="h-5 w-5" />
+          </button>
         )}
       </div>
 
