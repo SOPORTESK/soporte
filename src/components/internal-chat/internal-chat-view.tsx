@@ -22,6 +22,10 @@ import {
   Volume2,
   RotateCw,
   CornerUpLeft,
+  Copy,
+  ExternalLink,
+  Globe,
+  Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
@@ -40,6 +44,97 @@ interface InternalChatViewProps {
   onNewMessageSent?: (msg: InternalMessage) => void;
   isExpanded?: boolean;
   onToggleExpand?: () => void;
+}
+
+// ── UTILIDADES PREMIUM PARA EL CHAT INTERNO ──
+
+function extractUrls(text: string): string[] {
+  if (!text) return [];
+  const urlRegex = /(https?:\/\/[^\s<]+[^<.,:;\"')\]\s])/gi;
+  const matches = text.match(urlRegex);
+  return matches ? Array.from(new Set(matches)) : [];
+}
+
+function getUrlDomain(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl);
+    return parsed.hostname.replace(/^www\./, '');
+  } catch {
+    return 'enlace';
+  }
+}
+
+function getCleanUrlLabel(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl);
+    const host = parsed.hostname.replace(/^www\./, '');
+    const pathParts = parsed.pathname.split('/').filter(Boolean);
+    const lastPart = pathParts.length > 0 ? decodeURIComponent(pathParts[pathParts.length - 1]).replace(/[-_]/g, ' ') : '';
+    if (lastPart && lastPart.length > 3) {
+      return `${lastPart} • ${host}`;
+    }
+    return host;
+  } catch {
+    return rawUrl;
+  }
+}
+
+function formatDateGroup(isoString: string): string {
+  try {
+    const d = new Date(isoString);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const target = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const diffDays = Math.round((today.getTime() - target.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) return 'Hoy';
+    if (diffDays === 1) return 'Ayer';
+    if (diffDays < 7) {
+      const weekday = d.toLocaleDateString('es-ES', { weekday: 'long' });
+      return weekday.charAt(0).toUpperCase() + weekday.slice(1);
+    }
+    return d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: d.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
+  } catch {
+    return '';
+  }
+}
+
+function LinkPreviewCard({ url, isMe }: { url: string; isMe: boolean }) {
+  const domain = getUrlDomain(url);
+  const label = getCleanUrlLabel(url);
+
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={`group/link block mt-1.5 p-2 rounded-xl transition-all border text-left no-underline ${
+        isMe
+          ? 'bg-black/25 hover:bg-black/35 border-white/20 text-white'
+          : 'bg-card/90 hover:bg-muted/80 border-border/80 text-foreground shadow-xs'
+      }`}
+    >
+      <div className="flex items-center gap-2 mb-1">
+        <div className={`h-5 w-5 rounded-md flex items-center justify-center shrink-0 ${
+          isMe ? 'bg-white/20 text-white' : 'bg-violet-600/15 text-violet-500'
+        }`}>
+          <Globe className="h-3 w-3" />
+        </div>
+        <span className={`text-[10px] font-bold uppercase tracking-wider truncate flex-1 ${
+          isMe ? 'text-white/80' : 'text-violet-500'
+        }`}>
+          {domain}
+        </span>
+        <ExternalLink className="h-3 w-3 opacity-60 group-hover/link:opacity-100 transition-opacity shrink-0" />
+      </div>
+      <p className="text-[11px] font-semibold leading-tight line-clamp-2 capitalize opacity-95 group-hover/link:underline">
+        {label}
+      </p>
+      <p className={`text-[9px] truncate font-mono mt-0.5 opacity-60 ${isMe ? 'text-white/70' : 'text-muted-foreground'}`}>
+        {url}
+      </p>
+    </a>
+  );
 }
 
 export function InternalChatView({
@@ -61,6 +156,7 @@ export function InternalChatView({
   const [refreshing, setRefreshing] = useState(false);
   const [draft, setDraft] = useState("");
   const [replyTo, setReplyTo] = useState<InternalMessage | null>(null);
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [uploadingFile, setUploadingFile] = useState(false);
   const [previewMedia, setPreviewMedia] = useState<{ url: string; type?: string; name?: string } | null>(null);
@@ -522,160 +618,228 @@ export function InternalChatView({
         </div>
       </div>
 
-      {/* ── CUERPO DE MENSAJES (SCROLL) ── */}
-      <div className="flex-1 overflow-y-auto p-2.5 space-y-2.5 min-h-0 bg-background/50">
+      {/* ── CUERPO DE MENSAJES (SCROLL PREMIUM) ── */}
+      <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3 min-h-0 bg-gradient-to-b from-background/40 to-background/70">
         {loading ? (
           <div className="h-full flex flex-col items-center justify-center gap-2 py-6 text-muted-foreground">
-            <Loader2 className="h-5 w-5 animate-spin text-violet-500" />
-            <span className="text-xs">Cargando mensajes...</span>
+            <Loader2 className="h-6 w-6 animate-spin text-violet-500" />
+            <span className="text-xs font-medium">Cargando mensajes...</span>
           </div>
         ) : messages.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center py-6 text-center text-muted-foreground px-4 my-auto">
-            <div className="h-10 w-10 rounded-2xl bg-violet-600/15 border border-violet-500/25 text-violet-400 flex items-center justify-center mb-2 shadow-inner">
-              <Users className="h-5 w-5" />
+          <div className="h-full flex flex-col items-center justify-center py-8 text-center text-muted-foreground px-4 my-auto animate-in fade-in zoom-in-95 duration-200">
+            <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-violet-600/20 to-indigo-600/10 border border-violet-500/25 text-violet-400 flex items-center justify-center mb-3 shadow-inner">
+              <Users className="h-6 w-6" />
             </div>
-            <h4 className="text-xs font-bold text-foreground">Inicia la conversación</h4>
-            <p className="text-[10px] text-muted-foreground max-w-[220px] mt-0.5 leading-snug">
-              Envía mensajes, notas de voz o archivos en tiempo real.
+            <h4 className="text-sm font-bold text-foreground">Inicia la conversación</h4>
+            <p className="text-xs text-muted-foreground max-w-[260px] mt-1 leading-relaxed">
+              Envía mensajes, notas de voz, capturas técnicas o enlaces con vista previa interactiva.
             </p>
           </div>
         ) : (
-          messages.map((m) => {
-            const isMe = m.senderEmail.toLowerCase() === currentUserEmail.toLowerCase();
-            const isAudio = m.mediaType?.startsWith("audio/") || m.fileName?.endsWith(".webm") || m.fileName === "Nota de voz";
-            const isImage = m.mediaType?.startsWith("image/");
-            const isVideo = m.mediaType?.startsWith("video/");
+          (() => {
+            let lastDate = "";
 
-            return (
-              <div
-                key={m.id}
-                className={`flex flex-col ${isMe ? "items-end" : "items-start"} space-y-1 animate-in fade-in duration-150 group/row`}
-              >
-                {!isMe && isGroup && (
-                  <span className="text-[10px] font-bold text-violet-400 pl-1">
-                    {m.senderName}
-                  </span>
-                )}
+            return messages.map((m) => {
+              const isMe = m.senderEmail.toLowerCase() === currentUserEmail.toLowerCase();
+              const isAudio = m.mediaType?.startsWith("audio/") || m.fileName?.endsWith(".webm") || m.fileName === "Nota de voz";
+              const isImage = m.mediaType?.startsWith("image/");
+              const isVideo = m.mediaType?.startsWith("video/");
+              const urls = extractUrls(m.content || "");
 
-                <div className={`flex items-center gap-1.5 ${isMe ? "flex-row-reverse" : "flex-row"}`}>
+              // Agrupador de fecha
+              const messageDate = formatDateGroup(m.createdAt);
+              let showDateDivider = false;
+              if (messageDate && messageDate !== lastDate) {
+                showDateDivider = true;
+                lastDate = messageDate;
+              }
+
+              const isCopied = copiedMessageId === m.id;
+
+              return (
+                <React.Fragment key={m.id}>
+                  {showDateDivider && (
+                    <div className="flex items-center justify-center my-3 select-none">
+                      <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-card/85 border border-border/70 text-muted-foreground shadow-2xs backdrop-blur-xs">
+                        {messageDate}
+                      </span>
+                    </div>
+                  )}
+
                   <div
-                    className={`max-w-[85%] rounded-2xl p-2.5 text-xs shadow-xs space-y-1.5 ${
-                      isMe
-                        ? "bg-violet-600 text-white rounded-br-xs"
-                        : "bg-muted/70 border border-border/70 text-foreground rounded-bl-xs"
-                    }`}
+                    className={`flex flex-col ${isMe ? "items-end" : "items-start"} space-y-1 animate-in fade-in duration-150 group/row`}
                   >
-                    {/* CITA / RESPUESTA PREVIA */}
-                    {m.replyTo && (
+                    {!isMe && isGroup && (
+                      <span className="text-[10px] font-bold text-violet-400 pl-1.5 flex items-center gap-1">
+                        <span>{m.senderName}</span>
+                      </span>
+                    )}
+
+                    <div className={`flex items-end gap-1.5 ${isMe ? "flex-row-reverse" : "flex-row"} max-w-full`}>
+                      {/* Burbuja Principal */}
                       <div
-                        className={`mb-1 px-2.5 py-1 rounded-xl border-l-2 text-[11px] leading-snug ${
+                        className={`max-w-[85%] sm:max-w-[78%] rounded-2xl px-3.5 py-2.5 text-xs shadow-xs space-y-2 relative transition-all duration-150 ${
                           isMe
-                            ? "bg-black/20 border-white/60 text-white/90"
-                            : "bg-background/80 border-violet-500/80 text-foreground"
+                            ? "bg-gradient-to-br from-violet-600 to-indigo-600 text-white rounded-br-xs border border-violet-500/30 shadow-violet-600/10"
+                            : "bg-card border border-border/80 text-card-foreground rounded-bl-xs shadow-2xs hover:border-border"
                         }`}
                       >
-                        <p className={`font-bold text-[10px] ${isMe ? "text-white" : "text-violet-400"}`}>
-                          {m.replyTo.author}
-                        </p>
-                        <p className="truncate opacity-80">{m.replyTo.content}</p>
-                      </div>
-                    )}
-
-                    {/* IMAGEN ADJUNTA */}
-                    {isImage && m.mediaUrl && (
-                      <div
-                        onClick={() => setPreviewMedia({ url: m.mediaUrl!, type: "image", name: m.fileName || "Foto" })}
-                        className="cursor-pointer overflow-hidden rounded-xl border border-black/10 max-h-48 group relative"
-                      >
-                        <img
-                          src={m.mediaUrl}
-                          alt="Adjunto"
-                          className="w-full h-full object-cover transition-transform group-hover:scale-105"
-                        />
-                      </div>
-                    )}
-
-                    {/* VIDEO ADJUNTO */}
-                    {isVideo && m.mediaUrl && (
-                      <video
-                        src={m.mediaUrl}
-                        controls
-                        className="w-full rounded-xl max-h-48 bg-black/50"
-                      />
-                    )}
-
-                    {/* NOTA DE VOZ / AUDIO PLAYER */}
-                    {isAudio && m.mediaUrl && (
-                      <InternalAudioPlayer url={m.mediaUrl} isMe={isMe} />
-                    )}
-
-                    {/* DOCUMENTO / ARCHIVO ADJUNTO */}
-                    {m.mediaUrl && !isImage && !isVideo && !isAudio && (
-                      <a
-                        href={m.mediaUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className={`flex items-center gap-2 p-2 rounded-xl border transition-colors ${
-                          isMe
-                            ? "bg-white/10 hover:bg-white/20 border-white/20 text-white"
-                            : "bg-background hover:bg-muted/80 border-border text-foreground"
-                        }`}
-                      >
-                        <FileText className="h-4 w-4 shrink-0 text-violet-400" />
-                        <div className="min-w-0 flex-1">
-                          <p className="font-bold text-[11px] truncate leading-tight">
-                            {m.fileName || "Documento adjunto"}
-                          </p>
-                          {m.fileSize && (
-                            <p className="text-[9px] opacity-75 leading-tight">
-                              {(m.fileSize / 1024).toFixed(0)} KB
+                        {/* CITA / RESPUESTA PREVIA */}
+                        {m.replyTo && (
+                          <div
+                            className={`mb-1 px-2.5 py-1.5 rounded-xl border-l-2 text-[11px] leading-snug ${
+                              isMe
+                                ? "bg-black/20 border-white/70 text-white/95"
+                                : "bg-muted/80 border-violet-500 text-foreground"
+                            }`}
+                          >
+                            <p className={`font-bold text-[10px] ${isMe ? "text-white" : "text-violet-500"}`}>
+                              {m.replyTo.author}
                             </p>
+                            <p className="truncate opacity-85 text-[11px] mt-0.5">{m.replyTo.content}</p>
+                          </div>
+                        )}
+
+                        {/* IMAGEN ADJUNTA CON PREVIEW PREMIUM */}
+                        {isImage && m.mediaUrl && (
+                          <div
+                            onClick={() => setPreviewMedia({ url: m.mediaUrl!, type: "image", name: m.fileName || "Foto" })}
+                            className="cursor-pointer overflow-hidden rounded-xl border border-black/10 max-h-56 group/img relative shadow-xs"
+                          >
+                            <img
+                              src={m.mediaUrl}
+                              alt="Adjunto"
+                              className="w-full h-full object-cover transition-transform duration-200 group-hover/img:scale-105"
+                            />
+                            <div className="absolute inset-0 bg-black/0 group-hover/img:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover/img:opacity-100">
+                              <span className="px-2 py-1 rounded-lg bg-black/60 text-white text-[10px] font-bold backdrop-blur-xs flex items-center gap-1">
+                                <Maximize2 className="h-3 w-3" /> Ver completa
+                              </span>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* VIDEO ADJUNTO */}
+                        {isVideo && m.mediaUrl && (
+                          <video
+                            src={m.mediaUrl}
+                            controls
+                            className="w-full rounded-xl max-h-56 bg-black/60 border border-black/20"
+                          />
+                        )}
+
+                        {/* NOTA DE VOZ / AUDIO PLAYER PREMIUM */}
+                        {isAudio && m.mediaUrl && (
+                          <InternalAudioPlayer url={m.mediaUrl} isMe={isMe} />
+                        )}
+
+                        {/* DOCUMENTO / ARCHIVO ADJUNTO */}
+                        {m.mediaUrl && !isImage && !isVideo && !isAudio && (
+                          <a
+                            href={m.mediaUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={`flex items-center gap-2.5 p-2.5 rounded-xl border transition-all ${
+                              isMe
+                                ? "bg-white/10 hover:bg-white/20 border-white/20 text-white"
+                                : "bg-muted/50 hover:bg-muted border-border/80 text-foreground"
+                            }`}
+                          >
+                            <div className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 ${
+                              isMe ? "bg-white/20 text-white" : "bg-violet-600/15 text-violet-500"
+                            }`}>
+                              <FileText className="h-4 w-4" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="font-bold text-[11px] truncate leading-tight">
+                                {m.fileName || "Documento adjunto"}
+                              </p>
+                              {m.fileSize && (
+                                <p className="text-[9px] opacity-75 leading-tight mt-0.5 font-mono">
+                                  {(m.fileSize / 1024).toFixed(0)} KB
+                                </p>
+                              )}
+                            </div>
+                            <Download className="h-3.5 w-3.5 shrink-0 opacity-80" />
+                          </a>
+                        )}
+
+                        {/* TEXTO DEL MENSAJE */}
+                        {m.content && (
+                          <p className="leading-relaxed whitespace-pre-wrap break-words text-xs tracking-normal">
+                            {m.content}
+                          </p>
+                        )}
+
+                        {/* TARJETA DE VISTA PREVIA DE ENLACES WEB */}
+                        {urls.length > 0 && (
+                          <div className="space-y-1 mt-1">
+                            {urls.slice(0, 2).map((linkUrl, i) => (
+                              <LinkPreviewCard key={i} url={linkUrl} isMe={isMe} />
+                            ))}
+                          </div>
+                        )}
+
+                        {/* HORA Y LEÍDO */}
+                        <div
+                          className={`flex items-center justify-end gap-1 text-[9px] pt-0.5 select-none ${
+                            isMe ? "text-white/80" : "text-muted-foreground"
+                          }`}
+                        >
+                          <span className="font-mono">{formatTime(m.createdAt)}</span>
+                          {isMe && (
+                            <CheckCheck
+                              className={`h-3 w-3 ${
+                                m.readBy && m.readBy.length > 1 ? "text-sky-300" : "text-white/70"
+                              }`}
+                            />
                           )}
                         </div>
-                        <Download className="h-3.5 w-3.5 shrink-0 opacity-80" />
-                      </a>
-                    )}
+                      </div>
 
-                    {/* TEXTO DEL MENSAJE */}
-                    {m.content && (
-                      <p className="leading-relaxed whitespace-pre-wrap break-words text-xs">
-                        {m.content}
-                      </p>
-                    )}
+                      {/* BARRA DE ACCIONES RÁPIDAS EN HOVER (RESPONDER / COPIAR) */}
+                      <div className="opacity-0 group-hover/row:opacity-100 flex items-center gap-0.5 transition-all duration-150 shrink-0 pb-1">
+                        {/* Responder */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setReplyTo(m);
+                            const inp = document.querySelector<HTMLInputElement>('input[placeholder*="mensaje"]');
+                            inp?.focus();
+                          }}
+                          className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                          title="Responder"
+                        >
+                          <CornerUpLeft className="h-3.5 w-3.5" />
+                        </button>
 
-                    {/* HORA Y LEÍDO */}
-                    <div
-                      className={`flex items-center justify-end gap-1 text-[9px] pt-0.5 ${
-                        isMe ? "text-white/70" : "text-muted-foreground"
-                      }`}
-                    >
-                      <span>{formatTime(m.createdAt)}</span>
-                      {isMe && (
-                        <CheckCheck
-                          className={`h-3 w-3 ${
-                            m.readBy && m.readBy.length > 1 ? "text-sky-300" : "text-white/60"
-                          }`}
-                        />
-                      )}
+                        {/* Copiar Texto */}
+                        {m.content && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(m.content);
+                              setCopiedMessageId(m.id);
+                              toast.success("Mensaje copiado");
+                              setTimeout(() => setCopiedMessageId(null), 1800);
+                            }}
+                            className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                            title="Copiar texto"
+                          >
+                            {isCopied ? (
+                              <Check className="h-3.5 w-3.5 text-emerald-500" />
+                            ) : (
+                              <Copy className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setReplyTo(m);
-                      const inp = document.querySelector<HTMLInputElement>('input[placeholder*="mensaje"]');
-                      inp?.focus();
-                    }}
-                    className="opacity-0 group-hover/row:opacity-100 p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-all cursor-pointer shrink-0"
-                    title="Responder a este mensaje"
-                  >
-                    <CornerUpLeft className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              </div>
-            );
-          })
+                </React.Fragment>
+              );
+            });
+          })()
         )}
         <div ref={messagesEndRef} />
       </div>
@@ -908,12 +1072,15 @@ export function InternalChatView({
   );
 }
 
-// ── REPRODUCTOR DE AUDIO ELEGANTE ──
+// ── REPRODUCTOR DE AUDIO ELEGANTE CON CONTROL DE VELOCIDAD Y FORMA DE ONDA ──
 function InternalAudioPlayer({ url, isMe }: { url: string; isMe: boolean }) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [playbackRate, setPlaybackRate] = useState<number>(1);
+
+  const speedCycle = [1, 1.5, 2];
 
   useEffect(() => {
     const a = audioRef.current;
@@ -960,6 +1127,15 @@ function InternalAudioPlayer({ url, isMe }: { url: string; isMe: boolean }) {
     setCurrentTime(time);
   };
 
+  const toggleSpeed = () => {
+    const a = audioRef.current;
+    if (!a) return;
+    const nextIdx = (speedCycle.indexOf(playbackRate) + 1) % speedCycle.length;
+    const nextSpeed = speedCycle[nextIdx];
+    a.playbackRate = nextSpeed;
+    setPlaybackRate(nextSpeed);
+  };
+
   const fmt = (sec: number) => {
     if (!isFinite(sec) || isNaN(sec)) return "0:00";
     const m = Math.floor(sec / 60);
@@ -969,35 +1145,41 @@ function InternalAudioPlayer({ url, isMe }: { url: string; isMe: boolean }) {
 
   return (
     <div
-      className={`flex items-center gap-2 p-2 rounded-xl min-w-[200px] ${
-        isMe ? "bg-white/10" : "bg-card/70 border border-border/50"
+      className={`flex items-center gap-2.5 p-2 rounded-2xl min-w-[220px] max-w-[280px] transition-all ${
+        isMe
+          ? "bg-black/20 border border-white/20 text-white shadow-inner"
+          : "bg-card/90 border border-border/80 text-foreground shadow-xs"
       }`}
     >
       <audio ref={audioRef} src={url} preload="metadata" />
 
+      {/* Botón Play / Pause */}
       <button
         type="button"
         onClick={togglePlay}
-        className={`h-7 w-7 rounded-lg grid place-items-center shrink-0 transition-transform active:scale-95 ${
+        className={`h-8 w-8 rounded-xl grid place-items-center shrink-0 transition-all active:scale-90 shadow-sm cursor-pointer ${
           isMe
-            ? "bg-white text-violet-600 hover:bg-white/90"
-            : "bg-violet-600 text-white hover:bg-violet-500"
+            ? "bg-white text-violet-600 hover:bg-white/95"
+            : "bg-violet-600 text-white hover:bg-violet-500 shadow-violet-600/30"
         }`}
       >
-        {playing ? <Pause className="h-3.5 w-3.5 fill-current" /> : <Play className="h-3.5 w-3.5 fill-current ml-0.5" />}
+        {playing ? <Pause className="h-4 w-4 fill-current" /> : <Play className="h-4 w-4 fill-current ml-0.5" />}
       </button>
 
+      {/* Onda y Slider */}
       <div className="flex-1 min-w-0 flex flex-col justify-center space-y-1">
-        <input
-          type="range"
-          min={0}
-          max={duration || 100}
-          value={currentTime}
-          onChange={handleSeek}
-          className="w-full h-1 bg-black/20 rounded-lg appearance-none cursor-pointer accent-violet-400"
-        />
+        <div className="relative flex items-center">
+          <input
+            type="range"
+            min={0}
+            max={duration || 100}
+            value={currentTime}
+            onChange={handleSeek}
+            className="w-full h-1.5 bg-black/25 dark:bg-white/20 rounded-lg appearance-none cursor-pointer accent-violet-400"
+          />
+        </div>
         <div
-          className={`flex items-center justify-between text-[9px] font-mono leading-none ${
+          className={`flex items-center justify-between text-[10px] font-mono leading-none ${
             isMe ? "text-white/80" : "text-muted-foreground"
           }`}
         >
@@ -1005,6 +1187,20 @@ function InternalAudioPlayer({ url, isMe }: { url: string; isMe: boolean }) {
           <span>{fmt(duration)}</span>
         </div>
       </div>
+
+      {/* Selector de Velocidad (1x, 1.5x, 2x) */}
+      <button
+        type="button"
+        onClick={toggleSpeed}
+        className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold tracking-tight transition-colors shrink-0 cursor-pointer ${
+          isMe
+            ? "bg-white/20 hover:bg-white/30 text-white"
+            : "bg-muted hover:bg-muted/80 text-foreground border border-border/60"
+        }`}
+        title="Cambiar velocidad de reproducción"
+      >
+        {playbackRate}x
+      </button>
     </div>
   );
 }
