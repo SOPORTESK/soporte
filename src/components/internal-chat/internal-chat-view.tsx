@@ -48,76 +48,21 @@ interface InternalChatViewProps {
 }
 
 
-// ── REPRODUCTOR DE SONIDO OFICIAL MSN NUDGE CON AUDIO Y WEBAUDIO DUAL ──
+// ── REPRODUCTOR DE SONIDO OFICIAL Y AUTÉNTICO MSN NUDGE ──
 function playMsnNudgeSound() {
   try {
-    // 1. Intentar reproducir el archivo auténtico de audio
     const audio = new Audio("/msn_nudge.wav");
     audio.volume = 1.0;
-    const playPromise = audio.play();
-    if (playPromise !== undefined) {
-      playPromise.catch(() => {
-        // Fallback a Web Audio API si el navegador bloquea la carga de archivo
-        synthesizeNudgeFallback();
+    audio.currentTime = 0;
+    const p = audio.play();
+    if (p !== undefined) {
+      p.catch((err) => {
+        console.warn("Audio autoplay blocked by browser policy:", err);
       });
     }
-  } catch {
-    synthesizeNudgeFallback();
+  } catch (e) {
+    console.warn("Error al reproducir msn_nudge.wav:", e);
   }
-}
-
-function synthesizeNudgeFallback() {
-  try {
-    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioCtx) return;
-    const ctx = new AudioCtx();
-    if (ctx.state === "suspended") {
-      ctx.resume().catch(() => {});
-    }
-
-    const now = ctx.currentTime;
-
-    // Primer pulso grave metálico / resorte
-    const osc1 = ctx.createOscillator();
-    const gain1 = ctx.createGain();
-    osc1.type = "sawtooth";
-    osc1.frequency.setValueAtTime(140, now);
-    osc1.frequency.exponentialRampToValueAtTime(70, now + 0.18);
-    gain1.gain.setValueAtTime(0.9, now);
-    gain1.gain.exponentialRampToValueAtTime(0.01, now + 0.18);
-    osc1.connect(gain1);
-    gain1.connect(ctx.destination);
-    osc1.start(now);
-    osc1.stop(now + 0.19);
-
-    // Segundo golpe fuerte característico de MSN (el doble impacto)
-    const osc2 = ctx.createOscillator();
-    const gain2 = ctx.createGain();
-    osc2.type = "triangle";
-    osc2.frequency.setValueAtTime(260, now + 0.08);
-    osc2.frequency.exponentialRampToValueAtTime(90, now + 0.32);
-    gain2.gain.setValueAtTime(0, now);
-    gain2.gain.setValueAtTime(1.0, now + 0.08);
-    gain2.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
-    osc2.connect(gain2);
-    gain2.connect(ctx.destination);
-    osc2.start(now + 0.08);
-    osc2.stop(now + 0.36);
-
-    // Tercer golpe de resonancia (zumbido vibratorio)
-    const osc3 = ctx.createOscillator();
-    const gain3 = ctx.createGain();
-    osc3.type = "sine";
-    osc3.frequency.setValueAtTime(420, now + 0.14);
-    osc3.frequency.exponentialRampToValueAtTime(120, now + 0.45);
-    gain3.gain.setValueAtTime(0, now);
-    gain3.gain.setValueAtTime(0.7, now + 0.14);
-    gain3.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
-    osc3.connect(gain3);
-    gain3.connect(ctx.destination);
-    osc3.start(now + 0.14);
-    osc3.stop(now + 0.46);
-  } catch {}
 }
 
 // ── UTILIDADES PREMIUM PARA EL CHAT INTERNO ──
@@ -447,6 +392,8 @@ export function InternalChatView({
       if (res.ok && data.message) {
         setMessages((prev) => [...prev, data.message]);
         setTimeout(() => scrollToBottom("smooth"), 80);
+        broadcastMessage(data.message);
+        if (onNewMessageSent) onNewMessageSent(data.message);
       }
     } catch {}
 
