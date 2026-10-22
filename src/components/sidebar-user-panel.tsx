@@ -331,7 +331,8 @@ export function SidebarUserPanel({
     };
 
     fetchTeam();
-    const teamInterval = setInterval(fetchTeam, 60000);
+    const handleTeamFocus = () => fetchTeam();
+    window.addEventListener("focus", handleTeamFocus);
 
     const agentChannel = supabase
       .channel("sidebar_team_agents_realtime")
@@ -357,7 +358,7 @@ export function SidebarUserPanel({
       .subscribe();
 
     return () => {
-      clearInterval(teamInterval);
+      window.removeEventListener("focus", handleTeamFocus);
       supabase.removeChannel(agentChannel);
     };
   }, [supabase]);
@@ -417,7 +418,8 @@ export function SidebarUserPanel({
     };
 
     checkActiveChats();
-    const interval = setInterval(checkActiveChats, 60000);
+    const handleChatsFocus = () => debouncedCheck();
+    window.addEventListener("focus", handleChatsFocus);
 
     const casesChannel = supabase
       .channel("sidebar_active_chats_realtime")
@@ -430,7 +432,7 @@ export function SidebarUserPanel({
 
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer);
-      clearInterval(interval);
+      window.removeEventListener("focus", handleChatsFocus);
       supabase.removeChannel(casesChannel);
     };
   }, [safeAgent.email, supabase]);
@@ -566,8 +568,6 @@ export function SidebarUserPanel({
     loadChatConversations();
     // Polling ligero de respaldo (cada 45s), no satura la BD ni ralentiza la navegación
     // Los mensajes en vivo se reciben instantáneamente mediante Supabase Realtime
-    const pollInterval = setInterval(loadChatConversations, 45000);
-
     const handleFocus = () => loadChatConversations();
     window.addEventListener("focus", handleFocus);
 
@@ -598,7 +598,6 @@ export function SidebarUserPanel({
     }).subscribe();
 
     return () => {
-      clearInterval(pollInterval);
       window.removeEventListener("focus", handleFocus);
       supabase.removeChannel(ch);
       if (popupTimerRef.current) clearTimeout(popupTimerRef.current);
@@ -1020,14 +1019,11 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
     window.addEventListener("focus", handleFocus);
     document.addEventListener("visibilitychange", handleVisibility);
 
-    // Verificación periódica cada 60 segundos (respaldo ligero, Realtime maneja las actualizaciones instantáneas)
-    const syncInterval = setInterval(checkServerTimeline, 60000);
-
+    // Realtime Broadcast y eventos de ventana sincronizan al instante sin polling continuo
     return () => {
       window.removeEventListener("storage", handleStorage);
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibility);
-      clearInterval(syncInterval);
       supabase.removeChannel(syncChannel);
     };
   }, [agent.email, supabase]);

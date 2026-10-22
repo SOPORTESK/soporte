@@ -112,11 +112,11 @@ export function LiveDashboardStats({ initial }: { initial: InitialData }) {
     setMounted(true);
     setLastUpdate(new Date());
 
-    // Polling de respaldo cada 60 segundos (Realtime actualiza al instante ante cambios)
+    // Polling de respaldo cada 300s (Realtime actualiza al instante ante cambios)
     const interval = setInterval(() => {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       fetchStats();
-    }, 60000);
+    }, 300000);
 
     // Realtime: suscribirse a cambios en sek_cases
     const channel = supabase

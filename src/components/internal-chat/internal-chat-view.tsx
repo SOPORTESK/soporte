@@ -145,13 +145,18 @@ export function InternalChatView({
     };
   }, [channelId]);
 
-  // Polling de respaldo cada 30s (la entrega instantánea va por Supabase Broadcast)
+  // Polling de respaldo cada 180s (la entrega instantánea va por Supabase Broadcast)
   useEffect(() => {
+    const handleFocus = () => fetchMessagesSilent();
+    window.addEventListener("focus", handleFocus);
     const interval = setInterval(() => {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       fetchMessagesSilent();
-    }, 30000);
-    return () => clearInterval(interval);
+    }, 180000);
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      clearInterval(interval);
+    };
   }, [fetchMessagesSilent]);
 
   // Escuchar mensajes en tiempo real vía Supabase Broadcast (Canal persistente)
