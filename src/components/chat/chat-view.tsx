@@ -1256,7 +1256,21 @@ export function ChatView({
       recordingTimerRef.current = setInterval(() => {
         setRecordingTime(t => t + 1);
       }, 1000);
-    } catch (err: any) { toast.error("No se pudo acceder al micrófono", { description: err?.message }); }
+    } catch (err: any) {
+      console.warn("[startRecording] Error de acceso a micrófono:", err);
+      const isBlocked = err?.name === "NotAllowedError" || err?.name === "PermissionDeniedError";
+      toast.error(
+        isBlocked
+          ? "Micrófono bloqueado por el navegador o antivirus"
+          : "No se pudo acceder al micrófono",
+        {
+          description: isBlocked
+            ? "Revisa el candado en la barra de direcciones o la protección de privacidad de tu antivirus."
+            : (err?.message || "Comprueba que el micrófono esté conectado."),
+          duration: 6000,
+        }
+      );
+    }
   }
 
   function stopRecording() {
@@ -1577,15 +1591,33 @@ export function ChatView({
         await send("", pubUrl, file.type, file.name, true);
         toast.success("Archivo enviado directamente a WhatsApp");
       } else {
-        // Canales Web / Widget
+        // Canales Web / Widget (Anti-antivirus / firewall proxy first)
         const ext = file.name.split(".").pop();
         const path = `cases/${targetId}/${Date.now()}.${ext}`;
-        const { error: upErr } = await supabase.storage
-          .from("attachments")
-          .upload(path, file, { upsert: true, contentType: file.type || undefined, cacheControl: "31536000" });
-        if (upErr) throw upErr;
-        const { data: urlData } = supabase.storage.from("attachments").getPublicUrl(path);
-        await send("", urlData.publicUrl, file.type, file.name);
+        let finalUrl = "";
+        try {
+          const fd = new FormData();
+          fd.append("file", file);
+          fd.append("folder", `cases/${targetId}`);
+          const pres = await fetch("/api/upload-proxy", { method: "POST", body: fd });
+          if (pres.ok) {
+            const pdata = await pres.json();
+            if (pdata.success && pdata.url) finalUrl = pdata.url;
+          }
+        } catch (e) {
+          console.warn("[handleFile] Fallback a subida directa Supabase:", e);
+        }
+
+        if (!finalUrl) {
+          const { error: upErr } = await supabase.storage
+            .from("attachments")
+            .upload(path, file, { upsert: true, contentType: file.type || undefined, cacheControl: "31536000" });
+          if (upErr) throw upErr;
+          const { data: urlData } = supabase.storage.from("attachments").getPublicUrl(path);
+          finalUrl = urlData.publicUrl;
+        }
+
+        await send("", finalUrl, file.type, file.name);
         toast.success("Archivo enviado");
       }
     } catch (err: any) {

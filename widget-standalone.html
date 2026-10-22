@@ -1039,7 +1039,14 @@ async function micStart(){
     mediaRec=new MediaRecorder(micStream);
     mediaRec.ondataavailable=function(e){if(e.data&&e.data.size>0)audioChunks.push(e.data)};
     mediaRec.start(100);$("btn-mic").classList.add("rec");haptic(30);
-  }catch(err){isRec=false;alert("No se pudo acceder al micr\u00F3fono: "+err.message)}
+  }catch(err){
+    isRec=false;
+    var msg="No se pudo activar el micrófono. Si tienes antivirus o bloqueo de privacidad activo, permite el acceso al audio o sube una nota de voz como archivo.";
+    if(err.name==="NotAllowedError"||err.name==="PermissionDeniedError"){
+      msg="Permiso de micrófono denegado por el navegador o antivirus. Haz clic en el candado de la barra de direcciones para habilitarlo.";
+    }
+    alert(msg);
+  }
 }
 function micStop(){
   if(!isRec||!mediaRec)return;
@@ -1064,7 +1071,33 @@ function micStop(){
   $('btn-mic').addEventListener('mouseup',function(e){if(isTouchDev)return;e.preventDefault();micStop()});
 })();
 
-async function uploadFile(file){var ext=file.name.split(".").pop();var path="cases/"+sid+"/"+Date.now()+"."+ext;$("up-prog-wrap").style.display="block";$("up-bar").style.width="30%";var r=await db.storage.from("attachments").upload(path,file,{upsert:true});$("up-bar").style.width="80%";if(r.error){$("up-prog-wrap").style.display="none";throw r.error}var u=db.storage.from("attachments").getPublicUrl(path);$("up-bar").style.width="100%";setTimeout(function(){$("up-prog-wrap").style.display="none";$("up-bar").style.width="0%"},400);return{url:u.data.publicUrl,type:file.type,name:file.name}}
+async function uploadFile(file){
+  var ext=file.name.split(".").pop();
+  var path="cases/"+sid+"/"+Date.now()+"."+ext;
+  $("up-prog-wrap").style.display="block";
+  $("up-bar").style.width="30%";
+  try{
+    var fd=new FormData();
+    fd.append("file",file);
+    fd.append("folder","cases/"+sid);
+    var pres=await fetch("/api/upload-proxy",{method:"POST",body:fd});
+    if(pres.ok){
+      var pdata=await pres.json();
+      if(pdata.success&&pdata.url){
+        $("up-bar").style.width="100%";
+        setTimeout(function(){$("up-prog-wrap").style.display="none";$("up-bar").style.width="0%"},400);
+        return{url:pdata.url,type:file.type,name:file.name};
+      }
+    }
+  }catch(e){console.warn("[uploadFile] Proxy upload fallback to direct storage:",e)}
+  var r=await db.storage.from("attachments").upload(path,file,{upsert:true});
+  $("up-bar").style.width="80%";
+  if(r.error){$("up-prog-wrap").style.display="none";throw r.error}
+  var u=db.storage.from("attachments").getPublicUrl(path);
+  $("up-bar").style.width="100%";
+  setTimeout(function(){$("up-prog-wrap").style.display="none";$("up-bar").style.width="0%"},400);
+  return{url:u.data.publicUrl,type:file.type,name:file.name}
+}
 
 /* ═══ DRAG & DROP ═══ */
 var dragCtr=0;
