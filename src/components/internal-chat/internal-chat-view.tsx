@@ -26,6 +26,7 @@ import {
   ExternalLink,
   Globe,
   Sparkles,
+  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
@@ -44,6 +45,61 @@ interface InternalChatViewProps {
   onNewMessageSent?: (msg: InternalMessage) => void;
   isExpanded?: boolean;
   onToggleExpand?: () => void;
+}
+
+
+// ── SONIDO SINTETIZADO OFICIAL ESTILO MSN NUDGE CON WEB AUDIO API ──
+function playMsnNudgeSound() {
+  try {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+
+    const now = ctx.currentTime;
+
+    // Primer pulso grave metálico / resorte
+    const osc1 = ctx.createOscillator();
+    const gain1 = ctx.createGain();
+    osc1.type = "sawtooth";
+    osc1.frequency.setValueAtTime(140, now);
+    osc1.frequency.exponentialRampToValueAtTime(70, now + 0.18);
+    gain1.gain.setValueAtTime(0.7, now);
+    gain1.gain.exponentialRampToValueAtTime(0.01, now + 0.18);
+    osc1.connect(gain1);
+    gain1.connect(ctx.destination);
+    osc1.start(now);
+    osc1.stop(now + 0.19);
+
+    // Segundo golpe fuerte característico de MSN (el doble impacto)
+    const osc2 = ctx.createOscillator();
+    const gain2 = ctx.createGain();
+    osc2.type = "triangle";
+    osc2.frequency.setValueAtTime(260, now + 0.08);
+    osc2.frequency.exponentialRampToValueAtTime(90, now + 0.32);
+    gain2.gain.setValueAtTime(0, now);
+    gain2.gain.setValueAtTime(0.85, now + 0.08);
+    gain2.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+    osc2.connect(gain2);
+    gain2.connect(ctx.destination);
+    osc2.start(now + 0.08);
+    osc2.stop(now + 0.36);
+
+    // Tercer golpe de resonancia (zumbido vibratorio agudo / metálico)
+    const osc3 = ctx.createOscillator();
+    const gain3 = ctx.createGain();
+    osc3.type = "sine";
+    osc3.frequency.setValueAtTime(420, now + 0.14);
+    osc3.frequency.exponentialRampToValueAtTime(120, now + 0.45);
+    gain3.gain.setValueAtTime(0, now);
+    gain3.gain.setValueAtTime(0.6, now + 0.14);
+    gain3.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+    osc3.connect(gain3);
+    gain3.connect(ctx.destination);
+    osc3.start(now + 0.14);
+    osc3.stop(now + 0.46);
+  } catch (e) {
+    console.warn("No se pudo sintetizar el sonido de zumbido:", e);
+  }
 }
 
 // ── UTILIDADES PREMIUM PARA EL CHAT INTERNO ──
@@ -157,6 +213,8 @@ export function InternalChatView({
   const [draft, setDraft] = useState("");
   const [replyTo, setReplyTo] = useState<InternalMessage | null>(null);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  const [isShaking, setIsShaking] = useState(false);
+  const [nudgeCooldown, setNudgeCooldown] = useState(false);
   const [sending, setSending] = useState(false);
   const [uploadingFile, setUploadingFile] = useState(false);
   const [previewMedia, setPreviewMedia] = useState<{ url: string; type?: string; name?: string } | null>(null);
@@ -172,6 +230,37 @@ export function InternalChatView({
 
   const realtimeChannelRef = useRef<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Función para activar la vibración MSN con sonido
+  const triggerNudgeEffect = useCallback((senderName: string, isFromMe: boolean) => {
+    setIsShaking(true);
+    playMsnNudgeSound();
+
+    // Notificación emergente estilo MSN
+    if (isFromMe) {
+      toast("¡Has enviado un zumbido!", {
+        icon: "⚡",
+        duration: 2500,
+      });
+    } else {
+      toast(`¡${senderName} te acaba de enviar un zumbido!`, {
+        icon: "⚡",
+        duration: 3500,
+      });
+    }
+
+    // Vibración háptica en móviles si está soportada
+    if (typeof navigator !== "undefined" && navigator.vibrate) {
+      try {
+        navigator.vibrate([120, 80, 200, 100, 250]);
+      } catch {}
+    }
+
+    setTimeout(() => {
+      setIsShaking(false);
+    }, 900);
+  }, []);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
@@ -294,6 +383,53 @@ export function InternalChatView({
         payload: msg,
       });
     }
+  };
+
+  // Enviar Zumbido MSN
+  const handleSendNudge = async () => {
+    if (nudgeCooldown) {
+      toast.info("Espera unos segundos antes de enviar otro zumbido.");
+      return;
+    }
+
+    setNudgeCooldown(true);
+    triggerNudgeEffect(currentUserName, true);
+
+    // Emitir broadcast a todos en el canal
+    if (realtimeChannelRef.current) {
+      realtimeChannelRef.current.send({
+        type: "broadcast",
+        event: "nudge_received",
+        payload: {
+          channelId,
+          senderName: currentUserName,
+          senderEmail: currentUserEmail,
+          timestamp: new Date().toISOString(),
+        },
+      });
+    }
+
+    // Registrar mensaje en el historial para constancia en el chat
+    try {
+      const res = await fetch("/api/internal-chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          channelId,
+          content: "⚡ ¡Te envió un zumbido!",
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.message) {
+        setMessages((prev) => [...prev, data.message]);
+        setTimeout(() => scrollToBottom("smooth"), 80);
+      }
+    } catch {}
+
+    // Cooldown de 15 segundos
+    setTimeout(() => {
+      setNudgeCooldown(false);
+    }, 15000);
   };
 
   // Envío de mensaje de texto
@@ -517,7 +653,7 @@ export function InternalChatView({
   };
 
   return (
-    <div className="flex flex-col h-full bg-card relative overflow-hidden">
+    <div className={`flex flex-col h-full bg-card relative overflow-hidden ${isShaking ? "animate-nudge-shake ring-4 ring-amber-500/50" : ""}`}>
       {/* ── CABECERA DEL CHAT (ESPACIO OPTIMIZADO) ── */}
       <div className="px-2.5 py-2 bg-card/95 backdrop-blur-md border-b border-border/80 flex items-center justify-between gap-1.5 shrink-0">
         <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -581,6 +717,22 @@ export function InternalChatView({
 
         {/* Acciones de la derecha: Expandir prioritario + Sincronizar */}
         <div className="flex items-center gap-1 shrink-0">
+                    {/* Botón de Zumbido MSN */}
+          <button
+            type="button"
+            onClick={handleSendNudge}
+            disabled={nudgeCooldown}
+            className={`h-7 px-2 rounded-lg text-[10px] font-bold flex items-center gap-1 border transition-all cursor-pointer ${
+              nudgeCooldown
+                ? "bg-muted/40 text-muted-foreground/60 border-border/40 cursor-not-allowed"
+                : "bg-amber-500/15 hover:bg-amber-500/25 text-amber-500 border-amber-500/30 active:scale-90 shadow-2xs hover:shadow-amber-500/20"
+            }`}
+            title={nudgeCooldown ? "Zumbido en enfriamiento (15s)" : "¡Enviar un ZUMBIDO de MSN!"}
+          >
+            <Zap className="h-3 w-3 fill-amber-500" />
+            <span className="hidden sm:inline">Zumbido</span>
+          </button>
+
           {onToggleExpand && (
             <button
               type="button"

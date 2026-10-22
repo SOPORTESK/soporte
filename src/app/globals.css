@@ -405,3 +405,23 @@
   animation: orbFloat1 14s ease-in-out 2s infinite;
   opacity: 0.2;
 }
+
+
+/* ── MSN NUDGE SHAKE ANIMATION ── */
+@keyframes msn-nudge-shake {
+  0% { transform: translate(0, 0) rotate(0deg); }
+  10% { transform: translate(-14px, -10px) rotate(-2deg); }
+  20% { transform: translate(16px, 12px) rotate(2deg); }
+  30% { transform: translate(-18px, 8px) rotate(-1.5deg); }
+  40% { transform: translate(14px, -12px) rotate(1.8deg); }
+  50% { transform: translate(-16px, 10px) rotate(-1.2deg); }
+  60% { transform: translate(18px, -8px) rotate(1.5deg); }
+  70% { transform: translate(-12px, 12px) rotate(-1deg); }
+  80% { transform: translate(14px, -10px) rotate(1deg); }
+  90% { transform: translate(-8px, 6px) rotate(-0.5deg); }
+  100% { transform: translate(0, 0) rotate(0deg); }
+}
+
+.animate-nudge-shake {
+  animation: msn-nudge-shake 0.85s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
