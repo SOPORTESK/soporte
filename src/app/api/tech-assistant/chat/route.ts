@@ -1702,66 +1702,65 @@ async function searchTechnicalWeb(
     });
   };
 
-  // 1. Motor Bing Search (filtrado estrictamente para evitar recomendaciones o videos espurios)
+  // 1. Motor Principal: DuckDuckGo HTML Search (Ultra rápido, libre de captchas y con snippets técnicos reales)
   try {
-    const res = await fetch(`https://www.bing.com/search?q=${encodeURIComponent(finalQuery)}`, {
+    const res = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(finalQuery)}`, {
       headers: {
         "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
       },
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(6000),
     });
     if (res.ok) {
       const html = await res.text();
-      const matches = [
-        ...html.matchAll(
-          /<li[^>]+class="b_algo"[^>]*>[\s\S]*?<h2><a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a><\/h2>([\s\S]*?<p[^>]*>([\s\S]*?)<\/p>)?/gi
-        ),
-      ];
-      for (const m of matches) {
-        const rawUrl = m[1].replace(/&amp;/g, "&");
-        const cleanUrl = decodeBingUrl(rawUrl);
-        const title = m[2];
-        const snippet = m[4] || "";
-        pushResult(title, cleanUrl, snippet);
+      const titleMatches = [...html.matchAll(/<h2 class="result__title">[\s\S]*?<a rel="nofollow" class="result__a" href="([^"]+)">([\s\S]*?)<\/a>/gi)];
+      const snippetMatches = [...html.matchAll(/<a class="result__snippet"[^>]*>([\s\S]*?)<\/a>/gi)];
+      for (let i = 0; i < titleMatches.length; i++) {
+        let rawUrl = titleMatches[i][1];
+        if (rawUrl.includes("uddg=")) {
+          const m = rawUrl.match(/[?&]uddg=([^&]+)/);
+          if (m) rawUrl = decodeURIComponent(m[1]);
+        }
+        const title = titleMatches[i][2];
+        const snippet = snippetMatches[i] ? snippetMatches[i][1] : "";
+        pushResult(title, rawUrl, snippet);
         if (results.length >= limit) return results;
       }
     }
   } catch (err: any) {
-    console.warn("[tech-assistant] Error en Bing search:", err?.message);
+    console.warn("[tech-assistant] Error en DuckDuckGo HTML search:", err?.message);
   }
 
-  // 2. DuckDuckGo Lite endpoint (fallback filtrado)
+  // 2. Motor Secundario: Bing Search (Fallback)
   if (results.length < limit) {
     try {
-      const res = await fetch("https://lite.duckduckgo.com/lite/", {
-        method: "POST",
+      const res = await fetch(`https://www.bing.com/search?q=${encodeURIComponent(finalQuery)}`, {
         headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
           "User-Agent":
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+          "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
         },
-        body: new URLSearchParams({ q: finalQuery }).toString(),
         signal: AbortSignal.timeout(5000),
       });
       if (res.ok) {
-        const text = await res.text();
-        const linkMatches = [...text.matchAll(/<a\s+[^>]*class=['"]result-link['"][^>]*>([\s\S]*?)<\/a>/gi)];
-        for (const m of linkMatches) {
-          const hrefMatch = m[0].match(/href=['"]([^'"]+)['"]/i);
-          let rawUrl = hrefMatch ? hrefMatch[1] : "";
-          if (rawUrl.includes("uddg=")) {
-            const matchUddg = rawUrl.match(/[?&]uddg=([^&]+)/);
-            if (matchUddg) rawUrl = decodeURIComponent(matchUddg[1]);
-          }
-          const title = m[1];
-          pushResult(title, rawUrl, "");
+        const html = await res.text();
+        const matches = [
+          ...html.matchAll(
+            /<li[^>]+class="b_algo"[^>]*>[\s\S]*?<h2><a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a><\/h2>([\s\S]*?<p[^>]*>([\s\S]*?)<\/p>)?/gi
+          ),
+        ];
+        for (const m of matches) {
+          const rawUrl = m[1].replace(/&amp;/g, "&");
+          const cleanUrl = decodeBingUrl(rawUrl);
+          const title = m[2];
+          const snippet = m[4] || "";
+          pushResult(title, cleanUrl, snippet);
           if (results.length >= limit) return results;
         }
       }
     } catch (err: any) {
-      console.warn("[tech-assistant] Error en DuckDuckGo Lite search:", err?.message);
+      console.warn("[tech-assistant] Error en Bing search:", err?.message);
     }
   }
 
