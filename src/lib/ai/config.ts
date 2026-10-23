@@ -28,28 +28,30 @@ const DEFAULT_BASE: Record<string, string> = {
   openrouter: "https://openrouter.ai/api/v1",
   nvidia: "https://integrate.api.nvidia.com/v1",
   openai: "https://api.openai.com/v1",
+  "67d3697263e070f885c00bb2aff07a0c": "https://api.cloudflare.com/client/v4/accounts/67d3697263e070f885c00bb2aff07a0c/ai/v1",
 };
 
 /** Red de seguridad si la BD no tiene configuración para un rol. */
 const FALLBACK_CHAINS: Record<AiRole, { provider: string; modelo: string }[]> = {
   chat: [
-    { provider: "google", modelo: "gemini-3.5-flash" },
-    { provider: "google", modelo: "gemini-3-flash-preview" },
-    { provider: "openrouter", modelo: "meta-llama/llama-3.3-70b-instruct" },
     { provider: "google", modelo: "gemini-3.5-flash-lite" },
-  ],
-  web_search: [{ provider: "google", modelo: "gemini-3.5-flash" }],
-  vision:     [{ provider: "google", modelo: "gemini-3.5-flash" }, { provider: "google", modelo: "gemini-3.5-flash-lite" }],
-  transcribe: [{ provider: "google", modelo: "gemini-3.5-flash" }, { provider: "google", modelo: "gemini-3.5-flash-lite" }],
-  meta_chat:  [
-    { provider: "google", modelo: "gemini-3.5-flash" },
+    { provider: "groq", modelo: "openai/gpt-oss-120b" },
+    { provider: "67d3697263e070f885c00bb2aff07a0c", modelo: "@cf/meta/llama-3.1-70b-instruct" },
+    { provider: "openrouter", modelo: "meta-llama/llama-3.3-70b-instruct" },
     { provider: "google", modelo: "gemini-3-flash-preview" },
+  ],
+  web_search: [{ provider: "google", modelo: "gemini-3.5-flash-lite" }],
+  vision:     [{ provider: "google", modelo: "gemini-3.5-flash-lite" }, { provider: "google", modelo: "gemini-3-flash-preview" }],
+  transcribe: [{ provider: "google", modelo: "gemini-3.5-flash-lite" }],
+  meta_chat:  [
+    { provider: "google", modelo: "gemini-3.5-flash-lite" },
+    { provider: "groq", modelo: "openai/gpt-oss-120b" },
     { provider: "openrouter", modelo: "meta-llama/llama-3.3-70b-instruct" },
   ],
-  learn:      [{ provider: "google", modelo: "gemini-3.5-flash" }],
-  auto_close: [{ provider: "google", modelo: "gemini-3.5-flash" }],
-  extract:    [{ provider: "google", modelo: "gemini-3.5-flash" }],
-  activity:   [{ provider: "google", modelo: "gemini-3.5-flash" }],
+  learn:      [{ provider: "google", modelo: "gemini-3.5-flash-lite" }],
+  auto_close: [{ provider: "google", modelo: "gemini-3.5-flash-lite" }],
+  extract:    [{ provider: "google", modelo: "gemini-3.5-flash-lite" }, { provider: "groq", modelo: "openai/gpt-oss-20b" }],
+  activity:   [{ provider: "google", modelo: "gemini-3.5-flash-lite" }, { provider: "groq", modelo: "openai/gpt-oss-120b" }],
 };
 
 function envKey(provider: string): string | undefined {
@@ -176,7 +178,8 @@ export async function generateText(
   const chain = await getChain(role);
   const { system, messages, temperature = 0.3, maxTokens = 2048, timeoutMs = 12_000, tools } = opts;
 
-  const timeoutPerModel = Math.min(timeoutMs, 10_000);
+  const timeoutPerModel = Math.min(timeoutMs, 3_000);
+  const safeMaxTokens = Math.min(maxTokens, 1200);
   for (const m of chain) {
     const t0 = Date.now();
     try {
@@ -189,7 +192,7 @@ export async function generateText(
             role: x.role === "assistant" ? "model" : "user",
             parts: [{ text: x.content }],
           })),
-          generationConfig: { temperature, maxOutputTokens: maxTokens },
+          generationConfig: { temperature, maxOutputTokens: safeMaxTokens },
         };
         if (system) body.system_instruction = { parts: [{ text: system }] };
         if (tools) body.tools = tools;
@@ -212,7 +215,7 @@ export async function generateText(
         const res = await fetch(`${m.baseUrl}/chat/completions`, {
           method: "POST",
           headers: { "Content-Type": "application/json", "Authorization": `Bearer ${m.apiKey}` },
-          body: JSON.stringify({ model: m.modelo, messages: msgs, temperature, max_tokens: maxTokens }),
+          body: JSON.stringify({ model: m.modelo, messages: msgs, temperature, max_tokens: safeMaxTokens }),
           signal: AbortSignal.timeout(timeoutPerModel),
         });
         if (!res.ok) {

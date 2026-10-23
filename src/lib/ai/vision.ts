@@ -132,7 +132,7 @@ export async function transcribeAudio(
               }],
               generationConfig: { maxOutputTokens: 2048, temperature: 0 }
             }),
-            signal: AbortSignal.timeout(12000),
+            signal: AbortSignal.timeout(5000),
           }
         );
         if (res.ok) {
@@ -261,7 +261,7 @@ Analiza el contenido de este archivo técnico (${fileName || mimeType}): extrae 
     }
     const base64Data = buf.toString("base64");
 
-    const candidateModels = ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.5-flash"];
+    const candidateModels = ["gemini-3.5-flash-lite", "gemini-3-flash-preview"];
     for (const m of candidateModels) {
       try {
         const gRes = await fetch(
@@ -278,7 +278,7 @@ Analiza el contenido de este archivo técnico (${fileName || mimeType}): extrae 
               }],
               generationConfig: { maxOutputTokens: 2048, temperature: 0.1 }
             }),
-            signal: AbortSignal.timeout(12000),
+            signal: AbortSignal.timeout(5000),
           }
         );
         if (gRes.ok) {

@@ -350,7 +350,7 @@ let fullDbIndexCache: {
   docChunks: IndexedDocChunk[];
 } | null = null;
 
-const CACHE_TTL_MS = 3 * 60 * 1000;
+const CACHE_TTL_MS = 60 * 60 * 1000;
 
 function isBoilerplateOrFileMessage(text?: string | null): boolean {
   if (!text || typeof text !== "string") return true;
