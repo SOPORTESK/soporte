@@ -40,22 +40,24 @@ function filterCasesByContainer(
   // Mi Bandeja de Gestión:
   if (containerType === "mi-gestion") {
     if (!currentAgentEmail) return [];
-    const CLOSED = ["cerrado", "resuelto", "calificacion_pendiente"];
     if (isAdmin) {
       if (adminFilterMode === "all") {
+        // En Supervisión: mostrar casos activos de todos los técnicos
         return cases.filter(c => {
           const e = String(c.estado || "").toLowerCase();
-          return Boolean(c.assigned_to) && !CLOSED.includes(e);
+          return Boolean(c.assigned_to) && e !== "cerrado" && e !== "resuelto";
         });
       }
       if (adminFilterMode && adminFilterMode !== "mine") {
+        // Filtrar por técnico específico
         return cases.filter(c => {
           const e = String(c.estado || "").toLowerCase();
-          return c.assigned_to?.toLowerCase() === adminFilterMode.toLowerCase() && !CLOSED.includes(e);
+          return c.assigned_to?.toLowerCase() === adminFilterMode.toLowerCase() && e !== "cerrado" && e !== "resuelto";
         });
       }
     }
-    return cases.filter(c => c.assigned_to?.toLowerCase() === currentAgentEmail.toLowerCase() && !CLOSED.includes(String(c.estado || "").toLowerCase()));
+    // "Mis Casos": TODOS los casos asignados a este agente (abiertos y cerrados, sin perder nada)
+    return cases.filter(c => c.assigned_to?.toLowerCase() === currentAgentEmail.toLowerCase());
   }
 
   // Bandeja: SOLO casos cerrados (inbox general)
@@ -323,27 +325,50 @@ export function InboxClient({
       });
   }, [supabase, isUserAdmin, containerType]);
 
-  /* Casos activos en gestión (excluyendo cerrados, resueltos y calificacion_pendiente) */
-  const activeGestionCases = React.useMemo(() => {
+  /* Casos de gestión para contadores */
+  const allGestionCases = React.useMemo(() => {
     if (containerType !== "mi-gestion") return [];
     const source = (isUserAdmin && allCases.length > 0) ? allCases : cases;
-    const CLOSED = ["cerrado", "resuelto", "calificacion_pendiente"];
-    return source.filter(c => {
-      const e = String(c.estado || "").toLowerCase();
-      return Boolean(c.assigned_to) && !CLOSED.includes(e) && !(c as any).es_test;
-    });
+    return source.filter(c => !(c as any).es_test);
   }, [containerType, isUserAdmin, allCases, cases]);
 
-  // Contadores basados en CHATS agrupados para coincidir exactamente con la lista
+  // Mis Casos: total de chats del agente (abiertos y cerrados que gestiona)
   const myAssignedCount = React.useMemo(() => {
     if (!agentEmail) return 0;
-    const mine = activeGestionCases.filter(c => c.assigned_to?.toLowerCase() === agentEmail.toLowerCase());
+    const mine = allGestionCases.filter(c => c.assigned_to?.toLowerCase() === agentEmail.toLowerCase());
     return mergeGroups(mine).length;
-  }, [activeGestionCases, agentEmail]);
+  }, [allGestionCases, agentEmail]);
 
+  // Supervisión: casos activos actuales de todo el equipo
   const allAssignedCount = React.useMemo(() => {
-    return mergeGroups(activeGestionCases).length;
-  }, [activeGestionCases]);
+    const active = allGestionCases.filter(c => {
+      const e = String(c.estado || "").toLowerCase();
+      return Boolean(c.assigned_to) && e !== "cerrado" && e !== "resuelto";
+    });
+    return mergeGroups(active).length;
+  }, [allGestionCases]);
+
+  /* Técnicos que tienen casos activos actualmente para supervisar */
+  const agentsWithCases = React.useMemo(() => {
+    const map = new Map<string, { email: string; name: string; count: number }>();
+    const active = allGestionCases.filter(c => {
+      const e = String(c.estado || "").toLowerCase();
+      return Boolean(c.assigned_to) && e !== "cerrado" && e !== "resuelto";
+    });
+    for (const c of active) {
+      if (!c.assigned_to) continue;
+      const email = c.assigned_to.toLowerCase();
+      const existing = map.get(email);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        const found = teamAgents.find(a => a.email.toLowerCase() === email);
+        const name = found ? [found.nombre, found.apellido].filter(Boolean).join(" ") : email.split("@")[0].replace(/[._]/g, " ").replace(/\b\w/g, l => l.toUpperCase());
+        map.set(email, { email: c.assigned_to, name, count: 1 });
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => b.count - a.count);
+  }, [allGestionCases, teamAgents]);
 
   /* Detectar MODO DIOS desde localStorage */
   React.useEffect(() => {
@@ -902,6 +927,7 @@ export function InboxClient({
           adminFilterMode={adminFilterMode}
           onAdminFilterModeChange={setAdminFilterMode}
           teamAgents={teamAgents}
+          agentsWithCases={agentsWithCases}
           myAssignedCount={myAssignedCount}
           allAssignedCount={allAssignedCount}
         />

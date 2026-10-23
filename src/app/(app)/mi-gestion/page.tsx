@@ -37,31 +37,46 @@ export default async function MiGestionPage({ searchParams }: { searchParams: { 
   }
 
   const CASE_LIST_FIELDS = "id,estado,canal,cliente,assigned_to,last_message_at,last_message_preview,unread_count,created_at,updated_at,title,prioridad,tags,customer_phone,es_test";
+  
+  // Siempre traer TODOS los casos del agente (abiertos y cerrados, sin perder historial)
+  // Y si es admin, traer también los casos activos asignados a otros agentes para supervisión
   const { data: myCases, error: casesError } = await queryWithFallback(
     isAdmin ? `mi_gestion_cases_admin_${agentEmail}` : `mi_gestion_cases_${agentEmail}`,
     async () => {
-      let query = supabase
+      const myCasesPromise = supabase
         .from("sek_cases")
         .select(CASE_LIST_FIELDS)
         .neq("canal", "simulator")
-        .neq("es_test", true);
-
-      if (isAdmin) {
-        query = query
-          .not("assigned_to", "is", null)
-          .not("estado", "in", '("cerrado","resuelto","calificacion_pendiente")');
-      } else {
-        query = query.eq("assigned_to", agentEmail);
-      }
-
-      const { data, error } = await query
+        .neq("es_test", true)
+        .eq("assigned_to", agentEmail)
         .order("last_message_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false })
         .limit(350);
-      return { data, error };
+
+      if (!isAdmin) {
+        const { data, error } = await myCasesPromise;
+        return { data: data || [], error };
+      }
+
+      // Para administradores: además traer casos activos de los demás técnicos
+      const othersActivePromise = supabase
+        .from("sek_cases")
+        .select(CASE_LIST_FIELDS)
+        .neq("canal", "simulator")
+        .neq("es_test", true)
+        .not("assigned_to", "is", null)
+        .neq("assigned_to", agentEmail)
+        .not("estado", "in", '("cerrado","resuelto")')
+        .order("last_message_at", { ascending: false, nullsFirst: false })
+        .order("created_at", { ascending: false })
+        .limit(100);
+
+      const [mineRes, othersRes] = await Promise.all([myCasesPromise, othersActivePromise]);
+      const combined = [...(mineRes.data || []), ...(othersRes.data || [])];
+      return { data: combined, error: mineRes.error || othersRes.error };
     },
     [],
-    60000 // 60s fresh TTL para navegación instantánea
+    30000 // 30s TTL
   );
 
   if (casesError) console.error("[mi-gestion] sek_cases error:", casesError);
