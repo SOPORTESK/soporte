@@ -34,5 +34,13 @@ app.prepare().then(() => {
     } catch (e) {
       console.error('[Sync Garantías] Error cargando motor de sincronización:', e.message);
     }
+
+    // Motor autónomo de limpieza de archivos expirados en Google Drive
+    try {
+      const { initDriveCleanupEngine } = require('./scripts/drive-cleanup-engine.cjs');
+      initDriveCleanupEngine();
+    } catch (e) {
+      console.error('[DriveCleanup] Error cargando motor de limpieza:', e.message);
+    }
   });
 });
