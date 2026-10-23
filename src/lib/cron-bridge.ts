@@ -1,5 +1,6 @@
 import { createServiceClient } from "@/lib/supabase/service";
 import { pickPhone } from "@/lib/evolution-phone";
+import { cleanExpiredDriveFiles } from "@/lib/google-drive";
 
 async function refreshDriveTokenDaily() {
   try {
@@ -56,6 +57,23 @@ export function startLocalCronJobs() {
   setInterval(() => { refreshDriveTokenDaily(); }, 60 * 60 * 1000);
   // Ejecutar también al arrancar
   refreshDriveTokenDaily();
+
+  // Limpieza automática de archivos de Google Drive cada 30 minutos (elimina vencidos y huérfanos > 24h)
+  setInterval(async () => {
+    try {
+      const res = await cleanExpiredDriveFiles();
+      if (res && res.deleted > 0) {
+        console.log(`[cron-bridge] Limpieza de Google Drive ejecutada. Eliminados: ${res.deleted}`);
+      }
+    } catch (err: any) {
+      console.error("[cron-bridge] Error en limpieza de Drive:", err?.message);
+    }
+  }, 30 * 60 * 1000);
+
+  // Ejecutar limpieza al iniciar pasados 10 segundos
+  setTimeout(() => {
+    cleanExpiredDriveFiles().catch(() => {});
+  }, 10000);
 
   // Ejecutar cada 15 segundos
   setInterval(async () => {

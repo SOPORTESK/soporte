@@ -261,4 +261,70 @@ export async function deleteFromDrive(fileId: string): Promise<boolean> {
 export const DRIVE_RETENTION_HOURS = 24;
 
 export const DRIVE_MSG_TEMPLATE = (link: string) =>
-  `Estimado cliente:\n\nA continuación, le compartimos el enlace para la descarga directa del archivo solicitito:\n\n${link}\n\nPor favor, tenga en cuenta que el enlace permanecerá activo durante las próximas 2 horas.\n\nSi requiere cualquier otra asistencia, con gusto estaremos para ayudarle.`;
+  `Estimado cliente:\n\nA continuación, le compartimos el enlace para la descarga directa del archivo solicitado:\n\n${link}\n\nPor favor, tenga en cuenta que el enlace permanecerá activo durante las próximas 2 horas.\n\nSi requiere cualquier otra asistencia, con gusto estaremos para ayudarle.`;
+
+export async function cleanExpiredDriveFiles(): Promise<{ checked: number; deleted: number; failed: number }> {
+  try {
+    const supabase = createServiceClient();
+    const now = new Date().toISOString();
+
+    // 1. Limpiar archivos registrados vencidos en sek_drive_files
+    const { data: expired, error } = await supabase
+      .from("sek_drive_files")
+      .select("id, drive_file_id, file_name")
+      .eq("deleted", false)
+      .lt("expires_at", now)
+      .limit(50);
+
+    if (error) {
+      console.error("[google-drive-cleanup] Error consultando sek_drive_files:", error);
+    }
+
+    let deleted = 0;
+    let failed = 0;
+
+    for (const file of expired || []) {
+      const ok = await deleteFromDrive(file.drive_file_id);
+      if (ok) {
+        await supabase
+          .from("sek_drive_files")
+          .update({ deleted: true, deleted_at: now })
+          .eq("id", file.id);
+        deleted++;
+      } else {
+        failed++;
+      }
+    }
+
+    // 2. Failsafe directo en la carpeta de Google Drive:
+    // Buscar cualquier archivo creado en la carpeta con más de DRIVE_RETENTION_HOURS (24h)
+    try {
+      const accessToken = await refreshAccessToken();
+      const folderId = GOOGLE_DRIVE_FOLDER_ID;
+      const cutoffTime = new Date(Date.now() - DRIVE_RETENTION_HOURS * 60 * 60 * 1000).toISOString();
+      const url = `https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents+and+trashed=false+and+createdTime<'${cutoffTime}'&fields=files(id,name)&pageSize=50`;
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (res.ok) {
+        const data = await res.json();
+        for (const orphan of data.files || []) {
+          const ok = await deleteFromDrive(orphan.id);
+          if (ok) {
+            console.log(`[google-drive-cleanup] Archivo huérfano o expirado eliminado de Drive: ${orphan.name} (${orphan.id})`);
+            deleted++;
+            await supabase
+              .from("sek_drive_files")
+              .update({ deleted: true, deleted_at: now })
+              .eq("drive_file_id", orphan.id);
+          }
+        }
+      }
+    } catch (orphanErr: any) {
+      console.warn("[google-drive-cleanup] Advertencia en escaneo de huérfanos:", orphanErr?.message);
+    }
+
+    return { checked: (expired?.length || 0), deleted, failed };
+  } catch (e: any) {
+    console.error("[google-drive-cleanup] Error general:", e?.message);
+    return { checked: 0, deleted: 0, failed: 0 };
+  }
+}

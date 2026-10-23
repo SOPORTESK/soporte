@@ -38,9 +38,13 @@ export async function POST(req: NextRequest) {
       Date.now() + DRIVE_RETENTION_HOURS * 60 * 60 * 1000
     ).toISOString();
 
-    await supabase.from("sek_drive_files").insert({
+    const sanitizedCaseId = (typeof caseId === "number" || (typeof caseId === "string" && /^\d+$/.test(caseId)))
+      ? Number(caseId)
+      : null;
+
+    const { error: insertErr } = await supabase.from("sek_drive_files").insert({
       drive_file_id: fileId,
-      case_id: caseId,
+      case_id: sanitizedCaseId,
       file_name: fileName,
       mime_type: mimeType,
       file_size: fileSize,
@@ -49,6 +53,10 @@ export async function POST(req: NextRequest) {
       expires_at: expiresAt,
       deleted: false,
     });
+
+    if (insertErr) {
+      console.error("[drive-register] Error al registrar archivo en sek_drive_files:", insertErr);
+    }
 
     return NextResponse.json({ ok: true, shareableLink });
   } catch (e: any) {
