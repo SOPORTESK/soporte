@@ -39,7 +39,7 @@ function filterCasesByContainer(
 
   // Mi Bandeja de Gestión:
   if (containerType === "mi-gestion") {
-    if (!currentAgentEmail) return [];
+    if (!currentAgentEmail) return cases;
     if (isAdmin) {
       if (adminFilterMode === "all") {
         // En Supervisión: mostrar casos activos de todos los técnicos
@@ -185,6 +185,36 @@ const BASE_TITLE = "Chat Sekunet - Atención al cliente";
 const CASE_LIST_FIELDS = "id,estado,canal,cliente,assigned_to,last_message_at,last_message_preview,unread_count,created_at,updated_at,title,prioridad,tags,customer_phone,es_test";
 
 async function fetchCasesMeta(supabase: any, limit = 1500, agentEmail?: string, isAdmin?: boolean) {
+  if (agentEmail && isAdmin) {
+    // Para administradores en Mi Gestión:
+    // Traer TODOS los casos asignados al admin (abiertos y cerrados, sin perder historial)
+    // Y además traer los casos activos de los demás técnicos para supervisión
+    const [mineRes, othersRes] = await Promise.all([
+      supabase
+        .from("sek_cases")
+        .select(CASE_LIST_FIELDS)
+        .neq("canal", "simulator")
+        .neq("es_test", true)
+        .eq("assigned_to", agentEmail)
+        .order("last_message_at", { ascending: false, nullsFirst: false })
+        .order("created_at", { ascending: false })
+        .limit(600),
+      supabase
+        .from("sek_cases")
+        .select(CASE_LIST_FIELDS)
+        .neq("canal", "simulator")
+        .neq("es_test", true)
+        .not("assigned_to", "is", null)
+        .neq("assigned_to", agentEmail)
+        .not("estado", "in", '("cerrado","resuelto")')
+        .order("last_message_at", { ascending: false, nullsFirst: false })
+        .order("created_at", { ascending: false })
+        .limit(150),
+    ]);
+    const combined = [...(mineRes.data || []), ...(othersRes.data || [])];
+    return combined as SekCase[];
+  }
+
   let query = supabase
     .from("sek_cases")
     .select(CASE_LIST_FIELDS)
@@ -192,8 +222,6 @@ async function fetchCasesMeta(supabase: any, limit = 1500, agentEmail?: string, 
     .neq("es_test", true);
   if (agentEmail && !isAdmin) {
     query = query.eq("assigned_to", agentEmail);
-  } else if (agentEmail && isAdmin) {
-    query = query.not("assigned_to", "is", null).not("estado", "in", '("cerrado","resuelto","calificacion_pendiente")');
   }
   const { data, error } = await query
     .order("last_message_at", { ascending: false, nullsFirst: false })
@@ -283,8 +311,8 @@ function playEscaladoAlert() {
 }
 
 export function InboxClient({
-  initialCases, initialSelectedId, containerType, initialIsAdmin
-}: { initialCases: SekCase[]; initialSelectedId: string | null; containerType?: "inbox" | "smart-inbox" | "soporte-avanzado" | "mi-gestion"; initialIsAdmin?: boolean }) {
+  initialCases, initialSelectedId, containerType, initialIsAdmin, initialAgentEmail
+}: { initialCases: SekCase[]; initialSelectedId: string | null; containerType?: "inbox" | "smart-inbox" | "soporte-avanzado" | "mi-gestion"; initialIsAdmin?: boolean; initialAgentEmail?: string | null }) {
   const router = useRouter();
   const params = useSearchParams();
   const [cases, setCases] = React.useState<SekCase[]>(initialCases);
@@ -292,7 +320,7 @@ export function InboxClient({
   const [selectedId, setSelectedId] = React.useState<string | null>(initialSelectedId);
   const [unreadTotal, setUnreadTotal] = React.useState(0);
   const [pendingSelectId, setPendingSelectId] = React.useState<string | null>(null);
-  const [agentEmail, setAgentEmail] = React.useState<string | null>(null);
+  const [agentEmail, setAgentEmail] = React.useState<string | null>(initialAgentEmail || null);
   const [agentName, setAgentName] = React.useState<string | null>(null);
   const [agentRole, setAgentRole] = React.useState<string | null>(null);
   const [godModeEmail, setGodModeEmail] = React.useState<string | null>(null);
@@ -759,7 +787,7 @@ export function InboxClient({
       try {
         if (containerType === "mi-gestion" && !agentEmail) return;
         const fetchEmail = containerType === "mi-gestion" ? (agentEmail || undefined) : undefined;
-        const newCases = await fetchCasesMeta(supabase, 300, fetchEmail, isUserAdmin);
+        const newCases = await fetchCasesMeta(supabase, 600, fetchEmail, isUserAdmin);
         setAllCases(newCases);
         const filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail, agentName, isUserAdmin, adminFilterMode);
         const curSel = selectedIdRef.current;
