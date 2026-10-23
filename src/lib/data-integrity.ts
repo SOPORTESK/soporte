@@ -177,7 +177,9 @@ function parseManualIntervals(sorted: ActivityLog[], nowMs: number): ManualInter
         break;
       }
     }
-    const durationMs = endMs !== null ? (explicitMs > 0 ? explicitMs : endMs - startMs) : nowMs - startMs;
+    const rawDur = endMs !== null ? (explicitMs > 0 ? explicitMs : endMs - startMs) : nowMs - startMs;
+    // Si un temporizador quedó abierto sin finalizar de un turno previo, limitar a un máximo razonable de 30m
+    const durationMs = endMs === null ? Math.min(rawDur, 30 * 60 * 1000) : rawDur;
     out.push({ task, category: String(it.category || ""), startMs, endMs, durationMs });
   }
   return out;
@@ -373,7 +375,7 @@ async function checkActivity(checks: IntegrityCheck[]) {
     actual: duringBreak.length,
     detail: duringBreak.length === 0 ? "Sin actividad laboral durante descansos." : duringBreak.slice(0, 6).join(" | "),
   });
-  if (duplicates > 0) {
+  if (duplicates > 0 || runaway.length > 0) {
     try {
       const sanitized = await autoSanitizeIntegrity();
       if (sanitized.removedDuplicates > 0) {
