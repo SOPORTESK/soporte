@@ -49,7 +49,7 @@ export default async function MiGestionPage({ searchParams }: { searchParams: { 
       if (isAdmin) {
         query = query
           .not("assigned_to", "is", null)
-          .not("estado", "in", '("cerrado","resuelto")');
+          .not("estado", "in", '("cerrado","resuelto","calificacion_pendiente")');
       } else {
         query = query.eq("assigned_to", agentEmail);
       }

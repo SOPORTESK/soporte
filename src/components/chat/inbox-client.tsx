@@ -40,21 +40,22 @@ function filterCasesByContainer(
   // Mi Bandeja de Gestión:
   if (containerType === "mi-gestion") {
     if (!currentAgentEmail) return [];
+    const CLOSED = ["cerrado", "resuelto", "calificacion_pendiente"];
     if (isAdmin) {
       if (adminFilterMode === "all") {
         return cases.filter(c => {
           const e = String(c.estado || "").toLowerCase();
-          return Boolean(c.assigned_to) && e !== "cerrado" && e !== "resuelto";
+          return Boolean(c.assigned_to) && !CLOSED.includes(e);
         });
       }
       if (adminFilterMode && adminFilterMode !== "mine") {
         return cases.filter(c => {
           const e = String(c.estado || "").toLowerCase();
-          return c.assigned_to?.toLowerCase() === adminFilterMode.toLowerCase() && e !== "cerrado" && e !== "resuelto";
+          return c.assigned_to?.toLowerCase() === adminFilterMode.toLowerCase() && !CLOSED.includes(e);
         });
       }
     }
-    return cases.filter(c => c.assigned_to?.toLowerCase() === currentAgentEmail.toLowerCase());
+    return cases.filter(c => c.assigned_to?.toLowerCase() === currentAgentEmail.toLowerCase() && !CLOSED.includes(String(c.estado || "").toLowerCase()));
   }
 
   // Bandeja: SOLO casos cerrados (inbox general)
@@ -190,7 +191,7 @@ async function fetchCasesMeta(supabase: any, limit = 1500, agentEmail?: string, 
   if (agentEmail && !isAdmin) {
     query = query.eq("assigned_to", agentEmail);
   } else if (agentEmail && isAdmin) {
-    query = query.not("assigned_to", "is", null).not("estado", "in", '("cerrado","resuelto")');
+    query = query.not("assigned_to", "is", null).not("estado", "in", '("cerrado","resuelto","calificacion_pendiente")');
   }
   const { data, error } = await query
     .order("last_message_at", { ascending: false, nullsFirst: false })
@@ -322,21 +323,27 @@ export function InboxClient({
       });
   }, [supabase, isUserAdmin, containerType]);
 
+  /* Casos activos en gestión (excluyendo cerrados, resueltos y calificacion_pendiente) */
   const activeGestionCases = React.useMemo(() => {
     if (containerType !== "mi-gestion") return [];
-    const source = isUserAdmin ? allCases : cases;
+    const source = (isUserAdmin && allCases.length > 0) ? allCases : cases;
+    const CLOSED = ["cerrado", "resuelto", "calificacion_pendiente"];
     return source.filter(c => {
       const e = String(c.estado || "").toLowerCase();
-      return Boolean(c.assigned_to) && e !== "cerrado" && e !== "resuelto" && !(c as any).es_test;
+      return Boolean(c.assigned_to) && !CLOSED.includes(e) && !(c as any).es_test;
     });
   }, [containerType, isUserAdmin, allCases, cases]);
 
+  // Contadores basados en CHATS agrupados para coincidir exactamente con la lista
   const myAssignedCount = React.useMemo(() => {
     if (!agentEmail) return 0;
-    return activeGestionCases.filter(c => c.assigned_to?.toLowerCase() === agentEmail.toLowerCase()).length;
+    const mine = activeGestionCases.filter(c => c.assigned_to?.toLowerCase() === agentEmail.toLowerCase());
+    return mergeGroups(mine).length;
   }, [activeGestionCases, agentEmail]);
 
-  const allAssignedCount = activeGestionCases.length;
+  const allAssignedCount = React.useMemo(() => {
+    return mergeGroups(activeGestionCases).length;
+  }, [activeGestionCases]);
 
   /* Detectar MODO DIOS desde localStorage */
   React.useEffect(() => {
@@ -436,8 +443,9 @@ export function InboxClient({
   /* Casos filtrados según containerType */
   const filteredCases = React.useMemo(() => {
     const effectiveContainer = godModeEmail ? "mi-gestion" : containerType;
-    return filterCasesByContainer(cases, effectiveContainer, agentEmail, agentName, isUserAdmin, adminFilterMode);
-  }, [cases, containerType, agentEmail, agentName, godModeEmail, isUserAdmin, adminFilterMode]);
+    const sourceCases = (containerType === "mi-gestion" && isUserAdmin && allCases.length > 0) ? allCases : cases;
+    return filterCasesByContainer(sourceCases, effectiveContainer, agentEmail, agentName, isUserAdmin, adminFilterMode);
+  }, [cases, allCases, containerType, agentEmail, agentName, godModeEmail, isUserAdmin, adminFilterMode]);
 
   /* Mantener casesRef siempre actualizado para evitar stale closure en selectCase */
   React.useEffect(() => { casesRef.current = cases; }, [cases]);
