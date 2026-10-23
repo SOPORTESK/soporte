@@ -218,6 +218,7 @@ export function ChatView({
   const [modoNoAtendidoLoaded, setModoNoAtendidoLoaded] = React.useState(() => cachedModoNoAtendido !== null);
   const [replyTo, setReplyTo] = React.useState<UnifiedMessage | null>(null);
 
+
   React.useEffect(() => {
     if (cachedModoNoAtendido !== null) return;
     fetch("/api/admin/unattended-mode")
@@ -457,6 +458,53 @@ export function ChatView({
   const [editingPhone, setEditingPhone] = React.useState(false);
   const [realPhoneInput, setRealPhoneInput] = React.useState("");
   const [agents, setAgents] = React.useState<any[]>([]);
+  const [takingOver, setTakingOver] = React.useState(false);
+  const handleTakeOver = async () => {
+    if (!agentEmail || takingOver) return;
+    setTakingOver(true);
+    try {
+      const { error } = await supabase
+        .from("sek_cases")
+        .update({
+          assigned_to: agentEmail,
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", targetId);
+
+      if (error) throw error;
+
+      setSekCase(prev => ({ ...prev, assigned_to: agentEmail }));
+      toast.success("Has tomado la gestión de este caso");
+      logActivity({
+        agent_email: agentEmail,
+        agent_name: agentName || agentEmail,
+        action: `Supervisión: Tomó el caso ${sekCase.customer_phone || targetId} previamente asignado a ${sekCase.assigned_to}`,
+        category: "Gestión de casos",
+        case_id: targetId,
+      });
+    } catch (err: any) {
+      toast.error("Error al tomar el caso: " + (err?.message || "error"));
+    } finally {
+      setTakingOver(false);
+    }
+  };
+
+  const isAdminUser = agentRole === "admin" || agentRole === "superadmin";
+  const isAssignedToOther = Boolean(
+    sekCase.assigned_to &&
+    agentEmail &&
+    sekCase.assigned_to.toLowerCase() !== agentEmail.toLowerCase()
+  );
+  const isSupervisorViewing = isAdminUser && isAssignedToOther;
+
+  const assignedAgentDisplayName = React.useMemo(() => {
+    if (!sekCase.assigned_to) return "Sin asignar";
+    const found = agents.find(a => a.email.toLowerCase() === sekCase.assigned_to?.toLowerCase());
+    if (found) {
+      return [found.nombre, found.apellido].filter(Boolean).join(" ") || found.email;
+    }
+    return sekCase.assigned_to.split("@")[0].replace(/[._]/g, " ").replace(/\b\w/g, l => l.toUpperCase());
+  }, [agents, sekCase.assigned_to]);
   const [showReassign, setShowReassign] = React.useState(false);
   const [reassigning, setReassigning] = React.useState(false);
   const [editingCliente, setEditingCliente] = React.useState(false);
@@ -2932,6 +2980,49 @@ export function ChatView({
               title="Minimizar barra"
             >
               <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Banner de Supervisión para Administradores ── */}
+      {isSupervisorViewing && (
+        <div className="bg-gradient-to-r from-amber-500/15 via-brand-500/10 to-transparent border-b border-amber-500/30 px-4 py-2.5 flex items-center justify-between gap-3 text-xs backdrop-blur-sm shrink-0 shadow-xs animate-in fade-in duration-200">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="h-7 w-7 rounded-lg bg-amber-500/20 text-amber-600 dark:text-amber-400 grid place-items-center shrink-0 border border-amber-500/30">
+              <ShieldCheck className="h-4 w-4" />
+            </div>
+            <div className="min-w-0">
+              <p className="font-semibold text-foreground truncate flex items-center gap-1.5">
+                <span>Modo Supervisión</span>
+                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-300 font-bold border border-amber-500/30">
+                  En gestión
+                </span>
+              </p>
+              <p className="text-[11px] text-muted-foreground truncate">
+                Atendido por: <strong className="text-foreground font-semibold">{assignedAgentDisplayName}</strong> ({sekCase.assigned_to})
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              disabled={takingOver}
+              onClick={handleTakeOver}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-brand-600 hover:bg-brand-500 text-white shadow-sm active:scale-95 transition-all disabled:opacity-50 cursor-pointer"
+              title="Tomar este caso para gestionarlo tú directamente"
+            >
+              <UserPlus className="h-3.5 w-3.5" />
+              {takingOver ? "Tomando…" : "Tomar este caso"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowReassign(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-card hover:bg-muted text-foreground border border-border/80 shadow-xs active:scale-95 transition-all cursor-pointer"
+              title="Transferir o reasignar a otro técnico"
+            >
+              <Users className="h-3.5 w-3.5 text-muted-foreground" />
+              Reasignar
             </button>
           </div>
         </div>

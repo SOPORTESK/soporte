@@ -1,7 +1,7 @@
 "use client";
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Search, MessageSquarePlus, Star, Clock, Trash2, Smartphone, Globe, Loader2, X, Send, Pin, User, Plus } from "lucide-react";
+import { Search, MessageSquarePlus, ShieldCheck, Star, Clock, Trash2, Smartphone, Globe, Loader2, X, Send, Pin, User, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Avatar, Badge } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
@@ -50,7 +50,18 @@ function lastMessage(c: SekCase): { content: string; time: string } | null {
 }
 
 export function ConversationList({
-  cases, selectedId, onSelect, agentRole, onDeleteSuccess, containerType, currentAgentEmail
+  cases,
+  selectedId,
+  onSelect,
+  agentRole,
+  onDeleteSuccess,
+  containerType,
+  currentAgentEmail,
+  adminFilterMode = "mine",
+  onAdminFilterModeChange,
+  teamAgents = [],
+  myAssignedCount = 0,
+  allAssignedCount = 0,
 }: {
   cases: SekCase[];
   selectedId: string | null;
@@ -59,6 +70,11 @@ export function ConversationList({
   onDeleteSuccess?: (id: string) => void;
   containerType?: string;
   currentAgentEmail?: string | null;
+  adminFilterMode?: "mine" | "all" | string;
+  onAdminFilterModeChange?: (mode: "mine" | "all" | string) => void;
+  teamAgents?: Array<{ email: string; nombre: string; apellido?: string; rol?: string }>;
+  myAssignedCount?: number;
+  allAssignedCount?: number;
 }) {
   const router = useRouter();
   const [query, setQuery] = React.useState("");
@@ -473,6 +489,89 @@ export function ConversationList({
             <MessageSquarePlus className="h-4 w-4" />
           </button>
         </div>
+        {/* Selector de Supervisión Administrativa en Mi Gestión */}
+        {isAdmin && containerType === "mi-gestion" && (
+          <div className="space-y-1.5 pt-0.5">
+            <div className="bg-muted/70 p-1 rounded-xl flex items-center gap-1 border border-border/40">
+              <button
+                type="button"
+                onClick={() => onAdminFilterModeChange?.("mine")}
+                className={cn(
+                  "flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all",
+                  adminFilterMode === "mine"
+                    ? "bg-card shadow-xs text-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                )}
+              >
+                <User className="h-3.5 w-3.5" />
+                <span>Mis Casos</span>
+                <span className={cn(
+                  "ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold",
+                  adminFilterMode === "mine" ? "bg-brand-500/15 text-brand-600 dark:text-brand-400" : "bg-background/80 text-muted-foreground"
+                )}>
+                  {myAssignedCount}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onAdminFilterModeChange?.("all")}
+                className={cn(
+                  "flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all",
+                  adminFilterMode !== "mine"
+                    ? "bg-card shadow-xs text-amber-600 dark:text-amber-400"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                )}
+              >
+                <ShieldCheck className="h-3.5 w-3.5 text-amber-500" />
+                <span>Supervisión</span>
+                <span className={cn(
+                  "ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold",
+                  adminFilterMode !== "mine" ? "bg-amber-500/20 text-amber-600 dark:text-amber-400" : "bg-background/80 text-muted-foreground"
+                )}>
+                  {allAssignedCount}
+                </span>
+              </button>
+            </div>
+
+            {/* Sub-filtro por técnico en modo supervisión */}
+            {adminFilterMode !== "mine" && teamAgents && teamAgents.length > 0 && (
+              <div className="flex items-center gap-1 overflow-x-auto scrollbar-none py-0.5 px-0.5">
+                <button
+                  type="button"
+                  onClick={() => onAdminFilterModeChange?.("all")}
+                  className={cn(
+                    "px-2.5 py-1 rounded-lg text-[11px] font-medium whitespace-nowrap transition-all",
+                    adminFilterMode === "all"
+                      ? "bg-amber-500 text-white font-bold shadow-xs"
+                      : "bg-muted/80 text-muted-foreground hover:text-foreground hover:bg-muted"
+                  )}
+                >
+                  Todos ({allAssignedCount})
+                </button>
+                {teamAgents.map(ag => {
+                  const agName = [ag.nombre, ag.apellido].filter(Boolean).join(" ") || ag.email.split("@")[0];
+                  const isSelected = adminFilterMode === ag.email;
+                  return (
+                    <button
+                      key={ag.email}
+                      type="button"
+                      onClick={() => onAdminFilterModeChange?.(ag.email)}
+                      className={cn(
+                        "px-2.5 py-1 rounded-lg text-[11px] font-medium whitespace-nowrap transition-all",
+                        isSelected
+                          ? "bg-amber-500 text-white font-bold shadow-xs"
+                          : "bg-muted/80 text-muted-foreground hover:text-foreground hover:bg-muted"
+                      )}
+                    >
+                      {agName}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" aria-hidden />
           <Input
@@ -630,12 +729,20 @@ export function ConversationList({
                       <Badge variant="muted" className="text-[10px]">IA atendiendo</Badge>
                     )}
                     {(estadoLower === "abierto" || estadoLower === "asignado") && (() => {
+                      const isAssignedToMe = currentAgentEmail && c.assigned_to?.toLowerCase() === currentAgentEmail.toLowerCase();
                       const agente = c.assigned_to
                         ? (c.assigned_to as string).split("@")[0].replace(/[._]/g, " ").replace(/\b\w/g, l => l.toUpperCase())
                         : null;
+                      if (isAdmin && containerType === "mi-gestion" && !isAssignedToMe && agente) {
+                        return (
+                          <Badge variant="warning" className="text-[10px] bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                            👤 {agente}
+                          </Badge>
+                        );
+                      }
                       return (
                         <Badge variant="warning" className="text-[10px]">
-                          {agente ? `Atendido por ${agente}` : "En proceso"}
+                          {agente ? (isAssignedToMe ? "Asignado a ti" : `Atendido por ${agente}`) : "En proceso"}
                         </Badge>
                       );
                     })()}

@@ -10,7 +10,14 @@ import { toast } from "sonner";
 import { clienteInfo, asText, customerKey } from "@/lib/utils";
 
 /* ── Filtrar casos según el tipo de contenedor ── */
-function filterCasesByContainer(cases: SekCase[], containerType: string | undefined, currentAgentEmail: string | null, currentAgentName: string | null): SekCase[] {
+function filterCasesByContainer(
+  cases: SekCase[],
+  containerType: string | undefined,
+  currentAgentEmail: string | null,
+  currentAgentName: string | null,
+  isAdmin?: boolean,
+  adminFilterMode?: "mine" | "all" | string
+): SekCase[] {
   // Filtrar casos de prueba — NUNCA deben aparecer en bandejas reales
   cases = cases.filter(c => !(c as any).es_test);
 
@@ -30,10 +37,24 @@ function filterCasesByContainer(cases: SekCase[], containerType: string | undefi
     });
   }
 
-  // Mi Bandeja de Gestión: todos los casos asignados al agente actual, sin importar su estado
+  // Mi Bandeja de Gestión:
   if (containerType === "mi-gestion") {
     if (!currentAgentEmail) return [];
-    return cases.filter(c => c.assigned_to === currentAgentEmail);
+    if (isAdmin) {
+      if (adminFilterMode === "all") {
+        return cases.filter(c => {
+          const e = String(c.estado || "").toLowerCase();
+          return Boolean(c.assigned_to) && e !== "cerrado" && e !== "resuelto";
+        });
+      }
+      if (adminFilterMode && adminFilterMode !== "mine") {
+        return cases.filter(c => {
+          const e = String(c.estado || "").toLowerCase();
+          return c.assigned_to?.toLowerCase() === adminFilterMode.toLowerCase() && e !== "cerrado" && e !== "resuelto";
+        });
+      }
+    }
+    return cases.filter(c => c.assigned_to?.toLowerCase() === currentAgentEmail.toLowerCase());
   }
 
   // Bandeja: SOLO casos cerrados (inbox general)
@@ -160,16 +181,16 @@ const BASE_TITLE = "Chat Sekunet - Atención al cliente";
 // Las notificaciones de mensajes nuevos usan unread_count y last_message_at.
 const CASE_LIST_FIELDS = "id,estado,canal,cliente,assigned_to,last_message_at,last_message_preview,unread_count,created_at,updated_at,title,prioridad,tags,customer_phone,es_test";
 
-async function fetchCasesMeta(supabase: any, limit = 1500, agentEmail?: string) {
+async function fetchCasesMeta(supabase: any, limit = 1500, agentEmail?: string, isAdmin?: boolean) {
   let query = supabase
     .from("sek_cases")
     .select(CASE_LIST_FIELDS)
     .neq("canal", "simulator")
     .neq("es_test", true);
-  // Si se pasa agentEmail, filtrar por casos asignados a ese agente
-  // (para Mi Gestión) en lugar de fetchar todos y filtrar en cliente.
-  if (agentEmail) {
+  if (agentEmail && !isAdmin) {
     query = query.eq("assigned_to", agentEmail);
+  } else if (agentEmail && isAdmin) {
+    query = query.not("assigned_to", "is", null).not("estado", "in", '("cerrado","resuelto")');
   }
   const { data, error } = await query
     .order("last_message_at", { ascending: false, nullsFirst: false })
@@ -259,8 +280,8 @@ function playEscaladoAlert() {
 }
 
 export function InboxClient({
-  initialCases, initialSelectedId, containerType
-}: { initialCases: SekCase[]; initialSelectedId: string | null; containerType?: "inbox" | "smart-inbox" | "soporte-avanzado" | "mi-gestion" }) {
+  initialCases, initialSelectedId, containerType, initialIsAdmin
+}: { initialCases: SekCase[]; initialSelectedId: string | null; containerType?: "inbox" | "smart-inbox" | "soporte-avanzado" | "mi-gestion"; initialIsAdmin?: boolean }) {
   const router = useRouter();
   const params = useSearchParams();
   const [cases, setCases] = React.useState<SekCase[]>(initialCases);
@@ -273,6 +294,9 @@ export function InboxClient({
   const [agentRole, setAgentRole] = React.useState<string | null>(null);
   const [godModeEmail, setGodModeEmail] = React.useState<string | null>(null);
   const [godModeName, setGodModeName] = React.useState<string | null>(null);
+  const [adminFilterMode, setAdminFilterMode] = React.useState<"mine" | "all" | string>("mine");
+  const [teamAgents, setTeamAgents] = React.useState<Array<{ email: string; nombre: string; apellido?: string; rol?: string }>>([]);
+  const isUserAdmin = Boolean(initialIsAdmin || agentRole === "admin" || agentRole === "superadmin");
   const supabase = React.useMemo(() => createClient(), []);
   const prevCasesRef = React.useRef<SekCase[]>(initialCases);
   const casesRef = React.useRef<SekCase[]>(initialCases);
@@ -284,6 +308,35 @@ export function InboxClient({
   React.useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
   React.useEffect(() => { agentEmailRef.current = agentEmail; }, [agentEmail]);
   React.useEffect(() => { agentNameRef.current = agentName; }, [agentName]);
+
+  /* Cargar agentes del equipo para supervisión administrativa en Mi Gestión */
+  React.useEffect(() => {
+    if (!isUserAdmin || containerType !== "mi-gestion") return;
+    supabase
+      .from("sek_agent_config")
+      .select("email,nombre,apellido,rol")
+      .in("rol", ["tecnico", "admin", "supervisor", "superadmin"])
+      .order("nombre", { ascending: true })
+      .then(({ data }) => {
+        if (data) setTeamAgents(data as any);
+      });
+  }, [supabase, isUserAdmin, containerType]);
+
+  const activeGestionCases = React.useMemo(() => {
+    if (containerType !== "mi-gestion") return [];
+    const source = isUserAdmin ? allCases : cases;
+    return source.filter(c => {
+      const e = String(c.estado || "").toLowerCase();
+      return Boolean(c.assigned_to) && e !== "cerrado" && e !== "resuelto" && !(c as any).es_test;
+    });
+  }, [containerType, isUserAdmin, allCases, cases]);
+
+  const myAssignedCount = React.useMemo(() => {
+    if (!agentEmail) return 0;
+    return activeGestionCases.filter(c => c.assigned_to?.toLowerCase() === agentEmail.toLowerCase()).length;
+  }, [activeGestionCases, agentEmail]);
+
+  const allAssignedCount = activeGestionCases.length;
 
   /* Detectar MODO DIOS desde localStorage */
   React.useEffect(() => {
@@ -382,14 +435,9 @@ export function InboxClient({
 
   /* Casos filtrados según containerType */
   const filteredCases = React.useMemo(() => {
-    // Si es Mi Gestion y aún no tenemos datos, confiar en el filtro del servidor (initialCases)
-    if (containerType === "mi-gestion" && !agentName && !agentEmail && cases === initialCases) {
-      return cases;
-    }
-    // Si estamos en MODO DIOS, forzar modo "mi-gestion" para ver casos de ese agente
     const effectiveContainer = godModeEmail ? "mi-gestion" : containerType;
-    return filterCasesByContainer(cases, effectiveContainer, agentEmail, agentName);
-  }, [cases, containerType, agentEmail, agentName, initialCases, godModeEmail]);
+    return filterCasesByContainer(cases, effectiveContainer, agentEmail, agentName, isUserAdmin, adminFilterMode);
+  }, [cases, containerType, agentEmail, agentName, godModeEmail, isUserAdmin, adminFilterMode]);
 
   /* Mantener casesRef siempre actualizado para evitar stale closure en selectCase */
   React.useEffect(() => { casesRef.current = cases; }, [cases]);
@@ -505,7 +553,7 @@ export function InboxClient({
                 return nextAll;
               }
 
-              let filteredNewCases = filterCasesByContainer(nextAll, containerType, agentEmail, agentName);
+              let filteredNewCases = filterCasesByContainer(nextAll, containerType, agentEmail, agentName, isUserAdmin, adminFilterMode);
 
               // Preservar caso seleccionado si está abierto
               const curSel = selectedIdRef.current;
@@ -678,9 +726,9 @@ export function InboxClient({
       try {
         if (containerType === "mi-gestion" && !agentEmail) return;
         const fetchEmail = containerType === "mi-gestion" ? (agentEmail || undefined) : undefined;
-        const newCases = await fetchCasesMeta(supabase, 300, fetchEmail);
+        const newCases = await fetchCasesMeta(supabase, 300, fetchEmail, isUserAdmin);
         setAllCases(newCases);
-        const filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail, agentName);
+        const filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail, agentName, isUserAdmin, adminFilterMode);
         const curSel = selectedIdRef.current;
         const currentSelected = curSel ? (
           newCases.find(c => String(c.id) === curSel) ||
@@ -843,6 +891,11 @@ export function InboxClient({
           onDeleteSuccess={handleCaseDeleted}
           containerType={containerType}
           currentAgentEmail={agentEmail}
+          adminFilterMode={adminFilterMode}
+          onAdminFilterModeChange={setAdminFilterMode}
+          teamAgents={teamAgents}
+          myAssignedCount={myAssignedCount}
+          allAssignedCount={allAssignedCount}
         />
       </div>
       {/* Divisor arrastrable — solo visible en md+ */}
