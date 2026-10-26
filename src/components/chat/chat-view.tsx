@@ -254,9 +254,10 @@ export function ChatView({
   }, []);
 
   // Notificar al asistente técnico flotante el caso actualmente abierto en pantalla
+  const groupTargetCaseId = (sekCase as any)?._group?.targetCaseId;
   React.useEffect(() => {
     if (typeof window !== "undefined" && sekCase?.id) {
-      const targetId = (sekCase as any)?._group?.targetCaseId || (String(sekCase.id).startsWith("tel:") ? null : String(sekCase.id));
+      const targetId = groupTargetCaseId || (String(sekCase.id).startsWith("tel:") ? null : String(sekCase.id));
       const targetPhone = sekCase.customer_phone || (String(sekCase.id).startsWith("tel:") ? String(sekCase.id).replace(/^tel:/, "") : "");
       (window as any).__CURRENT_OPEN_CASE_ID__ = targetId || String(sekCase.id);
       (window as any).__CURRENT_OPEN_CASE_PHONE__ = targetPhone;
@@ -267,7 +268,7 @@ export function ChatView({
         })
       );
     }
-  }, [sekCase?.id, sekCase?.customer_phone]);
+  }, [sekCase?.id, sekCase?.customer_phone, groupTargetCaseId, sekCase?.estado]);
 
   // Mantener el nombre del perfil del contacto en la pestaña MIENTRAS este chat esté abierto
   React.useEffect(() => {

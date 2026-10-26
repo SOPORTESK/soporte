@@ -803,26 +803,42 @@ export async function POST(req: NextRequest) {
           targetCase = caseData;
           validCaseId = caseData.id;
 
+          const currentEstado = String(caseData.estado || "").toLowerCase();
+          const isCurrentClosed = currentEstado === "cerrado" || currentEstado === "resuelto";
           const histLen =
             (Array.isArray(caseData.histcliente) ? caseData.histcliente.length : 0) +
             (Array.isArray(caseData.histtecnico) ? caseData.histtecnico.length : 0);
-          if (histLen <= 2 && caseData.customer_phone) {
-            const { data: siblingCases } = await serviceClient
-              .from("sek_cases")
-              .select("id, estado, created_at, canal, customer_phone, cliente, histcliente, histtecnico, title, marca, modelo, problema, resolucion")
-              .ilike("customer_phone", `%${caseData.customer_phone}%`)
-              .order("created_at", { ascending: false })
-              .limit(6);
 
-            const caseWithMore = siblingCases?.find((c) => {
-              const count =
-                (Array.isArray(c.histcliente) ? c.histcliente.length : 0) +
-                (Array.isArray(c.histtecnico) ? c.histtecnico.length : 0);
-              return count > histLen;
-            });
-            if (caseWithMore) {
-              targetCase = caseWithMore;
-              validCaseId = caseWithMore.id;
+          if ((isCurrentClosed || histLen <= 2) && caseData.customer_phone) {
+            const cleanPhone = String(caseData.customer_phone).replace(/[^0-9]/g, "");
+            if (cleanPhone.length >= 8) {
+              const { data: siblingCases } = await serviceClient
+                .from("sek_cases")
+                .select("id, estado, created_at, canal, customer_phone, cliente, histcliente, histtecnico, title, marca, modelo, problema, resolucion")
+                .ilike("customer_phone", `%${cleanPhone}%`)
+                .order("created_at", { ascending: false })
+                .limit(10);
+
+              if (siblingCases && siblingCases.length > 0) {
+                const openSibling = siblingCases.find((c) =>
+                  ["abierto", "escalado", "ia_atendiendo", "calificacion_pendiente"].includes(String(c.estado || "").toLowerCase())
+                );
+                if (openSibling) {
+                  targetCase = openSibling;
+                  validCaseId = openSibling.id;
+                } else if (histLen <= 2) {
+                  const caseWithMore = siblingCases.find((c) => {
+                    const count =
+                      (Array.isArray(c.histcliente) ? c.histcliente.length : 0) +
+                      (Array.isArray(c.histtecnico) ? c.histtecnico.length : 0);
+                    return count > histLen;
+                  });
+                  if (caseWithMore) {
+                    targetCase = caseWithMore;
+                    validCaseId = caseWithMore.id;
+                  }
+                }
+              }
             }
           }
         }
@@ -944,8 +960,8 @@ export async function POST(req: NextRequest) {
         transcriptLines.push(line);
       }
 
-      openCaseConversation = transcriptLines.join("\n\n");
-      substantiveOpenCaseText = substantiveParts.join("\n");
+      openCaseConversation = transcriptLines.slice(-40).join("\n\n");
+      substantiveOpenCaseText = substantiveParts.slice(-30).join("\n");
     }
 
     // ── 4. Si el técnico subió un archivo directamente en el widget del asistente ──
