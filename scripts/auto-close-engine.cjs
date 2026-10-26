@@ -140,16 +140,31 @@ async function runAutoClose() {
       // 1. CIERRE POR FIN DE JORNADA (Prioridad absoluta: nadie queda abierto fuera del horario laboral ni de días anteriores)
       const shouldCloseByDayEnd = dailyClose.enabled && (isOutsideWorkHours || isFromPreviousDay);
       if (shouldCloseByDayEnd) {
+        let effectiveClosedAt = new Date().toISOString();
+        if (isFromPreviousDay) {
+          // Imputar el cierre a la hora de corte de la jornada real del caso para no penalizar métricas ni SLAs con horas inhábiles/fines de semana
+          const [cH, cM] = (dailyClose.close_time || "17:15").split(":").map(Number);
+          const targetUtcMs = Date.UTC(
+            Number(getCasePart("year")),
+            Number(getCasePart("month")) - 1,
+            Number(getCasePart("day")),
+            (cH || 17) + 6,
+            (cM || 15),
+            0
+          );
+          effectiveClosedAt = new Date(targetUtcMs).toISOString();
+        }
+
         const msg = dailyClose.message;
-        const entry = { role: "tecnico", content: msg, time: new Date().toISOString(), author: "Soporte Sekunet" };
+        const entry = { role: "tecnico", content: msg, time: effectiveClosedAt, author: "Soporte Sekunet" };
         const newHist = [...(caso.histtecnico || []), entry];
         const { data: updated } = await supabase
           .from("sek_cases")
           .update({
             estado: "cerrado",
-            closed_at: new Date().toISOString(),
+            closed_at: effectiveClosedAt,
             histtecnico: newHist,
-            last_message_at: new Date().toISOString(),
+            last_message_at: effectiveClosedAt,
             last_message_preview: msg.slice(0, 200)
           })
           .eq("id", caso.id)
