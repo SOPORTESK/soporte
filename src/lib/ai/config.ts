@@ -176,14 +176,20 @@ export async function generateText(
   opts: GenerateOptions
 ): Promise<{ text: string; modelo: string; provider: string } | null> {
   const chain = await getChain(role);
-  const { system, messages, temperature = 0.3, maxTokens = 2048, timeoutMs = 12_000, tools } = opts;
+  const { system, messages, temperature = 0.3, maxTokens = 2048, timeoutMs = 25_000, tools } = opts;
 
-  const timeoutPerModel = Math.min(timeoutMs, 3_000);
-  const safeMaxTokens = Math.min(maxTokens, 1200);
+  const deadline = Date.now() + timeoutMs;
+  const safeMaxTokens = Math.min(maxTokens, 2048);
   for (const m of chain) {
+    const remainingTime = deadline - Date.now();
+    if (remainingTime < 2000) {
+      console.warn(`[ai-fallback] ⏱️ Tiempo global agotado (${timeoutMs}ms), abortando cadena.`);
+      break;
+    }
+    const timeoutPerModel = Math.min(remainingTime, 12_000);
     const t0 = Date.now();
     try {
-      console.log(`[ai-fallback] Intentando con ${m.provider}/${m.modelo}...`);
+      console.log(`[ai-fallback] Intentando con ${m.provider}/${m.modelo} (timeout: ${timeoutPerModel}ms)...`);
       let text = "";
 
       if (m.provider === "google") {

@@ -849,34 +849,36 @@ export async function POST(req: NextRequest) {
           .filter((m: any) => !m.transcription && (!m._visionAnalysis || m._visionAnalysis.includes("[ANÁLISIS DE ADJUNTO NO DISPONIBLE")))
           .slice(-3);
 
-        for (const att of pendingAttachments) {
-          try {
-            const isAudio = String(att.mediaType || "").includes("audio") || String(att.fileName || "").match(/\.(ogg|opus|mp3|m4a|wav)$/i);
-            if (isAudio) {
-              const transText = await transcribeAudio(att.mediaUrl, att.mediaType);
-              if (transText) {
-                const analysis = `Transcripción de nota de voz: "${transText}"`;
-                const patch = (m: any) => (m.mediaUrl === att.mediaUrl ? { ...m, transcription: transText, _visionAnalysis: analysis } : m);
-                for (let i = 0; i < histCliente.length; i++) histCliente[i] = patch(histCliente[i]);
-                for (let i = 0; i < histTecnico.length; i++) histTecnico[i] = patch(histTecnico[i]);
-                changed = true;
+        await Promise.allSettled(
+          pendingAttachments.map(async (att) => {
+            try {
+              const isAudio = String(att.mediaType || "").includes("audio") || String(att.fileName || "").match(/\.(ogg|opus|mp3|m4a|wav)$/i);
+              if (isAudio) {
+                const transText = await transcribeAudio(att.mediaUrl, att.mediaType);
+                if (transText) {
+                  const analysis = `Transcripción de nota de voz: "${transText}"`;
+                  const patch = (m: any) => (m.mediaUrl === att.mediaUrl ? { ...m, transcription: transText, _visionAnalysis: analysis } : m);
+                  for (let i = 0; i < histCliente.length; i++) histCliente[i] = patch(histCliente[i]);
+                  for (let i = 0; i < histTecnico.length; i++) histTecnico[i] = patch(histTecnico[i]);
+                  changed = true;
+                }
+              } else {
+                const result = await Promise.race([
+                  analyzeMedia(att.mediaUrl, att.mediaType, att.content || "", att.fileName || ""),
+                  new Promise<null>((r) => setTimeout(() => r(null), 15000)),
+                ]);
+                if (result) {
+                  const patch = (m: any) => (m.mediaUrl === att.mediaUrl ? { ...m, _visionAnalysis: result } : m);
+                  for (let i = 0; i < histCliente.length; i++) histCliente[i] = patch(histCliente[i]);
+                  for (let i = 0; i < histTecnico.length; i++) histTecnico[i] = patch(histTecnico[i]);
+                  changed = true;
+                }
               }
-            } else {
-              const result = await Promise.race([
-                analyzeMedia(att.mediaUrl, att.mediaType, att.content || "", att.fileName || ""),
-                new Promise<null>((r) => setTimeout(() => r(null), 15000)),
-              ]);
-              if (result) {
-                const patch = (m: any) => (m.mediaUrl === att.mediaUrl ? { ...m, _visionAnalysis: result } : m);
-                for (let i = 0; i < histCliente.length; i++) histCliente[i] = patch(histCliente[i]);
-                for (let i = 0; i < histTecnico.length; i++) histTecnico[i] = patch(histTecnico[i]);
-                changed = true;
-              }
+            } catch (err: any) {
+              console.warn("[tech-assistant] Error analizando adjunto:", err?.message);
             }
-          } catch (err: any) {
-            console.warn("[tech-assistant] Error analizando adjunto:", err?.message);
-          }
-        }
+          })
+        );
         if (changed && validCaseId) {
           await serviceClient
             .from("sek_cases")
@@ -928,6 +930,9 @@ export async function POST(req: NextRequest) {
           } else if (m._visionAnalysis && !m._visionAnalysis.includes("[ANÁLISIS DE ADJUNTO NO DISPONIBLE")) {
             line += `\n   -> ANÁLISIS TÉCNICO Y TRANSCRIPCIÓN DEL ADJUNTO:\n${m._visionAnalysis}`;
             substantiveParts.push(String(m._visionAnalysis));
+          } else {
+            line += `\n   -> [Archivo/foto de evidencia adjunta por el cliente: ${m.fileName || kind}]`;
+            substantiveParts.push(`Evidencia adjunta por el cliente: ${m.fileName || kind}`);
           }
         }
         transcriptLines.push(line);

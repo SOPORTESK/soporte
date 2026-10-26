@@ -132,7 +132,7 @@ export async function transcribeAudio(
               }],
               generationConfig: { maxOutputTokens: 2048, temperature: 0 }
             }),
-            signal: AbortSignal.timeout(5000),
+            signal: AbortSignal.timeout(15000),
           }
         );
         if (res.ok) {
@@ -278,7 +278,7 @@ Analiza el contenido de este archivo técnico (${fileName || mimeType}): extrae 
               }],
               generationConfig: { maxOutputTokens: 2048, temperature: 0.1 }
             }),
-            signal: AbortSignal.timeout(5000),
+            signal: AbortSignal.timeout(15000),
           }
         );
         if (gRes.ok) {

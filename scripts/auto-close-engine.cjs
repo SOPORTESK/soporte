@@ -75,6 +75,8 @@ async function runAutoClose() {
     // Si ambas funciones están desactivadas en el panel de gestión, no hacer nada
     if (!config.enabled && !dailyClose.enabled) return;
 
+    const nowObj = new Date();
+
     // Evaluar horario de oficina en Costa Rica (UTC-6)
     // Horario laboral estándar: Lunes a Viernes de 07:30 a close_time (ej: 17:15).
     // Sábados y Domingos: cerrado las 24 horas.
