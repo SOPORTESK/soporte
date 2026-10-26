@@ -75,22 +75,34 @@ async function runAutoClose() {
     // Si ambas funciones están desactivadas en el panel de gestión, no hacer nada
     if (!config.enabled && !dailyClose.enabled) return;
 
-    // Evaluar cierre diario de fin de jornada (Costa Rica UTC-6)
-    const nowObj = new Date();
-    const utcH = nowObj.getUTCHours();
-    const utcM = nowObj.getUTCMinutes();
-    let crH = utcH - 6;
-    if (crH < 0) crH += 24;
-    const currentCrMin = crH * 60 + utcM;
+    // Evaluar horario de oficina en Costa Rica (UTC-6)
+    // Horario laboral estándar: Lunes a Viernes de 07:30 a close_time (ej: 17:15).
+    // Sábados y Domingos: cerrado las 24 horas.
+    const crDateParts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Costa_Rica",
+      weekday: "short",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "numeric",
+      minute: "numeric",
+      hour12: false,
+    }).formatToParts(nowObj);
 
-    let isDailyCloseWindow = false;
-    if (dailyClose.enabled && dailyClose.close_time) {
-      const [dcH, dcM] = dailyClose.close_time.split(":").map(Number);
-      const dcMin = (dcH || 17) * 60 + (dcM || 15);
-      if (currentCrMin >= dcMin || crH < 5) {
-        isDailyCloseWindow = true;
-      }
-    }
+    const getPart = (type) => crDateParts.find(p => p.type === type)?.value || "";
+    const crWeekday = getPart("weekday"); // "Mon", "Tue", ..., "Sat", "Sun"
+    const crTodayDateStr = `${getPart("year")}-${getPart("month")}-${getPart("day")}`;
+    const crHour = Number(getPart("hour")) || 0;
+    const crMinute = Number(getPart("minute")) || 0;
+    const currentCrMin = crHour * 60 + crMinute;
+
+    const isWeekend = crWeekday === "Sat" || crWeekday === "Sun";
+    const [dcH, dcM] = (dailyClose.close_time || "17:15").split(":").map(Number);
+    const dcMin = (dcH || 17) * 60 + (dcM || 15);
+    const workStartMin = 7 * 60 + 30; // 07:30 a. m.
+
+    // Fuera de jornada si es fin de semana, o si es antes de 07:30 am, o después de la hora de corte
+    const isOutsideWorkHours = isWeekend || currentCrMin >= dcMin || currentCrMin < workStartMin;
 
     const { data: casos, error } = await supabase
       .from("sek_cases")
@@ -113,8 +125,21 @@ async function runAutoClose() {
       const isReopen = tags.some(t => String(t).toLowerCase() === "re-open");
       const isSaliente = tags.some(t => String(t).toLowerCase() === "saliente");
 
-      // 1. CIERRE POR FIN DE JORNADA (Prioridad absoluta: nadie queda abierto fuera del horario laboral)
-      if (isDailyCloseWindow) {
+      // Fecha del último mensaje del caso en hora de Costa Rica
+      const lastMsgDate = new Date(caso.last_message_at || caso.created_at);
+      const caseDateParts = new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/Costa_Rica",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).formatToParts(lastMsgDate);
+      const getCasePart = (type) => caseDateParts.find(p => p.type === type)?.value || "";
+      const caseDayDateStr = `${getCasePart("year")}-${getCasePart("month")}-${getCasePart("day")}`;
+      const isFromPreviousDay = caseDayDateStr < crTodayDateStr;
+
+      // 1. CIERRE POR FIN DE JORNADA (Prioridad absoluta: nadie queda abierto fuera del horario laboral ni de días anteriores)
+      const shouldCloseByDayEnd = dailyClose.enabled && (isOutsideWorkHours || isFromPreviousDay);
+      if (shouldCloseByDayEnd) {
         const msg = dailyClose.message;
         const entry = { role: "tecnico", content: msg, time: new Date().toISOString(), author: "Soporte Sekunet" };
         const newHist = [...(caso.histtecnico || []), entry];
@@ -132,7 +157,8 @@ async function runAutoClose() {
           .select("id");
 
         if (updated && updated.length > 0) {
-          console.log(`[auto-close] Caso ${caso.id} cerrado por fin de jornada (${dailyClose.close_time}).`);
+          const reason = isFromPreviousDay ? "día anterior rezagado" : `fin de jornada (${dailyClose.close_time})`;
+          console.log(`[auto-close] Caso ${caso.id} cerrado automáticamente por ${reason}.`);
           if (canalLower === "whatsapp" && realPhone) {
             await sendWhatsApp(realPhone, msg);
           }
