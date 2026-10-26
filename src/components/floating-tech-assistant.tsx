@@ -377,7 +377,7 @@ export function FloatingTechAssistant() {
   };
 
   const handlePanelDragStop = (_e: DraggableEvent, data: DraggableData) => {
-    setPanelPosition({ x: data.x, y: data.y });
+    setPanelPosition(clampPanelPosition({ x: data.x, y: data.y }, isMinimized, isWide));
   };
 
   const startNewChat = () => {
@@ -493,27 +493,51 @@ export function FloatingTechAssistant() {
 
   const getPanelDimensions = React.useCallback(
     (wideMode = isWide) => {
-      if (typeof window === "undefined") return { width: 560, height: 620 };
+      if (typeof window === "undefined") return { width: 560, height: 520 };
       const vw = window.innerWidth;
       const vh = window.innerHeight;
       const desiredW = wideMode ? 720 : 560;
       const width = vw < 640 ? Math.max(320, vw - 16) : Math.min(desiredW, vw - 24);
-      const height = Math.min(wideMode ? 680 : 620, vh - 24);
+      const height = Math.min(wideMode ? 580 : 520, Math.max(360, vh - 36));
       return { width, height };
     },
     [isWide]
   );
 
+  const clampPanelPosition = React.useCallback(
+    (pos: Position, minimized = isMinimized, wideMode = isWide): Position => {
+      if (typeof window === "undefined") return pos;
+      const { width: pW, height: pH } = getPanelDimensions(wideMode);
+      const effectiveW = minimized ? 320 : pW;
+      const effectiveH = minimized ? 52 : pH;
+      const pad = 12;
+      return {
+        x: Math.max(pad, Math.min(pos.x, window.innerWidth - effectiveW - pad)),
+        y: Math.max(pad, Math.min(pos.y, window.innerHeight - effectiveH - pad)),
+      };
+    },
+    [getPanelDimensions, isMinimized, isWide]
+  );
+
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const enforceBounds = () => {
+      setPanelPosition((prev) => clampPanelPosition(prev, isMinimized, isWide));
+    };
+    enforceBounds();
+    window.addEventListener("resize", enforceBounds);
+    return () => window.removeEventListener("resize", enforceBounds);
+  }, [isOpen, isMinimized, isWide, clampPanelPosition]);
+
   const openFromBubble = () => {
     const rect = bubbleRef.current?.getBoundingClientRect();
     const bubbleSize = 56;
     const { width: panelWidth, height: panelHeight } = getPanelDimensions(isWide);
-    const padding = 10;
-    let left = (rect?.left ?? window.innerWidth - bubbleSize - padding) + bubbleSize - panelWidth;
-    let top = (rect?.top ?? window.innerHeight - bubbleSize - padding) + bubbleSize - panelHeight;
-    left = Math.max(padding, Math.min(left, window.innerWidth - panelWidth - padding));
-    top = Math.max(padding, Math.min(top, window.innerHeight - panelHeight - padding));
-    setPanelPosition({ x: left, y: top });
+    const padding = 12;
+    const left = (rect?.left ?? window.innerWidth - bubbleSize - padding) + bubbleSize - panelWidth;
+    const top = (rect?.top ?? window.innerHeight - bubbleSize - padding) + bubbleSize - panelHeight;
+    setIsMinimized(false);
+    setPanelPosition(clampPanelPosition({ x: left, y: top }, false, isWide));
     setIsOpen(true);
   };
 
@@ -521,12 +545,7 @@ export function FloatingTechAssistant() {
     const nextWide = !isWide;
     setIsWide(nextWide);
     if (typeof window !== "undefined") {
-      const { width: nextW, height: nextH } = getPanelDimensions(nextWide);
-      const padding = 10;
-      setPanelPosition((prev) => ({
-        x: Math.max(padding, Math.min(prev.x, window.innerWidth - nextW - padding)),
-        y: Math.max(padding, Math.min(prev.y, window.innerHeight - nextH - padding)),
-      }));
+      setPanelPosition((prev) => clampPanelPosition(prev, isMinimized, nextWide));
     }
   };
 
@@ -585,31 +604,29 @@ export function FloatingTechAssistant() {
           style={
             isMinimized
               ? { width: 320, height: 52 }
-              : { width: activeW, height: activeH }
+              : { width: activeW, height: activeH, maxHeight: "calc(100dvh - 24px)", maxWidth: "calc(100vw - 24px)" }
           }
           className="fixed top-0 left-0 z-50 flex flex-col rounded-2xl border border-border/80 bg-card/98 backdrop-blur-md shadow-2xl overflow-hidden transition-[width,height] duration-150"
         >
           {/* Header Premium de 1 sola línea garantizada (sin solapamientos ni cortes) */}
-          <div className="sek-tech-drag-handle flex items-center justify-between gap-2 px-3.5 h-[52px] shrink-0 bg-gradient-to-r from-violet-600 via-violet-600 to-indigo-600 text-white cursor-grab active:cursor-grabbing select-none border-b border-white/10">
-            <div className="flex items-center gap-2 min-w-0">
+          <div className="sek-tech-drag-handle flex items-center justify-between gap-2 px-3 h-[50px] shrink-0 bg-gradient-to-r from-violet-600 via-violet-600 to-indigo-600 text-white cursor-grab active:cursor-grabbing select-none border-b border-white/10">
+            <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
               <GripVertical className="h-4 w-4 opacity-60 shrink-0" />
               <div className="h-7 w-7 rounded-lg bg-white/15 flex items-center justify-center shrink-0 ring-1 ring-white/20">
                 <Sparkles className="h-3.5 w-3.5 text-white" />
               </div>
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="text-[13px] font-semibold tracking-tight whitespace-nowrap">
-                  Asistente Técnico
+              <span className="text-[13px] font-semibold tracking-tight whitespace-nowrap shrink-0">
+                Asistente Técnico
+              </span>
+              {caseId && !isMinimized && (
+                <span
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-400/20 border border-emerald-300/30 text-[10px] font-medium text-emerald-100 whitespace-nowrap shrink-0"
+                  title="Sincronizado con el caso en pantalla"
+                >
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-300 animate-pulse shrink-0" />
+                  <span>Caso en pantalla</span>
                 </span>
-                {caseId && !isMinimized && (
-                  <span
-                    className="hidden sm:inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-400/20 border border-emerald-300/30 text-[10px] font-medium text-emerald-100 whitespace-nowrap"
-                    title="Sincronizado con el caso activo en pantalla"
-                  >
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-300 animate-pulse" />
-                    Caso activo
-                  </span>
-                )}
-              </div>
+              )}
             </div>
 
             <div className="flex items-center gap-1 shrink-0">
@@ -620,8 +637,8 @@ export function FloatingTechAssistant() {
                   disabled={loading}
                   onMouseDown={(e) => e.stopPropagation()}
                   onTouchStart={(e) => e.stopPropagation()}
-                  className="inline-flex items-center gap-1 text-[11px] font-semibold bg-white text-violet-700 hover:bg-violet-50 disabled:opacity-50 px-2.5 py-1 rounded-lg cursor-pointer transition-all shadow-xs whitespace-nowrap"
-                  title="Diagnosticar el caso abierto contra toda la base de datos y manuales"
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold bg-white text-violet-700 hover:bg-violet-50 disabled:opacity-50 px-2 py-1 rounded-lg cursor-pointer transition-all shadow-xs whitespace-nowrap shrink-0"
+                  title="Diagnosticar el caso en pantalla contra la base de datos y manuales"
                 >
                   <Sparkles className="h-3 w-3 shrink-0" />
                   <span>Analizar Caso</span>

@@ -220,7 +220,7 @@ export async function generateText(
       let text = "";
 
       if (m.provider === "google") {
-        const effectiveSystem = idx > 1 ? compressSystemPrompt(system, 14_000) : system;
+        const effectiveSystem = compressSystemPrompt(system, 24_000);
         const body: Record<string, unknown> = {
           contents: messages.map(x => ({
             role: x.role === "assistant" ? "model" : "user",
@@ -247,8 +247,8 @@ export async function generateText(
         const data = await res.json();
         text = data.candidates?.[0]?.content?.parts?.map((p: any) => p.text).filter(Boolean).join("") ?? "";
       } else {
-        // Proveedores secundarios (Groq, Cloudflare, OpenRouter) tienen límites TPM más estrictos: comprimir system prompt
-        const effectiveSystem = compressSystemPrompt(system, idx >= 2 ? 7_500 : 10_500);
+        // Proveedores secundarios (Groq, Cloudflare, OpenRouter): mantener margen amplio para no recortar precedentes ni manuales
+        const effectiveSystem = compressSystemPrompt(system, m.provider === "groq" ? 15_000 : 18_000);
         const msgs = effectiveSystem ? [{ role: "system", content: effectiveSystem }, ...messages] : messages;
         const res = await fetch(`${m.baseUrl}/chat/completions`, {
           method: "POST",

@@ -920,9 +920,17 @@ export async function POST(req: NextRequest) {
       ].sort((a, b) => a.sortKey - b.sortKey);
 
       const transcriptLines: string[] = [];
+      const mediaTranscriptLines: string[] = [];
       const substantiveParts: string[] = [];
 
+      const SYSTEM_CLOSURE_NOISE_RE =
+        /cerrad[oa]\s+por\s+falta\s+de\s+respuesta|procedemos\s+a\s+cerrar\s+este\s+caso|calificar[ií]a\s+la\s+atenci[oó]n|encuesta\s+de\s+satisfacci[oó]n|conversaci[oó]n\s+ha\s+sido\s+cerrada/i;
+
       for (const m of allEvents) {
+        const rawText = String(m.content || "").trim();
+        if (!m.mediaUrl && SYSTEM_CLOSURE_NOISE_RE.test(rawText)) {
+          continue;
+        }
         let timeStr = "";
         if (m.time) {
           const parsedDate = new Date(m.time);
@@ -930,11 +938,11 @@ export async function POST(req: NextRequest) {
             ? parsedDate.toLocaleTimeString("es-CR", { timeZone: "America/Costa_Rica", hour: "2-digit", minute: "2-digit", hour12: true })
             : String(m.time);
         }
-        let line = `[${timeStr}] ${m.speaker}: ${m.content || ""}`.trim();
-        if (m.content && !isBoilerplateOrFileMessage(m.content)) {
-          substantiveParts.push(String(m.content));
-        } else if (m.content && m.speaker === "Cliente") {
-          const stripped = stripTemplateLines(String(m.content));
+        let line = `[${timeStr}] ${m.speaker}: ${rawText}`.trim();
+        if (rawText && !isBoilerplateOrFileMessage(rawText)) {
+          substantiveParts.push(rawText);
+        } else if (rawText && m.speaker === "Cliente") {
+          const stripped = stripTemplateLines(rawText);
           if (stripped.length >= 6) substantiveParts.push(stripped);
         }
         if (m.mediaUrl) {
@@ -956,12 +964,15 @@ export async function POST(req: NextRequest) {
             line += `\n   -> [Archivo/foto de evidencia adjunta por el cliente: ${m.fileName || kind}]`;
             substantiveParts.push(`Evidencia adjunta por el cliente: ${m.fileName || kind}`);
           }
+          mediaTranscriptLines.push(line);
         }
         transcriptLines.push(line);
       }
 
-      openCaseConversation = transcriptLines.slice(-40).join("\n\n");
-      substantiveOpenCaseText = substantiveParts.slice(-30).join("\n");
+      const recentLines = transcriptLines.slice(-18);
+      const missingMediaLines = mediaTranscriptLines.filter((ml) => !recentLines.includes(ml)).slice(-4);
+      openCaseConversation = [...missingMediaLines, ...recentLines].join("\n\n");
+      substantiveOpenCaseText = substantiveParts.slice(-20).join("\n");
     }
 
     // ── 4. Si el técnico subió un archivo directamente en el widget del asistente ──
@@ -1387,18 +1398,18 @@ Toda recomendación técnica debe pertenecer con total exactitud a la marca del 
 1. MÁXIMA PRIORIDAD A RESOLVER LA AVERÍA: El técnico te consulta para encontrar la SOLUCIÓN EXACTA. Debes fundamentar tu diagnóstico y procedimiento en las soluciones reales comprobadas que los técnicos de Sekunet ya aplicaron en los precedentes de taller Y en la información técnica oficial de manuales y fichas técnicas web.
 2. FOCO Y DESTINATARIO: Tu respuesta va dirigida ÚNICA Y EXCLUSIVAMENTE al caso y cliente abierto en pantalla. Nunca menciones nombres de clientes pasados.
 3. ESTRUCTURA DE RESOLUCIÓN TÉCNICA (OBLIGATORIA al pedir diagnóstico, análisis o solución):
-   Responde con un Plan Técnico Resolutivo estructurado en estas secciones directas (usa el título exacto seguido de dos puntos):
+   Responde con un Plan Técnico Resolutivo CONCISO, DIRECTO Y SIN RELLENO TEÓRICO en estas secciones (usa el título exacto seguido de dos puntos):
    Falla y Causa Raíz:
-   Diagnóstico certero del equipo (marca, modelo exacto) y la causa técnica real del fallo según la evidencia, precedentes y manuales.
+   Máximo 2 a 3 líneas directas indicando marca/modelo exacto, qué muestran las capturas o audios del cliente y la causa técnica puntual. Prohibido redactar párrafos largos de teoría.
 
    Solución Comprobada en Taller / Documentada:
-   Cómo otros técnicos de Sekunet o los manuales del fabricante resolvieron esta avería en casos precedentes.
+   Máximo 2 líneas concretas indicando qué ajuste exacto resolvió esta falla en los precedentes de Sekunet o manuales oficiales. Prohibido usar frases genéricas de relleno.
 
    Procedimiento de Resolución (Paso a Paso):
-   Pasos técnicos numerados (1., 2., 3.) exactos para resolver la falla (herramientas SADP/ConfigTool, comandos, reset por archivo XML/QR, gestión de disco, subredes IP, PoE, verificación de voltajes o cables).
+   Pasos técnicos cortos, directos y numerados (1., 2., 3.) con la ruta o menú exacto en el software o interfaz de la marca para solucionar el problema de inmediato.
 
    Instrucción Concreta para el Cliente:
-   Qué indicación, prueba o dato específico se le debe pedir o indicar al cliente en este momento.
+   Máximo 2 líneas directas con la prueba o confirmación puntual que se le debe indicar al cliente.
 4. NUNCA respondas que el cliente no tiene preguntas basándote en un último mensaje de cortesía. Todo el historial del caso contiene la avería.
 5. Si el técnico te pregunta sobre imágenes o audios, responde DIRECTAMENTE con la información técnica visible en las fotos y audios analizados.
 6. Comunícate con tono profesional, técnico, directo, seguro y colaborativo ("Pura vida, colega").
@@ -1504,31 +1515,31 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
 
     const finalSources: string[] = [];
 
-    // 1. Manuales Oficiales en Base de Conocimiento (SOLO si fueron citados y corresponden a la marca)
+    // 1. Manuales Oficiales en Base de Conocimiento (correspondientes a la marca)
     let mOutIdx = 1;
     retrievedKbDocs.forEach((kd, idx) => {
       const matchBrand = !primaryBrand || kd.doc_name.toLowerCase().includes(primaryBrand);
-      if (aiCitedM.has(idx) && matchBrand) {
+      if ((aiCitedM.has(idx) || aiCitedM.size === 0) && matchBrand) {
         const safeDoc = kd.doc_name.replace(/[()]/g, "").trim();
         finalSources.push(`[M${mOutIdx++}] Manual Oficial: ${safeDoc} (Base de conocimiento Sekunet)`);
       }
     });
 
-    // 2. Casos Precedentes Reales de Sekunet (SOLO si fueron citados y corresponden a la marca)
+    // 2. Casos Precedentes Reales de Sekunet (correspondientes a la marca)
     let cOutIdx = 1;
     topPrecedents.forEach((mc, idx) => {
       const matchBrand = !primaryBrand || mc.equipmentLabel.toLowerCase().includes(primaryBrand) || mc.brand.toLowerCase().includes(primaryBrand);
-      if (aiCitedC.has(idx) && matchBrand) {
+      if ((aiCitedC.has(idx) || aiCitedC.size === 0) && matchBrand) {
         const cleanDetails = `${mc.equipmentLabel} - ${mc.faultSummary}`.replace(/[()]/g, "").trim();
         finalSources.push(`[C${cOutIdx++}] Caso Sekunet #${mc.shortId} resuelto por ${mc.resolverName} (${cleanDetails})`);
       }
     });
 
-    // 3. Fuentes Web Oficiales en Vivo (SOLO si fueron citadas y corresponden a la marca)
+    // 3. Fuentes Web Oficiales en Vivo (correspondientes a la marca)
     let wOutIdx = 1;
     retrievedWebResults.forEach((wr, idx) => {
       const matchBrand = !primaryBrand || wr.title.toLowerCase().includes(primaryBrand) || wr.url.toLowerCase().includes(primaryBrand);
-      if (aiCitedW.has(idx) && matchBrand) {
+      if ((aiCitedW.has(idx) || (aiCitedW.size === 0 && idx < 2)) && matchBrand) {
         const safeTitle = wr.title.replace(/[()]/g, "").replace(/\s+/g, " ").trim();
         finalSources.push(`[W${wOutIdx++}] ${safeTitle} (${wr.url})`);
       }
