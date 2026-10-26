@@ -907,7 +907,13 @@ export async function POST(req: NextRequest) {
       const substantiveParts: string[] = [];
 
       for (const m of allEvents) {
-        const timeStr = m.time ? new Date(m.time).toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit" }) : "";
+        let timeStr = "";
+        if (m.time) {
+          const parsedDate = new Date(m.time);
+          timeStr = !isNaN(parsedDate.getTime())
+            ? parsedDate.toLocaleTimeString("es-CR", { timeZone: "America/Costa_Rica", hour: "2-digit", minute: "2-digit", hour12: true })
+            : String(m.time);
+        }
         let line = `[${timeStr}] ${m.speaker}: ${m.content || ""}`.trim();
         if (m.content && !isBoilerplateOrFileMessage(m.content)) {
           substantiveParts.push(String(m.content));
@@ -1321,6 +1327,17 @@ export async function POST(req: NextRequest) {
     const equipoRegistrado = clienteData?.equipo || (targetCase?.marca ? `${targetCase.marca || ""} ${targetCase.modelo || ""}`.trim() : "");
     const equipoLinea = equipoRegistrado || "No registrado formalmente (consulte la conversación y las fotos)";
 
+    const nowDateObj = new Date();
+    const crHourNum = Number(
+      new Intl.DateTimeFormat("en-US", { timeZone: "America/Costa_Rica", hour: "numeric", hour12: false }).format(nowDateObj)
+    ) || 0;
+    const saludoCR = crHourNum < 12 ? "Buenos días" : crHourNum < 18 ? "Buenas tardes" : "Buenas noches";
+    const horaActualCR = nowDateObj.toLocaleString("es-CR", {
+      timeZone: "America/Costa_Rica",
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+
     let systemPrompt = `Eres el Asistente Técnico Senior de Sekunet, el copiloto experto para técnicos e ingenieros de soporte de CCTV, control de acceso, alarmas, redes y seguridad electrónica.
 
 Tu función esencial es RESOLVER LA AVERÍA TÉCNICA junto con el técnico, no hacer meros resúmenes pasivos ni explicaciones redundantes de lo que el cliente ya dijo.
@@ -1328,6 +1345,7 @@ Tu función esencial es RESOLVER LA AVERÍA TÉCNICA junto con el técnico, no h
 Tienes acceso COMPLETO y VISIBILIDAD TOTAL de la conversación del caso que el técnico tiene actualmente abierto en pantalla, incluyendo las fotos enviadas, las transcripciones completas de notas de voz de audio, videos y documentos técnicos analizados, así como los casos históricos resueltos en el taller Sekunet.
 
 CONTEXTO DEL CASO ABIERTO EN PANTALLA (A QUIEN LE ESTAMOS DANDO SOPORTE):
+- Fecha y hora actual en Costa Rica (UTC-6): ${horaActualCR} (Franja horaria actual: ${saludoCR})
 - Cliente: ${clienteData?.nombre || "No registrado"}
 - Teléfono: ${targetCase?.customer_phone || "No indicado"}
 - Cuenta/Empresa: ${clienteData?.cuenta || "No registrada"}
@@ -1380,7 +1398,8 @@ REGLAS ESTRICTAS DE FORMATO Y ESTILO (OBLIGATORIAS):
       systemPrompt += `\n\nOBJETIVO INMEDIATO PARA ESTA INTERVENCIÓN:
 El técnico solicitó redactar la propuesta de respuesta que él enviará directamente al cliente en el chat de WhatsApp.
 PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
-- Responda con un tono profesional, humano, cercano, cordial y resolutivo ("Buenas tardes", "Con gusto le asisto...").
+- La hora actual en Costa Rica es ${horaActualCR}. El saludo correspondiente a esta hora es "${saludoCR}".
+- Si en la conversación ya se saludó previamente al cliente, NO repitas "Buenos días" ni "Buenas tardes"; entra directo con naturalidad ("Con gusto le explico...", "Claro, para configurar..."). Si vas a incluir saludo, usa estrictamente "${saludoCR}" (JAMÁS uses "Buenas tardes" si es de mañana ni inventes otra hora).
 - Ve directo al grano: dale al cliente la respuesta clara a su pregunta o el procedimiento técnico exacto paso a paso de lo que debe hacer en su equipo.
 - Si le indicas pasos o pruebas al cliente, usa viñetas sencillas con punto ("• ") directas y numeradas si es secuencial, con instrucciones fáciles de seguir para alguien no técnico.
 - NUNCA uses jerga interna del taller ni menciones precedentes de otros clientes, manuales internos ni códigos de caso de Sekunet.
@@ -1441,6 +1460,14 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
         fallbackParts.length > 0
           ? cleanAiFormatting(fallbackParts.join("\n\n"))
           : "Por favor intente nuevamente en unos segundos.";
+    }
+
+    if (crHourNum < 12) {
+      responseText = responseText.replace(/^(¡?Buenas\s+tardes|¡?Buenas\s+noches)\b/i, "Buenos días");
+    } else if (crHourNum >= 12 && crHourNum < 18) {
+      responseText = responseText.replace(/^(¡?Buenos\s+d[ií]as|¡?Buenas\s+noches)\b/i, "Buenas tardes");
+    } else {
+      responseText = responseText.replace(/^(¡?Buenos\s+d[ií]as|¡?Buenas\s+tardes)\b/i, "Buenas noches");
     }
 
     let clientDraftText = responseText;
