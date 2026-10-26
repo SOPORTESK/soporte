@@ -185,24 +185,31 @@ export async function analyzeMedia(
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
-    let apiKey = process.env.GEMINI_API_KEY || "";
+    let googleKey = process.env.GEMINI_API_KEY || "";
+    let groqKey = process.env.GROQ_API_KEY || "";
+    let openrouterKey = process.env.OPENROUTER_API_KEY || "";
 
     if (supabaseUrl && serviceKey) {
       try {
         const supabase = createClient(supabaseUrl, serviceKey);
-        const { data: prov } = await supabase
+        const { data: provs } = await supabase
           .from("sek_ai_providers")
-          .select("api_key")
-          .eq("id", "google")
-          .maybeSingle();
-        if (prov?.api_key) apiKey = prov.api_key;
+          .select("id, api_key")
+          .in("id", ["google", "groq", "openrouter"]);
+        if (provs) {
+          for (const p of provs) {
+            if (p.id === "google" && p.api_key) googleKey = p.api_key;
+            if (p.id === "groq" && p.api_key) groqKey = p.api_key;
+            if (p.id === "openrouter" && p.api_key) openrouterKey = p.api_key;
+          }
+        }
       } catch {
-        // Fallback a variable de entorno
+        // Fallback a variables de entorno
       }
     }
 
-    if (!apiKey) {
-      console.warn("[vision] No se encontró API key para Google Gemini");
+    if (!googleKey && !groqKey && !openrouterKey) {
+      console.warn("[vision] No se encontró ninguna API key disponible para análisis visual");
       return null;
     }
 
@@ -261,39 +268,121 @@ Analiza el contenido de este archivo técnico (${fileName || mimeType}): extrae 
     }
     const base64Data = buf.toString("base64");
 
-    const candidateModels = ["gemini-3.5-flash-lite", "gemini-3-flash-preview"];
-    for (const m of candidateModels) {
-      try {
-        const gRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [{
-                parts: [
-                  { text: prompt },
-                  { inline_data: { mime_type: mimeType, data: base64Data } }
-                ]
-              }],
-              generationConfig: { maxOutputTokens: 2048, temperature: 0.1 }
-            }),
-            signal: AbortSignal.timeout(15000),
+    // 1. Intentar con modelos de Google Gemini (soportan imagen, video y PDF)
+    if (googleKey) {
+      const candidateModels = ["gemini-3.5-flash-lite", "gemini-3-flash-preview"];
+      for (const m of candidateModels) {
+        try {
+          const gRes = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${googleKey}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contents: [{
+                  parts: [
+                    { text: prompt },
+                    { inline_data: { mime_type: mimeType, data: base64Data } }
+                  ]
+                }],
+                generationConfig: { maxOutputTokens: 2048, temperature: 0.1 }
+              }),
+              signal: AbortSignal.timeout(15000),
+            }
+          );
+          if (gRes.ok) {
+            const data = await gRes.json();
+            const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+            if (text) {
+              console.log(`[vision] Análisis exitoso con Google ${m} (${(buf.byteLength / 1024).toFixed(1)} KB)`);
+              return text;
+            }
+          } else {
+            const errTxt = await gRes.text();
+            console.warn(`[vision] Gemini ${m} error:`, gRes.status, errTxt.substring(0, 120));
           }
-        );
-        if (gRes.ok) {
-          const data = await gRes.json();
-          const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+        } catch (e: any) {
+          console.warn(`[vision] Fetch error ${m}:`, e?.message);
+        }
+      }
+    }
+
+    // 2. Respaldo de Visión con Groq (Llama 4 Scout Vision) para imágenes si Google falla
+    if (isImage && groqKey && buf.byteLength <= 4 * 1024 * 1024) {
+      try {
+        const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${groqKey}`,
+          },
+          body: JSON.stringify({
+            model: "meta-llama/llama-4-scout-17b-16e-instruct",
+            messages: [
+              {
+                role: "user",
+                content: [
+                  { type: "text", text: prompt },
+                  { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64Data}` } },
+                ],
+              },
+            ],
+            temperature: 0.1,
+            max_tokens: 1500,
+          }),
+          signal: AbortSignal.timeout(12000),
+        });
+        if (groqRes.ok) {
+          const data = await groqRes.json();
+          const text = data.choices?.[0]?.message?.content?.trim();
           if (text) {
-            console.log(`[vision] Análisis exitoso con modelo ${m} (${(buf.byteLength / 1024).toFixed(1)} KB)`);
+            console.log(`[vision] Análisis exitoso con Groq Llama-4-Scout (${(buf.byteLength / 1024).toFixed(1)} KB)`);
             return text;
           }
         } else {
-          const errTxt = await gRes.text();
-          console.warn(`[vision] Gemini ${m} error:`, gRes.status, errTxt.substring(0, 120));
+          const errTxt = await groqRes.text().catch(() => "");
+          console.warn("[vision] Groq Vision error:", groqRes.status, errTxt.substring(0, 120));
         }
       } catch (e: any) {
-        console.warn(`[vision] Fetch error ${m}:`, e?.message);
+        console.warn("[vision] Excepción Groq Vision:", e?.message);
+      }
+    }
+
+    // 3. Tercer respaldo con OpenRouter Vision (Gemma 3 27B Free)
+    if (isImage && openrouterKey && buf.byteLength <= 8 * 1024 * 1024) {
+      try {
+        const orRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${openrouterKey}`,
+          },
+          body: JSON.stringify({
+            model: "google/gemma-3-27b-it:free",
+            messages: [
+              {
+                role: "user",
+                content: [
+                  { type: "text", text: prompt },
+                  { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64Data}` } },
+                ],
+              },
+            ],
+            temperature: 0.1,
+            max_tokens: 1500,
+          }),
+          signal: AbortSignal.timeout(12000),
+        });
+        if (orRes.ok) {
+          const data = await orRes.json();
+          const text = data.choices?.[0]?.message?.content?.trim();
+          if (text) {
+            console.log(`[vision] Análisis exitoso con OpenRouter Gemma-3-27B (${(buf.byteLength / 1024).toFixed(1)} KB)`);
+            return text;
+          }
+        }
+      } catch (e: any) {
+        console.warn("[vision] Excepción OpenRouter Vision:", e?.message);
       }
     }
     return null;

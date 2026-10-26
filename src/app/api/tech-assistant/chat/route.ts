@@ -1260,48 +1260,61 @@ export async function POST(req: NextRequest) {
     // ── 5.3. Búsqueda Web Técnica en Vivo alineada al Caso ──
     let webContext = "";
     let retrievedWebResults: { title: string; url: string; snippet: string; kind: "oficial" | "foro" | "manual" }[] = [];
-    try {
-      const topFaultTerms = activeFaultTerms.slice(0, 3).join(" ");
-      const tokenHint = queryTokens.slice(0, 3).join(" ");
-      const cleanUserMsg = userQueryOnly
-        .replace(/^(como|cómo|por que|porque|ayuda|cual|cuál|que|qué|donde|dónde|favor|puedes|necesito|hola|buen dia|buenas)\s+/i, "")
-        .trim()
-        .substring(0, 80);
+    const isCaseInternalQuery =
+      isDraftAction ||
+      /\b(imagen|imagenes|imágenes|foto|fotos|captura|video|audio|nota de voz|vio|vió|viste|mand[oó]|envi[oó]|adjunt[oó]|dijo el cliente|que dice|qué dice|resumen del caso)\b/i.test(
+        userQueryOnly
+      );
 
-      const subject = cleanUserMsg.length > 8 ? cleanUserMsg : topFaultTerms || tokenHint;
-      const baseQuery = `${primaryBrand} ${productLine} ${primaryModel} ${subject}`.replace(/\s+/g, " ").trim();
-      const queryForWeb = baseQuery.length >= 3 ? baseQuery : `${primaryBrand} ${primaryModel} manual configuracion`.trim();
+    if (!isCaseInternalQuery) {
+      try {
+        const topFaultTerms = activeFaultTerms.slice(0, 3).join(" ");
+        const tokenHint = queryTokens.slice(0, 3).join(" ");
+        const cleanUserMsg = userQueryOnly
+          .replace(/^(como|cómo|por que|porque|ayuda|cual|cuál|que|qué|donde|dónde|favor|puedes|necesito|hola|buen dia|buenas)\s+/i, "")
+          .trim()
+          .substring(0, 80);
 
-      const officialQuery = `${queryForWeb} manual configuracion`;
-      const forumQuery = `${queryForWeb} solucion`;
-      console.log(`[tech-assistant] 🌐 Web oficial: "${officialQuery}" | Foros: "${forumQuery}"`);
+        const subject = cleanUserMsg.length > 8 ? cleanUserMsg : topFaultTerms || tokenHint;
+        const baseQuery = `${primaryBrand} ${productLine} ${primaryModel} ${subject}`.replace(/\s+/g, " ").trim();
+        const queryForWeb = baseQuery.length >= 3 ? baseQuery : `${primaryBrand} ${primaryModel} manual configuracion`.trim();
 
-      const [officialRes, forumRes] = await Promise.all([
-        searchTechnicalWeb(officialQuery, 4, false, primaryBrand, primaryModel, activeFaultDomain),
-        searchTechnicalWeb(forumQuery, 4, true, primaryBrand, primaryModel, activeFaultDomain),
-      ]);
+        const officialQuery = `${queryForWeb} manual configuracion`;
+        const forumQuery = `${queryForWeb} solucion`;
+        console.log(`[tech-assistant] 🌐 Web oficial: "${officialQuery}" | Foros: "${forumQuery}"`);
 
-      const seen = new Set<string>();
-      const merged: typeof retrievedWebResults = [];
-      const pushRes = (r: { title: string; url: string; snippet: string }) => {
-        const key = r.url.replace(/[#?].*$/, "").toLowerCase();
-        if (seen.has(key)) return;
-        seen.add(key);
-        merged.push({ ...r, kind: classifyWebSource(r.url) });
-      };
-      // Prioridad: 2 oficiales/manuales + 2 foros, luego completar
-      officialRes.slice(0, 2).forEach(pushRes);
-      forumRes.filter((r) => classifyWebSource(r.url) === "foro").slice(0, 2).forEach(pushRes);
-      [...officialRes, ...forumRes].forEach((r) => merged.length < 4 && pushRes(r));
+        const [officialRes, forumRes] = await Promise.race([
+          Promise.all([
+            searchTechnicalWeb(officialQuery, 4, false, primaryBrand, primaryModel, activeFaultDomain),
+            searchTechnicalWeb(forumQuery, 4, true, primaryBrand, primaryModel, activeFaultDomain),
+          ]),
+          new Promise<[any[], any[]]>((resolve) => setTimeout(() => resolve([[], []]), 3500)),
+        ]);
 
-      retrievedWebResults = merged.slice(0, 4);
-      if (retrievedWebResults.length > 0) {
-        webContext = retrievedWebResults
-          .map((r, i) => `[W${i + 1}] (${r.kind === "foro" ? "Foro técnico" : r.kind === "manual" ? "Manual" : "Sitio oficial"}) ${r.title} (${r.url})\n${r.snippet}`)
-          .join("\n\n");
+        const seen = new Set<string>();
+        const merged: typeof retrievedWebResults = [];
+        const pushRes = (r: { title: string; url: string; snippet: string }) => {
+          const key = r.url.replace(/[#?].*$/, "").toLowerCase();
+          if (seen.has(key)) return;
+          seen.add(key);
+          merged.push({ ...r, kind: classifyWebSource(r.url) });
+        };
+        // Prioridad: 2 oficiales/manuales + 2 foros, luego completar
+        officialRes.slice(0, 2).forEach(pushRes);
+        forumRes.filter((r) => classifyWebSource(r.url) === "foro").slice(0, 2).forEach(pushRes);
+        [...officialRes, ...forumRes].forEach((r) => merged.length < 4 && pushRes(r));
+
+        retrievedWebResults = merged.slice(0, 4);
+        if (retrievedWebResults.length > 0) {
+          webContext = retrievedWebResults
+            .map((r, i) => `[W${i + 1}] (${r.kind === "foro" ? "Foro técnico" : r.kind === "manual" ? "Manual" : "Sitio oficial"}) ${r.title} (${r.url})\n${r.snippet}`)
+            .join("\n\n");
+        }
+      } catch (webErr: any) {
+        console.warn("[tech-assistant] Error en búsqueda web en vivo:", webErr?.message);
       }
-    } catch (webErr: any) {
-      console.warn("[tech-assistant] Error en búsqueda web en vivo:", webErr?.message);
+    } else {
+      console.log("[tech-assistant] ⚡ Consulta directa sobre el caso/adjuntos: omitiendo búsqueda web externa para respuesta inmediata.");
     }
 
     // ── 6. System Prompt Maestro del Asistente Técnico ──
@@ -1376,8 +1389,8 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
 - DEVUELVA ÚNICAMENTE el texto que el técnico debe enviarle al cliente. No incluya introducciones como "Aquí tiene la respuesta:" ni notas dirigidas al técnico.`;
     }
 
-    // ── 7. Generar respuesta con IA (Multi-provider Fallback Chain) ──
-    let responseText = "Disculpe, no pude obtener una respuesta en este momento.";
+    // ── 7. Generar respuesta con IA (Multi-provider Fallback Chain + Rescate Compacto) ──
+    let responseText = "";
 
     try {
       const aiGen = await generateText("chat", {
@@ -1394,9 +1407,40 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
       if (aiGen?.text) {
         responseText = cleanAiFormatting(aiGen.text);
         console.log(`[tech-assistant] Respuesta generada exitosamente con ${aiGen.provider}/${aiGen.modelo}`);
+      } else {
+        // Reintento ultraligero con contexto reducido si la cadena completa agotó tiempo
+        const compactSystem = `Eres el Asistente Técnico Senior de Sekunet. Responde de forma directa, técnica y sin asteriscos al técnico sobre este caso (${equipoLinea}):\n\n${openCaseConversation.slice(-3500)}`;
+        const retryGen = await generateText("chat", {
+          system: compactSystem,
+          messages: [{ role: "user", content: userQueryOnly || message }],
+          temperature: 0.2,
+          maxTokens: 1200,
+          timeoutMs: 12_000,
+        });
+        if (retryGen?.text) {
+          responseText = cleanAiFormatting(retryGen.text);
+          console.log(`[tech-assistant] Respuesta generada en reintento compacto con ${retryGen.provider}/${retryGen.modelo}`);
+        }
       }
     } catch (aiErr: any) {
       console.error("[tech-assistant] Error generando respuesta:", aiErr?.message);
+    }
+
+    if (!responseText) {
+      const fallbackParts: string[] = [];
+      if (substantiveOpenCaseText) {
+        fallbackParts.push(`Resumen técnico del caso y evidencia analizada:\n${substantiveOpenCaseText.slice(-1500)}`);
+      }
+      if (historicalPrecedents) {
+        fallbackParts.push(`Precedentes comprobados en taller Sekunet:\n${historicalPrecedents.slice(0, 1200)}`);
+      }
+      if (ragContext) {
+        fallbackParts.push(`Documentación técnica oficial:\n${ragContext.slice(0, 1000)}`);
+      }
+      responseText =
+        fallbackParts.length > 0
+          ? cleanAiFormatting(fallbackParts.join("\n\n"))
+          : "Por favor intente nuevamente en unos segundos.";
     }
 
     let clientDraftText = responseText;

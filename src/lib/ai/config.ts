@@ -168,6 +168,21 @@ export interface GenerateOptions {
 }
 
 /**
+ * Circuit Breaker en memoria para recordar modelos con cuota agotada (429) o caídos,
+ * evitando perder segundos reintentando un proveedor que acaba de fallar.
+ */
+const modelCooldownUntil = new Map<string, number>();
+const COOLDOWN_QUOTA_MS = 180_000; // 3 minutos si devuelve 429 / 402 / 404
+const COOLDOWN_ERROR_MS = 60_000;  // 1 minuto si da timeout o error 5xx
+
+function compressSystemPrompt(sys: string | undefined, maxChars = 10_000): string | undefined {
+  if (!sys || sys.length <= maxChars) return sys;
+  const head = Math.floor(maxChars * 0.68);
+  const tail = maxChars - head;
+  return `${sys.substring(0, head)}\n\n[...Contexto histórico secundario resumido para optimizar ventana...]\n\n${sys.substring(sys.length - tail)}`;
+}
+
+/**
  * Genera texto probando la cadena del rol hasta que un modelo responda.
  * Devuelve el texto junto al modelo que respondió, o null si falló toda la cadena.
  */
@@ -175,12 +190,24 @@ export async function generateText(
   role: AiRole,
   opts: GenerateOptions
 ): Promise<{ text: string; modelo: string; provider: string } | null> {
-  const chain = await getChain(role);
+  const rawChain = await getChain(role);
+  if (rawChain.length === 0) return null;
+
+  const now = Date.now();
+  // Priorizar modelos sanos; dejar los que están en enfriamiento al final como último recurso
+  const chain = [
+    ...rawChain.filter(m => (modelCooldownUntil.get(`${m.provider}/${m.modelo}`) ?? 0) <= now),
+    ...rawChain.filter(m => (modelCooldownUntil.get(`${m.provider}/${m.modelo}`) ?? 0) > now),
+  ];
+
   const { system, messages, temperature = 0.3, maxTokens = 2048, timeoutMs = 25_000, tools } = opts;
 
   const deadline = Date.now() + timeoutMs;
   const safeMaxTokens = Math.min(maxTokens, 2048);
-  for (const m of chain) {
+
+  for (let idx = 0; idx < chain.length; idx++) {
+    const m = chain[idx];
+    const modelKey = `${m.provider}/${m.modelo}`;
     const remainingTime = deadline - Date.now();
     if (remainingTime < 2000) {
       console.warn(`[ai-fallback] ⏱️ Tiempo global agotado (${timeoutMs}ms), abortando cadena.`);
@@ -189,10 +216,11 @@ export async function generateText(
     const timeoutPerModel = Math.min(remainingTime, 12_000);
     const t0 = Date.now();
     try {
-      console.log(`[ai-fallback] Intentando con ${m.provider}/${m.modelo} (timeout: ${timeoutPerModel}ms)...`);
+      console.log(`[ai-fallback] Intentando con ${modelKey} (timeout: ${timeoutPerModel}ms)...`);
       let text = "";
 
       if (m.provider === "google") {
+        const effectiveSystem = idx > 1 ? compressSystemPrompt(system, 14_000) : system;
         const body: Record<string, unknown> = {
           contents: messages.map(x => ({
             role: x.role === "assistant" ? "model" : "user",
@@ -200,7 +228,7 @@ export async function generateText(
           })),
           generationConfig: { temperature, maxOutputTokens: safeMaxTokens },
         };
-        if (system) body.system_instruction = { parts: [{ text: system }] };
+        if (effectiveSystem) body.system_instruction = { parts: [{ text: effectiveSystem }] };
         if (tools) body.tools = tools;
 
         const res = await fetch(`${m.baseUrl}/models/${m.modelo}:generateContent?key=${m.apiKey}`, {
@@ -211,13 +239,17 @@ export async function generateText(
         });
         if (!res.ok) {
           const errBody = await res.text().catch(() => "");
-          console.warn(`[ai-fallback] ❌ ${m.provider}/${m.modelo} falló con status ${res.status} (${Date.now() - t0}ms): ${errBody.substring(0, 100)} -> Saltando al siguiente...`);
+          const cooldown = res.status === 429 || res.status === 402 || res.status === 404 ? COOLDOWN_QUOTA_MS : COOLDOWN_ERROR_MS;
+          modelCooldownUntil.set(modelKey, Date.now() + cooldown);
+          console.warn(`[ai-fallback] ❌ ${modelKey} falló con status ${res.status} (${Date.now() - t0}ms, enfriamiento ${cooldown / 1000}s): ${errBody.substring(0, 100)} -> Saltando al siguiente...`);
           continue;
         }
         const data = await res.json();
         text = data.candidates?.[0]?.content?.parts?.map((p: any) => p.text).filter(Boolean).join("") ?? "";
       } else {
-        const msgs = system ? [{ role: "system", content: system }, ...messages] : messages;
+        // Proveedores secundarios (Groq, Cloudflare, OpenRouter) tienen límites TPM más estrictos: comprimir system prompt
+        const effectiveSystem = compressSystemPrompt(system, idx >= 2 ? 7_500 : 10_500);
+        const msgs = effectiveSystem ? [{ role: "system", content: effectiveSystem }, ...messages] : messages;
         const res = await fetch(`${m.baseUrl}/chat/completions`, {
           method: "POST",
           headers: { "Content-Type": "application/json", "Authorization": `Bearer ${m.apiKey}` },
@@ -226,7 +258,9 @@ export async function generateText(
         });
         if (!res.ok) {
           const errBody = await res.text().catch(() => "");
-          console.warn(`[ai-fallback] ❌ ${m.provider}/${m.modelo} falló con status ${res.status} (${Date.now() - t0}ms): ${errBody.substring(0, 100)} -> Saltando al siguiente...`);
+          const cooldown = res.status === 429 || res.status === 402 || res.status === 404 ? COOLDOWN_QUOTA_MS : COOLDOWN_ERROR_MS;
+          modelCooldownUntil.set(modelKey, Date.now() + cooldown);
+          console.warn(`[ai-fallback] ❌ ${modelKey} falló con status ${res.status} (${Date.now() - t0}ms, enfriamiento ${cooldown / 1000}s): ${errBody.substring(0, 100)} -> Saltando al siguiente...`);
           continue;
         }
         const data = await res.json();
@@ -238,11 +272,13 @@ export async function generateText(
       }
 
       if (text.trim()) {
-        console.log(`[ai-fallback] ✅ Éxito con ${m.provider}/${m.modelo} en ${Date.now() - t0}ms`);
+        modelCooldownUntil.delete(modelKey);
+        console.log(`[ai-fallback] ✅ Éxito con ${modelKey} en ${Date.now() - t0}ms`);
         return { text: text.trim(), modelo: m.modelo, provider: m.provider };
       }
     } catch (e: any) {
-      console.warn(`[ai-fallback] ⚠️ Excepción/Timeout en ${m.provider}/${m.modelo} (${Date.now() - t0}ms): ${e?.message} -> Saltando al siguiente...`);
+      modelCooldownUntil.set(modelKey, Date.now() + COOLDOWN_ERROR_MS);
+      console.warn(`[ai-fallback] ⚠️ Excepción/Timeout en ${modelKey} (${Date.now() - t0}ms, enfriamiento 60s): ${e?.message} -> Saltando al siguiente...`);
     }
   }
 

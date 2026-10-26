@@ -3,6 +3,62 @@ import crypto from "crypto";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getEvolutionConfig } from "@/lib/evolution-config";
 import { performAutoExtract } from "@/lib/ai/auto-extract";
+import { analyzeMedia, transcribeAudio } from "@/lib/ai/vision";
+
+async function preAnalyzeCaseAttachment(
+  supabase: any,
+  caseId: string,
+  mediaUrl: string,
+  mediaType: string,
+  userText: string,
+  fileName: string
+) {
+  if (!caseId || !mediaUrl) return;
+  try {
+    const isAudio = String(mediaType || "").includes("audio") || String(fileName || "").match(/\.(ogg|opus|mp3|m4a|wav)$/i);
+    let transText: string | null = null;
+    let visionText: string | null = null;
+    if (isAudio) {
+      transText = await transcribeAudio(mediaUrl, mediaType);
+      if (transText) visionText = `Transcripción de nota de voz: "${transText}"`;
+    } else {
+      visionText = await analyzeMedia(mediaUrl, mediaType, userText || "", fileName || "");
+    }
+    if (!transText && !visionText) return;
+
+    const { data: cData } = await supabase
+      .from("sek_cases")
+      .select("histcliente, histtecnico")
+      .eq("id", caseId)
+      .maybeSingle();
+    if (!cData) return;
+
+    let changed = false;
+    const patch = (m: any) => {
+      if (m && m.mediaUrl === mediaUrl) {
+        changed = true;
+        return {
+          ...m,
+          ...(transText ? { transcription: transText } : {}),
+          ...(visionText ? { _visionAnalysis: visionText } : {}),
+        };
+      }
+      return m;
+    };
+
+    const nextCliente = Array.isArray(cData.histcliente) ? cData.histcliente.map(patch) : cData.histcliente;
+    const nextTecnico = Array.isArray(cData.histtecnico) ? cData.histtecnico.map(patch) : cData.histtecnico;
+    if (changed) {
+      await supabase
+        .from("sek_cases")
+        .update({ histcliente: nextCliente, histtecnico: nextTecnico })
+        .eq("id", caseId);
+      console.log(`[evo-webhook] Adjunto pre-analizado y guardado en segundo plano para caso ${caseId}`);
+    }
+  } catch (e: any) {
+    console.warn("[evo-webhook] Error en pre-análisis de adjunto:", e?.message);
+  }
+}
 
 export const maxDuration = 60; // Evita el timeout de 10s en Vercel Hobby
 
@@ -1933,6 +1989,13 @@ export async function POST(req: NextRequest) {
         await supabase.from("sek_cases").update(metaUpdate).eq("id", existing.id);
         
         console.log("[evo-webhook] Paso 9 OK - mensaje guardado en histcliente");
+
+        // Pre-analizar imagen o transcribir nota de voz en segundo plano inmediatamente al recibirla
+        if (mediaUrl && existing?.id) {
+          preAnalyzeCaseAttachment(supabase, String(existing.id), mediaUrl, finalMediaType || "", text || "", fileName || "").catch(e =>
+            console.warn("[evo-webhook] pre-analyze background:", e?.message)
+          );
+        }
 
         // Enriquecer caso con marca/modelo/cliente si aún no los tiene
         if ((existing as any)?.id && (!(existing as any)?.marca || !(existing as any)?.modelo)) {
