@@ -496,7 +496,9 @@ export function ChatView({
     agentEmail &&
     sekCase.assigned_to.toLowerCase() !== agentEmail.toLowerCase()
   );
-  const isSupervisorViewing = isAdminUser && isAssignedToOther;
+  const estadoCaseLower = String(sekCase.estado || "").toLowerCase();
+  const isCaseClosed = estadoCaseLower === "cerrado" || estadoCaseLower === "resuelto";
+  const isSupervisorViewing = isAdminUser && isAssignedToOther && !isCaseClosed;
 
   const assignedAgentDisplayName = React.useMemo(() => {
     if (!sekCase.assigned_to) return "Sin asignar";
@@ -2365,6 +2367,8 @@ export function ChatView({
         const next = {
           ...prev,
           cliente: data.cliente,
+          title: data.title || prev.title,
+          customer_phone: data.customer_phone || prev.customer_phone,
           marca: clienteDraft.marca || null,
           modelo: clienteDraft.modelo || null,
           problema: clienteDraft.descripcion || null,
@@ -2377,6 +2381,8 @@ export function ChatView({
           detail: {
             id: targetId,
             cliente: data.cliente,
+            title: data.title,
+            customer_phone: data.customer_phone,
             marca: clienteDraft.marca || null,
             modelo: clienteDraft.modelo || null,
             problema: clienteDraft.descripcion || null,

@@ -66,17 +66,18 @@ export default async function MiGestionPage({ searchParams }: { searchParams: { 
         .neq("es_test", true)
         .not("assigned_to", "is", null)
         .neq("assigned_to", agentEmail)
-        .not("estado", "in", '("cerrado","resuelto")')
+        .neq("estado", "cerrado")
+        .neq("estado", "resuelto")
         .order("last_message_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false })
-        .limit(150);
+        .limit(500);
 
       const [mineRes, othersRes] = await Promise.all([myCasesPromise, othersActivePromise]);
       const combined = [...(mineRes.data || []), ...(othersRes.data || [])];
       return { data: combined, error: mineRes.error || othersRes.error };
     },
     [],
-    30000 // 30s TTL
+    15000 // 15s TTL para respuesta ágil y actualización rápida
   );
 
   if (casesError) console.error("[mi-gestion] sek_cases error:", casesError);

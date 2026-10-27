@@ -206,10 +206,11 @@ async function fetchCasesMeta(supabase: any, limit = 1500, agentEmail?: string, 
         .neq("es_test", true)
         .not("assigned_to", "is", null)
         .neq("assigned_to", agentEmail)
-        .not("estado", "in", '("cerrado","resuelto")')
+        .neq("estado", "cerrado")
+        .neq("estado", "resuelto")
         .order("last_message_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false })
-        .limit(150),
+        .limit(500),
     ]);
     const combined = [...(mineRes.data || []), ...(othersRes.data || [])];
     return combined as SekCase[];
@@ -835,6 +836,8 @@ export function InboxClient({
           marca: detail.marca !== undefined ? detail.marca : c.marca,
           modelo: detail.modelo !== undefined ? detail.modelo : c.modelo,
           problema: detail.problema !== undefined ? detail.problema : c.problema,
+          title: detail.title !== undefined ? detail.title : c.title,
+          customer_phone: detail.customer_phone !== undefined ? detail.customer_phone : c.customer_phone,
           cat: detail.cat !== undefined ? detail.cat : c.cat,
           prioridad: detail.prioridad !== undefined ? detail.prioridad : c.prioridad,
         };

@@ -89,13 +89,20 @@ export async function PATCH(
     const updatedCliente = { ...currentCliente, ...cleanFields };
 
     // Determinar el teléfono para buscar todos los casos del mismo cliente
-    const clienteTel = (currentCliente.telefono as string || caseData.customer_phone || "").trim().replace(/[^0-9]/g, "");
+    const clienteTel = (cleanFields.telefono || currentCliente.telefono as string || caseData.customer_phone || "").trim().replace(/[^0-9]/g, "");
 
-    // Actualizar el caso actual (sincronizando también columnas principales de marca/modelo/problema si se editaron)
+    // Construir título actualizado si se editó nombre o cuenta
+    const nombreFinal = cleanFields.nombre !== undefined ? cleanFields.nombre : (currentCliente.nombre as string || "");
+    const cuentaFinal = cleanFields.cuenta !== undefined ? cleanFields.cuenta : (currentCliente.cuenta as string || "");
+    const nuevoTitle = [nombreFinal, cuentaFinal].filter(Boolean).join(" - ").trim();
+
+    // Actualizar el caso actual (sincronizando también columnas principales de marca/modelo/problema/title/customer_phone)
     const caseUpdates: Record<string, unknown> = {
       cliente: updatedCliente,
       updated_at: new Date().toISOString()
     };
+    if (nuevoTitle) caseUpdates.title = nuevoTitle;
+    if (clienteTel) caseUpdates.customer_phone = clienteTel;
     if (cleanFields.marca !== undefined) caseUpdates.marca = cleanFields.marca || null;
     if (cleanFields.modelo !== undefined) caseUpdates.modelo = cleanFields.modelo || null;
     if (cleanFields.descripcion !== undefined) caseUpdates.problema = cleanFields.descripcion || null;
@@ -119,10 +126,18 @@ export async function PATCH(
     }
 
     if (clienteTel && Object.keys(contactOnlyFields).length > 0) {
+      const phoneQueries = [
+        `customer_phone.eq.${clienteTel}`,
+        `customer_phone.eq.${clienteTel}@s.whatsapp.net`,
+        `customer_phone.eq.${clienteTel}@g.us`
+      ];
+      if (clienteTel.length >= 8) {
+        phoneQueries.push(`customer_phone.ilike.%${clienteTel.slice(-8)}%`);
+      }
       const { data: relatedCases } = await supabase
         .from("sek_cases")
-        .select("id, cliente")
-        .or(`customer_phone.eq.${clienteTel},customer_phone.eq.${clienteTel}@s.whatsapp.net,customer_phone.eq.${clienteTel}@g.us`)
+        .select("id, cliente, title")
+        .or(phoneQueries.join(","))
         .neq("id", targetCaseId);
 
       if (relatedCases && relatedCases.length > 0) {
@@ -131,9 +146,16 @@ export async function PATCH(
             ? rc.cliente as Record<string, unknown>
             : {};
           const mergedCliente = { ...rcCliente, ...contactOnlyFields };
+          const rcUpdates: Record<string, unknown> = {
+            cliente: mergedCliente,
+            updated_at: new Date().toISOString(),
+          };
+          if (nuevoTitle) rcUpdates.title = nuevoTitle;
+          if (clienteTel) rcUpdates.customer_phone = clienteTel;
+
           await supabase
             .from("sek_cases")
-            .update({ cliente: mergedCliente })
+            .update(rcUpdates)
             .eq("id", rc.id);
         }
       }
@@ -212,7 +234,12 @@ export async function PATCH(
       console.warn("[soporte->garantias] Error al sincronizar con garantías:", gSyncErr);
     }
 
-    return NextResponse.json({ ok: true, cliente: updatedCliente });
+    return NextResponse.json({
+      ok: true,
+      cliente: updatedCliente,
+      title: (caseUpdates.title as string) || caseData.title,
+      customer_phone: (caseUpdates.customer_phone as string) || caseData.customer_phone,
+    });
   } catch (e: any) {
     console.error("[PATCH /api/cases/[id]/cliente] Exception:", e.message);
     return NextResponse.json({ error: e.message }, { status: 500 });
