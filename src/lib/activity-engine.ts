@@ -181,6 +181,23 @@ export function isCategoryName(c: string): boolean {
   );
 }
 
+export function isPassiveTimelineItem(it: TimelineEntry): boolean {
+  const act = (it.action || "").toLowerCase();
+  const cat = (it.category || "").toLowerCase();
+  return (
+    cat.includes("inactiv") ||
+    act.includes("sin actividad") ||
+    act.includes("pantalla bloqueada") ||
+    act.includes("lockapp") ||
+    act.includes("mystify") ||
+    act.endsWith(".scr") ||
+    act.startsWith("inició:") ||
+    act.startsWith("inicio:") ||
+    act.startsWith("terminó:") ||
+    act.startsWith("termino:")
+  );
+}
+
 /**
  * Normaliza y extrae el nombre limpio del software o labor manual real
  */
@@ -867,14 +884,66 @@ export function computeUnifiedActivityMetrics(
         }
       }
       if (foundEndMs > tMs) {
-        const rawElapsed = foundEndMs - tMs;
-        // La ventana física de cobertura es estrictamente [tMs, foundEndMs] para no desplazar ni inflar el reloj real
-        manualIntervals.push({
-          startMs: tMs,
-          endMs: foundEndMs,
-          category: it.category || "Descansos",
-          label: taskLabel,
-        });
+        const catLower = (it.category || "").toLowerCase();
+        const isSanitary = catLower.includes("sanitaria") || taskLabel.toLowerCase().includes("baño") || taskLabel.toLowerCase().includes("bano");
+        const isBreak = isSanitary || catLower.includes("descanso") || taskLabel.toLowerCase().includes("almuerzo") || taskLabel.toLowerCase().includes("café") || taskLabel.toLowerCase().includes("cafe");
+
+        if (isBreak) {
+          // Descomponer el intervalo en los lapsos donde el usuario estuvo efectivamente ausente del PC
+          // sin absorber los eventos donde estuvo trabajando activamente en software
+          let segStart = tMs;
+          let totalSanitaryAccumMs = 0;
+          for (let k = i + 1; k < sorted.length; k++) {
+            const evK = sorted[k];
+            const tK = new Date(evK.created_at).getTime();
+            if (tK >= foundEndMs) break;
+
+            if (!isPassiveTimelineItem(evK)) {
+              // Hubo trabajo activo en PC en evK. El descanso físico se pausa aquí
+              if (tK > segStart + 20000) {
+                let segDur = tK - segStart;
+                if (isSanitary) {
+                  segDur = Math.min(segDur, Math.max(0, 15 * 60 * 1000 - totalSanitaryAccumMs));
+                  totalSanitaryAccumMs += segDur;
+                }
+                if (segDur > 0) {
+                  manualIntervals.push({
+                    startMs: segStart,
+                    endMs: segStart + segDur,
+                    category: it.category || "Descansos",
+                    label: taskLabel,
+                  });
+                }
+              }
+              // El nuevo segmento de pausa solo reanudará cuando el PC vuelva a estar inactivo/bloqueado
+              segStart = tK + 60000;
+            } else if (isPassiveTimelineItem(evK)) {
+              if (segStart > tK) segStart = tK;
+            }
+          }
+
+          if (foundEndMs > segStart + 20000) {
+            let segDur = foundEndMs - segStart;
+            if (isSanitary) {
+              segDur = Math.min(segDur, Math.max(0, 15 * 60 * 1000 - totalSanitaryAccumMs));
+            }
+            if (segDur > 0) {
+              manualIntervals.push({
+                startMs: segStart,
+                endMs: segStart + segDur,
+                category: it.category || "Descansos",
+                label: taskLabel,
+              });
+            }
+          }
+        } else {
+          manualIntervals.push({
+            startMs: tMs,
+            endMs: foundEndMs,
+            category: it.category || "Descansos",
+            label: taskLabel,
+          });
+        }
       } else if (isTodayDay && i === sorted.length - 1) {
         // Tarea manual en curso únicamente si es hoy y es el último evento activo
         const nowMs = Date.now();
@@ -1216,7 +1285,10 @@ export function computeUnifiedActivityMetrics(
           const nowMs = Date.now();
           const elapsed = nowMs - currTime;
           dur = elapsed > 0 ? elapsed : 60000;
-        } else if (isManualEnd || it.duration_ms) {
+        } else if (isManualEnd) {
+          // El cierre de una labor manual ya fue imputado por su evento de inicio correspondiente; dur = 0
+          dur = 0;
+        } else if (it.duration_ms) {
           dur = Number(it.duration_ms);
         }
 
@@ -1297,8 +1369,39 @@ export function computeUnifiedActivityMetrics(
         ) {
           const explicitMs = Number(nextIt.duration_ms || (nextMeta.duration_seconds ? nextMeta.duration_seconds * 1000 : 0));
           const elapsedToEnd = Math.max(0, new Date(nextIt.created_at).getTime() - currTime);
-          // Respetar el tiempo físico real entre inicio y fin; si explicitMs es menor o cercano, usar elapsedToEnd sin permitir desbordes > 15 min sobre el reloj real
-          manualDuration = explicitMs > 0 ? Math.min(explicitMs, elapsedToEnd + 15 * 60 * 1000) : elapsedToEnd;
+          let effectiveMs = explicitMs > 0 ? Math.min(explicitMs, elapsedToEnd + 15 * 60 * 1000) : elapsedToEnd;
+          const catLower = (it.category || "").toLowerCase();
+          const isSanitary = catLower.includes("sanitaria") || taskLabel.includes("baño") || taskLabel.includes("bano");
+          const isBreak = isSanitary || catLower.includes("descanso") || taskLabel.includes("almuerzo") || taskLabel.includes("café") || taskLabel.includes("cafe");
+
+          if (isBreak) {
+            // Calcular el tiempo pasivo real (ausencia de pantalla) dentro del intervalo
+            let passiveAccumMs = 0;
+            let currentPassiveStart = currTime;
+            for (let k = i + 1; k < j; k++) {
+              const evK = sorted[k];
+              const tK = new Date(evK.created_at).getTime();
+              if (!isPassiveTimelineItem(evK)) {
+                if (tK > currentPassiveStart) {
+                  passiveAccumMs += (tK - currentPassiveStart);
+                }
+                currentPassiveStart = tK + 60000;
+              } else {
+                if (currentPassiveStart > tK) currentPassiveStart = tK;
+              }
+            }
+            const endEventTime = new Date(sorted[j].created_at).getTime();
+            if (endEventTime > currentPassiveStart) {
+              passiveAccumMs += (endEventTime - currentPassiveStart);
+            }
+
+            if (isSanitary) {
+              passiveAccumMs = Math.min(passiveAccumMs, 15 * 60 * 1000);
+            }
+            effectiveMs = Math.max(60000, passiveAccumMs);
+          }
+
+          manualDuration = effectiveMs;
           handledEndIndices.add(j);
           break;
         }

@@ -1008,7 +1008,9 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
                 stopped.label.toLowerCase() === label.toLowerCase() &&
                 (startMs <= stopped.stoppedAt || Date.now() - stopped.stoppedAt < 60000)
               );
-              if (hasEnd || isDifferentDay || wasRecentlyStopped || (Date.now() - startMs > 8 * 60 * 60 * 1000)) {
+              const isSanitary = label.toLowerCase().includes("baño") || label.toLowerCase().includes("bano") || (lastManual.category || "").toLowerCase().includes("sanitaria");
+              const maxAllowedTaskMs = isSanitary ? 15 * 60 * 1000 : 8 * 60 * 60 * 1000;
+              if (hasEnd || isDifferentDay || wasRecentlyStopped || (Date.now() - startMs > maxAllowedTaskMs)) {
                 setManualTask(null);
                 try { localStorage.removeItem("sekunet_manual_task"); } catch {}
               } else {
