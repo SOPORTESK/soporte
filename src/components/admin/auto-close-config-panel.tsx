@@ -13,6 +13,7 @@ import {
   LogOut,
   Star,
   SlidersHorizontal,
+  UserCheck,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -62,6 +63,12 @@ export function AutoCloseConfigPanel() {
   const [surveyMsg, setSurveyMsg] = useState<string>(DEFAULT_SURVEY_MSG);
   const [showSurveyEditor, setShowSurveyEditor] = useState<boolean>(false);
 
+  // Sección 5: Calificación del Cliente por el Agente
+  const [agentRatingEnabled, setAgentRatingEnabled] = useState<boolean>(true);
+  const [agentRatingAllowSkip, setAgentRatingAllowSkip] = useState<boolean>(true);
+  const [agentRatingRequireComment, setAgentRatingRequireComment] = useState<boolean>(false);
+  const [showAgentRatingEditor, setShowAgentRatingEditor] = useState<boolean>(false);
+
   // Estado general
   const [loading, setLoading] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
@@ -90,6 +97,11 @@ export function AutoCloseConfigPanel() {
           if (data.survey) {
             setSurveyEnabled(Boolean(data.survey.enabled));
             if (data.survey.message) setSurveyMsg(data.survey.message);
+          }
+          if (data.agent_rating) {
+            setAgentRatingEnabled(Boolean(data.agent_rating.enabled));
+            setAgentRatingAllowSkip(data.agent_rating.allow_skip !== undefined ? Boolean(data.agent_rating.allow_skip) : true);
+            setAgentRatingRequireComment(Boolean(data.agent_rating.require_comment));
           }
         }
       })
@@ -142,6 +154,11 @@ export function AutoCloseConfigPanel() {
             enabled: surveyEnabled,
             message: surveyMsg,
           },
+          agent_rating: {
+            enabled: agentRatingEnabled,
+            allow_skip: agentRatingAllowSkip,
+            require_comment: agentRatingRequireComment,
+          },
         }),
       });
 
@@ -151,7 +168,7 @@ export function AutoCloseConfigPanel() {
       }
 
       setHasChanges(false);
-      toast.success("Configuración de cierre, fuera de horario y encuesta guardada exitosamente.");
+      toast.success("Configuración guardada exitosamente.");
     } catch (err: any) {
       toast.error(err.message || "Error al guardar configuración");
     } finally {
@@ -159,10 +176,10 @@ export function AutoCloseConfigPanel() {
     }
   };
 
-  const activeRulesCount = [enabled, afterHoursEnabled, dailyCloseEnabled, surveyEnabled].filter(Boolean).length;
+  const activeRulesCount = [enabled, afterHoursEnabled, dailyCloseEnabled, surveyEnabled, agentRatingEnabled].filter(Boolean).length;
 
   return (
-    <section className="rounded-2xl border border-border/60 bg-card p-5 lg:p-6 shadow-sm h-full flex flex-col justify-between space-y-5">
+    <section className="rounded-2xl border border-border/60 bg-card p-4 sm:p-5 lg:p-6 shadow-sm h-full flex flex-col justify-between space-y-4">
       {/* ── HEADER MAESTRO (SIMÉTRICO CON EL PANEL DE HORARIOS) ── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border/60 pb-4">
         <div className="flex items-start gap-3 min-w-0 flex-1">
@@ -177,7 +194,7 @@ export function AutoCloseConfigPanel() {
               </span>
             </div>
             <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-              Gestión centralizada de auto-cierre, fuera de horario, fin de jornada y encuesta.
+              Gestión centralizada de auto-cierre, fuera de horario, fin de jornada, encuesta y evaluación de clientes.
             </p>
           </div>
         </div>
@@ -195,16 +212,16 @@ export function AutoCloseConfigPanel() {
                 activeRulesCount > 0 ? "bg-emerald-400 animate-pulse" : "bg-muted-foreground"
               }`}
             />
-            {activeRulesCount} de 4 Activas
+            {activeRulesCount} de 5 Activas
           </span>
         </div>
       </div>
 
-      {/* ── CONTENIDO PRINCIPAL: 4 HERRAMIENTAS MODULARES EN TARJETAS INDEPENDIENTES ── */}
-      <div className="space-y-4 flex-1 flex flex-col justify-between">
+      {/* ── CONTENIDO PRINCIPAL: 5 HERRAMIENTAS MODULARES EN TARJETAS INDEPENDIENTES ── */}
+      <div className="space-y-3 flex-1 flex flex-col justify-between">
         {/* ── TARJETA 1: AUTO-CIERRE POR INACTIVIDAD ── */}
         <div
-          className={`p-4.5 rounded-xl border transition-all space-y-3.5 ${
+          className={`p-3.5 sm:p-4 rounded-xl border transition-all space-y-3 ${
             enabled
               ? "bg-muted/20 border-border/80 shadow-xs ring-1 ring-emerald-500/15"
               : "bg-muted/10 border-border/40"
@@ -371,7 +388,7 @@ export function AutoCloseConfigPanel() {
 
         {/* ── TARJETA 2: RESPUESTAS FUERA DE HORARIO ── */}
         <div
-          className={`p-4.5 rounded-xl border transition-all space-y-3.5 ${
+          className={`p-3.5 sm:p-4 rounded-xl border transition-all space-y-3 ${
             afterHoursEnabled
               ? "bg-muted/20 border-border/80 shadow-xs ring-1 ring-indigo-500/15"
               : "bg-muted/10 border-border/40"
@@ -495,7 +512,7 @@ export function AutoCloseConfigPanel() {
 
         {/* ── TARJETA 3: CIERRE GENERAL AL FIN DE JORNADA ── */}
         <div
-          className={`p-4.5 rounded-xl border transition-all space-y-3.5 ${
+          className={`p-3.5 sm:p-4 rounded-xl border transition-all space-y-3 ${
             dailyCloseEnabled
               ? "bg-muted/20 border-border/80 shadow-xs ring-1 ring-amber-500/15"
               : "bg-muted/10 border-border/40"
@@ -660,7 +677,7 @@ export function AutoCloseConfigPanel() {
 
         {/* ── TARJETA 4: ENCUESTA DE SATISFACCIÓN (WHATSAPP) ── */}
         <div
-          className={`p-4.5 rounded-xl border transition-all space-y-3.5 ${
+          className={`p-3.5 sm:p-4 rounded-xl border transition-all space-y-3 ${
             surveyEnabled
               ? "bg-muted/20 border-border/80 shadow-xs ring-1 ring-sky-500/15"
               : "bg-muted/10 border-border/40"
@@ -785,6 +802,160 @@ export function AutoCloseConfigPanel() {
             <div className="p-2.5 rounded-lg bg-muted/30 border border-border/40 flex items-center gap-2 text-muted-foreground text-xs">
               <AlertCircle className="h-3.5 w-3.5 shrink-0 text-sky-500/70" />
               <span>La encuesta está apagada. Al cerrar los casos se finalizarán directamente sin solicitar calificación por WhatsApp.</span>
+            </div>
+          )}
+        </div>
+
+        {/* ── TARJETA 5: CALIFICACIÓN DEL CLIENTE POR EL AGENTE ── */}
+        <div
+          className={`p-3.5 sm:p-4 rounded-xl border transition-all space-y-3 ${
+            agentRatingEnabled
+              ? "bg-muted/20 border-border/80 shadow-xs ring-1 ring-violet-500/15"
+              : "bg-muted/10 border-border/40"
+          }`}
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div
+                className={`h-9 w-9 rounded-xl grid place-items-center shrink-0 transition-colors ${
+                  agentRatingEnabled ? "bg-violet-500/15 text-violet-400 border border-violet-500/30" : "bg-muted text-muted-foreground"
+                }`}
+              >
+                <UserCheck className="h-4 w-4" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-sm font-black tracking-tight text-foreground whitespace-nowrap">
+                    Calificación del Cliente por el Agente
+                  </h3>
+                  <span
+                    className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full shrink-0 whitespace-nowrap ${
+                      agentRatingEnabled
+                        ? "bg-violet-500/15 text-violet-400 border border-violet-500/30"
+                        : "bg-muted text-muted-foreground border border-border"
+                    }`}
+                  >
+                    {agentRatingEnabled ? "Activado" : "Apagado"}
+                  </span>
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  {agentRatingEnabled
+                    ? "Muestra al técnico una ventana modal para evaluar al cliente (1 al 5) antes de cerrar el ticket."
+                    : "Desactivado. Al cerrar un caso, el ticket se cierra de inmediato sin solicitar calificación al agente."}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 self-end sm:self-center shrink-0">
+              <span className="text-xs font-bold text-muted-foreground">
+                {agentRatingEnabled ? "ON" : "OFF"}
+              </span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={agentRatingEnabled}
+                onClick={() => {
+                  setAgentRatingEnabled((v) => !v);
+                  setHasChanges(true);
+                }}
+                disabled={loading}
+                className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
+                  agentRatingEnabled ? "bg-violet-500" : "bg-muted-foreground/30"
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                    agentRatingEnabled ? "translate-x-5" : "translate-x-0"
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+
+          {/* Ajustes adicionales cuando está activado */}
+          {agentRatingEnabled && (
+            <div className="rounded-xl border border-border/40 bg-background/60 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setShowAgentRatingEditor((v) => !v)}
+                className="flex items-center justify-between w-full text-left p-2.5 text-xs font-semibold text-foreground hover:bg-muted/40 transition-colors group"
+              >
+                <div className="flex items-center gap-2">
+                  <SlidersHorizontal className="h-3.5 w-3.5 text-violet-400" />
+                  <span>Ajustes de evaluación al cliente</span>
+                </div>
+                <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground group-hover:text-foreground">
+                  <span>{showAgentRatingEditor ? "Ocultar" : "Personalizar"}</span>
+                  <ChevronDown
+                    className={`h-3.5 w-3.5 transition-transform duration-200 ${
+                      showAgentRatingEditor ? "rotate-180" : ""
+                    }`}
+                  />
+                </div>
+              </button>
+
+              {showAgentRatingEditor && (
+                <div className="p-3.5 pt-1 border-t border-border/30 space-y-3">
+                  {/* Opción 1: Permitir omitir */}
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-bold text-foreground">Permitir omitir calificación</p>
+                      <p className="text-[10px] text-muted-foreground">Muestra la opción Cerrar caso sin calificar para no demorar al técnico.</p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={agentRatingAllowSkip}
+                      onClick={() => {
+                        setAgentRatingAllowSkip((v) => !v);
+                        setHasChanges(true);
+                      }}
+                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
+                        agentRatingAllowSkip ? "bg-violet-500" : "bg-muted-foreground/30"
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition duration-200 ease-in-out ${
+                          agentRatingAllowSkip ? "translate-x-5" : "translate-x-0"
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  {/* Opción 2: Requerir comentario en notas bajas */}
+                  <div className="flex items-center justify-between gap-3 pt-2.5 border-t border-border/30">
+                    <div>
+                      <p className="text-xs font-bold text-foreground">Exigir notas si la calificación es baja (≤ 2 estrellas)</p>
+                      <p className="text-[10px] text-muted-foreground">Obliga al agente a justificar por escrito el motivo de calificar negativamente al cliente.</p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={agentRatingRequireComment}
+                      onClick={() => {
+                        setAgentRatingRequireComment((v) => !v);
+                        setHasChanges(true);
+                      }}
+                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
+                        agentRatingRequireComment ? "bg-violet-500" : "bg-muted-foreground/30"
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition duration-200 ease-in-out ${
+                          agentRatingRequireComment ? "translate-x-5" : "translate-x-0"
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {!agentRatingEnabled && (
+            <div className="p-2.5 rounded-lg bg-muted/30 border border-border/40 flex items-center gap-2 text-muted-foreground text-xs">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0 text-violet-500/70" />
+              <span>Calificación del agente apagada. Los casos se cerrarán de inmediato sin solicitar calificación.</span>
             </div>
           )}
         </div>

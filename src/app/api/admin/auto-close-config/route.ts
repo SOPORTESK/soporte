@@ -29,6 +29,12 @@ const DEFAULT_SURVEY = {
     "¿Cómo calificaría la atención recibida? Responda con un número del 1 al 5, donde 1 es muy mala y 5 es excelente.",
 };
 
+const DEFAULT_AGENT_RATING = {
+  enabled: true,
+  allow_skip: true,
+  require_comment: false,
+};
+
 function getSupabaseAdmin() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -48,7 +54,7 @@ export async function GET() {
     const { data: rows, error } = await supabase
       .from("sek_app_settings")
       .select("key, value")
-      .in("key", ["auto_close_config", "after_hours_config", "daily_close_config", "survey_config"]);
+      .in("key", ["auto_close_config", "after_hours_config", "daily_close_config", "survey_config", "agent_rating_config"]);
 
     if (error) throw error;
 
@@ -56,6 +62,7 @@ export async function GET() {
     let afterHours = { ...DEFAULT_AFTER_HOURS };
     let dailyClose = { ...DEFAULT_DAILY_CLOSE };
     let survey = { ...DEFAULT_SURVEY };
+    let agentRating = { ...DEFAULT_AGENT_RATING };
 
     if (rows && rows.length > 0) {
       for (const row of rows) {
@@ -84,6 +91,12 @@ export async function GET() {
               enabled: Boolean(parsed.enabled),
               message: parsed.message || DEFAULT_SURVEY.message,
             };
+          } else if (row.key === "agent_rating_config" && parsed) {
+            agentRating = {
+              enabled: parsed.enabled !== undefined ? Boolean(parsed.enabled) : DEFAULT_AGENT_RATING.enabled,
+              allow_skip: parsed.allow_skip !== undefined ? Boolean(parsed.allow_skip) : DEFAULT_AGENT_RATING.allow_skip,
+              require_comment: Boolean(parsed.require_comment),
+            };
           }
         } catch (_e) {}
       }
@@ -95,6 +108,7 @@ export async function GET() {
       after_hours: afterHours,
       daily_close: dailyClose,
       survey,
+      agent_rating: agentRating,
     });
   } catch (error: any) {
     console.error("Error reading auto-close config:", error);
@@ -106,6 +120,7 @@ export async function GET() {
         after_hours: DEFAULT_AFTER_HOURS,
         daily_close: DEFAULT_DAILY_CLOSE,
         survey: DEFAULT_SURVEY,
+        agent_rating: DEFAULT_AGENT_RATING,
       },
       { status: 500 }
     );
@@ -180,6 +195,22 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // Calificación del cliente por el agente
+    if (body.agent_rating !== undefined) {
+      const agentRatingToSave = {
+        enabled: Boolean(body.agent_rating.enabled),
+        allow_skip: body.agent_rating.allow_skip !== undefined ? Boolean(body.agent_rating.allow_skip) : DEFAULT_AGENT_RATING.allow_skip,
+        require_comment: Boolean(body.agent_rating.require_comment),
+      };
+      upserts.push({
+        key: "agent_rating_config",
+        value: JSON.stringify(agentRatingToSave),
+        updated_at: nowIso,
+        iv: "none",
+        tag: "none",
+      });
+    }
+
     const { error } = await supabase
       .from("sek_app_settings")
       .upsert(upserts, { onConflict: "key" });
@@ -192,6 +223,7 @@ export async function POST(req: NextRequest) {
       after_hours: body.after_hours,
       daily_close: body.daily_close,
       survey: body.survey,
+      agent_rating: body.agent_rating,
     });
   } catch (error: any) {
     console.error("Error saving auto-close config:", error);

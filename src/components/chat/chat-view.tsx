@@ -177,6 +177,12 @@ let cachedPersonalPlantillasMap: Record<string, any[]> = {};
 let cachedAgentsList: any[] | null = null;
 let cachedAgentUser: { email: string; name: string; role: string } | null = null;
 let cachedModoNoAtendido: boolean | null = null;
+interface AgentRatingConfig {
+  enabled: boolean;
+  allow_skip: boolean;
+  require_comment: boolean;
+}
+let cachedAgentRatingConfig: AgentRatingConfig | null = null;
 const caseHistoryCache = new Map<string, { sekCase: SekCase; timestamp: number }>();
 
 export function ChatView({
@@ -216,6 +222,12 @@ export function ChatView({
   const [modoNoAtendido, setModoNoAtendido] = React.useState(() => cachedModoNoAtendido ?? false);
   const modoNoAtendidoRef = React.useRef(cachedModoNoAtendido ?? false);
   const [modoNoAtendidoLoaded, setModoNoAtendidoLoaded] = React.useState(() => cachedModoNoAtendido !== null);
+  const [agentRatingConfig, setAgentRatingConfig] = React.useState<AgentRatingConfig>(
+    () => cachedAgentRatingConfig ?? { enabled: true, allow_skip: true, require_comment: false }
+  );
+  const agentRatingConfigRef = React.useRef<AgentRatingConfig>(
+    cachedAgentRatingConfig ?? { enabled: true, allow_skip: true, require_comment: false }
+  );
   const [replyTo, setReplyTo] = React.useState<UnifiedMessage | null>(null);
 
 
@@ -231,6 +243,20 @@ export function ChatView({
         setModoNoAtendidoLoaded(true);
       })
       .catch(() => setModoNoAtendidoLoaded(true));
+  }, []);
+
+  React.useEffect(() => {
+    if (cachedAgentRatingConfig !== null) return;
+    fetch("/api/admin/auto-close-config")
+      .then(r => r.json())
+      .then(d => {
+        if (d?.success && d?.agent_rating) {
+          cachedAgentRatingConfig = d.agent_rating;
+          setAgentRatingConfig(d.agent_rating);
+          agentRatingConfigRef.current = d.agent_rating;
+        }
+      })
+      .catch(() => {});
   }, []);
 
   // Escuchar evento del asistente técnico flotante para insertar texto en el draft
@@ -1153,10 +1179,14 @@ export function ChatView({
     // prev === "" → carga inicial, no disparar
     // Solo disparar si cambió de un estado no-final a final durante esta sesión
     if (prev !== "" && !isFinal(prev) && isFinal(curr) && !modalShownRef.current && modoNoAtendidoLoaded && !modoNoAtendidoRef.current) {
-      modalShownRef.current = true;
-      const prevRating = (sekCase.cliente as any)?.calificacion_agente;
-      if (prevRating) setClientRating(Number(prevRating) || 5);
-      setShowRatingModal(true);
+      if (agentRatingConfigRef.current.enabled) {
+        modalShownRef.current = true;
+        const prevRating = (sekCase.cliente as any)?.calificacion_agente;
+        if (prevRating) setClientRating(Number(prevRating) || 5);
+        setShowRatingModal(true);
+      } else {
+        modalShownRef.current = true;
+      }
     }
     // Si el caso se reabrió, resetear para que pueda volver a dispararse
     if (!isFinal(curr)) modalShownRef.current = false;
@@ -1782,15 +1812,19 @@ export function ChatView({
   async function toggleCaso() {
     const newEstado = cerrado ? "abierto" : "cerrado";
     
-    // Siempre mostrar modal de calificación al cerrar
-    // Si ya tiene calificación previa, pre-rellenar
+    // Mostrar modal de calificación al cerrar solo si está habilitado en configuración
     // EXCEPTO en modo no atendido: cerrar directamente sin modal
     if (newEstado === "cerrado" && !modoNoAtendidoRef.current) {
-      const prevRating = (sekCase.cliente as any)?.calificacion_agente;
-      if (prevRating) setClientRating(Number(prevRating) || 5);
-      modalShownRef.current = true;
-      setShowRatingModal(true);
+      if (agentRatingConfigRef.current.enabled) {
+        const prevRating = (sekCase.cliente as any)?.calificacion_agente;
+        if (prevRating) setClientRating(Number(prevRating) || 5);
+        modalShownRef.current = true;
+        setShowRatingModal(true);
+        setShowActions(false);
+        return;
+      }
       setShowActions(false);
+      await confirmCloseWithRating(true);
       return;
     }
 
@@ -1922,18 +1956,26 @@ export function ChatView({
     }
   }
 
-  async function confirmCloseWithRating() {
+  async function confirmCloseWithRating(skipRating = false) {
     if (submittingRating) return;
+
+    if (!skipRating && agentRatingConfigRef.current.require_comment && clientRating <= 2 && !clientComment.trim()) {
+      toast.error("Por favor ingresa una nota explicando la calificación baja del cliente.");
+      return;
+    }
+
     setSubmittingRating(true);
     try {
       const currentCliente = typeof sekCase.cliente === "object" ? sekCase.cliente : {};
-      const updatedCliente = {
-        ...currentCliente,
-        calificacion_agente: clientRating,
-        calificacion_agente_comentario: clientComment,
-        calificado_por: agentEmail,
-        fecha_calificacion: new Date().toISOString()
-      };
+      const updatedCliente = skipRating
+        ? { ...currentCliente }
+        : {
+            ...currentCliente,
+            calificacion_agente: clientRating,
+            calificacion_agente_comentario: clientComment,
+            calificado_por: agentEmail,
+            fecha_calificacion: new Date().toISOString()
+          };
 
       // Auto-generar resolucion desde los últimos mensajes del agente en histtecnico
       const histTecnico = Array.isArray(sekCase.histtecnico) ? sekCase.histtecnico : [];
@@ -2021,7 +2063,7 @@ export function ChatView({
           .then(d => { if (d?.ok) console.log("[confirmClose] Auto-extract WhatsApp OK:", d); })
           .catch(e => console.warn("[confirmClose] Auto-extract failed:", e));
 
-        if (clientRating < 2) {
+        if (!skipRating && clientRating < 2) {
           const cedula = (sekCase.cliente as any)?.cedula;
           if (cedula) {
             fetch("/api/widget/bloqueo-check", {
@@ -2086,7 +2128,7 @@ export function ChatView({
         setShowRatingModal(false);
         fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online" }) });
 
-        if (clientRating < 2) {
+        if (!skipRating && clientRating < 2) {
           const cedula = (sekCase.cliente as any)?.cedula;
           if (cedula) {
             fetch("/api/widget/bloqueo-check", {
@@ -3597,21 +3639,33 @@ export function ChatView({
                 />
               </div>
 
-              <div className="flex gap-3">
-                <Button 
-                  variant="outline" 
-                  onClick={() => setShowRatingModal(false)}
-                  className="flex-1 rounded-xl"
-                >
-                  Cancelar
-                </Button>
-                <Button 
-                  onClick={confirmCloseWithRating}
-                  disabled={submittingRating}
-                  className="flex-1 rounded-xl bg-brand-700 hover:bg-brand-800 disabled:opacity-50"
-                >
-                  {submittingRating ? "Guardando..." : "Cerrar Caso"}
-                </Button>
+              <div className="flex flex-col gap-2">
+                <div className="flex gap-3">
+                  <Button 
+                    variant="outline" 
+                    onClick={() => setShowRatingModal(false)}
+                    className="flex-1 rounded-xl"
+                  >
+                    Cancelar
+                  </Button>
+                  <Button 
+                    onClick={() => confirmCloseWithRating(false)}
+                    disabled={submittingRating}
+                    className="flex-1 rounded-xl bg-brand-700 hover:bg-brand-800 disabled:opacity-50"
+                  >
+                    {submittingRating ? "Guardando..." : "Cerrar Caso"}
+                  </Button>
+                </div>
+                {agentRatingConfig.allow_skip && (
+                  <button
+                    type="button"
+                    onClick={() => confirmCloseWithRating(true)}
+                    disabled={submittingRating}
+                    className="text-center text-xs text-muted-foreground hover:text-foreground transition-colors py-1 font-medium"
+                  >
+                    Cerrar caso sin calificar al cliente
+                  </button>
+                )}
               </div>
             </div>
           </div>
