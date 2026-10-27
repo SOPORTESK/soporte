@@ -47,9 +47,13 @@ export default async function AdminSettingsPage() {
   const { data: allAgents } = isAdmin
     ? await supabase
         .from("sek_agent_config")
-        .select("email, nombre, apellido, rol, status, last_login, created_at")
+        .select("email, nombre, apellido, rol, status, last_seen_at, created_at")
+        .neq("rol", "bot")
         .order("created_at")
     : { data: [] };
+
+  const totalAgents = allAgents?.length ?? 0;
+  const activeAgents = (allAgents || []).filter(a => a.status === "online" || a.status === "away").length;
 
   const { data: iaConfig } = await supabase
     .from("sek_agent_config")
@@ -79,9 +83,11 @@ export default async function AdminSettingsPage() {
     }
   }
 
-  const { count: msgCount } = isSuperadmin
-    ? await supabase.from("sek_messages").select("id", { count: "exact", head: true })
-    : { count: null };
+  const { count: openCasesCount } = await supabase
+    .from("sek_cases")
+    .select("id", { count: "exact", head: true })
+    .neq("estado", "cerrado")
+    .neq("estado", "resuelto");
 
   const { count: caseCount } = await supabase
     .from("sek_cases")
@@ -121,19 +127,17 @@ export default async function AdminSettingsPage() {
               </p>
               <p className="text-[9px] text-muted-foreground font-bold uppercase tracking-wider">Casos Totales</p>
             </div>
-            {isSuperadmin && (
-              <div className="px-3.5 py-2 rounded-xl border border-rose-500/20 bg-rose-500/5 text-center shadow-xs">
-                <p className="text-lg font-black tabular-nums text-rose-500">
-                  {msgCount?.toLocaleString("es-CR") ?? "—"}
-                </p>
-                <p className="text-[9px] text-muted-foreground font-bold uppercase tracking-wider">Mensajes en BD</p>
-              </div>
-            )}
+            <div className="px-3.5 py-2 rounded-xl border border-amber-500/20 bg-amber-500/5 text-center shadow-xs">
+              <p className="text-lg font-black tabular-nums text-amber-500">
+                {openCasesCount?.toLocaleString("es-CR") ?? 0}
+              </p>
+              <p className="text-[9px] text-muted-foreground font-bold uppercase tracking-wider">Casos Abiertos</p>
+            </div>
             <div className="px-3.5 py-2 rounded-xl border border-border/60 bg-card/70 text-center shadow-xs">
               <p className="text-lg font-black tabular-nums text-violet-500">
-                {allAgents?.length ?? "—"}
+                {totalAgents > 0 ? `${activeAgents} / ${totalAgents}` : "—"}
               </p>
-              <p className="text-[9px] text-muted-foreground font-bold uppercase tracking-wider">Agentes Activos</p>
+              <p className="text-[9px] text-muted-foreground font-bold uppercase tracking-wider">Equipo Activo</p>
             </div>
             <div className="px-3.5 py-2 rounded-xl border border-border/60 bg-card/70 text-center shadow-xs hidden sm:block">
               <p className="text-xs font-mono font-bold text-foreground">Costa Rica (UTC-6)</p>
