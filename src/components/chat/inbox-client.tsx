@@ -198,7 +198,7 @@ async function fetchCasesMeta(supabase: any, limit = 1500, agentEmail?: string, 
         .eq("assigned_to", agentEmail)
         .order("last_message_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false })
-        .limit(600),
+        .limit(300),
       supabase
         .from("sek_cases")
         .select(CASE_LIST_FIELDS)
@@ -210,7 +210,7 @@ async function fetchCasesMeta(supabase: any, limit = 1500, agentEmail?: string, 
         .neq("estado", "resuelto")
         .order("last_message_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false })
-        .limit(500),
+        .limit(200),
     ]);
     const combined = [...(mineRes.data || []), ...(othersRes.data || [])];
     return combined as SekCase[];
@@ -783,12 +783,12 @@ export function InboxClient({
     /* Refetch silencioso: reutilizado por polling y por focus/visibility */
     let lastRefetch = Date.now();
     const doRefetch = async () => {
-      if (Date.now() - lastRefetch < 10000) return; // throttle 10s
+      if (Date.now() - lastRefetch < 60000) return; // throttle 60s
       lastRefetch = Date.now();
       try {
         if (containerType === "mi-gestion" && !agentEmail) return;
         const fetchEmail = containerType === "mi-gestion" ? (agentEmail || undefined) : undefined;
-        const newCases = await fetchCasesMeta(supabase, 600, fetchEmail, isUserAdmin);
+        const newCases = await fetchCasesMeta(supabase, 300, fetchEmail, isUserAdmin);
         setAllCases(newCases);
         const filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail, agentName, isUserAdmin, adminFilterMode);
         const curSel = selectedIdRef.current;

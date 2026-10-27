@@ -672,7 +672,7 @@ export function ChatView({
       const e = String(c.estado || "").toLowerCase();
       return e !== "cerrado" && e !== "resuelto";
     });
-    const mergeFrom = openForMerge.length > 0 ? openForMerge : [target];
+    const mergeFrom = openForMerge.length > 0 ? openForMerge : sorted;
     const tag = (arr: unknown, caseId: SekCase["id"]) =>
       (Array.isArray(arr) ? arr : []).map((e: any) =>
         (e && typeof e === "object" && e._sourceCaseId === undefined)
@@ -721,14 +721,42 @@ export function ChatView({
       if (isFreshInCache && historyLoadedRef.current) return;
 
       try {
-        const ids = initialCase._group?.openCaseIds?.length
-          ? initialCase._group.openCaseIds
-          : (initialCase._group?.caseIds?.length ? initialCase._group.caseIds : [initialCase.id]);
-        const { data } = await supabase
-          .from("sek_cases")
-          .select("id,estado,canal,cliente,assigned_to,customer_phone,created_at,updated_at,last_message_at,last_message_preview,histcliente,histtecnico,marca,modelo,problema,resolucion,title")
-          .in("id", ids);
-        if (!data || !mounted) return;
+        const rawIds = [
+          ...(initialCase._group?.caseIds || []),
+          ...(initialCase._group?.openCaseIds || []),
+          initialCase._group?.targetCaseId,
+          initialCase.id
+        ].filter(Boolean);
+
+        const validIds = Array.from(new Set(rawIds))
+          .map((id: any) => String(id))
+          .filter((id: string) => !id.startsWith("tel:") && !id.startsWith("case:") && id.length > 5);
+
+        let data: any[] | null = null;
+        if (validIds.length > 0) {
+          const res = await supabase
+            .from("sek_cases")
+            .select("id,estado,canal,cliente,assigned_to,customer_phone,created_at,updated_at,last_message_at,last_message_preview,histcliente,histtecnico,marca,modelo,problema,resolucion,title")
+            .in("id", validIds);
+          data = res.data;
+        }
+
+        // Respaldo: si no hay IDs válidos o la clave es un teléfono, buscar directamente por número
+        if ((!data || data.length === 0) && (initialCase.customer_phone || String(initialCase.id).startsWith("tel:"))) {
+          const rawTel = initialCase.customer_phone || String(initialCase.id).replace("tel:", "");
+          const phoneDigits = rawTel.replace(/[^0-9]/g, "");
+          if (phoneDigits.length >= 8) {
+            const res = await supabase
+              .from("sek_cases")
+              .select("id,estado,canal,cliente,assigned_to,customer_phone,created_at,updated_at,last_message_at,last_message_preview,histcliente,histtecnico,marca,modelo,problema,resolucion,title")
+              .ilike("customer_phone", `%${phoneDigits.slice(-8)}%`)
+              .order("created_at", { ascending: false })
+              .limit(10);
+            data = res.data;
+          }
+        }
+
+        if (!data || data.length === 0 || !mounted) return;
         const merged = buildMergedCase(initialCase, data as SekCase[]);
         if (mounted) {
           setSekCase(merged);
@@ -740,7 +768,7 @@ export function ChatView({
       }
     })();
     return () => { mounted = false; };
-  }, [cacheKey, supabase, buildMergedCase]);
+  }, [cacheKey, supabase, buildMergedCase, initialCase?.id, initialCase._group?.targetCaseId]);
 
   /* Cargar plantillas */
   React.useEffect(() => {

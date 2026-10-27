@@ -51,7 +51,7 @@ export default async function MiGestionPage({ searchParams }: { searchParams: { 
         .eq("assigned_to", agentEmail)
         .order("last_message_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false })
-        .limit(600);
+        .limit(300);
 
       if (!isAdmin) {
         const { data, error } = await myCasesPromise;
@@ -70,7 +70,7 @@ export default async function MiGestionPage({ searchParams }: { searchParams: { 
         .neq("estado", "resuelto")
         .order("last_message_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false })
-        .limit(500);
+        .limit(200);
 
       const [mineRes, othersRes] = await Promise.all([myCasesPromise, othersActivePromise]);
       const combined = [...(mineRes.data || []), ...(othersRes.data || [])];
