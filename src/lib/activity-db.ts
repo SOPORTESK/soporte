@@ -389,7 +389,17 @@ export async function hasActiveManualTask(agentEmail: string): Promise<boolean> 
     }
     if (isStart) {
       const startMs = new Date(it.created_at).getTime();
-      const active = Date.now() - startMs < 10 * 60 * 60 * 1000;
+      const cat = (it.category || "").toLowerCase();
+      const isBreakOrSanitary =
+        cat.includes("descanso") ||
+        cat.includes("pausa") ||
+        act.includes("almuerzo") ||
+        act.includes("merienda") ||
+        act.includes("baño") ||
+        act.includes("bano") ||
+        act.includes("sanitaria");
+      const maxWindowMs = isBreakOrSanitary ? 90 * 60 * 1000 : 4 * 60 * 60 * 1000;
+      const active = Date.now() - startMs < maxWindowMs;
       cacheSet(cacheKey, active);
       return active;
     }

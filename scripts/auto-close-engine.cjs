@@ -9,12 +9,14 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-const EVO_URL = process.env.EVOLUTION_API_URL || "";
-const EVO_KEY = process.env.EVOLUTION_API_KEY || "";
-const EVO_INSTANCE = process.env.EVOLUTION_INSTANCE || "";
+let EVO_URL = (process.env.EVOLUTION_API_URL || "").includes("onrender.com")
+  ? "http://129.146.7.74"
+  : (process.env.EVOLUTION_API_URL || "http://129.146.7.74");
+let EVO_KEY = process.env.EVOLUTION_API_KEY || "";
+let EVO_INSTANCE = process.env.EVOLUTION_INSTANCE || "";
 
 async function sendWhatsApp(phone, text) {
-  if (!EVO_URL || !EVO_KEY || !EVO_INSTANCE || !phone) return null;
+  if (!EVO_URL || EVO_URL.includes("onrender.com") || !EVO_KEY || !EVO_INSTANCE || !phone) return null;
   let to = String(phone).trim();
   if (!to.includes("@")) to = `${to.replace(/[^0-9]/g, "")}@s.whatsapp.net`;
   const endpoint = `${EVO_URL.replace(/\/$/, "")}/message/sendText/${encodeURIComponent(EVO_INSTANCE)}`;
@@ -40,7 +42,7 @@ async function runAutoClose() {
     const { data: settingsRows } = await supabase
       .from("sek_app_settings")
       .select("key, value")
-      .in("key", ["auto_close_config", "daily_close_config"]);
+      .in("key", ["auto_close_config", "daily_close_config", "evolution_api_config"]);
 
     let config = {
       enabled: false,
@@ -67,6 +69,10 @@ async function runAutoClose() {
             dailyClose.enabled = Boolean(parsed.enabled);
             dailyClose.close_time = parsed.close_time || "17:15";
             dailyClose.message = parsed.message || dailyClose.message;
+          } else if (row.key === "evolution_api_config" && parsed) {
+            if (parsed.url && !String(parsed.url).includes("onrender.com")) EVO_URL = String(parsed.url).trim();
+            if (parsed.apiKey) EVO_KEY = String(parsed.apiKey).trim();
+            if (parsed.instance) EVO_INSTANCE = String(parsed.instance).trim();
           }
         } catch {}
       }
@@ -78,8 +84,8 @@ async function runAutoClose() {
     const nowObj = new Date();
 
     // Evaluar horario de oficina en Costa Rica (UTC-6)
-    // Horario laboral estándar: Lunes a Viernes de 07:30 a close_time (ej: 17:15).
-    // Sábados y Domingos: cerrado las 24 horas.
+    // El cierre de fin de jornada solo aplica a partir de la hora de corte (ej. 17:15) o para casos rezagados de días anteriores.
+    // NUNCA debe cerrar casos nuevos entrantes antes de las 07:30 a. m. con mensaje de fin de jornada.
     const crDateParts = new Intl.DateTimeFormat("en-US", {
       timeZone: "America/Costa_Rica",
       weekday: "short",
@@ -101,14 +107,13 @@ async function runAutoClose() {
     const isWeekend = crWeekday === "Sat" || crWeekday === "Sun";
     const [dcH, dcM] = (dailyClose.close_time || "17:15").split(":").map(Number);
     const dcMin = (dcH || 17) * 60 + (dcM || 15);
-    const workStartMin = 7 * 60 + 30; // 07:30 a. m.
 
-    // Fuera de jornada si es fin de semana, o si es antes de 07:30 am, o después de la hora de corte
-    const isOutsideWorkHours = isWeekend || currentCrMin >= dcMin || currentCrMin < workStartMin;
+    // Fin de jornada del día actual: únicamente cuando ya llegó/pasó la hora de corte (17:15) en día entre semana
+    const isAfterDailyCutoff = !isWeekend && currentCrMin >= dcMin;
 
     const { data: casos, error } = await supabase
       .from("sek_cases")
-      .select("id, canal, estado, histcliente, histtecnico, created_at, accepted_at, updated_at, assigned_to, customer_phone, cliente, auto_close_paused, tags")
+      .select("id, canal, estado, histcliente, histtecnico, created_at, last_message_at, accepted_at, updated_at, assigned_to, customer_phone, cliente, auto_close_paused, tags")
       .in("estado", ["abierto", "ia_atendiendo"])
       .neq("canal", "simulator")
       .neq("es_test", true)
@@ -139,8 +144,8 @@ async function runAutoClose() {
       const caseDayDateStr = `${getCasePart("year")}-${getCasePart("month")}-${getCasePart("day")}`;
       const isFromPreviousDay = caseDayDateStr < crTodayDateStr;
 
-      // 1. CIERRE POR FIN DE JORNADA (Prioridad absoluta: nadie queda abierto fuera del horario laboral ni de días anteriores)
-      const shouldCloseByDayEnd = dailyClose.enabled && (isOutsideWorkHours || isFromPreviousDay);
+      // 1. CIERRE POR FIN DE JORNADA (Solo al llegar a la hora de corte 17:15 o para casos rezagados de días anteriores)
+      const shouldCloseByDayEnd = dailyClose.enabled && (isAfterDailyCutoff || isFromPreviousDay);
       if (shouldCloseByDayEnd) {
         let effectiveClosedAt = new Date().toISOString();
         if (isFromPreviousDay) {
@@ -176,7 +181,9 @@ async function runAutoClose() {
         if (updated && updated.length > 0) {
           const reason = isFromPreviousDay ? "día anterior rezagado" : `fin de jornada (${dailyClose.close_time})`;
           console.log(`[auto-close] Caso ${caso.id} cerrado automáticamente por ${reason}.`);
-          if (canalLower === "whatsapp" && realPhone) {
+          // Solo enviar mensaje de fin de jornada por WhatsApp cuando se cierra en la ventana real de fin de jornada del mismo día,
+          // nunca en la mañana siguiente por un caso rezagado del día anterior.
+          if (!isFromPreviousDay && isAfterDailyCutoff && canalLower === "whatsapp" && realPhone) {
             await sendWhatsApp(realPhone, msg);
           }
           fetch(`http://localhost:3100/api/cases/${caso.id}/auto-extract`, { method: "POST" })

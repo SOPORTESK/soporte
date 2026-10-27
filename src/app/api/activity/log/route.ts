@@ -65,6 +65,12 @@ export async function POST(req: NextRequest) {
       catLower === "inventario"
     );
 
+    // Si no es acción manual ni justificación, capar duration_ms de latidos web/desktop automáticos a máximo 10 minutos
+    // para evitar que una pestaña que despierta tras horas en segundo plano inyecte horas falsas en un solo evento.
+    const safeDurationMs = (!isManualAction && catLower !== "inactividad" && typeof duration_ms === "number" && duration_ms > 10 * 60 * 1000)
+      ? 60000
+      : duration_ms;
+
     // Si el usuario tiene una labor manual activa en curso, SE PAUSAN TODOS LOS DEMÁS LOGS
     if (!isManualAction) {
       const activeManual = await hasActiveManualTask(agent_email);
@@ -130,7 +136,7 @@ export async function POST(req: NextRequest) {
           category,
           case_id: case_id || null,
           metadata: metadata || null,
-          duration_ms: duration_ms || null,
+          duration_ms: safeDurationMs || null,
           created_at: created_at || undefined,
         });
       } catch (e: any) {
@@ -138,8 +144,7 @@ export async function POST(req: NextRequest) {
       }
 
       clearTimelineCache(agent_email);
-      clearTimelineCache(agent_email);
-    return NextResponse.json({ success: true });
+      return NextResponse.json({ success: true });
     }
 
     try {
@@ -150,7 +155,7 @@ export async function POST(req: NextRequest) {
         category,
         case_id: case_id || null,
         metadata: metadata || null,
-        duration_ms: duration_ms || null,
+        duration_ms: safeDurationMs || null,
         created_at: created_at || undefined,
       });
     } catch (e: any) {

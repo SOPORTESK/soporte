@@ -722,7 +722,7 @@ async function pollActivity() {
       _lastActivityTime = now;
       const dwellSec = Math.round((now - _appEnterTime) / 1000);
       const heartbeatBucket = Math.floor(dwellSec / HEARTBEAT_EVERY);
-      if (heartbeatBucket > _lastHeartbeatSec && dwellSec >= HEARTBEAT_EVERY) {
+      if (heartbeatBucket > _lastHeartbeatSec && dwellSec >= HEARTBEAT_EVERY && idleSec < 30) {
         _lastHeartbeatSec = heartbeatBucket;
         const catInfo = categorizeApp(appName, title, url || _lastUrl);
         const dwellMs = Math.min(now - _appEnterTime, 30 * 60 * 1000);

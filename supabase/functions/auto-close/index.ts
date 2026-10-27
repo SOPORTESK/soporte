@@ -20,29 +20,31 @@ async function getFlowMessage(nodeId: string, fallback: string): Promise<string>
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
 
-// ── WARM-UP: despertar Render antes de enviar mensajes ──
-async function warmUpEvolution(): Promise<boolean> {
-  const EVO_URL = Deno.env.get("EVOLUTION_API_URL") || "";
-  if (!EVO_URL) return false;
+async function resolveEvoConfig(): Promise<{ EVO_URL: string; EVO_KEY: string; EVO_INSTANCE: string }> {
+  let EVO_URL = Deno.env.get("EVOLUTION_API_URL") || "";
+  let EVO_KEY = Deno.env.get("EVOLUTION_API_KEY") || "";
+  let EVO_INSTANCE = Deno.env.get("EVOLUTION_INSTANCE") || "";
   try {
-    console.log("[auto-close] Warm-up: despertando Evolution API en Render...");
-    const start = Date.now();
-    const res = await fetch(EVO_URL.replace(/\/$/, "") + "/", {
-      signal: AbortSignal.timeout(55000),
-    });
-    const elapsed = Date.now() - start;
-    console.log(`[auto-close] Warm-up completado en ${elapsed}ms, status: ${res.status}`);
-    return res.ok;
-  } catch (e: any) {
-    console.error("[auto-close] Warm-up falló:", e.message);
-    return false;
+    const { data: evoRow } = await db
+      .from("sek_app_settings")
+      .select("value")
+      .eq("key", "evolution_api_config")
+      .maybeSingle();
+    if (evoRow?.value) {
+      const cfg = typeof evoRow.value === "string" ? JSON.parse(evoRow.value) : evoRow.value;
+      if (cfg?.url && !String(cfg.url).includes("onrender.com")) EVO_URL = String(cfg.url).replace(/\/$/, "");
+      if (cfg?.apiKey) EVO_KEY = String(cfg.apiKey);
+      if (cfg?.instance) EVO_INSTANCE = String(cfg.instance);
+    }
+  } catch { /* fallback to env */ }
+  if (EVO_URL.includes("onrender.com")) {
+    EVO_URL = "http://129.146.7.74";
   }
+  return { EVO_URL, EVO_KEY, EVO_INSTANCE };
 }
 
 async function sendViaEvolution(phone: string, text: string): Promise<string | null> {
-  const EVO_URL = Deno.env.get("EVOLUTION_API_URL") || "";
-  const EVO_KEY = Deno.env.get("EVOLUTION_API_KEY") || "";
-  const EVO_INSTANCE = Deno.env.get("EVOLUTION_INSTANCE") || "";
+  const { EVO_URL, EVO_KEY, EVO_INSTANCE } = await resolveEvoConfig();
   
   console.log(`[auto-close] sendViaEvolution llamado`, { 
     phone: phone || "SIN_PHONE", 
@@ -156,11 +158,6 @@ Deno.serve(async (req) => {
     }), { status: 200, headers: { "Content-Type": "application/json" } });
   }
 
-  // ── WARM-UP: despertar Render ANTES de procesar casos ──
-  await warmUpEvolution();
-
-
-
   // ── Leer Configuración Dinámica de Auto-Cierre y Cierre Diario desde sek_app_settings ──
   const { data: settingsRows } = await db
     .from("sek_app_settings")
@@ -199,30 +196,32 @@ Deno.serve(async (req) => {
 
   // Evaluar ventana de cierre general al fin de jornada (hora Costa Rica UTC-6)
   const nowObj = new Date();
-  const utcH = nowObj.getUTCHours();
-  const utcM = nowObj.getUTCMinutes();
-  let crH = utcH - 6;
-  if (crH < 0) crH += 24;
-  const currentCrMin = crH * 60 + utcM;
+  const crTimeMs = nowObj.getTime() - 6 * 3600000;
+  const crDate = new Date(crTimeMs);
+  const crDay = crDate.getUTCDay();
+  const crH = crDate.getUTCHours();
+  const crM = crDate.getUTCMinutes();
+  const currentCrMin = crH * 60 + crM;
+  const crDateStr = `${crDate.getUTCFullYear()}-${String(crDate.getUTCMonth() + 1).padStart(2, "0")}-${String(crDate.getUTCDate()).padStart(2, "0")}`;
 
-  let isDailyCloseWindow = false;
+  let isAfterDailyCutoff = false;
   if (dailyCloseConfig.enabled && dailyCloseConfig.close_time) {
     const [dcH, dcM] = dailyCloseConfig.close_time.split(":").map(Number);
     const dcMin = (dcH || 18) * 60 + (dcM || 0);
-    // Se activa desde la hora de corte diario en adelante (hasta las 04:59 am)
-    if (currentCrMin >= dcMin || crH < 5) {
-      isDailyCloseWindow = true;
+    const isWeekend = crDay === 0 || crDay === 6;
+    if (!isWeekend && currentCrMin >= dcMin) {
+      isAfterDailyCutoff = true;
     }
   }
 
-  if (!autoCloseConfig.enabled && !isDailyCloseWindow) {
+  if (!autoCloseConfig.enabled && !dailyCloseConfig.enabled) {
     console.log("[auto-close] Auto-cierre desactivado y fuera de ventana de corte diario, saliendo.");
     return new Response(JSON.stringify({ closed: 0, disabled: true }), { status: 200, headers: { "Content-Type": "application/json" } });
   }
 
   const { data: casos, error } = await db
     .from("sek_cases")
-    .select("id, canal, estado, histcliente, histtecnico, created_at, assigned_to, customer_phone, cliente, auto_close_paused, tags")
+    .select("id, canal, estado, histcliente, histtecnico, created_at, last_message_at, assigned_to, customer_phone, cliente, auto_close_paused, tags")
     // Solo cerrar casos atendidos por IA (smart) o por un técnico humano (abierto).
     // NUNCA cerrar casos escalados: el cliente está esperando que un humano lo atienda.
     .in("estado", ["ia_atendiendo", "abierto", "calificacion_pendiente"])
@@ -251,9 +250,14 @@ Deno.serve(async (req) => {
     const isReopen = casoTags.some((t: string) => String(t).toLowerCase() === "re-open");
     const isSaliente = casoTags.some((t: string) => String(t).toLowerCase() === "saliente");
 
-    // ── 1. CIERRE GENERAL AL FIN DE JORNADA (BARRIDO NOCTURNO: PRIORIDAD ABSOLUTA) ──
-    if (isDailyCloseWindow) {
-      console.log(`[auto-close] Caso ${caso.id} seleccionado para cierre por fin de jornada (corte: ${dailyCloseConfig.close_time})`);
+    // ── 1. CIERRE GENERAL AL FIN DE JORNADA (BARRIDO DE CIERRE DIARIO) ──
+    const caseLastMs = new Date(caso.last_message_at || caso.created_at).getTime();
+    const caseCrDate = new Date(caseLastMs - 6 * 3600000);
+    const caseCrDateStr = `${caseCrDate.getUTCFullYear()}-${String(caseCrDate.getUTCMonth() + 1).padStart(2, "0")}-${String(caseCrDate.getUTCDate()).padStart(2, "0")}`;
+    const isFromPreviousDay = caseCrDateStr < crDateStr;
+
+    if (dailyCloseConfig.enabled && (isAfterDailyCutoff || isFromPreviousDay)) {
+      console.log(`[auto-close] Caso ${caso.id} seleccionado para cierre por fin de jornada (corte: ${dailyCloseConfig.close_time}, diaPrevio: ${isFromPreviousDay})`);
 
       const dailyCloseEntry = {
         role: "tecnico",
@@ -274,7 +278,8 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      if (canalLower === "whatsapp" && realPhone) {
+      // Enviar el mensaje por WhatsApp únicamente en el corte vespertino del mismo día (no en la mañana siguiente)
+      if (isAfterDailyCutoff && !isFromPreviousDay && canalLower === "whatsapp" && realPhone) {
         await sendViaEvolution(realPhone, dailyCloseConfig.message);
       }
 

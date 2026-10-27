@@ -93,8 +93,8 @@ export function useActivityTracker(agentEmail: string, agentName: string, enable
       if (isElectron) return;
       if (isIdleRef.current || !hasFocusRef.current) return;
       const now = Date.now();
-      const elapsed = now - lastHeartbeatRef.current;
-      if (elapsed >= HEARTBEAT_INTERVAL) {
+      const elapsed = Math.min(now - lastHeartbeatRef.current, HEARTBEAT_INTERVAL * 3);
+      if (now - lastHeartbeatRef.current >= HEARTBEAT_INTERVAL) {
         lastHeartbeatRef.current = now;
         const pageLabel = pathnameToLabel(lastPathRef.current);
         const dwellSec = Math.round((now - pageEnterRef.current) / 1000);

@@ -609,8 +609,8 @@ async function poll() {
       if (url && url !== _lastUrl) {
         _lastUrl = url;
       }
-      // Punto de control cada 5 minutos continuos
-      if (now - _lastHeartbeat >= HEARTBEAT_INTERVAL) {
+      // Punto de control periódico solo si el usuario sigue interactuando activamente
+      if (now - _lastHeartbeat >= HEARTBEAT_INTERVAL && idleSec < 30) {
         _lastHeartbeat = now;
         const dwellMs = now - _enterTime;
         const execAction = `En curso • ${formatExecutiveAction(category, label, context, dwellMs)}`;

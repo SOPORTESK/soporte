@@ -668,26 +668,80 @@ export function computeUnifiedActivityMetrics(
       }
       return true;
     })
-    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    .sort((a, b) => {
+      const ta = new Date(a.created_at).getTime();
+      const tb = new Date(b.created_at).getTime();
+      if (Math.abs(ta - tb) <= 2000) {
+        const aIsIdle = (a.category || "").toLowerCase() === "inactividad";
+        const bIsIdle = (b.category || "").toLowerCase() === "inactividad";
+        if (aIsIdle !== bIsIdle) return aIsIdle ? 1 : -1;
+      }
+      return ta - tb;
+    });
 
-  // 1.1 Deduplicar eventos de finalización manual repetidos y descartar latidos "En curso •" emitidos por clientes antiguos mientras el equipo está en Inactividad continua
+  // 1.1 Quitar Inactividad residual nocturna (Mystify / Inactividad continua) antes del primer evento de usuario del día
+  const firstRealIdx = rawSorted.findIndex((t) => {
+    const act = (t.action || "").toLowerCase();
+    const cat = (t.category || "").toLowerCase();
+    const isIdle =
+      cat === "inactividad" ||
+      act.includes("sin actividad") ||
+      act.includes("pantalla bloqueada") ||
+      act.includes("mystify") ||
+      act.includes(".scr");
+    const isJust =
+      cat === "justificación manual" ||
+      cat === "justificacion manual" ||
+      act.includes("justificaci");
+    return !isIdle && !isJust;
+  });
+
+  const effectiveSorted = firstRealIdx > 0 ? rawSorted.slice(firstRealIdx) : rawSorted;
+
+  // 1.2 Detectar ventanas de inactividad explícita (idle_timeout) para no aceptar checkpoints 'En curso •' emitidos dentro de ellas
+  const explicitIdleWindows: { start: number; end: number }[] = [];
+  for (const it of effectiveSorted) {
+    const cat = (it.category || "").toLowerCase();
+    const act = (it.action || "").toLowerCase();
+    const isIdleTimeout =
+      cat === "inactividad" &&
+      (it.metadata?.reason === "idle_timeout" || act.startsWith("sin actividad por"));
+    const durMs =
+      Number(
+        it.duration_ms ||
+          (it.metadata?.idle_seconds ? it.metadata.idle_seconds * 1000 : 0)
+      ) || 0;
+    if (isIdleTimeout && durMs >= 60000) {
+      const s = new Date(it.created_at).getTime();
+      explicitIdleWindows.push({ start: s, end: s + Math.min(durMs, 30 * 60 * 1000) });
+    }
+  }
+
+  // 1.3 Deduplicar eventos de finalización manual repetidos y descartar checkpoints emitidos dentro de ventanas de inactividad
   const sorted: typeof rawSorted = [];
-  for (let i = 0; i < rawSorted.length; i++) {
-    const cur = rawSorted[i];
+  for (let i = 0; i < effectiveSorted.length; i++) {
+    const cur = effectiveSorted[i];
     const curAct = (cur.action || "").toLowerCase();
     const curTime = new Date(cur.created_at).getTime();
     const prevAccepted = sorted[sorted.length - 1];
 
-    // Si es un latido automático "En curso •" pero está rodeado de eventos de Inactividad (< 120s antes y después),
-    // significa que el usuario seguía inactivo y una ventana abierta en segundo plano emitió un checkpoint falso.
     const isCheckpoint = Boolean(cur.metadata?.checkpoint_5min || curAct.startsWith("en curso •"));
+    if (isCheckpoint) {
+      const insideIdle = explicitIdleWindows.some(
+        (w) => curTime >= w.start - 2000 && curTime <= w.end
+      );
+      if (insideIdle) {
+        continue;
+      }
+    }
+
     if (isCheckpoint && prevAccepted) {
       const prevCat = (prevAccepted.category || "").toLowerCase();
       const prevAct = (prevAccepted.action || "").toLowerCase();
       const prevIsIdle = prevCat === "inactividad" || prevAct.startsWith("sin actividad por") || prevAct.startsWith("pantalla bloqueada");
       const prevTime = new Date(prevAccepted.created_at).getTime();
 
-      const nextEv = rawSorted[i + 1];
+      const nextEv = effectiveSorted[i + 1];
       const nextCat = (nextEv?.category || "").toLowerCase();
       const nextAct = (nextEv?.action || "").toLowerCase();
       const nextIsIdle = Boolean(nextEv && (nextCat === "inactividad" || nextAct.startsWith("sin actividad por") || nextAct.startsWith("pantalla bloqueada")));
@@ -814,18 +868,18 @@ export function computeUnifiedActivityMetrics(
       }
       if (foundEndMs > tMs) {
         const rawElapsed = foundEndMs - tMs;
-        const actualEndMs = explicitDurMs > 0 ? tMs + Math.max(explicitDurMs, rawElapsed) : foundEndMs;
+        // La ventana física de cobertura es estrictamente [tMs, foundEndMs] para no desplazar ni inflar el reloj real
         manualIntervals.push({
           startMs: tMs,
-          endMs: actualEndMs,
+          endMs: foundEndMs,
           category: it.category || "Descansos",
           label: taskLabel,
         });
-      } else {
-        // Tarea manual en curso (sin evento de finalización aún)
+      } else if (isTodayDay && i === sorted.length - 1) {
+        // Tarea manual en curso únicamente si es hoy y es el último evento activo
         const nowMs = Date.now();
         const elapsedSinceStart = nowMs - tMs;
-        if (elapsedSinceStart > 0) {
+        if (elapsedSinceStart > 0 && elapsedSinceStart < 4 * 3600 * 1000) {
           const ongoingEndMs = nowMs;
           manualIntervals.push({
             startMs: tMs,
@@ -894,21 +948,36 @@ export function computeUnifiedActivityMetrics(
     }
   }
 
+  // Fusión de intervalos manuales para calcular cobertura física sin duplicar tiempos superpuestos
+  manualIntervals.sort((a, b) => a.startMs - b.startMs);
+  const mergedManualIntervals: ActiveInterval[] = [];
+  for (const inv of manualIntervals) {
+    const prev = mergedManualIntervals[mergedManualIntervals.length - 1];
+    if (prev && inv.startMs < prev.endMs) {
+      prev.endMs = Math.max(prev.endMs, inv.endMs);
+    } else {
+      mergedManualIntervals.push({ ...inv });
+    }
+  }
+
   let usedOverlapJustificationMs = 0;
   const getCoveredOverlap = (gapStart: number, gapEnd: number) => {
     let overlapMs = 0;
-    for (const inv of manualIntervals) {
+    for (const inv of mergedManualIntervals) {
       const s = Math.max(gapStart, inv.startMs);
       const e = Math.min(gapEnd, inv.endMs);
       if (e > s) {
-        const part = e - s;
-        overlapMs += part;
-        if (inv.category === "Justificación Manual") {
-          usedOverlapJustificationMs += part;
-        }
+        overlapMs += (e - s);
       }
     }
-    return overlapMs;
+    for (const inv of manualIntervals) {
+      const s = Math.max(gapStart, inv.startMs);
+      const e = Math.min(gapEnd, inv.endMs);
+      if (e > s && inv.category === "Justificación Manual") {
+        usedOverlapJustificationMs += (e - s);
+      }
+    }
+    return Math.min(gapEnd - gapStart, overlapMs);
   };
 
   // Acumuladores de tiempo
@@ -1192,9 +1261,8 @@ export function computeUnifiedActivityMetrics(
         continue;
       }
       const explicitIdleMs = Number(it.duration_ms || (meta.duration_seconds ? meta.duration_seconds * 1000 : 0)) || 0;
-      const rawDur = Math.min(Math.max(rawGap, explicitIdleMs), 24 * 3600 * 1000);
-      const rawEnd = Math.max(nextTime, currTime + rawDur);
-      const clampedEnd = bounds.endMs !== null ? Math.min(rawEnd, bounds.endMs) : rawEnd;
+      const effectiveEnd = Math.max(nextTime, currTime + Math.min(explicitIdleMs, rawGap));
+      const clampedEnd = bounds.endMs !== null ? Math.min(effectiveEnd, bounds.endMs) : effectiveEnd;
       const dur = Math.max(0, clampedEnd - currTime);
       if (!currentIdleBlock) {
         currentIdleBlock = {
@@ -1217,7 +1285,7 @@ export function computeUnifiedActivityMetrics(
 
     // Caso A: Tarea manual iniciada
     if (isManualStart) {
-      let manualDuration = rawGap;
+      let manualDuration = Math.min(rawGap, 4 * 3600 * 1000);
       const taskLabel = (meta.task || it.action.replace(/^inici[oó]:\s*/i, "").trim()).toLowerCase();
       for (let j = i + 1; j < sorted.length; j++) {
         const nextIt = sorted[j];
@@ -1228,8 +1296,9 @@ export function computeUnifiedActivityMetrics(
           (nextMeta.task?.toLowerCase() === taskLabel || nextAct.includes(taskLabel))
         ) {
           const explicitMs = Number(nextIt.duration_ms || (nextMeta.duration_seconds ? nextMeta.duration_seconds * 1000 : 0));
-          const elapsedToEnd = new Date(nextIt.created_at).getTime() - currTime;
-          manualDuration = explicitMs > 0 ? Math.max(explicitMs, elapsedToEnd) : elapsedToEnd;
+          const elapsedToEnd = Math.max(0, new Date(nextIt.created_at).getTime() - currTime);
+          // Respetar el tiempo físico real entre inicio y fin; si explicitMs es menor o cercano, usar elapsedToEnd sin permitir desbordes > 15 min sobre el reloj real
+          manualDuration = explicitMs > 0 ? Math.min(explicitMs, elapsedToEnd + 15 * 60 * 1000) : elapsedToEnd;
           handledEndIndices.add(j);
           break;
         }
@@ -1354,27 +1423,49 @@ export function computeUnifiedActivityMetrics(
       continue;
     }
 
-    if (rawGap <= TOLERANCE_GAP_MS) {
-      const dur = rawGap > 0 ? rawGap : 60000;
-      opTimes[opCategory] = (opTimes[opCategory] || 0) + dur;
-      recordSoftwareTime(itemName, dur, opCategory);
+    const coveredMs = getCoveredOverlap(currTime, nextTime);
+    const uncoveredGap = Math.max(0, rawGap - coveredMs);
 
-      const crHour =
-        parseInt(
-          new Date(currTime).toLocaleString("en-US", { timeZone: "America/Costa_Rica", hour: "numeric", hour12: false }),
-          10
-        ) % 24;
-      if (hourlyTrend[crHour] !== undefined) hourlyTrend[crHour] += dur;
+    if (uncoveredGap <= TOLERANCE_GAP_MS) {
+      const dur = uncoveredGap > 0 ? uncoveredGap : (coveredMs > 0 ? 0 : 60000);
+      if (dur > 0) {
+        opTimes[opCategory] = (opTimes[opCategory] || 0) + dur;
+        recordSoftwareTime(itemName, dur, opCategory);
+
+        const crHour =
+          parseInt(
+            new Date(currTime).toLocaleString("en-US", { timeZone: "America/Costa_Rica", hour: "numeric", hour12: false }),
+            10
+          ) % 24;
+        if (hourlyTrend[crHour] !== undefined) hourlyTrend[crHour] += dur;
+      }
     } else {
-      // Verificar si la brecha está cubierta por tarea manual, descanso activo o labor previa reportada por el agente
-      const coveredMs = getCoveredOverlap(currTime, nextTime);
-      const nextMeta = (sorted[i + 1]?.metadata || {}) as Record<string, any>;
-      const nextDur = Number(sorted[i + 1]?.duration_ms || (nextMeta.duration_seconds ? nextMeta.duration_seconds * 1000 : 0)) || 0;
-      const workReportedMs = nextDur > 0 ? Math.min(nextDur, rawGap) : 0;
+      const nextIt = sorted[i + 1];
+      const nextMeta = (nextIt?.metadata || {}) as Record<string, any>;
+      const nextAct = (nextIt?.action || "").toLowerCase();
+      const nextIsManualEnd = (nextAct.startsWith("terminó:") || nextAct.startsWith("termino:")) && (nextMeta.manual || nextMeta.task);
+      const nextIsJustification = Boolean(
+        nextMeta.justification ||
+        nextMeta.manual_justification ||
+        nextIt?.category === "Justificación Manual" ||
+        nextIt?.category === "Justificación" ||
+        nextAct.startsWith("justificación:") ||
+        nextAct.startsWith("justificacion:")
+      );
+      const nextIsIdle = (nextIt?.category || "").toLowerCase() === "inactividad" || nextAct.startsWith("sin actividad por") || nextAct.startsWith("pantalla bloqueada");
+
+      // No reclamar como trabajo en PC la duración de un evento de cierre manual, justificación o inactividad
+      // ni reutilizar la duración de la sesión que está finalizando cuando supera la tolerancia
+      const nextDur = (!nextIsManualEnd && !nextIsJustification && !nextIsIdle)
+        ? (Number(nextIt?.duration_ms || (nextMeta.duration_seconds ? nextMeta.duration_seconds * 1000 : 0)) || 0)
+        : 0;
+      const maxUnCoveredGap = Math.max(0, rawGap - coveredMs);
+      // Si el siguiente evento es un heartbeat corto (ej. 30s-300s) tras un hueco largo, solo acredita su duración real (máx TOLERANCE_GAP_MS)
+      const workReportedMs = nextDur > 0 ? Math.min(nextDur, maxUnCoveredGap, TOLERANCE_GAP_MS) : 0;
       const effectiveIdleGap = Math.max(0, rawGap - coveredMs - workReportedMs);
 
       if (effectiveIdleGap <= TOLERANCE_GAP_MS) {
-        const dur = Math.min(effectiveIdleGap + workReportedMs, rawGap);
+        const dur = Math.min(effectiveIdleGap + workReportedMs, maxUnCoveredGap);
         if (dur > 0) {
           opTimes[opCategory] = (opTimes[opCategory] || 0) + dur;
           recordSoftwareTime(itemName, dur, opCategory);
@@ -1388,9 +1479,11 @@ export function computeUnifiedActivityMetrics(
         }
       } else {
         // Brecha no cubierta que supera la tolerancia oficial configurada en el panel (ej. 3 min)
-        const hasExplicitDurations = Boolean(workReportedMs > 0 || it.duration_ms || meta.duration_seconds);
-        const productivePart = hasExplicitDurations ? workReportedMs : TOLERANCE_GAP_MS;
-        const idlePart = hasExplicitDurations ? effectiveIdleGap : (effectiveIdleGap - TOLERANCE_GAP_MS);
+        // Si todo el intervalo estuvo cubierto por tarea manual/descanso, productivePart es 0 para no duplicar
+        const productivePart = maxUnCoveredGap > 0
+          ? Math.min(maxUnCoveredGap, workReportedMs > 0 ? workReportedMs : TOLERANCE_GAP_MS)
+          : 0;
+        const idlePart = Math.max(0, maxUnCoveredGap - productivePart);
         const idleMin = Math.max(1, Math.round(idlePart / 60000));
 
         if (productivePart > 0) {
@@ -1408,12 +1501,12 @@ export function computeUnifiedActivityMetrics(
         // Si la brecha sin eventos ocurre dentro del horario laboral, es ausencia no justificada de turno;
         // si ocurre fuera de horario (ej. desconexión entre fin de jornada y conexión nocturna para horas extras),
         // no penaliza como ausencia de turno (la inactividad explícita con PC encendida ya la mide Caso C 24/7).
-        if (!isOutsideWorkingHours) {
+        if (!isOutsideWorkingHours && idlePart >= 60000) {
           idleTotalMs += idlePart;
 
-          const dStart = new Date(currTime + coveredMs + (hasExplicitDurations ? 0 : TOLERANCE_GAP_MS));
-          const dEnd = new Date(nextTime - (hasExplicitDurations ? workReportedMs : 0));
-          const totalAbsenceMin = Math.max(1, Math.round(effectiveIdleGap / 60000));
+          const dStart = new Date(currTime + coveredMs + productivePart);
+          const dEnd = new Date(nextTime);
+          const totalAbsenceMin = Math.max(1, Math.round(idlePart / 60000));
           detectedGaps.push({
             id: `gap-${i}`,
             dateStr: dStart.toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" }),
@@ -1487,7 +1580,7 @@ export function computeUnifiedActivityMetrics(
   }
 
   // ── APLICAR JUSTIFICACIONES MANUALES A LA INACTIVIDAD Y LAGUNAS ──
-  opTimes["Justificación Manual"] = totalJustifiedMs;
+  const rawIdleBeforeJustifyMs = idleTotalMs;
 
   if (totalJustifiedMs > 0) {
     let remainingJustifyPool = Math.max(0, totalJustifiedMs - usedOverlapJustificationMs);
@@ -1536,6 +1629,10 @@ export function computeUnifiedActivityMetrics(
     }
   }
 
+  // La Justificación Manual acredita el tiempo justificado que efectivamente absorbió inactividad
+  const effectiveJustifiedMs = Math.min(totalJustifiedMs, Math.max(rawIdleBeforeJustifyMs, 0));
+  opTimes["Justificación Manual"] = effectiveJustifiedMs;
+
   // 2. CÁLCULO ESTRICTO DE CATEGORÍAS MASTER (Nivel 1)
   const rawPcProductiveMs =
     (opTimes["Soporte"] || 0) +
@@ -1549,13 +1646,53 @@ export function computeUnifiedActivityMetrics(
   const breakMs = opTimes["Descansos"] || 0;
   const sanitaryMs = opTimes["Pausa Sanitaria"] || 0;
 
-  // INVARIANTE FÍSICA INQUEBRANTABLE (CONSERVACIÓN DEL TIEMPO EN PC):
-  // El tiempo de trabajo en software/PC no puede solaparse con lagunas de inactividad ni descansos dentro del reloj real.
-  // Dentro del lapso transcurrido entre el primer y último evento, la suma de:
-  // pcProductiveMs + descansos + pausas sanitarias + inactividad interna (excluyendo tardanza previa al inicio de turno)
-  // no puede exceder el tiempo real de reloj transcurrido (con margen de 1 min).
-  // La Justificación Manual representa labores fuera de PC o ausencias justificadas y NUNCA se escala por eventos de PC.
-  const productiveMs = rawPcProductiveMs + (opTimes["Justificación Manual"] || 0);
+  // INVARIANTE FÍSICA INQUEBRANTABLE (CONSERVACIÓN DEL TIEMPO EN PC Y MANUAL):
+  // La suma de todas las categorías productivas + descansos + pausas sanitarias + inactividad interna
+  // jamás puede superar el tiempo físico transcurrido entre el primer y último evento del día.
+  const firstEvBoundMs = sorted.length > 0 ? new Date(sorted[0].created_at).getTime() : 0;
+  const lastEvBoundMs = sorted.length > 0 ? new Date(sorted[sorted.length - 1].created_at).getTime() : 0;
+  const physicalSpanMs = firstEvBoundMs > 0
+    ? (isTodayDay ? Math.max(60000, Date.now() - firstEvBoundMs + 60000) : Math.max(60000, lastEvBoundMs - firstEvBoundMs + 60000))
+    : 0;
+  const nonSpanGapMs = detectedGaps
+    .filter((g) => g.id === "gap-inicio-tardio" || g.id === "gap-salida-anticipada")
+    .reduce((acc, g) => acc + g.durationMs, 0);
+  const internalIdleMs = Math.max(0, idleTotalMs - nonSpanGapMs);
+
+  const rawTotalProductiveMs = rawPcProductiveMs + (opTimes["Justificación Manual"] || 0);
+  const maxAllowedProductiveMs = physicalSpanMs > 0
+    ? Math.max(0, physicalSpanMs - breakMs - sanitaryMs - internalIdleMs)
+    : rawTotalProductiveMs;
+
+  if (rawTotalProductiveMs > maxAllowedProductiveMs && rawTotalProductiveMs > 0) {
+    const scale = maxAllowedProductiveMs / rawTotalProductiveMs;
+    const allProdKeys = [
+      "Soporte",
+      "Servicio de Taller",
+      "Control Administrativo",
+      "Gestión del Taller",
+      "Gestión de Residuos",
+      "On-the-Job Training (OJT)",
+      "Utilidades",
+      "Justificación Manual",
+    ];
+    for (const k of allProdKeys) {
+      if (opTimes[k]) opTimes[k] = Math.round(opTimes[k] * scale);
+    }
+    for (const sKey of Object.keys(softTimes)) {
+      softTimes[sKey].durationMs = Math.round(softTimes[sKey].durationMs * scale);
+    }
+  }
+
+  const productiveMs =
+    (opTimes["Soporte"] || 0) +
+    (opTimes["Servicio de Taller"] || 0) +
+    (opTimes["Control Administrativo"] || 0) +
+    (opTimes["Gestión del Taller"] || 0) +
+    (opTimes["Gestión de Residuos"] || 0) +
+    (opTimes["On-the-Job Training (OJT)"] || 0) +
+    (opTimes["Utilidades"] || 0) +
+    (opTimes["Justificación Manual"] || 0);
 
   const totalDayMs = Math.max(1, productiveMs + idleTotalMs + breakMs + sanitaryMs);
 

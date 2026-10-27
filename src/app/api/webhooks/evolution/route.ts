@@ -1192,6 +1192,12 @@ export async function POST(req: NextRequest) {
   const keyId: string | null =
     get(payload, "data.key.id") || get(payload, "key.id") || get(payload, "data.messages.0.key.id") || get(payload, "data.message.key.id") || get(payload, "message.key.id") || null;
 
+  // Bloquear webhooks sintéticos de scripts de prueba antiguos (ej. DEBUG123, DEBUG125, TEST_INGRESS)
+  if (keyId && /^(DEBUG\d*|TEST[-_])/i.test(String(keyId).trim())) {
+    console.warn(`[evo-webhook] Ignorando payload sintético de prueba: keyId=${keyId}`);
+    return NextResponse.json({ ok: true, skipped: "test_payload" });
+  }
+
   // Hora real de envío según WhatsApp. La UI ordena los mensajes por este campo,
   // así que usar la hora de recepción hacía que el orden no coincidiera con el
   // de la app de WhatsApp.
@@ -2169,12 +2175,7 @@ export async function POST(req: NextRequest) {
               });
               console.log(`[evo-webhook] seka-whatsapp reply:`, iaData.reply ? (Array.isArray(iaData.reply) ? `${iaData.reply.length} mensajes` : "1 mensaje") : "ausente", "error:", iaData.error || "ninguno");
               if (iaData.reply) {
-                const afterHoursCfg = await getFueraHorarioConfig(supabase);
-                if (!afterHoursCfg.enabled && !isOpenNowCR()) {
-                  console.log(`[evo-webhook] Respuesta de horario bloqueada porque el interruptor está en OFF`);
-                } else {
-                  await sendWhatsAppMessages(phone || jid || "", iaData.reply, evoCfg, flowSettings);
-                }
+                await sendWhatsAppMessages(phone || jid || "", iaData.reply, evoCfg, flowSettings);
               } else {
                 console.warn(`[evo-webhook] seka-whatsapp no devolvió reply para caso ${existing.id}:`, iaData);
               }
@@ -2552,12 +2553,7 @@ export async function POST(req: NextRequest) {
           });
           console.log(`[evo-webhook] seka-whatsapp reply (nuevo caso):`, iaData.reply ? (Array.isArray(iaData.reply) ? `${iaData.reply.length} mensajes` : "1 mensaje") : "ausente", "error:", iaData.error || "ninguno");
           if (iaData.reply) {
-            const afterHoursCfg = await getFueraHorarioConfig(supabase);
-            if (!afterHoursCfg.enabled && !isOpenNowCR()) {
-              console.log(`[evo-webhook] Respuesta de horario bloqueada (nuevo caso) porque el interruptor está en OFF`);
-            } else {
-              await sendWhatsAppMessages(phone || jid || "", iaData.reply, evoCfg, flowSettings);
-            }
+            await sendWhatsAppMessages(phone || jid || "", iaData.reply, evoCfg, flowSettings);
           } else {
             console.warn(`[evo-webhook] seka-whatsapp no devolvió reply para nuevo caso ${nuevoCaseId}:`, iaData);
           }
