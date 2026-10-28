@@ -26,6 +26,9 @@ export interface LiveAgent {
   lastSeen: string | null;
   activeMinutes: number;
   idleMinutes: number;
+  breakMinutes?: number;
+  sanitaryMinutes?: number;
+  workdayMinutes?: number;
   productivityScore: number;
   todayEventsCount: number;
   hasDesktopApp: boolean;
@@ -226,6 +229,36 @@ function ActivityLivePulseComponent({
                           }`}
                           style={{ width: `${Math.min(100, compliancePercent)}%` }}
                         />
+                      </div>
+                    </div>
+
+                    {/* Desglose de Tiempo Perdido, Descansos y Pausa Sanitaria */}
+                    <div className="grid grid-cols-3 gap-1.5 pt-2 border-t border-border/40 text-center">
+                      <div className="px-1.5 py-1 rounded-xl bg-muted/30 border border-border/40">
+                        <p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground truncate" title="Tiempo perdido en inactividad, pantalla bloqueada o ausencias">
+                          Perdido
+                        </p>
+                        <p className={`text-xs font-black mt-0.5 ${(ag.idleMinutes || 0) > 30 ? "text-rose-400" : (ag.idleMinutes || 0) > 0 ? "text-amber-400" : "text-muted-foreground"}`}>
+                          {formatMinutes(ag.idleMinutes || 0)}
+                        </p>
+                      </div>
+
+                      <div className="px-1.5 py-1 rounded-xl bg-muted/30 border border-border/40">
+                        <p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground truncate" title="Tiempo registrado en descansos y alimentación">
+                          Descanso
+                        </p>
+                        <p className={`text-xs font-black mt-0.5 ${(ag.breakMinutes || 0) > 0 ? "text-amber-400" : "text-muted-foreground"}`}>
+                          {formatMinutes(ag.breakMinutes || 0)}
+                        </p>
+                      </div>
+
+                      <div className="px-1.5 py-1 rounded-xl bg-muted/30 border border-border/40">
+                        <p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground truncate" title="Pausas sanitarias registradas">
+                          Sanitaria
+                        </p>
+                        <p className={`text-xs font-black mt-0.5 ${(ag.sanitaryMinutes || 0) > 0 ? "text-teal-400" : "text-muted-foreground"}`}>
+                          {formatMinutes(ag.sanitaryMinutes || 0)}
+                        </p>
                       </div>
                     </div>
                   </div>

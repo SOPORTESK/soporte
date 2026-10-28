@@ -760,6 +760,8 @@ function areLiveAgentsEqual(a: LiveAgent[], b: LiveAgent[]): boolean {
       agA.currentApp !== agB.currentApp ||
       agA.activeMinutes !== agB.activeMinutes ||
       agA.idleMinutes !== agB.idleMinutes ||
+      agA.breakMinutes !== agB.breakMinutes ||
+      agA.sanitaryMinutes !== agB.sanitaryMinutes ||
       agA.productivityScore !== agB.productivityScore ||
       agA.todayEventsCount !== agB.todayEventsCount
     ) {
