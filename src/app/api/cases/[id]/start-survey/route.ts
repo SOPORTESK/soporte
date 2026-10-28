@@ -59,8 +59,9 @@ export async function POST(
   }
 
   // Si la encuesta está deshabilitada por configuración o está activo el Modo No Atendido:
-  if (!surveyEnabled || modoNoAtendido) {
-    const reason = !surveyEnabled ? "survey_disabled" : "unattended_mode";
+  // La encuesta se rige estrictamente por su propio interruptor independiente surveyEnabled
+  if (!surveyEnabled) {
+    const reason = "survey_disabled";
     console.log(`[start-survey] Encuesta omitida (${reason}) — cerrando caso directamente`);
     const now = new Date().toISOString();
     await supabase.from("sek_cases").update({

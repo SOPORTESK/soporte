@@ -42,6 +42,7 @@ export function useActivityTracker(agentEmail: string, agentName: string, enable
   const caseEnterRef = useRef<number>(Date.now());
   const lastHeartbeatRef = useRef<number>(Date.now());
   const isIdleRef = useRef<boolean>(false);
+  const idleStartRef = useRef<number>(0);
   const hasFocusRef = useRef<boolean>(true);
   const mountedRef = useRef<boolean>(false);
 
@@ -137,6 +138,26 @@ export function useActivityTracker(agentEmail: string, agentName: string, enable
       const now = Date.now();
       if (isIdleRef.current) {
         isIdleRef.current = false;
+        const totalIdleMs = idleStartRef.current ? Math.max(0, now - idleStartRef.current) : 0;
+        if (totalIdleMs >= _webIdleThresholdMs && !isElectron) {
+          logActivity({
+            agent_email: agentEmail,
+            agent_name: agentName,
+            action: `Inactividad finalizada (${formatExecutiveDuration(totalIdleMs)})`,
+            category: "Inactividad",
+            duration_ms: totalIdleMs,
+            metadata: {
+              idle_seconds: Math.round(totalIdleMs / 1000),
+              duration_ms: totalIdleMs,
+              idle_start: new Date(idleStartRef.current).toISOString(),
+              idle_end: new Date(now).toISOString(),
+              reason: "idle_completed",
+              source: "web",
+            },
+            created_at: new Date(idleStartRef.current).toISOString(),
+          });
+        }
+        idleStartRef.current = 0;
       }
       lastHeartbeatRef.current = now;
 
@@ -147,6 +168,7 @@ export function useActivityTracker(agentEmail: string, agentName: string, enable
       clearTimeout(idleTimer);
       idleTimer = setTimeout(() => {
         isIdleRef.current = true;
+        idleStartRef.current = Date.now() - _webIdleThresholdMs;
       }, _webIdleThresholdMs);
     };
 

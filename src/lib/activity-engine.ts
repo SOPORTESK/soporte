@@ -1157,6 +1157,7 @@ export function computeUnifiedActivityMetrics(
       const dStart = new Date(clampedStart + coveredMs);
       const dEnd = new Date(clampedEnd);
       let cleanReason = currentIdleBlock.reason
+        .replace(/^Inactividad finalizada \(([^)]+)\).*/i, "Inactividad ($1)")
         .replace(/^Sin actividad por \d+ minutos mientras /i, "Inactividad en ")
         .replace(/^Pausa prolongada de \d+ minutos sin interacción en /i, "Sin interacción en ")
         .replace(/^Dejó de usar "[^"]+" \(([^)]+)\).*/i, "$1")
@@ -1583,9 +1584,8 @@ export function computeUnifiedActivityMetrics(
       } else {
         // Brecha no cubierta que supera la tolerancia oficial configurada en el panel (ej. 3 min)
         // Si todo el intervalo estuvo cubierto por tarea manual/descanso, productivePart es 0 para no duplicar
-        const productivePart = maxUnCoveredGap > 0
-          ? Math.min(maxUnCoveredGap, workReportedMs > 0 ? workReportedMs : TOLERANCE_GAP_MS)
-          : 0;
+        // Como en Nextime: al superar la tolerancia, se reporta y contabiliza la inactividad real completa
+        const productivePart = workReportedMs > 0 ? Math.min(maxUnCoveredGap, workReportedMs) : 0;
         const idlePart = Math.max(0, maxUnCoveredGap - productivePart);
         const idleMin = Math.max(1, Math.round(idlePart / 60000));
 

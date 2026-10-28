@@ -246,7 +246,6 @@ export function ChatView({
   }, []);
 
   React.useEffect(() => {
-    if (cachedAgentRatingConfig !== null) return;
     fetch("/api/admin/auto-close-config")
       .then(r => r.json())
       .then(d => {
@@ -1178,7 +1177,7 @@ export function ChatView({
 
     // prev === "" → carga inicial, no disparar
     // Solo disparar si cambió de un estado no-final a final durante esta sesión
-    if (prev !== "" && !isFinal(prev) && isFinal(curr) && !modalShownRef.current && modoNoAtendidoLoaded && !modoNoAtendidoRef.current) {
+    if (prev !== "" && !isFinal(prev) && isFinal(curr) && !modalShownRef.current) {
       if (agentRatingConfigRef.current.enabled) {
         modalShownRef.current = true;
         const prevRating = (sekCase.cliente as any)?.calificacion_agente;
@@ -1814,7 +1813,8 @@ export function ChatView({
     
     // Mostrar modal de calificación al cerrar solo si está habilitado en configuración
     // EXCEPTO en modo no atendido: cerrar directamente sin modal
-    if (newEstado === "cerrado" && !modoNoAtendidoRef.current) {
+    // Modal de evaluación del cliente: 100% independiente de cualquier otro flujo o modo
+    if (newEstado === "cerrado") {
       if (agentRatingConfigRef.current.enabled) {
         const prevRating = (sekCase.cliente as any)?.calificacion_agente;
         if (prevRating) setClientRating(Number(prevRating) || 5);
@@ -1834,28 +1834,7 @@ export function ChatView({
       return;
     }
 
-    // Modo No Atendido: cerrar directamente sin modal ni encuesta
-    if (newEstado === "cerrado" && modoNoAtendidoRef.current) {
-      const { error } = await supabase.from("sek_cases").update({
-        estado: "cerrado",
-        closed_at: new Date().toISOString(),
-      }).eq("id", targetId);
-      if (error) { toast.error("Error al cerrar caso"); return; }
-      setSekCase(prev => ({ ...prev, estado: "cerrado" }));
-      toast.success("Caso cerrado");
-      fetch(`/api/cases/${targetId}/auto-extract`, { method: "POST" })
-        .catch(e => console.warn("[modoNoAtendido] auto-extract:", e));
-      logActivity({
-        agent_email: agentEmail,
-        agent_name: agentName || agentEmail,
-        action: `Cerró el caso ${sekCase.customer_phone || targetId} (modo no atendido)`,
-        category: "Gestión de casos",
-        case_id: targetId,
-        metadata: { previous_state: sekCase.estado, new_state: "cerrado", channel: sekCase.canal },
-      });
-      setShowActions(false);
-      return;
-    }
+
 
     const currentTags: string[] = Array.isArray(sekCase.tags) ? sekCase.tags : [];
     const reopenTags = currentTags.some(t => String(t).toLowerCase() === "re-open")
@@ -1933,10 +1912,17 @@ export function ChatView({
         .then(r => r.json())
         .catch(e => console.warn("[cerrarCasoConMensaje] auto-extract:", e));
 
-      // 5. Actualizar estado local
-      prevEstadoRef.current = "cerrado";
+      // 5. Actualizar estado local y mostrar modal de evaluación si está activo
       setSekCase(prev => ({ ...prev, estado: "cerrado" }));
       toast.success(tipo === "despedida" ? "Caso cerrado con despedida" : "Caso cerrado por inactividad");
+      if (agentRatingConfigRef.current.enabled) {
+        const prevRating = (sekCase.cliente as any)?.calificacion_agente;
+        if (prevRating) setClientRating(Number(prevRating) || 5);
+        modalShownRef.current = true;
+        setShowRatingModal(true);
+      } else {
+        prevEstadoRef.current = "cerrado";
+      }
 
       if (agentEmail) {
         logActivity({

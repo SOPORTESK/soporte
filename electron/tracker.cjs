@@ -673,12 +673,33 @@ async function pollActivity() {
     }
 
     if (_isIdle) {
+      const totalIdleMs = _idleStartTime ? Math.max(0, now - _idleStartTime) : 0;
       _isIdle = false;
+      const prevIdleStart = _idleStartTime;
       _idleStartTime = 0;
       _lastIdleHeartbeat = 0;
       _appEnterTime = now;
       _lastActivityTime = now;
       _lastHeartbeatSec = 0;
+
+      // El contador de inactividad se detiene y reporta justo al terminar la inactividad
+      if (totalIdleMs >= idleThresholdMs && prevIdleStart) {
+        const idleSecTotal = Math.round(totalIdleMs / 1000);
+        await sendLog(
+          `Inactividad finalizada (${formatDwell(idleSecTotal)})`,
+          'Inactividad',
+          {
+            idle_seconds: idleSecTotal,
+            duration_ms: totalIdleMs,
+            tolerance_minutes: _toleranceMinutes,
+            idle_start: new Date(prevIdleStart).toISOString(),
+            idle_end: new Date(now).toISOString(),
+            reason: 'idle_completed',
+            source: 'desktop'
+          },
+          new Date(prevIdleStart).toISOString()
+        );
+      }
     }
     const appName = win.owner?.name || 'Unknown';
     const title = win.title || '';

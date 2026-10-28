@@ -881,7 +881,7 @@ export async function POST(req: NextRequest) {
               } else {
                 const result = await Promise.race([
                   analyzeMedia(att.mediaUrl, att.mediaType, att.content || "", att.fileName || ""),
-                  new Promise<null>((r) => setTimeout(() => r(null), 15000)),
+                  new Promise<null>((r) => setTimeout(() => r(null), 30000)),
                 ]);
                 if (result) {
                   const patch = (m: any) => (m.mediaUrl === att.mediaUrl ? { ...m, _visionAnalysis: result } : m);
@@ -1027,8 +1027,8 @@ export async function POST(req: NextRequest) {
     // Si el técnico hizo una pregunta específica en el chat, esa pregunta manda; si presionó "Analizar Caso", manda el contenido sustancial del caso abierto
     const primaryTopicText =
       userQueryOnly.trim().length > 8
-        ? `${userQueryOnly} ${techMediaAnalysis}`
-        : `${cleanCaseTitle} ${cleanCaseDesc} ${cleanCaseProb} ${substantiveOpenCaseText} ${techMediaAnalysis}`;
+        ? `${userQueryOnly} ${cleanCaseTitle} ${cleanCaseDesc} ${cleanCaseProb} ${substantiveOpenCaseText} ${techMediaAnalysis}`.trim()
+        : `${cleanCaseTitle} ${cleanCaseDesc} ${cleanCaseProb} ${substantiveOpenCaseText} ${techMediaAnalysis}`.trim();
 
     const fullContextCorpus = `${primaryTopicText} ${targetCase?.marca || ""} ${targetCase?.modelo || ""}`.toLowerCase();
 
@@ -1388,6 +1388,9 @@ ${historicalPrecedents ? `\n\nPRECEDENTES HISTÓRICOS REALES RESUELTOS POR TÉCN
 ${webContext ? `\n\nBÚSQUEDA WEB EN VIVO (MANUALES OFICIALES, FICHAS TÉCNICAS Y FOROS ESPECIALIZADOS):\n${webContext}` : ""}
 
 REGLAS DE ATENCIÓN TÉCNICA OBLIGATORIAS:
+0.1 PROHIBICIÓN ESTRICTA DE ASUMIR RADIOENLACES POR LA FRASE "PUNTO A PUNTO":
+Si en un caso de videoportero, intercomunicador, CCTV o control de acceso se menciona "punto a punto", se refiere a conexión cableada directa por red (LAN) entre dispositivos (ej. frente de calle directo a monitor interior sin pasar por switch). JAMÁS asumas ni menciones marcas de radioenlaces (como Ubiquiti, NanoStation o airMAX) a menos que la etiqueta o el cliente digan explícitamente antena o enlace inalámbrico. Lee siempre las marcas y modelos visibles en fotos y etiquetas adjuntas.
+
 0. REGLA SUPREMA DE AISLAMIENTO DE MARCA:
 La marca del caso abierto es: "${primaryBrand || "No especificada"}".
 Está TERMINANTEMENTE PROHIBIDO mezclar marcas o sugerir herramientas/procedimientos de otros fabricantes:

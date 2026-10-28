@@ -119,7 +119,7 @@ export async function transcribeAudio(
         const mimeType = getMimeType(mediaUrl, mediaType);
         const base64Data = buf.toString("base64");
         const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${googleKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${googleKey}`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -270,7 +270,7 @@ Analiza el contenido de este archivo técnico (${fileName || mimeType}): extrae 
 
     // 1. Intentar con modelos de Google Gemini (soportan imagen, video y PDF)
     if (googleKey) {
-      const candidateModels = ["gemini-3.5-flash-lite", "gemini-3-flash-preview"];
+      const candidateModels = ["gemini-3-flash-preview", "gemini-flash-latest", "gemini-3.5-flash", "gemini-3.1-flash-lite"];
       for (const m of candidateModels) {
         try {
           const gRes = await fetch(
@@ -317,7 +317,7 @@ Analiza el contenido de este archivo técnico (${fileName || mimeType}): extrae 
             Authorization: `Bearer ${groqKey}`,
           },
           body: JSON.stringify({
-            model: "meta-llama/llama-4-scout-17b-16e-instruct",
+            model: "llama-3.2-11b-vision-preview",
             messages: [
               {
                 role: "user",

@@ -319,7 +319,7 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
   }, []);
 
   // ─── MOTOR UNIFICADO DE JORNADA (Single Source of Truth) ───
-  const effectiveToleranceMin = Math.max(1, toleranceMin || 5);
+  const effectiveToleranceMin = Math.max(1, toleranceMin || 3);
   const metrics = useMemo(() => {
     return computeUnifiedActivityMetrics(timeline, {
       targetDailyHours,
