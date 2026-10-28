@@ -2002,18 +2002,8 @@ export function ChatView({
           }
         } catch (e) { console.warn("[confirmClose] auto-extract failed:", e); }
 
-        // Enviar mensaje de despedida al cliente por WhatsApp antes de la encuesta
-        const farewellMsg = "Ha sido un placer atenderle. Quedamos a su disposición. ¡Que tenga un excelente día!";
-        try {
-          const phone = (sekCase as any).customer_phone || (sekCase.cliente as any)?.telefono || "";
-          if (phone) {
-            await fetch("/api/evolution/send", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ case_id: targetId, phone, text: farewellMsg }),
-            });
-          }
-        } catch (e) { console.warn("[confirmClose] Error enviando despedida:", e); }
+        // Cierre ordinario: es silencioso (no envía mensajes de despedida no solicitados al cliente por WhatsApp)
+        // Si el técnico desea enviar una despedida expresa, utiliza el botón "Despedida y Cierre"
 
         // Iniciar encuesta: envía mensaje al cliente y cambia estado a calificacion_pendiente
         console.log("[confirmClose] Iniciando encuesta para caso", targetId, "canal:", sekCase.canal);
