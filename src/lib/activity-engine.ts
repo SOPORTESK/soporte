@@ -855,6 +855,9 @@ export function computeUnifiedActivityMetrics(
   const manualIntervals: ActiveInterval[] = [];
   const handledEndIndices = new Set<number>();
   let totalJustifiedMs = 0;
+  let sanitaryJustifiedMs = 0;
+  let breakJustifiedMs = 0;
+  let workJustifiedMs = 0;
 
   for (let i = 0; i < sorted.length; i++) {
     const it = sorted[i];
@@ -992,6 +995,39 @@ export function computeUnifiedActivityMetrics(
       act.startsWith("justificacion manual");
 
     if (isJustification) {
+      const catLower = (it.category || "").toLowerCase();
+      const taskLower = String(meta.task || meta.reason || meta.label || it.action || "").toLowerCase();
+      const subcatLower = String(meta.subcategory || meta.manual_subcategory || meta.original_category || "").toLowerCase();
+      const isJustSanitary =
+        catLower === "pausa sanitaria" ||
+        catLower.includes("sanitaria") ||
+        subcatLower === "pausa sanitaria" ||
+        subcatLower.includes("sanitaria") ||
+        taskLower.includes("baño") ||
+        taskLower.includes("bano") ||
+        taskLower.includes("sanitaria") ||
+        taskLower.includes("sanitario") ||
+        act.includes("baño") ||
+        act.includes("bano") ||
+        act.includes("sanitaria");
+
+      const isJustBreak =
+        !isJustSanitary && (
+          catLower === "descansos" ||
+          catLower.includes("descanso") ||
+          subcatLower === "descansos" ||
+          subcatLower.includes("descanso") ||
+          taskLower.includes("descanso") ||
+          taskLower.includes("almuerzo") ||
+          taskLower.includes("café") ||
+          taskLower.includes("cafe") ||
+          taskLower.includes("comida") ||
+          taskLower.includes("merienda") ||
+          act.includes("descanso") ||
+          act.includes("almuerzo") ||
+          act.includes("comida")
+        );
+
       const durMs = Number(
         it.duration_ms ||
           (meta.minutes ? meta.minutes * 60000 : 0) ||
@@ -999,6 +1035,13 @@ export function computeUnifiedActivityMetrics(
       );
       if (durMs > 0) {
         totalJustifiedMs += durMs;
+        if (isJustSanitary) {
+          sanitaryJustifiedMs += durMs;
+        } else if (isJustBreak) {
+          breakJustifiedMs += durMs;
+        } else {
+          workJustifiedMs += durMs;
+        }
       }
       let justStartMs = 0;
       let justEndMs = 0;
@@ -1007,11 +1050,12 @@ export function computeUnifiedActivityMetrics(
         justEndMs = new Date(`${meta.date}T${meta.end_time}:00-06:00`).getTime();
       }
       if (justEndMs > justStartMs) {
+        const invCat = isJustSanitary ? "Pausa Sanitaria" : isJustBreak ? "Descansos" : (meta.original_category || "Justificación Manual");
         manualIntervals.push({
           startMs: justStartMs,
           endMs: justEndMs,
-          category: "Justificación Manual",
-          label: meta.reason || meta.task || "Justificación Manual",
+          category: invCat,
+          label: meta.reason || meta.task || invCat,
         });
       }
     }
@@ -1042,7 +1086,7 @@ export function computeUnifiedActivityMetrics(
     for (const inv of manualIntervals) {
       const s = Math.max(gapStart, inv.startMs);
       const e = Math.min(gapEnd, inv.endMs);
-      if (e > s && inv.category === "Justificación Manual") {
+      if (e > s && (inv.category === "Justificación Manual" || inv.category === "Pausa Sanitaria" || inv.category === "Descansos")) {
         usedOverlapJustificationMs += (e - s);
       }
     }
@@ -1453,6 +1497,39 @@ export function computeUnifiedActivityMetrics(
           }
         }
       } else {
+        const catLower = (it.category || "").toLowerCase();
+        const taskLower = String(meta.task || meta.reason || meta.label || it.action || "").toLowerCase();
+        const subcatLower = String(meta.subcategory || meta.manual_subcategory || meta.original_category || "").toLowerCase();
+        const isJustSanitary =
+          catLower === "pausa sanitaria" ||
+          catLower.includes("sanitaria") ||
+          subcatLower === "pausa sanitaria" ||
+          subcatLower.includes("sanitaria") ||
+          taskLower.includes("baño") ||
+          taskLower.includes("bano") ||
+          taskLower.includes("sanitaria") ||
+          taskLower.includes("sanitario") ||
+          act.includes("baño") ||
+          act.includes("bano") ||
+          act.includes("sanitaria");
+
+        const isJustBreak =
+          !isJustSanitary && (
+            catLower === "descansos" ||
+            catLower.includes("descanso") ||
+            subcatLower === "descansos" ||
+            subcatLower.includes("descanso") ||
+            taskLower.includes("descanso") ||
+            taskLower.includes("almuerzo") ||
+            taskLower.includes("café") ||
+            taskLower.includes("cafe") ||
+            taskLower.includes("comida") ||
+            taskLower.includes("merienda") ||
+            act.includes("descanso") ||
+            act.includes("almuerzo") ||
+            act.includes("comida")
+          );
+
         const discreteMs =
           Number(
             it.duration_ms ||
@@ -1461,7 +1538,9 @@ export function computeUnifiedActivityMetrics(
           ) || 0;
         const dur = discreteMs;
         if (dur > 0) {
-          recordSoftwareTime(itemName, dur, "Justificación Manual");
+          if (!isJustSanitary && !isJustBreak) {
+            recordSoftwareTime(itemName, dur, "Justificación Manual");
+          }
           const crHour =
             parseInt(
               new Date(currTime).toLocaleString("en-US", { timeZone: "America/Costa_Rica", hour: "numeric", hour12: false }),
@@ -1732,9 +1811,20 @@ export function computeUnifiedActivityMetrics(
     }
   }
 
-  // La Justificación Manual acredita el tiempo justificado que efectivamente absorbió inactividad
-  const effectiveJustifiedMs = Math.min(totalJustifiedMs, Math.max(rawIdleBeforeJustifyMs, 0));
-  opTimes["Justificación Manual"] = effectiveJustifiedMs;
+  // Acreditación de justificaciones según su naturaleza real:
+  // 1. Pausas sanitarias justificadas (baño/sanitaria) se acreditan directo a "Pausa Sanitaria"
+  if (sanitaryJustifiedMs > 0) {
+    opTimes["Pausa Sanitaria"] = (opTimes["Pausa Sanitaria"] || 0) + sanitaryJustifiedMs;
+  }
+  // 2. Descansos justificados (almuerzo/comida/café) se acreditan directo a "Descansos"
+  if (breakJustifiedMs > 0) {
+    opTimes["Descansos"] = (opTimes["Descansos"] || 0) + breakJustifiedMs;
+  }
+  // 3. Justificaciones operativas/manuales de trabajo (Taller, Bodega, OJT, etc.)
+  const effectiveWorkJustifiedMs = rawIdleBeforeJustifyMs > 0
+    ? Math.min(workJustifiedMs, rawIdleBeforeJustifyMs)
+    : workJustifiedMs;
+  opTimes["Justificación Manual"] = (opTimes["Justificación Manual"] || 0) + effectiveWorkJustifiedMs;
 
   // 2. CÁLCULO ESTRICTO DE CATEGORÍAS MASTER (Nivel 1)
   const rawPcProductiveMs =
