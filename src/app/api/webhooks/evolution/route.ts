@@ -2208,13 +2208,24 @@ export async function POST(req: NextRequest) {
         for (const pc of prevCases) {
           const pcCliente = (pc.cliente && typeof pc.cliente === "object") ? pc.cliente as Record<string, unknown> : {};
           if (pcCliente.nombre || pcCliente.correo || pcCliente.cuenta || pcCliente.cedula) {
+            const rawNombre = pcCliente.nombre ? String(pcCliente.nombre).trim() : null;
+            let rawCuenta = pcCliente.cuenta ? String(pcCliente.cuenta).trim() : null;
+
+            // Si cuenta es idéntica al nombre personal o al pushName de WhatsApp, descartarla (no es empresa)
+            if (rawCuenta && rawNombre && rawCuenta.toLowerCase() === rawNombre.toLowerCase()) {
+              rawCuenta = null;
+            }
+            if (rawCuenta && pushName && rawCuenta.toLowerCase() === pushName.trim().toLowerCase()) {
+              rawCuenta = null;
+            }
+
             knownClient = {
-              nombre: pcCliente.nombre || null,
-              correo: pcCliente.correo || null,
-              cuenta: pcCliente.cuenta || null,
-              cedula: pcCliente.cedula || null,
+              nombre: rawNombre,
+              correo: pcCliente.correo ? String(pcCliente.correo).trim() : null,
+              cuenta: rawCuenta,
+              cedula: pcCliente.cedula ? String(pcCliente.cedula).trim() : null,
             };
-            console.log(`[evo-webhook] Auto-relleno de perfil de contacto para ${cleanPhone} — nombre: ${pcCliente.nombre || "N/A"}, correo: ${pcCliente.correo || "N/A"}, cuenta: ${pcCliente.cuenta || "N/A"}`);
+            console.log(`[evo-webhook] Auto-relleno de perfil de contacto para ${cleanPhone} — nombre: ${knownClient.nombre || "N/A"}, correo: ${knownClient.correo || "N/A"}, cuenta: ${knownClient.cuenta || "N/A"}`);
             break;
           }
         }

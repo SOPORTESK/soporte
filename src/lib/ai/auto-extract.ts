@@ -64,9 +64,9 @@ export async function performAutoExtract(id: string) {
 
     const prompt = `Eres un analista de soporte técnico de Sekunet (Costa Rica). Analiza la siguiente conversación de soporte técnico y extrae con máxima precisión los datos técnicos del equipo y del cliente:
 
-1. "nombre": Nombre del cliente (si aparece).
+1. "nombre": Nombre completo de la persona que escribe (si lo dice en la conversación). NUNCA uses el nombre de perfil de WhatsApp.
 2. "correo": Correo electrónico (si aparece).
-3. "cuenta": Empresa o cuenta afiliada a Sekunet.
+3. "cuenta": Empresa o cuenta comercial afiliada a Sekunet (si la menciona expresamente). NUNCA pongas el nombre de una persona física aquí. Si no menciona empresa o negocio, déjalo vacío (""). NUNCA dupliques el "nombre" en "cuenta".
 4. "vendedor": Vendedor mencionado (si aplica).
 5. "tema": Tema de la consulta. Debe ser exactamente uno de: ${TEMAS_VALIDOS.join(", ")}.
 6. "marca": Marca exacta del equipo (ej: HIKVISION, DAHUA, ZKTECO, EPCOM, HILOOK, EZVIZ, IMOU, MIKROTIK, UBIQUITI). Si no se menciona explícitamente pero se deduce, indícala.
@@ -216,18 +216,17 @@ Responde ÚNICAMENTE en formato JSON:
     const descProblema = extracted.descripcion_problema?.trim() || "";
     const extractNombre = extracted.nombre?.trim() || "";
     const extractCorreo = extracted.correo?.trim() || "";
-    const extractCuenta = extracted.cuenta?.trim() || "";
+    let extractCuenta = extracted.cuenta?.trim() || "";
     const extractVendedor = extracted.vendedor?.trim() || "";
 
     const currentCliente = (caseData.cliente && typeof caseData.cliente === "object") ? caseData.cliente as Record<string, unknown> : {};
     const updatedCliente: Record<string, unknown> = { ...currentCliente };
     let clienteChanged = false;
 
+    // Solo actualizar nombre si la IA extrajo un nombre real del texto de la conversación
+    // NUNCA usar whatsapp_name como nombre real del cliente
     if (extractNombre && !currentCliente.nombre) {
       updatedCliente.nombre = extractNombre;
-      clienteChanged = true;
-    } else if (!updatedCliente.nombre && currentCliente.whatsapp_name && !/^[+\d\s()-]{6,}$/.test(String(currentCliente.whatsapp_name))) {
-      updatedCliente.nombre = String(currentCliente.whatsapp_name).trim();
       clienteChanged = true;
     }
 
@@ -236,11 +235,24 @@ Responde ÚNICAMENTE en formato JSON:
       clienteChanged = true;
     }
 
+    // Solo actualizar cuenta si es una empresa real extraída de la conversación
+    // NUNCA usar whatsapp_name y NUNCA permitir que sea igual al nombre personal
+    const effectiveNombre = String(updatedCliente.nombre || currentCliente.nombre || "").trim().toLowerCase();
+    if (extractCuenta) {
+      const cuentaLower = extractCuenta.toLowerCase();
+      if (effectiveNombre && cuentaLower === effectiveNombre) {
+        extractCuenta = "";
+      }
+    }
+
     if (extractCuenta && !currentCliente.cuenta) {
       updatedCliente.cuenta = extractCuenta;
       clienteChanged = true;
-    } else if (!updatedCliente.cuenta && currentCliente.whatsapp_name && !/^[+\d\s()-]{6,}$/.test(String(currentCliente.whatsapp_name))) {
-      updatedCliente.cuenta = String(currentCliente.whatsapp_name).trim();
+    }
+
+    // Si la cuenta guardada previamente era idéntica al nombre personal, sanearla y removerla
+    if (updatedCliente.cuenta && effectiveNombre && String(updatedCliente.cuenta).trim().toLowerCase() === effectiveNombre) {
+      delete updatedCliente.cuenta;
       clienteChanged = true;
     }
 
