@@ -43,23 +43,33 @@ export async function GET(_req: NextRequest) {
     const todayStr = getTodayCostaRica();
     const startOfToday = `${todayStr}T00:00:00-06:00`;
 
-    const [{ data: recentLogs, error: logErr }, appMappings, globalSchedule] = await Promise.all([
-      supabase
-        .from("activity_log")
-        .select("id, agent_email, agent_name, action, category, case_id, metadata, duration_ms, created_at")
-        .gte("created_at", startOfToday)
-        .order("created_at", { ascending: false })
-        .limit(10000),
+    const [agentLogsResults, appMappings, globalSchedule] = await Promise.all([
+      Promise.all(
+        (agents || []).map(async (ag) => {
+          const { data, error } = await supabase
+            .from("activity_log")
+            .select("id, agent_email, agent_name, action, category, case_id, metadata, duration_ms, created_at")
+            .ilike("agent_email", ag.email)
+            .gte("created_at", startOfToday)
+            .order("created_at", { ascending: false })
+            .limit(1000);
+          if (error) console.error(`[live] error loading logs for ${ag.email}:`, error);
+          return { email: ag.email.toLowerCase(), logs: data || [] };
+        })
+      ),
       getAppMappings(),
       getWorkSchedule(),
     ]);
 
-    if (logErr) throw logErr;
+    const logsByAgent = new Map<string, any[]>();
+    for (const item of agentLogsResults) {
+      logsByAgent.set(item.email, item.logs);
+    }
 
     // 3. Mapear estado en vivo por agente
     const liveAgents = (agents || []).map((ag) => {
       const email = ag.email.toLowerCase();
-      const agLogs = (recentLogs || []).filter((l) => (l.agent_email || "").toLowerCase() === email);
+      const agLogs = logsByAgent.get(email) || [];
       const latestLog = agLogs[0] || null;
 
       const todayLogs = agLogs;
