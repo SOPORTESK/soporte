@@ -894,6 +894,64 @@ async function extractJid(payload: any, evoUrl: string, evoKey: string, evoInsta
     } catch (e: any) {
       console.error("[evo-webhook] Error resolviendo LID en extractJid:", e?.message);
     }
+
+    // 4. Buscar en el historial de mensajes de Evolution API si algún mensaje previo de este LID trae senderPn
+    try {
+      if (evoUrl && evoKey && evoInstance) {
+        const urlMsg = `${evoUrl.replace(/\/$/, "")}/chat/findMessages/${encodeURIComponent(evoInstance)}`;
+        const resMsg = await fetch(urlMsg, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", apikey: evoKey },
+          body: JSON.stringify({ where: { key: { remoteJid: rawJid } }, take: 25 })
+        });
+        if (resMsg.ok) {
+          const msgsData = await resMsg.json().catch(() => null);
+          const records = msgsData?.messages?.records || (Array.isArray(msgsData) ? msgsData : []);
+          for (const r of records) {
+            const histPn = r.key?.senderPn || r.senderPn;
+            if (histPn) {
+              const clean = String(histPn).trim();
+              if (clean.endsWith("@s.whatsapp.net")) {
+                console.log("[evo-webhook] LID resuelto con éxito desde historial de mensajes:", clean);
+                return clean;
+              }
+              const digits = clean.replace(/[^0-9]/g, "");
+              if (digits.length >= 8) {
+                console.log("[evo-webhook] LID resuelto numérico desde historial de mensajes:", `${digits}@s.whatsapp.net`);
+                return `${digits}@s.whatsapp.net`;
+              }
+            }
+          }
+        }
+      }
+    } catch (e: any) {
+      console.error("[evo-webhook] Error consultando findMessages para resolver LID:", e?.message);
+    }
+
+    // 5. Si viene pushName, buscar si hay un caso abierto en sek_cases con ese whatsapp_name
+    const pushNameCandidate = get(msg, "pushName") || get(payload, "data.pushName") || get(payload, "pushName");
+    if (pushNameCandidate && typeof pushNameCandidate === "string" && pushNameCandidate.trim().length >= 3) {
+      try {
+        const supabase = createServiceClient();
+        const { data: matchedCase } = await supabase
+          .from("sek_cases")
+          .select("customer_phone")
+          .not("estado", "in", '("cerrado","resuelto")')
+          .ilike("cliente->>whatsapp_name", pushNameCandidate.trim())
+          .order("updated_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (matchedCase?.customer_phone) {
+          const digits = String(matchedCase.customer_phone).replace(/[^0-9]/g, "");
+          if (digits.length >= 8) {
+            console.log("[evo-webhook] LID resuelto asociando pushName con caso activo:", `${digits}@s.whatsapp.net`);
+            return `${digits}@s.whatsapp.net`;
+          }
+        }
+      } catch (e: any) {
+        console.warn("[evo-webhook] Error buscando caso por pushName:", e?.message);
+      }
+    }
     
     // Último recurso: si el payload trae senderPn (número real @s.whatsapp.net),
     // usarlo en vez del LID opaco. En v2.3 está en key.senderPn.
@@ -903,10 +961,9 @@ async function extractJid(payload: any, evoUrl: string, evoKey: string, evoInsta
       return String(senderPnFallback);
     }
 
-    // Si llegamos aquí, el LID no se pudo resolver por ninguna vía.
-    // Devolver null para que el mensaje NO se guarde con un identificador opaco.
-    console.warn("[evo-webhook] LID no resuelto por ninguna vía, descartando mensaje:", rawJid);
-    return null;
+    // Si no se pudo resolver a número telefónico, devolver el LID directamente para NO descartar el mensaje
+    console.warn("[evo-webhook] LID no resuelto a número telefónico, usando LID directamente:", rawJid);
+    return rawJid;
   }
 
   return rawJid;
@@ -1840,6 +1897,7 @@ export async function POST(req: NextRequest) {
         const tReal = typeof c.cliente === "object" ? c.cliente?.telefono_real : null;
         if (phone && (t === phone || tReal === phone || t === jid || tReal === jid)) return true;
         if (senderPn && (t === senderPn || tReal === senderPn || c.customer_phone === senderPn)) return true;
+        if (pushName && typeof c.cliente === "object" && c.cliente?.whatsapp_name && String(c.cliente.whatsapp_name).trim().toLowerCase() === String(pushName).trim().toLowerCase()) return true;
         return false;
       };
 
