@@ -721,13 +721,13 @@ async function checkAgentConfig(checks: IntegrityCheck[]) {
   const sb = createServiceClient();
   const { data: agents, error } = await sb
     .from("sek_agent_config")
-    .select("id, email, name, role, is_active, target_daily_hours, schedule_start, schedule_end");
+    .select("email, nombre, apellido, rol, is_active");
 
   if (error) throw new Error(`lectura de sek_agent_config: ${error.message}`);
 
   const all = agents || [];
   const missingEmail = all.filter((a) => !a.email || !a.email.includes("@"));
-  const missingRole = all.filter((a) => !a.role);
+  const missingRole = all.filter((a) => !a.rol);
 
   // Verificar emails duplicados
   const emails = all.map((a) => (a.email || "").toLowerCase().trim()).filter(Boolean);
@@ -762,7 +762,7 @@ async function checkAgentConfig(checks: IntegrityCheck[]) {
 
 async function checkAppSettings(checks: IntegrityCheck[]) {
   const sb = createServiceClient();
-  const { data: settings, error } = await sb.from("sek_app_settings").select("id, key, value, updated_at");
+  const { data: settings, error } = await sb.from("sek_app_settings").select("key, value, updated_at");
 
   if (error) throw new Error(`lectura de sek_app_settings: ${error.message}`);
 
