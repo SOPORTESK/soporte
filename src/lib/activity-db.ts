@@ -460,7 +460,7 @@ export async function getActivityTimeline(
   const all: ActivityLog[] = [];
   let from = 0;
   const batchSize = 1000;
-  const maxRecords = 8000;
+  const maxRecords = endDate && endDate !== date ? 60000 : 8000;
 
   while (from < maxRecords) {
     let query = supabase

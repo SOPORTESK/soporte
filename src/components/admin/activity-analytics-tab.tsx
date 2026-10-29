@@ -92,6 +92,65 @@ export function ActivityAnalyticsTab({
   const [groupTimeline, setGroupTimeline] = useState<TimelineEntry[]>([]);
   const [loadingGroup, setLoadingGroup] = useState<boolean>(false);
 
+  // Datos consolidados sin truncamiento por período (mes / semana / día)
+  interface PeriodData {
+    agentBreakdown: Array<{
+      email: string;
+      name: string;
+      status: string;
+      avatarUrl?: string;
+      activePcMs: number;
+      activeManualMs: number;
+      activeTotalMs: number;
+      breakMs: number;
+      sanitaryMs: number;
+      idleMs: number;
+      daysWorked: number;
+      eventsCount: number;
+      productivityScore: number;
+    }>;
+    teamTotals: {
+      totalActiveMs: number;
+      pcWorkMs: number;
+      manualJustificationMs: number;
+      totalBreakMs: number;
+      totalSanitaryMs: number;
+      totalIdleMs: number;
+      productivityScore: number;
+      activeAgentsCount: number;
+      totalEvents: number;
+    };
+    individualDailyBreakdown?: any[];
+    topSoftware?: any[];
+  }
+
+  const [periodData, setPeriodData] = useState<PeriodData | null>(null);
+  const [loadingPeriod, setLoadingPeriod] = useState<boolean>(false);
+
+  const fetchPeriodMetrics = useCallback(async () => {
+    setLoadingPeriod(true);
+    try {
+      const endParam = selectedEndDate
+        ? `&endDate=${encodeURIComponent(selectedEndDate)}`
+        : `&endDate=${encodeURIComponent(selectedDate)}`;
+      const res = await fetch(
+        `/api/activity/period-metrics?startDate=${encodeURIComponent(selectedDate)}${endParam}&_t=${Date.now()}`
+      );
+      const data = await res.json();
+      if (data && data.success) {
+        setPeriodData(data);
+      }
+    } catch (err) {
+      console.error("[analytics-tab] error fetching period metrics:", err);
+    } finally {
+      setLoadingPeriod(false);
+    }
+  }, [selectedDate, selectedEndDate]);
+
+  useEffect(() => {
+    fetchPeriodMetrics();
+  }, [fetchPeriodMetrics]);
+
   // Fetch de timeline grupal cuando se activa la vista grupal o cambia la fecha
   const fetchGroupTimeline = useCallback(async () => {
     setLoadingGroup(true);
@@ -134,18 +193,18 @@ export function ActivityAnalyticsTab({
     }
   };
 
-  // Métricas individuales del agente actual
+  // Métricas individuales del agente actual (para un único día)
   const individualMetrics = useMemo(() => {
     return computeUnifiedActivityMetrics(individualTimeline as any[]);
   }, [individualTimeline]);
 
-  // Métricas grupales consolidadas
+  // Métricas grupales consolidadas de respaldo
   const groupMetrics = useMemo(() => {
     return computeUnifiedActivityMetrics(groupTimeline as any[]);
   }, [groupTimeline]);
 
-  // Desglose por agente en la vista grupal (Tabla comparativa / Ranking)
-  const agentBreakdown = useMemo(() => {
+  // Desglose por agente en la vista grupal de respaldo
+  const fallbackAgentBreakdown = useMemo(() => {
     if (!groupTimeline.length) return [];
 
     const grouped: Record<string, TimelineEntry[]> = {};
@@ -182,9 +241,66 @@ export function ActivityAnalyticsTab({
       };
     });
 
-    // Ordenar de mayor a menor tiempo activo total
     return rows.sort((a, b) => b.activeTotalMs - a.activeTotalMs);
   }, [groupTimeline, agents]);
+
+  // Desglose enriquecido: toma los datos de periodData (calculados rigurosamente día a día sin truncamiento)
+  const displayAgentBreakdown = useMemo(() => {
+    if (periodData?.agentBreakdown && periodData.agentBreakdown.length > 0) {
+      return periodData.agentBreakdown.map((row) => {
+        const live = agents.find((a) => a.email.toLowerCase() === row.email.toLowerCase());
+        return {
+          ...row,
+          name: live?.name || row.name,
+          avatarUrl: live?.avatar_url,
+          status: live?.status || "offline",
+        };
+      });
+    }
+    return fallbackAgentBreakdown;
+  }, [periodData, agents, fallbackAgentBreakdown]);
+
+  // Totales de equipo consolidados reales
+  const displayTeamActiveMs =
+    periodData?.teamTotals?.totalActiveMs ?? (groupMetrics.masterBuckets?.Productivo?.durationMs ?? 0);
+  const displayTeamPcMs = periodData?.teamTotals?.pcWorkMs ?? (groupMetrics.pcWorkMs ?? 0);
+  const displayTeamManualMs = periodData?.teamTotals?.manualJustificationMs ?? (groupMetrics.manualJustificationMs ?? 0);
+  const displayTeamScore = periodData?.teamTotals?.productivityScore ?? (groupMetrics.productivityScore ?? 0);
+  const displayTeamBreakMs =
+    periodData?.teamTotals?.totalBreakMs ?? (groupMetrics.masterBuckets?.Descanso?.durationMs ?? 0);
+  const displayTeamSanitaryMs =
+    periodData?.teamTotals?.totalSanitaryMs ?? (groupMetrics.masterBuckets?.["Pausa Sanitaria"]?.durationMs ?? 0);
+
+  // Búsqueda del agente seleccionado en el desglose del período para vistas mensuales/semanales
+  const targetAgentPeriod = useMemo(() => {
+    if (!periodData?.agentBreakdown) return null;
+    return periodData.agentBreakdown.find((a) => a.email.toLowerCase() === (selectedAgent || "").toLowerCase());
+  }, [periodData, selectedAgent]);
+
+  // Métricas individuales ajustadas a rango completo si aplica
+  const isPeriodRange = Boolean(selectedEndDate && selectedEndDate !== selectedDate);
+  const displayIndActiveTotalMs =
+    isPeriodRange && targetAgentPeriod
+      ? targetAgentPeriod.activeTotalMs
+      : individualMetrics.masterBuckets?.Productivo?.durationMs ?? 0;
+  const displayIndPcMs =
+    isPeriodRange && targetAgentPeriod ? targetAgentPeriod.activePcMs : individualMetrics.pcWorkMs ?? 0;
+  const displayIndManualMs =
+    isPeriodRange && targetAgentPeriod ? targetAgentPeriod.activeManualMs : individualMetrics.manualJustificationMs ?? 0;
+  const displayIndScore =
+    isPeriodRange && targetAgentPeriod ? targetAgentPeriod.productivityScore : individualMetrics.productivityScore ?? 0;
+  const displayIndBreakMs =
+    isPeriodRange && targetAgentPeriod
+      ? targetAgentPeriod.breakMs
+      : individualMetrics.masterBuckets?.Descanso?.durationMs ?? 0;
+  const displayIndSanitaryMs =
+    isPeriodRange && targetAgentPeriod
+      ? targetAgentPeriod.sanitaryMs
+      : individualMetrics.masterBuckets?.["Pausa Sanitaria"]?.durationMs ?? 0;
+  const displayIndIdleMs =
+    isPeriodRange && targetAgentPeriod
+      ? targetAgentPeriod.idleMs
+      : individualMetrics.masterBuckets?.Inactivo?.durationMs ?? 0;
 
   const currentAgentObj = agents.find((a) => a.email.toLowerCase() === (selectedAgent || "").toLowerCase());
 
@@ -264,13 +380,14 @@ export function ActivityAnalyticsTab({
           <button
             onClick={() => {
               onRefresh();
+              fetchPeriodMetrics();
               if (scope === "group") fetchGroupTimeline();
             }}
-            disabled={refreshing || loadingGroup}
+            disabled={refreshing || loadingGroup || loadingPeriod}
             className="p-2 rounded-xl border border-border bg-card hover:bg-muted text-muted-foreground hover:text-foreground transition-all cursor-pointer"
             title="Actualizar analíticas"
           >
-            <RefreshCw className={`h-4 w-4 ${refreshing || loadingGroup ? "animate-spin text-violet-500" : ""}`} />
+            <RefreshCw className={`h-4 w-4 ${refreshing || loadingGroup || loadingPeriod ? "animate-spin text-violet-500" : ""}`} />
           </button>
         </div>
       </div>
@@ -293,12 +410,12 @@ export function ActivityAnalyticsTab({
                 </span>
               </div>
               <div className="text-2xl font-black text-foreground font-mono mt-2">
-                {formatHoursMinutes(groupMetrics.masterBuckets?.Productivo?.durationMs ?? 0)}
+                {formatHoursMinutes(displayTeamActiveMs)}
               </div>
               <div className="flex items-center gap-2 mt-1 text-[11px] text-muted-foreground font-mono">
-                <span>💻 PC: {formatHoursMinutes(groupMetrics.pcWorkMs ?? 0)}</span>
+                <span>💻 PC: {formatHoursMinutes(displayTeamPcMs)}</span>
                 <span>·</span>
-                <span>🔧 Taller: {formatHoursMinutes(groupMetrics.manualJustificationMs ?? 0)}</span>
+                <span>🔧 Taller: {formatHoursMinutes(displayTeamManualMs)}</span>
               </div>
             </div>
 
@@ -313,10 +430,10 @@ export function ActivityAnalyticsTab({
                 </span>
               </div>
               <div className="text-2xl font-black text-emerald-400 font-mono mt-2">
-                {groupMetrics.productivityScore ?? 0}%
+                {displayTeamScore}%
               </div>
               <span className="text-[11px] text-muted-foreground">
-                Basado en {agentBreakdown.length} colaboradores activos
+                Basado en {displayAgentBreakdown.length} colaboradores activos
               </span>
             </div>
 
@@ -331,15 +448,12 @@ export function ActivityAnalyticsTab({
                 </span>
               </div>
               <div className="text-2xl font-black text-amber-400 font-mono mt-2">
-                {formatHoursMinutes(
-                  (groupMetrics.masterBuckets?.Descanso?.durationMs ?? 0) +
-                    (groupMetrics.masterBuckets?.["Pausa Sanitaria"]?.durationMs ?? 0)
-                )}
+                {formatHoursMinutes(displayTeamBreakMs + displayTeamSanitaryMs)}
               </div>
               <div className="flex items-center gap-2 mt-1 text-[11px] text-muted-foreground font-mono">
-                <span>Descanso: {formatHoursMinutes(groupMetrics.masterBuckets?.Descanso?.durationMs ?? 0)}</span>
+                <span>Descanso: {formatHoursMinutes(displayTeamBreakMs)}</span>
                 <span>·</span>
-                <span>Sanitaria: {formatHoursMinutes(groupMetrics.masterBuckets?.["Pausa Sanitaria"]?.durationMs ?? 0)}</span>
+                <span>Sanitaria: {formatHoursMinutes(displayTeamSanitaryMs)}</span>
               </div>
             </div>
 
@@ -380,8 +494,8 @@ export function ActivityAnalyticsTab({
               </div>
               <DataAuditBadge
                 label="Auditoría de Equipo"
-                totalEsperado={agentBreakdown.length}
-                totalCalculado={agentBreakdown.length}
+                totalEsperado={displayAgentBreakdown.length}
+                totalCalculado={displayAgentBreakdown.length}
                 detalle="Consistencia matemática: Cada técnico se computa independientemente desde el motor de actividad."
                 size="xs"
               />
@@ -402,7 +516,7 @@ export function ActivityAnalyticsTab({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">
-                  {agentBreakdown.map((row) => (
+                  {displayAgentBreakdown.map((row) => (
                     <tr key={row.email} className="hover:bg-muted/30 transition-colors">
                       <td className="py-3 px-3">
                         <div className="flex items-center gap-2.5">
@@ -488,10 +602,10 @@ export function ActivityAnalyticsTab({
                     </tr>
                   ))}
 
-                  {agentBreakdown.length === 0 && (
+                  {displayAgentBreakdown.length === 0 && (
                     <tr>
                       <td colSpan={8} className="py-8 text-center text-xs text-muted-foreground italic">
-                        {loadingGroup ? "Cargando analíticas del equipo..." : "Sin registros de actividad en este período."}
+                        {loadingGroup || loadingPeriod ? "Cargando analíticas del equipo..." : "Sin registros de actividad en este período."}
                       </td>
                     </tr>
                   )}
@@ -535,12 +649,12 @@ export function ActivityAnalyticsTab({
                 </span>
               </div>
               <div className="text-2xl font-black text-sky-400 font-mono mt-2">
-                {formatHoursMinutes(individualMetrics.masterBuckets?.Productivo?.durationMs ?? 0)}
+                {formatHoursMinutes(displayIndActiveTotalMs)}
               </div>
               <div className="flex items-center gap-2 mt-1 text-[11px] text-muted-foreground font-mono">
-                <span>💻 PC: {formatHoursMinutes(individualMetrics.pcWorkMs ?? 0)}</span>
+                <span>💻 PC: {formatHoursMinutes(displayIndPcMs)}</span>
                 <span>·</span>
-                <span>🔧 Taller: {formatHoursMinutes(individualMetrics.manualJustificationMs ?? 0)}</span>
+                <span>🔧 Taller: {formatHoursMinutes(displayIndManualMs)}</span>
               </div>
             </div>
 
@@ -555,7 +669,7 @@ export function ActivityAnalyticsTab({
                 </span>
               </div>
               <div className="text-2xl font-black text-emerald-400 font-mono mt-2">
-                {individualMetrics.productivityScore ?? 0}%
+                {displayIndScore}%
               </div>
               <span className="text-[11px] text-muted-foreground">
                 Ratio productivo frente a jornada
@@ -573,15 +687,12 @@ export function ActivityAnalyticsTab({
                 </span>
               </div>
               <div className="text-2xl font-black text-amber-400 font-mono mt-2">
-                {formatHoursMinutes(
-                  (individualMetrics.masterBuckets?.Descanso?.durationMs ?? 0) +
-                    (individualMetrics.masterBuckets?.["Pausa Sanitaria"]?.durationMs ?? 0)
-                )}
+                {formatHoursMinutes(displayIndBreakMs + displayIndSanitaryMs)}
               </div>
               <div className="flex items-center gap-2 mt-1 text-[11px] text-muted-foreground font-mono">
-                <span>Descanso: {formatHoursMinutes(individualMetrics.masterBuckets?.Descanso?.durationMs ?? 0)}</span>
+                <span>Descanso: {formatHoursMinutes(displayIndBreakMs)}</span>
                 <span>·</span>
-                <span>Sanitaria: {formatHoursMinutes(individualMetrics.masterBuckets?.["Pausa Sanitaria"]?.durationMs ?? 0)}</span>
+                <span>Sanitaria: {formatHoursMinutes(displayIndSanitaryMs)}</span>
               </div>
             </div>
 
@@ -596,7 +707,7 @@ export function ActivityAnalyticsTab({
                 </span>
               </div>
               <div className="text-2xl font-black text-slate-400 font-mono mt-2">
-                {formatHoursMinutes(individualMetrics.masterBuckets?.Inactivo?.durationMs ?? 0)}
+                {formatHoursMinutes(displayIndIdleMs)}
               </div>
               <span className="text-[11px] text-muted-foreground">
                 Gaps sin movimiento ni labor manual

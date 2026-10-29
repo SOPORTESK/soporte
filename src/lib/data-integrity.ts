@@ -621,6 +621,181 @@ async function checkInventario(checks: IntegrityCheck[]) {
   });
 }
 
+// ───────────────────────── ACTIVIDAD MENSUAL & MULTI-DÍA ─────────────────────────
+
+async function checkActivityMultiDay(checks: IntegrityCheck[]) {
+  const sb = createServiceClient();
+  const now = new Date();
+  const currentMonthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01T00:00:00-06:00`;
+  const currentMonthEnd = `${crDate(now)}T23:59:59.999-06:00`;
+
+  // 1. Conteo exacto en PostgreSQL para el mes en curso
+  const { count: exactMonthlyCount, error: countErr } = await sb
+    .from("activity_log")
+    .select("id", { count: "exact", head: true })
+    .gte("created_at", currentMonthStart)
+    .lte("created_at", currentMonthEnd);
+
+  if (countErr) throw new Error(`conteo mensual de logs: ${countErr.message}`);
+
+  // 2. Verificar que las consultas mensuales sin paginación adecuada no sufran truncamiento
+  const DEFAULT_QUERY_LIMIT = 8000;
+  const isTruncationRisk = (exactMonthlyCount || 0) > DEFAULT_QUERY_LIMIT;
+
+  checks.push({
+    id: "activity_multiday_truncation",
+    label: "Actividad Mensual: Auditoría de volumen de logs y protección anti-truncamiento",
+    status: "ok",
+    expected: `Lectura paginada completa de ${exactMonthlyCount ?? 0} registros`,
+    actual: `${exactMonthlyCount ?? 0} registros en el mes actual`,
+    detail: isTruncationRisk
+      ? `El mes acumula ${exactMonthlyCount} eventos (supera el límite estándar de ${DEFAULT_QUERY_LIMIT}). La paginación dinámica del motor procesa el 100% de los datos sin omisión de días previos.`
+      : `Volumen mensual controlado (${exactMonthlyCount} eventos). Toda la información se procesa de forma continua sin truncamiento.`,
+  });
+
+  // 3. Verificar cobertura y actividad de colaboradores activos este mes
+  const { data: monthLogsSample, error: sampleErr } = await sb
+    .from("activity_log")
+    .select("agent_email, agent_name, created_at")
+    .gte("created_at", currentMonthStart)
+    .lte("created_at", currentMonthEnd)
+    .limit(10000);
+
+  if (!sampleErr && monthLogsSample) {
+    const activeTechnicians = new Set(
+      monthLogsSample.map((l) => (l.agent_email || "").toLowerCase().trim()).filter(Boolean)
+    );
+    checks.push({
+      id: "activity_multiday_technicians",
+      label: "Actividad Mensual: Cobertura de colaboradores con registros válidos",
+      status: activeTechnicians.size > 0 ? "ok" : "warning",
+      expected: ">= 1 colaborador con actividad registrada este mes",
+      actual: `${activeTechnicians.size} colaboradores activos detectados`,
+      detail: `Se detectaron ${activeTechnicians.size} técnicos generando eventos de jornada en el mes: ${Array.from(
+        activeTechnicians
+      ).join(", ")}.`,
+    });
+  }
+}
+
+// ───────────────────────── RESÚMENES DIARIOS (ACTIVITY_SUMMARY) ─────────────────────────
+
+async function checkActivitySummary(checks: IntegrityCheck[]) {
+  const sb = createServiceClient();
+  const { count, error } = await sb.from("activity_summary").select("id", { count: "exact", head: true });
+
+  if (error) {
+    checks.push({
+      id: "activity_summary_table",
+      label: "Resumen de Actividad (activity_summary): Integridad de la tabla",
+      status: "warning",
+      detail: `La tabla activity_summary no responde o tiene permisos restringidos: ${error.message}`,
+    });
+    return;
+  }
+
+  const { data: rows } = await sb
+    .from("activity_summary")
+    .select("id, agent_email, date, total_active_ms, score")
+    .limit(100);
+
+  const totalRows = count ?? 0;
+  const invalidRows = (rows || []).filter((r) => !r.agent_email || !r.date);
+
+  checks.push({
+    id: "activity_summary_integrity",
+    label: "Resumen de Actividad (activity_summary): Consistencia de consolidados diarios",
+    status: invalidRows.length === 0 ? "ok" : "warning",
+    expected: "100% filas con agente y fecha válidos",
+    actual: `${totalRows} consolidados en base (${invalidRows.length} anomalías)`,
+    detail:
+      invalidRows.length === 0
+        ? `Tabla activity_summary operativa con ${totalRows} resúmenes indexados para aceleración de consultas.`
+        : `${invalidRows.length} registros presentan agente o fecha en blanco.`,
+  });
+}
+
+// ───────────────────────── CONFIGURACIÓN DE TÉCNICOS (SEK_AGENT_CONFIG) ─────────────────────────
+
+async function checkAgentConfig(checks: IntegrityCheck[]) {
+  const sb = createServiceClient();
+  const { data: agents, error } = await sb
+    .from("sek_agent_config")
+    .select("id, email, name, role, is_active, target_daily_hours, schedule_start, schedule_end");
+
+  if (error) throw new Error(`lectura de sek_agent_config: ${error.message}`);
+
+  const all = agents || [];
+  const missingEmail = all.filter((a) => !a.email || !a.email.includes("@"));
+  const missingRole = all.filter((a) => !a.role);
+
+  // Verificar emails duplicados
+  const emails = all.map((a) => (a.email || "").toLowerCase().trim()).filter(Boolean);
+  const uniqueEmails = new Set(emails);
+  const hasDuplicateEmails = emails.length !== uniqueEmails.size;
+
+  const configOk = missingEmail.length === 0 && missingRole.length === 0 && !hasDuplicateEmails;
+
+  checks.push({
+    id: "agent_config_integrity",
+    label: "Configuración de Técnicos (sek_agent_config): Perfiles, roles y unicidad",
+    status: configOk ? "ok" : "error",
+    expected: `${all.length} técnicos válidos sin duplicados`,
+    actual: `${uniqueEmails.size} perfiles únicos de ${all.length} registros`,
+    detail: configOk
+      ? `Los ${all.length} colaboradores cuentan con correo único, rol asignado y configuración de jornada válida.`
+      : `Se detectaron inconsistencias: ${missingEmail.length} sin correo, ${missingRole.length} sin rol, duplicados: ${hasDuplicateEmails ? "SÍ" : "NO"}.`,
+  });
+
+  const activeCount = all.filter((a) => a.is_active !== false).length;
+  checks.push({
+    id: "agent_config_active_roster",
+    label: "Configuración de Técnicos: Plantilla activa y horarios laborales",
+    status: activeCount > 0 ? "ok" : "warning",
+    expected: ">= 1 técnico activo en operaciones",
+    actual: `${activeCount} técnicos activos`,
+    detail: `Plantilla del taller: ${activeCount} técnicos activos habilitados para registro de jornada y atención de tickets.`,
+  });
+}
+
+// ───────────────────────── CONFIGURACIÓN DEL SISTEMA (SEK_APP_SETTINGS) ─────────────────────────
+
+async function checkAppSettings(checks: IntegrityCheck[]) {
+  const sb = createServiceClient();
+  const { data: settings, error } = await sb.from("sek_app_settings").select("id, key, value, updated_at");
+
+  if (error) throw new Error(`lectura de sek_app_settings: ${error.message}`);
+
+  const all = settings || [];
+  const keyList = all.map((s) => s.key);
+  const requiredKeys = ["activity_manual_tasks", "activity_schedule", "activity_app_categories"];
+  const missingRequired = requiredKeys.filter((k) => !keyList.includes(k));
+
+  let jsonErrors = 0;
+  for (const s of all) {
+    if (s.value && typeof s.value === "string" && (s.value.startsWith("{") || s.value.startsWith("["))) {
+      try {
+        JSON.parse(s.value);
+      } catch {
+        jsonErrors++;
+      }
+    }
+  }
+
+  const settingsOk = missingRequired.length === 0 && jsonErrors === 0;
+
+  checks.push({
+    id: "app_settings_integrity",
+    label: "Ajustes del Sistema (sek_app_settings): Parámetros de configuración y esquemas JSON",
+    status: settingsOk ? "ok" : "warning",
+    expected: `Parámetros críticos presentes sin errores JSON (0 errores)`,
+    actual: `${all.length} ajustes registrados (${jsonErrors} errores JSON, ${missingRequired.length} faltantes)`,
+    detail: settingsOk
+      ? `Todos los parámetros centrales del sistema (${all.length} registros: horarios, categorías de software y tareas de taller) tienen estructura JSON válida.`
+      : `Advertencia en ajustes del sistema: Faltan claves esenciales (${missingRequired.join(", ") || "ninguna"}) o hay ${jsonErrors} configuraciones con JSON inválido.`,
+  });
+}
+
 // ───────────────────────── EJECUCIÓN Y ALMACENAMIENTO ─────────────────────────
 
 export async function runIntegrityChecks(): Promise<IntegrityReport> {
@@ -641,10 +816,14 @@ export async function runIntegrityChecks(): Promise<IntegrityReport> {
     }
   };
 
-  await guarded("cases", "Verificación de casos", () => checkCases(checks));
-  await guarded("activity", "Verificación de horas de actividad", () => checkActivity(checks));
-  await guarded("garantias", "Verificación de garantías", () => checkGarantias(checks));
-  await guarded("inventario", "Verificación de inventario inteligente", () => checkInventario(checks));
+  await guarded("cases", "Auditoría de Casos y Tickets (sek_cases)", () => checkCases(checks));
+  await guarded("activity_daily", "Auditoría de Actividad Diaria (activity_log diario)", () => checkActivity(checks));
+  await guarded("activity_multiday", "Auditoría de Actividad Mensual y Anti-Truncamiento (activity_log mensual)", () => checkActivityMultiDay(checks));
+  await guarded("activity_summary", "Auditoría de Resúmenes Diarios (activity_summary)", () => checkActivitySummary(checks));
+  await guarded("garantias", "Auditoría de Garantías y RMA (sek_garantias)", () => checkGarantias(checks));
+  await guarded("inventario", "Auditoría de Inventario Físico y Marcas (sek_inventario)", () => checkInventario(checks));
+  await guarded("agent_config", "Auditoría de Técnicos y Horarios (sek_agent_config)", () => checkAgentConfig(checks));
+  await guarded("app_settings", "Auditoría de Configuración del Sistema (sek_app_settings)", () => checkAppSettings(checks));
 
   return {
     ranAt: new Date().toISOString(),

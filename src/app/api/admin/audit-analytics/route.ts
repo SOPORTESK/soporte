@@ -1,9 +1,10 @@
 // src/app/api/admin/audit-analytics/route.ts
-// Endpoint de auto-auditoría matemática de analíticas e integridad de datos
+// Endpoint de auto-auditoría matemática e integridad global de TODAS las tablas del sistema
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { NextResponse } from "next/server";
 import { runAnalyticsAudit } from "@/lib/client-analytics";
+import { runIntegrityChecks } from "@/lib/data-integrity";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,10 @@ export async function GET() {
 
   const supabase = createServiceClient();
 
+  // 1. Auditoría global de todas las tablas del sistema
+  const systemIntegrity = await runIntegrityChecks();
+
+  // 2. Auditoría matemática de casos y clientes
   const loadedCasos: any[] = [];
   let pageOffset = 0;
   while (true) {
@@ -30,7 +35,8 @@ export async function GET() {
   const audit = runAnalyticsAudit(loadedCasos);
 
   return NextResponse.json({
-    status: audit.scoreIntegridad === 100 ? "healthy" : "warning",
+    status: systemIntegrity.status === "ok" && audit.scoreIntegridad === 100 ? "healthy" : "warning",
     audit,
+    systemIntegrity,
   });
 }
