@@ -415,7 +415,7 @@ export function ActivityAnalyticsTab({
               <div className="flex items-center gap-2 mt-1 text-[11px] text-muted-foreground font-mono">
                 <span>💻 PC: {formatHoursMinutes(displayTeamPcMs)}</span>
                 <span>·</span>
-                <span>🔧 Taller: {formatHoursMinutes(displayTeamManualMs)}</span>
+                <span>🔧 Manuales: {formatHoursMinutes(displayTeamManualMs)}</span>
               </div>
             </div>
 
@@ -489,7 +489,7 @@ export function ActivityAnalyticsTab({
                   Rendimiento y Comparativa de Técnicos
                 </h3>
                 <p className="text-xs text-muted-foreground">
-                  Consolidado individual de horas productivas, labores físicas y adherencia en el período.
+                  Consolidado individual de horas productivas, tareas manuales y adherencia en el período.
                 </p>
               </div>
               <DataAuditBadge
@@ -508,7 +508,7 @@ export function ActivityAnalyticsTab({
                     <th className="py-2.5 px-3">Técnico</th>
                     <th className="py-2.5 px-3">Estado</th>
                     <th className="py-2.5 px-3 font-mono">💻 PC</th>
-                    <th className="py-2.5 px-3 font-mono">🔧 Taller</th>
+                    <th className="py-2.5 px-3 font-mono">🔧 Tareas Manuales</th>
                     <th className="py-2.5 px-3 font-mono">Total Activo</th>
                     <th className="py-2.5 px-3 font-mono">Efectividad</th>
                     <th className="py-2.5 px-3 font-mono">Descansos</th>
@@ -654,7 +654,7 @@ export function ActivityAnalyticsTab({
               <div className="flex items-center gap-2 mt-1 text-[11px] text-muted-foreground font-mono">
                 <span>💻 PC: {formatHoursMinutes(displayIndPcMs)}</span>
                 <span>·</span>
-                <span>🔧 Taller: {formatHoursMinutes(displayIndManualMs)}</span>
+                <span>🔧 Manuales: {formatHoursMinutes(displayIndManualMs)}</span>
               </div>
             </div>
 
@@ -710,7 +710,7 @@ export function ActivityAnalyticsTab({
                 {formatHoursMinutes(displayIndIdleMs)}
               </div>
               <span className="text-[11px] text-muted-foreground">
-                Gaps sin movimiento ni labor manual
+                Gaps sin movimiento ni tarea manual registrada
               </span>
             </div>
           </div>
