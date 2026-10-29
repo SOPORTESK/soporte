@@ -55,6 +55,18 @@ interface Props {
   useMixedSchedule?: boolean;
   daySchedules?: Record<number, { start?: string; end?: string; targetHours?: number }>;
   appMappings?: Record<string, any>;
+  periodMetrics?: {
+    activeTotalMs: number;
+    activePcMs: number;
+    activeManualMs: number;
+    idleMs: number;
+    breakMs: number;
+    sanitaryMs: number;
+    totalBreakMs?: number;
+    totalTimeMs?: number;
+    productivityScore: number;
+    topSoftware?: Array<{ name: string; durationMs: number; count: number; category: string }>;
+  } | null;
 }
 
 function formatHoursMinutes(ms: number): string {
@@ -111,6 +123,7 @@ function ActivityExecutiveChartsComponent({
   useMixedSchedule = false,
   daySchedules,
   appMappings: propAppMappings,
+  periodMetrics,
 }: Props) {
   const [periodPreset, setPeriodPreset] = useState<"hoy" | "este_mes" | "este_ano">("hoy");
   const [localAppMappings, setLocalAppMappings] = useState<Record<string, any>>(() => {
@@ -173,6 +186,73 @@ function ActivityExecutiveChartsComponent({
   }, [timeline, toleranceMinutes, scheduleStart, scheduleEnd, useMixedSchedule, daySchedules, activeAppMappings]);
 
   const { effectiveness, topTasks, hourlyTrend, totalCalculatedMs, productivoPct } = useMemo(() => {
+    if (periodMetrics) {
+      const activeMs = periodMetrics.activeTotalMs ?? (periodMetrics.activePcMs + periodMetrics.activeManualMs);
+      const idleMs = periodMetrics.idleMs ?? 0;
+      const breakMs = periodMetrics.breakMs ?? 0;
+      const sanitaryMs = periodMetrics.sanitaryMs ?? 0;
+      const totalMs = periodMetrics.totalTimeMs ?? (activeMs + idleMs + breakMs + sanitaryMs);
+
+      const effData = [
+        {
+          id: "Productivo",
+          label: "Productivo",
+          color: MASTER_COLORS.Productivo.hex,
+          ms: activeMs,
+          pct: totalMs > 0 ? Math.round((activeMs / totalMs) * 100) : 0,
+        },
+        {
+          id: "Inactivo",
+          label: "Inactivo",
+          color: MASTER_COLORS.Inactivo.hex,
+          ms: idleMs,
+          pct: totalMs > 0 ? Math.round((idleMs / totalMs) * 100) : 0,
+        },
+        {
+          id: "Descanso",
+          label: "Descanso",
+          color: MASTER_COLORS.Descanso.hex,
+          ms: breakMs,
+          pct: totalMs > 0 ? Math.round((breakMs / totalMs) * 100) : 0,
+        },
+        {
+          id: "Pausa Sanitaria",
+          label: "Pausa Sanitaria",
+          color: MASTER_COLORS["Pausa Sanitaria"].hex,
+          ms: sanitaryMs,
+          pct: totalMs > 0 ? Math.round((sanitaryMs / totalMs) * 100) : 0,
+        },
+      ];
+
+      const softwareList = (periodMetrics.topSoftware && periodMetrics.topSoftware.length > 0)
+        ? periodMetrics.topSoftware
+        : metrics.topSoftware;
+
+      const tasksArr = softwareList.slice(0, 5).map((s) => ({
+        name: s.name,
+        durationMs: s.durationMs,
+        hours: Number((s.durationMs / 3600000).toFixed(2)),
+        timeFormatted: formatHoursMinutes(s.durationMs),
+      }));
+
+      const trendPoints = Object.entries(metrics.hourlyTrend)
+        .map(([hStr, ms]) => {
+          const hour = parseInt(hStr, 10);
+          const hoursFraction = Math.min(1.0, Number((ms / 3600000).toFixed(2)));
+          const label = `${hour.toString().padStart(2, "0")}:00`;
+          return { hour, hoursFraction, label };
+        })
+        .sort((a, b) => a.hour - b.hour);
+
+      return {
+        effectiveness: effData,
+        topTasks: tasksArr,
+        hourlyTrend: trendPoints,
+        totalCalculatedMs: totalMs,
+        productivoPct: periodMetrics.productivityScore ?? (totalMs > 0 ? Math.round((activeMs / totalMs) * 100) : 0),
+      };
+    }
+
     const effData = metrics.masterList.map((cat) => ({
       id: cat.id,
       label: cat.label,
@@ -210,7 +290,7 @@ function ActivityExecutiveChartsComponent({
       totalCalculatedMs: metrics.totalDayMs,
       productivoPct: metrics.masterBuckets.Productivo.percentage,
     };
-  }, [metrics]);
+  }, [metrics, periodMetrics]);
 
   // ── 2. Donut SVG Amplio con viewBox holgado (CERO RECORTES LATERALES) ────────
   const donutSegments = useMemo(() => {

@@ -751,6 +751,7 @@ export function ActivityAnalyticsTab({
             useMixedSchedule={useMixedSchedule}
             daySchedules={daySchedules}
             appMappings={appMappings}
+            periodMetrics={isPeriodRange && targetAgentPeriod ? { ...targetAgentPeriod, topSoftware: periodData?.topSoftware } : null}
           />
 
           {/* Mapa de Calor de Intensidad Horaria */}
