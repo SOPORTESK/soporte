@@ -579,8 +579,14 @@ export function assignToOperationalCategory(
   }
 
   // Servicio de Taller
-  if (n.includes("diagnóstico") || n.includes("diagnostico") || n.includes("reparación") || n.includes("reparacion") ||
-      n.includes("mantenimiento") || n.includes("tienda 3d") || c.includes("servicio de taller")) {
+  if (
+    n.includes("diagnóstico") || n.includes("diagnostico") || n.includes("reparación") || n.includes("reparacion") ||
+    n.includes("mantenimiento") || n.includes("tienda 3d") || c.includes("servicio de taller") ||
+    n.includes("hitools") || n.includes("ivms") || n.includes("sadp") || n.includes("winbox") ||
+    n.includes("putty") || n.includes("teraterm") || n.includes("vnc") || n.includes("mobaxterm") ||
+    n.includes("wireshark") || n.includes("flashtool") || n.includes("firmware") ||
+    a.includes("hitools") || a.includes("ivms") || a.includes("sadp") || a.includes("winbox")
+  ) {
     return "Servicio de Taller";
   }
 
@@ -602,22 +608,34 @@ export function assignToOperationalCategory(
   }
 
   // Control Administrativo
-  if (n.includes("reunión") || n.includes("reunion") || n.includes("inventario") || n.includes("garantía") ||
-      n.includes("garantia") || n.includes("outlook") || n.includes("correo") || n.includes("antigravity") ||
-      n.includes("devin") || n.includes("github") || n.includes("nextime") || n.includes("chatgpt") ||
-      c.includes("administrativo") || c.includes("optimización")) {
+  if (
+    n.includes("reunión") || n.includes("reunion") || n.includes("inventario") || n.includes("garantía") ||
+    n.includes("garantia") || n.includes("outlook") || n.includes("correo") || n.includes("antigravity") ||
+    n.includes("devin") || n.includes("github") || n.includes("nextime") || n.includes("chatgpt") ||
+    n.includes("excel") || n.includes("word") || n.includes("winword") || n.includes("powerpnt") ||
+    n.includes("powerpoint") || n.includes("office") || n.includes("acrobat") || n.includes("acrodrd") ||
+    n.includes("pdf") || n.includes("sheets") || n.includes("docs") || n.includes("calc") ||
+    n.includes("libreoffice") ||
+    c.includes("administrativo") || c.includes("optimización") ||
+    a.includes("excel") || a.includes("word") || a.includes("office") || a.includes("pdf")
+  ) {
     return "Control Administrativo";
   }
 
   // Utilidades (Spotify, Navegador Web, Program Manager, accesorios del SO, calculadoras, etc.)
-  if (n.includes("utilidad") || n.includes("spotify") || n.includes("program manager") ||
-      n.includes("progman") || n.includes("calculadora") || n.includes("notepad") ||
-      n.includes("bloc de notas") || n.includes("taskmgr") || n.includes("administrador de tareas") ||
-      n.includes("escritorio") || n.includes("conmutac") || n.includes("task switching") ||
-      n.includes("google one") || n.includes("navegador") || n.includes("browser") ||
-      n.includes("búsqueda") || n.includes("busqueda") || n.includes("explorador") ||
-      c.includes("utilidades") || a.includes("spotify") || a.includes("program manager") ||
-      a.includes("conmutac") || a.includes("escritorio") || a.includes("google one")) {
+  if (
+    n.includes("utilidad") || n.includes("spotify") || n.includes("program manager") ||
+    n.includes("progman") || n.includes("calculadora") || n.includes("notepad") ||
+    n.includes("bloc de notas") || n.includes("taskmgr") || n.includes("administrador de tareas") ||
+    n.includes("escritorio") || n.includes("conmutac") || n.includes("task switching") ||
+    n.includes("google one") || n.includes("navegador") || n.includes("browser") ||
+    n.includes("búsqueda") || n.includes("busqueda") || n.includes("explorador") ||
+    n.includes("snippingtool") || n.includes("recortes") || n.includes("greenshot") ||
+    n.includes("paint") || n.includes("mspaint") || n.includes("cmd") || n.includes("powershell") ||
+    n.includes("windowsterminal") || n.includes("explorer") ||
+    c.includes("utilidades") || a.includes("spotify") || a.includes("program manager") ||
+    a.includes("conmutac") || a.includes("escritorio") || a.includes("google one")
+  ) {
     return "Utilidades";
   }
 
@@ -1098,6 +1116,7 @@ export function computeUnifiedActivityMetrics(
   OFFICIAL_OPERATIONAL_CATEGORIES.forEach((c) => {
     opTimes[c.id] = 0;
   });
+  opTimes["Sin Clasificar"] = 0;
 
   const softTimes: Record<string, { durationMs: number; count: number; category: string }> = {};
   const hourlyTrend: Record<number, number> = {};
@@ -1834,7 +1853,8 @@ export function computeUnifiedActivityMetrics(
     (opTimes["Gestión del Taller"] || 0) +
     (opTimes["Gestión de Residuos"] || 0) +
     (opTimes["On-the-Job Training (OJT)"] || 0) +
-    (opTimes["Utilidades"] || 0);
+    (opTimes["Utilidades"] || 0) +
+    (opTimes["Sin Clasificar"] || 0);
 
   const breakMs = opTimes["Descansos"] || 0;
   const sanitaryMs = opTimes["Pausa Sanitaria"] || 0;
@@ -1867,6 +1887,7 @@ export function computeUnifiedActivityMetrics(
       "Gestión de Residuos",
       "On-the-Job Training (OJT)",
       "Utilidades",
+      "Sin Clasificar",
       "Justificación Manual",
     ];
     for (const k of allProdKeys) {
@@ -1885,6 +1906,7 @@ export function computeUnifiedActivityMetrics(
     (opTimes["Gestión de Residuos"] || 0) +
     (opTimes["On-the-Job Training (OJT)"] || 0) +
     (opTimes["Utilidades"] || 0) +
+    (opTimes["Sin Clasificar"] || 0) +
     (opTimes["Justificación Manual"] || 0);
 
   const totalDayMs = Math.max(1, productiveMs + idleTotalMs + breakMs + sanitaryMs);
@@ -1933,7 +1955,22 @@ export function computeUnifiedActivityMetrics(
       formattedTime: formatDurationMs(dur),
       percentage: Math.round((dur / totalDayMs) * 100),
     };
-  }).sort((a, b) => b.durationMs - a.durationMs);
+  });
+
+  if ((opTimes["Sin Clasificar"] || 0) > 0) {
+    operationalBuckets.push({
+      id: "Sin Clasificar",
+      label: "Otras Apps de PC",
+      color: "text-slate-400 border-slate-500/30 bg-slate-500/15",
+      bgBar: "bg-slate-500",
+      iconName: "SlidersHorizontal",
+      isProductive: true,
+      durationMs: opTimes["Sin Clasificar"],
+      formattedTime: formatDurationMs(opTimes["Sin Clasificar"]),
+      percentage: Math.round((opTimes["Sin Clasificar"] / totalDayMs) * 100),
+    });
+  }
+  operationalBuckets.sort((a, b) => b.durationMs - a.durationMs);
 
   // 4. RANKING DE SOFTWARE Y TAREAS (Nivel 3)
   const topSoftware: SoftwareBucket[] = Object.entries(softTimes)

@@ -104,7 +104,9 @@ export function ActivityAnalyticsTab({
       activeTotalMs: number;
       breakMs: number;
       sanitaryMs: number;
+      totalBreakMs?: number;
       idleMs: number;
+      totalTimeMs?: number;
       daysWorked: number;
       eventsCount: number;
       productivityScore: number;
@@ -115,7 +117,9 @@ export function ActivityAnalyticsTab({
       manualJustificationMs: number;
       totalBreakMs: number;
       totalSanitaryMs: number;
+      totalBreaksCombinedMs?: number;
       totalIdleMs: number;
+      totalTimeMs?: number;
       productivityScore: number;
       activeAgentsCount: number;
       totalEvents: number;
@@ -225,6 +229,8 @@ export function ActivityAnalyticsTab({
       const breakMs = m.masterBuckets?.Descanso?.durationMs ?? 0;
       const sanitaryMs = m.masterBuckets?.["Pausa Sanitaria"]?.durationMs ?? 0;
 
+      const rowBreakTotal = breakMs + sanitaryMs;
+      const rowTotalTime = pcWorkMs + manualMs + rowBreakTotal + idleMs;
       return {
         email,
         name,
@@ -236,6 +242,8 @@ export function ActivityAnalyticsTab({
         idleMs,
         breakMs,
         sanitaryMs,
+        totalBreakMs: rowBreakTotal,
+        totalTimeMs: rowTotalTime,
         productivityScore: m.productivityScore ?? 0,
         eventsCount: items.length,
       };
@@ -249,11 +257,15 @@ export function ActivityAnalyticsTab({
     if (periodData?.agentBreakdown && periodData.agentBreakdown.length > 0) {
       return periodData.agentBreakdown.map((row) => {
         const live = agents.find((a) => a.email.toLowerCase() === row.email.toLowerCase());
+        const rowBreakTotal = row.totalBreakMs ?? ((row.breakMs || 0) + (row.sanitaryMs || 0));
+        const rowTotalTime = row.totalTimeMs ?? ((row.activePcMs || 0) + (row.activeManualMs || 0) + rowBreakTotal + (row.idleMs || 0));
         return {
           ...row,
           name: live?.name || row.name,
           avatarUrl: live?.avatar_url,
           status: live?.status || "offline",
+          totalBreakMs: rowBreakTotal,
+          totalTimeMs: rowTotalTime,
         };
       });
     }
@@ -270,6 +282,11 @@ export function ActivityAnalyticsTab({
     periodData?.teamTotals?.totalBreakMs ?? (groupMetrics.masterBuckets?.Descanso?.durationMs ?? 0);
   const displayTeamSanitaryMs =
     periodData?.teamTotals?.totalSanitaryMs ?? (groupMetrics.masterBuckets?.["Pausa Sanitaria"]?.durationMs ?? 0);
+  const displayTeamIdleMs =
+    periodData?.teamTotals?.totalIdleMs ?? (groupMetrics.masterBuckets?.Inactivo?.durationMs ?? 0);
+  const displayTeamTotalTimeMs =
+    periodData?.teamTotals?.totalTimeMs ??
+    (displayTeamPcMs + displayTeamManualMs + displayTeamBreakMs + displayTeamSanitaryMs + displayTeamIdleMs);
 
   // Búsqueda del agente seleccionado en el desglose del período para vistas mensuales/semanales
   const targetAgentPeriod = useMemo(() => {
@@ -301,6 +318,8 @@ export function ActivityAnalyticsTab({
     isPeriodRange && targetAgentPeriod
       ? targetAgentPeriod.idleMs
       : individualMetrics.masterBuckets?.Inactivo?.durationMs ?? 0;
+  const displayIndTotalTimeMs =
+    displayIndPcMs + displayIndManualMs + displayIndBreakMs + displayIndSanitaryMs + displayIndIdleMs;
 
   const currentAgentObj = agents.find((a) => a.email.toLowerCase() === (selectedAgent || "").toLowerCase());
 
@@ -399,23 +418,23 @@ export function ActivityAnalyticsTab({
         <div className="space-y-6">
           {/* Fila 1: KPIs Consolidados del Equipo */}
           <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-            {/* 1. Total Activo Equipo */}
+            {/* 1. Total Horas del Taller (100% computado) */}
             <div className="p-4 rounded-2xl bg-card border border-border shadow-xs">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-black uppercase tracking-wider text-muted-foreground">
-                  Horas Totales del Taller
+                  Horas Totales (100%)
                 </span>
                 <span className="p-1.5 rounded-lg bg-sky-500/10 text-sky-400">
                   <Clock className="h-4 w-4" />
                 </span>
               </div>
               <div className="text-2xl font-black text-foreground font-mono mt-2">
-                {formatHoursMinutes(displayTeamActiveMs)}
+                {formatHoursMinutes(displayTeamTotalTimeMs)}
               </div>
               <div className="flex items-center gap-2 mt-1 text-[11px] text-muted-foreground font-mono">
                 <span>💻 PC: {formatHoursMinutes(displayTeamPcMs)}</span>
                 <span>·</span>
-                <span>🔧 Manuales: {formatHoursMinutes(displayTeamManualMs)}</span>
+                <span>🔧 Manual: {formatHoursMinutes(displayTeamManualMs)}</span>
               </div>
             </div>
 
@@ -457,26 +476,27 @@ export function ActivityAnalyticsTab({
               </div>
             </div>
 
-            {/* 4. Colaboradores Activos */}
+            {/* 4. Inactividad Registrada */}
             <div className="p-4 rounded-2xl bg-card border border-border shadow-xs">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-black uppercase tracking-wider text-muted-foreground">
-                  Personal Conectado
+                  Inactividad del Taller
                 </span>
-                <span className="p-1.5 rounded-lg bg-violet-500/10 text-violet-400">
-                  <Users className="h-4 w-4" />
-                </span>
-              </div>
-              <div className="text-2xl font-black text-foreground font-mono mt-2">
-                {agents.filter((a) => a.status === "active").length}{" "}
-                <span className="text-xs font-normal text-muted-foreground font-sans">
-                  / {agents.length} técnicos
+                <span className="p-1.5 rounded-lg bg-slate-500/10 text-slate-400">
+                  <AlertTriangle className="h-4 w-4" />
                 </span>
               </div>
-              <span className="text-[11px] text-emerald-500 font-semibold flex items-center gap-1 mt-1">
-                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                Sincronización en vivo
-              </span>
+              <div className="text-2xl font-black text-slate-300 font-mono mt-2">
+                {formatHoursMinutes(displayTeamIdleMs)}
+              </div>
+              <div className="flex items-center gap-2 mt-1 text-[11px] text-muted-foreground font-mono">
+                <span className="text-emerald-500 font-semibold flex items-center gap-1">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  {agents.filter((a) => a.status === "active").length} en vivo
+                </span>
+                <span>·</span>
+                <span>{agents.length} técnicos</span>
+              </div>
             </div>
           </div>
 
@@ -505,110 +525,111 @@ export function ActivityAnalyticsTab({
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="border-b border-border text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
-                    <th className="py-2.5 px-3">Técnico</th>
-                    <th className="py-2.5 px-3">Estado</th>
-                    <th className="py-2.5 px-3 font-mono">💻 PC</th>
-                    <th className="py-2.5 px-3 font-mono">🔧 Tareas Manuales</th>
-                    <th className="py-2.5 px-3 font-mono">Total Activo</th>
-                    <th className="py-2.5 px-3 font-mono">Efectividad</th>
-                    <th className="py-2.5 px-3 font-mono">Descansos</th>
-                    <th className="py-2.5 px-3 text-right">Acción</th>
+                    <th className="py-2.5 px-3 whitespace-nowrap">Técnico</th>
+                    <th className="py-2.5 px-3 whitespace-nowrap">Estado</th>
+                    <th className="py-2.5 px-3 font-mono whitespace-nowrap">💻 PC</th>
+                    <th className="py-2.5 px-3 font-mono whitespace-nowrap">🔧 MANUAL</th>
+                    <th className="py-2.5 px-3 font-mono whitespace-nowrap">☕ DESCANSOS</th>
+                    <th className="py-2.5 px-3 font-mono whitespace-nowrap">⏳ INACTIVIDAD</th>
+                    <th className="py-2.5 px-3 font-mono whitespace-nowrap">⏱️ TOTAL (100%)</th>
+                    <th className="py-2.5 px-3 font-mono whitespace-nowrap">📊 EFECTIVIDAD</th>
+                    <th className="py-2.5 px-3 text-right whitespace-nowrap">Acción</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">
-                  {displayAgentBreakdown.map((row) => (
-                    <tr key={row.email} className="hover:bg-muted/30 transition-colors">
-                      <td className="py-3 px-3">
-                        <div className="flex items-center gap-2.5">
-                          <div className="h-7 w-7 rounded-full bg-violet-500/20 text-violet-400 font-bold grid place-items-center text-xs shrink-0">
-                            {row.name.slice(0, 2).toUpperCase()}
+                  {displayAgentBreakdown.map((row) => {
+                    const rowBreaks = row.totalBreakMs ?? ((row.breakMs || 0) + (row.sanitaryMs || 0));
+                    const rowTotalTime = row.totalTimeMs ?? ((row.activePcMs || 0) + (row.activeManualMs || 0) + rowBreaks + (row.idleMs || 0));
+                    return (
+                      <tr key={row.email} className="hover:bg-muted/30 transition-colors">
+                        <td className="py-3 px-3 whitespace-nowrap">
+                          <div className="flex items-center gap-2.5">
+                            <div className="h-7 w-7 rounded-full bg-violet-500/20 text-violet-400 font-bold grid place-items-center text-xs shrink-0">
+                              {row.name.slice(0, 2).toUpperCase()}
+                            </div>
+                            <div>
+                              <span className="font-bold text-foreground block">{row.name}</span>
+                              <span className="text-[10px] text-muted-foreground">{row.email}</span>
+                            </div>
                           </div>
-                          <div>
-                            <span className="font-bold text-foreground block">{row.name}</span>
-                            <span className="text-[10px] text-muted-foreground">{row.email}</span>
-                          </div>
-                        </div>
-                      </td>
+                        </td>
 
-                      <td className="py-3 px-3">
-                        <span
-                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            row.status === "active"
-                              ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
-                              : row.status === "away" || row.status === "idle"
-                              ? "bg-amber-500/15 text-amber-400 border border-amber-500/30"
-                              : "bg-slate-500/15 text-slate-400 border border-slate-500/30"
-                          }`}
-                        >
+                        <td className="py-3 px-3 whitespace-nowrap">
                           <span
-                            className={`h-1.5 w-1.5 rounded-full ${
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
                               row.status === "active"
-                                ? "bg-emerald-400 animate-ping"
+                                ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
                                 : row.status === "away" || row.status === "idle"
-                                ? "bg-amber-400"
-                                : "bg-slate-400"
+                                ? "bg-amber-500/15 text-amber-400 border border-amber-500/30"
+                                : "bg-slate-500/15 text-slate-400 border border-slate-500/30"
                             }`}
-                          />
-                          {row.status === "active"
-                            ? "En Vivo"
-                            : row.status === "away"
-                            ? "Ausente"
-                            : row.status === "idle"
-                            ? "Inactivo"
-                            : "Desconectado"}
-                        </span>
-                      </td>
-
-                      <td className="py-3 px-3 font-mono text-muted-foreground">
-                        {formatHoursMinutes(row.activePcMs)}
-                      </td>
-
-                      <td className="py-3 px-3 font-mono text-muted-foreground">
-                        {formatHoursMinutes(row.activeManualMs)}
-                      </td>
-
-                      <td className="py-3 px-3 font-mono font-bold text-sky-400">
-                        {formatHoursMinutes(row.activeTotalMs)}
-                      </td>
-
-                      <td className="py-3 px-3 font-mono">
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-foreground w-9">{row.productivityScore}%</span>
-                          <div className="h-1.5 w-16 bg-muted rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-violet-500 rounded-full"
-                              style={{ width: `${Math.min(100, row.productivityScore)}%` }}
+                          >
+                            <span
+                              className={`h-1.5 w-1.5 rounded-full ${
+                                row.status === "active"
+                                  ? "bg-emerald-400 animate-ping"
+                                  : row.status === "away" || row.status === "idle"
+                                  ? "bg-amber-400"
+                                  : "bg-slate-400"
+                              }`}
                             />
+                            {row.status === "active"
+                              ? "En Vivo"
+                              : row.status === "away"
+                              ? "Ausente"
+                              : row.status === "idle"
+                              ? "Inactivo"
+                              : "Desconectado"}
+                          </span>
+                        </td>
+
+                        <td className="py-3 px-3 font-mono text-muted-foreground whitespace-nowrap">
+                          {formatHoursMinutes(row.activePcMs)}
+                        </td>
+
+                        <td className="py-3 px-3 font-mono text-muted-foreground whitespace-nowrap">
+                          {formatHoursMinutes(row.activeManualMs)}
+                        </td>
+
+                        <td className="py-3 px-3 font-mono text-amber-400/90 whitespace-nowrap">
+                          {formatHoursMinutes(rowBreaks)}
+                        </td>
+
+                        <td className="py-3 px-3 font-mono text-slate-400 whitespace-nowrap">
+                          {formatHoursMinutes(row.idleMs)}
+                        </td>
+
+                        <td className="py-3 px-3 font-mono font-bold text-sky-400 whitespace-nowrap">
+                          {formatHoursMinutes(rowTotalTime)}
+                        </td>
+
+                        <td className="py-3 px-3 font-mono whitespace-nowrap">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-foreground w-9">{row.productivityScore}%</span>
+                            <div className="h-1.5 w-16 bg-muted rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-violet-500 rounded-full"
+                                style={{ width: `${Math.min(100, row.productivityScore)}%` }}
+                              />
+                            </div>
                           </div>
-                        </div>
-                      </td>
+                        </td>
 
-                      <td className="py-3 px-3 font-mono text-muted-foreground">
-                        {formatHoursMinutes(row.breakMs + row.sanitaryMs)}
-                      </td>
-
-                      <td className="py-3 px-3 text-right">
-                        <button
-                          onClick={() => {
-                            onSelectAgent(row.email);
-                            setScope("individual");
-                          }}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-border bg-card hover:bg-muted text-[11px] font-semibold text-foreground transition-all cursor-pointer"
-                        >
-                          <span>Ver Detalle</span>
-                          <ChevronRight className="h-3 w-3" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-
-                  {displayAgentBreakdown.length === 0 && (
-                    <tr>
-                      <td colSpan={8} className="py-8 text-center text-xs text-muted-foreground italic">
-                        {loadingGroup || loadingPeriod ? "Cargando analíticas del equipo..." : "Sin registros de actividad en este período."}
-                      </td>
-                    </tr>
-                  )}
+                        <td className="py-3 px-3 text-right whitespace-nowrap">
+                          <button
+                            onClick={() => {
+                              onSelectAgent(row.email);
+                              setScope("individual");
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-border bg-card hover:bg-muted text-[11px] font-semibold text-foreground transition-all cursor-pointer"
+                          >
+                            <span>Ver Detalle</span>
+                            <ChevronRight className="h-3 w-3" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -638,23 +659,23 @@ export function ActivityAnalyticsTab({
         <div className="space-y-6">
           {/* Tarjetas KPI del Técnico Seleccionado */}
           <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-            {/* 1. Tiempo Total Activo */}
+            {/* 1. Tiempo Total Registrado (100%) */}
             <div className="p-4 rounded-2xl bg-card border border-border shadow-xs">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-black uppercase tracking-wider text-muted-foreground">
-                  Tiempo Activo
+                  Tiempo Registrado (100%)
                 </span>
                 <span className="p-1.5 rounded-lg bg-sky-500/10 text-sky-400">
                   <Clock className="h-4 w-4" />
                 </span>
               </div>
               <div className="text-2xl font-black text-sky-400 font-mono mt-2">
-                {formatHoursMinutes(displayIndActiveTotalMs)}
+                {formatHoursMinutes(displayIndTotalTimeMs)}
               </div>
               <div className="flex items-center gap-2 mt-1 text-[11px] text-muted-foreground font-mono">
                 <span>💻 PC: {formatHoursMinutes(displayIndPcMs)}</span>
                 <span>·</span>
-                <span>🔧 Manuales: {formatHoursMinutes(displayIndManualMs)}</span>
+                <span>🔧 Manual: {formatHoursMinutes(displayIndManualMs)}</span>
               </div>
             </div>
 

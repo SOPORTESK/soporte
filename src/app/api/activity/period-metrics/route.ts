@@ -108,7 +108,9 @@ export async function GET(req: NextRequest) {
       activeTotalMs: number;
       breakMs: number;
       sanitaryMs: number;
+      totalBreakMs: number;
       idleMs: number;
+      totalTimeMs: number;
       daysWorked: number;
       eventsCount: number;
       productivityScore: number;
@@ -215,6 +217,8 @@ export async function GET(req: NextRequest) {
 
       const denom = agActiveMs + agIdleMs;
       const score = denom > 0 ? Math.round((agActiveMs / denom) * 100) : 0;
+      const agTotalBreaksMs = agBreakMs + agSanitaryMs;
+      const agTotalTimeMs = agPcMs + agManualMs + agTotalBreaksMs + agIdleMs;
 
       agentBreakdown.push({
         email,
@@ -225,7 +229,9 @@ export async function GET(req: NextRequest) {
         activeTotalMs: agActiveMs,
         breakMs: agBreakMs,
         sanitaryMs: agSanitaryMs,
+        totalBreakMs: agTotalBreaksMs,
         idleMs: agIdleMs,
+        totalTimeMs: agTotalTimeMs,
         daysWorked,
         eventsCount: totalEvents,
         productivityScore: score,
@@ -237,6 +243,8 @@ export async function GET(req: NextRequest) {
 
     const teamDenom = teamActiveMs + teamIdleMs;
     const teamScore = teamDenom > 0 ? Math.round((teamActiveMs / teamDenom) * 100) : 0;
+    const teamTotalBreaksMs = teamBreakMs + teamSanitaryMs;
+    const teamTotalTimeMs = teamPcMs + teamManualMs + teamTotalBreaksMs + teamIdleMs;
 
     const teamTotals = {
       totalActiveMs: teamActiveMs,
@@ -244,7 +252,9 @@ export async function GET(req: NextRequest) {
       manualJustificationMs: teamManualMs,
       totalBreakMs: teamBreakMs,
       totalSanitaryMs: teamSanitaryMs,
+      totalBreaksCombinedMs: teamTotalBreaksMs,
       totalIdleMs: teamIdleMs,
+      totalTimeMs: teamTotalTimeMs,
       productivityScore: teamScore,
       activeAgentsCount: agentBreakdown.filter((a) => a.activeTotalMs > 0).length,
       totalEvents: allLogs.length,
