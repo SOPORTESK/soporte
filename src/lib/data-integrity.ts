@@ -721,7 +721,7 @@ async function checkAgentConfig(checks: IntegrityCheck[]) {
   const sb = createServiceClient();
   const { data: agents, error } = await sb
     .from("sek_agent_config")
-    .select("email, nombre, apellido, rol, is_active");
+    .select("email, nombre, apellido, rol, status");
 
   if (error) throw new Error(`lectura de sek_agent_config: ${error.message}`);
 
@@ -747,7 +747,7 @@ async function checkAgentConfig(checks: IntegrityCheck[]) {
       : `Se detectaron inconsistencias: ${missingEmail.length} sin correo, ${missingRole.length} sin rol, duplicados: ${hasDuplicateEmails ? "SÍ" : "NO"}.`,
   });
 
-  const activeCount = all.filter((a) => a.is_active !== false).length;
+  const activeCount = all.filter((a) => a.status !== "inactive" && a.status !== "disabled").length;
   checks.push({
     id: "agent_config_active_roster",
     label: "Configuración de Técnicos: Plantilla activa y horarios laborales",
@@ -768,7 +768,7 @@ async function checkAppSettings(checks: IntegrityCheck[]) {
 
   const all = settings || [];
   const keyList = all.map((s) => s.key);
-  const requiredKeys = ["activity_manual_tasks", "activity_schedule", "activity_app_categories"];
+  const requiredKeys = ["activity_manual_tasks", "activity_work_schedule", "activity_app_categories"];
   const missingRequired = requiredKeys.filter((k) => !keyList.includes(k));
 
   let jsonErrors = 0;
