@@ -315,11 +315,13 @@ export async function POST(req: NextRequest) {
 
     // 2. Acción específica para añadir o eliminar una subcategoría directamente
     if (action === "addSubcategory" && categoryId && subcatName) {
-      const { data } = await supabase
+      const { data, error: fetchErr } = await supabase
         .from("sek_app_settings")
         .select("value")
         .eq("key", CATEGORIES_LIST_KEY)
         .maybeSingle();
+
+      if (fetchErr) throw fetchErr;
 
       let currentCats: any[] = DEFAULT_CATEGORIES;
       if (data?.value) {
@@ -356,11 +358,13 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === "deleteSubcategory" && categoryId && subcatName) {
-      const { data } = await supabase
+      const { data, error: fetchErr } = await supabase
         .from("sek_app_settings")
         .select("value")
         .eq("key", CATEGORIES_LIST_KEY)
         .maybeSingle();
+
+      if (fetchErr) throw fetchErr;
 
       let currentCats: any[] = DEFAULT_CATEGORIES;
       if (data?.value) {
@@ -440,11 +444,13 @@ export async function POST(req: NextRequest) {
 
     // 5. Actualizar una sola aplicación (admite categoría y subcategoría opcional)
     if (appName) {
-      const { data } = await supabase
+      const { data, error: fetchErr } = await supabase
         .from("sek_app_settings")
         .select("value")
         .eq("key", APP_MAPPINGS_KEY)
         .maybeSingle();
+
+      if (fetchErr) throw fetchErr;
 
       let currentMap: Record<string, any> = {};
       if (data?.value) {

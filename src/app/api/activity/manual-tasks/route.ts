@@ -31,7 +31,7 @@ const DEFAULT_MANUAL_TASKS: ManualTaskItem[] = [
     label: "Reparación",
     category: "Servicio de Taller",
     subcategory: "Reparación",
-    iconName: "Wrench",
+    iconName: "Hammer",
     color: "sky",
   },
   {
@@ -59,34 +59,106 @@ const DEFAULT_MANUAL_TASKS: ManualTaskItem[] = [
     color: "indigo",
   },
   {
-    id: "comunicacion",
-    label: "Comunicación (ms-teams)",
+    id: "manual_1790710905386",
+    label: "Almuerzo",
+    category: "Descansos",
+    subcategory: "Tiempo de Descanso",
+    iconName: "Utensils",
+    color: "amber",
+  },
+  {
+    id: "manual_1790711526002",
+    label: "Baño",
+    category: "Pausa Sanitaria",
+    subcategory: "Pausa Sanitaria",
+    iconName: "Bath",
+    color: "amber",
+  },
+  {
+    id: "manual_1790771698430",
+    label: "Exhibidores",
     category: "Gestión del Taller",
-    subcategory: "Reuniones y Charlas",
+    subcategory: "Exhibidor",
+    iconName: "Tag",
+    color: "amber",
+  },
+  {
+    id: "manual_1790771771582",
+    label: "Inspección",
+    category: "Control Administrativo",
+    subcategory: "Devoluciones",
+    iconName: "Search",
+    color: "amber",
+  },
+  {
+    id: "manual_1790771886118",
+    label: "Soporte a Ventas",
+    category: "Soporte",
+    subcategory: "Presencial",
+    iconName: "Briefcase",
+    color: "amber",
+  },
+  {
+    id: "manual_1790784750307",
+    label: "Inducción a Clientes",
+    category: "Soporte",
+    subcategory: "Presencial",
+    iconName: "Contact",
+    color: "amber",
+  },
+  {
+    id: "manual_1790784849970",
+    label: "Ventanilla",
+    category: "Soporte",
+    subcategory: "Presencial",
+    iconName: "UserPlus",
+    color: "amber",
+  },
+  {
+    id: "manual_1790795333511",
+    label: "OJT",
+    category: "On-the-Job Training (OJT)",
+    subcategory: "Capacitación Técnica",
+    iconName: "Briefcase",
+    color: "amber",
+  },
+  {
+    id: "manual_1790795380335",
+    label: "Reunión",
+    category: "Control Administrativo",
+    subcategory: "Informes y Documentación",
     iconName: "Users",
-    color: "violet",
+    color: "amber",
   },
 ];
 
 export async function GET() {
   try {
     const supabase = createServiceClient();
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("sek_app_settings")
       .select("value")
       .eq("key", MANUAL_TASKS_KEY)
       .maybeSingle();
 
+    // Si hubo un error de conexión/timeout en Supabase, NO sobrescribir la base de datos ni el caché local
+    if (error) {
+      return NextResponse.json(
+        { success: false, error: error.message, tasks: DEFAULT_MANUAL_TASKS },
+        { status: 503, headers: { "Cache-Control": "no-store, no-cache, must-revalidate" } }
+      );
+    }
+
     let tasks: ManualTaskItem[] = DEFAULT_MANUAL_TASKS;
     if (data?.value) {
       try {
         const parsed = JSON.parse(data.value);
-        if (Array.isArray(parsed)) {
+        if (Array.isArray(parsed) && parsed.length > 0) {
           tasks = parsed;
         }
       } catch {}
-    } else {
-      // Inicializar por defecto si no existe registro
+    } else if (!data) {
+      // Inicializar por defecto únicamente si no existe el registro y sin sobrescribir si ya existe
       await supabase
         .from("sek_app_settings")
         .upsert(
@@ -97,7 +169,7 @@ export async function GET() {
             tag: "none",
             updated_at: new Date().toISOString(),
           },
-          { onConflict: "key" }
+          { onConflict: "key", ignoreDuplicates: true }
         );
     }
 
@@ -163,11 +235,18 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. Operaciones unitarias: add, update, update-icon, delete
-    const { data } = await supabase
+    const { data, error: fetchError } = await supabase
       .from("sek_app_settings")
       .select("value")
       .eq("key", MANUAL_TASKS_KEY)
       .maybeSingle();
+
+    if (fetchError) {
+      return NextResponse.json(
+        { error: "Error leyendo labores actuales de Supabase: " + fetchError.message },
+        { status: 503 }
+      );
+    }
 
     let currentTasks: ManualTaskItem[] = DEFAULT_MANUAL_TASKS;
     if (data?.value) {
