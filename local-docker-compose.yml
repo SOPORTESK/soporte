@@ -1,0 +1,85 @@
+version: "3.8"
+
+services:
+  evolution-postgres:
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_DB: evolution
+      POSTGRES_USER: evolution
+      POSTGRES_PASSWORD: SekEvo2026Secure
+    volumes:
+      - sekunet_postgres_data:/var/lib/postgresql/data
+    networks:
+      - evolution-net
+
+  evolution-redis:
+    image: redis:7
+    restart: always
+    command: redis-server --port 6379 --appendonly yes
+    volumes:
+      - sekunet_redis_data:/data
+    networks:
+      - evolution-net
+
+  evolution-api:
+    image: evoapicloud/evolution-api:v2.3.0
+    restart: always
+    depends_on:
+      - evolution-postgres
+      - evolution-redis
+    ports:
+      - "127.0.0.1:28080:8080"
+    volumes:
+      - sekunet_instances:/evolution/instances
+    networks:
+      - evolution-net
+    environment:
+      SERVER_URL: http://localhost:28080
+      SERVER_PORT: 8080
+      SERVER_TYPE: http
+
+      AUTHENTICATION_TYPE: apikey
+      AUTHENTICATION_API_KEY: SEKUNET_EVO_KEY_123
+
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://evolution:SekEvo2026Secure@evolution-postgres:5432/evolution
+      DATABASE_CONNECTION_CLIENT_NAME: evolution_exchange
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "true"
+      DATABASE_SAVE_MESSAGE_UPDATE: "true"
+      DATABASE_SAVE_DATA_CONTACTS: "true"
+      DATABASE_SAVE_DATA_CHATS: "true"
+      DATABASE_SAVE_DATA_LABELS: "true"
+      DATABASE_SAVE_DATA_HISTORIC: "true"
+
+      CACHE_REDIS_ENABLED: "true"
+      CACHE_REDIS_URI: redis://evolution-redis:6379/1
+      CACHE_REDIS_PREFIX_KEY: evolution_exchange
+      CACHE_REDIS_SAVE_INSTANCES: "true"
+
+      RABBITMQ_ENABLED: "false"
+      DEL_INSTANCE: "false"
+      QRCODE_LIMIT: 30
+
+  evolution-tunnel:
+    image: cloudflare/cloudflared:latest
+    restart: always
+    depends_on:
+      - evolution-api
+    command: tunnel --no-autoupdate --metrics 0.0.0.0:2000 --url http://evolution-api:8080
+    ports:
+      - "127.0.0.1:28081:2000"
+    networks:
+      - evolution-net
+
+volumes:
+  sekunet_postgres_data:
+  sekunet_redis_data:
+  sekunet_instances:
+
+networks:
+  evolution-net:
+    name: sekunet_evolution_net
+    driver: bridge

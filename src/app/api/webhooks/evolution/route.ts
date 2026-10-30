@@ -868,6 +868,28 @@ async function extractJid(payload: any, evoUrl: string, evoKey: string, evoInsta
         return `${numOnly}@s.whatsapp.net`;
       }
     }
+
+    // 2.5 Buscar el LID directamente en sek_cases (cliente->>lid o customer_phone) en Supabase
+    try {
+      const supabaseLid = createServiceClient();
+      const { data: lidCase } = await supabaseLid
+        .from("sek_cases")
+        .select("customer_phone, cliente")
+        .or(`customer_phone.eq.${rawJid},cliente->>lid.eq.${rawJid}`)
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (lidCase) {
+        const candidatePhone = lidCase.customer_phone || (typeof lidCase.cliente === "object" ? (lidCase.cliente as any)?.telefono_real || (lidCase.cliente as any)?.telefono : null);
+        const digits = String(candidatePhone || "").replace(/[^0-9]/g, "");
+        if (digits.length >= 8 && !String(candidatePhone).endsWith("@lid")) {
+          console.log("[evo-webhook] LID resuelto instantáneamente desde sek_cases (cliente.lid):", `${digits}@s.whatsapp.net`);
+          return `${digits}@s.whatsapp.net`;
+        }
+      }
+    } catch (e: any) {
+      console.warn("[evo-webhook] Error buscando cliente.lid en sek_cases:", e?.message);
+    }
     
     try {
       if (evoUrl && evoKey && evoInstance) {
@@ -1359,7 +1381,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ANTI-BUCLE: si fromMe=true, es respuesta enviada por nosotros (ej. la IA) — salir de inmediato
+  // Detectar si es un mensaje propio (fromMe=true, enviado desde WhatsApp Web/Móvil o por la app/IA)
   const rawFromMe = !!(
     payload?.data?.key?.fromMe ||
     payload?.key?.fromMe ||
@@ -1369,10 +1391,16 @@ export async function POST(req: NextRequest) {
     payload?.data?.fromMe ||
     payload?.fromMe
   );
-  if (rawFromMe) {
-    console.log("[evo-webhook] fromMe=true — mensaje propio, ignorado para evitar bucle");
-    return NextResponse.json({ ok: true, skipped: "fromMe" });
-  }
+
+  // Extraer LID original si el mensaje viene de un chat con @lid
+  const rawLidCandidate = [
+    get(payload, "data.messages.0.key.remoteJid"),
+    get(payload, "data.key.remoteJid"),
+    get(payload, "key.remoteJid"),
+    get(payload, "data.remoteJid"),
+    get(payload, "remoteJid"),
+  ].find((v) => typeof v === "string" && String(v).endsWith("@lid"));
+  const rawLid: string | null = rawLidCandidate ? String(rawLidCandidate) : null;
 
   // Detectar si es un mensaje saliente (enviado desde nuestro número)
   let isOutgoing = false;
@@ -1489,8 +1517,9 @@ export async function POST(req: NextRequest) {
         const currentCliente = (existing.cliente && typeof existing.cliente === "object") ? existing.cliente : {};
         const updatedCliente = { 
           ...currentCliente, 
-          whatsapp_name: pushName || currentCliente.whatsapp_name,
-          telefono_real: senderPn || currentCliente.telefono_real
+          whatsapp_name: ( !isOutgoing && pushName ) ? pushName : currentCliente.whatsapp_name,
+          telefono_real: senderPn || currentCliente.telefono_real,
+          ...(rawLid ? { lid: rawLid } : {}),
         };
         await supabase
           .from("sek_cases")
@@ -1895,9 +1924,12 @@ export async function POST(req: NextRequest) {
         if (phone && c.customer_phone === phone) return true;
         const t = typeof c.cliente === "object" ? c.cliente?.telefono : null;
         const tReal = typeof c.cliente === "object" ? c.cliente?.telefono_real : null;
+        const cLid = typeof c.cliente === "object" ? c.cliente?.lid : null;
+        if (rawLid && (cLid === rawLid || c.customer_phone === rawLid || t === rawLid)) return true;
+        if (cLid && cLid === jid) return true;
         if (phone && (t === phone || tReal === phone || t === jid || tReal === jid)) return true;
         if (senderPn && (t === senderPn || tReal === senderPn || c.customer_phone === senderPn)) return true;
-        if (pushName && typeof c.cliente === "object" && c.cliente?.whatsapp_name && String(c.cliente.whatsapp_name).trim().toLowerCase() === String(pushName).trim().toLowerCase()) return true;
+        if (!isOutgoing && pushName && typeof c.cliente === "object" && c.cliente?.whatsapp_name && String(c.cliente.whatsapp_name).trim().toLowerCase() === String(pushName).trim().toLowerCase()) return true;
         return false;
       };
 
@@ -1930,9 +1962,12 @@ export async function POST(req: NextRequest) {
     if (existing) {
       console.log("[evo-webhook] Paso 8: procesando caso existente, isOutgoing:", isOutgoing);
       if (isOutgoing) {
-        // Mensaje saliente: guardar en histtecnico
+        // Mensaje saliente: esperar 1.5s para dar tiempo a que /api/evolution/send,
+        // bienvenida o IA terminen de guardar el mensaje en histtecnico antes de verificar duplicados.
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+
         // Re-leer histtecnico fresco desde BD para evitar race condition con el append
-        // que la UI pudo haber hecho justo antes de este webhook.
+        // que la UI o el bot pudo haber hecho justo antes de este webhook.
         const { data: freshRow } = await supabase
           .from("sek_cases")
           .select("histtecnico")
@@ -1940,35 +1975,33 @@ export async function POST(req: NextRequest) {
           .maybeSingle();
         const hist = Array.isArray(freshRow?.histtecnico) ? freshRow.histtecnico : [];
 
-        // Anti-duplicación: evitar que el webhook guarde el mensaje si la UI ya lo guardó.
-        // Sin ventana de tiempo: el eco puede llegar tarde y aún debe deduplicar.
+        // Anti-duplicación: evitar que el webhook guarde el mensaje si la UI o el bot ya lo guardó.
         let duplicateIndex = -1;
         const isDuplicate = hist.some((m: any, idx: number) => {
-          // Si tiene el mismo messageId, es duplicado
+          // Si tiene el mismo messageId de WhatsApp, es duplicado
           if (m.messageId && keyId && m.messageId === keyId) {
             duplicateIndex = idx;
             return true;
           }
-          // Si tiene texto, comparamos el texto (sin ventana de tiempo)
+          const hasSyntheticOrMissingId = !m.messageId || String(m.messageId).includes("-");
+          // Si tiene texto idéntico y fue guardado con UUID sintético o dentro de los últimos 2 minutos
           if (m.content && text && m.content.trim() === text.trim()) {
-            // Solo deduplicar si el mensaje existente no tiene messageId
-            // (si ya tiene messageId, fue guardado por el webhook y no es duplicado de la UI)
-            if (!m.messageId) {
+            const mTimeMs = m.time ? new Date(m.time).getTime() : 0;
+            const echoTimeMs = msgTime ? new Date(msgTime).getTime() : Date.now();
+            if (hasSyntheticOrMissingId || Math.abs(echoTimeMs - mTimeMs) < 120000) {
               duplicateIndex = idx;
               return true;
             }
           }
-          // Dedup fuzzy: si el agente editó el mensaje después de enviarlo,
-          // el texto ya no coincide exacto. Comparar por prefijo (primeros 30 chars)
-          // y por ventana de tiempo (60 segundos).
-          if (m.content && text && !m.messageId) {
+          // Dedup fuzzy: comparar por prefijo (primeros 30 chars) y ventana de 2 minutos
+          if (m.content && text && hasSyntheticOrMissingId) {
             const prefix1 = m.content.trim().slice(0, 30).toLowerCase();
             const prefix2 = text.trim().slice(0, 30).toLowerCase();
             if (prefix1 && prefix2 && prefix1 === prefix2) {
-              const msgTime = m.time ? new Date(m.time).getTime() : 0;
-              const echoTime = msgTime ? new Date(msgTime).getTime() : Date.now();
-              const diff = Math.abs(echoTime - msgTime);
-              if (diff < 120000) { // 2 minutos
+              const mTimeMs = m.time ? new Date(m.time).getTime() : 0;
+              const echoTimeMs = msgTime ? new Date(msgTime).getTime() : Date.now();
+              const diff = Math.abs(echoTimeMs - mTimeMs);
+              if (diff < 120000) {
                 duplicateIndex = idx;
                 return true;
               }
@@ -1978,7 +2011,7 @@ export async function POST(req: NextRequest) {
           if (mediaUrl && m.mediaUrl) {
             const url1 = mediaUrl.split('/').pop()?.split('?')[0];
             const url2 = m.mediaUrl.split('/').pop()?.split('?')[0];
-            if (url1 && url2 && url1 === url2 && !m.messageId) {
+            if (url1 && url2 && url1 === url2) {
               duplicateIndex = idx;
               return true;
             }
@@ -2046,6 +2079,7 @@ export async function POST(req: NextRequest) {
             ...currentCliente,
             whatsapp_name: pushName || currentCliente.whatsapp_name,
             telefono_real: senderPn || currentCliente.telefono_real,
+            ...(rawLid ? { lid: rawLid } : {}),
           },
           title: pushName ? `WhatsApp — ${pushName}` : (latestCase?.title || `WhatsApp — ${jid}`),
           ...(reopenClosedCase ? { estado: "ia_atendiendo" } : {}),
@@ -2293,35 +2327,10 @@ export async function POST(req: NextRequest) {
     }
 
     if (isOutgoing) {
-      const outPayload = {
-        estado: "pendiente",
-        prioridad: "media",
-        customer_phone: contactPhone,
-        cliente: { telefono: contactPhone, nombre: null },
-        histcliente: [],
-        histtecnico: [entry],
-        title: `WhatsApp — ${contactPhone}`,
-        last_message_at: msgTime,
-        last_message_preview: previewText.slice(0, 200),
-      };
-      const claimed = await claimWaCase(supabase, contactPhone, outPayload);
-      if (claimed) {
-        // created=false: otra invocación concurrente ya abrió el caso. El
-        // claim solo inserta el historial cuando crea, así que aquí hay que
-        // agregar este mensaje al caso que ganó la carrera.
-        if (!claimed.created) {
-          await supabase.rpc("sek_append_hist", {
-            p_case_id: claimed.caseId,
-            p_entry: entry,
-            p_col: "histtecnico",
-            p_preview: previewText.slice(0, 200),
-            p_customer_phone: phone || jid,
-          });
-        }
-        console.log(`[evo-webhook] Saliente sin caso previo → ${claimed.caseId} (creado: ${claimed.created})`);
-      } else {
-        await supabase.from("sek_cases").insert(({ canal: "whatsapp", ...outPayload } as any));
-      }
+      // No abrir casos nuevos automáticamente por ecos de mensajes salientes (ej. mensajes de cierre
+      // cuando el caso acaba de pasar a estado "cerrado").
+      console.log("[evo-webhook] Mensaje saliente (fromMe=true) sin caso activo abierto — ignorado para no reabrir/crear caso fantasma.");
+      return NextResponse.json({ ok: true, skipped: "outgoing_no_active_case" });
     } else {
       const clienteData: Record<string, unknown> = {
         telefono: contactPhone,
@@ -2330,6 +2339,7 @@ export async function POST(req: NextRequest) {
         cuenta: knownClient.cuenta || null,
         whatsapp_name: pushName || null,
         telefono_real: senderPn || null,
+        ...(rawLid ? { lid: rawLid } : {}),
         ...(knownClient.cedula ? { cedula: knownClient.cedula } : {}),
         ...(mediaType && !mediaUrl && mediaDebug ? { debug_media: mediaDebug } : {}),
       };

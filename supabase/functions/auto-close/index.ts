@@ -256,8 +256,16 @@ Deno.serve(async (req) => {
     const caseCrDateStr = `${caseCrDate.getUTCFullYear()}-${String(caseCrDate.getUTCMonth() + 1).padStart(2, "0")}-${String(caseCrDate.getUTCDate()).padStart(2, "0")}`;
     const isFromPreviousDay = caseCrDateStr < crDateStr;
 
-    if (dailyCloseConfig.enabled && (isAfterDailyCutoff || isFromPreviousDay)) {
+    if (dailyCloseConfig.enabled && (isAfterDailyCutoff || (isFromPreviousDay && !isReopen && !caso.auto_close_paused))) {
       console.log(`[auto-close] Caso ${caso.id} seleccionado para cierre por fin de jornada (corte: ${dailyCloseConfig.close_time}, diaPrevio: ${isFromPreviousDay})`);
+
+      const existingTech = Array.isArray(caso.histtecnico) ? caso.histtecnico : [];
+      const alreadyHasCloseMsg = existingTech.some((m: any) =>
+        m?.content && (
+          String(m.content).trim() === String(dailyCloseConfig.message).trim() ||
+          String(m.content).trim() === String(autoCloseConfig.close_message).trim()
+        )
+      );
 
       const dailyCloseEntry = {
         role: "tecnico",
@@ -265,7 +273,7 @@ Deno.serve(async (req) => {
         time: new Date().toISOString(),
         author: "Soporte Sekunet",
       };
-      const newHist = [...(caso.histtecnico ?? []), dailyCloseEntry];
+      const newHist = alreadyHasCloseMsg ? existingTech : [...existingTech, dailyCloseEntry];
 
       const { data: closedDaily, error: dailyErr } = await db
         .from("sek_cases")
