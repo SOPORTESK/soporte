@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { InboxClient } from "@/components/chat/inbox-client";
 import { getUserWithTimeout, queryWithFallback } from "@/lib/supabase/resilient";
+import { getAgentGroupPermissions } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +25,10 @@ export default async function MiGestionPage({ searchParams }: { searchParams: { 
 
   const agentName = agentConfig?.nombre || "";
   const agentFullName = [agentConfig?.nombre, agentConfig?.apellido].filter(Boolean).join(" ").toLowerCase();
-  const isAdmin = agentConfig?.rol === "admin" || agentConfig?.rol === "superadmin";
+  const userPerms = await getAgentGroupPermissions(agentConfig?.rol || "tecnico");
+  const isAdmin =
+    agentConfig?.rol === "superadmin" ||
+    Boolean((userPerms as any)?.inbox?.subcategories?.supervision_en_vivo ?? (agentConfig?.rol === "admin"));
 
   if (!agentEmail) {
     return (
