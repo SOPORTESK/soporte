@@ -68,12 +68,12 @@ const FALLBACK_MANUAL_TASKS: ManualTaskItem[] = [
   { id: "inventario", label: "Inventario", category: "Control Administrativo", subcategory: "Inventarios", iconName: "ClipboardList", color: "indigo" },
   { id: "almuerzo", label: "Almuerzo", category: "Descansos", subcategory: "Tiempo de Descanso", iconName: "Utensils", color: "amber" },
   { id: "bano", label: "Baño", category: "Pausa Sanitaria", subcategory: "Pausa Sanitaria", iconName: "Bath", color: "amber" },
-  { id: "exhibidores", label: "Exhibidores", category: "Gestión del Taller", subcategory: "Exhibidor", iconName: "Tag", color: "amber" },
-  { id: "inspeccion", label: "Inspección", category: "Control Administrativo", subcategory: "Devoluciones", iconName: "Search", color: "amber" },
+  { id: "exhibidores", label: "Exhibidores", category: "Gestión del Taller", subcategory: "Exhibidor", iconName: "ShowcaseDisplay", color: "amber" },
+  { id: "inspeccion", label: "Inspección", category: "Control Administrativo", subcategory: "Devoluciones", iconName: "InspectionLens", color: "amber" },
   { id: "soporte_ventas", label: "Soporte a Ventas", category: "Soporte", subcategory: "Presencial", iconName: "Briefcase", color: "amber" },
   { id: "induccion_clientes", label: "Inducción a Clientes", category: "Soporte", subcategory: "Presencial", iconName: "Contact", color: "amber" },
-  { id: "ventanilla", label: "Ventanilla", category: "Soporte", subcategory: "Presencial", iconName: "UserPlus", color: "amber" },
-  { id: "ojt", label: "OJT", category: "On-the-Job Training (OJT)", subcategory: "Capacitación Técnica", iconName: "Briefcase", color: "amber" },
+  { id: "ventanilla", label: "Ventanilla", category: "Soporte", subcategory: "Presencial", iconName: "ReceptionDesk", color: "amber" },
+  { id: "ojt", label: "OJT", category: "On-the-Job Training (OJT)", subcategory: "Capacitación Técnica", iconName: "TrainingBoard", color: "amber" },
   { id: "reunion", label: "Reunión", category: "Control Administrativo", subcategory: "Informes y Documentación", iconName: "Users", color: "amber" },
 ];
 

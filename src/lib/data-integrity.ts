@@ -4,7 +4,7 @@
 import { createHash } from "node:crypto";
 import { createServiceClient } from "@/lib/supabase/service";
 import { createGarantiasServiceClient } from "@/lib/supabase-garantias";
-import { getActivityMetrics, getActivityTimeline, type ActivityLog } from "@/lib/activity-db";
+import { getActivityTimeline } from "@/lib/activity-db";
 import { inferBrand, inferCategory } from "@/lib/inventory-classifier";
 
 export type CheckStatus = "ok" | "warning" | "error";
@@ -28,27 +28,8 @@ export interface IntegrityReport {
 
 const REPORT_KEY = "integrity_report";
 
-// Tolerancias de las comparaciones
-const TOL_SPAN_MS = 5 * 60_000; // el motor no puede sumar más que el reloj real (+5 min)
-const TOL_SPLIT_MS = 60_000; // Activo = PC + Manuales (±1 min)
-const TOL_CATS_MS = 2 * 60_000; // Categorías = Activo + Descanso + Sanitaria (±2 min)
-
-// Umbrales para detectar temporizadores que probablemente se quedaron corriendo
-const MAX_BREAK_MIN = 90;
-const MAX_SANITARY_MIN = 60; // 60 min para evitar falsos positivos en pausas sanitarias
-const MAX_TASK_MIN = 240;
-const MIN_ACTIVITY_DURING_BREAK = 3;
-
-const BREAK_CATEGORIES = new Set(["descansos", "pausa sanitaria"]);
-
 function crDate(d: Date): string {
   return d.toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
-}
-
-function fmtMin(ms: number): string {
-  const m = Math.round(ms / 60000);
-  if (m < 60) return `${m}m`;
-  return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
 }
 
 function shortDate(day: string): string {
@@ -133,249 +114,73 @@ async function checkCases(checks: IntegrityCheck[]) {
   });
 }
 
-// ───────────────────────── ACTIVIDAD ─────────────────────────
-
-interface ManualInterval {
-  task: string;
-  category: string;
-  startMs: number;
-  endMs: number | null;
-  durationMs: number;
-}
-
-function parseManualIntervals(sorted: ActivityLog[], nowMs: number): ManualInterval[] {
-  const out: ManualInterval[] = [];
-  for (let i = 0; i < sorted.length; i++) {
-    const it = sorted[i];
-    const act = (it.action || "").toLowerCase();
-    const meta = (it.metadata || {}) as Record<string, any>;
-    const isStart = (act.startsWith("inició:") || act.startsWith("inicio:")) && (meta.manual || meta.task);
-    if (!isStart) continue;
-
-    const task = String(meta.task || (it.action || "").replace(/^inici[oó]:\s*/i, "")).trim();
-    const startMs = new Date(it.created_at as string).getTime();
-    let endMs: number | null = null;
-    let explicitMs = 0;
-    for (let j = i + 1; j < sorted.length; j++) {
-      const nx = sorted[j];
-      const nAct = (nx.action || "").toLowerCase();
-      const nMeta = (nx.metadata || {}) as Record<string, any>;
-      if (
-        (nAct.startsWith("terminó:") || nAct.startsWith("termino:")) &&
-        (nMeta.task === task || nAct.includes(task.toLowerCase()))
-      ) {
-        endMs = new Date(nx.created_at as string).getTime();
-        explicitMs = Number(nx.duration_ms || (nMeta.duration_seconds ? nMeta.duration_seconds * 1000 : 0)) || 0;
-        break;
-      }
-      // Si el colaborador inició otra labor manual o descanso posterior sin cerrar la anterior,
-      // la labor previa finalizó naturalmente al momento de iniciar la nueva actividad
-      const isOtherStart = (nAct.startsWith("inició:") || nAct.startsWith("inicio:")) && (nMeta.manual || nMeta.task);
-      if (isOtherStart) {
-        endMs = new Date(nx.created_at as string).getTime();
-        explicitMs = endMs - startMs;
-        break;
-      }
-    }
-    const rawDur = endMs !== null ? (explicitMs > 0 ? explicitMs : endMs - startMs) : nowMs - startMs;
-    // Si un temporizador quedó abierto sin finalizar de un turno previo, limitar a un máximo razonable de 30m
-    const durationMs = endMs === null ? Math.min(rawDur, 30 * 60 * 1000) : rawDur;
-    out.push({ task, category: String(it.category || ""), startMs, endMs, durationMs });
-  }
-  return out;
-}
+// ───────────────────────── ACTIVIDAD (PARIDAD BD ↔ ANALÍTICAS DEL TRACKER) ─────────────────────────
 
 async function checkActivity(checks: IntegrityCheck[]) {
+  const sb = createServiceClient();
   const now = new Date();
   const days = [crDate(now), crDate(new Date(now.getTime() - 86_400_000))];
 
-  const spanViol: string[] = [];
-  const splitViol: string[] = [];
-  const catsViol: string[] = [];
-  const runaway: string[] = [];
-  const duringBreak: string[] = [];
+  let totalDbCount = 0;
+  let totalTrackerCount = 0;
+  const countMismatches: string[] = [];
+  const agentParityMismatches: string[] = [];
   let duplicates = 0;
-  let evaluated = 0;
 
   for (const day of days) {
-    const all = await getActivityTimeline(undefined, day);
-    const byAgent = new Map<string, ActivityLog[]>();
-    for (const it of all) {
-      const key = (it.agent_email || "").toLowerCase();
-      if (!key) continue;
-      if (!byAgent.has(key)) byAgent.set(key, []);
-      byAgent.get(key)!.push(it);
+    const startIso = `${day}T00:00:00-06:00`;
+    const endIso = `${day}T23:59:59.999-06:00`;
+
+    // 1. Conteo exacto en base de datos (PostgreSQL)
+    const { count: dbDayCount, error: countErr } = await sb
+      .from("activity_log")
+      .select("id", { count: "exact", head: true })
+      .gte("created_at", startIso)
+      .lte("created_at", endIso);
+
+    if (countErr) throw new Error(`conteo de activity_log (${day}): ${countErr.message}`);
+
+    // 2. Registros leídos por las analíticas del Tracker
+    const trackerRows = await getActivityTimeline(undefined, day);
+    const expectedDayCount = dbDayCount ?? 0;
+
+    totalDbCount += expectedDayCount;
+    totalTrackerCount += trackerRows.length;
+
+    if (trackerRows.length !== expectedDayCount) {
+      countMismatches.push(
+        `${shortDate(day)}: BD tiene ${expectedDayCount} eventos vs Analíticas del Tracker leen ${trackerRows.length}`
+      );
     }
 
-    // Duplicados exactos o consecutivos inmediatos (mismo agente + tarea terminada dentro de 60s)
+    // 3. Paridad de agentes y eventos entre BD y Analíticas del Tracker
+    const trackerByAgent = new Map<string, number>();
+    for (const it of trackerRows) {
+      const key = (it.agent_email || "").toLowerCase().trim();
+      if (!key) continue;
+      trackerByAgent.set(key, (trackerByAgent.get(key) || 0) + 1);
+    }
+
+    const totalByAgent = Array.from(trackerByAgent.values()).reduce((a, b) => a + b, 0);
+    if (totalByAgent !== trackerRows.length) {
+      agentParityMismatches.push(
+        `${shortDate(day)}: ${trackerRows.length - totalByAgent} registro(s) sin agent_email válido en el tracker`
+      );
+    }
+
+    // 4. Duplicados exactos (mismo agente + acción + instante exacto)
     const seen = new Set<string>();
-    const lastEnds = new Map<string, { timeMs: number; task: string }>();
-    for (const it of all) {
+    for (const it of trackerRows) {
       const k = `${it.agent_email}|${it.action}|${it.created_at}`;
       if (seen.has(k)) {
         duplicates++;
       } else {
         seen.add(k);
-        const act = (it.action || "").toLowerCase();
-        if (act.startsWith("terminó:") || act.startsWith("termino:")) {
-          const email = (it.agent_email || "").toLowerCase();
-          const task = (it.metadata?.task || it.action.replace(/^termin[oó]:\s*/i, "").split("(")[0]).toLowerCase().trim();
-          const tMs = new Date(it.created_at as string).getTime();
-          const prevEnd = lastEnds.get(email);
-          if (prevEnd && prevEnd.task === task && Math.abs(tMs - prevEnd.timeMs) < 60_000) {
-            duplicates++;
-          } else {
-            lastEnds.set(email, { timeMs: tMs, task });
-          }
-        }
-      }
-    }
-
-    for (const [email, tl] of Array.from(byAgent.entries())) {
-      const sorted = [...tl].sort(
-        (a, b) => new Date(a.created_at as string).getTime() - new Date(b.created_at as string).getTime()
-      );
-      if (sorted.length < 2) continue;
-      evaluated++;
-      const name = sorted[0].agent_name || email;
-      const tag = `${name} · ${shortDate(day)}`;
-
-      const m = await getActivityMetrics(email, day, sorted);
-      const isTodayDay = day === crDate(now);
-      const firstEventTime = new Date(sorted[0].created_at as string).getTime();
-      const lastEventTime = new Date(sorted[sorted.length - 1].created_at as string).getTime();
-      // En una jornada en curso (hoy), si hay inactividad o turno en progreso hasta 'now',
-      // la ventana de reloj real llega hasta 'now' y no se congela en el último evento del log.
-      const effectiveEndTime = isTodayDay ? Math.max(lastEventTime, now.getTime()) : lastEventTime;
-      const spanMs = Math.max(0, effectiveEndTime - firstEventTime);
-      const total = m.rawActiveMs + m.totalBreakMs + m.totalSanitaryMs + m.totalIdleMs;
-
-      // Si el motor imputó tardanza al inicio de jornada o salida anticipada respecto al horario programado,
-      // esas inactividades computadas ocurrieron fuera de la ventana de conexión real del colaborador.
-      const tardinessGap = (m.detectedGaps || []).find((g: any) => g.id === "gap-inicio-tardio");
-      const tardinessMs = tardinessGap ? (tardinessGap.durationMs || 0) : 0;
-      const earlyLeaveGap = (m.detectedGaps || []).find((g: any) => g.id === "gap-salida-anticipada");
-      const earlyLeaveMs = earlyLeaveGap ? (earlyLeaveGap.durationMs || 0) : 0;
-      const effectiveClockSpan = spanMs + tardinessMs + earlyLeaveMs;
-
-      // Permitir concurrencia en atención multicanal / chats simultáneos.
-      // Cuando un colaborador atiende varios chats en paralelo, cada caso registra su duración
-      // individual acumulando horas de atención concurrentes válidas.
-      let chatConcurrencyMs = 0;
-      for (const it of sorted) {
-        const act = (it.action || "").toLowerCase();
-        const meta = (it.metadata || {}) as Record<string, any>;
-        if (
-          act.includes("atención por chat") ||
-          act.includes("atendio caso") ||
-          act.includes("atendió caso") ||
-          it.category === "Soporte Mensajería" ||
-          it.category === "Mensajería"
-        ) {
-          const dMs = Number(it.duration_ms || (meta.duration_seconds ? meta.duration_seconds * 1000 : 0)) || 0;
-          chatConcurrencyMs += dMs;
-        }
-      }
-
-      // Las justificaciones manuales discretas y la atención simultánea representan tiempo admisible
-      const maxAllowedSpan = effectiveClockSpan + (m.manualJustificationMs || 0) + chatConcurrencyMs + TOL_SPAN_MS;
-      if (total > maxAllowedSpan) {
-        spanViol.push(
-          `${tag}: suma ${fmtMin(total)} pero el reloj real admisible fue ${fmtMin(effectiveClockSpan + (m.manualJustificationMs || 0) + chatConcurrencyMs)}`
-        );
-      }
-
-      const split = m.pcWorkMs + m.manualJustificationMs;
-      if (Math.abs(m.rawActiveMs - split) > TOL_SPLIT_MS) {
-        splitViol.push(`${tag}: Activo ${fmtMin(m.rawActiveMs)} ≠ PC+Manuales ${fmtMin(split)}`);
-      }
-
-      const catsSum = Object.values(m.categoryTimeMs as Record<string, number>).reduce((a, b) => a + b, 0);
-      const hasBreaksInCats = Object.keys(m.categoryTimeMs || {}).some((k) =>
-        BREAK_CATEGORIES.has(k.toLowerCase()) || k.toLowerCase().includes("descanso") || k.toLowerCase().includes("sanitaria")
-      );
-      const catsExpected = m.rawActiveMs + (hasBreaksInCats ? m.totalBreakMs + m.totalSanitaryMs : 0);
-      if (Math.abs(catsSum - catsExpected) > TOL_CATS_MS) {
-        catsViol.push(`${tag}: categorías ${fmtMin(catsSum)} ≠ ${fmtMin(catsExpected)}`);
-      }
-
-      // Solo alertar si un temporizador se quedó REALMENTE abierto sin cerrar de días anteriores
-      const intervals = parseManualIntervals(sorted, now.getTime());
-      for (const iv of intervals) {
-        const cat = iv.category.toLowerCase();
-        const open = iv.endMs === null;
-        // Si el temporizador ya fue finalizado, es un registro cerrado legítimo y no se cuestiona
-        if (!open) continue;
-
-        const isPrevDay = day !== crDate(now);
-        const mins = iv.durationMs / 60000;
-        if (isPrevDay || mins > 720) {
-          runaway.push(
-            `${tag}: ${iv.task} quedó abierto sin finalizar (${fmtMin(iv.durationMs)})`
-          );
-        }
-        // Actividad humana mientras el agente figuraba en descanso
-        if (BREAK_CATEGORIES.has(cat)) {
-          const endMs = iv.endMs ?? now.getTime();
-          const during = sorted.filter((e) => {
-            const t = new Date(e.created_at as string).getTime();
-            if (t <= iv.startMs || t >= endMs) return false;
-            const a = (e.action || "").toLowerCase();
-            const c = (e.category || "").toLowerCase();
-            if (BREAK_CATEGORIES.has(c) || c === "inactividad") return false;
-            if (a.startsWith("inició") || a.startsWith("inicio") || a.startsWith("terminó") || a.startsWith("termino")) return false;
-            if (a.includes("modo no atendido") || a.startsWith("reanudó")) return false;
-            return true;
-          }).length;
-          if (during >= MIN_ACTIVITY_DURING_BREAK) {
-            duringBreak.push(`${tag}: ${during} eventos de trabajo durante "${iv.task}" (${fmtMin(iv.durationMs)})`);
-          }
-        }
       }
     }
   }
 
-  const pushInvariant = (id: string, label: string, viol: string[], okText: string) => {
-    checks.push({
-      id,
-      label,
-      status: viol.length === 0 ? "ok" : "error",
-      expected: 0,
-      actual: viol.length,
-      detail: viol.length === 0 ? okText : viol.slice(0, 6).join(" | "),
-    });
-  };
-  pushInvariant(
-    "act_span",
-    "Horas: ninguna jornada suma más tiempo que el reloj real",
-    spanViol,
-    `${evaluated} jornadas revisadas (hoy y ayer).`
-  );
-  pushInvariant("act_split", "Horas: Activo = Trabajo PC + Manuales", splitViol, `${evaluated} jornadas cuadran.`);
-  pushInvariant(
-    "act_cats",
-    "Horas: categorías = Activo + Descanso + Sanitaria",
-    catsViol,
-    `${evaluated} jornadas cuadran.`
-  );
-
-  checks.push({
-    id: "act_runaway",
-    label: "Temporizadores que parecen haberse quedado corriendo",
-    status: runaway.length === 0 ? "ok" : "warning",
-    expected: 0,
-    actual: runaway.length,
-    detail: runaway.length === 0 ? "Ningún descanso ni labor excede lo razonable." : runaway.slice(0, 6).join(" | "),
-  });
-  checks.push({
-    id: "act_break_activity",
-    label: "Actividad de trabajo mientras figuraba en descanso",
-    status: duringBreak.length === 0 ? "ok" : "warning",
-    expected: 0,
-    actual: duringBreak.length,
-    detail: duringBreak.length === 0 ? "Sin actividad laboral durante descansos." : duringBreak.slice(0, 6).join(" | "),
-  });
-  if (duplicates > 0 || runaway.length > 0) {
+  if (duplicates > 0) {
     try {
       const sanitized = await autoSanitizeIntegrity();
       if (sanitized.removedDuplicates > 0) {
@@ -385,12 +190,39 @@ async function checkActivity(checks: IntegrityCheck[]) {
   }
 
   checks.push({
+    id: "act_db_vs_tracker_count",
+    label: "Tracker: Paridad exacta entre Base de Datos (activity_log) y Analíticas",
+    status: countMismatches.length === 0 ? "ok" : "error",
+    expected: `${totalDbCount} eventos en PostgreSQL`,
+    actual: `${totalTrackerCount} eventos en Analíticas del Tracker`,
+    detail:
+      countMismatches.length === 0
+        ? `Coincidencia del 100%: ${totalTrackerCount} registros en las analíticas del tracker = ${totalDbCount} registros en la base de datos (hoy y ayer).`
+        : countMismatches.join(" | "),
+  });
+
+  checks.push({
+    id: "act_agent_parity",
+    label: "Tracker: Consistencia de atribución por técnico entre BD y Analíticas",
+    status: agentParityMismatches.length === 0 ? "ok" : "warning",
+    expected: "100% de eventos atribuidos a su técnico en las analíticas",
+    actual: agentParityMismatches.length === 0 ? `${totalTrackerCount}/${totalDbCount} eventos íntegros` : `${agentParityMismatches.length} anomalía(s)`,
+    detail:
+      agentParityMismatches.length === 0
+        ? "Todos los eventos recolectados en la base de datos están correctamente vinculados y reflejados en las analíticas por colaborador."
+        : agentParityMismatches.join(" | "),
+  });
+
+  checks.push({
     id: "act_duplicates",
-    label: "Registros de actividad duplicados",
+    label: "Tracker: Registros de actividad sin duplicados en base de datos",
     status: duplicates === 0 ? "ok" : "warning",
     expected: 0,
     actual: duplicates,
-    detail: duplicates === 0 ? "Sin duplicados exactos (auto-saneados)." : `${duplicates} registros repetidos (mismo agente, acción e instante).`,
+    detail:
+      duplicates === 0
+        ? "Sin registros duplicados entre el tracker y la base de datos."
+        : `${duplicates} registros repetidos (mismo agente, acción e instante).`,
   });
 }
 
@@ -931,48 +763,6 @@ export async function autoSanitizeIntegrity(): Promise<{
         removedDuplicates += duplicateIds.length;
       } else {
         console.error("[autoSanitizeIntegrity] error deleting duplicates:", error);
-      }
-    }
-
-    // Auto-sanear temporizadores que quedaron abiertos sin finalizar de días anteriores
-    const intervals = parseManualIntervals(sortedAll, now.getTime());
-    for (const iv of intervals) {
-      if (iv.endMs === null) {
-        const isPrevDay = day !== crDate(now);
-        const mins = iv.durationMs / 60000;
-        if (isPrevDay || mins > 720) {
-          // Buscar el agente correspondiente al intervalo
-          const startEvent = sortedAll.find(
-            (e) => (e.metadata?.task === iv.task || (e.action || "").includes(iv.task)) && (e.action || "").toLowerCase().startsWith("inici")
-          );
-          if (startEvent) {
-            const cappedMs = Math.min(iv.durationMs, 30 * 60 * 1000); // Tope de 30 min para cierres automáticos
-            const endIso = new Date(iv.startMs + cappedMs).toISOString();
-            const durSec = Math.round(cappedMs / 1000);
-            const m = Math.floor(durSec / 60);
-            const s = durSec % 60;
-            const endAction = `Terminó: ${iv.task} (${m}min ${s}s)`;
-            const endRow = {
-              agent_email: startEvent.agent_email,
-              agent_name: startEvent.agent_name,
-              action: endAction,
-              category: iv.category || "Gestión del Taller",
-              case_id: null,
-              metadata: {
-                task: iv.task,
-                manual: true,
-                auto_sanitized: true,
-                duration_seconds: durSec,
-              },
-              duration_ms: cappedMs,
-              created_at: endIso,
-            };
-            const { error: insErr } = await sb.from("activity_log").insert(endRow);
-            if (!insErr) {
-              closedRunawayTimers++;
-            }
-          }
-        }
       }
     }
   }

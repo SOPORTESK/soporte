@@ -79,7 +79,7 @@ const DEFAULT_MANUAL_TASKS: ManualTaskItem[] = [
     label: "Exhibidores",
     category: "Gestión del Taller",
     subcategory: "Exhibidor",
-    iconName: "Tag",
+    iconName: "ShowcaseDisplay",
     color: "amber",
   },
   {
@@ -87,7 +87,7 @@ const DEFAULT_MANUAL_TASKS: ManualTaskItem[] = [
     label: "Inspección",
     category: "Control Administrativo",
     subcategory: "Devoluciones",
-    iconName: "Search",
+    iconName: "InspectionLens",
     color: "amber",
   },
   {
@@ -111,7 +111,7 @@ const DEFAULT_MANUAL_TASKS: ManualTaskItem[] = [
     label: "Ventanilla",
     category: "Soporte",
     subcategory: "Presencial",
-    iconName: "UserPlus",
+    iconName: "ReceptionDesk",
     color: "amber",
   },
   {
@@ -119,7 +119,7 @@ const DEFAULT_MANUAL_TASKS: ManualTaskItem[] = [
     label: "OJT",
     category: "On-the-Job Training (OJT)",
     subcategory: "Capacitación Técnica",
-    iconName: "Briefcase",
+    iconName: "TrainingBoard",
     color: "amber",
   },
   {

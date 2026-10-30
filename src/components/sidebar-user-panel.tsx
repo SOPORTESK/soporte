@@ -1758,17 +1758,17 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
           )}
 
           {tab === "activity" && hasActivityAccess && (
-            <div className="flex flex-col h-[520px] max-h-full overflow-hidden">
-              {/* Header con gradiente y métricas compactas */}
-              <div className="px-3 py-2 bg-gradient-to-br from-violet-500/15 via-indigo-500/5 to-transparent border-b border-border/50 space-y-1.5">
+            <div className="flex flex-col h-[520px] max-h-full overflow-hidden bg-gradient-to-b from-slate-50/70 via-background to-slate-100/50 dark:from-slate-950/60 dark:via-background dark:to-slate-950/80">
+              {/* Header HUD futurista con relieve 3D y métricas compactas */}
+              <div className="px-3 py-2 bg-gradient-to-br from-violet-600/12 via-indigo-500/6 to-cyan-500/5 border-b border-violet-500/20 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.6)] dark:shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)] space-y-1.5">
                 {/* Fila 1: Título + Score */}
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0">
-                    <div className="h-6 w-6 rounded-md bg-violet-500/20 text-violet-400 grid place-items-center shrink-0 border border-violet-500/30">
+                    <div className="h-6 w-6 rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 text-white grid place-items-center shrink-0 shadow-[0_2px_0_0_#4c1d95,0_4px_10px_rgba(124,58,237,0.35),inset_0_1px_0_0_rgba(255,255,255,0.4)]">
                       <ActivityIcon className="h-3.5 w-3.5" />
                     </div>
                     <div className="min-w-0">
-                      <span className="text-[11px] font-black tracking-tight text-foreground block leading-tight">
+                      <span className="text-[11px] font-black tracking-wider text-foreground block leading-tight">
                         JORNADA 10H
                       </span>
                       {myMetrics?.firstLoginTime && (
@@ -1778,7 +1778,7 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
                       )}
                     </div>
                   </div>
-                  <span className="text-[10.5px] font-black px-1.5 py-0.5 rounded-md bg-violet-500/15 text-violet-400 border border-violet-500/30 leading-tight shrink-0">
+                  <span className="text-[10.5px] font-black px-2 py-0.5 rounded-lg bg-gradient-to-b from-violet-500/20 to-indigo-500/15 text-violet-600 dark:text-violet-300 border border-violet-500/35 shadow-[0_2px_0_0_rgba(139,92,246,0.25),inset_0_1px_0_0_rgba(255,255,255,0.5)] dark:shadow-[0_2px_0_0_rgba(76,29,149,0.6),inset_0_1px_0_0_rgba(255,255,255,0.12)] leading-tight shrink-0">
                     {myMetrics?.productivityScore ?? 100}%
                   </span>
                 </div>
@@ -1787,49 +1787,49 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
                 {myMetrics?.rawOvertimeMs > 0 && (
                   <div className="pt-0.5">
                     {myMetrics.isOvertimeApproved ? (
-                      <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[10px] font-bold">
-                        <Check className="h-3 w-3 text-emerald-400 shrink-0" />
+                      <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-600 dark:text-emerald-300 text-[10px] font-bold">
+                        <Check className="h-3 w-3 text-emerald-500 shrink-0" />
                         <span>+{myMetrics.overtimeTime} tiempo extra aprobado</span>
                       </div>
                     ) : (
-                      <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[10px] font-bold">
-                        <Clock className="h-3 w-3 text-amber-400 shrink-0" />
+                      <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-300 text-[10px] font-bold">
+                        <Clock className="h-3 w-3 text-amber-500 shrink-0" />
                         <span>+{myMetrics.overtimeTime} fuera de horario (En revisión)</span>
                       </div>
                     )}
                   </div>
                 )}
 
-                {/* Fila 2: Métricas en línea compactas (Jornada transcurrida, Activo puro y Tiempo restante) */}
+                {/* Fila 2: Cápsulas 3D en línea (Jornada transcurrida, Activo puro y Tiempo restante) */}
                 <div className="flex items-center gap-1.5 pt-0.5 border-t border-border/40">
-                  <div className="flex-1 flex items-center gap-1 bg-card/80 border border-violet-500/25 rounded-lg px-1.5 py-1 min-w-0" title="Jornada Laboral transcurrida desde la hora de entrada">
-                    <Clock className="h-2.5 w-2.5 text-violet-400 shrink-0" />
+                  <div className="flex-1 flex items-center gap-1 bg-gradient-to-b from-white to-slate-100/90 dark:from-slate-800/90 dark:to-slate-900/90 border border-violet-500/30 rounded-lg px-1.5 py-1 min-w-0 shadow-[0_2px_0_0_rgba(139,92,246,0.18),inset_0_1px_0_0_rgba(255,255,255,0.8)] dark:shadow-[0_2px_0_0_rgba(15,23,42,0.9),inset_0_1px_0_0_rgba(255,255,255,0.08)]" title="Jornada Laboral transcurrida desde la hora de entrada">
+                    <Clock className="h-2.5 w-2.5 text-violet-500 dark:text-violet-400 shrink-0" />
                     <span className="text-[8.5px] font-bold text-muted-foreground uppercase">Jornada</span>
-                    <span className="text-[10.5px] font-black text-violet-300 ml-auto font-mono truncate">{myMetrics?.totalWorkdayTime || "0m"}</span>
+                    <span className="text-[10.5px] font-black text-violet-600 dark:text-violet-300 ml-auto font-mono truncate">{myMetrics?.totalWorkdayTime || "0m"}</span>
                   </div>
-                  <div className="flex-1 flex items-center gap-1 bg-card/80 border border-emerald-500/25 rounded-lg px-1.5 py-1 min-w-0" title="Tiempo activo acumulado en PC y labores de taller">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                  <div className="flex-1 flex items-center gap-1 bg-gradient-to-b from-white to-slate-100/90 dark:from-slate-800/90 dark:to-slate-900/90 border border-emerald-500/30 rounded-lg px-1.5 py-1 min-w-0 shadow-[0_2px_0_0_rgba(16,185,129,0.18),inset_0_1px_0_0_rgba(255,255,255,0.8)] dark:shadow-[0_2px_0_0_rgba(15,23,42,0.9),inset_0_1px_0_0_rgba(255,255,255,0.08)]" title="Tiempo activo acumulado en PC y labores de taller">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0 shadow-[0_0_6px_#10b981]" />
                     <span className="text-[8.5px] font-bold text-muted-foreground uppercase">Activo</span>
-                    <span className="text-[10.5px] font-black text-emerald-400 ml-auto font-mono truncate">{myMetrics?.totalActiveTime || "0m"}</span>
+                    <span className="text-[10.5px] font-black text-emerald-600 dark:text-emerald-400 ml-auto font-mono truncate">{myMetrics?.totalActiveTime || "0m"}</span>
                   </div>
-                  <div className="flex-1 flex items-center gap-1 bg-card/80 border border-sky-500/25 rounded-lg px-1.5 py-1 min-w-0" title="Tiempo restante para completar la jornada meta">
-                    <Clock className="h-2.5 w-2.5 text-sky-400 shrink-0" />
+                  <div className="flex-1 flex items-center gap-1 bg-gradient-to-b from-white to-slate-100/90 dark:from-slate-800/90 dark:to-slate-900/90 border border-sky-500/30 rounded-lg px-1.5 py-1 min-w-0 shadow-[0_2px_0_0_rgba(14,165,233,0.18),inset_0_1px_0_0_rgba(255,255,255,0.8)] dark:shadow-[0_2px_0_0_rgba(15,23,42,0.9),inset_0_1px_0_0_rgba(255,255,255,0.08)]" title="Tiempo restante para completar la jornada meta">
+                    <Clock className="h-2.5 w-2.5 text-sky-500 dark:text-sky-400 shrink-0" />
                     <span className="text-[8.5px] font-bold text-muted-foreground uppercase">Resta</span>
-                    <span className="text-[10.5px] font-black text-sky-400 ml-auto font-mono truncate">{myMetrics?.deficitMs > 0 ? (myMetrics?.deficitTime || "0m") : "OK"}</span>
+                    <span className="text-[10.5px] font-black text-sky-600 dark:text-sky-400 ml-auto font-mono truncate">{myMetrics?.deficitMs > 0 ? (myMetrics?.deficitTime || "0m") : "OK"}</span>
                   </div>
                 </div>
 
-                {/* Fila 3: Barra de progreso de Jornada */}
+                {/* Fila 3: Barra de progreso 3D de Jornada */}
                 <div className="flex items-center gap-2">
-                  <div className="h-1.5 flex-1 rounded-full bg-slate-800/80 overflow-hidden border border-border/40">
+                  <div className="h-2 flex-1 rounded-full bg-slate-200 dark:bg-slate-800/90 overflow-hidden border border-slate-300/80 dark:border-slate-700/70 shadow-inner p-[1px]">
                     <div
-                      className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-500 rounded-full"
+                      className="h-full bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-400 transition-all duration-500 rounded-full shadow-[0_0_8px_rgba(16,185,129,0.5)]"
                       style={{
                         width: `${Math.min(100, Math.round(((myMetrics?.totalWorkdayMs || (myMetrics?.totalActiveMs || 0) + (myMetrics?.totalBreakMs || 0) + (myMetrics?.totalSanitaryMs || 0)) / (10 * 3600 * 1000)) * 100))}%`
                       }}
                     />
                   </div>
-                  <span className="text-[9px] font-bold text-muted-foreground shrink-0">
+                  <span className="text-[9.5px] font-black font-mono text-foreground/80 shrink-0">
                     {Math.min(100, Math.round(((myMetrics?.totalWorkdayMs || (myMetrics?.totalActiveMs || 0) + (myMetrics?.totalBreakMs || 0) + (myMetrics?.totalSanitaryMs || 0)) / (10 * 3600 * 1000)) * 100))}%
                   </span>
                 </div>
@@ -1839,19 +1839,19 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
               {manualTask && (() => {
                 const ActiveIcon = effectiveManualTasks.find(i => i.label === manualTask.label)?.icon || Timer;
                 return (
-                  <div className="mx-3 mt-1.5 px-2.5 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 shadow-sm animate-in fade-in slide-in-from-top-1">
+                  <div className="mx-3 mt-1.5 px-2.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-amber-500/15 border border-amber-500/40 shadow-[0_3px_0_0_rgba(217,119,6,0.25),inset_0_1px_0_0_rgba(255,255,255,0.4)] animate-in fade-in slide-in-from-top-1">
                     <div className="flex items-center gap-2">
-                      <div className="h-6 w-6 rounded-md bg-amber-500/20 text-amber-400 grid place-items-center shrink-0 border border-amber-500/30">
-                        <ActiveIcon className="h-3 w-3" />
+                      <div className="h-6 w-6 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 text-white grid place-items-center shrink-0 shadow-[0_2px_0_0_#92400e,0_0_8px_rgba(245,158,11,0.5)]">
+                        <ActiveIcon className="h-3.5 w-3.5" />
                       </div>
-                      <p className="text-[11px] font-black text-amber-400 leading-snug break-words flex-1 min-w-0" title={manualTask.label}>
+                      <p className="text-[11px] font-black text-amber-600 dark:text-amber-300 leading-snug break-words flex-1 min-w-0" title={manualTask.label}>
                         {manualTask.label}
                       </p>
                       <ManualTaskTimerBadge start={manualTask.start} />
                       <button
                         type="button"
                         onClick={stopManualTask}
-                        className="flex items-center gap-1 py-1 px-2 rounded-md bg-amber-600 hover:bg-amber-500 text-white font-bold text-[10px] shadow-sm transition-all active:scale-[0.98] shrink-0 cursor-pointer"
+                        className="flex items-center gap-1 py-1 px-2.5 rounded-lg bg-gradient-to-b from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-white font-bold text-[10px] shadow-[0_2px_0_0_#78350f,inset_0_1px_0_0_rgba(255,255,255,0.35)] transition-all active:translate-y-0.5 shrink-0 cursor-pointer"
                       >
                         <Square className="h-2.5 w-2.5 fill-current" />
                         <span>Detener</span>
@@ -1861,24 +1861,26 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
                 );
               })()}
 
-              {/* Sección fija superior de Labores Manuales (Buscador, Cabecera, Inspector de tarjeta) */}
-              <div className="shrink-0 px-3 pt-2 pb-1.5 space-y-1.5 border-b border-border/40 bg-card">
-                {/* Cabecera, contador y botón de gestión exclusiva */}
+              {/* Sección fija superior de Labores Manuales (Buscador, Cabecera, Visor HUD) */}
+              <div className="shrink-0 px-3 pt-2 pb-1.5 space-y-1.5 border-b border-border/50 bg-card/80 backdrop-blur-xs">
+                {/* Cabecera, contador y botón 3D de configuración */}
                 <div className="flex items-center justify-between">
                   <h4 className="text-xs font-black text-foreground tracking-tight flex items-center gap-1.5">
-                    <Wrench className="h-3.5 w-3.5 text-violet-500" />
+                    <span className="h-5 w-5 rounded-md bg-violet-500/15 border border-violet-500/30 grid place-items-center text-violet-500 shadow-2xs">
+                      <Wrench className="h-3 w-3" />
+                    </span>
                     <span>Labores Manuales</span>
                   </h4>
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[9.5px] font-bold px-1.5 py-0.5 rounded-full bg-violet-500/10 text-violet-400 border border-violet-500/20 shrink-0">
+                    <span className="text-[9.5px] font-black px-2 py-0.5 rounded-full bg-gradient-to-b from-violet-500/15 to-indigo-500/10 text-violet-600 dark:text-violet-300 border border-violet-500/30 shadow-2xs shrink-0">
                       {effectiveManualTasks.length}
                     </span>
                     {hasManageManualTasksAccess && (
                       <button
                         type="button"
                         onClick={() => setShowManualTasksManagerModal(true)}
-                        title="Gestionar labores manuales (agregar, editar, eliminar)"
-                        className="p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground border border-border/50 transition-colors cursor-pointer"
+                        title="Gestionar labores manuales (agregar, editar, eliminar y cambiar íconos)"
+                        className="p-1 rounded-lg bg-gradient-to-b from-white to-slate-100 dark:from-slate-800 dark:to-slate-900 hover:from-violet-500/10 hover:to-indigo-500/10 text-muted-foreground hover:text-violet-500 border border-slate-300/80 dark:border-slate-700 shadow-[0_2px_0_0_rgba(148,163,184,0.35),inset_0_1px_0_0_rgba(255,255,255,0.8)] dark:shadow-[0_2px_0_0_rgba(15,23,42,0.9),inset_0_1px_0_0_rgba(255,255,255,0.1)] active:translate-y-0.5 transition-all cursor-pointer"
                       >
                         <Settings className="h-3.5 w-3.5" />
                       </button>
@@ -1886,15 +1888,15 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
                   </div>
                 </div>
 
-                {/* Buscador rápido integrado */}
+                {/* Buscador rápido integrado con relieve interno */}
                 <div className="relative">
-                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
                   <input
                     type="text"
                     value={manualSearchQuery}
                     onChange={(e) => setManualSearchQuery(e.target.value)}
-                    placeholder="Buscar labor..."
-                    className="w-full text-[11px] pl-7 pr-7 py-1 rounded-lg border border-border/60 bg-muted/20 placeholder:text-muted-foreground/60 text-foreground focus:outline-none focus:ring-1 focus:ring-violet-500/70 transition-all"
+                    placeholder="Buscar labor de taller..."
+                    className="w-full text-[11px] pl-7 pr-7 py-1 rounded-lg border border-slate-300/80 dark:border-slate-700/80 bg-slate-100/70 dark:bg-slate-900/60 shadow-inner placeholder:text-muted-foreground/60 text-foreground focus:outline-none focus:ring-1 focus:ring-violet-500/70 focus:bg-background transition-all"
                   />
                   {manualSearchQuery && (
                     <button
@@ -1907,38 +1909,38 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
                   )}
                 </div>
 
-                {/* Subcabecera y Tarjeta Inspectora fija (solo si hay labores) */}
+                {/* Subcabecera y Tarjeta Inspectora HUD (solo si hay labores) */}
                 {effectiveManualTasks.length > 0 && (
                   <div className="space-y-1 pt-0.5">
                     <div className="flex items-center justify-between px-0.5">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                        {manualSearchQuery.trim() ? "Resultados de búsqueda" : "Labores de taller"}
+                      <span className="text-[9.5px] font-extrabold uppercase tracking-widest text-muted-foreground">
+                        {manualSearchQuery.trim() ? "Resultados de búsqueda" : "Consola de taller 3D"}
                       </span>
-                      <span className="text-[10px] font-bold text-violet-400">
+                      <span className="text-[9.5px] font-extrabold text-violet-500 dark:text-violet-400">
                         {displayedManualTasks.length} {displayedManualTasks.length === 1 ? "labor" : "labores"}
                       </span>
                     </div>
 
-                    {/* Tarjeta inspectora estructurada: fija en la parte superior */}
+                    {/* Visor HUD futurista en la parte superior */}
                     {hoveredManualTask ? (() => {
                       const hColor = (hoveredManualTask as any).iconColor || "text-amber-400";
                       return (
-                        <div className="p-2 rounded-xl bg-muted/40 border border-border/70 shadow-xs animate-in fade-in duration-100 min-h-[50px] flex items-center">
+                        <div className="px-2.5 py-1.5 rounded-xl bg-gradient-to-r from-violet-500/10 via-slate-100/90 to-indigo-500/10 dark:from-violet-950/40 dark:via-slate-900/90 dark:to-indigo-950/40 border border-violet-400/50 dark:border-violet-500/40 shadow-[0_2px_10px_-2px_rgba(139,92,246,0.2),inset_0_1px_0_0_rgba(255,255,255,0.6)] dark:shadow-[0_2px_12px_-2px_rgba(139,92,246,0.3),inset_0_1px_0_0_rgba(255,255,255,0.08)] animate-in fade-in duration-100 min-h-[44px] flex items-center">
                           <div className="flex items-center gap-2.5 w-full">
-                            <div className={`h-8 w-8 rounded-lg bg-card ${hColor} grid place-items-center shrink-0 border border-border/50`}>
+                            <div className={`h-7 w-7 rounded-lg bg-gradient-to-b from-white to-slate-100 dark:from-slate-800 dark:to-slate-900 ${hColor} grid place-items-center shrink-0 border border-slate-300/80 dark:border-slate-700 shadow-[0_2px_0_0_rgba(148,163,184,0.35)] dark:shadow-[0_2px_0_0_rgba(0,0,0,0.6)]`}>
                               {React.createElement(hoveredManualTask.icon || Wrench, { className: "h-4 w-4" })}
                             </div>
                             <div className="min-w-0 flex-1">
-                              <div className="flex items-center justify-between gap-2">
-                                <h5 className="font-bold text-xs text-foreground truncate" title={hoveredManualTask.label}>
+                              <div className="flex items-center justify-between gap-1.5">
+                                <h5 className="font-black text-[11.5px] text-foreground truncate" title={hoveredManualTask.label}>
                                   {hoveredManualTask.label}
                                 </h5>
-                                <span className="text-[9.5px] font-semibold px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-400 border border-amber-500/30 shrink-0">
+                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-violet-500/15 text-violet-600 dark:text-violet-300 border border-violet-500/30 shrink-0">
                                   {hoveredManualTask.category}
                                 </span>
                               </div>
                               {hoveredManualTask.subcategory && (
-                                <p className="text-[10.5px] text-muted-foreground truncate leading-tight mt-0.5" title={hoveredManualTask.subcategory}>
+                                <p className="text-[10px] text-muted-foreground truncate leading-tight" title={hoveredManualTask.subcategory}>
                                   {hoveredManualTask.subcategory}
                                 </p>
                               )}
@@ -1947,9 +1949,10 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
                         </div>
                       );
                     })() : (
-                      <div className="px-3 py-2 rounded-xl bg-muted/20 border border-border/50 text-center min-h-[50px] flex items-center justify-center">
-                        <p className="text-[11px] text-muted-foreground">
-                          Pasa el cursor sobre un ícono para ver su detalle
+                      <div className="px-3 py-1.5 rounded-xl bg-gradient-to-b from-slate-100/80 to-slate-200/40 dark:from-slate-900/70 dark:to-slate-950/70 border border-slate-300/70 dark:border-slate-800 text-center min-h-[44px] flex items-center justify-center shadow-inner">
+                        <p className="text-[10.5px] font-medium text-muted-foreground flex items-center gap-1.5">
+                          <span className="h-1.5 w-1.5 rounded-full bg-violet-500/70 animate-pulse" />
+                          <span>Pasa el cursor sobre un botón 3D para ver su detalle</span>
                         </p>
                       </div>
                     )}
@@ -1957,7 +1960,7 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
                 )}
               </div>
 
-              {/* SOLO LA CUADRÍCULA DE ICONOS TIENE SCROLL */}
+              {/* CUADRÍCULA 3D FUTURISTA DE 5 COLUMNAS (COMPACTA Y SIN RECORTE) */}
               <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2">
                 {/* CASO 0: No hay labores manuales configuradas */}
                 {effectiveManualTasks.length === 0 ? (
@@ -1990,10 +1993,11 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
                     </p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-4 gap-2 pb-2">
+                  <div className="grid grid-cols-5 gap-2 pb-1.5 pt-0.5">
                     {displayedManualTasks.map((task) => {
                       const isCurrent = manualTask?.label === task.label;
                       const Icon = task.icon;
+                      const iconColorClass = (task as any).iconColor || "text-violet-400";
 
                       return (
                         <div key={task.label} className="relative group">
@@ -2007,19 +2011,36 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
                               if (isCurrent) stopManualTask();
                               else startManualTask(task.category, task.label, task.subcategory);
                             }}
-                            className={`w-full h-14 rounded-2xl flex flex-col items-center justify-center transition-all duration-200 border relative cursor-pointer shadow-2xs ${
+                            className={`w-full h-11 rounded-xl flex flex-col items-center justify-center transition-all duration-150 border relative cursor-pointer select-none overflow-hidden ${
                               isCurrent
-                                ? "bg-amber-500/25 border-amber-400 text-amber-300 ring-2 ring-amber-400/50 shadow-md shadow-amber-500/20 scale-[0.98]"
-                                : "bg-card/90 hover:bg-muted/70 border-border/80 hover:border-slate-500 text-foreground hover:scale-105 active:scale-95"
+                                ? "translate-y-[1px] bg-gradient-to-b from-amber-400/30 via-amber-500/20 to-orange-500/30 border-amber-400 text-amber-500 dark:text-amber-300 ring-2 ring-amber-400/50 shadow-[0_2px_0_0_#d97706,0_0_16px_rgba(245,158,11,0.45),inset_0_1px_0_0_rgba(255,255,255,0.5)]"
+                                : "bg-gradient-to-b from-white via-slate-50/95 to-slate-200/80 dark:from-slate-800 dark:via-slate-900 dark:to-slate-950 border-slate-300/90 dark:border-slate-700/85 text-foreground shadow-[0_3.5px_0_0_#cbd5e1,0_5px_10px_-2px_rgba(15,23,42,0.14),inset_0_1.5px_0_0_#ffffff] dark:shadow-[0_3.5px_0_0_#090d16,0_6px_12px_-2px_rgba(0,0,0,0.65),inset_0_1px_0_0_rgba(255,255,255,0.14)] hover:-translate-y-0.5 hover:border-violet-400 dark:hover:border-violet-500/80 hover:shadow-[0_4.5px_0_0_#a78bfa,0_8px_16px_-2px_rgba(139,92,246,0.28),inset_0_1.5px_0_0_#ffffff] dark:hover:shadow-[0_4.5px_0_0_#4c1d95,0_8px_18px_-2px_rgba(139,92,246,0.38),inset_0_1px_0_0_rgba(255,255,255,0.22)] active:translate-y-0.5 active:shadow-[0_1px_0_0_#94a3b8,inset_0_2px_4px_rgba(0,0,0,0.12)]"
                             }`}
                           >
+                            {/* Reflejo superior tipo cristal 3D */}
+                            <span className="pointer-events-none absolute inset-x-1 top-0.5 h-2 rounded-t-lg bg-gradient-to-b from-white/70 to-transparent dark:from-white/10 dark:to-transparent" />
+
                             {isCurrent && (
-                              <span className="absolute top-1.5 right-1.5 flex h-2 w-2">
+                              <span className="absolute top-1 right-1 flex h-2 w-2">
                                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                                <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500 shadow-[0_0_6px_#f59e0b]"></span>
                               </span>
                             )}
-                            <Icon className={`h-6 w-6 transition-transform group-hover:scale-110 ${isCurrent ? "text-amber-300 animate-pulse" : ((task as any).iconColor || "text-foreground")}`} />
+
+                            <Icon
+                              className={`h-[19px] w-[19px] relative z-10 transition-transform duration-150 group-hover:scale-110 drop-shadow-[0_1px_1px_rgba(0,0,0,0.12)] ${
+                                isCurrent ? "text-amber-500 dark:text-amber-300 animate-pulse" : iconColorClass
+                              }`}
+                            />
+
+                            {/* Barra LED inferior futurista */}
+                            <span
+                              className={`pointer-events-none absolute bottom-1 inset-x-3 h-[2px] rounded-full transition-all duration-150 ${
+                                isCurrent
+                                  ? "bg-amber-400 shadow-[0_0_6px_#f59e0b] opacity-100"
+                                  : "bg-violet-500/0 group-hover:bg-violet-500/70 group-hover:shadow-[0_0_6px_#8b5cf6] opacity-0 group-hover:opacity-100"
+                              }`}
+                            />
                           </button>
                         </div>
                       );
@@ -2028,19 +2049,19 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
                 )}
               </div>
 
-              {/* Footer con sincronización y reporte IA - SIEMPRE VISIBLE */}
-              <div className="shrink-0 px-3 py-2.5 border-t border-border/70 bg-card/95 backdrop-blur-sm flex gap-2 sticky bottom-0 z-20 shadow-sm">
+              {/* Footer 3D con sincronización y Mi Actividad - SIEMPRE VISIBLE */}
+              <div className="shrink-0 px-3 py-2 border-t border-border/70 bg-card/95 backdrop-blur-sm flex gap-2 sticky bottom-0 z-20">
                 <button
                   onClick={handleSync}
                   disabled={syncing}
-                  className="flex-1 flex items-center justify-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white hover:from-violet-700 hover:to-indigo-700 transition-all duration-200 disabled:opacity-50 shadow-md shadow-violet-600/20"
+                  className="flex-1 flex items-center justify-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl bg-gradient-to-b from-violet-500 via-violet-600 to-indigo-700 text-white hover:from-violet-400 hover:via-violet-500 hover:to-indigo-600 transition-all duration-150 disabled:opacity-50 shadow-[0_3px_0_0_#3b0764,0_5px_12px_-2px_rgba(109,40,217,0.45),inset_0_1px_0_0_rgba(255,255,255,0.35)] active:translate-y-0.5 active:shadow-[0_1px_0_0_#3b0764] cursor-pointer"
                 >
                   <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
                   {syncing ? "Sincronizando..." : "Sincronizar"}
                 </button>
                 <button
                   onClick={() => setShowActivityModal(true)}
-                  className="flex items-center justify-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl border border-border bg-card hover:bg-muted text-foreground transition-colors"
+                  className="flex items-center justify-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl border border-slate-300/90 dark:border-slate-700 bg-gradient-to-b from-white via-slate-50 to-slate-200/85 dark:from-slate-800 dark:via-slate-900 dark:to-slate-950 hover:border-violet-400 text-foreground shadow-[0_3px_0_0_#cbd5e1,0_4px_10px_-2px_rgba(15,23,42,0.12),inset_0_1px_0_0_#ffffff] dark:shadow-[0_3px_0_0_#090d16,0_4px_10px_-2px_rgba(0,0,0,0.5),inset_0_1px_0_0_rgba(255,255,255,0.12)] active:translate-y-0.5 transition-all cursor-pointer"
                   title="Ver mi actividad diaria y justificar tiempos"
                 >
                   <BarChart3 className="h-3.5 w-3.5 text-violet-500" />

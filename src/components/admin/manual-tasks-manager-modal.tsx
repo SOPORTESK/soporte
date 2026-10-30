@@ -269,6 +269,247 @@ export function ToiletPaper({ className, ...props }: React.SVGProps<SVGSVGElemen
   );
 }
 
+// Ícono SVG de Ventanilla / Recepción / Mostrador de Atención
+export function ReceptionDesk({ className, ...props }: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...props}
+    >
+      <rect x="2" y="3" width="20" height="11" rx="2" />
+      <circle cx="9" cy="7.5" r="2" />
+      <path d="M5.5 14c0-2 1.6-3.2 3.5-3.2s3.5 1.2 3.5 3.2" />
+      <path d="M16.5 11.5h3" />
+      <path d="M18 10v1.5" />
+      <path d="M2 14h20" />
+      <path d="M4 14v7" />
+      <path d="M20 14v7" />
+      <path d="M2 21h20" />
+      <path d="M9 17.5h6" />
+    </svg>
+  );
+}
+
+// Ícono SVG de Timbre de Recepción / Mostrador (Concierge Bell)
+export function ServiceBell({ className, ...props }: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...props}
+    >
+      <path d="M3 18h18" />
+      <path d="M2 21h20" />
+      <path d="M12 6v2" />
+      <path d="M10 6h4" />
+      <path d="M4 18a8 8 0 0 1 16 0" />
+      <path d="M6.5 4.5 5 3" />
+      <path d="M17.5 4.5 19 3" />
+    </svg>
+  );
+}
+
+// Ícono SVG de Vitrina / Exhibidor Comercial
+export function ShowcaseDisplay({ className, ...props }: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...props}
+    >
+      <rect x="3" y="2" width="18" height="20" rx="2" />
+      <path d="M3 9h18" />
+      <path d="M3 16h18" />
+      <path d="M8 6h2" />
+      <path d="M14 6h2" />
+      <path d="M7 13h3" />
+      <path d="M14 13h3" />
+      <path d="M10 19h4" />
+    </svg>
+  );
+}
+
+// Ícono SVG de Entrega en Ventanilla / Despacho en Mostrador
+export function CounterHandoff({ className, ...props }: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...props}
+    >
+      <rect x="7" y="3" width="10" height="8" rx="1.5" />
+      <path d="M12 3v8" />
+      <path d="M2 15h20" />
+      <path d="M4 15v6" />
+      <path d="M20 15v6" />
+      <path d="M2 21h20" />
+    </svg>
+  );
+}
+
+// Ícono SVG de Carretilla de Bodega / Traslado de Carga
+export function DollyCart({ className, ...props }: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...props}
+    >
+      <path d="M5 3h2v15h12" />
+      <circle cx="7" cy="19" r="2" />
+      <circle cx="17" cy="19" r="2" />
+      <rect x="10" y="7" width="8" height="8" rx="1" />
+      <path d="M14 7v3" />
+    </svg>
+  );
+}
+
+// Ícono SVG de Cautín / Estación de Soldadura
+export function SolderIron({ className, ...props }: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...props}
+    >
+      <path d="m15 5 4 4-8 8-4-4 8-8Z" />
+      <path d="m7 13-4 6 6-4" />
+      <path d="m17 3 4 4" />
+      <path d="M4 4c0 1.5 1.5 1.5 1.5 3S4 8.5 4 10" />
+    </svg>
+  );
+}
+
+// Ícono SVG de Multímetro / Tester Electrónico
+export function Multimeter({ className, ...props }: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...props}
+    >
+      <rect x="5" y="2" width="14" height="20" rx="2" />
+      <rect x="8" y="5" width="8" height="5" rx="1" />
+      <circle cx="12" cy="15" r="2.5" />
+      <path d="m12 15 1.5-1.5" />
+      <path d="M9 20h.01" />
+      <path d="M15 20h.01" />
+    </svg>
+  );
+}
+
+// Ícono SVG de Pizarra de Inducción / OJT
+export function TrainingBoard({ className, ...props }: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...props}
+    >
+      <rect x="3" y="3" width="18" height="12" rx="2" />
+      <path d="M7 8h4" />
+      <path d="M7 11h6" />
+      <path d="m14 10 2-2 2 2" />
+      <path d="M12 15v6" />
+      <path d="m8 21 4-4 4 4" />
+    </svg>
+  );
+}
+
+// Ícono SVG de Lente de Inspección / Peritaje Técnico
+export function InspectionLens({ className, ...props }: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...props}
+    >
+      <circle cx="11" cy="11" r="7" />
+      <path d="m21 21-4.35-4.35" />
+      <path d="M9 11h4" />
+      <path d="M11 9v4" />
+    </svg>
+  );
+}
+
+// Ícono SVG de Control de Acceso / Torniquete
+export function AccessTurnstile({ className, ...props }: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...props}
+    >
+      <rect x="3" y="4" width="6" height="17" rx="1" />
+      <rect x="15" y="4" width="6" height="17" rx="1" />
+      <path d="M9 11h6" />
+      <circle cx="6" cy="8" r="1" />
+      <circle cx="18" cy="8" r="1" />
+    </svg>
+  );
+}
+
 export interface ManualTaskItem {
   id: string;
   label: string;
@@ -291,6 +532,8 @@ export const AVAILABLE_ICONS: AvailableIconDef[] = [
   // ── 🔧 Taller & Hardware ──
   { name: "Wrench", label: "Herramienta / Llave", category: "taller", keywords: "llave inglesa reparacion taller tecnico mecanico", icon: Wrench, color: "text-orange-400" },
   { name: "Hammer", label: "Martillo / Golpe", category: "taller", keywords: "herramienta golpe construccion ensamblaje", icon: Hammer, color: "text-amber-400" },
+  { name: "SolderIron", label: "Cautín / Estación Soldadura", category: "taller", keywords: "cautin soldar estaño estacion soldadura electronica reparacion", icon: SolderIron, color: "text-rose-400" },
+  { name: "Multimeter", label: "Multímetro / Tester Digital", category: "taller", keywords: "multimetro tester medir voltaje amperaje continuidad diagnostico", icon: Multimeter, color: "text-amber-400" },
   { name: "Cpu", label: "Procesador / CPU", category: "taller", keywords: "chip cpu placa madre micro electronica", icon: Cpu, color: "text-cyan-400" },
   { name: "CircuitBoard", label: "Circuito / PCB", category: "taller", keywords: "placa circuito electronica pcb tarjeta", icon: CircuitBoard, color: "text-emerald-400" },
   { name: "Microchip", label: "Microchip / IC", category: "taller", keywords: "chip integrado micro procesador ic componente", icon: Microchip, color: "text-violet-400" },
@@ -351,6 +594,7 @@ export const AVAILABLE_ICONS: AvailableIconDef[] = [
 
   // ── 📦 Logística & Bodega ──
   { name: "Package", label: "Paquete / Repuestos", category: "logistica", keywords: "bodega repuesto caja paquete envio pedido", icon: Package, color: "text-amber-400" },
+  { name: "DollyCart", label: "Carretilla / Traslado Bodega", category: "logistica", keywords: "carretilla diablito carga traslado bodega cajas mover", icon: DollyCart, color: "text-orange-400" },
   { name: "Boxes", label: "Stock / Estantería", category: "logistica", keywords: "cajas bodega inventario stock mercaderia", icon: Boxes, color: "text-orange-400" },
   { name: "Box", label: "Caja Individual", category: "logistica", keywords: "caja embalaje pieza unidad repuesto", icon: Box, color: "text-yellow-500" },
   { name: "PackageCheck", label: "Paquete Verificado / Entregado", category: "logistica", keywords: "paquete recibido ok entregado verificado ingresado", icon: PackageCheck, color: "text-green-400" },
@@ -376,6 +620,7 @@ export const AVAILABLE_ICONS: AvailableIconDef[] = [
 
   // ── 🛡️ Seguridad & Calidad ──
   { name: "ShieldCheck", label: "Garantía Validada", category: "seguridad", keywords: "garantia escudo seguro validado ok aprobado respaldo", icon: ShieldCheck, color: "text-green-400" },
+  { name: "AccessTurnstile", label: "Torniquete / Control Acceso", category: "seguridad", keywords: "torniquete barrera acceso entrada salida peatonal", icon: AccessTurnstile, color: "text-cyan-400" },
   { name: "ShieldAlert", label: "Alerta de Seguridad", category: "seguridad", keywords: "alerta escudo peligro warning seguridad riesgo", icon: ShieldAlert, color: "text-red-400" },
   { name: "ShieldQuestion", label: "Revisión de Garantía", category: "seguridad", keywords: "duda garantia consulta estado reclamo evaluar", icon: ShieldQuestion, color: "text-amber-400" },
   { name: "ShieldX", label: "Garantía Anulada / Rechazo", category: "seguridad", keywords: "anulada rechazada dano fisico garantia no aplica", icon: ShieldX, color: "text-rose-500" },
@@ -397,6 +642,7 @@ export const AVAILABLE_ICONS: AvailableIconDef[] = [
   { name: "Medal", label: "Medalla / Estándar", category: "seguridad", keywords: "medalla estandar cumplimiento 100% excelencia", icon: Medal, color: "text-yellow-400" },
 
   // ── 📋 Gestión, Medición & Software ──
+  { name: "InspectionLens", label: "Peritaje / Lupa de Inspección", category: "gestion", keywords: "lupa inspeccion peritaje revision devolucion rma diagnostico", icon: InspectionLens, color: "text-cyan-400" },
   { name: "RefreshCw", label: "Reset / Reinstalación", category: "gestion", keywords: "firmware actualizar reinicio reset mikrotik flasheo", icon: RefreshCw, color: "text-sky-400" },
   { name: "Settings", label: "Configuración / Setup", category: "gestion", keywords: "engranaje config ajuste setup sistema parametros", icon: Settings, color: "text-gray-400" },
   { name: "SlidersHorizontal", label: "Calibración Fina", category: "gestion", keywords: "ajuste configuracion nivel calibrar precision ajuste", icon: SlidersHorizontal, color: "text-purple-400" },
@@ -427,6 +673,7 @@ export const AVAILABLE_ICONS: AvailableIconDef[] = [
   { name: "History", label: "Historial de Registros", category: "gestion", keywords: "historial log auditoria tiempo pasado cambios", icon: History, color: "text-amber-400" },
 
   // ── 💰 Comercial & Ventas ──
+  { name: "ShowcaseDisplay", label: "Exhibidor / Vitrina Comercial", category: "comercial", keywords: "exhibidor exhibidores vitrina estante sala ventas demo", icon: ShowcaseDisplay, color: "text-pink-400" },
   { name: "Store", label: "Tienda / Sala de Ventas", category: "comercial", keywords: "tienda local sucursal punto venta mostrador vitrina", icon: Store, color: "text-violet-400" },
   { name: "ShoppingCart", label: "Ventas / Carrito", category: "comercial", keywords: "compra venta carrito pedido orden despacho", icon: ShoppingCart, color: "text-sky-400" },
   { name: "Receipt", label: "Factura / Boleta", category: "comercial", keywords: "factura recibo boleta comprobante ticket venta ccf", icon: Receipt, color: "text-slate-300" },
@@ -446,6 +693,10 @@ export const AVAILABLE_ICONS: AvailableIconDef[] = [
   { name: "ArrowUpRight", label: "Incremento / Facturación", category: "comercial", keywords: "subida facturacion meta superada exito incremento", icon: ArrowUpRight, color: "text-green-400" },
 
   // ── 💬 Comunicación & Atención ──
+  { name: "ReceptionDesk", label: "Ventanilla / Recepción Mostrador", category: "comunicacion", keywords: "ventanilla recepcion mostrador atencion presencial cliente entrega", icon: ReceptionDesk, color: "text-emerald-400" },
+  { name: "ServiceBell", label: "Timbre de Recepción / Mostrador", category: "comunicacion", keywords: "timbre campana recepcion ventanilla mostrador llamado cliente", icon: ServiceBell, color: "text-amber-400" },
+  { name: "CounterHandoff", label: "Entrega en Ventanilla", category: "comunicacion", keywords: "entrega paquete ventanilla mostrador recepcion despacho cliente", icon: CounterHandoff, color: "text-teal-400" },
+  { name: "TrainingBoard", label: "Inducción / Pizarra OJT", category: "comunicacion", keywords: "induccion pizarra ojt capacitacion entrenamiento cliente", icon: TrainingBoard, color: "text-violet-400" },
   { name: "Users", label: "Reunión de Taller", category: "comunicacion", keywords: "equipo reunion junta personas charla personal staff", icon: Users, color: "text-blue-400" },
   { name: "UserPlus", label: "Atención en Mostrador", category: "comunicacion", keywords: "cliente atencion mostrador ventanilla recepcion cliente nuevo", icon: UserPlus, color: "text-green-400" },
   { name: "UserCheck", label: "Cliente Satisfecho", category: "comunicacion", keywords: "cliente verificado listo conformidad entrega conforme", icon: UserCheck, color: "text-emerald-400" },
@@ -502,6 +753,14 @@ export function getTaskIconComponent(iconName?: string) {
   if (lower === "bath" || lower.includes("baño") || lower.includes("bano") || lower.includes("sanitari") || lower.includes("inodoro") || lower.includes("wc") || lower.includes("miar") || lower.includes("cagar")) {
     return Toilet;
   }
+  // Mapeo expreso de Ventanilla / Recepción
+  if (lower === "receptiondesk" || lower.includes("ventanilla") || lower.includes("recepcion") || lower.includes("recepción")) {
+    return ReceptionDesk;
+  }
+  // Mapeo expreso de Exhibidores / Vitrina
+  if (lower === "showcasedisplay" || lower.includes("exhibidor")) {
+    return ShowcaseDisplay;
+  }
   // 1. Coincidencia exacta por nombre de ícono
   const directMatch = AVAILABLE_ICONS.find(
     (i) => i.name.toLowerCase() === lower
@@ -530,6 +789,12 @@ export function getTaskIconColor(iconName?: string): string {
   // Color expreso de Sanitario / Inodoro (WC)
   if (lower === "bath" || lower.includes("baño") || lower.includes("bano") || lower.includes("sanitari") || lower.includes("inodoro") || lower.includes("wc") || lower.includes("miar") || lower.includes("cagar")) {
     return "text-cyan-400";
+  }
+  if (lower === "receptiondesk" || lower.includes("ventanilla") || lower.includes("recepcion") || lower.includes("recepción")) {
+    return "text-emerald-400";
+  }
+  if (lower === "showcasedisplay" || lower.includes("exhibidor")) {
+    return "text-pink-400";
   }
   // 1. Coincidencia directa por nombre de ícono
   const directMatch = AVAILABLE_ICONS.find(
