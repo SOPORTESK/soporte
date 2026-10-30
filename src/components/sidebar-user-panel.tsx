@@ -2011,34 +2011,34 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
                               if (isCurrent) stopManualTask();
                               else startManualTask(task.category, task.label, task.subcategory);
                             }}
-                            className={`w-full h-11 rounded-xl flex flex-col items-center justify-center transition-all duration-150 border relative cursor-pointer select-none overflow-hidden ${
+                            className={`w-full h-11 rounded-xl flex flex-col items-center justify-center transition-all duration-150 relative cursor-pointer select-none overflow-hidden ${
                               isCurrent
-                                ? "translate-y-[1px] bg-gradient-to-b from-amber-400/30 via-amber-500/20 to-orange-500/30 border-amber-400 text-amber-500 dark:text-amber-300 ring-2 ring-amber-400/50 shadow-[0_2px_0_0_#d97706,0_0_16px_rgba(245,158,11,0.45),inset_0_1px_0_0_rgba(255,255,255,0.5)]"
-                                : "bg-gradient-to-b from-white via-slate-50/95 to-slate-200/80 dark:from-slate-800 dark:via-slate-900 dark:to-slate-950 border-slate-300/90 dark:border-slate-700/85 text-foreground shadow-[0_3.5px_0_0_#cbd5e1,0_5px_10px_-2px_rgba(15,23,42,0.14),inset_0_1.5px_0_0_#ffffff] dark:shadow-[0_3.5px_0_0_#090d16,0_6px_12px_-2px_rgba(0,0,0,0.65),inset_0_1px_0_0_rgba(255,255,255,0.14)] hover:-translate-y-0.5 hover:border-violet-400 dark:hover:border-violet-500/80 hover:shadow-[0_4.5px_0_0_#a78bfa,0_8px_16px_-2px_rgba(139,92,246,0.28),inset_0_1.5px_0_0_#ffffff] dark:hover:shadow-[0_4.5px_0_0_#4c1d95,0_8px_18px_-2px_rgba(139,92,246,0.38),inset_0_1px_0_0_rgba(255,255,255,0.22)] active:translate-y-0.5 active:shadow-[0_1px_0_0_#94a3b8,inset_0_2px_4px_rgba(0,0,0,0.12)]"
+                                ? "translate-y-[1.5px] bg-gradient-to-b from-amber-400/35 via-amber-500/25 to-orange-500/35 border border-amber-400 border-b-[3px] border-b-amber-600 text-amber-600 dark:text-amber-300 ring-2 ring-amber-400/50 shadow-[0_3px_12px_rgba(245,158,11,0.45),inset_0_1.5px_0_0_rgba(255,255,255,0.7)]"
+                                : "bg-gradient-to-b from-white via-slate-50 to-slate-200/95 dark:from-slate-800 dark:via-slate-900 dark:to-slate-950 border border-slate-300/95 dark:border-slate-700/85 border-b-[3.5px] border-b-slate-400/85 dark:border-b-slate-950 text-foreground shadow-[0_4px_8px_-2px_rgba(15,23,42,0.18),0_1px_2px_rgba(15,23,42,0.1),inset_0_1.5px_0_0_#ffffff,inset_0_-1px_0_0_rgba(148,163,184,0.35)] dark:shadow-[0_5px_10px_-2px_rgba(0,0,0,0.7),inset_0_1px_0_0_rgba(255,255,255,0.16)] hover:-translate-y-[2px] hover:from-white hover:via-violet-50/60 hover:to-indigo-100/70 dark:hover:from-slate-800 dark:hover:via-violet-950/40 dark:hover:to-slate-900 hover:border-violet-400 dark:hover:border-violet-500/80 hover:border-b-violet-600 dark:hover:border-b-violet-700 hover:shadow-[0_7px_14px_-3px_rgba(124,58,237,0.32),inset_0_1.5px_0_0_#ffffff] active:translate-y-[1.5px] active:border-b-[1.5px] active:shadow-[inset_0_2px_4px_rgba(15,23,42,0.18)]"
                             }`}
                           >
-                            {/* Reflejo superior tipo cristal 3D */}
-                            <span className="pointer-events-none absolute inset-x-1 top-0.5 h-2 rounded-t-lg bg-gradient-to-b from-white/70 to-transparent dark:from-white/10 dark:to-transparent" />
+                            {/* Bisel interior 3D tipo tecla futurista */}
+                            <span className="pointer-events-none absolute inset-[2px] rounded-[9px] border border-white/80 dark:border-white/5 bg-gradient-to-b from-white/60 via-transparent to-slate-300/20 dark:from-white/10 dark:to-transparent" />
 
                             {isCurrent && (
-                              <span className="absolute top-1 right-1 flex h-2 w-2">
+                              <span className="absolute top-1 right-1 flex h-2 w-2 z-20">
                                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
                                 <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500 shadow-[0_0_6px_#f59e0b]"></span>
                               </span>
                             )}
 
                             <Icon
-                              className={`h-[19px] w-[19px] relative z-10 transition-transform duration-150 group-hover:scale-110 drop-shadow-[0_1px_1px_rgba(0,0,0,0.12)] ${
+                              className={`h-[19px] w-[19px] relative z-10 transition-transform duration-150 group-hover:scale-110 drop-shadow-[0_1.5px_1.5px_rgba(15,23,42,0.18)] ${
                                 isCurrent ? "text-amber-500 dark:text-amber-300 animate-pulse" : iconColorClass
                               }`}
                             />
 
                             {/* Barra LED inferior futurista */}
                             <span
-                              className={`pointer-events-none absolute bottom-1 inset-x-3 h-[2px] rounded-full transition-all duration-150 ${
+                              className={`pointer-events-none absolute bottom-1 inset-x-3 h-[2.5px] rounded-full transition-all duration-150 z-10 ${
                                 isCurrent
-                                  ? "bg-amber-400 shadow-[0_0_6px_#f59e0b] opacity-100"
-                                  : "bg-violet-500/0 group-hover:bg-violet-500/70 group-hover:shadow-[0_0_6px_#8b5cf6] opacity-0 group-hover:opacity-100"
+                                  ? "bg-amber-400 shadow-[0_0_8px_#f59e0b] opacity-100"
+                                  : "bg-slate-300/80 dark:bg-slate-700/80 group-hover:bg-violet-500 group-hover:shadow-[0_0_8px_#8b5cf6] opacity-90 group-hover:opacity-100"
                               }`}
                             />
                           </button>

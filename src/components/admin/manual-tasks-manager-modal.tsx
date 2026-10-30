@@ -749,8 +749,15 @@ export const AVAILABLE_ICONS: AvailableIconDef[] = [
 export function getTaskIconComponent(iconName?: string) {
   if (!iconName) return Wrench;
   const lower = iconName.toLowerCase().trim();
+
+  // 1. Coincidencia exacta por nombre de ícono (prioridad máxima)
+  const directMatch = AVAILABLE_ICONS.find(
+    (i) => i.name.toLowerCase() === lower
+  );
+  if (directMatch) return directMatch.icon;
+
   // Mapeo expreso de Sanitario / Inodoro (WC)
-  if (lower === "bath" || lower.includes("baño") || lower.includes("bano") || lower.includes("sanitari") || lower.includes("inodoro") || lower.includes("wc") || lower.includes("miar") || lower.includes("cagar")) {
+  if (lower === "bath" || lower === "wc" || lower.includes("baño") || lower.includes("bano") || lower.includes("sanitari") || lower.includes("inodoro") || lower.includes("miar") || lower.includes("cagar")) {
     return Toilet;
   }
   // Mapeo expreso de Ventanilla / Recepción
@@ -761,11 +768,6 @@ export function getTaskIconComponent(iconName?: string) {
   if (lower === "showcasedisplay" || lower.includes("exhibidor")) {
     return ShowcaseDisplay;
   }
-  // 1. Coincidencia exacta por nombre de ícono
-  const directMatch = AVAILABLE_ICONS.find(
-    (i) => i.name.toLowerCase() === lower
-  );
-  if (directMatch) return directMatch.icon;
 
   // 2. Coincidencia por etiqueta
   const labelMatch = AVAILABLE_ICONS.find(
@@ -786,8 +788,15 @@ export function getTaskIconComponent(iconName?: string) {
 export function getTaskIconColor(iconName?: string): string {
   if (!iconName) return "text-orange-400";
   const lower = iconName.toLowerCase().trim();
+
+  // 1. Coincidencia directa por nombre de ícono (prioridad máxima)
+  const directMatch = AVAILABLE_ICONS.find(
+    (i) => i.name.toLowerCase() === lower
+  );
+  if (directMatch) return directMatch.color;
+
   // Color expreso de Sanitario / Inodoro (WC)
-  if (lower === "bath" || lower.includes("baño") || lower.includes("bano") || lower.includes("sanitari") || lower.includes("inodoro") || lower.includes("wc") || lower.includes("miar") || lower.includes("cagar")) {
+  if (lower === "bath" || lower === "wc" || lower.includes("baño") || lower.includes("bano") || lower.includes("sanitari") || lower.includes("inodoro") || lower.includes("miar") || lower.includes("cagar")) {
     return "text-cyan-400";
   }
   if (lower === "receptiondesk" || lower.includes("ventanilla") || lower.includes("recepcion") || lower.includes("recepción")) {
@@ -796,11 +805,6 @@ export function getTaskIconColor(iconName?: string): string {
   if (lower === "showcasedisplay" || lower.includes("exhibidor")) {
     return "text-pink-400";
   }
-  // 1. Coincidencia directa por nombre de ícono
-  const directMatch = AVAILABLE_ICONS.find(
-    (i) => i.name.toLowerCase() === lower
-  );
-  if (directMatch) return directMatch.color;
 
   // 2. Coincidencia por etiqueta
   const labelMatch = AVAILABLE_ICONS.find(
