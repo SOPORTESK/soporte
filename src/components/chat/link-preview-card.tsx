@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { ExternalLink, Globe } from "lucide-react";
+import { ExternalLink, Globe, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface LinkPreviewData {
@@ -12,6 +12,7 @@ interface LinkPreviewData {
   siteName?: string;
   domain?: string;
   url?: string;
+  isVideo?: boolean;
 }
 
 export function LinkPreviewCard({
@@ -22,23 +23,20 @@ export function LinkPreviewCard({
   isCliente?: boolean;
 }) {
   const [data, setData] = React.useState<LinkPreviewData | null>(null);
-  const [loading, setLoading] = React.useState(true);
+  const [imgError, setImgError] = React.useState(false);
 
   React.useEffect(() => {
     let active = true;
-    setLoading(true);
+    setImgError(false);
 
-    fetch(`/api/link-preview?url=${encodeURIComponent(url)}`)
+    fetch(`/api/link-preview?v=2&url=${encodeURIComponent(url)}`)
       .then((res) => res.json())
       .then((resData) => {
         if (active && resData?.ok) {
           setData(resData);
         }
       })
-      .catch(() => {})
-      .finally(() => {
-        if (active) setLoading(false);
-      });
+      .catch(() => {});
 
     return () => {
       active = false;
@@ -52,44 +50,50 @@ export function LinkPreviewCard({
       href={url}
       target="_blank"
       rel="noopener noreferrer"
+      onClick={(e) => e.stopPropagation()}
       className={cn(
-        "block my-2 rounded-xl overflow-hidden border transition-all hover:opacity-95 text-left group max-w-sm",
+        "block my-2 rounded-xl overflow-hidden border transition-all hover:opacity-95 text-left group max-w-[340px] shadow-xs",
         isCliente
-          ? "bg-muted/60 border-border/80 text-foreground"
-          : "bg-black/25 border-white/20 text-white hover:bg-black/35"
+          ? "bg-muted/70 border-border/80 text-foreground"
+          : "bg-black/25 border-white/15 text-white hover:bg-black/35"
       )}
     >
-      {data.image && (
-        <div className="w-full h-36 bg-black/10 relative overflow-hidden flex items-center justify-center">
+      {data.image && !imgError && (
+        <div className="w-full aspect-video bg-black/20 relative overflow-hidden flex items-center justify-center">
           <img
             src={data.image}
-            alt={data.title || "Preview"}
-            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-            onError={(e) => {
-              (e.currentTarget as HTMLElement).style.display = "none";
-            }}
+            alt={data.title || "Vista previa"}
+            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+            onError={() => setImgError(true)}
           />
+          {data.isVideo && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/15 group-hover:bg-black/25 transition-colors">
+              <div className="h-11 w-11 rounded-full bg-black/65 backdrop-blur-xs border border-white/30 flex items-center justify-center text-white shadow-lg group-hover:scale-110 transition-transform">
+                <Play className="h-5 w-5 fill-white ml-0.5" />
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      <div className="p-3 space-y-1">
-        <div className="flex items-center gap-1.5 opacity-75 text-[10px] font-semibold uppercase tracking-wider">
-          <Globe className="h-3 w-3" />
-          <span>{data.domain || new URL(url).hostname}</span>
-          <ExternalLink className="h-3 w-3 ml-auto opacity-0 group-hover:opacity-100 transition-opacity" />
-        </div>
-
+      <div className="p-2.5 space-y-1">
         {data.title && (
-          <h4 className="text-xs font-bold leading-snug line-clamp-2">
+          <h4 className="text-[13px] font-bold leading-snug line-clamp-2">
             {data.title}
           </h4>
         )}
 
         {data.description && (
-          <p className="text-[11px] opacity-80 leading-relaxed line-clamp-2">
+          <p className="text-[11px] opacity-80 leading-snug line-clamp-2">
             {data.description}
           </p>
         )}
+
+        <div className="flex items-center gap-1.5 opacity-70 text-[10px] font-medium pt-0.5">
+          <Globe className="h-3 w-3 shrink-0" />
+          <span className="truncate">{data.domain || new URL(url).hostname.replace(/^www\./i, "")}</span>
+          <ExternalLink className="h-3 w-3 ml-auto opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+        </div>
       </div>
     </a>
   );
