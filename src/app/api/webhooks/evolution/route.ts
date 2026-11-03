@@ -2008,11 +2008,27 @@ export async function POST(req: NextRequest) {
               }
             }
           }
-          // Si es un archivo, comparamos por mediaUrl
+          // Si es un archivo, comparamos por mediaUrl, fileName o mediaType reciente
           if (mediaUrl && m.mediaUrl) {
             const url1 = mediaUrl.split('/').pop()?.split('?')[0];
             const url2 = m.mediaUrl.split('/').pop()?.split('?')[0];
             if (url1 && url2 && url1 === url2) {
+              duplicateIndex = idx;
+              return true;
+            }
+          }
+          if (fileName && (m.fileName === fileName || (m.content && m.content.trim() === fileName.trim()))) {
+            const mTimeMs = m.time ? new Date(m.time).getTime() : 0;
+            const echoTimeMs = msgTime ? new Date(msgTime).getTime() : Date.now();
+            if (hasSyntheticOrMissingId || Math.abs(echoTimeMs - mTimeMs) < 180000) {
+              duplicateIndex = idx;
+              return true;
+            }
+          }
+          if (mediaUrl && m.mediaUrl && hasSyntheticOrMissingId) {
+            const mTimeMs = m.time ? new Date(m.time).getTime() : 0;
+            const echoTimeMs = msgTime ? new Date(msgTime).getTime() : Date.now();
+            if (Math.abs(echoTimeMs - mTimeMs) < 90000) {
               duplicateIndex = idx;
               return true;
             }

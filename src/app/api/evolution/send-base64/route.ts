@@ -101,7 +101,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `Evolution ${res.status}: ${errText}` }, { status: 502 });
     }
 
-    return NextResponse.json({ ok: true });
+    const mediaRes = await res.json().catch(() => ({}));
+    const msgId = mediaRes?.key?.id || mediaRes?.messageId || null;
+
+    return NextResponse.json({ ok: true, messageId: msgId });
   } catch (e: any) {
     console.error("[send-base64] error:", e.message);
     return NextResponse.json({ error: e?.message || "Error inesperado" }, { status: 500 });

@@ -1192,7 +1192,7 @@ export function ChatView({
     prevEstadoRef.current = curr;
   }, [sekCase.estado]);
 
-  async function send(overrideContent?: string, mediaUrl?: string, mediaType?: string, fileName?: string, skipWhatsApp?: boolean) {
+  async function send(overrideContent?: string, mediaUrl?: string, mediaType?: string, fileName?: string, skipWhatsApp?: boolean, externalMessageId?: string | null) {
     const body = (overrideContent ?? draft).trim();
     if ((!body && !mediaUrl) || sendingRef.current || !agentEmail) return;
     sendingRef.current = true;
@@ -1204,6 +1204,7 @@ export function ChatView({
       time: new Date().toISOString(),
       content: body || (fileName ?? "Archivo adjunto"),
       author: agentName || agentEmail,
+      ...(externalMessageId ? { messageId: externalMessageId, fromMe: true } : {}),
       ...(mediaUrl ? { mediaUrl, mediaType, fileName } : {}),
       ...(replyTo && !isNota ? {
         replyTo: {
@@ -1292,14 +1293,43 @@ export function ChatView({
         if (reloaded) setSekCase(reloaded);
         setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...m, status: "sent", ...(data?.messageId ? { messageId: data.messageId } : {}) } : m));
       } else {
-        // FLUJO NO-WHATSAPP (notas, widget, etc.): guardar en BD directamente.
-        const { error: appendErr } = await supabase.rpc("sek_append_hist", {
-          p_case_id: String(targetId),
-          p_entry: entry as any,
-          p_col: "histtecnico",
-          p_preview: (body || fileName || "").slice(0, 200),
-        });
-        if (appendErr) throw appendErr;
+        // FLUJO NO-WHATSAPP (notas, widget, o archivo ya enviado por send-base64): guardar en BD directamente.
+        let mergedExisting = false;
+        if (skipWhatsApp && isWhatsApp && (externalMessageId || fileName)) {
+          const { data: freshRow } = await supabase.from("sek_cases").select("histtecnico").eq("id", targetId).maybeSingle();
+          const currHist = Array.isArray(freshRow?.histtecnico) ? [...freshRow.histtecnico] : [];
+          const dupIdx = currHist.findIndex((m: any) => {
+            if (externalMessageId && m?.messageId === externalMessageId) return true;
+            if (fileName && m?.fileName === fileName) {
+              const tMs = m?.time ? new Date(m.time).getTime() : 0;
+              if (Math.abs(Date.now() - tMs) < 90000) return true;
+            }
+            return false;
+          });
+          if (dupIdx >= 0) {
+            currHist[dupIdx] = {
+              ...currHist[dupIdx],
+              author: entry.author,
+              content: entry.content,
+              mediaUrl: entry.mediaUrl || currHist[dupIdx].mediaUrl,
+              mediaType: entry.mediaType || currHist[dupIdx].mediaType,
+              fileName: entry.fileName || currHist[dupIdx].fileName,
+              messageId: externalMessageId || currHist[dupIdx].messageId,
+              fromMe: true,
+            };
+            await supabase.from("sek_cases").update({ histtecnico: currHist }).eq("id", targetId);
+            mergedExisting = true;
+          }
+        }
+        if (!mergedExisting) {
+          const { error: appendErr } = await supabase.rpc("sek_append_hist", {
+            p_case_id: String(targetId),
+            p_entry: entry as any,
+            p_col: "histtecnico",
+            p_preview: (body || fileName || "").slice(0, 200),
+          });
+          if (appendErr) throw appendErr;
+        }
         const reloaded = await reloadCaseFromDb(sekCase, targetId);
         if (reloaded) setSekCase(reloaded);
         setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...m, status: "sent" } : m));
@@ -1711,7 +1741,8 @@ export function ChatView({
         }
 
         // Envío exitoso directo por WhatsApp
-        await send("", pubUrl, file.type, file.name, true);
+        const sendData = await res.json().catch(() => ({}));
+        await send("", pubUrl, file.type, file.name, true, sendData?.messageId || null);
         toast.success("Archivo enviado directamente a WhatsApp");
       } else {
         // Canales Web / Widget (Anti-antivirus / firewall proxy first)
