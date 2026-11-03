@@ -639,23 +639,31 @@ export function SidebarUserPanel({
 function ManualTaskTimerBadge({ start }: { start: number }) {
   const [timeStr, setTimeStr] = useState(() => {
     const ms = Math.max(0, Date.now() - start);
-    const m = Math.floor(ms / 60000);
+    const h = Math.floor(ms / 3600000);
+    const m = Math.floor((ms % 3600000) / 60000);
     const s = Math.floor((ms % 60000) / 1000);
-    return `${m}:${s.toString().padStart(2, "0")}`;
+    return h > 0
+      ? `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`
+      : `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
   });
 
   useEffect(() => {
     const ticker = setInterval(() => {
       const ms = Math.max(0, Date.now() - start);
-      const m = Math.floor(ms / 60000);
+      const h = Math.floor(ms / 3600000);
+      const m = Math.floor((ms % 3600000) / 60000);
       const s = Math.floor((ms % 60000) / 1000);
-      setTimeStr(`${m}:${s.toString().padStart(2, "0")}`);
+      setTimeStr(
+        h > 0
+          ? `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`
+          : `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`
+      );
     }, 1000);
     return () => clearInterval(ticker);
   }, [start]);
 
   return (
-    <span className="text-[10.5px] font-mono font-black text-amber-300 tabular-nums px-1.5 py-0.5 rounded-md bg-amber-500/20 border border-amber-500/30 shrink-0">
+    <span className="text-xs font-mono font-bold text-violet-700 dark:text-violet-200 tabular-nums px-2 py-1 rounded-md bg-violet-500/15 dark:bg-slate-900/80 border border-violet-500/30 shrink-0">
       {timeStr}
     </span>
   );
@@ -900,18 +908,98 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
   }, [dedicatedManualTasks, manualTasksList]);
 
   const [manualSearchQuery, setManualSearchQuery] = useState<string>("");
+  const orderStorageKey = useMemo(
+    () => `sek_manual_tasks_order_${(safeAgent?.email || "default").toLowerCase()}`,
+    [safeAgent?.email]
+  );
+  const [customTaskOrder, setCustomTaskOrder] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const saved = localStorage.getItem(`sek_manual_tasks_order_${(safeAgent?.email || "default").toLowerCase()}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [isReorderingManualTasks, setIsReorderingManualTasks] = useState(false);
+  const [draggedTaskLabel, setDraggedTaskLabel] = useState<string | null>(null);
+  const [dragOverTaskLabel, setDragOverTaskLabel] = useState<string | null>(null);
 
-  // Tareas mostradas (filtradas si hay búsqueda, o todas directamente)
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(orderStorageKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) setCustomTaskOrder(parsed);
+      }
+    } catch {}
+  }, [orderStorageKey]);
+
+  const orderedManualTasks = useMemo(() => {
+    if (!customTaskOrder || customTaskOrder.length === 0) return effectiveManualTasks;
+    const orderMap = new Map<string, number>();
+    customTaskOrder.forEach((lbl, idx) => orderMap.set(lbl, idx));
+    return [...effectiveManualTasks].sort((a, b) => {
+      const idxA = orderMap.has(a.label) ? orderMap.get(a.label)! : 9999;
+      const idxB = orderMap.has(b.label) ? orderMap.get(b.label)! : 9999;
+      return idxA - idxB;
+    });
+  }, [effectiveManualTasks, customTaskOrder]);
+
+  // Tareas mostradas (filtradas si hay búsqueda, o todas directamente respetando el orden personalizado)
   const displayedManualTasks = useMemo(() => {
     const q = (manualSearchQuery || "").trim().toLowerCase();
-    if (!q) return effectiveManualTasks;
-    return effectiveManualTasks.filter(
+    if (!q) return orderedManualTasks;
+    return orderedManualTasks.filter(
       (item) =>
         (item?.label || "").toLowerCase().includes(q) ||
         (item?.subcategory ? String(item.subcategory).toLowerCase().includes(q) : false) ||
         (item?.category ? String(item.category).toLowerCase().includes(q) : false)
     );
-  }, [effectiveManualTasks, manualSearchQuery]);
+  }, [orderedManualTasks, manualSearchQuery]);
+
+  const handleTaskDragStart = (e: React.DragEvent<HTMLButtonElement>, label: string) => {
+    setDraggedTaskLabel(label);
+    try {
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", label);
+    } catch {}
+  };
+
+  const handleTaskDragOver = (e: React.DragEvent<HTMLButtonElement>, targetLabel: string) => {
+    e.preventDefault();
+    try {
+      e.dataTransfer.dropEffect = "move";
+    } catch {}
+    if (!draggedTaskLabel || draggedTaskLabel === targetLabel) return;
+    setDragOverTaskLabel(targetLabel);
+
+    const currentLabels = orderedManualTasks.map((t) => t.label);
+    const fromIdx = currentLabels.indexOf(draggedTaskLabel);
+    const toIdx = currentLabels.indexOf(targetLabel);
+    if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return;
+
+    const nextOrder = [...currentLabels];
+    const [moved] = nextOrder.splice(fromIdx, 1);
+    nextOrder.splice(toIdx, 0, moved);
+    setCustomTaskOrder(nextOrder);
+    try {
+      localStorage.setItem(orderStorageKey, JSON.stringify(nextOrder));
+    } catch {}
+  };
+
+  const handleTaskDragEnd = () => {
+    setDraggedTaskLabel(null);
+    setDragOverTaskLabel(null);
+  };
+
+  const resetManualTaskOrder = () => {
+    setCustomTaskOrder([]);
+    try {
+      localStorage.removeItem(orderStorageKey);
+    } catch {}
+    toast.success("Orden original restablecido");
+  };
 
   useEffect(() => {
     if (tab === "activity" && !hasActivityAccess) {
@@ -1417,11 +1505,11 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
               <div className="relative inline-flex items-center justify-center">
                 <Users className="h-4 w-4" />
                 {totalChatUnread > 0 ? (
-                  <span className="absolute -top-1.5 -right-2.5 min-w-[15px] h-[15px] px-1 rounded-full bg-violet-600 text-white font-bold text-[9px] flex items-center justify-center shadow-sm">
+                  <span className="absolute -top-2 -right-3 min-w-[15px] h-[15px] px-1 rounded-full bg-violet-600 text-white font-bold text-[9px] flex items-center justify-center shadow-sm ring-2 ring-card">
                     {totalChatUnread}
                   </span>
                 ) : others.length > 0 ? (
-                  <span className="absolute -top-1.5 -right-2 px-1 min-w-[13px] h-[13px] rounded-full bg-emerald-500/15 text-emerald-400 font-semibold text-[9px] border border-emerald-500/30 flex items-center justify-center">
+                  <span className="absolute -top-2 -right-3 px-1 min-w-[14px] h-[14px] rounded-full bg-emerald-500/20 text-emerald-400 font-bold text-[9px] border border-emerald-500/35 ring-2 ring-card flex items-center justify-center">
                     {others.length}
                   </span>
                 ) : null}
@@ -1761,456 +1849,538 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
             </div>
           )}
 
-          {tab === "activity" && hasActivityAccess && (
-            <div className="flex flex-col h-[520px] max-h-full overflow-hidden bg-gradient-to-br from-indigo-50/60 via-slate-50/90 to-sky-50/60 dark:from-slate-950 dark:via-slate-900 dark:to-indigo-950/50">
-              {/* Header VisionOS Cristal 3D con cápsulas de métricas sin recorte */}
-              <div className="px-3 py-2 bg-white/75 dark:bg-slate-900/75 backdrop-blur-xl border-b border-white/80 dark:border-slate-800 shadow-[0_4px_20px_-4px_rgba(99,102,241,0.12),inset_0_1px_0_0_#ffffff] dark:shadow-[0_4px_20px_-4px_rgba(0,0,0,0.5),inset_0_1px_0_0_rgba(255,255,255,0.08)] space-y-1.5 shrink-0">
-                {/* Fila 1: Título + Score 3D */}
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <div
-                      className="h-7 w-7 rounded-xl text-white grid place-items-center shrink-0 relative overflow-hidden"
-                      style={{
-                        background: "linear-gradient(135deg, #8b5cf6 0%, #6366f1 50%, #3b82f6 100%)",
-                        boxShadow: "0 3px 0 0 #4338ca, 0 6px 12px -2px rgba(99,102,241,0.45), inset 0 1.5px 1px rgba(255,255,255,0.65)",
-                      }}
-                    >
-                      <span className="pointer-events-none absolute inset-x-0 top-0 h-3 bg-gradient-to-b from-white/40 to-transparent" />
-                      <ActivityIcon className="h-3.5 w-3.5 relative z-10 drop-shadow-[0_1px_1px_rgba(0,0,0,0.25)]" />
+          {tab === "activity" && hasActivityAccess && (() => {
+            const targetHours = myMetrics?.targetDailyHours || 10;
+            const workdayMs =
+              myMetrics?.totalWorkdayMs ||
+              (myMetrics?.totalActiveMs || 0) + (myMetrics?.totalBreakMs || 0) + (myMetrics?.totalSanitaryMs || 0);
+            const workdayPct = Math.min(100, Math.round((workdayMs / (targetHours * 3600 * 1000)) * 100));
+            const ringCircumference = 163.36;
+            const ringOffset = Number((ringCircumference * (1 - workdayPct / 100)).toFixed(2));
+            const efficiencyScore = myMetrics?.productivityScore ?? 100;
+
+            return (
+              <div className="flex flex-col h-[535px] max-h-full overflow-hidden bg-slate-50/95 dark:bg-[#0B0E17] text-slate-900 dark:text-slate-100">
+                {/* 1. Tarjeta Unificada de Jornada (Anillo Circular + Horarios Separados + 3 Columnas Limpias) */}
+                <div className="p-3 pb-2 shrink-0">
+                  <div className="relative rounded-xl p-3 overflow-hidden bg-white/90 dark:bg-slate-900/75 border border-slate-200/80 dark:border-white/10 shadow-[0_8px_24px_-6px_rgba(15,23,42,0.08)] dark:shadow-[0_10px_28px_-8px_rgba(0,0,0,0.55),inset_0_1px_0_0_rgba(255,255,255,0.08)]">
+                    {/* Resplandor ambiental sutil */}
+                    <div className="pointer-events-none absolute -top-10 -right-10 w-32 h-32 rounded-full bg-violet-500/10 dark:bg-violet-500/15 blur-2xl" />
+
+                    <div className="flex items-center gap-3 relative z-10">
+                      {/* Anillo Circular de Progreso 64x64 */}
+                      <div className="relative w-16 h-16 shrink-0 flex items-center justify-center">
+                        <svg className="w-16 h-16 -rotate-90" viewBox="0 0 64 64">
+                          <defs>
+                            <linearGradient id="sekRingGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                              <stop offset="0%" stopColor="#8b5cf6" />
+                              <stop offset="100%" stopColor="#22d3ee" />
+                            </linearGradient>
+                          </defs>
+                          <circle
+                            cx="32"
+                            cy="32"
+                            r="26"
+                            fill="none"
+                            className="stroke-slate-200 dark:stroke-slate-800/90"
+                            strokeWidth="5.5"
+                          />
+                          <circle
+                            cx="32"
+                            cy="32"
+                            r="26"
+                            fill="none"
+                            stroke="url(#sekRingGrad)"
+                            strokeWidth="5.5"
+                            strokeDasharray={ringCircumference}
+                            strokeDashoffset={ringOffset}
+                            strokeLinecap="round"
+                            className="transition-all duration-500"
+                          />
+                        </svg>
+                        <div className="absolute inset-0 flex flex-col items-center justify-center">
+                          <span className="text-xs font-extrabold text-slate-900 dark:text-white tabular-nums leading-none">
+                            {workdayPct}%
+                          </span>
+                          <span className="text-[9px] font-medium text-slate-400 mt-0.5 leading-none">
+                            del día
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Bloque Derecho: Título + Píldora Eficiencia + Bloques de Hora Separados */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-bold text-slate-900 dark:text-white tracking-tight">
+                            Jornada {targetHours}h
+                          </span>
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold shrink-0 border ${
+                              efficiencyScore >= 85
+                                ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30"
+                                : efficiencyScore >= 65
+                                ? "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30"
+                                : "bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30"
+                            }`}
+                            title="Índice de productividad efectiva"
+                          >
+                            <span
+                              className={`w-1.5 h-1.5 rounded-full animate-pulse ${
+                                efficiencyScore >= 85
+                                  ? "bg-emerald-400"
+                                  : efficiencyScore >= 65
+                                  ? "bg-amber-400"
+                                  : "bg-rose-400"
+                              }`}
+                            />
+                            {efficiencyScore}% efic.
+                          </span>
+                        </div>
+
+                        <div className="mt-2 grid grid-cols-2 gap-2">
+                          <div className="rounded-lg bg-slate-100/80 dark:bg-slate-950/60 border border-slate-200/70 dark:border-white/[0.06] px-2 py-1">
+                            <span className="text-[9px] text-slate-400 font-medium block leading-none">
+                              Entrada
+                            </span>
+                            <span className="text-[11px] text-slate-800 dark:text-slate-200 font-semibold tabular-nums mt-0.5 block leading-tight">
+                              {myMetrics?.firstLoginTime || "--:--"}
+                            </span>
+                          </div>
+                          <div className="rounded-lg bg-slate-100/80 dark:bg-slate-950/60 border border-slate-200/70 dark:border-white/[0.06] px-2 py-1">
+                            <span className="text-[9px] text-slate-400 font-medium block leading-none">
+                              Meta diaria
+                            </span>
+                            <span className="text-[11px] text-slate-800 dark:text-slate-200 font-semibold tabular-nums mt-0.5 block leading-tight">
+                              {targetHours}h efectivas
+                            </span>
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                    <div className="min-w-0">
-                      <span className="text-[11px] font-black tracking-wider text-slate-800 dark:text-slate-100 block leading-tight">
-                        JORNADA 10H
-                      </span>
-                      {myMetrics?.firstLoginTime && (
-                        <span className="text-[9.5px] text-slate-500 dark:text-slate-400 font-mono leading-tight block">
-                          Entrada: {myMetrics.firstLoginTime}
+
+                    {/* Indicador de Tiempo Extra si aplica */}
+                    {myMetrics?.rawOvertimeMs > 0 && (
+                      <div className="mt-2 relative z-10">
+                        {myMetrics.isOvertimeApproved ? (
+                          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-[10px] font-semibold">
+                            <Check className="h-3 w-3 text-emerald-500 shrink-0" />
+                            <span>+{myMetrics.overtimeTime} extra aprobado</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-700 dark:text-amber-300 text-[10px] font-semibold">
+                            <Clock className="h-3 w-3 text-amber-500 shrink-0" />
+                            <span>+{myMetrics.overtimeTime} fuera de horario (En revisión)</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Barra Inferior de 3 Métricas (Jornada / Activo / Resta) */}
+                    <div className="mt-2.5 pt-2.5 border-t border-slate-200/80 dark:border-white/[0.07] grid grid-cols-3 gap-2 relative z-10">
+                      <div title="Jornada laboral transcurrida desde la hora de entrada">
+                        <span className="text-[10px] font-medium text-slate-400 block leading-none">
+                          Jornada
+                        </span>
+                        <span className="text-xs font-bold text-slate-900 dark:text-white tabular-nums mt-1 block leading-none">
+                          {myMetrics?.totalWorkdayTime || "0m"}
+                        </span>
+                      </div>
+
+                      <div
+                        className="border-x border-slate-200/80 dark:border-white/[0.07] px-2.5"
+                        title="Tiempo activo acumulado en PC y labores de taller"
+                      >
+                        <div className="flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                          <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400 leading-none">
+                            Activo
+                          </span>
+                        </div>
+                        <span className="text-xs font-bold text-emerald-600 dark:text-emerald-300 tabular-nums mt-1 block leading-none">
+                          {myMetrics?.totalActiveTime || "0m"}
+                        </span>
+                      </div>
+
+                      <div className="pl-0.5" title="Tiempo restante para completar la jornada meta">
+                        <span className="text-[10px] font-medium text-slate-400 block leading-none">
+                          Resta
+                        </span>
+                        <span className="text-xs font-bold text-cyan-600 dark:text-cyan-300 tabular-nums mt-1 block leading-none">
+                          {myMetrics?.deficitMs > 0 ? myMetrics?.deficitTime || "0m" : "Completado"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. Cinta "En Curso" cuando hay una labor manual activa */}
+                {manualTask && (() => {
+                  const ActiveIcon = effectiveManualTasks.find((i) => i.label === manualTask.label)?.icon || Timer;
+                  return (
+                    <div className="px-3 pb-2 shrink-0 animate-in fade-in slide-in-from-top-1 duration-200">
+                      <div className="rounded-xl p-2.5 flex items-center justify-between gap-2.5 bg-gradient-to-r from-violet-500/15 via-violet-500/10 to-white/90 dark:from-violet-600/25 dark:via-violet-600/12 dark:to-slate-900/90 border border-violet-500/35 shadow-sm">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div
+                            className="h-8 w-8 rounded-lg text-white grid place-items-center shrink-0 relative overflow-hidden"
+                            style={{
+                              background: "linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)",
+                              boxShadow: "0 4px 10px -2px rgba(139,92,246,0.45), inset 0 1px 0 rgba(255,255,255,0.35)",
+                            }}
+                          >
+                            <ActiveIcon className="h-4 w-4 relative z-10" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                              <span className="text-[10px] font-bold text-violet-600 dark:text-violet-300 uppercase tracking-wider leading-none">
+                                En curso
+                              </span>
+                            </div>
+                            <p
+                              className="text-xs font-bold text-slate-900 dark:text-white truncate mt-0.5"
+                              title={manualTask.label}
+                            >
+                              {manualTask.label}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <ManualTaskTimerBadge start={manualTask.start} />
+                          <button
+                            type="button"
+                            onClick={stopManualTask}
+                            title="Detener labor en curso"
+                            className="h-7 px-2.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/35 flex items-center gap-1 text-rose-600 dark:text-rose-300 text-[10.5px] font-bold transition-colors cursor-pointer"
+                          >
+                            <Square className="h-2.5 w-2.5 fill-current" />
+                            <span>Detener</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* 3. Cabecera de Labores Manuales + Botón "Ordenar" + Buscador */}
+                <div className="shrink-0 px-3 pb-2 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 tracking-tight truncate">
+                        Labores manuales
+                      </h4>
+                      {hoveredManualTask ? (
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-violet-500/15 text-violet-700 dark:text-violet-300 border border-violet-500/30 truncate max-w-[130px] animate-in fade-in duration-100">
+                          {hoveredManualTask.subcategory || hoveredManualTask.category}
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-300/60 dark:border-white/5 shrink-0">
+                          {effectiveManualTasks.length}
                         </span>
                       )}
                     </div>
-                  </div>
-                  <div
-                    className="px-2.5 py-0.5 rounded-xl text-[11px] font-black text-white shrink-0 relative overflow-hidden"
-                    style={{
-                      background: "linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)",
-                      boxShadow: "0 2.5px 0 0 #4c1d95, 0 4px 10px rgba(124,58,237,0.35), inset 0 1px 1px rgba(255,255,255,0.5)",
-                    }}
-                  >
-                    {myMetrics?.productivityScore ?? 100}%
-                  </div>
-                </div>
 
-                {/* Indicador de Tiempo Extra Autorizado o Pendiente de Aprobación */}
-                {myMetrics?.rawOvertimeMs > 0 && (
-                  <div className="pt-0.5">
-                    {myMetrics.isOvertimeApproved ? (
-                      <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-[9.5px] font-bold">
-                        <Check className="h-3 w-3 text-emerald-500 shrink-0" />
-                        <span>+{myMetrics.overtimeTime} extra aprobado</span>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-700 dark:text-amber-300 text-[9.5px] font-bold">
-                        <Clock className="h-3 w-3 text-amber-500 shrink-0" />
-                        <span>+{myMetrics.overtimeTime} fuera de horario (En revisión)</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Fila 2: 3 Tarjetas VisionOS Cristal 3D sin truncamiento de hora */}
-                <div className="grid grid-cols-3 gap-1.5 pt-0.5">
-                  <div
-                    className="rounded-xl px-2 py-1 border border-violet-300/80 dark:border-violet-500/35 relative overflow-hidden"
-                    style={{
-                      background: "linear-gradient(160deg, rgba(245,243,255,0.95) 0%, rgba(237,233,254,0.85) 100%)",
-                      boxShadow: "0 2.5px 0 0 rgba(167,139,250,0.5), 0 4px 8px -2px rgba(139,92,246,0.15), inset 0 1.5px 0 0 #ffffff",
-                    }}
-                    title="Jornada Laboral transcurrida desde la hora de entrada"
-                  >
-                    <div className="flex items-center gap-1">
-                      <Clock className="h-2.5 w-2.5 text-violet-600 shrink-0" />
-                      <span className="text-[8px] font-extrabold text-violet-700/80 uppercase tracking-wider">Jornada</span>
-                    </div>
-                    <span className="text-[11px] font-black text-violet-900 font-mono block leading-tight mt-0.5">
-                      {myMetrics?.totalWorkdayTime || "0m"}
-                    </span>
-                  </div>
-
-                  <div
-                    className="rounded-xl px-2 py-1 border border-emerald-300/85 dark:border-emerald-500/35 relative overflow-hidden"
-                    style={{
-                      background: "linear-gradient(160deg, rgba(236,253,245,0.95) 0%, rgba(209,250,229,0.85) 100%)",
-                      boxShadow: "0 2.5px 0 0 rgba(52,211,153,0.55), 0 4px 8px -2px rgba(16,185,129,0.15), inset 0 1.5px 0 0 #ffffff",
-                    }}
-                    title="Tiempo activo acumulado en PC y labores de taller"
-                  >
-                    <div className="flex items-center gap-1">
-                      <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse shrink-0 shadow-[0_0_6px_#10b981]" />
-                      <span className="text-[8px] font-extrabold text-emerald-800/80 uppercase tracking-wider">Activo</span>
-                    </div>
-                    <span className="text-[11px] font-black text-emerald-900 font-mono block leading-tight mt-0.5">
-                      {myMetrics?.totalActiveTime || "0m"}
-                    </span>
-                  </div>
-
-                  <div
-                    className="rounded-xl px-2 py-1 border border-sky-300/85 dark:border-sky-500/35 relative overflow-hidden"
-                    style={{
-                      background: "linear-gradient(160deg, rgba(240,249,255,0.95) 0%, rgba(224,242,254,0.85) 100%)",
-                      boxShadow: "0 2.5px 0 0 rgba(56,189,248,0.5), 0 4px 8px -2px rgba(14,165,233,0.15), inset 0 1.5px 0 0 #ffffff",
-                    }}
-                    title="Tiempo restante para completar la jornada meta"
-                  >
-                    <div className="flex items-center gap-1">
-                      <Clock className="h-2.5 w-2.5 text-sky-600 shrink-0" />
-                      <span className="text-[8px] font-extrabold text-sky-800/80 uppercase tracking-wider">Resta</span>
-                    </div>
-                    <span className="text-[11px] font-black text-sky-900 font-mono block leading-tight mt-0.5">
-                      {myMetrics?.deficitMs > 0 ? (myMetrics?.deficitTime || "0m") : "OK"}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Fila 3: Barra 3D líquida de progreso */}
-                <div className="flex items-center gap-2">
-                  <div className="h-2.5 flex-1 rounded-full bg-slate-200/90 dark:bg-slate-800 overflow-hidden border border-slate-300/80 dark:border-slate-700 shadow-[inset_0_1px_3px_rgba(15,23,42,0.18)] p-[1.5px]">
-                    <div
-                      className="h-full rounded-full transition-all duration-500 relative overflow-hidden"
-                      style={{
-                        width: `${Math.min(100, Math.round(((myMetrics?.totalWorkdayMs || (myMetrics?.totalActiveMs || 0) + (myMetrics?.totalBreakMs || 0) + (myMetrics?.totalSanitaryMs || 0)) / (10 * 3600 * 1000)) * 100))}%`,
-                        background: "linear-gradient(90deg, #10b981 0%, #06b6d4 55%, #6366f1 100%)",
-                        boxShadow: "0 0 10px rgba(16,185,129,0.5), inset 0 1px 0 rgba(255,255,255,0.6)",
-                      }}
-                    />
-                  </div>
-                  <span className="text-[10px] font-black font-mono text-slate-700 dark:text-slate-200 shrink-0">
-                    {Math.min(100, Math.round(((myMetrics?.totalWorkdayMs || (myMetrics?.totalActiveMs || 0) + (myMetrics?.totalBreakMs || 0) + (myMetrics?.totalSanitaryMs || 0)) / (10 * 3600 * 1000)) * 100))}%
-                  </span>
-                </div>
-              </div>
-
-              {/* Timer manual activo si hay labor en curso */}
-              {manualTask && (() => {
-                const ActiveIcon = effectiveManualTasks.find(i => i.label === manualTask.label)?.icon || Timer;
-                return (
-                  <div
-                    className="mx-3 mt-1.5 px-2.5 py-1.5 rounded-2xl border border-amber-400/80 animate-in fade-in slide-in-from-top-1 shrink-0"
-                    style={{
-                      background: "linear-gradient(135deg, rgba(254,243,199,0.95) 0%, rgba(253,230,138,0.9) 100%)",
-                      boxShadow: "0 3px 0 0 #d97706, 0 6px 14px -2px rgba(245,158,11,0.35), inset 0 1.5px 0 0 #ffffff",
-                    }}
-                  >
-                    <div className="flex items-center gap-2">
-                      <div
-                        className="h-6 w-6 rounded-lg text-white grid place-items-center shrink-0"
-                        style={{
-                          background: "linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)",
-                          boxShadow: "0 2px 0 0 #9a3412, inset 0 1px 0 rgba(255,255,255,0.5)",
-                        }}
-                      >
-                        <ActiveIcon className="h-3.5 w-3.5" />
-                      </div>
-                      <p className="text-[11px] font-black text-amber-950 leading-snug truncate flex-1 min-w-0" title={manualTask.label}>
-                        {manualTask.label}
-                      </p>
-                      <ManualTaskTimerBadge start={manualTask.start} />
-                      <button
-                        type="button"
-                        onClick={stopManualTask}
-                        className="flex items-center gap-1 py-1 px-2.5 rounded-xl text-white font-bold text-[10px] transition-all active:translate-y-0.5 shrink-0 cursor-pointer"
-                        style={{
-                          background: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)",
-                          boxShadow: "0 2.5px 0 0 #991b1b, inset 0 1px 0 rgba(255,255,255,0.45)",
-                        }}
-                      >
-                        <Square className="h-2.5 w-2.5 fill-current" />
-                        <span>Detener</span>
-                      </button>
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* Cabecera compacta + Buscador Cristal + Visor Dinámico de 1 línea */}
-              <div className="shrink-0 px-3 pt-2 pb-1.5 space-y-1.5">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <span
-                      className="h-5 w-5 rounded-lg grid place-items-center text-white shrink-0"
-                      style={{
-                        background: "linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)",
-                        boxShadow: "0 2px 0 0 #4338ca, inset 0 1px 0 rgba(255,255,255,0.5)",
-                      }}
-                    >
-                      <Wrench className="h-3 w-3" />
-                    </span>
-                    <h4 className="text-xs font-black text-slate-800 dark:text-slate-100 tracking-tight truncate">
-                      Labores Manuales
-                    </h4>
-                  </div>
-
-                  {/* Píldora dinámica VisionOS: muestra detalle al pasar el cursor o contador en reposo */}
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    {hoveredManualTask ? (
-                      <span className="text-[9.5px] font-extrabold px-2 py-0.5 rounded-full bg-violet-600 text-white shadow-sm truncate max-w-[145px] animate-in fade-in duration-100">
-                        {hoveredManualTask.subcategory || hoveredManualTask.category}
-                      </span>
-                    ) : (
-                      <span className="text-[9.5px] font-black px-2 py-0.5 rounded-full bg-white/90 dark:bg-slate-800 text-violet-700 dark:text-violet-300 border border-violet-300/80 dark:border-violet-500/40 shadow-2xs shrink-0">
-                        {effectiveManualTasks.length} labores
-                      </span>
-                    )}
-                    {hasManageManualTasksAccess && (
-                      <button
-                        type="button"
-                        onClick={() => setShowManualTasksManagerModal(true)}
-                        title="Gestionar labores manuales (agregar, editar, eliminar y cambiar íconos)"
-                        className="p-1 rounded-xl bg-white dark:bg-slate-800 hover:bg-violet-50 text-slate-600 dark:text-slate-300 hover:text-violet-600 border border-slate-300/90 dark:border-slate-700 shadow-[0_2px_0_0_#cbd5e1,inset_0_1px_0_0_#ffffff] active:translate-y-0.5 transition-all cursor-pointer shrink-0"
-                      >
-                        <Settings className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {/* Buscador rápido tipo cápsula VisionOS */}
-                <div className="relative">
-                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400 pointer-events-none" />
-                  <input
-                    type="text"
-                    value={manualSearchQuery}
-                    onChange={(e) => setManualSearchQuery(e.target.value)}
-                    placeholder="Filtrar labor de taller..."
-                    className="w-full text-[11px] pl-7 pr-7 py-1 rounded-xl border border-white/90 dark:border-slate-700/80 bg-white/85 dark:bg-slate-900/70 backdrop-blur-md shadow-[0_2px_6px_rgba(15,23,42,0.05),inset_0_1px_2px_rgba(15,23,42,0.06)] placeholder:text-slate-400 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-violet-500/50 transition-all"
-                  />
-                  {manualSearchQuery && (
-                    <button
-                      type="button"
-                      onClick={() => setManualSearchQuery("")}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 p-0.5 cursor-pointer"
-                    >
-                      <XIcon className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* CUADRÍCULA VISION-OS CRISTAL 3D COLORIDO (4 COLUMNAS × 4 FILAS = 14 CÁPSULAS CON ETIQUETA SIN RECORTE) */}
-              <div className="flex-1 min-h-0 overflow-y-auto px-3 py-1">
-                {effectiveManualTasks.length === 0 ? (
-                  <div className="py-7 px-3 text-center rounded-2xl border border-dashed border-border/60 bg-white/50 space-y-2 animate-in fade-in">
-                    <Wrench className="h-6 w-6 text-muted-foreground/60 mx-auto" />
-                    <p className="text-xs font-semibold text-foreground">Sin labores manuales</p>
-                    <p className="text-[10.5px] text-muted-foreground leading-relaxed">
-                      Agregue las tareas que desea controlar con cronómetro en este panel exclusivo.
-                    </p>
-                    {hasManageManualTasksAccess ? (
-                      <button
-                        type="button"
-                        onClick={() => setShowManualTasksManagerModal(true)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-xs shadow-xs transition-all active:scale-95 cursor-pointer"
-                      >
-                        <Plus className="h-3.5 w-3.5" />
-                        <span>Configurar Labores</span>
-                      </button>
-                    ) : (
-                      <p className="text-[10px] text-muted-foreground italic">
-                        Consulte al administrador para configurar labores en la barra.
-                      </p>
-                    )}
-                  </div>
-                ) : displayedManualTasks.length === 0 ? (
-                  <div className="py-6 text-center text-muted-foreground">
-                    <p className="text-xs font-semibold">No se encontraron tareas</p>
-                    <p className="text-[10px] mt-0.5 text-muted-foreground/70">
-                      Prueba con otro término o borra la búsqueda
-                    </p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-4 gap-2 pb-1">
-                    {displayedManualTasks.map((task, idx) => {
-                      const isCurrent = manualTask?.label === task.label;
-                      const Icon = task.icon;
-                      const lowerLabel = task.label.toLowerCase();
-
-                      // Etiqueta corta inteligente para que luzca impecable dentro de cada cápsula 3D
-                      const shortLabel =
-                        lowerLabel.includes("ir a bodega") ? "Bodega" :
-                        lowerLabel.includes("limpieza") ? "Limpieza" :
-                        lowerLabel.includes("soporte a ventas") ? "Ventas" :
-                        lowerLabel.includes("inducción a clientes") || lowerLabel.includes("induccion a clientes") ? "Inducción" :
-                        lowerLabel.includes("exhibidores") ? "Exhibidor" :
-                        task.label;
-
-                      // Paletas VisionOS 3D Cristal Tintado + Esfera 3D interna
-                      const VISION_THEMES = [
-                        {
-                          // 0: Ámbar / Naranja (Diagnóstico)
-                          cardBg: "linear-gradient(155deg, rgba(255,251,235,0.96) 0%, rgba(254,243,199,0.88) 55%, rgba(253,230,138,0.82) 100%)",
-                          cardBorder: "rgba(251,191,36,0.75)",
-                          cardShadow: "0 3.5px 0 0 #d97706, 0 6px 12px -2px rgba(245,158,11,0.28), inset 0 1.5px 0 0 #ffffff",
-                          orbBg: "linear-gradient(135deg, #fb923c 0%, #ea580c 100%)",
-                          orbShadow: "0 3px 6px -1px rgba(234,88,12,0.45), inset 0 1.5px 1px rgba(255,255,255,0.65)",
-                          text: "#78350f",
-                        },
-                        {
-                          // 1: Cian / Celeste (Reparación / Baño / Inspección)
-                          cardBg: "linear-gradient(155deg, rgba(240,249,255,0.96) 0%, rgba(224,242,254,0.88) 55%, rgba(186,230,253,0.82) 100%)",
-                          cardBorder: "rgba(56,189,248,0.75)",
-                          cardShadow: "0 3.5px 0 0 #0284c7, 0 6px 12px -2px rgba(14,165,233,0.28), inset 0 1.5px 0 0 #ffffff",
-                          orbBg: "linear-gradient(135deg, #38bdf8 0%, #0284c7 100%)",
-                          orbShadow: "0 3px 6px -1px rgba(2,132,199,0.45), inset 0 1.5px 1px rgba(255,255,255,0.65)",
-                          text: "#0c4a6e",
-                        },
-                        {
-                          // 2: Esmeralda / Jade (Ventanilla / Limpieza / Inventario)
-                          cardBg: "linear-gradient(155deg, rgba(236,253,245,0.96) 0%, rgba(209,250,229,0.88) 55%, rgba(167,243,208,0.82) 100%)",
-                          cardBorder: "rgba(52,211,153,0.75)",
-                          cardShadow: "0 3.5px 0 0 #059669, 0 6px 12px -2px rgba(16,185,129,0.28), inset 0 1.5px 0 0 #ffffff",
-                          orbBg: "linear-gradient(135deg, #34d399 0%, #059669 100%)",
-                          orbShadow: "0 3px 6px -1px rgba(5,150,105,0.45), inset 0 1.5px 1px rgba(255,255,255,0.65)",
-                          text: "#064e3b",
-                        },
-                        {
-                          // 3: Violeta / Amatista (OJT / Inducción)
-                          cardBg: "linear-gradient(155deg, rgba(245,243,255,0.96) 0%, rgba(237,233,254,0.88) 55%, rgba(221,214,254,0.82) 100%)",
-                          cardBorder: "rgba(167,139,250,0.75)",
-                          cardShadow: "0 3.5px 0 0 #7c3aed, 0 6px 12px -2px rgba(139,92,246,0.28), inset 0 1.5px 0 0 #ffffff",
-                          orbBg: "linear-gradient(135deg, #a78bfa 0%, #7c3aed 100%)",
-                          orbShadow: "0 3px 6px -1px rgba(124,58,237,0.45), inset 0 1.5px 1px rgba(255,255,255,0.65)",
-                          text: "#4c1d95",
-                        },
-                        {
-                          // 4: Rosa / Fucsia (Exhibidores / Almuerzo)
-                          cardBg: "linear-gradient(155deg, rgba(253,242,248,0.96) 0%, rgba(252,231,243,0.88) 55%, rgba(249,168,212,0.75) 100%)",
-                          cardBorder: "rgba(244,114,182,0.75)",
-                          cardShadow: "0 3.5px 0 0 #db2777, 0 6px 12px -2px rgba(236,72,153,0.28), inset 0 1.5px 0 0 #ffffff",
-                          orbBg: "linear-gradient(135deg, #f472b6 0%, #db2777 100%)",
-                          orbShadow: "0 3px 6px -1px rgba(219,39,119,0.45), inset 0 1.5px 1px rgba(255,255,255,0.65)",
-                          text: "#831843",
-                        },
-                        {
-                          // 5: Índigo / Zafiro (Soporte Ventas / Reunión)
-                          cardBg: "linear-gradient(155deg, rgba(238,242,255,0.96) 0%, rgba(224,231,255,0.88) 55%, rgba(199,210,254,0.82) 100%)",
-                          cardBorder: "rgba(129,140,248,0.75)",
-                          cardShadow: "0 3.5px 0 0 #4f46e5, 0 6px 12px -2px rgba(99,102,241,0.28), inset 0 1.5px 0 0 #ffffff",
-                          orbBg: "linear-gradient(135deg, #818cf8 0%, #4f46e5 100%)",
-                          orbShadow: "0 3px 6px -1px rgba(79,70,229,0.45), inset 0 1.5px 1px rgba(255,255,255,0.65)",
-                          text: "#312e81",
-                        },
-                      ];
-
-                      const themeIndex =
-                        lowerLabel.includes("diagn") || lowerLabel.includes("bodega") || lowerLabel.includes("almuerzo") ? 0 :
-                        lowerLabel.includes("repar") || lowerLabel.includes("baño") || lowerLabel.includes("bano") || lowerLabel.includes("inspecc") ? 1 :
-                        lowerLabel.includes("ventanilla") || lowerLabel.includes("limpieza") || lowerLabel.includes("inventario") ? 2 :
-                        lowerLabel.includes("ojt") || lowerLabel.includes("inducc") ? 3 :
-                        lowerLabel.includes("exhibidor") ? 4 :
-                        lowerLabel.includes("venta") || lowerLabel.includes("reuni") ? 5 :
-                        idx % VISION_THEMES.length;
-
-                      const theme = VISION_THEMES[themeIndex];
-
-                      return (
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {effectiveManualTasks.length > 1 && (
                         <button
-                          key={task.label}
                           type="button"
-                          onMouseEnter={() => setHoveredManualTask(task)}
-                          onMouseLeave={() => setHoveredManualTask(null)}
-                          onFocus={() => setHoveredManualTask(task)}
-                          onBlur={() => setHoveredManualTask(null)}
-                          onClick={() => {
-                            if (isCurrent) stopManualTask();
-                            else startManualTask(task.category, task.label, task.subcategory);
-                          }}
-                          style={{
-                            background: isCurrent
-                              ? "linear-gradient(145deg, #fef3c7 0%, #fde68a 50%, #fcd34d 100%)"
-                              : theme.cardBg,
-                            borderColor: isCurrent ? "#f59e0b" : theme.cardBorder,
-                            boxShadow: isCurrent
-                              ? "0 2px 0 0 #b45309, 0 0 18px rgba(245,158,11,0.55), inset 0 1.5px 0 0 #ffffff"
-                              : theme.cardShadow,
-                          }}
-                          className={`group relative w-full h-[60px] rounded-2xl border flex flex-col items-center justify-center gap-1 px-1 transition-all duration-150 cursor-pointer select-none overflow-hidden ${
-                            isCurrent
-                              ? "translate-y-[1.5px] ring-2 ring-amber-400"
-                              : "hover:-translate-y-[2.5px] hover:scale-[1.03] active:translate-y-[1.5px] active:scale-[0.98]"
+                          onClick={() => setIsReorderingManualTasks((v) => !v)}
+                          title="Arrastrar y acomodar las labores a tu gusto"
+                          className={`h-6 px-2 rounded-md border flex items-center gap-1 text-[10px] font-semibold transition-all cursor-pointer ${
+                            isReorderingManualTasks
+                              ? "bg-cyan-500/15 border-cyan-500/45 text-cyan-700 dark:text-cyan-300 shadow-[0_0_12px_rgba(34,211,238,0.15)]"
+                              : "bg-white/90 dark:bg-slate-900 border-slate-300/80 dark:border-white/10 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
                           }`}
                         >
-                          {/* Arco de reflejo de cristal curvo superior estilo VisionOS */}
-                          <span
-                            className="pointer-events-none absolute inset-x-0 top-0 h-6 opacity-80 group-hover:opacity-100 transition-opacity"
-                            style={{
-                              background: "linear-gradient(180deg, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0) 100%)",
-                            }}
-                          />
-
-                          {/* Indicador pulsante cuando está activa */}
-                          {isCurrent && (
-                            <span className="absolute top-1.5 right-1.5 flex h-2 w-2 z-20">
-                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 shadow-[0_0_6px_#10b981]"></span>
-                            </span>
-                          )}
-
-                          {/* Esfera 3D interna con brillo especular para el ícono */}
-                          <div
-                            className="h-7 w-7 rounded-xl grid place-items-center relative z-10 transition-transform duration-150 group-hover:scale-110 shrink-0 overflow-hidden"
-                            style={{
-                              background: isCurrent
-                                ? "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)"
-                                : theme.orbBg,
-                              boxShadow: theme.orbShadow,
-                            }}
-                          >
-                            <span className="pointer-events-none absolute inset-x-0.5 top-0.5 h-2.5 rounded-t-lg bg-gradient-to-b from-white/55 to-transparent" />
-                            <Icon className="h-4 w-4 text-white relative z-10 drop-shadow-[0_1px_2px_rgba(0,0,0,0.28)]" />
-                          </div>
-
-                          {/* Etiqueta integrada en la cápsula 3D */}
-                          <span
-                            style={{ color: isCurrent ? "#78350f" : theme.text }}
-                            className="text-[9.5px] font-extrabold tracking-tight leading-none truncate w-full text-center relative z-10"
-                          >
-                            {shortLabel}
-                          </span>
+                          <svg className="w-3 h-3" viewBox="0 0 12 12" fill="currentColor">
+                            <circle cx="3.5" cy="2.5" r="1" />
+                            <circle cx="8.5" cy="2.5" r="1" />
+                            <circle cx="3.5" cy="6" r="1" />
+                            <circle cx="8.5" cy="6" r="1" />
+                            <circle cx="3.5" cy="9.5" r="1" />
+                            <circle cx="8.5" cy="9.5" r="1" />
+                          </svg>
+                          <span>{isReorderingManualTasks ? "Listo" : "Ordenar"}</span>
                         </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
+                      )}
 
-              {/* Footer VisionOS 3D con Sincronizar y Mi Actividad */}
-              <div className="shrink-0 px-3 py-2 border-t border-white/80 dark:border-slate-800 bg-white/80 dark:bg-slate-900/85 backdrop-blur-xl flex gap-2 sticky bottom-0 z-20">
-                <button
-                  onClick={handleSync}
-                  disabled={syncing}
-                  style={{
-                    background: "linear-gradient(135deg, #7c3aed 0%, #6366f1 55%, #4f46e5 100%)",
-                    boxShadow: "0 3.5px 0 0 #3730a3, 0 6px 14px -2px rgba(99,102,241,0.45), inset 0 1.5px 0 0 rgba(255,255,255,0.45)",
-                  }}
-                  className="flex-1 flex items-center justify-center gap-1.5 text-xs font-extrabold px-3 py-2 rounded-xl text-white hover:brightness-110 transition-all duration-150 disabled:opacity-50 active:translate-y-0.5 cursor-pointer"
-                >
-                  <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
-                  {syncing ? "Sincronizando..." : "Sincronizar"}
-                </button>
-                <button
-                  onClick={() => setShowActivityModal(true)}
-                  style={{
-                    background: "linear-gradient(160deg, #ffffff 0%, #f1f5f9 100%)",
-                    boxShadow: "0 3.5px 0 0 #cbd5e1, 0 5px 10px -2px rgba(15,23,42,0.12), inset 0 1.5px 0 0 #ffffff",
-                  }}
-                  className="flex items-center justify-center gap-1.5 text-xs font-extrabold px-3 py-2 rounded-xl border border-slate-300/90 hover:border-violet-400 text-slate-800 active:translate-y-0.5 transition-all cursor-pointer"
-                  title="Ver mi actividad diaria y justificar tiempos"
-                >
-                  <BarChart3 className="h-3.5 w-3.5 text-violet-600" />
-                  Mi Actividad
-                </button>
+                      {hasManageManualTasksAccess && (
+                        <button
+                          type="button"
+                          onClick={() => setShowManualTasksManagerModal(true)}
+                          title="Gestionar labores manuales (agregar, editar, eliminar y cambiar íconos)"
+                          className="h-6 w-6 rounded-md bg-white/90 dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-300/80 dark:border-white/10 flex items-center justify-center text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer shrink-0"
+                        >
+                          <Settings className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Barra de ayuda cuando el modo Ordenar está activo */}
+                  {isReorderingManualTasks && (
+                    <div className="rounded-lg px-2.5 py-1.5 bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-between gap-2 animate-in fade-in duration-150">
+                      <span className="text-[10.5px] font-medium text-cyan-800 dark:text-cyan-200 leading-tight">
+                        Arrastra las labores para acomodarlas a tu gusto.
+                      </span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {customTaskOrder.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={resetManualTaskOrder}
+                            className="text-[10px] font-bold text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white underline cursor-pointer"
+                          >
+                            Restablecer
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setIsReorderingManualTasks(false)}
+                          className="text-[10px] font-bold text-cyan-700 dark:text-cyan-300 hover:underline cursor-pointer"
+                        >
+                          Listo
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Buscador rápido */}
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={manualSearchQuery}
+                      onChange={(e) => setManualSearchQuery(e.target.value)}
+                      placeholder="Filtrar labor de taller..."
+                      className="w-full h-8 text-xs pl-8 pr-7 rounded-lg bg-white/90 dark:bg-slate-900/90 border border-slate-200/90 dark:border-white/[0.08] placeholder:text-slate-400 dark:placeholder:text-slate-500 text-slate-800 dark:text-slate-200 focus:outline-none focus:border-violet-500/60 transition-colors"
+                    />
+                    {manualSearchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setManualSearchQuery("")}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-0.5 cursor-pointer"
+                      >
+                        <XIcon className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* 4. Cuadrícula de 3 Columnas sin texto cortado y con Drag & Drop */}
+                <div className="flex-1 min-h-0 overflow-y-auto px-3 pb-2">
+                  {effectiveManualTasks.length === 0 ? (
+                    <div className="py-7 px-3 text-center rounded-xl border border-dashed border-border/60 bg-white/50 dark:bg-slate-900/40 space-y-2 animate-in fade-in">
+                      <Wrench className="h-6 w-6 text-muted-foreground/60 mx-auto" />
+                      <p className="text-xs font-semibold text-foreground">Sin labores manuales</p>
+                      <p className="text-[10.5px] text-muted-foreground leading-relaxed">
+                        Agregue las tareas que desea controlar con cronómetro en este panel exclusivo.
+                      </p>
+                      {hasManageManualTasksAccess ? (
+                        <button
+                          type="button"
+                          onClick={() => setShowManualTasksManagerModal(true)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-xs shadow-xs transition-all active:scale-95 cursor-pointer"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          <span>Configurar Labores</span>
+                        </button>
+                      ) : (
+                        <p className="text-[10px] text-muted-foreground italic">
+                          Consulte al administrador para configurar labores en la barra.
+                        </p>
+                      )}
+                    </div>
+                  ) : displayedManualTasks.length === 0 ? (
+                    <div className="py-6 text-center text-muted-foreground">
+                      <p className="text-xs font-semibold">No se encontraron tareas</p>
+                      <p className="text-[10px] mt-0.5 text-muted-foreground/70">
+                        Prueba con otro término o borra la búsqueda
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-3 gap-2">
+                      {displayedManualTasks.map((task, idx) => {
+                        const isCurrent = manualTask?.label === task.label;
+                        const isBeingDragged = draggedTaskLabel === task.label;
+                        const isDragTarget = dragOverTaskLabel === task.label && draggedTaskLabel !== task.label;
+                        const Icon = task.icon;
+                        const lowerLabel = task.label.toLowerCase();
+
+                        // Etiquetas limpias y completas que caben holgadas en 3 columnas
+                        const displayLabel =
+                          lowerLabel.includes("iniciar diagnóstico") ? "Diagnóstico" :
+                          lowerLabel.includes("ir a bodega") ? "Bodega" :
+                          lowerLabel.includes("limpieza de taller") ? "Limpieza" :
+                          lowerLabel.includes("soporte a ventas") ? "Ventas" :
+                          lowerLabel.includes("inducción a clientes") || lowerLabel.includes("induccion a clientes") ? "Inducción" :
+                          lowerLabel.includes("capacitacion de clientes") || lowerLabel.includes("capacitación de clientes") ? "Capacitación" :
+                          lowerLabel.includes("inventario y actualización") ? "Inventario" :
+                          lowerLabel.includes("ir a ventanilla") ? "Ventanilla" :
+                          lowerLabel.includes("exhibidores") ? "Exhibidor" :
+                          lowerLabel.includes("tiempo de descanso") ? "Descanso" :
+                          lowerLabel.includes("pausa sanitaria") || lowerLabel.includes("baño") ? "Baño" :
+                          task.label;
+
+                        const ICON_GRADIENTS = [
+                          {
+                            bg: "linear-gradient(135deg, #f97316 0%, #d97706 100%)",
+                            shadow: "0 4px 10px -2px rgba(249,115,22,0.45), inset 0 1px 0 rgba(255,255,255,0.35)",
+                          },
+                          {
+                            bg: "linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%)",
+                            shadow: "0 4px 10px -2px rgba(14,165,233,0.45), inset 0 1px 0 rgba(255,255,255,0.35)",
+                          },
+                          {
+                            bg: "linear-gradient(135deg, #10b981 0%, #0d9488 100%)",
+                            shadow: "0 4px 10px -2px rgba(16,185,129,0.45), inset 0 1px 0 rgba(255,255,255,0.35)",
+                          },
+                          {
+                            bg: "linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)",
+                            shadow: "0 4px 10px -2px rgba(139,92,246,0.45), inset 0 1px 0 rgba(255,255,255,0.35)",
+                          },
+                          {
+                            bg: "linear-gradient(135deg, #ec4899 0%, #e11d48 100%)",
+                            shadow: "0 4px 10px -2px rgba(236,72,153,0.45), inset 0 1px 0 rgba(255,255,255,0.35)",
+                          },
+                          {
+                            bg: "linear-gradient(135deg, #6366f1 0%, #4338ca 100%)",
+                            shadow: "0 4px 10px -2px rgba(99,102,241,0.45), inset 0 1px 0 rgba(255,255,255,0.35)",
+                          },
+                        ];
+
+                        const gradIndex =
+                          lowerLabel.includes("diagn") || lowerLabel.includes("bodega") || lowerLabel.includes("almuerzo") ? 0 :
+                          lowerLabel.includes("repar") || lowerLabel.includes("baño") || lowerLabel.includes("bano") || lowerLabel.includes("inspecc") ? 1 :
+                          lowerLabel.includes("ventanilla") || lowerLabel.includes("limpieza") || lowerLabel.includes("inventario") ? 2 :
+                          lowerLabel.includes("ojt") || lowerLabel.includes("inducc") || lowerLabel.includes("capacit") ? 3 :
+                          lowerLabel.includes("exhibidor") ? 4 :
+                          lowerLabel.includes("venta") || lowerLabel.includes("reuni") ? 5 :
+                          idx % ICON_GRADIENTS.length;
+
+                        const iconTheme = ICON_GRADIENTS[gradIndex];
+
+                        return (
+                          <button
+                            key={task.label}
+                            type="button"
+                            draggable
+                            onDragStart={(e) => handleTaskDragStart(e, task.label)}
+                            onDragOver={(e) => handleTaskDragOver(e, task.label)}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              handleTaskDragEnd();
+                            }}
+                            onDragEnd={handleTaskDragEnd}
+                            onMouseEnter={() => setHoveredManualTask(task)}
+                            onMouseLeave={() => setHoveredManualTask(null)}
+                            onFocus={() => setHoveredManualTask(task)}
+                            onBlur={() => setHoveredManualTask(null)}
+                            onClick={() => {
+                              if (isReorderingManualTasks) return;
+                              if (isCurrent) stopManualTask();
+                              else startManualTask(task.category, task.label, task.subcategory);
+                            }}
+                            title={
+                              isReorderingManualTasks
+                                ? `Arrastra "${task.label}" para cambiar su posición`
+                                : `${task.label} (${task.subcategory || task.category})`
+                            }
+                            className={`group relative rounded-xl py-2.5 px-2 flex flex-col items-center justify-center gap-1.5 border transition-all duration-150 select-none ${
+                              isReorderingManualTasks ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"
+                            } ${
+                              isBeingDragged
+                                ? "opacity-40 scale-95 border-dashed border-violet-500"
+                                : isDragTarget
+                                ? "border-cyan-400 bg-cyan-500/10 scale-[1.02]"
+                                : isCurrent
+                                ? "bg-violet-500/15 dark:bg-violet-500/20 border-violet-500/60 shadow-[0_0_0_1px_rgba(139,92,246,0.35),0_8px_18px_-4px_rgba(139,92,246,0.28)]"
+                                : "bg-white/90 dark:bg-slate-900/75 hover:bg-white dark:hover:bg-slate-800/90 border-slate-200/85 dark:border-white/[0.08] hover:border-violet-400/50 dark:hover:border-violet-400/40 hover:-translate-y-0.5 shadow-2xs"
+                            }`}
+                          >
+                            {/* Puntos de agarre (Drag Handle) */}
+                            <span
+                              className={`absolute top-1.5 left-1.5 transition-opacity ${
+                                isReorderingManualTasks
+                                  ? "opacity-90 text-cyan-500 dark:text-cyan-400"
+                                  : "opacity-0 group-hover:opacity-60 text-slate-400 dark:text-slate-500"
+                              }`}
+                            >
+                              <svg className="w-2.5 h-2.5" viewBox="0 0 10 10" fill="currentColor">
+                                <circle cx="2.5" cy="2" r="0.9" />
+                                <circle cx="6.5" cy="2" r="0.9" />
+                                <circle cx="2.5" cy="5" r="0.9" />
+                                <circle cx="6.5" cy="5" r="0.9" />
+                                <circle cx="2.5" cy="8" r="0.9" />
+                                <circle cx="6.5" cy="8" r="0.9" />
+                              </svg>
+                            </span>
+
+                            {/* Punto indicador activo */}
+                            {isCurrent && (
+                              <span className="absolute top-1.5 right-1.5 flex h-2 w-2">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 shadow-[0_0_6px_#10b981]" />
+                              </span>
+                            )}
+
+                            {/* Insignia de ícono con gradiente y brillo superior */}
+                            <div
+                              className="h-9 w-9 rounded-lg grid place-items-center text-white shrink-0 transition-transform duration-150 group-hover:scale-105 relative overflow-hidden"
+                              style={{
+                                background: iconTheme.bg,
+                                boxShadow: iconTheme.shadow,
+                              }}
+                            >
+                              <span className="pointer-events-none absolute inset-x-0 top-0 h-3 bg-gradient-to-b from-white/30 to-transparent" />
+                              <Icon className="h-4 w-4 relative z-10 drop-shadow-[0_1px_1px_rgba(0,0,0,0.25)]" />
+                            </div>
+
+                            {/* Nombre completo y legible sin recorte */}
+                            <span
+                              className={`text-[11px] font-semibold leading-tight text-center break-words w-full ${
+                                isCurrent
+                                  ? "text-violet-900 dark:text-white font-bold"
+                                  : "text-slate-700 dark:text-slate-200"
+                              }`}
+                            >
+                              {displayLabel}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* 5. Footer Compacto de Acciones */}
+                <div className="shrink-0 px-3 py-2.5 border-t border-slate-200/80 dark:border-white/[0.07] bg-white/85 dark:bg-slate-950/90 backdrop-blur-xl grid grid-cols-2 gap-2 sticky bottom-0 z-20">
+                  <button
+                    type="button"
+                    onClick={handleSync}
+                    disabled={syncing}
+                    className="h-9 rounded-lg bg-slate-100 hover:bg-slate-200/80 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-300/80 dark:border-white/10 text-slate-700 dark:text-slate-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 text-slate-500 dark:text-slate-400 ${syncing ? "animate-spin" : ""}`} />
+                    <span>{syncing ? "Sincronizando..." : "Sincronizar"}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowActivityModal(true)}
+                    title="Ver mi actividad diaria y justificar tiempos"
+                    style={{
+                      background: "linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)",
+                      boxShadow: "0 4px 14px -2px rgba(124,58,237,0.45), inset 0 1px 0 rgba(255,255,255,0.25)",
+                    }}
+                    className="h-9 rounded-lg hover:brightness-110 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                  >
+                    <BarChart3 className="h-3.5 w-3.5" />
+                    <span>Mi actividad</span>
+                  </button>
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {tab === "agenda" && (
             <div className="p-3 space-y-3 flex flex-col">
