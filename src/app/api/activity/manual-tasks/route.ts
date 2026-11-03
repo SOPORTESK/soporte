@@ -132,9 +132,20 @@ const DEFAULT_MANUAL_TASKS: ManualTaskItem[] = [
   },
 ];
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     const supabase = createServiceClient();
+    const { searchParams } = new URL(req.url);
+    let userEmail = (searchParams.get("email") || "").trim().toLowerCase();
+
+    if (!userEmail) {
+      try {
+        const serverSupabase = createClient();
+        const { data: { user } } = await serverSupabase.auth.getUser();
+        if (user?.email) userEmail = user.email.trim().toLowerCase();
+      } catch {}
+    }
+
     const { data, error } = await supabase
       .from("sek_app_settings")
       .select("value")
@@ -173,8 +184,33 @@ export async function GET() {
         );
     }
 
+    let customOrder: string[] = [];
+    if (userEmail) {
+      const orderKey = `${MANUAL_TASKS_KEY}_order_${userEmail}`;
+      const { data: orderData } = await supabase
+        .from("sek_app_settings")
+        .select("value")
+        .eq("key", orderKey)
+        .maybeSingle();
+      if (orderData?.value) {
+        try {
+          const parsedOrder = JSON.parse(orderData.value);
+          if (Array.isArray(parsedOrder) && parsedOrder.length > 0) {
+            customOrder = parsedOrder;
+            const orderMap = new Map<string, number>();
+            customOrder.forEach((lbl: string, idx: number) => orderMap.set(lbl, idx));
+            tasks = [...tasks].sort((a, b) => {
+              const idxA = orderMap.has(a.label) ? orderMap.get(a.label)! : 9999;
+              const idxB = orderMap.has(b.label) ? orderMap.get(b.label)! : 9999;
+              return idxA - idxB;
+            });
+          }
+        } catch {}
+      }
+    }
+
     return NextResponse.json(
-      { success: true, tasks },
+      { success: true, tasks, customOrder },
       { headers: { "Cache-Control": "no-store, no-cache, must-revalidate" } }
     );
   } catch (err: any) {
@@ -188,22 +224,98 @@ export async function POST(req: NextRequest) {
     const { data: { user } } = await serverSupabase.auth.getUser();
     if (!user) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
 
+    const userEmail = (user.email || "").trim().toLowerCase();
+
     const { data: caller } = await serverSupabase
       .from("sek_agent_config")
       .select("rol")
-      .ilike("email", user.email || "")
+      .ilike("email", userEmail)
       .maybeSingle();
 
     const role = caller?.rol || "tecnico";
     const perms = await getAgentGroupPermissions(role);
-    const canManage = role === "superadmin" || (perms as any)?.activity?.subcategories?.gestionar_labores_manuales === true;
+    const canManage =
+      role === "superadmin" ||
+      role === "admin" ||
+      (perms as any)?.activity?.subcategories?.gestionar_labores_manuales === true;
+
+    const body = await req.json();
+    const supabase = createServiceClient();
+
+    // 0. Reordenamiento (permitido a cualquier agente autenticado para su propio orden, y si tiene canManage también actualiza el orden maestro)
+    if (body.action === "reorder" && Array.isArray(body.order)) {
+      const cleanOrder = body.order.map((s: any) => String(s || "").trim()).filter(Boolean);
+      const orderKey = `${MANUAL_TASKS_KEY}_order_${userEmail}`;
+
+      await supabase
+        .from("sek_app_settings")
+        .upsert(
+          {
+            key: orderKey,
+            value: JSON.stringify(cleanOrder),
+            iv: "none",
+            tag: "none",
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "key" }
+        );
+
+      let updatedMasterTasks: ManualTaskItem[] | undefined = undefined;
+      if (canManage) {
+        const { data: masterData } = await supabase
+          .from("sek_app_settings")
+          .select("value")
+          .eq("key", MANUAL_TASKS_KEY)
+          .maybeSingle();
+        let currentTasks: ManualTaskItem[] = DEFAULT_MANUAL_TASKS;
+        if (masterData?.value) {
+          try {
+            const parsed = JSON.parse(masterData.value);
+            if (Array.isArray(parsed) && parsed.length > 0) currentTasks = parsed;
+          } catch {}
+        }
+        const orderMap = new Map<string, number>();
+        cleanOrder.forEach((lbl: string, idx: number) => orderMap.set(lbl, idx));
+        currentTasks = [...currentTasks].sort((a, b) => {
+          const idxA = orderMap.has(a.label) ? orderMap.get(a.label)! : 9999;
+          const idxB = orderMap.has(b.label) ? orderMap.get(b.label)! : 9999;
+          return idxA - idxB;
+        });
+
+        await supabase
+          .from("sek_app_settings")
+          .upsert(
+            {
+              key: MANUAL_TASKS_KEY,
+              value: JSON.stringify(currentTasks),
+              iv: "none",
+              tag: "none",
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "key" }
+          );
+        updatedMasterTasks = currentTasks;
+      }
+
+      return NextResponse.json({
+        success: true,
+        customOrder: cleanOrder,
+        tasks: updatedMasterTasks,
+      });
+    }
+
+    if (body.action === "reset-order") {
+      const orderKey = `${MANUAL_TASKS_KEY}_order_${userEmail}`;
+      await supabase
+        .from("sek_app_settings")
+        .delete()
+        .eq("key", orderKey);
+      return NextResponse.json({ success: true, customOrder: [] });
+    }
 
     if (!canManage) {
       return NextResponse.json({ error: "No tienes permiso para gestionar labores manuales" }, { status: 403 });
     }
-
-    const body = await req.json();
-    const supabase = createServiceClient();
 
     // 1. Reemplazar toda la lista si se envía un arreglo directamente
     if (Array.isArray(body.tasks)) {

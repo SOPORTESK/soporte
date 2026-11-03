@@ -804,21 +804,86 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
     }
   });
 
-  useEffect(() => {
-    const loadDedicatedTasks = () => {
-      fetch("/api/activity/manual-tasks", { cache: "no-store" })
-        .then((r) => r.json())
-        .then((data) => {
-          if (data?.success && Array.isArray(data.tasks)) {
-            setDedicatedManualTasks(data.tasks);
-            try {
-              localStorage.setItem("sek_manual_tasks_list", JSON.stringify(data.tasks));
-            } catch {}
-          }
-        })
-        .catch(() => {});
-    };
+  const [manualSearchQuery, setManualSearchQuery] = useState<string>("");
+  const orderStorageKey = useMemo(
+    () => `sek_manual_tasks_order_${(safeAgent?.email || "default").toLowerCase()}`,
+    [safeAgent?.email]
+  );
+  const [customTaskOrder, setCustomTaskOrder] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const saved = localStorage.getItem(`sek_manual_tasks_order_${(safeAgent?.email || "default").toLowerCase()}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [isReorderingManualTasks, setIsReorderingManualTasks] = useState(false);
+  const [draggedTaskLabel, setDraggedTaskLabel] = useState<string | null>(null);
+  const [dragOverTaskLabel, setDragOverTaskLabel] = useState<string | null>(null);
+  const reorderSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const persistTaskOrderToServer = useCallback(
+    async (nextOrder: string[]) => {
+      try {
+        const res = await fetch("/api/activity/manual-tasks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "reorder", order: nextOrder }),
+        });
+        const data = await res.json();
+        if (data?.success && Array.isArray(data.tasks)) {
+          setDedicatedManualTasks(data.tasks);
+          try {
+            localStorage.setItem("sek_manual_tasks_list", JSON.stringify(data.tasks));
+          } catch {}
+        }
+      } catch {}
+
+      try {
+        supabase.channel(`sek_manual_task_sync_${agent.email}`).send({
+          type: "broadcast",
+          event: "manual_task_change",
+          payload: { action: "reorder", order: nextOrder },
+        });
+      } catch {}
+    },
+    [agent.email, supabase]
+  );
+
+  const loadDedicatedTasks = useCallback(() => {
+    const emailParam = encodeURIComponent((safeAgent?.email || "").toLowerCase());
+    fetch(`/api/activity/manual-tasks?email=${emailParam}&_t=${Date.now()}`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.success && Array.isArray(data.tasks)) {
+          setDedicatedManualTasks(data.tasks);
+          try {
+            localStorage.setItem("sek_manual_tasks_list", JSON.stringify(data.tasks));
+          } catch {}
+        }
+        if (Array.isArray(data?.customOrder) && data.customOrder.length > 0) {
+          setCustomTaskOrder(data.customOrder);
+          try {
+            localStorage.setItem(orderStorageKey, JSON.stringify(data.customOrder));
+          } catch {}
+        } else {
+          // Si este navegador (ej. localhost) ya tenía un orden personalizado guardado localmente y el servidor aún no, sincronizarlo al servidor automáticamente
+          try {
+            const localRaw = localStorage.getItem(orderStorageKey);
+            if (localRaw) {
+              const localParsed = JSON.parse(localRaw);
+              if (Array.isArray(localParsed) && localParsed.length > 0) {
+                persistTaskOrderToServer(localParsed);
+              }
+            }
+          } catch {}
+        }
+      })
+      .catch(() => {});
+  }, [safeAgent?.email, orderStorageKey, persistTaskOrderToServer]);
+
+  useEffect(() => {
     const handleDedicatedUpdate = (e?: Event) => {
       try {
         const detail = (e as CustomEvent)?.detail;
@@ -841,14 +906,29 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
       loadDedicatedTasks();
     };
 
+    const handleWindowFocus = () => loadDedicatedTasks();
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") loadDedicatedTasks();
+    };
+
     loadDedicatedTasks();
     window.addEventListener("sekunet_manual_tasks_updated", handleDedicatedUpdate);
     window.addEventListener("storage", handleDedicatedUpdate);
+    window.addEventListener("focus", handleWindowFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
       window.removeEventListener("sekunet_manual_tasks_updated", handleDedicatedUpdate);
       window.removeEventListener("storage", handleDedicatedUpdate);
+      window.removeEventListener("focus", handleWindowFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, []);
+  }, [loadDedicatedTasks]);
+
+  useEffect(() => {
+    if (tab === "activity" && open) {
+      loadDedicatedTasks();
+    }
+  }, [tab, open, loadDedicatedTasks]);
 
   const manualTasksList = useMemo(() => {
     // Obtenemos ÚNICAMENTE las tareas/procesos que tienen is_manual_task === true en appMappingsConfig
@@ -906,24 +986,6 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
       iconColor: getTaskIconColor((t as any).iconName || t.label),
     }));
   }, [dedicatedManualTasks, manualTasksList]);
-
-  const [manualSearchQuery, setManualSearchQuery] = useState<string>("");
-  const orderStorageKey = useMemo(
-    () => `sek_manual_tasks_order_${(safeAgent?.email || "default").toLowerCase()}`,
-    [safeAgent?.email]
-  );
-  const [customTaskOrder, setCustomTaskOrder] = useState<string[]>(() => {
-    if (typeof window === "undefined") return [];
-    try {
-      const saved = localStorage.getItem(`sek_manual_tasks_order_${(safeAgent?.email || "default").toLowerCase()}`);
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
-  const [isReorderingManualTasks, setIsReorderingManualTasks] = useState(false);
-  const [draggedTaskLabel, setDraggedTaskLabel] = useState<string | null>(null);
-  const [dragOverTaskLabel, setDragOverTaskLabel] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -986,6 +1048,11 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
     try {
       localStorage.setItem(orderStorageKey, JSON.stringify(nextOrder));
     } catch {}
+
+    if (reorderSaveTimerRef.current) clearTimeout(reorderSaveTimerRef.current);
+    reorderSaveTimerRef.current = setTimeout(() => {
+      persistTaskOrderToServer(nextOrder);
+    }, 280);
   };
 
   const handleTaskDragEnd = () => {
@@ -993,10 +1060,23 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
     setDragOverTaskLabel(null);
   };
 
-  const resetManualTaskOrder = () => {
+  const resetManualTaskOrder = async () => {
     setCustomTaskOrder([]);
     try {
       localStorage.removeItem(orderStorageKey);
+    } catch {}
+    try {
+      await fetch("/api/activity/manual-tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reset-order" }),
+      });
+      supabase.channel(`sek_manual_task_sync_${agent.email}`).send({
+        type: "broadcast",
+        event: "manual_task_change",
+        payload: { action: "reset-order" },
+      });
+      loadDedicatedTasks();
     } catch {}
     toast.success("Orden original restablecido");
   };
@@ -1040,6 +1120,15 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
         } else {
           setManualTask(null);
         }
+      } else if (e.key === orderStorageKey) {
+        if (e.newValue) {
+          try {
+            const parsed = JSON.parse(e.newValue);
+            if (Array.isArray(parsed)) setCustomTaskOrder(parsed);
+          } catch {}
+        } else {
+          setCustomTaskOrder([]);
+        }
       }
     };
     window.addEventListener("storage", handleStorage);
@@ -1058,6 +1147,12 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
           try { localStorage.removeItem("sekunet_manual_task_stopped"); } catch {}
           setManualTask(data.task);
           try { localStorage.setItem("sekunet_manual_task", JSON.stringify(data.task)); } catch {}
+        } else if (data.action === "reorder" && Array.isArray(data.order)) {
+          setCustomTaskOrder(data.order);
+          try { localStorage.setItem(orderStorageKey, JSON.stringify(data.order)); } catch {}
+        } else if (data.action === "reset-order") {
+          setCustomTaskOrder([]);
+          try { localStorage.removeItem(orderStorageKey); } catch {}
         }
       })
       .subscribe();
