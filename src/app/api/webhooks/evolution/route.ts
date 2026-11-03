@@ -778,11 +778,14 @@ async function resolveLidToPhone(lidJid: string, evoUrl: string, evoKey: string,
 
 async function extractJid(payload: any, evoUrl: string, evoKey: string, evoInstance: string): Promise<string | null> {
   const selfJids = [
+    get(payload, "sender"),
     get(payload, "data.wuid"),
     get(payload, "instance.wuid"),
     get(payload, "wuid"),
     get(payload, "instance.user"),
     get(payload, "data.instance.user"),
+    "50660160394@s.whatsapp.net",
+    "50660160394:1@s.whatsapp.net",
     "50662777500@s.whatsapp.net", // Tu bot
     "50662777500:1@s.whatsapp.net"
   ];
@@ -1240,12 +1243,6 @@ export async function POST(req: NextRequest) {
     } catch {}
   }
 
-  // FILTRAR TYPOS: Ignorar mensajes que sean un solo carácter no alfanumérico (ej: "}", "{", "]", etc.)
-  if (text && text.trim().length === 1 && !/^[a-zA-Z0-9áéíóúÁÉÍÓÚñÑ¿?¡!]$/.test(text.trim())) {
-    console.log(`[evo-webhook] Ignorando mensaje por posible typo: "${text.trim()}"`);
-    return NextResponse.json({ ok: true, skipped: "typo" });
-  }
-
   console.log("[evo-webhook] Paso 3: extractJid...");
   const jid = await extractJid(payload, EVO_URL, EVO_KEY, EVO_INSTANCE);
   console.log("[evo-webhook] Paso 3 OK - jid:", jid);
@@ -1417,12 +1414,13 @@ export async function POST(req: NextRequest) {
                         payload?.data?.messages?.[0]?.key?.participant || 
                         payload?.data?.message?.key?.participant ||
                         "";
-    const instanceUser = get(payload, "instance.user") || 
+    const instanceUser = get(payload, "sender") ||
+                         get(payload, "instance.user") || 
                          get(payload, "data.instance.user") || 
                          get(payload, "wuid") || 
                          get(payload, "data.wuid") || 
                          "";
-    officialPhone = jidToPhone(instanceUser) || "50662777500";
+    officialPhone = jidToPhone(instanceUser) || "50660160394";
     const participantPhone = jidToPhone(participant);
     const isOfficialNumber = !!(participantPhone && participantPhone === officialPhone);
     isOutgoing = !!(fromMe || isBotName || isOfficialNumber);
@@ -1874,15 +1872,17 @@ export async function POST(req: NextRequest) {
     ? { role: "tecnico", time: msgTime, content: text || "", author: "Soporte Sekunet", mediaUrl, mediaType: finalMediaType, fileName, messageId: keyId, fromMe: true, ...(replyTo ? { replyTo } : {}) } as any
     : { role: "user", time: msgTime, content: text || "", mediaUrl, mediaType: finalMediaType, fileName, messageId: keyId, fromMe: false, ...(replyTo ? { replyTo } : {}) } as any;
 
-  console.log("[evo-webhook] Paso 6: buscando casos recientes...");
+  console.log("[evo-webhook] Paso 6: buscando casos activos recientes...");
   try {
+    const ACTIVE_STATES_LIST = ["ia_atendiendo", "pendiente", "escalado", "abierto", "calificacion_pendiente"];
     const { data: openCases } = await supabase
       .from("sek_cases")
-      .select("id, histcliente, histtecnico, estado, customer_phone, cliente, title, created_at, accepted_at, escalado_at, tags, assigned_to, marca, modelo, problema")
+      .select("id, histcliente, histtecnico, estado, customer_phone, cliente, title, created_at, updated_at, last_message_at, accepted_at, escalado_at, tags, assigned_to, marca, modelo, problema")
       .eq("canal", "whatsapp")
-      .order("created_at", { ascending: false })
-      .limit(50);
-    console.log("[evo-webhook] Paso 6 OK - casos encontrados:", openCases?.length || 0);
+      .in("estado", ACTIVE_STATES_LIST)
+      .order("updated_at", { ascending: false })
+      .limit(200);
+    console.log("[evo-webhook] Paso 6 OK - casos activos encontrados:", openCases?.length || 0);
 
     // Si la cita tenía un messageId / stanzaId, enriquecer con el texto real del mensaje previo en la BD
     try {
@@ -1937,12 +1937,13 @@ export async function POST(req: NextRequest) {
       const ACTIVE_STATES = ["ia_atendiendo", "pendiente", "escalado", "abierto", "calificacion_pendiente"];
       existing = openCases.find((c: any) => ACTIVE_STATES.includes(c.estado) && matchesPhone(c)) || null;
 
-      // 2. Si el caso activo tiene más de 24 horas desde su creación y el cliente escribe,
-      //    se cierra automáticamente el caso viejo para iniciar un caso nuevo y fresco con tiempo desde cero.
+      // 2. Si el caso activo lleva más de 24 horas de INACTIVIDAD y el cliente escribe,
+      //    se cierra automáticamente el caso viejo para iniciar un caso nuevo y fresco.
       if (existing && !isOutgoing) {
-        const caseAgeHours = (Date.now() - new Date(existing.created_at).getTime()) / (1000 * 60 * 60);
-        if (caseAgeHours > 24) {
-          console.log(`[evo-webhook] Caso ${existing.id} tiene ${caseAgeHours.toFixed(1)}h de antigüedad. Cerrando automáticamente para abrir caso nuevo fresco.`);
+        const lastActivityStr = (existing as any).last_message_at || (existing as any).updated_at || existing.created_at;
+        const inactiveHours = (Date.now() - new Date(lastActivityStr).getTime()) / (1000 * 60 * 60);
+        if (inactiveHours > 24) {
+          console.log(`[evo-webhook] Caso ${existing.id} lleva ${inactiveHours.toFixed(1)}h sin actividad. Cerrando automáticamente para abrir caso nuevo fresco.`);
           await supabase
             .from("sek_cases")
             .update({ estado: "cerrado", closed_at: new Date().toISOString() })
@@ -2286,16 +2287,31 @@ export async function POST(req: NextRequest) {
 
     // ── AUTO-RELLENO: buscar casos previos del mismo teléfono para reutilizar ÚNICAMENTE datos de contacto ──
     let knownClient: Record<string, unknown> = {};
+    let recentAfterHoursCaseId: string | null = null;
+    const msgTimeMs = new Date(msgTime).getTime();
+    const isHistoricalSync = !isNaN(msgTimeMs) && (Date.now() - msgTimeMs > 30 * 60 * 1000);
     if (!isOutgoing && contactPhone) {
       const cleanPhone = contactPhone.replace(/[^0-9]/g, "");
       const { data: prevCases } = await supabase
         .from("sek_cases")
-        .select("cliente, created_at")
+        .select("id, estado, assigned_to, cliente, created_at")
         .or(`customer_phone.eq.${cleanPhone},customer_phone.eq.${cleanPhone}@s.whatsapp.net,customer_phone.eq.+${cleanPhone},customer_phone.eq.+${cleanPhone}@s.whatsapp.net`)
         .order("created_at", { ascending: false })
         .limit(20);
 
       if (prevCases && prevCases.length > 0) {
+        for (const pc of prevCases) {
+          const pcCreatedMs = new Date(String(pc.created_at || "")).getTime();
+          if (
+            !recentAfterHoursCaseId &&
+            pc.estado === "cerrado" &&
+            !pc.assigned_to &&
+            !isNaN(pcCreatedMs) &&
+            Date.now() - pcCreatedMs < 14 * 60 * 60 * 1000
+          ) {
+            recentAfterHoursCaseId = String(pc.id);
+          }
+        }
         // Buscar el caso más reciente que tenga datos de perfil del cliente (nombre, correo o cuenta)
         for (const pc of prevCases) {
           const pcCliente = (pc.cliente && typeof pc.cliente === "object") ? pc.cliente as Record<string, unknown> : {};
@@ -2348,7 +2364,30 @@ export async function POST(req: NextRequest) {
 
       // ── Fuera de horario: configurable desde panel admin (after_hours_config) ──
       const afterHoursCfg = await getFueraHorarioConfig(supabase);
-      if ((afterHoursCfg.enabled || modoNoAtendido) && !isOpenNowCR()) {
+      if ((afterHoursCfg.enabled || modoNoAtendido) && (!isOpenNowCR() || isHistoricalSync)) {
+        if (recentAfterHoursCaseId) {
+          await supabase.rpc("sek_append_hist", {
+            p_case_id: recentAfterHoursCaseId,
+            p_entry: entry,
+            p_col: "histcliente",
+            p_preview: previewText.slice(0, 200),
+            p_customer_phone: phone || jid,
+          });
+          console.log(`[evo-webhook] Fuera de horario / sync histórico — mensaje agregado al caso cerrado reciente ${recentAfterHoursCaseId}, sin crear duplicado`);
+          if (needsOptimizer) {
+            await triggerSidecarOptimizer({
+              encUrl: optimizerEncUrl,
+              mediaKey: optimizerMediaKey,
+              videoBase64: optimizerBase64,
+              mediaType: mediaType || "video",
+              fileName,
+              caseId: String(recentAfterHoursCaseId),
+              messageId: keyId,
+            });
+          }
+          return NextResponse.json({ ok: true, unattended: true, fueraHorario: true, reused: true });
+        }
+
         const nowIso = new Date().toISOString();
         const horarioTitle = pushName ? `WhatsApp — ${pushName}` : (knownClient.nombre ? `WhatsApp — ${knownClient.nombre}` : `WhatsApp — ${contactPhone}`);
         const horarioPayload = {
@@ -2389,22 +2428,24 @@ export async function POST(req: NextRequest) {
             }
             return NextResponse.json({ ok: true, unattended: true, fueraHorario: true, reused: true });
           }
-          const msgHorario = await getFueraHorarioMsg(supabase);
-          const horarioSent = await sendWhatsAppText(phone || jid || "", msgHorario, evoCfg, 500);
-          const clientTimeMs = new Date(msgTime).getTime();
-          await supabase.rpc("sek_append_hist", {
-            p_case_id: claimed.caseId,
-            p_entry: {
-              role: "ia",
-              author: "Asistente Sekunet",
-              time: isNaN(clientTimeMs) ? new Date().toISOString() : new Date(clientTimeMs + 1).toISOString(),
-              content: msgHorario,
-              fromMe: true,
-              ...(horarioSent.messageId ? { messageId: horarioSent.messageId } : {}),
-            },
-            p_col: "histtecnico",
-            p_preview: msgHorario.slice(0, 200),
-          });
+          if (!isHistoricalSync) {
+            const msgHorario = await getFueraHorarioMsg(supabase);
+            const horarioSent = await sendWhatsAppText(phone || jid || "", msgHorario, evoCfg, 500);
+            const clientTimeMs = new Date(msgTime).getTime();
+            await supabase.rpc("sek_append_hist", {
+              p_case_id: claimed.caseId,
+              p_entry: {
+                role: "ia",
+                author: "Asistente Sekunet",
+                time: isNaN(clientTimeMs) ? new Date().toISOString() : new Date(clientTimeMs + 1).toISOString(),
+                content: msgHorario,
+                fromMe: true,
+                ...(horarioSent.messageId ? { messageId: horarioSent.messageId } : {}),
+              },
+              p_col: "histtecnico",
+              p_preview: msgHorario.slice(0, 200),
+            });
+          }
           console.log(`[evo-webhook] Modo No Atendido + fuera de horario — caso ${claimed.caseId} creado cerrado`);
           if (needsOptimizer && claimed?.caseId) {
             await triggerSidecarOptimizer({

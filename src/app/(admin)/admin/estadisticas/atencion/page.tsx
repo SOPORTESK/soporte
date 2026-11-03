@@ -112,7 +112,9 @@ function getMinutosResolucion(c: any): number | null {
   const tStart = c.accepted_at ? new Date(c.accepted_at).getTime() : new Date(c.created_at).getTime();
   if (isNaN(tStart)) return null;
 
-  const tClosed = c.closed_at ? new Date(c.closed_at).getTime() : NaN;
+  const isResuelto = c.estado === "resuelto" || c.estado === "cerrado" || Boolean(c.closed_at);
+  const closedRaw = c.closed_at || (isResuelto ? c.updated_at : null);
+  const tClosed = closedRaw ? new Date(closedRaw).getTime() : NaN;
 
   const allMsgs = [
     ...(Array.isArray(c.histcliente) ? c.histcliente : []),
@@ -149,7 +151,7 @@ function getMinutosResolucion(c: any): number | null {
   if (isNaN(tEnd)) return null;
   const min = Math.round((tEnd - tStart) / 60000);
   if (min < 0) return null;
-  return min;
+  return isResuelto ? Math.max(1, min) : min;
 }
 
 const MESES_NOMBRES = [
@@ -294,9 +296,40 @@ export default async function EstadisticasAtencionPage({
   };
 
   const agenteMap: Record<string, string> = {};
+  const nombreToEmail: Record<string, string> = {};
   agentes?.forEach(a => {
-    agenteMap[a.email.toLowerCase()] = `${a.nombre || ""} ${a.apellido || ""}`.trim() || a.email;
+    const em = a.email.toLowerCase();
+    const full = `${a.nombre || ""} ${a.apellido || ""}`.trim() || a.email;
+    agenteMap[em] = full;
+    nombreToEmail[full.toLowerCase()] = em;
+    if (a.nombre) nombreToEmail[String(a.nombre).trim().toLowerCase()] = em;
   });
+
+  const getAgenteEmail = (c: any): string | null => {
+    if (c.assigned_to && !String(c.assigned_to).includes("system_prompt")) {
+      return String(c.assigned_to).trim().toLowerCase();
+    }
+    const cl = typeof c.cliente === "object" && c.cliente ? (c.cliente as any) : null;
+    if (cl?.calificado_por && !String(cl.calificado_por).includes("system_prompt")) {
+      const cp = String(cl.calificado_por).trim().toLowerCase();
+      return nombreToEmail[cp] || cp;
+    }
+    const ht = Array.isArray(c.histtecnico) ? c.histtecnico : [];
+    for (let i = ht.length - 1; i >= 0; i--) {
+      const m = ht[i];
+      if (!m) continue;
+      const role = String(m.role || "").toLowerCase();
+      const author = String(m.author || "").trim().toLowerCase();
+      if ((role === "agente" || role === "agent" || role === "tecnico") && author && !author.includes("sistema") && !author.includes("asistente")) {
+        if (agenteMap[author]) return author;
+        if (nombreToEmail[author]) return nombreToEmail[author];
+      }
+    }
+    return null;
+  };
+
+  const isCasoResuelto = (c: any): boolean =>
+    c.estado === "resuelto" || c.estado === "cerrado" || Boolean((c as any).closed_at);
 
   // ── Fechas de referencia
   const now = new Date();
@@ -305,18 +338,60 @@ export default async function EstadisticasAtencionPage({
   const hace14dias = new Date(hoy); hace14dias.setDate(hoy.getDate() - 14);
   const hace30dias = new Date(hoy); hace30dias.setDate(hoy.getDate() - 30);
 
-  const casosConAsig = casosFiltrados.filter(c => c.assigned_to && !c.assigned_to.includes("system_prompt"));
-  const casosSinAsig = casosFiltrados.filter(c => !c.assigned_to || c.assigned_to.includes("system_prompt"));
+  const casosConAsig = casosFiltrados.filter(c => Boolean(getAgenteEmail(c)));
+  const casosSinAsig = casosFiltrados.filter(c => !getAgenteEmail(c));
 
   const totalCasos = casosFiltrados.length;
-  const totalResueltos = casosFiltrados.filter(c => c.estado === "resuelto" || c.estado === "cerrado" || (c as any).closed_at).length;
-  const totalActivos = casosFiltrados.filter(c => c.estado === "abierto").length;
+  const totalResueltos = casosFiltrados.filter(isCasoResuelto).length;
+  const totalActivos = totalCasos - totalResueltos;
   const rawTasa = totalCasos > 0 ? (totalResueltos / totalCasos) * 100 : 0;
   const tasaResolucion = totalCasos > 0 ? (rawTasa >= 99 && rawTasa < 100 ? rawTasa.toFixed(1) : Math.floor(rawTasa).toString()) : "0";
 
-  // ── Tendencia 7d vs 7d anterior (siempre últimos 7 días reales, sin filtro de mes)
-  const casos7d = casos.filter(c => new Date(c.created_at) >= hace7dias).length;
-  const casosAntes7d = casos.filter(c => new Date(c.created_at) >= hace14dias && new Date(c.created_at) < hace7dias).length;
+  // ── Modo mes y ventana de 7 días (alineados en zona horaria Costa Rica)
+  const periodoModo = searchParams.periodo || "semana";
+  const tieneMesFiltro = Boolean(mesSeleccionado && mesSeleccionado !== "all");
+  const mesActualYM = tieneMesFiltro ? mesSeleccionado : nowCRStr.slice(0, 7);
+  const [ymYear, ymMonth] = mesActualYM.split("-").map(Number);
+  const prevMonthDate = new Date(Date.UTC(ymYear, ymMonth - 2, 15));
+  const mesAnteriorYM = `${prevMonthDate.getUTCFullYear()}-${String(prevMonthDate.getUTCMonth() + 1).padStart(2, "0")}`;
+
+  const casosMesActual_data = casos.filter(c => toCRDate(c.created_at).startsWith(mesActualYM));
+  const casosMesActual = casosMesActual_data.length;
+  const casosMesAnterior = casos.filter(c => toCRDate(c.created_at).startsWith(mesAnteriorYM)).length;
+  const tendenciaMes = casosMesAnterior > 0 ? Math.round(((casosMesActual - casosMesAnterior) / casosMesAnterior) * 100) : null;
+
+  // Spark por día del mes actual (en fecha Costa Rica)
+  const diasEnMes = new Date(ymYear, ymMonth, 0).getDate();
+  const sparkMes: number[] = Array(diasEnMes).fill(0);
+  casosMesActual_data.forEach(c => {
+    const dayNum = parseInt(toCRDate(c.created_at).slice(8, 10), 10);
+    if (dayNum >= 1 && dayNum <= diasEnMes) sparkMes[dayNum - 1]++;
+  });
+  const sparkMaxMes = Math.max(...sparkMes, 1);
+
+  // ── Últimos 7 días — volumen por día (dentro del período activo si hay filtro de mes)
+  const isCurrentOrAllMonth = !tieneMesFiltro || mesActualYM === nowCRStr.slice(0, 7);
+  const refEndDateObj = isCurrentOrAllMonth
+    ? new Date(`${nowCRStr}T12:00:00Z`)
+    : new Date(`${mesActualYM}-${String(diasEnMes).padStart(2, "0")}T12:00:00Z`);
+  const days7CR: string[] = [];
+  const prev7CR: string[] = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(refEndDateObj.getTime() - i * 86400000);
+    days7CR.push(d.toISOString().slice(0, 10));
+  }
+  for (let i = 13; i >= 7; i--) {
+    const d = new Date(refEndDateObj.getTime() - i * 86400000);
+    prev7CR.push(d.toISOString().slice(0, 10));
+  }
+  const prev7Set = new Set(prev7CR);
+  const sourceFor7d = tieneMesFiltro ? casosMesActual_data : casos;
+  const spark7d: number[] = days7CR.map(dayStr =>
+    sourceFor7d.filter(c => toCRDate(c.created_at) === dayStr).length
+  );
+  const sparkMax7d = Math.max(...spark7d, 1);
+  const casos7d = spark7d.reduce((a, b) => a + b, 0);
+  const casosAntes7d = casos.filter(c => prev7Set.has(toCRDate(c.created_at))).length;
   const tendencia7d = casosAntes7d > 0 ? Math.round(((casos7d - casosAntes7d) / casosAntes7d) * 100) : null;
 
   // ── SLA (solo humanos): espera desde que la IA escala el caso hasta que un
@@ -338,16 +413,17 @@ export default async function EstadisticasAtencionPage({
 
   // ── Distribución de tiempo de resolución humana (tiempo real de conversación hasta el último mensaje)
   const casosResolucion = casosConAsig
-    .filter(c => (c.estado === "resuelto" || c.estado === "cerrado" || (c as any).closed_at) && (c as any).closed_at)
+    .filter(isCasoResuelto)
     .map(c => {
       const min = getMinutosResolucion(c);
       if (min === null) return null; // Inconsistencias van a sinDatosRes
+      const agEmail = getAgenteEmail(c) || "sin_agente";
       return {
         id: c.id,
         title: c.title || "Caso sin título",
-        agente: agenteMap[c.assigned_to!.toLowerCase()] || c.assigned_to!,
+        agente: agenteMap[agEmail] || agEmail,
         created_at: c.created_at,
-        closed_at: (c as any).closed_at,
+        closed_at: (c as any).closed_at || c.updated_at || c.created_at,
         accepted_at: c.accepted_at || c.created_at,
         minutos: min,
         cliente: getClienteNombre(c),
@@ -362,62 +438,28 @@ export default async function EstadisticasAtencionPage({
   // Casos sin datos o actualmente en curso: los que NO están en casosResolucion
   const casosSinDatosRes = casosConAsig
     .filter(c => !resueltosIds.has(c.id))
-    .map(c => ({
-      id: c.id,
-      title: c.title || "Caso sin título",
-      agente: agenteMap[c.assigned_to!.toLowerCase()] || c.assigned_to!,
-      created_at: c.created_at,
-      closed_at: (c as any).closed_at || "",
-      accepted_at: c.accepted_at || "",
-      minutos: 0,
-      cliente: getClienteNombre(c),
-    }));
+    .map(c => {
+      const agEmail = getAgenteEmail(c) || "sin_agente";
+      return {
+        id: c.id,
+        title: c.title || "Caso sin título",
+        agente: agenteMap[agEmail] || agEmail,
+        created_at: c.created_at,
+        closed_at: (c as any).closed_at || "",
+        accepted_at: c.accepted_at || "",
+        minutos: 0,
+        cliente: getClienteNombre(c),
+      };
+    });
 
   const resLt1h = casosValidos.filter(c => c.minutos <= 60).length;
   const res1_4h = casosValidos.filter(c => c.minutos > 60 && c.minutos <= 240).length;
   const res4_8h = casosValidos.filter(c => c.minutos > 240 && c.minutos <= 480).length;
   const resGt8h = casosValidos.filter(c => c.minutos > 480).length;
 
-  // ── AHT (Average Handle Time): tiempo efectivo que el agente dedicó a cada caso
-  // Se calcula después de tiempoEfectivo(), se deja el placeholder aquí y se resuelve abajo
-
   // ── Prioridades (solo humanos)
   const prioridades: Record<string, number> = { urgente: 0, alta: 0, media: 0, baja: 0 };
   casosConAsig.forEach(c => { if (c.prioridad && prioridades[c.prioridad] !== undefined) prioridades[c.prioridad]++; });
-
-  // ── Últimos 7 días — volumen por día (siempre últimos 7 días reales, sin filtro de mes)
-  const spark7d: number[] = Array(7).fill(0);
-  casos.forEach(c => {
-    const d = new Date(c.created_at);
-    if (d >= hace7dias) {
-      const idx = Math.floor((d.getTime() - hace7dias.getTime()) / 86400000);
-      if (idx >= 0 && idx < 7) spark7d[idx]++;
-    }
-  });
-  const sparkMax7d = Math.max(...spark7d, 1);
-
-  // ── Modo mes: volumen del mes actual vs mes anterior
-  const periodoModo = searchParams.periodo || "semana";
-  const tieneMesFiltro = Boolean(mesSeleccionado && mesSeleccionado !== "all");
-  const mesActualDate = tieneMesFiltro ? new Date(mesSeleccionado + "-01T00:00:00-06:00") : new Date(now.getFullYear(), now.getMonth(), 1);
-  const mesAnteriorDate = new Date(mesActualDate.getFullYear(), mesActualDate.getMonth() - 1, 1);
-  const mesActualEnd = new Date(mesActualDate.getFullYear(), mesActualDate.getMonth() + 1, 1);
-  const casosMesActual_data = casos.filter(c => { const d = new Date(c.created_at); return d >= mesActualDate && d < mesActualEnd; });
-  const casosMesActual = casosMesActual_data.length;
-  const casosMesAnterior = casos.filter(c => { const d = new Date(c.created_at); return d >= mesAnteriorDate && d < mesActualDate; }).length;
-  const tendenciaMes = casosMesAnterior > 0 ? Math.round(((casosMesActual - casosMesAnterior) / casosMesAnterior) * 100) : null;
-
-  // Spark por día del mes actual
-  const diasEnMes = new Date(mesActualDate.getFullYear(), mesActualDate.getMonth() + 1, 0).getDate();
-  const sparkMes: number[] = Array(diasEnMes).fill(0);
-  casosMesActual_data.forEach(c => {
-    const d = new Date(c.created_at);
-    if (d >= mesActualDate && d < mesActualEnd) {
-      const idx = d.getDate() - 1;
-      if (idx >= 0 && idx < diasEnMes) sparkMes[idx]++;
-    }
-  });
-  const sparkMaxMes = Math.max(...sparkMes, 1);
 
   // ── Tiempo efectivo del agente: solo cuenta gaps cuando el SIGUIENTE mensaje es del agente
   //    cliente→agente = tiempo de respuesta del operador (cuenta, capado a UMBRAL)
@@ -425,14 +467,14 @@ export default async function EstadisticasAtencionPage({
   //    agente→cliente = cliente leyendo/escribiendo (NO cuenta — es tiempo del cliente)
   //    Gaps > UMBRAL = inactividad/espera larga, no cuentan
   const UMBRAL_GAP_MIN = 15;
+  const UMBRAL_GAP_MS = UMBRAL_GAP_MIN * 60000;
   const isAgentRole = (r: any) => r === "agente" || r === "agent" || r === "tecnico";
   function tiempoEfectivo(histtecnico: any[], histcliente: any[], accepted_at?: string | null): number {
-    // Solo mensajes escritos por el humano: rol de agente, sin notas internas y
-    // sin plantillas del sistema (el saludo de bienvenida y los cierres los
-    // inserta el flujo, no el agente, y falseaban el tiempo hacia abajo).
-    const tech = (Array.isArray(histtecnico) ? histtecnico : [])
-      .filter((m: any) => m && m.time && isAgentRole(m.role) && m.role !== "nota" && !esPlantilla(m.content))
-      .map((m: any) => ({ t: new Date(m.time).getTime(), agent: true }));
+    const rawTech = (Array.isArray(histtecnico) ? histtecnico : [])
+      .filter((m: any) => m && m.time && isAgentRole(m.role) && m.role !== "nota");
+    const nonTemplateTech = rawTech.filter((m: any) => !esPlantilla(m.content));
+    const activeTech = nonTemplateTech.length > 0 ? nonTemplateTech : rawTech;
+    const tech = activeTech.map((m: any) => ({ t: new Date(m.time).getTime(), agent: true }));
     const cli = (Array.isArray(histcliente) ? histcliente : [])
       .filter((m: any) => m && m.time)
       .map((m: any) => ({ t: new Date(m.time).getTime(), agent: false }));
@@ -443,22 +485,16 @@ export default async function EstadisticasAtencionPage({
       const t = new Date(accepted_at).getTime();
       if (!isNaN(t)) msgs.unshift({ t, agent: true });
     }
-    if (msgs.length < 2) return 0;
-    let total = 0;
+    if (msgs.length < 2) return tech.length > 0 ? 1 : 0;
+    let totalMs = 0;
     for (let i = 1; i < msgs.length; i++) {
-      // Solo cuenta gap cuando el SIGUIENTE mensaje es del agente
       if (!msgs[i].agent) continue;
-      const gap = Math.round((msgs[i].t - msgs[i - 1].t) / 60000);
-      if (gap > 0 && gap <= UMBRAL_GAP_MIN) total += gap;
+      const gapMs = msgs[i].t - msgs[i - 1].t;
+      if (gapMs > 0 && gapMs <= UMBRAL_GAP_MS) totalMs += gapMs;
     }
-    return total;
+    if (totalMs <= 0) return tech.length > 0 ? 1 : 0;
+    return Math.max(1, Math.round(totalMs / 60000));
   }
-
-  // ── AHT Global: promedio de tiempo efectivo por caso
-  const ahtTodos = casosConAsig
-    .map(c => tiempoEfectivo((c as any).histtecnico, (c as any).histcliente, c.accepted_at))
-    .filter(t => t > 0);
-  const avgAHTGlobal = ahtTodos.length > 0 ? Math.round(ahtTodos.reduce((a, b) => a + b, 0) / ahtTodos.length) : 0;
 
   // ── Helper para leer calificación desde objeto cliente
   function getCal(c: any): number | null {
@@ -484,37 +520,34 @@ export default async function EstadisticasAtencionPage({
   }> = {};
 
   casosConAsig.forEach(caso => {
-    const email = caso.assigned_to!.toLowerCase();
+    const email = getAgenteEmail(caso);
+    if (!email) return;
     if (!statsPorAgente[email]) {
-      statsPorAgente[email] = { email, nombre: agenteMap[email] || caso.assigned_to!, totalAtendidos: 0, resueltos: 0, activos: 0, escalados: 0, calificaciones: [], tiemposResolucion: [], ultimoCaso: caso.title || "Caso sin título", urgentes: 0, casos7d: 0, casos30d: 0, tiemposEfectivos: [], tiemposEspera: [], casos: [], primerCasoMs: Infinity };
+      statsPorAgente[email] = { email, nombre: agenteMap[email] || email, totalAtendidos: 0, resueltos: 0, activos: 0, escalados: 0, calificaciones: [], tiemposResolucion: [], ultimoCaso: caso.title || "Caso sin título", urgentes: 0, casos7d: 0, casos30d: 0, tiemposEfectivos: [], tiemposEspera: [], casos: [], primerCasoMs: Infinity };
     }
     const s = statsPorAgente[email];
     s.totalAtendidos++;
-    // Fecha de su primer caso: el ritmo se mide desde que empezó a atender, no
-    // desde el inicio de la ventana, para no castigar a quien entró después.
     const tCreado = new Date(caso.created_at).getTime();
     if (!isNaN(tCreado) && tCreado < s.primerCasoMs) s.primerCasoMs = tCreado;
     s.casos.push({ id: caso.id, title: caso.title || "Caso sin título", estado: caso.estado || "—", created_at: caso.created_at, cliente: getClienteNombre(caso), canal: caso.canal || "—" });
-    if (["abierto","asignado","pendiente"].includes(caso.estado || "")) s.activos++;
+    if (!isCasoResuelto(caso)) s.activos++;
     if (caso.estado === "escalado") s.escalados++;
-    if (caso.estado === "resuelto" || caso.estado === "cerrado" || (caso as any).closed_at) {
+    if (isCasoResuelto(caso)) {
       s.resueltos++;
       const minRes = getMinutosResolucion(caso);
       if (minRes !== null && minRes >= 0 && minRes < 10080) {
         s.tiemposResolucion.push(minRes);
+        const te = Math.max(1, tiempoEfectivo((caso as any).histtecnico, (caso as any).histcliente, (caso as any).accepted_at || caso.created_at));
+        s.tiemposEfectivos.push(te);
       }
-      const te = tiempoEfectivo((caso as any).histtecnico, (caso as any).histcliente, (caso as any).accepted_at);
-      if (te > 0) s.tiemposEfectivos.push(te);
     }
     if (caso.accepted_at) {
       const tAccepted = new Date(caso.accepted_at).getTime();
       let lastMsgTime = new Date(caso.created_at).getTime();
       
-      // Si la IA registró exactamente cuándo lo escaló, usamos eso como inicio de espera.
       if (caso.escalado_at) {
         lastMsgTime = new Date(caso.escalado_at).getTime();
       } else {
-        // Fallback: usar el último mensaje antes de la aceptación
         const allMsgs = [...(Array.isArray((caso as any).histcliente) ? (caso as any).histcliente : []), ...(Array.isArray((caso as any).histtecnico) ? (caso as any).histtecnico : [])];
         allMsgs.forEach((m: any) => {
           const t = m.time ? new Date(m.time).getTime() : 0;
@@ -522,7 +555,6 @@ export default async function EstadisticasAtencionPage({
         });
       }
       
-      // Solo minutos de horario laboral, topados a una jornada.
       const espera = Math.min(JORNADA_MIN, minutosLaborales(lastMsgTime, tAccepted));
       if (espera >= 0) s.tiemposEspera.push(espera);
     }
@@ -531,6 +563,10 @@ export default async function EstadisticasAtencionPage({
     if (new Date(caso.created_at) >= hace7dias) s.casos7d++;
     if (new Date(caso.created_at) >= hace30dias) s.casos30d++;
   });
+
+  // ── AHT Global: promedio de tiempo efectivo sobre los mismos casos resueltos válidos
+  const ahtTodos = Object.values(statsPorAgente).flatMap(s => s.tiemposEfectivos);
+  const avgAHTGlobal = ahtTodos.length > 0 ? Math.round(ahtTodos.reduce((a, b) => a + b, 0) / ahtTodos.length) : 0;
 
   const MIN_CASOS_SCORE = 5;
   const MIN_CALS_AGENTE = 4;
@@ -672,19 +708,22 @@ export default async function EstadisticasAtencionPage({
     acc.push(acc[acc.length - 1] + e.delta); return acc;
   }, [] as number[])) : 0;
 
-  // ── Volumen promedio: diario, semanal y mensual (solo humanos)
-  const casos30d = casosConAsig.filter(c => new Date(c.created_at) >= hace30dias).length;
-  const promedioDiario = casos30d > 0 ? (casos30d / 30) : 0;
+  // ── Volumen promedio: diario, semanal y mensual (coherente con el universo de casos del período)
+  const casos30d = tieneMesFiltro
+    ? casosMesActual
+    : casosFiltrados.filter(c => new Date(c.created_at) >= hace30dias).length;
+  const diasBasePromedio = tieneMesFiltro
+    ? (mesActualYM === nowCRStr.slice(0, 7) ? Math.max(1, parseInt(nowCRStr.slice(8, 10), 10)) : diasEnMes)
+    : 30;
+  const promedioDiario = casos30d > 0 ? (casos30d / diasBasePromedio) : 0;
 
   // ── Tiempo de resolución promedio global (aceptación → cierre)
   const tiemposResolucionGlobal = rankingAgentes.flatMap(a => (a as any).tiemposResolucion);
   const avgTiempoResolucionGlobal = tiemposResolucionGlobal.length > 0
     ? Math.round(tiemposResolucionGlobal.reduce((sum, t) => sum + t, 0) / tiemposResolucionGlobal.length)
     : 0;
-  const totalCasosResolucion = casosConAsig.filter(c =>
-    (c.estado === "resuelto" || c.estado === "cerrado" || (c as any).closed_at) && c.accepted_at && (c as any).closed_at
-  ).length;
-  const casosExcluidosResolucion = totalCasosResolucion - tiemposResolucionGlobal.length;
+  const totalCasosResolucion = casosConAsig.filter(isCasoResuelto).length;
+  const casosExcluidosResolucion = Math.max(0, totalCasosResolucion - tiemposResolucionGlobal.length);
 
   // ── Canales / Categorías (solo humanos)
   const canales: Record<string, number> = {};
@@ -741,7 +780,7 @@ export default async function EstadisticasAtencionPage({
   casosConAsig.forEach(c => {
     const p = deriveProblema(c);
     if (!p) return;
-    const email = c.assigned_to?.toLowerCase() || "sin_agente";
+    const email = getAgenteEmail(c) || "sin_agente";
     if (!problemasMap[p]) problemasMap[p] = { label: p, total: 0, agentes: {} };
     problemasMap[p].total++;
     problemasMap[p].agentes[email] = (problemasMap[p].agentes[email] || 0) + 1;
@@ -889,9 +928,10 @@ export default async function EstadisticasAtencionPage({
       if (d >= hace7dias) msgs7dCount.actual++;
       else if (d >= hace14dias && d < hace7dias) msgs7dCount.anterior++;
 
-      // Mes actual vs Mes anterior
-      if (d >= mesActualDate && d < mesActualEnd) msgsMesCount.actual++;
-      else if (d >= mesAnteriorDate && d < mesActualDate) msgsMesCount.anterior++;
+      // Mes actual vs Mes anterior (en fecha Costa Rica)
+      const msgCRDate = toCRDate(d);
+      if (msgCRDate.startsWith(mesActualYM)) msgsMesCount.actual++;
+      else if (msgCRDate.startsWith(mesAnteriorYM)) msgsMesCount.anterior++;
 
       // 30 días
       if (d >= hace30dias) msgs30dTotal++;
@@ -1009,7 +1049,7 @@ export default async function EstadisticasAtencionPage({
         {[
           { label: "Total Casos",      value: totalCasos.toString(),  icon: Users,        color: "text-brand-500",   bg: "bg-brand-500/10",   sub: `${totalActivos} activos ahora`, badge: <DataAuditBadge label="Casos" totalEsperado={totalCasos} totalCalculado={totalResueltos + totalActivos} detalle="Comprobación: Resueltos + Activos = Total casos" size="xs" /> },
           { label: "Tasa Resolución",  value: `${tasaResolucion}%`,   icon: CheckCircle,  color: "text-emerald-500", bg: "bg-emerald-500/10", sub: `${totalResueltos} de ${totalCasos} resueltos`, badge: <DataAuditBadge label="Cierres" totalEsperado={totalCasos} totalCalculado={totalResueltos + totalActivos} detalle="Comprobación: 100% de casos auditados" size="xs" /> },
-          { label: "AHT",              value: formatSLA(avgAHTGlobal),    icon: Clock,    color: "text-violet-500",  bg: "bg-violet-500/10",  sub: `Tiempo activo por caso` },
+          { label: "AHT",              value: formatSLA(avgAHTGlobal),    icon: Clock,    color: "text-violet-500",  bg: "bg-violet-500/10",  sub: `Tiempo activo por caso · ${ahtTodos.length} casos`, badge: <DataAuditBadge label="AHT" totalEsperado={tiemposResolucionGlobal.length} totalCalculado={ahtTodos.length} detalle="Comprobación: AHT y Tiempo de Resolución evaluados sobre la misma muestra de casos resueltos." size="xs" /> },
           { label: "SLA Promedio",     value: formatSLA(avgSlaGlobal),icon: Clock,        color: "text-sky-500",     bg: "bg-sky-500/10",     sub: `Espera IA → humano`   },
           { label: "Concurrentes",     value: avgConcurrentes, icon: Layers,    color: "text-amber-400",   bg: "bg-amber-400/10",   sub: `Promedio casos activos simultáneos · pico ${maxConcurrentes}` },
         ].map((k, i) => (
@@ -1094,9 +1134,9 @@ export default async function EstadisticasAtencionPage({
               </div>
               <DataAuditBadge
                 label="Resueltos"
-                totalEsperado={tiemposResolucionGlobal.length + casosExcluidosResolucion}
+                totalEsperado={totalCasosResolucion}
                 totalCalculado={tiemposResolucionGlobal.length + casosExcluidosResolucion}
-                detalle="Casos resueltos analizados."
+                detalle="Casos resueltos por agentes humanos analizados."
                 size="xs"
               />
             </div>
@@ -1116,9 +1156,9 @@ export default async function EstadisticasAtencionPage({
               </div>
               <DataAuditBadge
                 label="Actividad"
-                totalEsperado={casos30d}
-                totalCalculado={casos30d}
-                detalle="Casos de los últimos 30 días."
+                totalEsperado={tieneMesFiltro ? casosMesActual : casos30d}
+                totalCalculado={tieneMesFiltro ? sparkMes.reduce((a, b) => a + b, 0) : casos30d}
+                detalle="Coherencia entre volumen mensual y desglose diario."
                 size="xs"
               />
             </div>

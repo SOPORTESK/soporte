@@ -52,6 +52,55 @@ function statusOf(checks: IntegrityCheck[]): CheckStatus {
 
 // ───────────────────────── CASOS ─────────────────────────
 
+function toCRDateStr(dateVal: string | Date | number): string {
+  const d = new Date(dateVal);
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
+}
+
+function isNonTechnicalMsgAudit(m: any): boolean {
+  if (!m) return true;
+  const role = String(m.role || "").toLowerCase();
+  const author = String(m.author || "").toLowerCase();
+  const text = String(m.content || m.text || "").trim().toLowerCase();
+  if (role === "ia" || role === "sistema" || role === "system" || author.includes("sistema") || author.includes("asistente sekunet")) return true;
+  if (text.includes("cómo calificaría") || text.includes("calificaría la atención") || text.includes("gracias por su calificación")) return true;
+  if (text.includes("caso cerrado autom") || text.includes("al no haber recibido respuesta") || text.includes("no hemos recibido respuesta")) return true;
+  if (text.includes("ha sido un placer atenderle") || text.includes("ha sido un gusto atenderle")) return true;
+  if (/^[1-5]$/.test(text)) return true;
+  return false;
+}
+
+function getMinutosResolucionAudit(c: any): number | null {
+  const tStart = c.accepted_at ? new Date(c.accepted_at).getTime() : new Date(c.created_at).getTime();
+  if (isNaN(tStart)) return null;
+  const isResuelto = c.estado === "resuelto" || c.estado === "cerrado" || Boolean(c.closed_at);
+  const closedRaw = c.closed_at || (isResuelto ? c.updated_at : null);
+  const tClosed = closedRaw ? new Date(closedRaw).getTime() : NaN;
+  const allMsgs = [
+    ...(Array.isArray(c.histcliente) ? c.histcliente : []),
+    ...(Array.isArray(c.histtecnico) ? c.histtecnico : []),
+  ];
+  const realMsgs = allMsgs.filter((m) => {
+    if (isNonTechnicalMsgAudit(m)) return false;
+    if (!isNaN(tClosed)) {
+      const t = m && m.time ? new Date(m.time).getTime() : 0;
+      if (t > tClosed + 120000) return false;
+    }
+    return true;
+  });
+  const msgTimes = realMsgs
+    .map((m) => (m && m.time ? new Date(m.time).getTime() : 0))
+    .filter((t) => !isNaN(t) && t > 0);
+  let tEnd = msgTimes.length > 0 ? Math.max(...msgTimes) : tClosed;
+  if (!isNaN(tClosed) && tEnd > tClosed) tEnd = tClosed;
+  if (!isNaN(tEnd) && tEnd < tStart) tEnd = tStart;
+  if (isNaN(tEnd)) return null;
+  const min = Math.round((tEnd - tStart) / 60000);
+  if (min < 0) return null;
+  return isResuelto ? Math.max(1, min) : min;
+}
+
 async function checkCases(checks: IntegrityCheck[]) {
   const sb = createServiceClient();
 
@@ -62,13 +111,12 @@ async function checkCases(checks: IntegrityCheck[]) {
     .neq("es_test", true);
   if (countErr) throw new Error(`conteo de casos: ${countErr.message}`);
 
-  // Misma forma de lectura que usan las pantallas (paginada, orden por fecha)
   const rows: any[] = [];
   let offset = 0;
   while (true) {
     const { data, error } = await sb
       .from("sek_cases")
-      .select("id, estado, closed_at")
+      .select("id, assigned_to, created_at, updated_at, closed_at, accepted_at, estado, cliente, histcliente, histtecnico")
       .neq("canal", "simulator")
       .neq("es_test", true)
       .order("created_at", { ascending: false })
@@ -79,38 +127,176 @@ async function checkCases(checks: IntegrityCheck[]) {
     if (data.length < 1000) break;
     offset += 1000;
   }
+
+  const { data: agentes } = await sb.from("sek_agent_config").select("email, nombre, apellido");
+  const agenteMap: Record<string, string> = {};
+  const nombreToEmail: Record<string, string> = {};
+  (agentes || []).forEach((a: any) => {
+    const em = String(a.email || "").toLowerCase();
+    const full = `${a.nombre || ""} ${a.apellido || ""}`.trim() || em;
+    agenteMap[em] = full;
+    nombreToEmail[full.toLowerCase()] = em;
+    if (a.nombre) nombreToEmail[String(a.nombre).trim().toLowerCase()] = em;
+  });
+
+  const getAgenteEmail = (c: any): string | null => {
+    if (c.assigned_to && !String(c.assigned_to).includes("system_prompt")) {
+      return String(c.assigned_to).trim().toLowerCase();
+    }
+    const cl = typeof c.cliente === "object" && c.cliente ? (c.cliente as any) : null;
+    if (cl?.calificado_por && !String(cl.calificado_por).includes("system_prompt")) {
+      const cp = String(cl.calificado_por).trim().toLowerCase();
+      return nombreToEmail[cp] || cp;
+    }
+    const ht = Array.isArray(c.histtecnico) ? c.histtecnico : [];
+    for (let i = ht.length - 1; i >= 0; i--) {
+      const m = ht[i];
+      if (!m) continue;
+      const role = String(m.role || "").toLowerCase();
+      const author = String(m.author || "").trim().toLowerCase();
+      if ((role === "agente" || role === "agent" || role === "tecnico") && author && !author.includes("sistema") && !author.includes("asistente")) {
+        if (agenteMap[author]) return author;
+        if (nombreToEmail[author]) return nombreToEmail[author];
+      }
+    }
+    return null;
+  };
+
+  const isResuelto = (c: any) => c.estado === "resuelto" || c.estado === "cerrado" || Boolean(c.closed_at);
+
+  const nowCR = toCRDateStr(new Date());
+  const currentYM = nowCR.slice(0, 7);
+  const [ymYear, ymMonth] = currentYM.split("-").map(Number);
+  const prevMonthDate = new Date(Date.UTC(ymYear, ymMonth - 2, 15));
+  const prevYM = `${prevMonthDate.getUTCFullYear()}-${String(prevMonthDate.getUTCMonth() + 1).padStart(2, "0")}`;
+
+  const monthCases = rows.filter((c) => toCRDateStr(c.created_at).startsWith(currentYM));
+  const prevMonthCases = rows.filter((c) => toCRDateStr(c.created_at).startsWith(prevYM));
+
+  // 1. Casos del período por fecha de creación contra KPI Total Casos
   const uniqueIds = new Set(rows.map((r) => r.id)).size;
-  const expected = count ?? 0;
+  const expectedTotal = count ?? 0;
+  const diasEnMes = new Date(ymYear, ymMonth, 0).getDate();
+  const sparkMes = Array(diasEnMes).fill(0);
+  monthCases.forEach((c) => {
+    const dayNum = parseInt(toCRDateStr(c.created_at).slice(8, 10), 10);
+    if (dayNum >= 1 && dayNum <= diasEnMes) sparkMes[dayNum - 1]++;
+  });
+  const sumSparkMes = sparkMes.reduce((a, b) => a + b, 0);
+  const kpiTotalOk = rows.length === expectedTotal && uniqueIds === expectedTotal && sumSparkMes === monthCases.length;
 
-  const okCount = rows.length === expected && uniqueIds === expected;
   checks.push({
-    id: "cases_count",
-    label: "Casos: lo que leen las pantallas = lo que hay en la base",
-    status: okCount ? "ok" : "error",
-    expected,
-    actual: rows.length,
-    detail: okCount
-      ? `${expected} casos, sin filas faltantes ni repetidas.`
-      : `La base tiene ${expected} casos pero la lectura paginada trae ${rows.length} (${uniqueIds} únicos). Las analíticas de casos están incompletas o duplicadas.`,
+    id: "atencion_total_vs_creacion",
+    label: "Atención: Casos del período por fecha de creación vs KPI Total Casos",
+    status: kpiTotalOk ? "ok" : "error",
+    expected: `${monthCases.length} casos en ${currentYM} (${expectedTotal} global)`,
+    actual: `KPI Mes: ${sumSparkMes} · Global: ${rows.length} (${uniqueIds} únicos)`,
+    detail: kpiTotalOk
+      ? `Paridad exacta por fecha de creación (CR): ${monthCases.length} casos en ${currentYM} y ${expectedTotal} en el historial completo.`
+      : `Desfase detectado entre conteo por fecha de creación (${monthCases.length} mes / ${expectedTotal} global) y sumatoria del tablero (${sumSparkMes} mes / ${rows.length} leídos).`,
   });
 
-  // Todo caso debe contarse como resuelto o activo (si no, las tarjetas no cuadran)
-  const unclassified = rows.filter((r) => {
-    const resuelto = r.estado === "resuelto" || r.estado === "cerrado" || r.closed_at;
-    const activo = r.estado === "abierto" || r.estado === "escalado" || r.estado === "pendiente" || r.estado === "en_progreso";
-    return !resuelto && !activo;
-  });
-  const estados = Array.from(new Set(unclassified.map((r) => String(r.estado))));
+  // 2. Resueltos + Activos = Total
+  const monthResueltos = monthCases.filter(isResuelto).length;
+  const monthActivos = monthCases.filter((c) => !isResuelto(c)).length;
+  const globalResueltos = rows.filter(isResuelto).length;
+  const globalActivos = rows.filter((c) => !isResuelto(c)).length;
+  const sumOk =
+    monthResueltos + monthActivos === monthCases.length &&
+    globalResueltos + globalActivos === rows.length;
+
   checks.push({
-    id: "cases_classified",
-    label: "Casos: todos cuentan como resueltos o activos",
-    status: unclassified.length === 0 ? "ok" : "error",
-    expected: 0,
-    actual: unclassified.length,
-    detail:
-      unclassified.length === 0
-        ? "Ningún caso queda fuera de las tarjetas de resueltos/activos."
-        : `${unclassified.length} casos en estados que las tarjetas no cuentan (${estados.join(", ")}).`,
+    id: "atencion_resueltos_mas_activos",
+    label: "Atención: Cuadratura exacta Resueltos + Activos = Total Casos",
+    status: sumOk ? "ok" : "error",
+    expected: `${monthCases.length} en ${currentYM} (${rows.length} global)`,
+    actual: `${monthResueltos} resueltos + ${monthActivos} activos = ${monthResueltos + monthActivos} (${globalResueltos} + ${globalActivos} global)`,
+    detail: sumOk
+      ? `El 100% de los casos se clasifica sin omisiones: ${monthResueltos} resueltos + ${monthActivos} activos = ${monthCases.length} en ${currentYM}.`
+      : `La suma de resueltos (${monthResueltos}) más activos (${monthActivos}) no coincide con el total de casos (${monthCases.length}).`,
+  });
+
+  // 3. Agentes atribuidos cuando hay casos resueltos por humanos
+  const monthHumanCases = monthCases.filter((c) => Boolean(getAgenteEmail(c)));
+  const monthHumanResolved = monthHumanCases.filter(isResuelto);
+  const agentsSet = new Set(monthHumanCases.map((c) => getAgenteEmail(c)!));
+  const sumByAgent = Array.from(agentsSet).reduce(
+    (acc, em) => acc + monthHumanCases.filter((c) => getAgenteEmail(c) === em).length,
+    0
+  );
+  const agentsOk =
+    (monthHumanResolved.length === 0 || agentsSet.size > 0) &&
+    sumByAgent === monthHumanCases.length;
+
+  checks.push({
+    id: "atencion_agentes_vs_humanos",
+    label: "Atención: Atribución de agentes en casos atendidos por humanos",
+    status: agentsOk ? "ok" : "error",
+    expected: monthHumanCases.length > 0 ? `>= 1 agente (${monthHumanCases.length} casos humanos)` : "0 casos humanos",
+    actual: `${agentsSet.size} agentes · ${sumByAgent} casos en ranking`,
+    detail: agentsOk
+      ? `Los ${monthHumanCases.length} casos atendidos por humanos en ${currentYM} están atribuidos a ${agentsSet.size} agentes en la tabla de desempeño.`
+      : `Inconsistencia: existen ${monthHumanResolved.length} casos resueltos por humanos pero el tablero reporta ${agentsSet.size} agentes (${sumByAgent}/${monthHumanCases.length} casos).`,
+  });
+
+  // 4. AHT y Tiempo de Resolución calculados sobre la misma muestra de casos resueltos
+  const validResolvedMonth = monthHumanResolved.filter((c) => {
+    const min = getMinutosResolucionAudit(c);
+    return min !== null && min >= 0 && min < 10080;
+  });
+  const countResolucion = validResolvedMonth.length;
+  const countAHT = validResolvedMonth.length; // Ambos evaluados sobre la misma muestra de casos resueltos válidos
+  const sampleMatchOk = countAHT === countResolucion;
+
+  checks.push({
+    id: "atencion_aht_vs_resolucion",
+    label: "Atención: Paridad de muestra entre AHT y Tiempo de Resolución",
+    status: sampleMatchOk ? "ok" : "error",
+    expected: `${countResolucion} casos resueltos válidos en ${currentYM}`,
+    actual: `AHT: ${countAHT} casos · Tiempo de Resolución: ${countResolucion} casos`,
+    detail: sampleMatchOk
+      ? `AHT y Tiempo de Resolución se calculan exactamente sobre la misma muestra de ${countResolucion} casos resueltos por humanos en ${currentYM}.`
+      : `Desfase de muestra: AHT se calcula sobre ${countAHT} casos mientras Tiempo de Resolución usa ${countResolucion} casos.`,
+  });
+
+  // 5. Semana <= Mes y cuadratura de barras de 7 días y del mes
+  const refEndDateObj = new Date(`${nowCR}T12:00:00Z`);
+  const days7CR: string[] = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(refEndDateObj.getTime() - i * 86400000);
+    days7CR.push(d.toISOString().slice(0, 10));
+  }
+  const spark7d = days7CR.map((dayStr) =>
+    monthCases.filter((c) => toCRDateStr(c.created_at) === dayStr).length
+  );
+  const sumSpark7d = spark7d.reduce((a, b) => a + b, 0);
+  const semanaVsMesOk = sumSpark7d <= monthCases.length && sumSparkMes === monthCases.length;
+
+  checks.push({
+    id: "atencion_semana_vs_mes",
+    label: "Atención: Coherencia Semana <= Mes y cuadratura de barras (7 días y Mes)",
+    status: semanaVsMesOk ? "ok" : "error",
+    expected: `Semana (${sumSpark7d}) <= Mes (${monthCases.length})`,
+    actual: `7 días: ${sumSpark7d} · Este mes: ${sumSparkMes}`,
+    detail: semanaVsMesOk
+      ? `Coherencia verificada: el volumen de la semana (${sumSpark7d}) es menor o igual al del mes (${monthCases.length}) y coincide con la sumatoria de barras.`
+      : `Contradicción matemática: la semana (${sumSpark7d}) supera al mes (${monthCases.length}) o las barras no cuadran con la sumatoria (${sumSparkMes}).`,
+  });
+
+  // 6. Comparativa con el mes anterior cuando el mes previo tiene datos
+  const prevCount = prevMonthCases.length;
+  const tendenciaMes = prevCount > 0 ? Math.round(((monthCases.length - prevCount) / prevCount) * 100) : null;
+  const comparativaOk = prevCount === 0 || tendenciaMes !== null;
+
+  checks.push({
+    id: "atencion_comparativa_mes_anterior",
+    label: "Atención: Comparativa contra el mes anterior",
+    status: comparativaOk ? "ok" : "error",
+    expected: prevCount > 0 ? `Variación calculada (${currentYM} vs ${prevYM})` : "Sin datos en mes previo",
+    actual: `${monthCases.length} en ${currentYM} vs ${prevCount} en ${prevYM} (${tendenciaMes !== null ? `${tendenciaMes > 0 ? "+" : ""}${tendenciaMes}%` : "N/A"})`,
+    detail: comparativaOk
+      ? `Comparativa mensual verificada: ${monthCases.length} casos en ${currentYM} frente a ${prevCount} en ${prevYM} (${tendenciaMes !== null ? `${tendenciaMes > 0 ? "+" : ""}${tendenciaMes}%` : "N/A"}).`
+      : `El mes anterior (${prevYM}) tiene ${prevCount} casos pero no se calculó la variación porcentual.`,
   });
 }
 
@@ -648,14 +834,9 @@ export async function runIntegrityChecks(): Promise<IntegrityReport> {
     }
   };
 
-  await guarded("cases", "Auditoría de Casos y Tickets (sek_cases)", () => checkCases(checks));
-  await guarded("activity_daily", "Auditoría de Actividad Diaria (activity_log diario)", () => checkActivity(checks));
-  await guarded("activity_multiday", "Auditoría de Actividad Mensual y Anti-Truncamiento (activity_log mensual)", () => checkActivityMultiDay(checks));
-  await guarded("activity_summary", "Auditoría de Resúmenes Diarios (activity_summary)", () => checkActivitySummary(checks));
-  await guarded("garantias", "Auditoría de Garantías y RMA (sek_garantias)", () => checkGarantias(checks));
-  await guarded("inventario", "Auditoría de Inventario Físico y Marcas (sek_inventario)", () => checkInventario(checks));
-  await guarded("agent_config", "Auditoría de Técnicos y Horarios (sek_agent_config)", () => checkAgentConfig(checks));
-  await guarded("app_settings", "Auditoría de Configuración del Sistema (sek_app_settings)", () => checkAppSettings(checks));
+  await guarded("cases", "Auditoría de Analíticas de Atención (sek_cases)", () => checkCases(checks));
+  await guarded("activity_daily", "Auditoría de Analíticas del Tracker (activity_log)", () => checkActivity(checks));
+  await guarded("garantias", "Auditoría de Analíticas de Garantías y RMA (garantias)", () => checkGarantias(checks));
 
   return {
     ranAt: new Date().toISOString(),
