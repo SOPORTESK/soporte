@@ -1167,17 +1167,31 @@ export function ChatView({
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages.length]);
 
-  /* Detectar cierre externo (auto-close) → mostrar modal de calificación */
+  /* Detectar cierre del MISMO caso → mostrar modal de calificación (ignorar cambios de targetId por reasignación) */
   const prevEstadoRef = React.useRef<string>("");
+  const prevTargetIdRef = React.useRef<string>(String(targetId));
   const modalShownRef = React.useRef(false);
   React.useEffect(() => {
+    const currTargetId = String(targetId);
     const curr = (sekCase.estado || "").toLowerCase();
+    // Si cambió el caso objetivo del grupo (ej. al reasignar el caso abierto, el grupo pasa a apuntar a un caso histórico cerrado del mismo teléfono), resetear referencia sin abrir modal
+    if (prevTargetIdRef.current !== currTargetId) {
+      prevTargetIdRef.current = currTargetId;
+      prevEstadoRef.current = curr;
+      modalShownRef.current = false;
+      return;
+    }
     const prev = prevEstadoRef.current.toLowerCase();
     const isFinal = (s: string) => s === "cerrado" || s === "resuelto" || s === "calificacion_pendiente";
+    const isAssignedToOther = Boolean(
+      sekCase.assigned_to &&
+      agentEmail &&
+      sekCase.assigned_to.toLowerCase() !== agentEmail.toLowerCase()
+    );
 
     // prev === "" → carga inicial, no disparar
-    // Solo disparar si cambió de un estado no-final a final durante esta sesión
-    if (prev !== "" && !isFinal(prev) && isFinal(curr) && !modalShownRef.current) {
+    // Solo disparar si el MISMO caso cambió de un estado no-final a final y sigue asignado a este agente
+    if (prev !== "" && !isFinal(prev) && isFinal(curr) && !modalShownRef.current && !isAssignedToOther) {
       if (agentRatingConfigRef.current.enabled) {
         modalShownRef.current = true;
         const prevRating = (sekCase.cliente as any)?.calificacion_agente;
@@ -1190,7 +1204,7 @@ export function ChatView({
     // Si el caso se reabrió, resetear para que pueda volver a dispararse
     if (!isFinal(curr)) modalShownRef.current = false;
     prevEstadoRef.current = curr;
-  }, [sekCase.estado]);
+  }, [sekCase.estado, targetId, sekCase.assigned_to, agentEmail]);
 
   async function send(overrideContent?: string, mediaUrl?: string, mediaType?: string, fileName?: string, skipWhatsApp?: boolean, externalMessageId?: string | null) {
     const body = (overrideContent ?? draft).trim();
