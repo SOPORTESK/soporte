@@ -312,8 +312,8 @@ function playEscaladoAlert() {
 }
 
 export function InboxClient({
-  initialCases, initialSelectedId, containerType, initialIsAdmin, initialAgentEmail
-}: { initialCases: SekCase[]; initialSelectedId: string | null; containerType?: "inbox" | "smart-inbox" | "soporte-avanzado" | "mi-gestion"; initialIsAdmin?: boolean; initialAgentEmail?: string | null }) {
+  initialCases, initialSelectedId, containerType, initialIsAdmin, initialAgentEmail, initialInboxPerms
+}: { initialCases: SekCase[]; initialSelectedId: string | null; containerType?: "inbox" | "smart-inbox" | "soporte-avanzado" | "mi-gestion"; initialIsAdmin?: boolean; initialAgentEmail?: string | null; initialInboxPerms?: Record<string, boolean> }) {
   const router = useRouter();
   const params = useSearchParams();
   const [cases, setCases] = React.useState<SekCase[]>(initialCases);
@@ -324,11 +324,25 @@ export function InboxClient({
   const [agentEmail, setAgentEmail] = React.useState<string | null>(initialAgentEmail || null);
   const [agentName, setAgentName] = React.useState<string | null>(null);
   const [agentRole, setAgentRole] = React.useState<string | null>(null);
+  const [inboxPerms, setInboxPerms] = React.useState<Record<string, boolean> | null>(initialInboxPerms || null);
   const [godModeEmail, setGodModeEmail] = React.useState<string | null>(null);
   const [godModeName, setGodModeName] = React.useState<string | null>(null);
   const [adminFilterMode, setAdminFilterMode] = React.useState<"mine" | "all" | string>("mine");
   const [teamAgents, setTeamAgents] = React.useState<Array<{ email: string; nombre: string; apellido?: string; rol?: string }>>([]);
-  const isUserAdmin = Boolean(initialIsAdmin || agentRole === "admin" || agentRole === "superadmin");
+  const isSuperadmin = agentRole === "superadmin";
+  const canSupervise = Boolean(
+    isSuperadmin ||
+    (inboxPerms
+      ? (inboxPerms.supervision_en_vivo || inboxPerms.supervision_filtrar_tecnico)
+      : (initialIsAdmin ?? (agentRole === "admin" || agentRole === "superadmin")))
+  );
+  const canFilterByTech = Boolean(
+    isSuperadmin ||
+    (inboxPerms
+      ? inboxPerms.supervision_filtrar_tecnico
+      : (initialIsAdmin ?? (agentRole === "admin" || agentRole === "superadmin")))
+  );
+  const isUserAdmin = canSupervise;
   const supabase = React.useMemo(() => createClient(), []);
   const prevCasesRef = React.useRef<SekCase[]>(initialCases);
   const casesRef = React.useRef<SekCase[]>(initialCases);
@@ -347,7 +361,7 @@ export function InboxClient({
     supabase
       .from("sek_agent_config")
       .select("email,nombre,apellido,rol")
-      .in("rol", ["tecnico", "admin", "supervisor", "superadmin"])
+      .not("rol", "in", "(bot,sistema)")
       .order("nombre", { ascending: true })
       .then(({ data }) => {
         if (data) setTeamAgents(data as any);
@@ -434,6 +448,37 @@ export function InboxClient({
       }
     });
   }, [supabase, godModeEmail]);
+
+  /* Sincronizar matriz de permisos de bandeja según rol activo (incluyendo Modo Dios) */
+  React.useEffect(() => {
+    if (!agentRole) return;
+    fetch("/api/admin/permission-groups")
+      .then(r => (r.ok ? r.json() : null))
+      .then(data => {
+        if (data?.groups && Array.isArray(data.groups)) {
+          const matched = data.groups.find((g: any) => g.id === agentRole) || data.groups.find((g: any) => g.id === "tecnico");
+          if (matched?.permissions?.inbox?.subcategories) {
+            setInboxPerms(matched.permissions.inbox.subcategories);
+          }
+        }
+      })
+      .catch(() => {});
+  }, [agentRole]);
+
+  /* Si el usuario tiene supervisión activa en Mi Gestión o cambió a Modo Dios, asegurar carga de casos activos del equipo */
+  React.useEffect(() => {
+    if (containerType !== "mi-gestion" || !agentEmail) return;
+    if (!canSupervise && !godModeEmail) return;
+    fetchCasesMeta(supabase, 300, agentEmail, canSupervise)
+      .then(newCases => {
+        setAllCases(newCases);
+        const filteredNew = filterCasesByContainer(newCases, containerType, agentEmail, agentName, canSupervise, adminFilterMode);
+        setCases(filteredNew);
+        prevCasesRef.current = filteredNew;
+        prevMergedRef.current = mergeGroups(filteredNew);
+      })
+      .catch(() => {});
+  }, [supabase, containerType, agentEmail, agentName, canSupervise, godModeEmail, adminFilterMode]);
 
   const selectCase = React.useCallback((id: string) => {
     // En modo PWA standalone no persistir el chat en la URL para que al reabrir
@@ -961,6 +1006,9 @@ export function InboxClient({
           agentsWithCases={agentsWithCases}
           myAssignedCount={myAssignedCount}
           allAssignedCount={allAssignedCount}
+          canSupervise={canSupervise}
+          canFilterByTech={canFilterByTech}
+          inboxPerms={inboxPerms}
         />
       </div>
       {/* Divisor arrastrable — solo visible en md+ */}
@@ -980,6 +1028,7 @@ export function InboxClient({
             onBack={() => setSelectedId(null)}
             containerType={containerType}
             currentAgentEmail={agentEmail}
+            inboxPerms={inboxPerms}
           />
         ) : (
           <div className="flex-1 grid place-items-center text-center p-8">

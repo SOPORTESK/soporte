@@ -165,6 +165,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const canManageManualTasks = isSuperadmin || (
     (userPerms as any).activity?.subcategories?.gestionar_labores_manuales === true
   );
+  const inboxSubs: Record<string, boolean> = ((userPerms as any)?.inbox?.subcategories || {}) as Record<string, boolean>;
+  const canViewInternalChat = isSuperadmin || inboxSubs.chat_interno_equipo !== false;
+  const canUseTechAssistant = isSuperadmin || inboxSubs.asistente_tecnico_ia !== false;
 
   const fullName = [a.nombre, a.apellido].filter(Boolean).join(" ") || user.email!;
   const onlineAgents = (onlineAgentsResult.data || []) as any[];
@@ -256,7 +259,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               <div className="flex items-center gap-1 px-4 pb-2 pt-2">
                 <ThemeToggle />
               </div>
-              <SidebarUserPanel agent={a as any} onlineAgents={onlineAgents || []} canViewActivityTracker={canViewActivityTracker} canViewAgenda={canViewAgenda} canViewMisGarantias={canViewMisGarantias} canCreateGarantias={canCreateGarantias} canEditGarantias={canEditGarantias} canManageManualTasks={canManageManualTasks} />
+              <SidebarUserPanel agent={a as any} onlineAgents={onlineAgents || []} canViewActivityTracker={canViewActivityTracker} canViewAgenda={canViewAgenda} canViewMisGarantias={canViewMisGarantias} canCreateGarantias={canCreateGarantias} canEditGarantias={canEditGarantias} canManageManualTasks={canManageManualTasks} canViewInternalChat={canViewInternalChat} />
             </div>
           </aside>
 
@@ -282,7 +285,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             {children}
           </main>
         </div>
-        <FloatingTechAssistant />
+        {canUseTechAssistant && <FloatingTechAssistant />}
         <ActivityTrackerProvider agentEmail={a.email} agentName={fullName} />
         <ElectronReminderListener currentAgentEmail={a.email} currentAgentName={fullName} />
         <ElectronGatekeeper requireElectron={Boolean(requireElectronResult?.data)} userRole={a.rol} />

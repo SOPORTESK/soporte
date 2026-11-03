@@ -63,6 +63,9 @@ export function ConversationList({
   agentsWithCases = [],
   myAssignedCount = 0,
   allAssignedCount = 0,
+  canSupervise,
+  canFilterByTech,
+  inboxPerms,
 }: {
   cases: SekCase[];
   selectedId: string | null;
@@ -77,6 +80,9 @@ export function ConversationList({
   agentsWithCases?: Array<{ email: string; name: string; count: number }>;
   myAssignedCount?: number;
   allAssignedCount?: number;
+  canSupervise?: boolean;
+  canFilterByTech?: boolean;
+  inboxPerms?: Record<string, boolean> | null;
 }) {
   const router = useRouter();
   const [query, setQuery] = React.useState("");
@@ -91,6 +97,16 @@ export function ConversationList({
   const [loading, setLoading] = React.useState(false);
 
   const isAdmin = agentRole === "admin" || agentRole === "superadmin";
+  const isSuperadmin = agentRole === "superadmin";
+  const effectiveCanSupervise = canSupervise !== undefined
+    ? canSupervise
+    : Boolean(isSuperadmin || (inboxPerms ? (inboxPerms.supervision_en_vivo || inboxPerms.supervision_filtrar_tecnico) : isAdmin));
+  const effectiveCanFilterByTech = canFilterByTech !== undefined
+    ? canFilterByTech
+    : Boolean(isSuperadmin || (inboxPerms ? inboxPerms.supervision_filtrar_tecnico : isAdmin));
+  const canDeleteCases = Boolean(isSuperadmin || (inboxPerms ? inboxPerms.supervision_cierre_eliminacion : isAdmin));
+  const canOutboundChat = Boolean(isSuperadmin || (inboxPerms ? inboxPerms.chat_saliente_outbound !== false : true));
+  const canPinCases = Boolean(isSuperadmin || (inboxPerms ? inboxPerms.notas_internas !== false : true));
 
   React.useEffect(() => {
     const t = setInterval(() => setTick(n => n + 1), 60000);
@@ -483,16 +499,18 @@ export function ConversationList({
       <div className="p-3 sm:p-4 pt-safe border-b border-border space-y-2.5 sm:space-y-3 px-safe">
         <div className="flex items-center justify-between">
           <h1 className="text-lg sm:text-xl font-bold">Conversaciones</h1>
-          <button
-            onClick={() => setOpen(true)}
-            className="h-9 w-9 grid place-items-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted touch-target"
-            aria-label="Nueva conversación" title="Nueva conversación"
-          >
-            <MessageSquarePlus className="h-4 w-4" />
-          </button>
+          {canOutboundChat && (
+            <button
+              onClick={() => setOpen(true)}
+              className="h-9 w-9 grid place-items-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted touch-target"
+              aria-label="Nueva conversación" title="Nueva conversación"
+            >
+              <MessageSquarePlus className="h-4 w-4" />
+            </button>
+          )}
         </div>
-        {/* Selector de Supervisión Administrativa en Mi Gestión */}
-        {isAdmin && containerType === "mi-gestion" && (
+        {/* Selector de Supervisión en Vivo en Mi Gestión */}
+        {effectiveCanSupervise && containerType === "mi-gestion" && (
           <div className="space-y-1.5 pt-0.5">
             <div className="bg-muted/70 p-1 rounded-xl flex items-center gap-1 border border-border/40">
               <button
@@ -536,7 +554,7 @@ export function ConversationList({
             </div>
 
             {/* Selector desplegable de técnico en modo supervisión */}
-            {adminFilterMode !== "mine" && (
+            {adminFilterMode !== "mine" && effectiveCanFilterByTech && (
               <div className="relative flex items-center pt-0.5">
                 <Users className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-amber-500 pointer-events-none" />
                 <select
@@ -719,7 +737,7 @@ export function ConversationList({
                       const agente = c.assigned_to
                         ? (c.assigned_to as string).split("@")[0].replace(/[._]/g, " ").replace(/\b\w/g, l => l.toUpperCase())
                         : null;
-                      if (isAdmin && containerType === "mi-gestion" && !isAssignedToMe && agente) {
+                      if (effectiveCanSupervise && containerType === "mi-gestion" && !isAssignedToMe && agente) {
                         return (
                           <Badge variant="warning" className="text-[10px] bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
                             👤 {agente}
@@ -743,21 +761,23 @@ export function ConversationList({
 
               {/* Acciones de la conversación: Fijar Chat + Eliminar */}
               <div className="shrink-0 flex items-center px-1.5 border-l border-border/30 bg-transparent gap-0.5">
-                <button
-                  onClick={(e) => handleTogglePinCase(e, id)}
-                  disabled={pinningId === id}
-                  className={cn(
-                    "p-1.5 rounded-lg transition-all touch-target",
-                    isCasePinned
-                      ? "text-amber-500 hover:bg-amber-500/20 opacity-100"
-                      : "text-muted-foreground hover:text-amber-500 hover:bg-muted/80 opacity-40 hover:opacity-100 group-hover:opacity-100"
-                  )}
-                  title={isCasePinned ? "Desfijar chat" : "Fijar chat arriba"}
-                >
-                  <Pin className={cn("h-4 w-4", isCasePinned && "fill-amber-500 text-amber-500")} />
-                </button>
+                {canPinCases && (
+                  <button
+                    onClick={(e) => handleTogglePinCase(e, id)}
+                    disabled={pinningId === id}
+                    className={cn(
+                      "p-1.5 rounded-lg transition-all touch-target",
+                      isCasePinned
+                        ? "text-amber-500 hover:bg-amber-500/20 opacity-100"
+                        : "text-muted-foreground hover:text-amber-500 hover:bg-muted/80 opacity-40 hover:opacity-100 group-hover:opacity-100"
+                    )}
+                    title={isCasePinned ? "Desfijar chat" : "Fijar chat arriba"}
+                  >
+                    <Pin className={cn("h-4 w-4", isCasePinned && "fill-amber-500 text-amber-500")} />
+                  </button>
+                )}
 
-                {isAdmin && (
+                {canDeleteCases && (
                   <>
                     {confirmId === id ? (
                       <div className="flex items-center gap-1 shrink-0">

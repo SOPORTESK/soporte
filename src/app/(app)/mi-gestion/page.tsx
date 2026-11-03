@@ -26,9 +26,11 @@ export default async function MiGestionPage({ searchParams }: { searchParams: { 
   const agentName = agentConfig?.nombre || "";
   const agentFullName = [agentConfig?.nombre, agentConfig?.apellido].filter(Boolean).join(" ").toLowerCase();
   const userPerms = await getAgentGroupPermissions(agentConfig?.rol || "tecnico");
+  const inboxSubs: Record<string, boolean> = ((userPerms as any)?.inbox?.subcategories || {}) as Record<string, boolean>;
+  const isSuperadmin = agentConfig?.rol === "superadmin";
   const isAdmin =
-    agentConfig?.rol === "superadmin" ||
-    Boolean((userPerms as any)?.inbox?.subcategories?.supervision_en_vivo ?? (agentConfig?.rol === "admin"));
+    isSuperadmin ||
+    Boolean(inboxSubs.supervision_en_vivo || inboxSubs.supervision_filtrar_tecnico);
 
   if (!agentEmail) {
     return (
@@ -36,6 +38,7 @@ export default async function MiGestionPage({ searchParams }: { searchParams: { 
         initialCases={[]}
         initialSelectedId={null}
         containerType={"mi-gestion" as const}
+        initialInboxPerms={inboxSubs}
       />
     );
   }
@@ -43,7 +46,7 @@ export default async function MiGestionPage({ searchParams }: { searchParams: { 
   const CASE_LIST_FIELDS = "id,estado,canal,cliente,assigned_to,last_message_at,last_message_preview,unread_count,created_at,updated_at,title,prioridad,tags,customer_phone,es_test";
   
   // Siempre traer TODOS los casos del agente (abiertos y cerrados, sin perder historial)
-  // Y si es admin, traer también los casos activos asignados a otros agentes para supervisión
+  // Y si tiene permiso de supervisión, traer también los casos activos asignados a otros agentes
   const { data: myCases, error: casesError } = await queryWithFallback(
     isAdmin ? `mi_gestion_cases_admin_${agentEmail}` : `mi_gestion_cases_${agentEmail}`,
     async () => {
@@ -62,7 +65,7 @@ export default async function MiGestionPage({ searchParams }: { searchParams: { 
         return { data: data || [], error };
       }
 
-      // Para administradores: además traer casos activos de los demás técnicos
+      // Para usuarios con supervisión: además traer casos activos de los demás técnicos
       const othersActivePromise = supabase
         .from("sek_cases")
         .select(CASE_LIST_FIELDS)
@@ -87,7 +90,7 @@ export default async function MiGestionPage({ searchParams }: { searchParams: { 
   if (casesError) console.error("[mi-gestion] sek_cases error:", casesError);
 
   const myCasesArray = myCases || [];
-  console.log(`[mi-gestion] Agente: ${agentEmail} (${agentFullName}), Rol: ${agentConfig?.rol || 'tecnico'}, Casos cargados: ${myCasesArray.length}`);
+  console.log(`[mi-gestion] Agente: ${agentEmail} (${agentFullName}), Rol: ${agentConfig?.rol || 'tecnico'}, Supervisión: ${isAdmin}, Casos cargados: ${myCasesArray.length}`);
 
   const selectedId = searchParams.c || (myCasesArray[0]?.id ? String(myCasesArray[0].id) : null);
 
@@ -98,6 +101,7 @@ export default async function MiGestionPage({ searchParams }: { searchParams: { 
       containerType={"mi-gestion" as const}
       initialIsAdmin={isAdmin}
       initialAgentEmail={agentEmail}
+      initialInboxPerms={inboxSubs}
     />
   );
 }

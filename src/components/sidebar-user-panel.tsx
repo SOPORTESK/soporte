@@ -234,6 +234,7 @@ export function SidebarUserPanel({
   canCreateGarantias = true,
   canEditGarantias = true,
   canManageManualTasks,
+  canViewInternalChat = true,
 }: { 
   agent: Agent; 
   onlineAgents: OnlineAgent[]; 
@@ -243,6 +244,7 @@ export function SidebarUserPanel({
   canCreateGarantias?: boolean;
   canEditGarantias?: boolean;
   canManageManualTasks?: boolean;
+  canViewInternalChat?: boolean;
 }) {
   const isCbatista = agent?.email === "cbatista@sekunet.com" || !agent?.email;
   const safeAgent: Agent = {
@@ -1399,6 +1401,7 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
             </button>
 
             {/* Tab 2: Equipo */}
+            {canViewInternalChat && (
             <button
               type="button"
               onClick={() => setTab("team")}
@@ -1435,6 +1438,7 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
                 </span>
               </span>
             </button>
+            )}
 
             {/* Tab 3: Actividad */}
             {hasActivityAccess && (

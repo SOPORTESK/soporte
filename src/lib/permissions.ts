@@ -80,10 +80,11 @@ export const DEFAULT_GROUPS: PermissionGroup[] = [
   },
 ];
 
-import { cacheGetFresh, cacheSet, cacheDelete } from "@/lib/supabase/cache";
+import { cacheGetFresh, cacheSet, cacheDelete, cacheDeletePrefix } from "@/lib/supabase/cache";
 
 export function invalidatePermissionsCache(): void {
   cacheDelete("app_permission_groups");
+  cacheDeletePrefix("mi_gestion_cases_");
 }
 
 export async function getActiveGroups(): Promise<PermissionGroup[]> {

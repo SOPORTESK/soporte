@@ -1,11 +1,37 @@
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { InboxClient } from "@/components/chat/inbox-client";
-import { queryWithFallback } from "@/lib/supabase/resilient";
+import { getUserWithTimeout, queryWithFallback } from "@/lib/supabase/resilient";
+import { getAgentGroupPermissions } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
 export default async function InboxPage({ searchParams }: { searchParams: { c?: string } }) {
   const supabase = createClient();
+  const { user } = await getUserWithTimeout(supabase);
+  const agentEmail = user?.email;
+
+  const { data: agentConfig } = agentEmail
+    ? await queryWithFallback(
+        `agent_config_${agentEmail}`,
+        async () => {
+          const { data, error } = await supabase.from("sek_agent_config").select("nombre,apellido,rol").ilike("email", agentEmail).maybeSingle();
+          return { data, error };
+        },
+        null,
+        60000
+      )
+    : { data: null };
+
+  const userPerms = await getAgentGroupPermissions(agentConfig?.rol || "tecnico");
+  const inboxSubs: Record<string, boolean> = ((userPerms as any)?.inbox?.subcategories || {}) as Record<string, boolean>;
+  const isSuperadmin = agentConfig?.rol === "superadmin";
+
+  if (!isSuperadmin && inboxSubs.inbox_principal === false && !searchParams.c) {
+    if (inboxSubs.mi_gestion !== false) redirect("/mi-gestion");
+    if (inboxSubs.soporte_avanzado !== false) redirect("/soporte-avanzado");
+    if (inboxSubs.smart_inbox) redirect("/smart-inbox");
+  }
 
   const CASE_LIST_FIELDS = "id,estado,canal,cliente,assigned_to,last_message_at,last_message_preview,unread_count,created_at,updated_at,title,prioridad,tags,customer_phone,es_test";
   const { data: allCases, error } = await queryWithFallback(
@@ -34,6 +60,8 @@ export default async function InboxPage({ searchParams }: { searchParams: { c?: 
       initialCases={(allCases as any[]) || []}
       initialSelectedId={selectedId}
       containerType={"inbox" as const}
+      initialAgentEmail={agentEmail}
+      initialInboxPerms={inboxSubs}
     />
   );
 }

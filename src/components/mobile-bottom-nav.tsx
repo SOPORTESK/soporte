@@ -36,6 +36,10 @@ export interface MobileBottomNavProps {
   avatarUrl: string | null;
   agent?: AgentData;
   onlineAgents?: OnlineAgent[];
+  canViewSmartInbox?: boolean;
+  canViewSoporteAvanzado?: boolean;
+  canViewMiGestion?: boolean;
+  canViewInboxPrincipal?: boolean;
 }
 
 export function MobileBottomNav(props: MobileBottomNavProps) {
@@ -77,7 +81,7 @@ function NavAvatar({ url, name, size = 24 }: { url?: string | null; name?: strin
   );
 }
 
-function MobileBottomNavInner({ isAdmin, agentName, avatarUrl, agent, onlineAgents }: MobileBottomNavProps) {
+function MobileBottomNavInner({ isAdmin, agentName, avatarUrl, agent, onlineAgents, canViewSmartInbox = true, canViewSoporteAvanzado = true, canViewMiGestion = true, canViewInboxPrincipal = true }: MobileBottomNavProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [profileOpen, setProfileOpen] = useState(false);
@@ -86,10 +90,10 @@ function MobileBottomNavInner({ isAdmin, agentName, avatarUrl, agent, onlineAgen
   const hasChatOpen = searchParams.has("c");
 
   const navItems = [
-    { href: "/smart-inbox", label: "Smart", icon: Bot },
-    { href: "/soporte-avanzado", label: "Soporte", icon: Wrench },
-    { href: "/mi-gestion", label: "Gestión", icon: FolderKanban },
-    { href: "/inbox", label: "Bandeja", icon: Inbox },
+    ...(canViewSmartInbox ? [{ href: "/smart-inbox", label: "Smart", icon: Bot }] : []),
+    ...(canViewSoporteAvanzado ? [{ href: "/soporte-avanzado", label: "Soporte", icon: Wrench }] : []),
+    ...(canViewMiGestion ? [{ href: "/mi-gestion", label: "Gestión", icon: FolderKanban }] : []),
+    ...(canViewInboxPrincipal ? [{ href: "/inbox", label: "Bandeja", icon: Inbox }] : []),
     ...(isAdmin ? [{ href: "/admin", label: "Admin", icon: ShieldCheck }] : []),
   ];
 

@@ -162,6 +162,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const canManageManualTasks = isSuperadmin || (
     (userPerms as any).activity?.subcategories?.gestionar_labores_manuales === true
   );
+  const inboxSubs: Record<string, boolean> = ((userPerms as any)?.inbox?.subcategories || {}) as Record<string, boolean>;
+  const canViewSmartInbox = isSuperadmin || Boolean(inboxSubs.smart_inbox);
+  const canViewSoporteAvanzado = isSuperadmin || inboxSubs.soporte_avanzado !== false;
+  const canViewMiGestion = isSuperadmin || inboxSubs.mi_gestion !== false;
+  const canViewInboxPrincipal = isSuperadmin || inboxSubs.inbox_principal !== false;
+  const canViewInternalChat = isSuperadmin || inboxSubs.chat_interno_equipo !== false;
+  const canUseTechAssistant = isSuperadmin || inboxSubs.asistente_tecnico_ia !== false;
 
   return (
     <GodModeWrapper originalAgent={currentAgent}>
@@ -210,17 +217,25 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         )}
 
         <nav className="flex-1 min-h-0 p-3 space-y-1 overflow-y-auto">
-          <SidebarLink href="/smart-inbox" icon={<Bot className="h-4 w-4" />} badge={<SmartInboxBadge initialCount={smartCount ?? 0} />}>Smart Inbox</SidebarLink>
-          <SidebarLink href="/soporte-avanzado" icon={<Wrench className="h-4 w-4" />} badge={<N2Badge initialCount={n2Count ?? 0} />}>Soporte Avanzado</SidebarLink>
-          <SidebarLink href="/mi-gestion" icon={<FolderKanban className="h-4 w-4" />}>Mi Bandeja de Gestión</SidebarLink>
-          <SidebarLink href="/inbox" icon={<Inbox className="h-4 w-4" />}>Bandeja</SidebarLink>
+          {canViewSmartInbox && (
+            <SidebarLink href="/smart-inbox" icon={<Bot className="h-4 w-4" />} badge={<SmartInboxBadge initialCount={smartCount ?? 0} />}>Smart Inbox</SidebarLink>
+          )}
+          {canViewSoporteAvanzado && (
+            <SidebarLink href="/soporte-avanzado" icon={<Wrench className="h-4 w-4" />} badge={<N2Badge initialCount={n2Count ?? 0} />}>Soporte Avanzado</SidebarLink>
+          )}
+          {canViewMiGestion && (
+            <SidebarLink href="/mi-gestion" icon={<FolderKanban className="h-4 w-4" />}>Mi Bandeja de Gestión</SidebarLink>
+          )}
+          {canViewInboxPrincipal && (
+            <SidebarLink href="/inbox" icon={<Inbox className="h-4 w-4" />}>Bandeja</SidebarLink>
+          )}
         </nav>
 
         <div className="mt-auto shrink-0 border-t border-border/50 bg-card">
           <div className="flex items-center gap-1 px-4 pb-2 pt-2">
             <ThemeToggle />
           </div>
-          <SidebarUserPanel agent={a as any} onlineAgents={onlineAgents || []} canViewActivityTracker={canViewActivityTracker} canViewAgenda={canViewAgenda} canViewMisGarantias={canViewMisGarantias} canCreateGarantias={canCreateGarantias} canEditGarantias={canEditGarantias} canManageManualTasks={canManageManualTasks} />
+          <SidebarUserPanel agent={a as any} onlineAgents={onlineAgents || []} canViewActivityTracker={canViewActivityTracker} canViewAgenda={canViewAgenda} canViewMisGarantias={canViewMisGarantias} canCreateGarantias={canCreateGarantias} canEditGarantias={canEditGarantias} canManageManualTasks={canManageManualTasks} canViewInternalChat={canViewInternalChat} />
         </div>
       </aside>
 
@@ -238,8 +253,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       avatarUrl={currentAgent.avatar_url || null}
       agent={{ email: currentAgent.email, nombre: currentAgent.nombre, apellido: currentAgent.apellido, rol: currentAgent.rol, avatar_url: currentAgent.avatar_url, status: currentAgent.status }}
       onlineAgents={onlineAgents || []}
+      canViewSmartInbox={canViewSmartInbox}
+      canViewSoporteAvanzado={canViewSoporteAvanzado}
+      canViewMiGestion={canViewMiGestion}
+      canViewInboxPrincipal={canViewInboxPrincipal}
     />
-    <FloatingTechAssistant />
+    {canUseTechAssistant && <FloatingTechAssistant />}
     <ActivityTrackerProvider agentEmail={currentAgent.email} agentName={fullName} enabled={true} />
     <ElectronReminderListener currentAgentEmail={currentAgent.email} currentAgentName={fullName} />
     <ElectronGatekeeper requireElectron={Boolean(requireElectronResult?.data)} userRole={currentAgent.rol} />

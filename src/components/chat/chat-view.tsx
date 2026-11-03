@@ -189,12 +189,14 @@ export function ChatView({
   sekCase: initialCase,
   onBack,
   containerType,
-  currentAgentEmail
+  currentAgentEmail,
+  inboxPerms
 }: {
   sekCase: SekCase;
   onBack: () => void;
   containerType?: string;
   currentAgentEmail?: string | null;
+  inboxPerms?: Record<string, boolean> | null;
 }) {
   const router = useRouter();
   const supabase = React.useMemo(() => createClient(), []);
@@ -516,6 +518,17 @@ export function ChatView({
   };
 
   const isAdminUser = agentRole === "admin" || agentRole === "superadmin";
+  const isSuperadmin = agentRole === "superadmin";
+  const canSupervise = Boolean(isSuperadmin || (inboxPerms ? (inboxPerms.supervision_en_vivo || inboxPerms.supervision_filtrar_tecnico) : isAdminUser));
+  const canTakeOrReassignSupervised = Boolean(isSuperadmin || (inboxPerms ? inboxPerms.supervision_tomar_reasignar : isAdminUser));
+  const canInterveneSupervised = Boolean(isSuperadmin || (inboxPerms ? inboxPerms.supervision_intervenir_chat : isAdminUser));
+  const canCloseOrDeleteSupervised = Boolean(isSuperadmin || (inboxPerms ? inboxPerms.supervision_cierre_eliminacion : isAdminUser));
+  const canReplyMessages = Boolean(isSuperadmin || (inboxPerms ? inboxPerms.responder_mensajes !== false : true));
+  const canReassignOwn = Boolean(isSuperadmin || (inboxPerms ? inboxPerms.reasignar_casos : isAdminUser));
+  const canInternalNotes = Boolean(isSuperadmin || (inboxPerms ? inboxPerms.notas_internas !== false : true));
+  const canViewHistoryDrawer = Boolean(isSuperadmin || (inboxPerms ? inboxPerms.historial_cliente_drawer !== false : true));
+  const canCloseOwnCases = Boolean(isSuperadmin || (inboxPerms ? inboxPerms.cerrar_casos !== false : true));
+
   const isAssignedToOther = Boolean(
     sekCase.assigned_to &&
     agentEmail &&
@@ -524,7 +537,7 @@ export function ChatView({
   const isMiGestion = String(containerType || "").toLowerCase() === "mi-gestion";
   const estadoCaseLower = String(sekCase.estado || (sekCase as any)._group?.targetEstado || "").toLowerCase();
   const isCaseClosed = estadoCaseLower === "cerrado" || estadoCaseLower === "resuelto" || estadoCaseLower === "calificacion_pendiente";
-  const isSupervisorViewing = isMiGestion && isAdminUser && isAssignedToOther && !isCaseClosed;
+  const isSupervisorViewing = isMiGestion && canSupervise && isAssignedToOther && !isCaseClosed;
 
   const assignedAgentDisplayName = React.useMemo(() => {
     if (!sekCase.assigned_to) return "Sin asignar";
@@ -901,7 +914,7 @@ export function ChatView({
       const { data, error } = await supabase
         .from("sek_agent_config")
         .select("email,nombre,apellido,rol")
-        .in("rol", ["tecnico", "admin", "supervisor", "superadmin"])
+        .not("rol", "in", "(bot,sistema)")
         .order("nombre", { ascending: true });
       if (error) {
         console.error("[chat-view] Error cargando agentes:", error.message);
@@ -916,26 +929,38 @@ export function ChatView({
   }, [supabase]);
 
   React.useEffect(() => {
-    if (cachedAgentUser) return;
+    const godActive = typeof window !== "undefined" && localStorage.getItem("god_mode_active") === "true";
+    const godTarget = godActive ? localStorage.getItem("god_mode_target_email") : null;
+    const desiredEmail = currentAgentEmail || godTarget || null;
+    if (cachedAgentUser && (!desiredEmail || cachedAgentUser.email.toLowerCase() === desiredEmail.toLowerCase())) {
+      setAgentEmail(cachedAgentUser.email);
+      setAgentName(cachedAgentUser.name);
+      setAgentRole(cachedAgentUser.role);
+      return;
+    }
     let mounted = true;
     (async () => {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!mounted || !user?.email) return;
-        setAgentEmail(user.email);
+        let effectiveEmail = desiredEmail;
+        if (!effectiveEmail) {
+          const { data: { user } } = await supabase.auth.getUser();
+          effectiveEmail = user?.email || null;
+        }
+        if (!mounted || !effectiveEmail) return;
+        setAgentEmail(effectiveEmail);
         const { data: agent } = await supabase
-          .from("sek_agent_config").select("nombre,apellido,rol").ilike("email", user.email).maybeSingle();
+          .from("sek_agent_config").select("nombre,apellido,rol").ilike("email", effectiveEmail).maybeSingle();
         if (!mounted) return;
         const a: any = agent;
-        const name = [a?.nombre, a?.apellido].filter(Boolean).join(" ") || user.email;
+        const name = [a?.nombre, a?.apellido].filter(Boolean).join(" ") || effectiveEmail;
         const role = a?.rol || "tecnico";
-        cachedAgentUser = { email: user.email, name, role };
+        cachedAgentUser = { email: effectiveEmail, name, role };
         setAgentName(name);
         setAgentRole(role);
       } catch { /* lock timeout en dev - ignorar */ }
     })();
     return () => { mounted = false; };
-  }, [supabase]);
+  }, [supabase, currentAgentEmail]);
 
   // Auto-enriquecimiento de equipo (marca y modelo) en segundo plano si faltan datos en un caso con historial
   React.useEffect(() => {
@@ -2604,30 +2629,34 @@ export function ChatView({
           )}
 
           {/* Botón Fijar Chat completo */}
-          <button
-            onClick={handleTogglePinChat}
-            className={cn(
-              "p-2 rounded-xl transition-all touch-target flex items-center gap-1 text-xs font-bold",
-              isChatPinned
-                ? "bg-amber-500/20 text-amber-500 hover:bg-amber-500/30 border border-amber-500/40"
-                : "hover:bg-muted text-muted-foreground hover:text-foreground"
-            )}
-            aria-label={isChatPinned ? "Desfijar chat" : "Fijar chat arriba"}
-            title={isChatPinned ? "Desfijar este chat de arriba de la lista" : "Fijar este chat arriba de la lista"}
-          >
-            <Pin className={cn("h-4 w-4", isChatPinned && "fill-amber-500 text-amber-500")} />
-            <span className="hidden xl:inline">{isChatPinned ? "Fijado" : "Fijar chat"}</span>
-          </button>
+          {canInternalNotes && (
+            <button
+              onClick={handleTogglePinChat}
+              className={cn(
+                "p-2 rounded-xl transition-all touch-target flex items-center gap-1 text-xs font-bold",
+                isChatPinned
+                  ? "bg-amber-500/20 text-amber-500 hover:bg-amber-500/30 border border-amber-500/40"
+                  : "hover:bg-muted text-muted-foreground hover:text-foreground"
+              )}
+              aria-label={isChatPinned ? "Desfijar chat" : "Fijar chat arriba"}
+              title={isChatPinned ? "Desfijar este chat de arriba de la lista" : "Fijar este chat arriba de la lista"}
+            >
+              <Pin className={cn("h-4 w-4", isChatPinned && "fill-amber-500 text-amber-500")} />
+              <span className="hidden xl:inline">{isChatPinned ? "Fijado" : "Fijar chat"}</span>
+            </button>
+          )}
 
           {/* Historial */}
-          <button
-            onClick={() => setShowHistory(true)}
-            className="p-2 rounded-xl hover:bg-muted active:bg-muted/80 touch-target"
-            aria-label="Ver historial de conversaciones"
-            title="Historial de conversaciones"
-          >
-            <History className="h-4 w-4" />
-          </button>
+          {canViewHistoryDrawer && (
+            <button
+              onClick={() => setShowHistory(true)}
+              className="p-2 rounded-xl hover:bg-muted active:bg-muted/80 touch-target"
+              aria-label="Ver historial de conversaciones"
+              title="Historial de conversaciones"
+            >
+              <History className="h-4 w-4" />
+            </button>
+          )}
 
           {/* Editar cliente */}
           <button
@@ -2661,7 +2690,7 @@ export function ChatView({
                     <div className="border-t border-border/50 my-1" />
                   </>
                 )}
-                {!cerrado && (sekCase.estado === "abierto" || sekCase.assigned_to) && (
+                {!cerrado && (sekCase.estado === "abierto" || sekCase.assigned_to) && (isAssignedToOther ? canTakeOrReassignSupervised : canReassignOwn) && (
                   <>
                     <button
                       onClick={() => { setShowReassign(true); setShowActions(false); }}
@@ -2672,37 +2701,39 @@ export function ChatView({
                     <div className="border-t border-border/50 my-1" />
                   </>
                 )}
-                {cerrado ? (
-                  <button
-                    onClick={toggleCaso}
-                    className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-muted transition-colors text-blue-500 font-medium"
-                  >
-                    <RotateCcw className="h-4 w-4 text-blue-500" /> Reabrir caso
-                  </button>
-                ) : (
-                  <>
+                {(isAssignedToOther ? canCloseOrDeleteSupervised : canCloseOwnCases) && (
+                  cerrado ? (
                     <button
                       onClick={toggleCaso}
-                      className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-muted transition-colors text-red-500 font-medium cursor-pointer"
+                      className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-muted transition-colors text-blue-500 font-medium"
                     >
-                      <XCircle className="h-4 w-4 text-red-500" /> Cerrar caso
+                      <RotateCcw className="h-4 w-4 text-blue-500" /> Reabrir caso
                     </button>
-                    <div className="border-t border-border/50 my-1" />
-                    <button
-                      disabled={closingDirect}
-                      onClick={() => cerrarCasoConMensaje("despedida")}
-                      className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-muted transition-colors text-emerald-500 font-medium cursor-pointer"
-                    >
-                      <CheckCircle2 className="h-4 w-4 text-emerald-500" /> Despedida y Cierre
-                    </button>
-                    <button
-                      disabled={closingDirect}
-                      onClick={() => cerrarCasoConMensaje("inactividad")}
-                      className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-muted transition-colors text-amber-500 font-medium cursor-pointer"
-                    >
-                      <Clock className="h-4 w-4 text-amber-500" /> Cerrar por Inactividad
-                    </button>
-                  </>
+                  ) : (
+                    <>
+                      <button
+                        onClick={toggleCaso}
+                        className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-muted transition-colors text-red-500 font-medium cursor-pointer"
+                      >
+                        <XCircle className="h-4 w-4 text-red-500" /> Cerrar caso
+                      </button>
+                      <div className="border-t border-border/50 my-1" />
+                      <button
+                        disabled={closingDirect}
+                        onClick={() => cerrarCasoConMensaje("despedida")}
+                        className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-muted transition-colors text-emerald-500 font-medium cursor-pointer"
+                      >
+                        <CheckCircle2 className="h-4 w-4 text-emerald-500" /> Despedida y Cierre
+                      </button>
+                      <button
+                        disabled={closingDirect}
+                        onClick={() => cerrarCasoConMensaje("inactividad")}
+                        className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-muted transition-colors text-amber-500 font-medium cursor-pointer"
+                      >
+                        <Clock className="h-4 w-4 text-amber-500" /> Cerrar por Inactividad
+                      </button>
+                    </>
+                  )
                 )}
                 <div className="border-t border-border/50 my-1" />
                 <button
@@ -3104,25 +3135,33 @@ export function ChatView({
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              disabled={takingOver}
-              onClick={handleTakeOver}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-brand-600 hover:bg-brand-500 text-white shadow-sm active:scale-95 transition-all disabled:opacity-50 cursor-pointer"
-              title="Tomar este caso para gestionarlo tú directamente"
-            >
-              <UserPlus className="h-3.5 w-3.5" />
-              {takingOver ? "Tomando…" : "Tomar este caso"}
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowReassign(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-card hover:bg-muted text-foreground border border-border/80 shadow-xs active:scale-95 transition-all cursor-pointer"
-              title="Transferir o reasignar a otro técnico"
-            >
-              <Users className="h-3.5 w-3.5 text-muted-foreground" />
-              Reasignar
-            </button>
+            {canTakeOrReassignSupervised ? (
+              <>
+                <button
+                  type="button"
+                  disabled={takingOver}
+                  onClick={handleTakeOver}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-brand-600 hover:bg-brand-500 text-white shadow-sm active:scale-95 transition-all disabled:opacity-50 cursor-pointer"
+                  title="Tomar este caso para gestionarlo tú directamente"
+                >
+                  <UserPlus className="h-3.5 w-3.5" />
+                  {takingOver ? "Tomando…" : "Tomar este caso"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowReassign(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-card hover:bg-muted text-foreground border border-border/80 shadow-xs active:scale-95 transition-all cursor-pointer"
+                  title="Transferir o reasignar a otro técnico"
+                >
+                  <Users className="h-3.5 w-3.5 text-muted-foreground" />
+                  Reasignar
+                </button>
+              </>
+            ) : (
+              <span className="text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                {canInterveneSupervised ? "Intervención habilitada" : "Monitoreo en tiempo real"}
+              </span>
+            )}
           </div>
         </div>
       )}
@@ -3399,29 +3438,65 @@ export function ChatView({
         </div>
       )}
 
+      {/* ── Aviso de Supervisión en Modo Solo Monitoreo (cuando no tiene permiso de intervenir en chats ajenos) ── */}
+      {!iaAtendiendo && isSupervisorViewing && !canInterveneSupervised && (
+        <div className="flex-shrink-0 border-t border-amber-500/30 bg-amber-500/5 px-3 sm:px-4 py-3 px-safe">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="h-8 w-8 shrink-0 rounded-full bg-amber-500/15 text-amber-500 grid place-items-center">
+                <ShieldCheck className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-foreground">
+                  Supervisión en vivo (Modo Monitoreo)
+                </p>
+                <p className="text-[11px] text-muted-foreground truncate">
+                  Estás visualizando en tiempo real el chat atendido por {assignedAgentDisplayName}.
+                </p>
+              </div>
+            </div>
+            {canTakeOrReassignSupervised && (
+              <button
+                type="button"
+                disabled={takingOver}
+                onClick={handleTakeOver}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-brand-600 hover:bg-brand-500 text-white shadow-sm shrink-0 cursor-pointer"
+              >
+                <UserPlus className="h-3.5 w-3.5" />
+                {takingOver ? "Tomando…" : "Tomar control"}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── Input bar ── */}
-      {!iaAtendiendo && (
+      {!iaAtendiendo && (!isSupervisorViewing || canInterveneSupervised) && (canReplyMessages || canInternalNotes) && (
       <div className="flex-shrink-0 border-t border-border bg-card px-safe pb-safe">
         {/* Modo: Responder / Nota interna */}
         <div className="flex items-center gap-1 px-3 pt-2">
-          <button
-            onClick={() => setMode("reply")}
-            className={cn(
-              "inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-colors",
-              mode === "reply" ? "bg-brand-700 text-white" : "text-muted-foreground hover:bg-muted"
-            )}
-          >
-            <Send className="h-3 w-3" /> Responder
-          </button>
-          <button
-            onClick={() => setMode("nota")}
-            className={cn(
-              "inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-colors",
-              mode === "nota" ? "bg-amber-500 text-white" : "text-muted-foreground hover:bg-muted"
-            )}
-          >
-            <StickyNote className="h-3 w-3" /> Nota interna
-          </button>
+          {canReplyMessages && (
+            <button
+              onClick={() => setMode("reply")}
+              className={cn(
+                "inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-colors",
+                mode === "reply" ? "bg-brand-700 text-white" : "text-muted-foreground hover:bg-muted"
+              )}
+            >
+              <Send className="h-3 w-3" /> Responder
+            </button>
+          )}
+          {canInternalNotes && (
+            <button
+              onClick={() => setMode("nota")}
+              className={cn(
+                "inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-colors",
+                mode === "nota" ? "bg-amber-500 text-white" : "text-muted-foreground hover:bg-muted"
+              )}
+            >
+              <StickyNote className="h-3 w-3" /> Nota interna
+            </button>
+          )}
           <div className="flex-1" />
           <button
             onClick={() => setShowPlantillas(p => !p)}

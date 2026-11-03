@@ -44,3 +44,11 @@ export function cacheSet(key: string, data: any): void {
 export function cacheDelete(key: string): void {
   store.delete(key);
 }
+
+export function cacheDeletePrefix(prefix: string): void {
+  for (const k of Array.from(store.keys())) {
+    if (k.startsWith(prefix)) {
+      store.delete(k);
+    }
+  }
+}
