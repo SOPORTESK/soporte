@@ -14,6 +14,20 @@ export async function getEvolutionConfig(): Promise<EvolutionConfig> {
   const envKey = process.env.EVOLUTION_API_KEY || "";
   const envInstance = process.env.EVOLUTION_INSTANCE || "";
 
+  // PRIORIDAD 0: Conexión directa ultra-rápida si el contenedor local de Evolution API (127.0.0.1:28080) está activo
+  try {
+    const localRes = await fetch("http://127.0.0.1:28080", { signal: AbortSignal.timeout(400) });
+    if (localRes.ok) {
+      return {
+        url: "http://127.0.0.1:28080",
+        apiKey: envKey || "SEKUNET_EVO_KEY_123",
+        instance: envInstance || "sekunet",
+      };
+    }
+  } catch {
+    // Si no está escuchando en local, continúa normalmente
+  }
+
   const supabase = createServiceClient();
 
   // PRIORIDAD 1: config guardada desde el panel admin (cifrada en Supabase).
