@@ -56,11 +56,13 @@ function decodeUserFromCookieToken(rawCookie: string | null): any | null {
     if (parts.length !== 3) return null;
     const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
     if (payload && payload.email) {
+      const isFresh = !payload.exp || payload.exp * 1000 > Date.now() + 10000;
       return {
         id: payload.sub || "cookie-user",
         email: payload.email,
         user_metadata: payload.user_metadata || {},
         app_metadata: payload.app_metadata || {},
+        _isFreshJwt: isFresh,
       };
     }
   } catch {}
@@ -73,6 +75,13 @@ export async function getUserWithTimeout(supabase: any): Promise<{ user: any; ti
     const cached = userMemoryCache.get(token);
     if (cached && Date.now() - cached.ts < USER_CACHE_TTL_MS) {
       return { user: cached.user, timedOut: false };
+    }
+    // Fast-path 0ms: decodificar directamente el JWT válido de la cookie sin hacer roundtrip de red a Supabase Auth
+    const fastCookieUser = decodeUserFromCookieToken(token);
+    if (fastCookieUser && fastCookieUser._isFreshJwt) {
+      if (userMemoryCache.size > 100) userMemoryCache.clear();
+      userMemoryCache.set(token, { user: fastCookieUser, ts: Date.now() });
+      return { user: fastCookieUser, timedOut: false };
     }
   }
 

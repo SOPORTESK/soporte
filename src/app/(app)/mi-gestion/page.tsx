@@ -93,6 +93,7 @@ export default async function MiGestionPage({ searchParams }: { searchParams: { 
   console.log(`[mi-gestion] Agente: ${agentEmail} (${agentFullName}), Rol: ${agentConfig?.rol || 'tecnico'}, Supervisión: ${isAdmin}, Casos cargados: ${myCasesArray.length}`);
 
   const selectedId = searchParams.c || (myCasesArray[0]?.id ? String(myCasesArray[0].id) : null);
+  const fullAgentName = [agentConfig?.nombre, agentConfig?.apellido].filter(Boolean).join(" ") || agentName;
 
   return (
     <InboxClient
@@ -101,6 +102,8 @@ export default async function MiGestionPage({ searchParams }: { searchParams: { 
       containerType={"mi-gestion" as const}
       initialIsAdmin={isAdmin}
       initialAgentEmail={agentEmail}
+      initialAgentName={fullAgentName}
+      initialAgentRole={agentConfig?.rol || "tecnico"}
       initialInboxPerms={inboxSubs}
     />
   );

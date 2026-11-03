@@ -311,9 +311,13 @@ function playEscaladoAlert() {
   } catch {}
 }
 
+let cachedTeamAgentsList: Array<{ email: string; nombre: string; apellido?: string; rol?: string }> | null = null;
+const cachedAgentProfileMap = new Map<string, { fullName: string; rol: string }>();
+let cachedPermissionGroupsList: any[] | null = null;
+
 export function InboxClient({
-  initialCases, initialSelectedId, containerType, initialIsAdmin, initialAgentEmail, initialInboxPerms
-}: { initialCases: SekCase[]; initialSelectedId: string | null; containerType?: "inbox" | "smart-inbox" | "soporte-avanzado" | "mi-gestion"; initialIsAdmin?: boolean; initialAgentEmail?: string | null; initialInboxPerms?: Record<string, boolean> }) {
+  initialCases, initialSelectedId, containerType, initialIsAdmin, initialAgentEmail, initialAgentName, initialAgentRole, initialInboxPerms
+}: { initialCases: SekCase[]; initialSelectedId: string | null; containerType?: "inbox" | "smart-inbox" | "soporte-avanzado" | "mi-gestion"; initialIsAdmin?: boolean; initialAgentEmail?: string | null; initialAgentName?: string | null; initialAgentRole?: string | null; initialInboxPerms?: Record<string, boolean> }) {
   const router = useRouter();
   const params = useSearchParams();
   const [cases, setCases] = React.useState<SekCase[]>(initialCases);
@@ -322,13 +326,25 @@ export function InboxClient({
   const [unreadTotal, setUnreadTotal] = React.useState(0);
   const [pendingSelectId, setPendingSelectId] = React.useState<string | null>(null);
   const [agentEmail, setAgentEmail] = React.useState<string | null>(initialAgentEmail || null);
-  const [agentName, setAgentName] = React.useState<string | null>(null);
-  const [agentRole, setAgentRole] = React.useState<string | null>(null);
+  const [agentName, setAgentName] = React.useState<string | null>(() => {
+    if (initialAgentName) return initialAgentName;
+    if (initialAgentEmail && cachedAgentProfileMap.has(initialAgentEmail.toLowerCase())) {
+      return cachedAgentProfileMap.get(initialAgentEmail.toLowerCase())!.fullName;
+    }
+    return null;
+  });
+  const [agentRole, setAgentRole] = React.useState<string | null>(() => {
+    if (initialAgentRole) return initialAgentRole;
+    if (initialAgentEmail && cachedAgentProfileMap.has(initialAgentEmail.toLowerCase())) {
+      return cachedAgentProfileMap.get(initialAgentEmail.toLowerCase())!.rol;
+    }
+    return null;
+  });
   const [inboxPerms, setInboxPerms] = React.useState<Record<string, boolean> | null>(initialInboxPerms || null);
   const [godModeEmail, setGodModeEmail] = React.useState<string | null>(null);
   const [godModeName, setGodModeName] = React.useState<string | null>(null);
   const [adminFilterMode, setAdminFilterMode] = React.useState<"mine" | "all" | string>("mine");
-  const [teamAgents, setTeamAgents] = React.useState<Array<{ email: string; nombre: string; apellido?: string; rol?: string }>>([]);
+  const [teamAgents, setTeamAgents] = React.useState<Array<{ email: string; nombre: string; apellido?: string; rol?: string }>>(() => cachedTeamAgentsList || []);
   const isSuperadmin = agentRole === "superadmin";
   const canSupervise = Boolean(
     isSuperadmin ||
@@ -358,13 +374,20 @@ export function InboxClient({
   /* Cargar agentes del equipo para supervisión administrativa en Mi Gestión */
   React.useEffect(() => {
     if (!isUserAdmin || containerType !== "mi-gestion") return;
+    if (cachedTeamAgentsList && cachedTeamAgentsList.length > 0) {
+      setTeamAgents(cachedTeamAgentsList);
+      return;
+    }
     supabase
       .from("sek_agent_config")
       .select("email,nombre,apellido,rol")
       .not("rol", "in", "(bot,sistema)")
       .order("nombre", { ascending: true })
       .then(({ data }) => {
-        if (data) setTeamAgents(data as any);
+        if (data) {
+          cachedTeamAgentsList = data as any;
+          setTeamAgents(data as any);
+        }
       });
   }, [supabase, isUserAdmin, containerType]);
 
@@ -428,34 +451,56 @@ export function InboxClient({
 
   /* Obtener email, nombre y rol del agente actual para filtrar Mi Gestion */
   React.useEffect(() => {
-    supabase.auth.getUser().then(async ({ data }) => {
-      if (data?.user?.email) {
-        // Si estamos en MODO DIOS, usar el email del agente objetivo
-        const effectiveEmail = godModeEmail || data.user.email;
-        setAgentEmail(effectiveEmail);
-        // Buscar nombre y rol del agente en config
-        const { data: agent } = await supabase
-          .from("sek_agent_config")
-          .select("nombre,apellido,rol")
-          .ilike("email", effectiveEmail)
-          .maybeSingle();
-        if (agent) {
-          const fullName = [agent.nombre, agent.apellido].filter(Boolean).join(" ");
-          setAgentName(fullName);
-          setAgentRole(agent.rol);
-          console.log(`[Mi Gestion] Agente identificado: ${fullName}, Rol: ${agent.rol}`);
-        }
+    const targetEmail = godModeEmail || initialAgentEmail || null;
+    if (!godModeEmail && initialAgentEmail && initialAgentName && initialAgentRole) {
+      cachedAgentProfileMap.set(initialAgentEmail.toLowerCase(), { fullName: initialAgentName, rol: initialAgentRole });
+      return;
+    }
+    if (targetEmail && cachedAgentProfileMap.has(targetEmail.toLowerCase())) {
+      const cached = cachedAgentProfileMap.get(targetEmail.toLowerCase())!;
+      setAgentEmail(targetEmail);
+      setAgentName(cached.fullName);
+      setAgentRole(cached.rol);
+      return;
+    }
+    (async () => {
+      let effectiveEmail = targetEmail;
+      if (!effectiveEmail) {
+        const { data } = await supabase.auth.getUser();
+        effectiveEmail = data?.user?.email || null;
       }
-    });
-  }, [supabase, godModeEmail]);
+      if (!effectiveEmail) return;
+      setAgentEmail(effectiveEmail);
+      const { data: agent } = await supabase
+        .from("sek_agent_config")
+        .select("nombre,apellido,rol")
+        .ilike("email", effectiveEmail)
+        .maybeSingle();
+      if (agent) {
+        const fullName = [agent.nombre, agent.apellido].filter(Boolean).join(" ");
+        cachedAgentProfileMap.set(effectiveEmail.toLowerCase(), { fullName, rol: agent.rol });
+        setAgentName(fullName);
+        setAgentRole(agent.rol);
+      }
+    })();
+  }, [supabase, godModeEmail, initialAgentEmail, initialAgentName, initialAgentRole]);
 
-  /* Sincronizar matriz de permisos de bandeja según rol activo (incluyendo Modo Dios) */
+  /* Sincronizar matriz de permisos de bandeja según rol activo (solo si no vino del servidor o cambió a Modo Dios) */
   React.useEffect(() => {
     if (!agentRole) return;
+    if (!godModeEmail && initialInboxPerms && Object.keys(initialInboxPerms).length > 0) return;
+    if (cachedPermissionGroupsList) {
+      const matched = cachedPermissionGroupsList.find((g: any) => g.id === agentRole) || cachedPermissionGroupsList.find((g: any) => g.id === "tecnico");
+      if (matched?.permissions?.inbox?.subcategories) {
+        setInboxPerms(matched.permissions.inbox.subcategories);
+      }
+      return;
+    }
     fetch("/api/admin/permission-groups")
       .then(r => (r.ok ? r.json() : null))
       .then(data => {
         if (data?.groups && Array.isArray(data.groups)) {
+          cachedPermissionGroupsList = data.groups;
           const matched = data.groups.find((g: any) => g.id === agentRole) || data.groups.find((g: any) => g.id === "tecnico");
           if (matched?.permissions?.inbox?.subcategories) {
             setInboxPerms(matched.permissions.inbox.subcategories);
@@ -463,22 +508,24 @@ export function InboxClient({
         }
       })
       .catch(() => {});
-  }, [agentRole]);
+  }, [agentRole, godModeEmail, initialInboxPerms]);
 
-  /* Si el usuario tiene supervisión activa en Mi Gestión o cambió a Modo Dios, asegurar carga de casos activos del equipo */
+  /* Si el usuario cambió a Modo Dios o adquirió supervisión dinámicamente, asegurar carga de casos activos del equipo */
   React.useEffect(() => {
     if (containerType !== "mi-gestion" || !agentEmail) return;
+    if (!godModeEmail && Boolean(initialIsAdmin) === Boolean(canSupervise)) return;
     if (!canSupervise && !godModeEmail) return;
     fetchCasesMeta(supabase, 300, agentEmail, canSupervise)
       .then(newCases => {
         setAllCases(newCases);
-        const filteredNew = filterCasesByContainer(newCases, containerType, agentEmail, agentName, canSupervise, adminFilterMode);
+        const filteredNew = filterCasesByContainer(newCases, containerType, agentEmail, agentNameRef.current, canSupervise, adminFilterMode);
         setCases(filteredNew);
         prevCasesRef.current = filteredNew;
         prevMergedRef.current = mergeGroups(filteredNew);
       })
       .catch(() => {});
-  }, [supabase, containerType, agentEmail, agentName, canSupervise, godModeEmail, adminFilterMode]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supabase, containerType, agentEmail, canSupervise, godModeEmail, initialIsAdmin]);
 
   const selectCase = React.useCallback((id: string) => {
     // En modo PWA standalone no persistir el chat en la URL para que al reabrir

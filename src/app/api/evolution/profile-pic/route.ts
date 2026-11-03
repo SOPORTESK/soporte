@@ -32,6 +32,7 @@ async function ensureContactsLoaded(baseUrl: string, instance: string, apiKey: s
         method: "POST",
         headers: { "Content-Type": "application/json", apikey: apiKey },
         body: JSON.stringify({ where: {} }),
+        signal: AbortSignal.timeout(2500),
       });
       if (!res.ok) return;
       const list = await res.json().catch(() => []);
@@ -101,6 +102,7 @@ export async function GET(req: NextRequest) {
         method: "POST",
         headers: { "Content-Type": "application/json", apikey: evoCfg.apiKey },
         body: JSON.stringify({ number: phone }),
+        signal: AbortSignal.timeout(1500),
       });
       if (liveRes.ok) {
         const data = await liveRes.json().catch(() => ({}));

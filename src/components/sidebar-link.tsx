@@ -22,5 +22,5 @@ export function SidebarLink({
     </>
   );
   if (disabled) return <span className={cls} aria-disabled>{content}</span>;
-  return <Link href={href} prefetch={false} className={cls} aria-current={active ? "page" : undefined}>{content}</Link>;
+  return <Link href={href} className={cls} aria-current={active ? "page" : undefined}>{content}</Link>;
 }

@@ -54,6 +54,7 @@ export default async function SmartInboxPage({ searchParams }: { searchParams: {
   if (error) console.error("[smart-inbox] sek_cases error:", error);
 
   const selectedId = searchParams.c ?? null;
+  const fullAgentName = [agentConfig?.nombre, agentConfig?.apellido].filter(Boolean).join(" ") || null;
 
   return (
     <InboxClient
@@ -61,6 +62,8 @@ export default async function SmartInboxPage({ searchParams }: { searchParams: {
       initialSelectedId={selectedId}
       containerType={"smart-inbox" as const}
       initialAgentEmail={agentEmail}
+      initialAgentName={fullAgentName}
+      initialAgentRole={agentConfig?.rol || "tecnico"}
       initialInboxPerms={inboxSubs}
     />
   );

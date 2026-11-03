@@ -184,6 +184,112 @@ interface AgentRatingConfig {
 }
 let cachedAgentRatingConfig: AgentRatingConfig | null = null;
 const caseHistoryCache = new Map<string, { sekCase: SekCase; timestamp: number }>();
+const inflightHistoryRequests = new Map<string, Promise<SekCase | null>>();
+
+function buildMergedCaseStatic(baseCase: SekCase, casesData: SekCase[]): SekCase {
+  const sorted = [...casesData].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  const targetId2 = baseCase._group?.targetCaseId ?? baseCase.id;
+  const target = sorted.find(c => String(c.id) === String(targetId2)) ?? sorted[sorted.length - 1] ?? casesData[0];
+  const mergedEstado = (() => {
+    if (!baseCase._group) return baseCase.estado;
+    if (sorted.some(c => String(c.estado || "").toLowerCase() === "escalado")) return "escalado";
+    if (sorted.some(c => String(c.estado || "").toLowerCase() === "ia_atendiendo")) return "ia_atendiendo";
+    if (sorted.some(c => String(c.estado || "").toLowerCase() === "calificacion_pendiente")) return "calificacion_pendiente";
+    if (sorted.some(c => {
+      const e = String(c.estado || "").toLowerCase();
+      return e !== "cerrado" && e !== "resuelto";
+    })) return "abierto";
+    return target.estado;
+  })();
+
+  const openForMerge = sorted.filter(c => {
+    const e = String(c.estado || "").toLowerCase();
+    return e !== "cerrado" && e !== "resuelto";
+  });
+  const mergeFrom = openForMerge.length > 0 ? openForMerge : sorted;
+  const tag = (arr: unknown, caseId: SekCase["id"]) =>
+    (Array.isArray(arr) ? arr : []).map((e: any) =>
+      (e && typeof e === "object" && e._sourceCaseId === undefined)
+        ? { ...e, _sourceCaseId: caseId }
+        : e
+    );
+
+  return {
+    ...target,
+    id: baseCase.id,
+    cliente: baseCase.cliente ?? target.cliente,
+    marca: target.marca || baseCase.marca || (target.cliente as any)?.marca || (baseCase.cliente as any)?.marca || null,
+    modelo: target.modelo || baseCase.modelo || (target.cliente as any)?.modelo || (baseCase.cliente as any)?.modelo || null,
+    problema: target.problema || baseCase.problema || (target.cliente as any)?.tipo_consulta || null,
+    resolucion: target.resolucion || baseCase.resolucion || (target.cliente as any)?.descripcion || null,
+    estado: mergedEstado as SekCase["estado"],
+    histcliente: mergeFrom.flatMap(c => tag(c.histcliente, c.id)),
+    histtecnico: mergeFrom.flatMap(c => tag(c.histtecnico, c.id)),
+    _group: baseCase._group,
+  } as unknown as SekCase;
+}
+
+export function prefetchCaseHistory(supabase: any, baseCase: SekCase): Promise<SekCase | null> {
+  if (!baseCase) return Promise.resolve(null);
+  const cacheKey = String(baseCase._group?.targetCaseId || baseCase.id);
+  const cached = caseHistoryCache.get(cacheKey);
+  if (cached && (Date.now() - cached.timestamp < 90000)) {
+    return Promise.resolve(cached.sekCase);
+  }
+  const inflight = inflightHistoryRequests.get(cacheKey);
+  if (inflight) return inflight;
+
+  const p = (async () => {
+    try {
+      const openIds = baseCase._group?.openCaseIds || [];
+      const fallbackIds = (baseCase._group?.caseIds || []).slice(0, 5);
+      const rawIds = [
+        ...(openIds.length > 0 ? openIds : fallbackIds),
+        baseCase._group?.targetCaseId,
+        baseCase.id
+      ].filter(Boolean);
+
+      const validIds = Array.from(new Set(rawIds))
+        .map((id: any) => String(id))
+        .filter((id: string) => !id.startsWith("tel:") && !id.startsWith("case:") && id.length > 5);
+
+      let data: any[] | null = null;
+      if (validIds.length > 0) {
+        const res = await supabase
+          .from("sek_cases")
+          .select("id,estado,canal,cliente,assigned_to,customer_phone,created_at,updated_at,last_message_at,last_message_preview,histcliente,histtecnico,marca,modelo,problema,resolucion,title")
+          .in("id", validIds);
+        data = res.data;
+      }
+
+      if ((!data || data.length === 0) && (baseCase.customer_phone || String(baseCase.id).startsWith("tel:"))) {
+        const rawTel = baseCase.customer_phone || String(baseCase.id).replace("tel:", "");
+        const phoneDigits = rawTel.replace(/[^0-9]/g, "");
+        if (phoneDigits.length >= 8) {
+          const res = await supabase
+            .from("sek_cases")
+            .select("id,estado,canal,cliente,assigned_to,customer_phone,created_at,updated_at,last_message_at,last_message_preview,histcliente,histtecnico,marca,modelo,problema,resolucion,title")
+            .ilike("customer_phone", `%${phoneDigits.slice(-8)}%`)
+            .order("created_at", { ascending: false })
+            .limit(5);
+          data = res.data;
+        }
+      }
+
+      if (!data || data.length === 0) return null;
+      const merged = buildMergedCaseStatic(baseCase, data as SekCase[]);
+      caseHistoryCache.set(cacheKey, { sekCase: merged, timestamp: Date.now() });
+      return merged;
+    } catch {
+      return null;
+    } finally {
+      inflightHistoryRequests.delete(cacheKey);
+    }
+  })();
+
+  inflightHistoryRequests.set(cacheKey, p);
+  return p;
+}
 
 export function ChatView({
   sekCase: initialCase,
@@ -248,6 +354,7 @@ export function ChatView({
   }, []);
 
   React.useEffect(() => {
+    if (cachedAgentRatingConfig !== null) return;
     fetch("/api/admin/auto-close-config")
       .then(r => r.json())
       .then(d => {
@@ -686,52 +793,7 @@ export function ChatView({
 
   /* Helper: combinar casos de un grupo en un único objeto histórico */
   const buildMergedCase = React.useCallback((baseCase: SekCase, casesData: SekCase[]): SekCase => {
-    const sorted = [...casesData].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-    const targetId2 = baseCase._group?.targetCaseId ?? baseCase.id;
-    const target = sorted.find(c => String(c.id) === String(targetId2)) ?? sorted[sorted.length - 1] ?? casesData[0];
-    const mergedEstado = (() => {
-      if (!baseCase._group) return baseCase.estado;
-      if (sorted.some(c => String(c.estado || "").toLowerCase() === "escalado")) return "escalado";
-      if (sorted.some(c => String(c.estado || "").toLowerCase() === "ia_atendiendo")) return "ia_atendiendo";
-      if (sorted.some(c => String(c.estado || "").toLowerCase() === "calificacion_pendiente")) return "calificacion_pendiente";
-      if (sorted.some(c => {
-        const e = String(c.estado || "").toLowerCase();
-        return e !== "cerrado" && e !== "resuelto";
-      })) return "abierto";
-      return target.estado;
-    })();
-
-    /* Historial de TODOS los casos abiertos del grupo, no solo del objetivo.
-       El webhook puede haber dejado mensajes del cliente en un caso hermano
-       abierto (dos mensajes simultáneos crean dos casos para el mismo
-       teléfono); leyendo solo el objetivo esos mensajes nunca se mostraban.
-       _sourceCaseId preserva el caso real de cada mensaje para editar/borrar. */
-    const openForMerge = sorted.filter(c => {
-      const e = String(c.estado || "").toLowerCase();
-      return e !== "cerrado" && e !== "resuelto";
-    });
-    const mergeFrom = openForMerge.length > 0 ? openForMerge : sorted;
-    const tag = (arr: unknown, caseId: SekCase["id"]) =>
-      (Array.isArray(arr) ? arr : []).map((e: any) =>
-        (e && typeof e === "object" && e._sourceCaseId === undefined)
-          ? { ...e, _sourceCaseId: caseId }
-          : e
-      );
-
-    const merged = {
-      ...target,
-      id: baseCase.id,
-      cliente: baseCase.cliente ?? target.cliente,
-      marca: target.marca || baseCase.marca || (target.cliente as any)?.marca || (baseCase.cliente as any)?.marca || null,
-      modelo: target.modelo || baseCase.modelo || (target.cliente as any)?.modelo || (baseCase.cliente as any)?.modelo || null,
-      problema: target.problema || baseCase.problema || (target.cliente as any)?.tipo_consulta || null,
-      resolucion: target.resolucion || baseCase.resolucion || (target.cliente as any)?.descripcion || null,
-      estado: mergedEstado as SekCase["estado"],
-      histcliente: mergeFrom.flatMap(c => tag(c.histcliente, c.id)),
-      histtecnico: mergeFrom.flatMap(c => tag(c.histtecnico, c.id)),
-      _group: baseCase._group,
-    } as unknown as SekCase;
-    return merged;
+    return buildMergedCaseStatic(baseCase, casesData);
   }, []);
 
   /* Recargar el caso desde la BD preservando la fusión del grupo.
@@ -741,7 +803,7 @@ export function ChatView({
     const HIST_FIELDS = "id,estado,canal,cliente,assigned_to,customer_phone,created_at,updated_at,last_message_at,last_message_preview,histcliente,histtecnico,accepted_at,closed_at,tags,prioridad,title,marca,modelo,problema,resolucion";
     const ids = baseCase._group?.openCaseIds?.length
       ? baseCase._group.openCaseIds
-      : (baseCase._group?.caseIds?.length ? baseCase._group.caseIds : [fallbackId]);
+      : (baseCase._group?.caseIds?.length ? baseCase._group.caseIds.slice(0, 5) : [fallbackId]);
     const { data } = await supabase.from("sek_cases").select(HIST_FIELDS).in("id", ids);
     if (!data || data.length === 0) return null;
     const merged = buildMergedCase(baseCase, data as unknown as SekCase[]);
@@ -753,60 +815,21 @@ export function ChatView({
   /* Cargar historial completo si el caso llegó en modo ligero (sin histcliente/histtecnico) */
   React.useEffect(() => {
     let mounted = true;
-    (async () => {
-      const cached = caseHistoryCache.get(cacheKey);
-      const isFreshInCache = cached && (Date.now() - cached.timestamp < 90000);
-      if (isFreshInCache && historyLoadedRef.current) return;
+    const cached = caseHistoryCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp < 90000)) {
+      setSekCase(cached.sekCase);
+      historyLoadedRef.current = true;
+      return;
+    }
 
-      try {
-        const rawIds = [
-          ...(initialCase._group?.caseIds || []),
-          ...(initialCase._group?.openCaseIds || []),
-          initialCase._group?.targetCaseId,
-          initialCase.id
-        ].filter(Boolean);
-
-        const validIds = Array.from(new Set(rawIds))
-          .map((id: any) => String(id))
-          .filter((id: string) => !id.startsWith("tel:") && !id.startsWith("case:") && id.length > 5);
-
-        let data: any[] | null = null;
-        if (validIds.length > 0) {
-          const res = await supabase
-            .from("sek_cases")
-            .select("id,estado,canal,cliente,assigned_to,customer_phone,created_at,updated_at,last_message_at,last_message_preview,histcliente,histtecnico,marca,modelo,problema,resolucion,title")
-            .in("id", validIds);
-          data = res.data;
-        }
-
-        // Respaldo: si no hay IDs válidos o la clave es un teléfono, buscar directamente por número
-        if ((!data || data.length === 0) && (initialCase.customer_phone || String(initialCase.id).startsWith("tel:"))) {
-          const rawTel = initialCase.customer_phone || String(initialCase.id).replace("tel:", "");
-          const phoneDigits = rawTel.replace(/[^0-9]/g, "");
-          if (phoneDigits.length >= 8) {
-            const res = await supabase
-              .from("sek_cases")
-              .select("id,estado,canal,cliente,assigned_to,customer_phone,created_at,updated_at,last_message_at,last_message_preview,histcliente,histtecnico,marca,modelo,problema,resolucion,title")
-              .ilike("customer_phone", `%${phoneDigits.slice(-8)}%`)
-              .order("created_at", { ascending: false })
-              .limit(10);
-            data = res.data;
-          }
-        }
-
-        if (!data || data.length === 0 || !mounted) return;
-        const merged = buildMergedCase(initialCase, data as SekCase[]);
-        if (mounted) {
-          setSekCase(merged);
-          caseHistoryCache.set(cacheKey, { sekCase: merged, timestamp: Date.now() });
-          historyLoadedRef.current = true;
-        }
-      } catch (e) {
-        console.error("[chat-view] loadFullCase error:", e);
+    prefetchCaseHistory(supabase, initialCase).then((merged) => {
+      if (mounted && merged) {
+        setSekCase(merged);
+        historyLoadedRef.current = true;
       }
-    })();
+    });
     return () => { mounted = false; };
-  }, [cacheKey, supabase, buildMergedCase, initialCase?.id, initialCase._group?.targetCaseId]);
+  }, [cacheKey, supabase, initialCase?.id, initialCase._group?.targetCaseId]);
 
   /* Cargar plantillas */
   React.useEffect(() => {
@@ -1168,14 +1191,19 @@ export function ChatView({
     document.addEventListener("visibilitychange", handleVisibility);
     window.addEventListener("focus", handleVisibility);
 
-    // Marcar mensajes del cliente como leídos al abrir el chat (RPC atómica)
-    (async () => {
-      try {
-        await supabase.rpc("mark_histcliente_read", { p_case_id: String(targetId), p_reader_email: agentEmail || undefined });
-      } catch (err: any) {
-        console.error("[chat-view] mark_histcliente_read (open) error:", err?.message || err);
-      }
-    })();
+    // Marcar mensajes del cliente como leídos al abrir el chat SOLO si hay mensajes no leídos
+    const hasUnreadInitial =
+      (Number(initialCaseRef.current.unread_count) || 0) > 0 ||
+      (Array.isArray(initialCaseRef.current.histcliente) && initialCaseRef.current.histcliente.some((m: any) => !m.read_at));
+    if (hasUnreadInitial) {
+      (async () => {
+        try {
+          await supabase.rpc("mark_histcliente_read", { p_case_id: String(targetId), p_reader_email: agentEmail || undefined });
+        } catch (err: any) {
+          console.error("[chat-view] mark_histcliente_read (open) error:", err?.message || err);
+        }
+      })();
+    }
 
     return () => {
       mounted = false;

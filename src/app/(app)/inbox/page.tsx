@@ -54,6 +54,7 @@ export default async function InboxPage({ searchParams }: { searchParams: { c?: 
   if (error) console.error("[inbox] sek_cases error:", error);
 
   const selectedId = searchParams.c ?? null;
+  const fullAgentName = [agentConfig?.nombre, agentConfig?.apellido].filter(Boolean).join(" ") || null;
 
   return (
     <InboxClient
@@ -61,6 +62,8 @@ export default async function InboxPage({ searchParams }: { searchParams: { c?: 
       initialSelectedId={selectedId}
       containerType={"inbox" as const}
       initialAgentEmail={agentEmail}
+      initialAgentName={fullAgentName}
+      initialAgentRole={agentConfig?.rol || "tecnico"}
       initialInboxPerms={inboxSubs}
     />
   );

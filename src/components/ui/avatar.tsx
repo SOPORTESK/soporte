@@ -7,7 +7,58 @@ import { cn, initials as getInitials } from "@/lib/utils";
 const clientProfilePicCache = new Map<string, string | null>();
 const inflightPicRequests = new Map<string, Promise<string | null>>();
 
+// Hidratar caché de fotos de perfil desde sessionStorage para evitar re-consultas al navegar
+const SESSION_PIC_CACHE_KEY = "sek_profile_pics_v1";
+let sessionCacheHydrated = false;
+function ensureSessionPicCache() {
+  if (sessionCacheHydrated || typeof window === "undefined") return;
+  sessionCacheHydrated = true;
+  try {
+    const raw = sessionStorage.getItem(SESSION_PIC_CACHE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") {
+        for (const [k, v] of Object.entries(parsed)) {
+          clientProfilePicCache.set(k, typeof v === "string" ? v : null);
+        }
+      }
+    }
+  } catch {}
+}
+
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+function schedulePersistPicCache() {
+  if (typeof window === "undefined" || persistTimer) return;
+  persistTimer = setTimeout(() => {
+    persistTimer = null;
+    try {
+      const obj: Record<string, string | null> = {};
+      // Guardar hasta 400 entradas recientes
+      const entries = Array.from(clientProfilePicCache.entries()).slice(-400);
+      for (const [k, v] of entries) obj[k] = v;
+      sessionStorage.setItem(SESSION_PIC_CACHE_KEY, JSON.stringify(obj));
+    } catch {}
+  }, 500);
+}
+
+// Cola con límite de concurrencia (máx 2 peticiones simultáneas) para NUNCA saturar
+// las 6 conexiones TCP del navegador y dejar vía libre a la navegación entre menús y chats.
+const MAX_CONCURRENT_PIC_FETCHES = 2;
+let activePicFetches = 0;
+const picFetchQueue: Array<() => void> = [];
+
+function pumpPicFetchQueue() {
+  while (activePicFetches < MAX_CONCURRENT_PIC_FETCHES && picFetchQueue.length > 0) {
+    const next = picFetchQueue.shift();
+    if (next) {
+      activePicFetches++;
+      next();
+    }
+  }
+}
+
 function fetchWhatsAppProfilePic(rawPhone: string): Promise<string | null> {
+  ensureSessionPicCache();
   const cleanPhone = rawPhone.replace(/\D/g, "");
   if (cleanPhone.length < 8) return Promise.resolve(null);
   const key = cleanPhone.length === 8 ? `506${cleanPhone}` : cleanPhone;
@@ -18,20 +69,30 @@ function fetchWhatsAppProfilePic(rawPhone: string): Promise<string | null> {
   const existing = inflightPicRequests.get(key);
   if (existing) return existing;
 
-  const p = fetch(`/api/evolution/profile-pic?phone=${encodeURIComponent(key)}`)
-    .then((r) => (r.ok ? r.json() : { url: null }))
-    .then((d) => {
-      const url = typeof d?.url === "string" && d.url.startsWith("http") ? d.url : null;
-      clientProfilePicCache.set(key, url);
-      return url;
-    })
-    .catch(() => {
-      clientProfilePicCache.set(key, null);
-      return null;
-    })
-    .finally(() => {
-      inflightPicRequests.delete(key);
+  const p = new Promise<string | null>((resolve) => {
+    picFetchQueue.push(() => {
+      fetch(`/api/evolution/profile-pic?phone=${encodeURIComponent(key)}`, {
+        priority: "low" as any,
+      })
+        .then((r) => (r.ok ? r.json() : { url: null }))
+        .then((d) => {
+          const url = typeof d?.url === "string" && d.url.startsWith("http") ? d.url : null;
+          clientProfilePicCache.set(key, url);
+          schedulePersistPicCache();
+          resolve(url);
+        })
+        .catch(() => {
+          clientProfilePicCache.set(key, null);
+          resolve(null);
+        })
+        .finally(() => {
+          inflightPicRequests.delete(key);
+          activePicFetches = Math.max(0, activePicFetches - 1);
+          pumpPicFetchQueue();
+        });
     });
+    pumpPicFetchQueue();
+  });
 
   inflightPicRequests.set(key, p);
   return p;
@@ -70,6 +131,7 @@ export function Avatar({
       setResolvedSrc(null);
       return;
     }
+    ensureSessionPicCache();
     const cleanPhone = phone.replace(/\D/g, "");
     const key = cleanPhone.length === 8 ? `506${cleanPhone}` : cleanPhone;
     if (clientProfilePicCache.has(key)) {
@@ -77,11 +139,15 @@ export function Avatar({
       return;
     }
     let active = true;
-    fetchWhatsAppProfilePic(phone).then((url) => {
-      if (active) setResolvedSrc(url);
-    });
+    const timer = setTimeout(() => {
+      if (!active) return;
+      fetchWhatsAppProfilePic(phone).then((url) => {
+        if (active) setResolvedSrc(url);
+      });
+    }, 80);
     return () => {
       active = false;
+      clearTimeout(timer);
     };
   }, [src, phone]);
 

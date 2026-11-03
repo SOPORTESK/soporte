@@ -55,6 +55,7 @@ export default async function SoporteAvanzadoPage({ searchParams }: { searchPara
   console.log(`[soporte-avanzado] Casos escalados sin agente: ${n2Cases?.length || 0}`);
 
   const selectedId = searchParams.c ?? null;
+  const fullAgentName = [agentConfig?.nombre, agentConfig?.apellido].filter(Boolean).join(" ") || null;
 
   return (
     <InboxClient
@@ -62,6 +63,8 @@ export default async function SoporteAvanzadoPage({ searchParams }: { searchPara
       initialSelectedId={selectedId}
       containerType={"soporte-avanzado" as const}
       initialAgentEmail={agentEmail}
+      initialAgentName={fullAgentName}
+      initialAgentRole={agentConfig?.rol || "tecnico"}
       initialInboxPerms={inboxSubs}
     />
   );

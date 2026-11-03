@@ -8,24 +8,35 @@ interface EvolutionConfig {
 }
 
 const DEFAULT_KEY = "evolution_api_config";
+const EVO_CONFIG_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos en memoria
+let cachedEvoConfig: EvolutionConfig | null = null;
+let cachedEvoConfigAt = 0;
 
 export async function getEvolutionConfig(): Promise<EvolutionConfig> {
+  if (cachedEvoConfig && Date.now() - cachedEvoConfigAt < EVO_CONFIG_CACHE_TTL_MS) {
+    return cachedEvoConfig;
+  }
+
   const envUrl = process.env.EVOLUTION_API_URL || "";
   const envKey = process.env.EVOLUTION_API_KEY || "";
   const envInstance = process.env.EVOLUTION_INSTANCE || "";
 
-  // PRIORIDAD 0: Conexión directa ultra-rápida si el contenedor local de Evolution API (127.0.0.1:28080) está activo
-  try {
-    const localRes = await fetch("http://127.0.0.1:28080", { signal: AbortSignal.timeout(400) });
-    if (localRes.ok) {
-      return {
-        url: "http://127.0.0.1:28080",
-        apiKey: envKey || "SEKUNET_EVO_KEY_123",
-        instance: envInstance || "sekunet",
-      };
+  // PRIORIDAD 0: Conexión directa ultra-rápida si el contenedor local de Evolution API (127.0.0.1:28080) está activo (omitir en Vercel)
+  if (!process.env.VERCEL) {
+    try {
+      const localRes = await fetch("http://127.0.0.1:28080", { signal: AbortSignal.timeout(250) });
+      if (localRes.ok) {
+        cachedEvoConfig = {
+          url: "http://127.0.0.1:28080",
+          apiKey: envKey || "SEKUNET_EVO_KEY_123",
+          instance: envInstance || "sekunet",
+        };
+        cachedEvoConfigAt = Date.now();
+        return cachedEvoConfig;
+      }
+    } catch {
+      // Si no está escuchando en local, continúa normalmente
     }
-  } catch {
-    // Si no está escuchando en local, continúa normalmente
   }
 
   const supabase = createServiceClient();
@@ -43,21 +54,27 @@ export async function getEvolutionConfig(): Promise<EvolutionConfig> {
     if (data && !error) {
       const raw = decrypt(data.value, data.iv, data.tag);
       const parsed = JSON.parse(raw) as EvolutionConfig;
-      return {
+      cachedEvoConfig = {
         url: parsed.url || envUrl,
         apiKey: parsed.apiKey || envKey,
         instance: parsed.instance || envInstance,
       };
+      cachedEvoConfigAt = Date.now();
+      return cachedEvoConfig;
     }
   } catch (e) {
     // tabla no existe o error de descifrado
   }
 
   // PRIORIDAD 2: variables de entorno
-  return { url: envUrl, apiKey: envKey, instance: envInstance };
+  cachedEvoConfig = { url: envUrl, apiKey: envKey, instance: envInstance };
+  cachedEvoConfigAt = Date.now();
+  return cachedEvoConfig;
 }
 
 export async function saveEvolutionConfig(cfg: EvolutionConfig): Promise<void> {
+  cachedEvoConfig = null;
+  cachedEvoConfigAt = 0;
   const supabase = createServiceClient();
   const payload = JSON.stringify({
     url: cfg.url,
