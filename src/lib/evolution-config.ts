@@ -24,7 +24,7 @@ export async function getEvolutionConfig(): Promise<EvolutionConfig> {
   // PRIORIDAD 0: Conexión directa ultra-rápida si el contenedor local de Evolution API (127.0.0.1:28080) está activo (omitir en Vercel)
   if (!process.env.VERCEL) {
     try {
-      const localRes = await fetch("http://127.0.0.1:28080", { signal: AbortSignal.timeout(250) });
+      const localRes = await fetch("http://127.0.0.1:28080", { signal: AbortSignal.timeout(2500) });
       if (localRes.ok) {
         cachedEvoConfig = {
           url: "http://127.0.0.1:28080",
