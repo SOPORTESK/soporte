@@ -335,7 +335,27 @@ interface IndexedPrecedent {
   domainScores: Record<string, number>;
   primaryDomain: string;
   closedAt: string;
+  confirmationReason: string;
 }
+
+const SUCCESS_CONFIRMATION_PATTERNS = [
+  /ya\s+(funcion[oó]|sirvi[oó]|conect[oó]|levant[oó]|qued[oó]|pude|dio\s+video|lo\s+reconoci[oó]|entré|ingresé|resolv[ií])/i,
+  /qued[oó]\s+(listo|perfecto|bien|resuelto|excelente|operativo)/i,
+  /con\s+eso\s+(qued[oó]|se\s+arregl[oó]|se\s+solucion[oó]|funcion[oó]|sirvi[oó])/i,
+  /(era\s+eso|eso\s+era|ya\s+quedo|ya\s+quedó|listo\s+muchas\s+gracias|listo\s+gracias|perfecto\s+gracias|excelente\s+gracias)/i,
+  /(much[ií]simas\s+gracias|mil\s+gracias|muy\s+amable\s+gracias|agradezco\s+mucho|le\s+agradezco\s+la\s+ayuda|agradecido)/i,
+  /ya\s+pude\s+(ingresar|entrar|configurar|conectar|verlo|activarlo|resetear)/i,
+  /me\s+sirvi[oó]\s+mucho|me\s+ayud[oó]\s+bastante/i,
+];
+
+const FAILURE_OR_COMPLAINT_PATTERNS = [
+  /no\s+(sirvi[oó]|funcion[oó]|pude|conecta|da\s+video|reconoce)/i,
+  /sigue\s+(igual|sin\s+funcionar|sin\s+dar|con\s+el\s+error|fallando)/i,
+  /p[eé]simo|terrible|muy\s+mal|no\s+me\s+ayudaron|no\s+me\s+sirvi[oó]/i,
+];
+
+const ABANDONMENT_CLOSURE_PATTERNS =
+  /debido\s+a\s+que\s+no\s+hemos\s+recibido\s+respuesta|cerrad[oa]\s+por\s+inactividad|cerrad[oa]\s+por\s+falta\s+de\s+respuesta/i;
 
 interface IndexedDocChunk {
   id: string | number;
@@ -504,7 +524,7 @@ async function getFullKnowledgeAndCasesIndex(serviceClient: any): Promise<{
   }
 
   const selectCols =
-    "id, title, marca, modelo, problema, resolucion, assigned_to, closed_at, cliente, histcliente, histtecnico";
+    "id, title, marca, modelo, problema, resolucion, assigned_to, closed_at, cliente, histcliente, histtecnico, es_test, calificacion";
 
   const [batch1, batch2, agentsRes, chunksRes] = await Promise.all([
     serviceClient
@@ -541,9 +561,50 @@ async function getFullKnowledgeAndCasesIndex(serviceClient: any): Promise<{
     if (!c?.id || seenCaseIds.has(c.id)) continue;
     seenCaseIds.add(c.id);
 
+    // 0. Filtro estricto: Solo casos con confirmación comprobada del cliente de que el soporte fue útil
+    if (c.es_test) continue;
+
     const ht = Array.isArray(c.histtecnico) ? c.histtecnico : [];
     const hc = Array.isArray(c.histcliente) ? c.histcliente : [];
     const cli = typeof c.cliente === "object" && c.cliente ? c.cliente : {};
+
+    // Descartar si el caso cerró por falta de respuesta / inactividad del cliente
+    const lastTechMsgs = ht.filter((m: any) => m && m.content).map((m: any) => String(m.content));
+    if (lastTechMsgs.slice(-2).some((txt: string) => ABANDONMENT_CLOSURE_PATTERNS.test(txt))) {
+      continue;
+    }
+
+    const clientRating = Number(c.calificacion || cli.calificacion_agente) || 0;
+    if (clientRating > 0 && clientRating <= 2) {
+      continue; // Descartar si hubo mala calificación o queja
+    }
+
+    const clientTexts = hc
+      .filter((m: any) => m && m.content && typeof m.content === "string")
+      .map((m: any) => String(m.content).trim());
+    const clientTail = clientTexts.slice(-5).join(" ");
+
+    // Descartar si el cliente reportó fallo o queja al final
+    if (FAILURE_OR_COMPLAINT_PATTERNS.some((re) => re.test(clientTail))) {
+      continue;
+    }
+
+    let confirmationReason = "";
+    if (clientRating >= 4 && clientTexts.length > 0) {
+      confirmationReason = `Calificación de satisfacción: ${clientRating} estrellas`;
+    } else {
+      for (const re of SUCCESS_CONFIRMATION_PATTERNS) {
+        const match = clientTail.match(re);
+        if (match) {
+          confirmationReason = `Confirmación del cliente: "${match[0]}"`;
+          break;
+        }
+      }
+    }
+
+    // Regla de oro: si el cliente no confirmó que le sirvió la solución, NO se toma como precedente
+    if (!confirmationReason) continue;
+
     const clienteDesc = cli.descripcion ? String(cli.descripcion).trim() : "";
 
     // 1. Extraer respuestas técnicas reales (excluyendo preguntas cortas, saludos y nombres de archivos)
@@ -701,6 +762,7 @@ async function getFullKnowledgeAndCasesIndex(serviceClient: any): Promise<{
       domainScores,
       primaryDomain,
       closedAt: c.closed_at || "",
+      confirmationReason,
     });
   }
 
@@ -1282,7 +1344,7 @@ export async function POST(req: NextRequest) {
         historicalPrecedents = topPrecedents
           .map(
             (mc, idx) =>
-              `[C${idx + 1}] Caso #${mc.shortId} resuelto por ${mc.resolverName} (${mc.equipmentLabel} - ${mc.faultSummary})\nSolución técnica comprobada: ${mc.solutionText.substring(0, 550)}`
+              `[C${idx + 1}] Caso #${mc.shortId} resuelto con ÉXITO COMPROBADO Y CONFIRMADO POR EL CLIENTE (${mc.confirmationReason}) por ${mc.resolverName} (${mc.equipmentLabel} - ${mc.faultSummary})\nSolución técnica comprobada: ${mc.solutionText.substring(0, 550)}`
           )
           .join("\n\n");
       }
@@ -1384,7 +1446,7 @@ ${activeDomainDef ? `- Categoría técnica detectada: ${activeDomainDef.label}` 
 CONVERSACIÓN CRONOLÓGICA COMPLETA DEL CASO ABIERTO (con transcripciones y análisis de imágenes):
 ${openCaseConversation || "No hay mensajes registrados en este caso."}
 ${ragContext ? `\n\nMANUALES OFICIALES EN BASE DE CONOCIMIENTO SEKUNET (RAG):\n${ragContext}` : ""}
-${historicalPrecedents ? `\n\nPRECEDENTES HISTÓRICOS REALES RESUELTOS POR TÉCNICOS DE SEKUNET (RELACIONADOS CON ESTA AVERÍA):\n${historicalPrecedents}` : ""}
+${historicalPrecedents ? `\n\nPRECEDENTES HISTÓRICOS REALES RESUELTOS CON ÉXITO Y CONFIRMACIÓN DEL CLIENTE (SEKUNET):\n${historicalPrecedents}` : ""}
 ${webContext ? `\n\nBÚSQUEDA WEB EN VIVO (MANUALES OFICIALES, FICHAS TÉCNICAS Y FOROS ESPECIALIZADOS):\n${webContext}` : ""}
 
 REGLAS DE ATENCIÓN TÉCNICA OBLIGATORIAS:
@@ -1398,7 +1460,7 @@ Está TERMINANTEMENTE PROHIBIDO mezclar marcas o sugerir herramientas/procedimie
 - Si el equipo es Simplex, JAMÁS menciones DSC, Paradox, Dahua ni Hikvision.
 - Si el equipo es Hikvision, JAMÁS menciones SmartPSS, DMSS ni ZKTeco.
 Toda recomendación técnica debe pertenecer con total exactitud a la marca del equipo del cliente. Si no tienes un procedimiento certero para esta marca, indícalo con honestidad en vez de inventar datos.
-1. MÁXIMA PRIORIDAD A RESOLVER LA AVERÍA: El técnico te consulta para encontrar la SOLUCIÓN EXACTA. Debes fundamentar tu diagnóstico y procedimiento en las soluciones reales comprobadas que los técnicos de Sekunet ya aplicaron en los precedentes de taller Y en la información técnica oficial de manuales y fichas técnicas web.
+1. MÁXIMA PRIORIDAD A RESOLVER LA AVERÍA: El técnico te consulta para encontrar la SOLUCIÓN EXACTA. Debes fundamentar tu diagnóstico y procedimiento en las soluciones reales comprobadas que los técnicos de Sekunet ya aplicaron con éxito y con confirmación explícita del cliente en los precedentes de taller Y en la información técnica oficial de manuales y fichas técnicas web. Todos los precedentes históricos [C1], [C2], etc. suministrados han sido rigurosamente auditados y cuentan con confirmación verificada del cliente de que el soporte brindado fue útil y resolutivo.
 2. FOCO Y DESTINATARIO: Tu respuesta va dirigida ÚNICA Y EXCLUSIVAMENTE al caso y cliente abierto en pantalla. Nunca menciones nombres de clientes pasados.
 3. ESTRUCTURA DE RESOLUCIÓN TÉCNICA (OBLIGATORIA al pedir diagnóstico, análisis o solución):
    Responde con un Plan Técnico Resolutivo CONCISO, DIRECTO Y SIN RELLENO TEÓRICO en estas secciones (usa el título exacto seguido de dos puntos):
