@@ -1,9 +1,11 @@
 import { NextRequest } from "next/server";
+import { getEvolutionConfig } from "@/lib/evolution-config";
 
 export async function GET(req: NextRequest) {
-  const EVO_URL = process.env.EVOLUTION_API_URL || "";
-  const EVO_KEY = process.env.EVOLUTION_API_KEY || "";
-  const instance = (new URL(req.url)).searchParams.get("instance") || (process.env.EVOLUTION_INSTANCE || "");
+  const config = await getEvolutionConfig();
+  const EVO_URL = config.url || process.env.EVOLUTION_API_URL || "";
+  const EVO_KEY = config.apiKey || process.env.EVOLUTION_API_KEY || "";
+  const instance = (new URL(req.url)).searchParams.get("instance") || config.instance || process.env.EVOLUTION_INSTANCE || "";
   const number = (new URL(req.url)).searchParams.get("number");
   if (!EVO_URL || !EVO_KEY || !instance) {
     return new Response("Missing Evolution configuration", { status: 500 });

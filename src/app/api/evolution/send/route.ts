@@ -5,29 +5,29 @@ import { normalizePhone, pickPhone } from "@/lib/evolution-phone";
 
 function inferMimeFromExt(ext: string): string {
   const map: Record<string, string> = {
-    "xml": "text/xml",
-    "pdf": "application/pdf",
-    "doc": "application/msword",
-    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "xls": "application/vnd.ms-excel",
-    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "csv": "text/csv",
-    "txt": "text/plain",
-    "png": "image/png",
-    "jpg": "image/jpeg",
-    "jpeg": "image/jpeg",
-    "gif": "image/gif",
-    "mp4": "video/mp4",
-    "mp3": "audio/mpeg",
-    "ogg": "audio/ogg",
-    "wav": "audio/wav",
-    "zip": "application/zip",
-    "rar": "application/x-rar-compressed",
-    "exe": "application/x-msdownload",
-    "msi": "application/x-msi",
-    "dmg": "application/x-apple-diskimage",
-    "apk": "application/vnd.android.package-archive",
-    "ipa": "application/octet-stream"
+    xml: "text/xml",
+    pdf: "application/pdf",
+    doc: "application/msword",
+    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    xls: "application/vnd.ms-excel",
+    xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    csv: "text/csv",
+    txt: "text/plain",
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    gif: "image/gif",
+    mp4: "video/mp4",
+    mp3: "audio/mpeg",
+    ogg: "audio/ogg",
+    wav: "audio/wav",
+    zip: "application/zip",
+    rar: "application/x-rar-compressed",
+    exe: "application/x-msdownload",
+    msi: "application/x-msi",
+    dmg: "application/x-apple-diskimage",
+    apk: "application/vnd.android.package-archive",
+    ipa: "application/octet-stream",
   };
   return map[ext.toLowerCase()] || "application/octet-stream";
 }
@@ -41,7 +41,8 @@ function detectMediaType(mime: string | null | undefined): "image" | "video" | "
 }
 
 export async function POST(req: NextRequest) {
-  const { case_id, phone, text, mediaUrl, mediaType, fileName, entry, quotedMessageId, quotedText, quotedFromMe } = await req.json().catch(() => ({}));
+  const { case_id, phone, text, mediaUrl, mediaType, fileName, entry, quotedMessageId, quotedText, quotedFromMe } =
+    await req.json().catch(() => ({}));
   if ((!case_id && !phone) || (!text && !mediaUrl)) return NextResponse.json({ error: "invalid" }, { status: 400 });
 
   const evoCfg = await getEvolutionConfig();
@@ -58,7 +59,11 @@ export async function POST(req: NextRequest) {
   if (phone) {
     to = `${normalizePhone(phone)}@s.whatsapp.net`;
   } else {
-    const row = await supabase.from("sek_cases").select("id, canal, customer_phone, cliente, histcliente, histtecnico").eq("id", case_id).maybeSingle();
+    const row = await supabase
+      .from("sek_cases")
+      .select("id, canal, customer_phone, cliente, histcliente, histtecnico")
+      .eq("id", case_id)
+      .maybeSingle();
     c = row.data;
     if (!c || String(c.canal).toLowerCase() !== "whatsapp") return NextResponse.json({ error: "case_not_whatsapp" }, { status: 400 });
     to = pickPhone(c);
@@ -66,9 +71,22 @@ export async function POST(req: NextRequest) {
   if (!to) return NextResponse.json({ error: "no_phone" }, { status: 400 });
 
   if (case_id && !c) {
-    const row = await supabase.from("sek_cases").select("id, canal, customer_phone, cliente, histcliente, histtecnico").eq("id", case_id).maybeSingle();
+    const row = await supabase
+      .from("sek_cases")
+      .select("id, canal, customer_phone, cliente, histcliente, histtecnico")
+      .eq("id", case_id)
+      .maybeSingle();
     c = row.data;
   }
+
+  // Lista priorizada de URLs candidatas (con fallback automático a local o al túnel activo)
+  const rawCandidates = [
+    evoCfg.url,
+    ...(evoCfg.candidates || []),
+    !process.env.VERCEL ? "http://127.0.0.1:28080" : "",
+    !process.env.VERCEL ? "http://localhost:28080" : "",
+  ];
+  const candidateUrls = Array.from(new Set(rawCandidates.map((u) => (u || "").replace(/\/$/, "")).filter(Boolean)));
 
   try {
     let msgId: string | null = null;
@@ -78,7 +96,7 @@ export async function POST(req: NextRequest) {
     let targetQuotedText = quotedText || entry?.replyTo?.content || "";
     let targetQuotedFromMe = quotedFromMe !== undefined ? Boolean(quotedFromMe) : Boolean(entry?.replyTo?.fromMe);
 
-    // Auto-resolver si no viene el messageId pero sí el texto citado (ej: cliente con frontend en caché)
+    // Auto-resolver si no viene el messageId pero sí el texto citado
     if (!targetQuotedId && targetQuotedText && c) {
       try {
         const allMsgs = [
@@ -94,17 +112,19 @@ export async function POST(req: NextRequest) {
       } catch {}
     }
 
-    const quoted = targetQuotedId ? {
-      key: {
-        id: targetQuotedId,
-        remoteJid: to,
-        fromMe: targetQuotedFromMe,
-        ...(targetQuotedFromMe ? {} : { participant: to }),
-      },
-      message: {
-        conversation: targetQuotedText,
-      }
-    } : undefined;
+    const quoted = targetQuotedId
+      ? {
+          key: {
+            id: targetQuotedId,
+            remoteJid: to,
+            fromMe: targetQuotedFromMe,
+            ...(targetQuotedFromMe ? {} : { participant: to }),
+          },
+          message: {
+            conversation: targetQuotedText,
+          },
+        }
+      : undefined;
 
     if (mediaUrl) {
       let finalMimeType = mediaType;
@@ -116,79 +136,122 @@ export async function POST(req: NextRequest) {
       }
 
       const mediatype = detectMediaType(finalMimeType);
-      const baseUrl = EVO_URL.replace(/\/$/, "");
       const instance = encodeURIComponent(EVO_INSTANCE);
+      let sendSuccess = false;
+      let lastError: any = null;
 
-      let evoEndpoint: string;
-      let evoBody: Record<string, unknown>;
+      for (const baseUrl of candidateUrls) {
+        let evoEndpoint: string;
+        let evoBody: Record<string, unknown>;
 
-      if (mediatype === "audio") {
-        evoEndpoint = `${baseUrl}/message/sendWhatsAppAudio/${instance}`;
-        evoBody = { number: to, audio: mediaUrl, ...(quoted ? { quoted } : {}) };
-      } else {
-        evoEndpoint = `${baseUrl}/message/sendMedia/${instance}`;
-        evoBody = {
-          number: to,
-          mediatype,
-          mimetype: finalMimeType || undefined,
-          caption: text || undefined,
-          media: mediaUrl,
-          fileName: fileName || undefined,
-          ...(quoted ? { quoted } : {}),
-        };
+        if (mediatype === "audio") {
+          evoEndpoint = `${baseUrl}/message/sendWhatsAppAudio/${instance}`;
+          evoBody = { number: to, audio: mediaUrl, ...(quoted ? { quoted } : {}) };
+        } else {
+          evoEndpoint = `${baseUrl}/message/sendMedia/${instance}`;
+          evoBody = {
+            number: to,
+            mediatype,
+            mimetype: finalMimeType || undefined,
+            caption: text || undefined,
+            media: mediaUrl,
+            fileName: fileName || undefined,
+            ...(quoted ? { quoted } : {}),
+          };
+        }
+
+        try {
+          console.log(`[evo-send] Intentando enviar media (${mediatype}) a ${to} vía ${baseUrl}...`);
+          let res = await fetch(evoEndpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", apikey: EVO_KEY },
+            body: JSON.stringify(evoBody),
+            signal: AbortSignal.timeout(18000),
+          });
+
+          // Si falla y venía con cita, reintentar sin cita como respaldo
+          if (!res.ok && quoted) {
+            console.warn(`[evo-send] Falló con cita en ${baseUrl}, reintentando media sin cita...`);
+            const fallbackBody = { ...evoBody };
+            delete fallbackBody.quoted;
+            res = await fetch(evoEndpoint, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", apikey: EVO_KEY },
+              body: JSON.stringify(fallbackBody),
+              signal: AbortSignal.timeout(18000),
+            });
+          }
+
+          const mediaRes = await res.json().catch(() => ({}));
+          if (res.ok) {
+            msgId = mediaRes?.key?.id || mediaRes?.messageId || null;
+            console.log(`[evo-send] Éxito enviando media vía ${baseUrl}. messageId:`, msgId);
+            sendSuccess = true;
+            break;
+          } else {
+            console.warn(`[evo-send] Error HTTP ${res.status} desde ${baseUrl}:`, mediaRes);
+            lastError = new Error(`evolution ${res.status}: ${JSON.stringify(mediaRes)}`);
+          }
+        } catch (fetchErr: any) {
+          console.warn(`[evo-send] Falló fetch hacia ${baseUrl}: ${fetchErr.message}. Probando siguiente candidato...`);
+          lastError = fetchErr;
+        }
       }
 
-      let res = await fetch(evoEndpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", apikey: EVO_KEY },
-        body: JSON.stringify(evoBody),
-      });
-
-      // Si falla y venía con cita, reintentar sin cita como respaldo
-      if (!res.ok && quoted) {
-        console.warn("[evo-send] Falló con cita, reintentando envío de media sin cita como respaldo...");
-        const fallbackBody = { ...evoBody };
-        delete fallbackBody.quoted;
-        res = await fetch(evoEndpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", apikey: EVO_KEY },
-          body: JSON.stringify(fallbackBody),
-        });
+      if (!sendSuccess) {
+        throw lastError || new Error("No se pudo entregar el archivo multimedia a través de Evolution API");
       }
-      const mediaRes = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(`evolution ${res.status}: ${JSON.stringify(mediaRes)}`);
-      msgId = mediaRes?.key?.id || mediaRes?.messageId || null;
-      console.log("[evo-send] Éxito enviando media. messageId:", msgId);
     } else {
-      console.log("[evo-send] Intentando enviar texto a:", to);
       const sendTextBody: Record<string, unknown> = {
         number: to,
         text,
         ...(quoted ? { quoted } : {}),
       };
 
-      let res = await fetch(`${EVO_URL.replace(/\/$/, "")}/message/sendText/${encodeURIComponent(EVO_INSTANCE)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", apikey: EVO_KEY },
-        body: JSON.stringify(sendTextBody)
-      });
+      let sendSuccess = false;
+      let lastError: any = null;
 
-      // Si falla y venía con cita, reintentar sin cita como respaldo para garantizar entrega
-      if (!res.ok && quoted) {
-        console.warn("[evo-send] Falló sendText con cita, reintentando sin cita como respaldo...");
-        res = await fetch(`${EVO_URL.replace(/\/$/, "")}/message/sendText/${encodeURIComponent(EVO_INSTANCE)}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", apikey: EVO_KEY },
-          body: JSON.stringify({ number: to, text })
-        });
+      for (const baseUrl of candidateUrls) {
+        const evoEndpoint = `${baseUrl}/message/sendText/${encodeURIComponent(EVO_INSTANCE)}`;
+        try {
+          console.log(`[evo-send] Intentando enviar texto a ${to} vía ${baseUrl}...`);
+          let res = await fetch(evoEndpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", apikey: EVO_KEY },
+            body: JSON.stringify(sendTextBody),
+            signal: AbortSignal.timeout(12000),
+          });
+
+          // Si falla y venía con cita, reintentar sin cita como respaldo para garantizar entrega
+          if (!res.ok && quoted) {
+            console.warn(`[evo-send] Falló sendText con cita en ${baseUrl}, reintentando sin cita...`);
+            res = await fetch(evoEndpoint, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", apikey: EVO_KEY },
+              body: JSON.stringify({ number: to, text }),
+              signal: AbortSignal.timeout(12000),
+            });
+          }
+
+          const resData = await res.json().catch(() => ({}));
+          if (res.ok) {
+            msgId = resData?.key?.id || resData?.messageId || null;
+            console.log(`[evo-send] Éxito enviando mensaje vía ${baseUrl}. messageId:`, msgId);
+            sendSuccess = true;
+            break;
+          } else {
+            console.warn(`[evo-send] Error HTTP ${res.status} desde ${baseUrl}:`, resData);
+            lastError = new Error(`evolution ${res.status}: ${JSON.stringify(resData)}`);
+          }
+        } catch (fetchErr: any) {
+          console.warn(`[evo-send] Falló fetch hacia ${baseUrl}: ${fetchErr.message}. Probando siguiente candidato...`);
+          lastError = fetchErr;
+        }
       }
-      const resData = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        console.error("[evo-send] Error en respuesta de Evolution:", res.status, resData);
-        throw new Error(`evolution ${res.status}: ${JSON.stringify(resData)}`);
+
+      if (!sendSuccess) {
+        throw lastError || new Error("No se pudo entregar el mensaje de texto a través de Evolution API");
       }
-      msgId = resData?.key?.id || resData?.messageId || null;
-      console.log("[evo-send] Éxito enviando mensaje. messageId:", msgId);
     }
 
     // WhatsApp confirmó la entrega. Ahora sí guardar en la BD con el ID real.
@@ -211,8 +274,6 @@ export async function POST(req: NextRequest) {
       });
       if (appendErr) {
         console.error("[evo-send] Error guardando en BD tras envío exitoso:", appendErr);
-        // El mensaje SÍ se entregó a WhatsApp, pero no se pudo guardar en BD.
-        // Lo reportamos pero no fallamos el response.
       }
     }
 

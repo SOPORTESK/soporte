@@ -1,14 +1,15 @@
-import { createServiceClient } from "@/lib/supabase/service";
+﻿import { createServiceClient } from "@/lib/supabase/service";
 import { encrypt, decrypt } from "@/lib/crypto-config";
 
-interface EvolutionConfig {
+export interface EvolutionConfig {
   url: string;
   apiKey: string;
   instance: string;
+  candidates?: string[];
 }
 
 const DEFAULT_KEY = "evolution_api_config";
-const EVO_CONFIG_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos en memoria
+const EVO_CONFIG_CACHE_TTL_MS = 60 * 1000; // 1 minuto en memoria
 let cachedEvoConfig: EvolutionConfig | null = null;
 let cachedEvoConfigAt = 0;
 
@@ -18,32 +19,34 @@ export async function getEvolutionConfig(): Promise<EvolutionConfig> {
   }
 
   const envUrl = process.env.EVOLUTION_API_URL || "";
-  const envKey = process.env.EVOLUTION_API_KEY || "";
-  const envInstance = process.env.EVOLUTION_INSTANCE || "";
+  const envKey = process.env.EVOLUTION_API_KEY || "SEKUNET_EVO_KEY_123";
+  const envInstance = process.env.EVOLUTION_INSTANCE || "sekunet";
 
   // PRIORIDAD 0: Conexión directa ultra-rápida si el contenedor local de Evolution API (127.0.0.1:28080) está activo (omitir en Vercel)
   if (!process.env.VERCEL) {
     try {
-      const localRes = await fetch("http://127.0.0.1:28080", { signal: AbortSignal.timeout(2500) });
+      const localRes = await fetch("http://127.0.0.1:28080", { signal: AbortSignal.timeout(3000) });
       if (localRes.ok) {
         cachedEvoConfig = {
           url: "http://127.0.0.1:28080",
-          apiKey: envKey || "SEKUNET_EVO_KEY_123",
-          instance: envInstance || "sekunet",
+          apiKey: envKey,
+          instance: envInstance,
+          candidates: ["http://127.0.0.1:28080", "http://localhost:28080"],
         };
         cachedEvoConfigAt = Date.now();
         return cachedEvoConfig;
       }
     } catch {
-      // Si no está escuchando en local, continúa normalmente
+      // Si no responde en 127.0.0.1, continúa a consultar Supabase / env
     }
   }
 
   const supabase = createServiceClient();
+  let dbUrl = "";
+  let dbKey = "";
+  let dbInstance = "";
 
-  // PRIORIDAD 1: config guardada desde el panel admin (cifrada en Supabase).
-  // El panel debe poder cambiar la URL sin depender de redeploys ni de variables
-  // de entorno desactualizadas; las env vars quedan solo como respaldo.
+  // PRIORIDAD 1: config guardada desde el panel admin o watchdog (cifrada en Supabase).
   try {
     const { data, error } = await supabase
       .from("sek_app_settings")
@@ -54,20 +57,32 @@ export async function getEvolutionConfig(): Promise<EvolutionConfig> {
     if (data && !error) {
       const raw = decrypt(data.value, data.iv, data.tag);
       const parsed = JSON.parse(raw) as EvolutionConfig;
-      cachedEvoConfig = {
-        url: parsed.url || envUrl,
-        apiKey: parsed.apiKey || envKey,
-        instance: parsed.instance || envInstance,
-      };
-      cachedEvoConfigAt = Date.now();
-      return cachedEvoConfig;
+      dbUrl = parsed.url || "";
+      dbKey = parsed.apiKey || "";
+      dbInstance = parsed.instance || "";
     }
   } catch (e) {
     // tabla no existe o error de descifrado
   }
 
-  // PRIORIDAD 2: variables de entorno
-  cachedEvoConfig = { url: envUrl, apiKey: envKey, instance: envInstance };
+  const primaryUrl = dbUrl || envUrl || (!process.env.VERCEL ? "http://127.0.0.1:28080" : "");
+  const primaryKey = dbKey || envKey;
+  const primaryInstance = dbInstance || envInstance;
+
+  const candidateList: string[] = [];
+  if (primaryUrl) candidateList.push(primaryUrl);
+  if (envUrl && !candidateList.includes(envUrl)) candidateList.push(envUrl);
+  if (!process.env.VERCEL) {
+    if (!candidateList.includes("http://127.0.0.1:28080")) candidateList.push("http://127.0.0.1:28080");
+    if (!candidateList.includes("http://localhost:28080")) candidateList.push("http://localhost:28080");
+  }
+
+  cachedEvoConfig = {
+    url: primaryUrl,
+    apiKey: primaryKey,
+    instance: primaryInstance,
+    candidates: candidateList,
+  };
   cachedEvoConfigAt = Date.now();
   return cachedEvoConfig;
 }

@@ -37,7 +37,7 @@ export function WhatsAppQRConnect() {
     setLastError(null);
     try {
       const r1 = await evoProxy("/instance/fetchInstances");
-      setLastResponse(`fetchInstances: HTTP ${r1.status}\n${JSON.stringify(r1.data).slice(0, 500)}`);
+      setLastResponse(`fetchInstances: HTTP ${r1.status ?? "ERR"}\n${(JSON.stringify(r1.data ?? r1) || "").slice(0, 500)}`);
       if (r1.ok) {
         const instances = Array.isArray(r1.data) ? r1.data : r1.data?.instances || [];
         const inst = instances.find((i: any) => i.instanceName === instance || i.name === instance);
@@ -50,7 +50,7 @@ export function WhatsAppQRConnect() {
         }
       }
       const r2 = await evoProxy(`/instance/restart/${encodeURIComponent(instance)}`, "POST");
-      setLastResponse(`restart: HTTP ${r2.status}\n${JSON.stringify(r2.data).slice(0, 500)}`);
+      setLastResponse(`restart: HTTP ${r2.status ?? "ERR"}\n${(JSON.stringify(r2.data ?? r2) || "").slice(0, 500)}`);
       if (r2.ok) {
         const inst = r2.data?.instance || r2.data;
         const state = String(inst?.state || "").toLowerCase();
@@ -72,8 +72,15 @@ export function WhatsAppQRConnect() {
     setLastError(null);
     try {
       const r = await evoProxy(`/instance/logout/${encodeURIComponent(instance)}`, "DELETE");
-      setLastResponse(`logout: HTTP ${r.status}\n${JSON.stringify(r.data).slice(0, 500)}`);
+      setLastResponse(`logout: HTTP ${r.status ?? "ERR"}\n${(JSON.stringify(r.data ?? r) || "").slice(0, 500)}`);
       if (!r.ok) {
+        const msg = JSON.stringify(r.data || "");
+        if (msg.includes("not connected") || r.status === 400) {
+          toast.info("La instancia ya se encuentra desconectada.");
+          setStatus("close");
+          setQrCode(null);
+          return;
+        }
         throw new Error(
           `El servidor de Evolution (${evoUrl}) respondió HTTP ${r.status}. ` +
           `Verifique que la URL configurada arriba sea la correcta. Detalle: ${JSON.stringify(r.data)}`
@@ -94,8 +101,9 @@ export function WhatsAppQRConnect() {
     setQrCode(null);
     try {
       const r = await evoProxy(`/instance/connect/${encodeURIComponent(instance)}`, "GET");
-      setLastResponse(`connect: HTTP ${r.status}\n${JSON.stringify(r.data).slice(0, 500)}`);
-      if (r.ok && r.data?.base64) {
+      setLastResponse(`connect: HTTP ${r.status ?? "ERR"}\n${(JSON.stringify(r.data ?? r) || "").slice(0, 500)}`);
+      const qr = r.data?.base64 || r.data?.qrcode?.base64;
+      if (r.ok && qr) {
         setQrCode(r.data.base64);
         setStatus("connecting");
         toast.success("QR generado con éxito.");

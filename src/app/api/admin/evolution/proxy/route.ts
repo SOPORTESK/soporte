@@ -5,12 +5,12 @@ export async function POST(req: NextRequest) {
   try {
     const { endpoint, method = "GET", body } = await req.json();
     if (!endpoint || typeof endpoint !== "string") {
-      return NextResponse.json({ error: "endpoint required" }, { status: 400 });
+      return NextResponse.json({ ok: false, status: 400, error: "endpoint required", data: null }, { status: 400 });
     }
 
     const cfg = await getEvolutionConfig();
     if (!cfg.url || !cfg.apiKey) {
-      return NextResponse.json({ error: "not_configured" }, { status: 503 });
+      return NextResponse.json({ ok: false, status: 503, error: "not_configured", data: null }, { status: 503 });
     }
 
     const url = `${cfg.url.replace(/\/$/, "")}${endpoint}`;
@@ -34,6 +34,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: res.ok, status: res.status, data });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "proxy_error" }, { status: 500 });
+    return NextResponse.json({ ok: false, status: 500, error: e?.message || "proxy_error", data: null }, { status: 500 });
   }
 }
