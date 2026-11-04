@@ -965,16 +965,33 @@ export function computeUnifiedActivityMetrics(
             label: taskLabel,
           });
         }
-      } else if (isTodayDay && i === sorted.length - 1) {
-        // Tarea manual en curso únicamente si es hoy y es el último evento activo
-        const nowMs = Date.now();
-        const elapsedSinceStart = nowMs - tMs;
-        if (elapsedSinceStart > 0 && elapsedSinceStart < 4 * 3600 * 1000) {
-          const ongoingEndMs = nowMs;
+      } else {
+        // Tarea manual sin evento explícito de "Terminó:" (se deduce por siguiente labor manual o tiempo transcurrido)
+        let nextEventMs = 0;
+        for (let j = i + 1; j < sorted.length; j++) {
+          const nextIt = sorted[j];
+          const nextAct = (nextIt.action || "").toLowerCase();
+          const nextMeta = (nextIt.metadata || {}) as Record<string, any>;
+          if (nextAct.startsWith("inició:") || nextAct.startsWith("inicio:") || (nextMeta.manual || nextMeta.task)) {
+            nextEventMs = new Date(nextIt.created_at).getTime();
+            break;
+          }
+        }
+        const effectiveEndMs = nextEventMs > tMs
+          ? nextEventMs
+          : (isTodayDay ? Math.min(Date.now(), tMs + 4 * 3600 * 1000) : tMs + 30 * 60 * 1000);
+
+        if (effectiveEndMs > tMs + 15000) {
+          const catLower = (it.category || "").toLowerCase();
+          const isSanitary = catLower.includes("sanitaria") || taskLabel.toLowerCase().includes("baño") || taskLabel.toLowerCase().includes("bano");
+          const durMs = isSanitary
+            ? Math.min(effectiveEndMs - tMs, 30 * 60 * 1000)
+            : Math.min(effectiveEndMs - tMs, 4 * 3600 * 1000);
+
           manualIntervals.push({
             startMs: tMs,
-            endMs: ongoingEndMs,
-            category: it.category || "Control Administrativo",
+            endMs: tMs + durMs,
+            category: it.category || (isSanitary ? "Pausa Sanitaria" : "Descansos"),
             label: taskLabel,
           });
         }
@@ -1460,7 +1477,7 @@ export function computeUnifiedActivityMetrics(
             }
 
             if (isSanitary) {
-              passiveAccumMs = Math.min(passiveAccumMs, 15 * 60 * 1000);
+              passiveAccumMs = Math.min(passiveAccumMs, 30 * 60 * 1000);
             }
             effectiveMs = Math.max(60000, passiveAccumMs);
           }

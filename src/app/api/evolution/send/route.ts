@@ -79,12 +79,12 @@ export async function POST(req: NextRequest) {
     c = row.data;
   }
 
-  // Lista priorizada de URLs candidatas (con fallback automático a local o al túnel activo)
+  // Lista priorizada de URLs candidatas (conexión local directa primero cuando no esté en Vercel, luego túnel externo)
   const rawCandidates = [
-    evoCfg.url,
-    ...(evoCfg.candidates || []),
     !process.env.VERCEL ? "http://127.0.0.1:28080" : "",
     !process.env.VERCEL ? "http://localhost:28080" : "",
+    evoCfg.url,
+    ...(evoCfg.candidates || []),
   ];
   const candidateUrls = Array.from(new Set(rawCandidates.map((u) => (u || "").replace(/\/$/, "")).filter(Boolean)));
 
