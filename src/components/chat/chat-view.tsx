@@ -1031,80 +1031,13 @@ export function ChatView({
 
   React.useEffect(() => {
     let mounted = true;
-    const channel = supabase
-      .channel(`case-${targetId}`)
-      .on("postgres_changes", {
-        event: "UPDATE", schema: "public", table: "sek_cases",
-        filter: `id=eq.${targetId}`
-      }, async (payload) => {
 
-        // Para chats agrupados, recargar solo los casos activos del grupo
-        const groupIds = initialCaseRef.current._group?.openCaseIds?.length
-          ? initialCaseRef.current._group.openCaseIds
-          : (initialCaseRef.current._group?.caseIds?.length ? initialCaseRef.current._group.caseIds : [targetId]);
-        if (isGrouped && groupIds.length) {
-          try {
-            const { data } = await supabase
-              .from("sek_cases")
-              .select("id,estado,canal,cliente,assigned_to,customer_phone,created_at,updated_at,last_message_at,last_message_preview,histcliente,histtecnico,marca,modelo,problema,resolucion,title")
-              .in("id", groupIds);
-            if (data && mounted) {
-              const merged = buildMergedCase(initialCaseRef.current, data as SekCase[]);
-              setSekCase(merged);
-              caseHistoryCache.set(cacheKey, { sekCase: merged, timestamp: Date.now() });
-            }
-          } catch (e) {
-            console.error("[chat-view] realtime reload group error:", e);
-          }
-          return;
-        }
-
-        setSekCase(prev => {
-          const newData = payload.new as any;
-          const update: any = { ...newData };
-          // Proteger historial cargado: no reemplazar arrays con datos reales por arrays vacíos
-          if (newData.histcliente !== undefined && Array.isArray(newData.histcliente) && newData.histcliente.length === 0 &&
-              Array.isArray(prev.histcliente) && prev.histcliente.length > 0) {
-            delete update.histcliente;
-          }
-          if (newData.histtecnico !== undefined && Array.isArray(newData.histtecnico) && newData.histtecnico.length === 0 &&
-              Array.isArray(prev.histtecnico) && prev.histtecnico.length > 0) {
-            delete update.histtecnico;
-          }
-          // Proteger estado escalado: el webhook puede cambiar el estado via realtime
-          // pero si el caso estaba escalado, solo permitir cambios a abierto/cerrado/resuelto
-          // (cambios hechos por acción explícita del agente), no retroceder a ia_atendiendo/pendiente
-          if (prev.estado === "escalado" && update.estado && ["ia_atendiendo", "pendiente"].includes(update.estado)) {
-            delete update.estado;
-          }
-          const next = { ...prev, ...update };
-          caseHistoryCache.set(cacheKey, { sekCase: next, timestamp: Date.now() });
-          return next;
-        });
-      })
-      .subscribe((status, err) => {
-        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
-          setTimeout(() => { if (mounted) { try { channel.subscribe(); } catch {} } }, 2000);
-        }
-      });
-
-    /* Presence para indicador de escritura — mismo canal que widget */
-    const presenceCh = supabase.channel(`wgt-typing-${targetId}`, { config: { presence: { key: "agent" } } })
-      .on("presence", { event: "sync" }, () => {
-        const state = presenceCh.presenceState<{ role: string; typing: boolean }>();
-        const entries = Object.values(state).flat();
-        setClienteTyping(entries.some((e: any) => e.role === "cliente" && e.typing));
-        setAgentTyping(entries.some((e: any) => e.role === "agente" && e.typing));
-      })
-      .subscribe();
-    presenceChannelRef.current = presenceCh;
-
-    /* Función de refetch reutilizable: la usa tanto el polling periódico como
-       el listener de visibilidad (para refrescar de inmediato al volver a la pestaña,
-       cubriendo el caso donde el navegador/OS pausó los timers en segundo plano). */
+    /* Función de refetch reutilizable: declarada al inicio del efecto para que esté
+       disponible de forma segura tanto para Realtime (.subscribe / postgres_changes)
+       como para el polling activo y los eventos de visibilidad. */
     let pollInFlight = false;
     const doPoll = async () => {
-      if (pollInFlight) return;
+      if (pollInFlight || !mounted) return;
       pollInFlight = true;
       try {
         const pollGroupIds = initialCaseRef.current._group?.openCaseIds?.length
@@ -1177,11 +1110,86 @@ export function ChatView({
       }
     };
 
-    /* Polling de respaldo cada 300s (5 min) de seguridad; Realtime entrega todas las actualizaciones de inmediato */
+
+    const channel = supabase
+      .channel(`case-${targetId}`)
+      .on("postgres_changes", {
+        event: "UPDATE", schema: "public", table: "sek_cases",
+        filter: `id=eq.${targetId}`
+      }, async (payload) => {
+
+        // Para chats agrupados, recargar solo los casos activos del grupo
+        const groupIds = initialCaseRef.current._group?.openCaseIds?.length
+          ? initialCaseRef.current._group.openCaseIds
+          : (initialCaseRef.current._group?.caseIds?.length ? initialCaseRef.current._group.caseIds : [targetId]);
+        if (isGrouped && groupIds.length) {
+          try {
+            const { data } = await supabase
+              .from("sek_cases")
+              .select("id,estado,canal,cliente,assigned_to,customer_phone,created_at,updated_at,last_message_at,last_message_preview,histcliente,histtecnico,marca,modelo,problema,resolucion,title")
+              .in("id", groupIds);
+            if (data && mounted) {
+              const merged = buildMergedCase(initialCaseRef.current, data as SekCase[]);
+              setSekCase(merged);
+              caseHistoryCache.set(cacheKey, { sekCase: merged, timestamp: Date.now() });
+            }
+          } catch (e) {
+            console.error("[chat-view] realtime reload group error:", e);
+          }
+          return;
+        }
+
+        setSekCase(prev => {
+          const newData = payload.new as any;
+          const update: any = { ...newData };
+          // Proteger historial cargado: no reemplazar arrays con datos reales por arrays vacíos
+          if (newData.histcliente !== undefined && Array.isArray(newData.histcliente) && newData.histcliente.length === 0 &&
+              Array.isArray(prev.histcliente) && prev.histcliente.length > 0) {
+            delete update.histcliente;
+          }
+          if (newData.histtecnico !== undefined && Array.isArray(newData.histtecnico) && newData.histtecnico.length === 0 &&
+              Array.isArray(prev.histtecnico) && prev.histtecnico.length > 0) {
+            delete update.histtecnico;
+          }
+          // Proteger estado escalado: el webhook puede cambiar el estado via realtime
+          // pero si el caso estaba escalado, solo permitir cambios a abierto/cerrado/resuelto
+          // (cambios hechos por acción explícita del agente), no retroceder a ia_atendiendo/pendiente
+          if (prev.estado === "escalado" && update.estado && ["ia_atendiendo", "pendiente"].includes(update.estado)) {
+            delete update.estado;
+          }
+          const next = { ...prev, ...update };
+          caseHistoryCache.set(cacheKey, { sekCase: next, timestamp: Date.now() });
+          return next;
+        });
+
+        // Refrescar inmediatamente con doPoll para garantizar carga completa aunque Realtime trunque arrays grandes
+        doPoll();
+      })
+      .subscribe((status, err) => {
+        if (status === "SUBSCRIBED") {
+          doPoll();
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+          doPoll();
+          setTimeout(() => { if (mounted) { try { channel.subscribe(); } catch {} } }, 1000);
+        }
+      });
+
+    /* Presence para indicador de escritura — mismo canal que widget */
+    const presenceCh = supabase.channel(`wgt-typing-${targetId}`, { config: { presence: { key: "agent" } } })
+      .on("presence", { event: "sync" }, () => {
+        const state = presenceCh.presenceState<{ role: string; typing: boolean }>();
+        const entries = Object.values(state).flat();
+        setClienteTyping(entries.some((e: any) => e.role === "cliente" && e.typing));
+        setAgentTyping(entries.some((e: any) => e.role === "agente" && e.typing));
+      })
+      .subscribe();
+    presenceChannelRef.current = presenceCh;
+
+    /* Polling activo de respaldo cada 4s (solo pestaña visible) para máxima inmediatez ante cualquier latencia de socket */
     const poll = setInterval(() => {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       doPoll();
-    }, 300000);
+    }, 4000);
 
     /* Refetch inmediato al volver a la pestaña/ventana. Cubre el caso donde el
        navegador o el sistema operativo pausó los timers en segundo plano (pestaña
