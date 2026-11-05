@@ -2331,7 +2331,7 @@ export async function POST(req: NextRequest) {
         // Buscar el caso más reciente que tenga datos de perfil del cliente (nombre, correo o cuenta)
         for (const pc of prevCases) {
           const pcCliente = (pc.cliente && typeof pc.cliente === "object") ? pc.cliente as Record<string, unknown> : {};
-          if (pcCliente.nombre || pcCliente.correo || pcCliente.cuenta || pcCliente.cedula) {
+          if (pcCliente.nombre || pcCliente.correo || pcCliente.cuenta || pcCliente.cedula || pcCliente.vendedor) {
             const rawNombre = pcCliente.nombre ? String(pcCliente.nombre).trim() : null;
             let rawCuenta = pcCliente.cuenta ? String(pcCliente.cuenta).trim() : null;
 
@@ -2343,14 +2343,41 @@ export async function POST(req: NextRequest) {
               rawCuenta = null;
             }
 
+            const rawVendedor = (pcCliente.vendedor || (pcCliente as any).vendedor_asignado)
+              ? String(pcCliente.vendedor || (pcCliente as any).vendedor_asignado).trim()
+              : null;
+
             knownClient = {
               nombre: rawNombre,
               correo: pcCliente.correo ? String(pcCliente.correo).trim() : null,
               cuenta: rawCuenta,
               cedula: pcCliente.cedula ? String(pcCliente.cedula).trim() : null,
+              vendedor: rawVendedor,
             };
-            console.log(`[evo-webhook] Auto-relleno de perfil de contacto para ${cleanPhone} — nombre: ${knownClient.nombre || "N/A"}, correo: ${knownClient.correo || "N/A"}, cuenta: ${knownClient.cuenta || "N/A"}`);
+            console.log(`[evo-webhook] Auto-relleno de perfil de contacto para ${cleanPhone} — nombre: ${knownClient.nombre || "N/A"}, correo: ${knownClient.correo || "N/A"}, cuenta: ${knownClient.cuenta || "N/A"}, vendedor: ${knownClient.vendedor || "N/A"}`);
             break;
+          }
+        }
+
+        // Si la cuenta es conocida pero no se tenía vendedor en este teléfono, buscar si la cuenta ya tiene vendedor en otros contactos
+        if (knownClient.cuenta && !knownClient.vendedor && !/^(sin\s+cuenta|no\s+tengo|ninguna|cliente\s+final)$/i.test(String(knownClient.cuenta))) {
+          try {
+            const { data: acCase } = await supabase
+              .from("sek_cases")
+              .select("cliente")
+              .filter("cliente->>cuenta", "ilike", String(knownClient.cuenta).trim())
+              .not("cliente->>vendedor", "is", null)
+              .limit(1)
+              .maybeSingle();
+            if (acCase?.cliente && typeof acCase.cliente === "object") {
+              const acVendedor = (acCase.cliente as any).vendedor;
+              if (acVendedor && typeof acVendedor === "string" && acVendedor.trim()) {
+                knownClient.vendedor = acVendedor.trim();
+                console.log(`[evo-webhook] Vendedor recuperado automáticamente para la cuenta (${knownClient.cuenta}): ${knownClient.vendedor}`);
+              }
+            }
+          } catch (e) {
+            console.warn("[evo-webhook] Error buscando vendedor de la cuenta:", e);
           }
         }
       } else {
@@ -2373,6 +2400,7 @@ export async function POST(req: NextRequest) {
         telefono_real: senderPn || null,
         ...(rawLid ? { lid: rawLid } : {}),
         ...(knownClient.cedula ? { cedula: knownClient.cedula } : {}),
+        ...(knownClient.vendedor ? { vendedor: knownClient.vendedor } : {}),
         ...(mediaType && !mediaUrl && mediaDebug ? { debug_media: mediaDebug } : {}),
       };
 

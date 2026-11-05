@@ -188,6 +188,7 @@ export function CaseHistoryDrawer({ isOpen, onClose, currentCase }: CaseHistoryD
           {drawerTab === "casos" && cases.map((c, idx) => {
             const isExpanded = c._expanded;
             const estadoLower = String(c.estado || "").toLowerCase();
+            const pastCi = clienteInfo(c.cliente);
             const isClosed = estadoLower === "cerrado" || estadoLower === "resuelto";
             const totalMsgs = (c.histcliente?.length || 0) + (c.histtecnico?.length || 0);
             
@@ -216,6 +217,11 @@ export function CaseHistoryDrawer({ isOpen, onClose, currentCase }: CaseHistoryD
                       <Badge variant={isClosed ? "success" : "warning"} className="text-[10px]">
                         {c.estado || "Sin estado"}
                       </Badge>
+                      {pastCi.ticket && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-300 font-semibold border border-amber-500/30">
+                          Ticket #{pastCi.ticket.replace(/^#/, "")}
+                        </span>
+                      )}
                     </div>
                     <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
                       <span className="flex items-center gap-1">

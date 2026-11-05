@@ -9,7 +9,7 @@ import {
   Download, X, ChevronDown, ChevronUp, History, HandMetal, Star, Tag, AlertTriangle,
   Mic, Play, Pause, Square, Smile, Trash2, UserCheck,
   Info, Copy, Forward, Pin, Edit, Clock, RotateCcw, Search, Globe, Loader2,
-  FileArchive, FileCode, FileSpreadsheet, Eye, ShieldCheck, Cpu, Plus
+  FileArchive, FileCode, FileSpreadsheet, Eye, ShieldCheck, Cpu, Plus, Ticket, Briefcase
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { logActivity } from "@/lib/activity-client";
@@ -663,6 +663,8 @@ export function ChatView({
     cuenta: "",
     correo: "",
     telefono: "",
+    vendedor: "",
+    ticket: "",
     marca: "",
     modelo: "",
     serie: "",
@@ -2367,14 +2369,23 @@ export function ChatView({
 
         // Solo se considera cliente registrado si tiene nombre formal real Y cuenta afiliada válida
         const hasClientInfo = Boolean(rawName && !isRawPhone && rawName.toLowerCase() !== "cliente" && hasValidCuenta);
+        const hasVendedor = Boolean(clientData.vendedor || (clientData as any).vendedor_asignado);
 
         let welcomeMsg = "";
         if (hasClientInfo) {
-          // Cliente ya registrado / conocido: pedir marca, modelo y motivo
-          welcomeMsg = `Buen día. Gracias por contactarnos.\n\nMi nombre es ${agentName} y con gusto le asistiré con su caso.\n\nPara el registro, por favor indiquenos:\n\n-Marca y modelo del equipo a consultar\n-Motivo de la consulta o solicitud\n-Nombre del vendedor encargado de su cuenta\n\nCon esta información podremos brindarle una atención más precisa.`;
+          // Cliente ya registrado / conocido: si ya tiene vendedor asignado, no se lo pedimos
+          if (hasVendedor) {
+            welcomeMsg = `Buen día. Gracias por contactarnos.\n\nMi nombre es ${agentName} y con gusto le asistiré con su caso.\n\nPara el registro, por favor indíquenos:\n\n-Marca y modelo del equipo a consultar\n-Motivo de la consulta o solicitud\n\nCon esta información podremos brindarle una atención más precisa.`;
+          } else {
+            welcomeMsg = `Buen día. Gracias por contactarnos.\n\nMi nombre es ${agentName} y con gusto le asistiré con su caso.\n\nPara el registro, por favor indíquenos:\n\n-Marca y modelo del equipo a consultar\n-Motivo de la consulta o solicitud\n-Nombre del vendedor encargado de su cuenta\n\nCon esta información podremos brindarle una atención más precisa.`;
+          }
         } else {
           // Cliente nuevo / sin datos personales: pedir ficha de registro
-          welcomeMsg = `Buen día. Gracias por contactarnos.\n\nMi nombre es ${agentName} y con gusto le asistiré con su caso.\n\nPara el registro, por favor facilítenos su:\n\nNombre completo\nCorreo electrónico\nNombre de la cuenta afiliada a Sekunet.\nNombre del vendedor encargado de su cuenta\n\nQuedamos atentos. Gracias.`;
+          if (hasVendedor) {
+            welcomeMsg = `Buen día. Gracias por contactarnos.\n\nMi nombre es ${agentName} y con gusto le asistiré con su caso.\n\nPara el registro, por favor facilítenos su:\n\nNombre completo\nCorreo electrónico\nNombre de la cuenta afiliada a Sekunet.\n\nQuedamos atentos. Gracias.`;
+          } else {
+            welcomeMsg = `Buen día. Gracias por contactarnos.\n\nMi nombre es ${agentName} y con gusto le asistiré con su caso.\n\nPara el registro, por favor facilítenos su:\n\nNombre completo\nCorreo electrónico\nNombre de la cuenta afiliada a Sekunet.\nNombre del vendedor encargado de su cuenta\n\nQuedamos atentos. Gracias.`;
+          }
         }
 
         // El envío TIENE que completarse antes del router.push de más abajo:
@@ -2486,6 +2497,8 @@ export function ChatView({
       cuenta: ci.cuenta || "",
       correo: ci.correo || "",
       telefono: ci.telefono || "",
+      vendedor: ci.vendedor || String(c.vendedor_asignado || ""),
+      ticket: ci.ticket || String((sekCase as any).ticket || ""),
       marca: String(c.marca || (sekCase as any).marca || ""),
       modelo: String(c.modelo || (sekCase as any).modelo || ""),
       serie: String(c.serie || (sekCase as any).serie || ""),
@@ -2632,6 +2645,18 @@ export function ChatView({
               )}
               {ci.correo && <span className="hidden sm:inline-flex items-center gap-1"><Mail className="h-3 w-3" />{ci.correo}</span>}
               {ci.cuenta && <span className="inline-flex items-center gap-1"><Building2 className="h-3 w-3" />{ci.cuenta}</span>}
+              {ci.vendedor && (
+                <span className="inline-flex items-center gap-1 text-brand-600 dark:text-brand-400 font-medium" title="Vendedor Asignado">
+                  <Briefcase className="h-3 w-3" />
+                  <span className="hidden md:inline">Vendedor:</span> {ci.vendedor}
+                </span>
+              )}
+              {ci.ticket && (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-700 dark:text-amber-300 font-semibold border border-amber-500/30 text-[11px]" title="Ticket relacionado">
+                  <Ticket className="h-3 w-3 text-amber-500" />
+                  Ticket: #{ci.ticket.replace(/^#/, "")}
+                </span>
+              )}
               {(sekCase.estado === "cerrado" || sekCase.estado === "resuelto") && sekCase.assigned_to && (
                 <span className="inline-flex items-center gap-1 text-muted-foreground">
                   <UserCheck className="h-3 w-3" />
@@ -3012,6 +3037,30 @@ export function ChatView({
                             <option key={op.value} value={op.value}>{op.label}</option>
                           ))}
                         </select>
+                      </div>
+                    </div>
+
+                    {/* Fila 3.5: Vendedor Asignado y Ticket */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">Vendedor Asignado</label>
+                        <input
+                          type="text"
+                          value={clienteDraft.vendedor}
+                          onChange={e => setClienteDraft(d => ({ ...d, vendedor: e.target.value }))}
+                          placeholder="Nombre del ejecutivo de ventas"
+                          className="mt-1 flex h-10 w-full rounded-xl border border-input bg-background/80 px-3.5 py-2 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-brand-500/30 transition-all"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">TICKET (Consulta o Seguimiento)</label>
+                        <input
+                          type="text"
+                          value={clienteDraft.ticket}
+                          onChange={e => setClienteDraft(d => ({ ...d, ticket: e.target.value }))}
+                          placeholder="Ej: #12345 o código de ticket abierto"
+                          className="mt-1 flex h-10 w-full rounded-xl border border-input bg-background/80 px-3.5 py-2 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-brand-500/30 transition-all"
+                        />
                       </div>
                     </div>
 

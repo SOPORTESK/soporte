@@ -28,13 +28,17 @@ export async function PATCH(
     // Solo permitir editar campos seguros del cliente
     const allowedFields = new Set([
       "nombre", "cuenta", "correo", "telefono", "cedula", 
-      "descripcion", "marca", "modelo", "serie", "tipo_consulta", "ticket", "boleta"
+      "descripcion", "marca", "modelo", "serie", "tipo_consulta", "ticket", "boleta", "vendedor", "vendedor_asignado"
     ]);
     const cleanFields: Record<string, string> = {};
     for (const [key, value] of Object.entries(fields)) {
       if (allowedFields.has(key) && typeof value === "string") {
         cleanFields[key] = value.trim();
       }
+    }
+    // Normalizar vendedor_asignado a vendedor
+    if (cleanFields.vendedor_asignado && !cleanFields.vendedor) {
+      cleanFields.vendedor = cleanFields.vendedor_asignado;
     }
 
     if (Object.keys(cleanFields).length === 0) {
@@ -85,6 +89,28 @@ export async function PATCH(
       ? caseData.cliente as Record<string, unknown>
       : {};
 
+    // Si no se pasó vendedor y el cliente no tiene uno, buscar si la cuenta ya tiene vendedor registrado históricamente
+    const targetCuenta = (cleanFields.cuenta !== undefined ? cleanFields.cuenta : (currentCliente.cuenta as string || "")).trim();
+    if (!cleanFields.vendedor && !currentCliente.vendedor && targetCuenta && !/^(sin\s+cuenta|no\s+tengo|ninguna|cliente\s+final)$/i.test(targetCuenta)) {
+      try {
+        const { data: pastWithVendedor } = await supabase
+          .from("sek_cases")
+          .select("cliente")
+          .filter("cliente->>cuenta", "ilike", targetCuenta)
+          .not("cliente->>vendedor", "is", null)
+          .limit(1)
+          .maybeSingle();
+        if (pastWithVendedor?.cliente && typeof pastWithVendedor.cliente === "object") {
+          const v = (pastWithVendedor.cliente as any).vendedor;
+          if (v && typeof v === "string" && v.trim()) {
+            cleanFields.vendedor = v.trim();
+          }
+        }
+      } catch (err) {
+        console.warn("[PATCH cliente] Error buscando vendedor de cuenta:", err);
+      }
+    }
+
     // Merge: actualizar solo los campos enviados
     const updatedCliente = { ...currentCliente, ...cleanFields };
 
@@ -119,7 +145,7 @@ export async function PATCH(
 
     // Propagar datos de identidad del contacto a los demás casos del cliente
     const contactOnlyFields: Record<string, string> = {};
-    for (const k of ["nombre", "cuenta", "correo", "cedula", "telefono"]) {
+    for (const k of ["nombre", "cuenta", "correo", "cedula", "telefono", "vendedor"]) {
       if (cleanFields[k] !== undefined) {
         contactOnlyFields[k] = cleanFields[k];
       }
@@ -158,6 +184,37 @@ export async function PATCH(
             .update(rcUpdates)
             .eq("id", rc.id);
         }
+      }
+    }
+
+    // Propagar vendedor a cualquier otro caso de la misma empresa/cuenta
+    const finalCuenta = (cleanFields.cuenta || currentCliente.cuenta as string || "").trim();
+    const finalVendedor = (cleanFields.vendedor || currentCliente.vendedor as string || "").trim();
+    if (finalCuenta && finalVendedor && !/^(sin\s+cuenta|no\s+tengo|ninguna|cliente\s+final)$/i.test(finalCuenta)) {
+      try {
+        const { data: accountCases } = await supabase
+          .from("sek_cases")
+          .select("id, cliente")
+          .filter("cliente->>cuenta", "ilike", finalCuenta)
+          .neq("id", targetCaseId)
+          .limit(30);
+
+        if (accountCases && accountCases.length > 0) {
+          for (const ac of accountCases) {
+            const acCliente = (ac.cliente && typeof ac.cliente === "object") ? ac.cliente as Record<string, unknown> : {};
+            if (acCliente.vendedor !== finalVendedor) {
+              await supabase
+                .from("sek_cases")
+                .update({
+                  cliente: { ...acCliente, vendedor: finalVendedor },
+                  updated_at: new Date().toISOString(),
+                })
+                .eq("id", ac.id);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("[PATCH cliente] Error propagando vendedor por cuenta:", err);
       }
     }
 

@@ -36,6 +36,8 @@ export function clienteInfo(cliente: unknown): {
   whatsapp_name: string;
   avatar_url: string;
   displayName: string;
+  vendedor: string;
+  ticket: string;
 } {
   if (!cliente || typeof cliente !== "object") {
     const raw = typeof cliente === "string" ? cliente : "";
@@ -48,6 +50,8 @@ export function clienteInfo(cliente: unknown): {
       whatsapp_name: "",
       avatar_url: "",
       displayName: raw,
+      vendedor: "",
+      ticket: "",
     };
   }
   const c = cliente as Record<string, unknown>;
@@ -58,6 +62,8 @@ export function clienteInfo(cliente: unknown): {
   const whatsappName = s(c.whatsapp_name ?? c.pushName ?? c.profileName ?? c.verifiedName);
   const tel = s(c.telefono ?? c.phone ?? c.tel);
   const avatarUrl = s(c.avatar_url ?? c.profilePicUrl ?? c.profilePictureUrl ?? c.picture);
+  const vendedor = s(c.vendedor ?? c.vendedor_asignado ?? c.sales_rep ?? c.ejecutivo);
+  const ticket = s(c.ticket ?? c.ticket_id ?? c.numero_ticket ?? c.boleta);
 
   return {
     nombre: nombreReal,
@@ -68,6 +74,8 @@ export function clienteInfo(cliente: unknown): {
     whatsapp_name: whatsappName,
     avatar_url: avatarUrl,
     displayName: nombreReal || whatsappName || tel || "Cliente",
+    vendedor,
+    ticket,
   };
 }
 

@@ -282,8 +282,10 @@ export function ConversationList({
       const matchesName = cName.toLowerCase().includes(term);
       const matchesPhone = cleanDigits.length >= 3 && cPhone.replace(/[^0-9]/g, "").includes(cleanDigits);
       const matchesAccount = cAccount.toLowerCase().includes(term);
+      const matchesVendedor = ci.vendedor.toLowerCase().includes(term);
+      const matchesTicket = ci.ticket.toLowerCase().includes(term);
 
-      if (matchesName || matchesPhone || matchesAccount) {
+      if (matchesName || matchesPhone || matchesAccount || matchesVendedor || matchesTicket) {
         const key = cPhone.replace(/[^0-9]/g, "") || String(c.id);
         if (!seen.has(key)) {
           seen.add(key);
@@ -406,6 +408,8 @@ export function ConversationList({
         const matchesSearch = ci.nombre.toLowerCase().includes(q)
           || ci.telefono.toLowerCase().includes(q)
           || ci.cuenta.toLowerCase().includes(q)
+          || ci.vendedor.toLowerCase().includes(q)
+          || ci.ticket.toLowerCase().includes(q)
           || asText(c.title).toLowerCase().includes(q)
           || asText(c.last_message_preview).toLowerCase().includes(q);
         if (!matchesSearch) return false;
@@ -736,6 +740,11 @@ export function ConversationList({
                       <Badge variant="muted" className="text-[10px] bg-violet-500/15 text-violet-600 dark:text-violet-400">Saliente</Badge>
                     )}
                     {ci.cuenta && <Badge variant="muted" className="text-[10px]">{ci.cuenta}</Badge>}
+                    {ci.ticket && (
+                      <Badge variant="muted" className="text-[10px] bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                        #{ci.ticket.replace(/^#/, "")}
+                      </Badge>
+                    )}
                     {/* Etiqueta de estado y conteo de casos agrupados */}
                     {c._group && c._group.totalCases > 1 && (
                       <Badge variant="muted" className="text-[10px]">
