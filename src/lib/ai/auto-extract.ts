@@ -67,22 +67,24 @@ export async function performAutoExtract(id: string) {
 1. "nombre": Nombre completo de la persona que escribe (si lo dice en la conversación). NUNCA uses el nombre de perfil de WhatsApp.
 2. "correo": Correo electrónico (si aparece).
 3. "cuenta": Empresa o cuenta comercial afiliada a Sekunet (si la menciona expresamente). NUNCA pongas el nombre de una persona física aquí. Si no menciona empresa o negocio, déjalo vacío (""). NUNCA dupliques el "nombre" en "cuenta".
-4. "vendedor": Vendedor mencionado (si aplica).
-5. "tema": Tema de la consulta. Debe ser exactamente uno de: ${TEMAS_VALIDOS.join(", ")}.
-6. "marca": Marca exacta del equipo (ej: HIKVISION, DAHUA, ZKTECO, EPCOM, HILOOK, EZVIZ, IMOU, MIKROTIK, UBIQUITI). Si no se menciona explícitamente pero se deduce, indícala.
-7. "modelo": Modelo alfanumérico exacto del equipo (ej: DS-2CD2043G2-I, DS-7208HQHI-K1, K40, XVR5108, IPC-B120H).
-8. "descripcion_problema": Resumen conciso de la falla y solución técnica aplicada (máximo 250 caracteres).
+4. "vendedor": Nombre del ejecutivo o ejecutiva de ventas de Sekunet que atiende su cuenta (si lo indica el cliente o responde a la pregunta de vendedor).
+5. "ticket": Número de ticket abierto o boleta de taller (si el cliente lo menciona).
+6. "tema": Tema de la consulta. Debe ser exactamente uno de: ${TEMAS_VALIDOS.join(", ")}.
+7. "marca": Marca exacta del equipo (ej: HIKVISION, DAHUA, ZKTECO, EPCOM, HILOOK, EZVIZ, IMOU, MIKROTIK, UBIQUITI). Si no se menciona explícitamente pero se deduce, indícala.
+8. "modelo": Modelo alfanumérico exacto del equipo (ej: DS-2CD2043G2-I, DS-7208HQHI-K1, K40, XVR5108, IPC-B120H).
+9. "descripcion_problema": Resumen conciso de la falla y solución técnica aplicada (máximo 250 caracteres).
 
 DATOS ACTUALES DEL CLIENTE:
 - nombre: ${String(cli.nombre || "")}
 - correo: ${String(cli.correo || "")}
 - cuenta: ${String(cli.cuenta || "")}
+- vendedor: ${String(cli.vendedor || "")}
 
 CONVERSACIÓN:
 ${conversationText}
 
 Responde ÚNICAMENTE en formato JSON:
-{"nombre": "...", "correo": "...", "cuenta": "...", "vendedor": "...", "tema": "...", "marca": "...", "modelo": "...", "descripcion_problema": "..."}`;
+{"nombre": "...", "correo": "...", "cuenta": "...", "vendedor": "...", "ticket": "...", "tema": "...", "marca": "...", "modelo": "...", "descripcion_problema": "..."}`;
 
     let rawContent = "";
     try {
@@ -100,7 +102,7 @@ Responde ÚNICAMENTE en formato JSON:
       console.warn("[auto-extract] generateText error:", e?.message);
     }
 
-    let extracted: { nombre?: string; correo?: string; cuenta?: string; vendedor?: string; tema?: string; marca?: string; modelo?: string; descripcion_problema?: string } = {};
+    let extracted: { nombre?: string; correo?: string; cuenta?: string; vendedor?: string; ticket?: string; tema?: string; marca?: string; modelo?: string; descripcion_problema?: string } = {};
     if (rawContent) {
       try {
         const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
@@ -209,6 +211,55 @@ Responde ÚNICAMENTE en formato JSON:
       else if (/nvr|dvr|camara|cámara|grabador|poe|ip|red|subred/i.test(fullText)) extracted.tema = "Configuraciones";
     }
 
+    // 5. Vendedor por regex y catálogo de ejecutivos comerciales Sekunet
+    if (!extracted.vendedor) {
+      const vendedorRegexes = [
+        /(?:vendedor|vendedora|ejecutivo|ejecutiva)(?:\s+(?:de\s+ventas|encargado|asignado|responsable))?[:\s-]+([A-Za-záéíóúÁÉÍÓÚñÑ]{2,25}(?:\s+[A-Za-záéíóúÁÉÍÓÚñÑ]{2,25})?)/i,
+        /(?:mi|el|la)\s+(?:vendedor|vendedora|ejecutivo|ejecutiva)\s+es\s+([A-Za-záéíóúÁÉÍÓÚñÑ]{2,25}(?:\s+[A-Za-záéíóúÁÉÍÓÚñÑ]{2,25})?)/i,
+        /atendido\s+por\s+(?:el\s+vendedor\s+)?([A-Za-záéíóúÁÉÍÓÚñÑ]{2,25}(?:\s+[A-Za-záéíóúÁÉÍÓÚñÑ]{2,25})?)/i,
+      ];
+      for (const rx of vendedorRegexes) {
+        const m = fullText.match(rx);
+        if (m && m[1]) {
+          const cand = m[1].trim();
+          if (!/^(no\s+se|ninguno|sin\s+vendedor|no\s+tengo|sekunet|soporte|taller|cliente|equipo)$/i.test(cand)) {
+            extracted.vendedor = cand;
+            break;
+          }
+        }
+      }
+
+      if (!extracted.vendedor) {
+        const KNOWN_SEKUNET_VENDEDORES: [RegExp, string][] = [
+          [/\b(luis\s+fallas(?:\s+chaves)?)\b/i, "Luis Fallas"],
+          [/\b(sharon(?:\s+del\s+cid)?)\b/i, "Sharon Del Cid"],
+          [/\b(carolina(?:\s+chavarr[ií]a)?|karolina)\b/i, "Carolina Chavarría"],
+          [/\b(fabiana(?:\s+perozo|\s+peroza|\s+p\.?)?)\b/i, "Fabiana Perozo"],
+          [/\b(nicole(?:\s+espinoza)?|nicol\s+espinoza)\b/i, "Nicole Espinoza"],
+          [/\b(bryan\s+anch[ií]a|brayan\s+anch[ií]a)\b/i, "Bryan Anchía"],
+          [/\b(joaqu[ií]n(?:\s+s[aá]nchez)?|juakin)\b/i, "Joaquín Sánchez"],
+          [/\b(roberto\s+d[ií]az|roverto)\b/i, "Roberto Díaz"],
+          [/\b(cristofer(?:\s+alvarado)?|christopher(?:\s+alvarado)?)\b/i, "Christopher Alvarado"],
+          [/\b(henry(?:\s+ram[ií]rez)?)\b/i, "Henry Ramírez"],
+          [/\b(mariano(?:\s+castro)?)\b/i, "Mariano Castro"],
+        ];
+        for (const [rx, canonName] of KNOWN_SEKUNET_VENDEDORES) {
+          if (rx.test(fullText)) {
+            extracted.vendedor = canonName;
+            break;
+          }
+        }
+      }
+    }
+
+    // 6. Ticket si el cliente menciona un ticket o boleta abierto
+    if (!extracted.ticket) {
+      const ticketMatch = fullText.match(/\b(?:ticket|boleta|caso\s*#?)\s*[:#]?\s*([0-9]{3,8})\b/i);
+      if (ticketMatch && ticketMatch[1]) {
+        extracted.ticket = ticketMatch[1].trim();
+      }
+    }
+
     const updates: Record<string, unknown> = {};
     const tema = extracted.tema?.trim() || "";
     const marca = extracted.marca?.trim() || "";
@@ -218,6 +269,7 @@ Responde ÚNICAMENTE en formato JSON:
     const extractCorreo = extracted.correo?.trim() || "";
     let extractCuenta = extracted.cuenta?.trim() || "";
     const extractVendedor = extracted.vendedor?.trim() || "";
+    const extractTicket = extracted.ticket?.trim() || "";
 
     const currentCliente = (caseData.cliente && typeof caseData.cliente === "object") ? caseData.cliente as Record<string, unknown> : {};
     const updatedCliente: Record<string, unknown> = { ...currentCliente };
@@ -260,6 +312,37 @@ Responde ÚNICAMENTE en formato JSON:
       updatedCliente.vendedor = extractVendedor;
       clienteChanged = true;
     }
+
+    // Auto-recuperar vendedor desde la memoria de la cuenta si aún no está asignado
+    const targetCuenta = String(updatedCliente.cuenta || currentCliente.cuenta || extractCuenta || "").trim();
+    if (!updatedCliente.vendedor && targetCuenta && !/^(sin\s+cuenta|no\s+tengo|ninguna|cliente\s+final)$/i.test(targetCuenta)) {
+      try {
+        const { data: pastAc } = await supabase
+          .from("sek_cases")
+          .select("cliente")
+          .filter("cliente->>cuenta", "ilike", targetCuenta)
+          .not("cliente->>vendedor", "is", null)
+          .limit(1)
+          .maybeSingle();
+
+        if (pastAc?.cliente && typeof pastAc.cliente === "object") {
+          const pastV = (pastAc.cliente as any).vendedor;
+          if (pastV && typeof pastV === "string" && pastV.trim()) {
+            updatedCliente.vendedor = pastV.trim();
+            clienteChanged = true;
+            console.log(`[auto-extract] Vendedor auto-asignado por cuenta (${targetCuenta}): ${pastV.trim()}`);
+          }
+        }
+      } catch (err) {
+        console.warn("[auto-extract] Error buscando vendedor de la cuenta:", err);
+      }
+    }
+
+    if (extractTicket && !currentCliente.ticket) {
+      updatedCliente.ticket = extractTicket;
+      clienteChanged = true;
+    }
+
     if (descProblema && !currentCliente.descripcion) {
       updatedCliente.descripcion = descProblema;
       clienteChanged = true;
@@ -313,7 +396,9 @@ Responde ÚNICAMENTE en formato JSON:
         descripcion_problema: descProblema || caseData.resolucion,
         nombre: (updatedCliente.nombre as string) || extractNombre,
         correo: (updatedCliente.correo as string) || extractCorreo,
-        cuenta: (updatedCliente.cuenta as string) || extractCuenta
+        cuenta: (updatedCliente.cuenta as string) || extractCuenta,
+        vendedor: (updatedCliente.vendedor as string) || extractVendedor,
+        ticket: (updatedCliente.ticket as string) || extractTicket,
       }
     };
   } catch (err: any) {

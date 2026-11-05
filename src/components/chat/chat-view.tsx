@@ -1008,6 +1008,8 @@ export function ChatView({
                 ...(ext.modelo ? { modelo: ext.modelo } : {}),
                 ...(ext.nombre ? { nombre: ext.nombre } : {}),
                 ...(ext.cuenta ? { cuenta: ext.cuenta } : {}),
+                ...(ext.vendedor ? { vendedor: ext.vendedor } : {}),
+                ...(ext.ticket ? { ticket: ext.ticket } : {}),
               };
               const next = {
                 ...prev,
@@ -1025,7 +1027,7 @@ export function ChatView({
     }, 1500);
 
     return () => clearTimeout(timer);
-  }, [targetId, sekCase.marca, sekCase.modelo, (sekCase.cliente as any)?.marca, cacheKey]);
+  }, [targetId, sekCase.marca, sekCase.modelo, (sekCase.cliente as any)?.marca, (sekCase.cliente as any)?.vendedor, cacheKey]);
 
   React.useEffect(() => {
     let mounted = true;
@@ -2053,7 +2055,7 @@ export function ChatView({
     setSubmittingRating(true);
     try {
       const currentCliente = typeof sekCase.cliente === "object" ? sekCase.cliente : {};
-      const updatedCliente = skipRating
+      const updatedCliente: Record<string, any> = skipRating
         ? { ...currentCliente }
         : {
             ...currentCliente,
@@ -2098,6 +2100,8 @@ export function ChatView({
             if (ex.nombre && !updatedCliente.nombre) updatedCliente.nombre = ex.nombre;
             if (ex.correo && !updatedCliente.correo) updatedCliente.correo = ex.correo;
             if (ex.cuenta && !updatedCliente.cuenta) updatedCliente.cuenta = ex.cuenta;
+            if (ex.vendedor && !updatedCliente.vendedor) updatedCliente.vendedor = ex.vendedor;
+            if (ex.ticket && !updatedCliente.ticket) updatedCliente.ticket = ex.ticket;
             console.log("[confirmClose] auto-extract OK:", ex);
           }
         } catch (e) { console.warn("[confirmClose] auto-extract failed:", e); }
@@ -2193,6 +2197,8 @@ export function ChatView({
             if (ex.nombre && !updatedCliente.nombre) updatedCliente.nombre = ex.nombre;
             if (ex.correo && !updatedCliente.correo) updatedCliente.correo = ex.correo;
             if (ex.cuenta && !updatedCliente.cuenta) updatedCliente.cuenta = ex.cuenta;
+            if (ex.vendedor && !updatedCliente.vendedor) updatedCliente.vendedor = ex.vendedor;
+            if (ex.ticket && !updatedCliente.ticket) updatedCliente.ticket = ex.ticket;
             console.log("[confirmClose] auto-extract OK:", ex);
           }
         } catch (e) { console.warn("[confirmClose] auto-extract failed:", e); }

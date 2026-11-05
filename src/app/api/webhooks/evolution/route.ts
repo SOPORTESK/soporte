@@ -2112,8 +2112,10 @@ export async function POST(req: NextRequest) {
           );
         }
 
-        // Enriquecer caso con marca/modelo/cliente si aún no los tiene
-        if ((existing as any)?.id && (!(existing as any)?.marca || !(existing as any)?.modelo)) {
+        // Enriquecer caso con marca/modelo/cliente/vendedor si aún no los tiene
+        const exCli = (existing as any)?.cliente || {};
+        const missingClientData = !exCli.vendedor || !exCli.nombre || !exCli.cuenta || !(existing as any)?.marca || !(existing as any)?.modelo;
+        if ((existing as any)?.id && missingClientData) {
           performAutoExtract(String((existing as any).id)).catch(e =>
             console.warn("[evo-webhook] auto-extract background:", e?.message)
           );
