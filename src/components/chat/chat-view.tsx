@@ -1081,10 +1081,16 @@ export function ChatView({
           caseHistoryCache.set(cacheKey, { sekCase: next, timestamp: Date.now() });
           return next;
         });
+
+        // Refrescar inmediatamente con doPoll para garantizar carga completa aunque Realtime trunque arrays grandes
+        doPoll();
       })
       .subscribe((status, err) => {
-        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
-          setTimeout(() => { if (mounted) { try { channel.subscribe(); } catch {} } }, 2000);
+        if (status === "SUBSCRIBED") {
+          doPoll();
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+          doPoll();
+          setTimeout(() => { if (mounted) { try { channel.subscribe(); } catch {} } }, 1000);
         }
       });
 
@@ -1177,11 +1183,11 @@ export function ChatView({
       }
     };
 
-    /* Polling de respaldo cada 300s (5 min) de seguridad; Realtime entrega todas las actualizaciones de inmediato */
+    /* Polling activo de respaldo cada 4s (solo pestaña visible) para máxima inmediatez ante cualquier latencia de socket */
     const poll = setInterval(() => {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       doPoll();
-    }, 300000);
+    }, 4000);
 
     /* Refetch inmediato al volver a la pestaña/ventana. Cubre el caso donde el
        navegador o el sistema operativo pausó los timers en segundo plano (pestaña

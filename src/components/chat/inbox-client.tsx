@@ -875,7 +875,7 @@ export function InboxClient({
     /* Refetch silencioso: reutilizado por polling y por focus/visibility */
     let lastRefetch = Date.now();
     const doRefetch = async () => {
-      if (Date.now() - lastRefetch < 60000) return; // throttle 60s
+      if (Date.now() - lastRefetch < 3000) return; // throttle 3s para permitir refresco ágil
       lastRefetch = Date.now();
       try {
         if (containerType === "mi-gestion" && !agentEmail) return;
@@ -905,8 +905,8 @@ export function InboxClient({
       }
     };
 
-    /* Polling de respaldo cada 120s */
-    const poll = setInterval(doRefetch, 120000);
+    /* Polling activo de respaldo cada 10s para mantener el buzón sincronizado */
+    const poll = setInterval(doRefetch, 10000);
 
     /* Refetch inmediato al volver a la ventana (cubre Electron en segundo plano) */
     const handleFocus = () => doRefetch();
