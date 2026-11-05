@@ -863,6 +863,25 @@ export function computeUnifiedActivityMetrics(
     ? formatTimeCR(new Date().toISOString())
     : formatTimeCR(lastEvent.created_at);
 
+  const getScheduleBoundsForMs = (refMs: number): { startMs: number | null; endMs: number | null; isWithin: boolean } => {
+    const crDateStr = new Date(refMs).toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
+    const currDay = new Date(new Date(refMs).toLocaleString("en-US", { timeZone: "America/Costa_Rica" })).getDay();
+    let sStart = options.scheduleStart;
+    let sEnd = options.scheduleEnd;
+    if (options.useMixedSchedule && options.daySchedules && options.daySchedules[currDay]) {
+      if (options.daySchedules[currDay].start) sStart = options.daySchedules[currDay].start;
+      if (options.daySchedules[currDay].end) sEnd = options.daySchedules[currDay].end;
+    }
+    const startMs = sStart ? new Date(`${crDateStr}T${sStart.padStart(5, "0")}:00-06:00`).getTime() : null;
+    const endMs = sEnd ? new Date(`${crDateStr}T${sEnd.padStart(5, "0")}:00-06:00`).getTime() : null;
+    const validStart = startMs !== null && !isNaN(startMs) ? startMs : null;
+    const validEnd = endMs !== null && !isNaN(endMs) ? endMs : null;
+    let isWithin = true;
+    if (validStart !== null && refMs < validStart) isWithin = false;
+    if (validEnd !== null && refMs >= validEnd) isWithin = false;
+    return { startMs: validStart, endMs: validEnd, isWithin };
+  };
+
   // Pre-escaneo de intervalos de labores manuales, descansos y justificaciones legítimas
   interface ActiveInterval {
     startMs: number;
@@ -977,16 +996,16 @@ export function computeUnifiedActivityMetrics(
             break;
           }
         }
+        const bounds = getScheduleBoundsForMs(tMs);
+        const shiftEnd = bounds.endMs !== null && bounds.endMs > tMs ? bounds.endMs : (tMs + 4 * 3600 * 1000);
         const effectiveEndMs = nextEventMs > tMs
           ? nextEventMs
-          : (isTodayDay ? Math.min(Date.now(), tMs + 4 * 3600 * 1000) : tMs + 30 * 60 * 1000);
+          : (isTodayDay ? Math.min(Date.now(), shiftEnd) : shiftEnd);
 
         if (effectiveEndMs > tMs + 15000) {
           const catLower = (it.category || "").toLowerCase();
           const isSanitary = catLower.includes("sanitaria") || taskLabel.toLowerCase().includes("baño") || taskLabel.toLowerCase().includes("bano");
-          const durMs = isSanitary
-            ? Math.min(effectiveEndMs - tMs, 30 * 60 * 1000)
-            : Math.min(effectiveEndMs - tMs, 4 * 3600 * 1000);
+          const durMs = effectiveEndMs - tMs;
 
           manualIntervals.push({
             startMs: tMs,
@@ -1188,24 +1207,6 @@ export function computeUnifiedActivityMetrics(
     }
   }
 
-  const getScheduleBoundsForMs = (refMs: number): { startMs: number | null; endMs: number | null; isWithin: boolean } => {
-    const crDateStr = new Date(refMs).toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
-    const currDay = new Date(new Date(refMs).toLocaleString("en-US", { timeZone: "America/Costa_Rica" })).getDay();
-    let sStart = options.scheduleStart;
-    let sEnd = options.scheduleEnd;
-    if (options.useMixedSchedule && options.daySchedules && options.daySchedules[currDay]) {
-      if (options.daySchedules[currDay].start) sStart = options.daySchedules[currDay].start;
-      if (options.daySchedules[currDay].end) sEnd = options.daySchedules[currDay].end;
-    }
-    const startMs = sStart ? new Date(`${crDateStr}T${sStart.padStart(5, "0")}:00-06:00`).getTime() : null;
-    const endMs = sEnd ? new Date(`${crDateStr}T${sEnd.padStart(5, "0")}:00-06:00`).getTime() : null;
-    const validStart = startMs !== null && !isNaN(startMs) ? startMs : null;
-    const validEnd = endMs !== null && !isNaN(endMs) ? endMs : null;
-    let isWithin = true;
-    if (validStart !== null && refMs < validStart) isWithin = false;
-    if (validEnd !== null && refMs >= validEnd) isWithin = false;
-    return { startMs: validStart, endMs: validEnd, isWithin };
-  };
 
   let currentIdleBlock: {
     start: number;
@@ -1363,9 +1364,18 @@ export function computeUnifiedActivityMetrics(
 
         let dur = 60000;
         if (isManualStart) {
-          const nowMs = Date.now();
-          const elapsed = nowMs - currTime;
-          dur = elapsed > 0 ? elapsed : 60000;
+          const bounds = getScheduleBoundsForMs(currTime);
+          if (isTodayDay) {
+            const nowMs = Date.now();
+            const elapsed = nowMs - currTime;
+            const maxAllowed = bounds.endMs !== null && nowMs > bounds.endMs
+              ? Math.max(60000, bounds.endMs - currTime)
+              : elapsed;
+            dur = Math.max(60000, maxAllowed);
+          } else {
+            const shiftEnd = bounds.endMs !== null && bounds.endMs > currTime ? bounds.endMs : (currTime + 60000);
+            dur = Math.max(60000, shiftEnd - currTime);
+          }
         } else if (isManualEnd) {
           // El cierre de una labor manual ya fue imputado por su evento de inicio correspondiente; dur = 0
           dur = 0;
@@ -1476,9 +1486,7 @@ export function computeUnifiedActivityMetrics(
               passiveAccumMs += (endEventTime - currentPassiveStart);
             }
 
-            if (isSanitary) {
-              passiveAccumMs = Math.min(passiveAccumMs, 30 * 60 * 1000);
-            }
+            // Sin topes artificiales en pausa sanitaria durante la jornada laboral
             effectiveMs = Math.max(60000, passiveAccumMs);
           }
 

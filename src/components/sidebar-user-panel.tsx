@@ -1497,6 +1497,9 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
 
   const handleLogout = async () => {
     try {
+      if (manualTask) {
+        stopManualTask();
+      }
       logActivity({
         agent_email: agent.email,
         agent_name: fullName,
