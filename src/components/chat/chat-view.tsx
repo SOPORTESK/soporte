@@ -773,6 +773,8 @@ export function ChatView({
   const historyLoadedRef = React.useRef(false);
   const initialCaseRef = React.useRef(initialCase);
   React.useEffect(() => { initialCaseRef.current = initialCase; }, [initialCase]);
+  const sekCaseRef = React.useRef(sekCase);
+  React.useEffect(() => { sekCaseRef.current = sekCase; }, [sekCase]);
   React.useEffect(() => {
     const cached = caseHistoryCache.get(cacheKey);
     if (cached && (Date.now() - cached.timestamp < 180000)) {
@@ -1036,7 +1038,7 @@ export function ChatView({
        disponible de forma segura tanto para Realtime (.subscribe / postgres_changes)
        como para el polling activo y los eventos de visibilidad. */
     let pollInFlight = false;
-    const doPoll = async () => {
+    const doPoll = async (forceFullFetch = false) => {
       if (pollInFlight || !mounted) return;
       pollInFlight = true;
       try {
@@ -1044,7 +1046,24 @@ export function ChatView({
           ? initialCaseRef.current._group.openCaseIds
           : (initialCaseRef.current._group?.caseIds?.length ? initialCaseRef.current._group.caseIds : [targetId]);
         if (isGrouped && pollGroupIds.length) {
-          // Para chats agrupados, recargar el historial de los casos activos
+          // Chequeo ultraliviano de metadatos si no es forzado (~100 bytes en vez de megabytes)
+          if (!forceFullFetch) {
+            const { data: meta } = await supabase
+              .from("sek_cases")
+              .select("id,last_message_at,updated_at,estado,assigned_to")
+              .in("id", pollGroupIds);
+            if (meta && mounted) {
+              const metaHash = meta.map((m: any) => `${m.id}:${m.last_message_at || ""}:${m.updated_at || ""}:${m.estado || ""}`).sort().join("|");
+              const prevHash = (sekCaseRef.current as any)?._groupMetaHash;
+              if (prevHash && prevHash === metaHash) {
+                // Sin cambios: evitar descargar historial repetido (cero Egress)
+                return;
+              }
+              (sekCaseRef.current as any)._groupMetaHash = metaHash;
+            }
+          }
+
+          // Recargar el historial de los casos activos cuando hubo cambio real o es forzado
           const { data } = await supabase
             .from("sek_cases")
             .select("id,estado,canal,cliente,assigned_to,customer_phone,created_at,updated_at,last_message_at,last_message_preview,histcliente,histtecnico,marca,modelo,problema,resolucion,title")
@@ -1057,9 +1076,31 @@ export function ChatView({
           return;
         }
 
+        // Chat individual: chequeo ultraliviano de metadatos (~80 bytes) si no es forzado
+        if (!forceFullFetch) {
+          const { data: meta, error: metaErr } = await supabase
+            .from("sek_cases")
+            .select("id,estado,assigned_to,last_message_at,updated_at")
+            .eq("id", targetId)
+            .maybeSingle();
+          if (metaErr || !meta) return;
+
+          const cur = sekCaseRef.current;
+          const isIdentical =
+            cur.last_message_at === meta.last_message_at &&
+            cur.estado === meta.estado &&
+            cur.assigned_to === meta.assigned_to &&
+            (cur as any).updated_at === meta.updated_at;
+
+          if (isIdentical) {
+            // Nada cambió en la base de datos: evitar descargar histcliente/histtecnico (cero Egress)
+            return;
+          }
+        }
+
         const { data, error } = await supabase
           .from("sek_cases")
-          .select("id,estado,assigned_to,last_message_at,last_message_preview,histcliente,histtecnico,marca,modelo,problema,resolucion,title,cliente")
+          .select("id,estado,assigned_to,last_message_at,last_message_preview,histcliente,histtecnico,marca,modelo,problema,resolucion,title,cliente,updated_at")
           .eq("id", targetId)
           .maybeSingle();
         if (error) { console.error(`[chat-view] polling error:`, error); return; }
@@ -1070,6 +1111,7 @@ export function ChatView({
               assigned_to: data.assigned_to,
               last_message_at: data.last_message_at,
               last_message_preview: data.last_message_preview,
+              updated_at: data.updated_at,
               ...(data.marca ? { marca: data.marca } : {}),
               ...(data.modelo ? { modelo: data.modelo } : {}),
               ...(data.problema ? { problema: data.problema } : {}),
@@ -1139,6 +1181,7 @@ export function ChatView({
           return;
         }
 
+        let hasNewMessages = false;
         setSekCase(prev => {
           const newData = payload.new as any;
           const update: any = { ...newData };
@@ -1151,6 +1194,9 @@ export function ChatView({
               Array.isArray(prev.histtecnico) && prev.histtecnico.length > 0) {
             delete update.histtecnico;
           }
+          if (Array.isArray(update.histcliente) && update.histcliente.length > 0) hasNewMessages = true;
+          if (Array.isArray(update.histtecnico) && update.histtecnico.length > 0) hasNewMessages = true;
+
           // Proteger estado escalado: el webhook puede cambiar el estado via realtime
           // pero si el caso estaba escalado, solo permitir cambios a abierto/cerrado/resuelto
           // (cambios hechos por acción explícita del agente), no retroceder a ia_atendiendo/pendiente
@@ -1162,14 +1208,16 @@ export function ChatView({
           return next;
         });
 
-        // Refrescar inmediatamente con doPoll para garantizar carga completa aunque Realtime trunque arrays grandes
-        doPoll();
+        // Solo si Realtime no entregó el array de mensajes (ej. truncamiento TOAST en Postgres) se fuerza consulta HTTP
+        if (!hasNewMessages) {
+          doPoll(true);
+        }
       })
       .subscribe((status, err) => {
         if (status === "SUBSCRIBED") {
-          doPoll();
+          doPoll(false);
         } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
-          doPoll();
+          doPoll(false);
           setTimeout(() => { if (mounted) { try { channel.subscribe(); } catch {} } }, 1000);
         }
       });
@@ -1197,7 +1245,7 @@ export function ChatView({
        sin que el agente lo notara. */
     const handleVisibility = () => {
       if (document.visibilityState === "visible") {
-        doPoll();
+        doPoll(false);
       }
     };
     document.addEventListener("visibilitychange", handleVisibility);

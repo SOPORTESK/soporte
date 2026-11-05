@@ -905,8 +905,8 @@ export function InboxClient({
       }
     };
 
-    /* Polling activo de respaldo cada 10s para mantener el buzón sincronizado */
-    const poll = setInterval(doRefetch, 10000);
+    /* Polling activo de respaldo cada 30s para mantener el buzón sincronizado */
+    const poll = setInterval(doRefetch, 30000);
 
     /* Refetch inmediato al volver a la ventana (cubre Electron en segundo plano) */
     const handleFocus = () => doRefetch();
