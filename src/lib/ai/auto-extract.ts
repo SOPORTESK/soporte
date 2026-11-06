@@ -1,6 +1,21 @@
 import { createServiceClient } from "@/lib/supabase/service";
 import { generateText } from "@/lib/ai/config";
 
+export const KNOWN_SEKUNET_VENDORS = [
+  "fabiana perozo", "fabiana peroza", "fabiana p", "fabiana",
+  "carolina chavarria", "carolina chavarría", "carolina", "karolina",
+  "luis fallas", "luis fallas chaves", "luis gomez", "luis",
+  "sharon del sid", "sharon del cid", "sharon",
+  "joaquin sanchez", "joaquín sánchez", "joaquin", "joaquín", "juakin",
+  "nicol espinoza", "nicole espinoza", "nicol", "nicole",
+  "bryan anchia", "bryan anchía", "brayan", "bryan",
+  "mariano castro", "mariano",
+  "henry ramirez", "henry ramírez", "henry",
+  "josseph bolsios", "josseph",
+  "cristofer alvarado", "christopher alvarado", "cristofer", "christopher",
+  "matthew", "isaac", "roberto"
+];
+
 const TEMAS_VALIDOS = [
   "Configuraciones", "Reset", "Desvinculación", "Firmware",
   "Software", "Licencias", "Reparación / Diagnóstico", "Consulta", "Otro"
@@ -64,10 +79,14 @@ export async function performAutoExtract(id: string) {
 
     const prompt = `Eres un analista de soporte técnico de Sekunet (Costa Rica). Analiza la siguiente conversación de soporte técnico y extrae con máxima precisión los datos técnicos del equipo y del cliente:
 
-1. "nombre": Nombre completo de la persona que escribe (si lo dice en la conversación). NUNCA uses el nombre de perfil de WhatsApp.
+1. "nombre": Nombre completo de la persona que escribe (cliente). NUNCA uses el nombre del vendedor ni el de ejecutivos de ventas de Sekunet aquí. Si el cliente aún no ha dicho su nombre personal, déjalo vacío (""). NUNCA uses el nombre de perfil de WhatsApp.
 2. "correo": Correo electrónico (si aparece).
 3. "cuenta": Empresa o cuenta comercial afiliada a Sekunet (si la menciona expresamente). NUNCA pongas el nombre de una persona física aquí. Si no menciona empresa o negocio, déjalo vacío (""). NUNCA dupliques el "nombre" en "cuenta".
-4. "vendedor": Nombre del ejecutivo o ejecutiva de ventas de Sekunet que atiende su cuenta (si lo indica el cliente o responde a la pregunta de vendedor).
+4. "vendedor": Nombre del ejecutivo o ejecutiva de ventas de Sekunet que atiende su cuenta (ej: Fabiana Perozo, Carolina Chavarría, Luis Fallas, Sharon Del Cid, Joaquín Sánchez, Nicol Espinoza, Bryan Anchía, etc., si el cliente lo indica, si responde a la pregunta de vendedor, o si viene precedido por "vendedor:", "mi vendedor es", etc.). NUNCA pongas al vendedor como "nombre".
+REGLAS ESTRICTAS DE VENDEDOR VS CLIENTE:
+- Los vendedores de Sekunet son personal de ventas de la empresa, NUNCA son el cliente.
+- Si en la conversación solo se menciona a un vendedor (o el cliente responde a quién es su vendedor), ese nombre va estrictamente en "vendedor", JAMÁS en "nombre".
+- "nombre" y "vendedor" NUNCA pueden ser la misma persona.
 5. "ticket": Número de ticket abierto o boleta de taller (si el cliente lo menciona).
 6. "tema": Tema de la consulta. Debe ser exactamente uno de: ${TEMAS_VALIDOS.join(", ")}.
 7. "marca": Marca exacta del equipo (ej: HIKVISION, DAHUA, ZKTECO, EPCOM, HILOOK, EZVIZ, IMOU, MIKROTIK, UBIQUITI). Si no se menciona explícitamente pero se deduce, indícala.
@@ -265,21 +284,74 @@ Responde ÚNICAMENTE en formato JSON:
     const marca = extracted.marca?.trim() || "";
     const modelo = extracted.modelo?.trim() || "";
     const descProblema = extracted.descripcion_problema?.trim() || "";
-    const extractNombre = extracted.nombre?.trim() || "";
+    let extractNombre = extracted.nombre?.trim() || "";
     const extractCorreo = extracted.correo?.trim() || "";
     let extractCuenta = extracted.cuenta?.trim() || "";
-    const extractVendedor = extracted.vendedor?.trim() || "";
+    let extractVendedor = extracted.vendedor?.trim() || "";
     const extractTicket = extracted.ticket?.trim() || "";
 
     const currentCliente = (caseData.cliente && typeof caseData.cliente === "object") ? caseData.cliente as Record<string, unknown> : {};
     const updatedCliente: Record<string, unknown> = { ...currentCliente };
     let clienteChanged = false;
 
-    // Solo actualizar nombre si la IA extrajo un nombre real del texto de la conversación
-    // NUNCA usar whatsapp_name como nombre real del cliente
+    const whatsappName = String((currentCliente as any).whatsapp_name || (caseData.cliente as any)?.whatsapp_name || "").trim();
+
+    // ── Validaciones cruzadas para evitar confundir al vendedor con el cliente ──
+
+    // 1. Si extractNombre coincide con un vendedor conocido de Sekunet, moverlo a vendedor y anular como cliente
+    if (extractNombre) {
+      const normN = extractNombre.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+      const isKnownVendor = KNOWN_SEKUNET_VENDORS.some(v => {
+        const normV = v.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+        return normN === normV || normN.startsWith(normV + " ") || normN.endsWith(" " + normV);
+      });
+      if (isKnownVendor) {
+        console.log(`[auto-extract] Nombre '${extractNombre}' coincide con ejecutiva/vendedor de Sekunet. Reasignando a vendedor.`);
+        if (!extractVendedor) {
+          extractVendedor = extractNombre;
+        }
+        extractNombre = ""; // Descartar como cliente
+      }
+    }
+
+    // 2. Si extractNombre coincide con extractVendedor o con el vendedor actual de la cuenta, anularlo
+    if (extractNombre) {
+      const normN = extractNombre.toLowerCase().trim();
+      const normV = (extractVendedor || currentCliente.vendedor || "").toString().toLowerCase().trim();
+      if (normV && (normN === normV || normN.includes(normV) || normV.includes(normN))) {
+        console.log(`[auto-extract] Nombre '${extractNombre}' descartado porque coincide con el vendedor '${normV}'`);
+        extractNombre = "";
+      }
+    }
+
+    // 3. Comparación con WhatsApp Profile Name como árbitro de apoyo (SIN autocompletar si el cliente no escribió)
+    if (extractNombre && whatsappName) {
+      const normN = extractNombre.toLowerCase().trim();
+      const normW = whatsappName.toLowerCase().trim();
+      // Si el nombre extraído es totalmente ajeno al nombre de perfil de WhatsApp pero coincide con patrones de vendedor, descartar
+      if (normN !== normW && !normW.includes(normN) && !normN.includes(normW)) {
+        const isVendorWord = KNOWN_SEKUNET_VENDORS.some(v => normN.includes(v));
+        if (isVendorWord) {
+          extractNombre = "";
+        }
+      }
+    }
+
+    // Solo actualizar nombre si la IA extrajo un nombre real del texto que no sea el vendedor
     if (extractNombre && !currentCliente.nombre) {
       updatedCliente.nombre = extractNombre;
       clienteChanged = true;
+    }
+
+    // Si el caso guardado previamente tenía por error el nombre del cliente idéntico al vendedor, sanearlo
+    if (updatedCliente.nombre && (updatedCliente.vendedor || extractVendedor)) {
+      const n = String(updatedCliente.nombre).toLowerCase().trim();
+      const v = String(updatedCliente.vendedor || extractVendedor).toLowerCase().trim();
+      if (n && v && (n === v || n.includes(v) || v.includes(n))) {
+        console.log(`[auto-extract] Saneando caso: removiendo nombre de cliente '${updatedCliente.nombre}' porque coincide con el vendedor`);
+        delete updatedCliente.nombre;
+        clienteChanged = true;
+      }
     }
 
     if (extractCorreo && !currentCliente.correo) {

@@ -1004,14 +1004,16 @@ export function ChatView({
           if (data?.ok && data?.extracted) {
             const ext = data.extracted;
             setSekCase(prev => {
+              const currentCli = (typeof prev.cliente === "object" ? prev.cliente : {}) as Record<string, any>;
               const updatedCliente = {
-                ...(typeof prev.cliente === "object" ? prev.cliente : {}),
-                ...(ext.marca ? { marca: ext.marca } : {}),
-                ...(ext.modelo ? { modelo: ext.modelo } : {}),
-                ...(ext.nombre ? { nombre: ext.nombre } : {}),
-                ...(ext.cuenta ? { cuenta: ext.cuenta } : {}),
-                ...(ext.vendedor ? { vendedor: ext.vendedor } : {}),
-                ...(ext.ticket ? { ticket: ext.ticket } : {}),
+                ...currentCli,
+                ...(ext.marca && !currentCli.marca ? { marca: ext.marca } : {}),
+                ...(ext.modelo && !currentCli.modelo ? { modelo: ext.modelo } : {}),
+                // NUNCA sobreescribir nombre si ya existe o fue ingresado/editado manualmente
+                ...(ext.nombre && !currentCli.nombre ? { nombre: ext.nombre } : {}),
+                ...(ext.cuenta && !currentCli.cuenta ? { cuenta: ext.cuenta } : {}),
+                ...(ext.vendedor && !currentCli.vendedor ? { vendedor: ext.vendedor } : {}),
+                ...(ext.ticket && !currentCli.ticket ? { ticket: ext.ticket } : {}),
               };
               const next = {
                 ...prev,

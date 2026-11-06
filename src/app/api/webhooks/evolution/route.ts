@@ -2334,7 +2334,7 @@ export async function POST(req: NextRequest) {
         for (const pc of prevCases) {
           const pcCliente = (pc.cliente && typeof pc.cliente === "object") ? pc.cliente as Record<string, unknown> : {};
           if (pcCliente.nombre || pcCliente.correo || pcCliente.cuenta || pcCliente.cedula || pcCliente.vendedor) {
-            const rawNombre = pcCliente.nombre ? String(pcCliente.nombre).trim() : null;
+            let rawNombre = pcCliente.nombre ? String(pcCliente.nombre).trim() : null;
             let rawCuenta = pcCliente.cuenta ? String(pcCliente.cuenta).trim() : null;
 
             // Si cuenta es idéntica al nombre personal o al pushName de WhatsApp, descartarla (no es empresa)
@@ -2348,6 +2348,11 @@ export async function POST(req: NextRequest) {
             const rawVendedor = (pcCliente.vendedor || (pcCliente as any).vendedor_asignado)
               ? String(pcCliente.vendedor || (pcCliente as any).vendedor_asignado).trim()
               : null;
+
+            // Si el nombre guardado en casos anteriores es idéntico al vendedor, no arrastrarlo como nombre del cliente
+            if (rawNombre && rawVendedor && rawNombre.toLowerCase() === rawVendedor.toLowerCase()) {
+              rawNombre = null;
+            }
 
             knownClient = {
               nombre: rawNombre,
