@@ -15,7 +15,7 @@ export function InboxBadge({ initialCount }: { initialCount: number }) {
     const fetchCount = async () => {
       const { data, error } = await supabase
         .from("sek_cases")
-        .select("id, histcliente, histtecnico, estado")
+        .select("id, estado, unread_count")
         .in("estado", ["escalado", "abierto", "ia_atendiendo"])
         .neq("canal", "simulator")
         .neq("es_test", true)

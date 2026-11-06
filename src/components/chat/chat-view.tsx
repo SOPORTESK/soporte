@@ -1240,11 +1240,11 @@ export function ChatView({
       .subscribe();
     presenceChannelRef.current = presenceCh;
 
-    /* Polling activo de respaldo cada 4s (solo pestaña visible) para máxima inmediatez ante cualquier latencia de socket */
+    /* Polling activo de respaldo cada 8s (solo pestaña visible) para máxima inmediatez ante cualquier latencia de socket */
     const poll = setInterval(() => {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       doPoll();
-    }, 4000);
+    }, 8000);
 
     /* Refetch inmediato al volver a la pestaña/ventana. Cubre el caso donde el
        navegador o el sistema operativo pausó los timers en segundo plano (pestaña

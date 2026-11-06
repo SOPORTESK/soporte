@@ -13,13 +13,13 @@ import type { SekCase } from "@/lib/types";
 export function EscalatedCasesBanner() {
   const router = useRouter();
   const supabase = React.useMemo(() => createClient(), []);
-  const [escalated, setEscalated] = React.useState<SekCase[]>([]);
+  const [escalated, setEscalated] = React.useState<any[]>([]);
 
   React.useEffect(() => {
     const fetchEscalated = async () => {
       const { data, error } = await supabase
         .from("sek_cases")
-        .select("*")
+        .select("id")
         .eq("estado", "escalado")
         .is("assigned_to", null)
         .neq("es_test", true)

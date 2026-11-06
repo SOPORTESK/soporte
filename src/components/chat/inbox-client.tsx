@@ -184,6 +184,15 @@ const BASE_TITLE = "Chat Sekunet - Atención al cliente";
 // Las notificaciones de mensajes nuevos usan unread_count y last_message_at.
 const CASE_LIST_FIELDS = "id,estado,canal,cliente,assigned_to,last_message_at,last_message_preview,unread_count,created_at,updated_at,title,prioridad,tags,customer_phone,es_test";
 
+function getMaxUpdatedAt(list: SekCase[]): string {
+  let max = "";
+  if (!Array.isArray(list)) return max;
+  for (const c of list) {
+    if (c?.updated_at && c.updated_at > max) max = c.updated_at;
+  }
+  return max;
+}
+
 async function fetchCasesMeta(supabase: any, limit = 1500, agentEmail?: string, isAdmin?: boolean) {
   if (agentEmail && isAdmin) {
     // Para administradores en Mi Gestión:
@@ -362,6 +371,7 @@ export function InboxClient({
   const supabase = React.useMemo(() => createClient(), []);
   const prevCasesRef = React.useRef<SekCase[]>(initialCases);
   const casesRef = React.useRef<SekCase[]>(initialCases);
+  const lastKnownMaxUpdatedAtRef = React.useRef<string>(getMaxUpdatedAt(initialCases));
   const alertedCasesRef = React.useRef<Map<string, number>>(new Map());
   const selectedIdRef = React.useRef<string | null>(initialSelectedId);
   const agentEmailRef = React.useRef<string | null>(null);
@@ -517,6 +527,8 @@ export function InboxClient({
     if (!canSupervise && !godModeEmail) return;
     fetchCasesMeta(supabase, 300, agentEmail, canSupervise)
       .then(newCases => {
+        const newMax = getMaxUpdatedAt(newCases);
+        if (newMax) lastKnownMaxUpdatedAtRef.current = newMax;
         setAllCases(newCases);
         const filteredNew = filterCasesByContainer(newCases, containerType, agentEmail, agentNameRef.current, canSupervise, adminFilterMode);
         setCases(filteredNew);
@@ -676,11 +688,17 @@ export function InboxClient({
               if (payload.eventType === "INSERT") {
                 const ins = payload.new as SekCase;
                 if (ins && ins.canal !== "simulator" && !(ins as any).es_test) {
+                  if (ins.updated_at && ins.updated_at > lastKnownMaxUpdatedAtRef.current) {
+                    lastKnownMaxUpdatedAtRef.current = ins.updated_at;
+                  }
                   nextAll = [ins, ...nextAll.filter(c => String(c.id) !== String(ins.id))];
                 }
               } else if (payload.eventType === "UPDATE") {
                 const upd = payload.new as SekCase;
                 if (upd && upd.canal !== "simulator" && !(upd as any).es_test) {
+                  if (upd.updated_at && upd.updated_at > lastKnownMaxUpdatedAtRef.current) {
+                    lastKnownMaxUpdatedAtRef.current = upd.updated_at;
+                  }
                   const idx = nextAll.findIndex(c => String(c.id) === String(upd.id));
                   if (idx !== -1) {
                     nextAll[idx] = { ...nextAll[idx], ...upd };
@@ -874,13 +892,39 @@ export function InboxClient({
 
     /* Refetch silencioso: reutilizado por polling y por focus/visibility */
     let lastRefetch = Date.now();
-    const doRefetch = async () => {
+    const doRefetch = async (force = false) => {
+      // 1. Si la pestaña está oculta en segundo plano y no es forzado, no ejecutar (0 bytes en segundo plano)
+      if (typeof document !== "undefined" && document.visibilityState === "hidden" && !force) return;
+
       if (Date.now() - lastRefetch < 3000) return; // throttle 3s para permitir refresco ágil
       lastRefetch = Date.now();
       try {
         if (containerType === "mi-gestion" && !agentEmail) return;
+
+        // 2. Chequeo ultraliviano (~60 bytes) antes de descargar ~280 KB masivos:
+        // Si no es forzado y ya conocemos el último updated_at, verificar si hubo algún cambio en la tabla
+        if (!force && lastKnownMaxUpdatedAtRef.current) {
+          const { data: latestRow, error: checkErr } = await supabase
+            .from("sek_cases")
+            .select("updated_at")
+            .order("updated_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (!checkErr && latestRow?.updated_at && latestRow.updated_at <= lastKnownMaxUpdatedAtRef.current) {
+            // Cero cambios en la base de datos: omitir la descarga masiva de 300 casos
+            return;
+          }
+        }
+
         const fetchEmail = containerType === "mi-gestion" ? (agentEmail || undefined) : undefined;
         const newCases = await fetchCasesMeta(supabase, 300, fetchEmail, isUserAdmin);
+
+        // Actualizar el timestamp más reciente conocido
+        const newMax = getMaxUpdatedAt(newCases);
+        if (newMax) {
+          lastKnownMaxUpdatedAtRef.current = newMax;
+        }
         setAllCases(newCases);
         const filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail, agentName, isUserAdmin, adminFilterMode);
         const curSel = selectedIdRef.current;
@@ -905,12 +949,12 @@ export function InboxClient({
       }
     };
 
-    /* Polling activo de respaldo cada 30s para mantener el buzón sincronizado */
-    const poll = setInterval(doRefetch, 30000);
+    /* Polling activo de respaldo cada 60s (solo pestaña visible) */
+    const poll = setInterval(() => doRefetch(false), 60000);
 
-    /* Refetch inmediato al volver a la ventana (cubre Electron en segundo plano) */
-    const handleFocus = () => doRefetch();
-    const handleVisibility = () => { if (document.visibilityState === "visible") doRefetch(); };
+    /* Refetch al volver a la ventana (pasa por el chequeo liviano de 60 bytes) */
+    const handleFocus = () => doRefetch(false);
+    const handleVisibility = () => { if (document.visibilityState === "visible") doRefetch(false); };
     window.addEventListener("focus", handleFocus);
     document.addEventListener("visibilitychange", handleVisibility);
 
