@@ -135,7 +135,9 @@ export async function PATCH(
     if (clienteTel) caseUpdates.customer_phone = clienteTel;
     if (cleanFields.marca !== undefined) caseUpdates.marca = cleanFields.marca || null;
     if (cleanFields.modelo !== undefined) caseUpdates.modelo = cleanFields.modelo || null;
-    if (cleanFields.descripcion !== undefined) caseUpdates.problema = cleanFields.descripcion || null;
+    if (cleanFields.tipo_consulta !== undefined && cleanFields.tipo_consulta.trim()) {
+      caseUpdates.problema = cleanFields.tipo_consulta.trim().toLowerCase();
+    }
 
     const { error: updateError } = await supabase
       .from("sek_cases")

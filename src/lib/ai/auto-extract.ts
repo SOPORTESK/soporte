@@ -34,7 +34,12 @@ const temaToProblema: Record<string, string> = {
   "Otro": "otro",
 };
 
-export async function performAutoExtract(id: string) {
+export function isPlaceholderDesc(str: unknown): boolean {
+  if (!str || typeof str !== "string") return false;
+  return /pendiente\s+de\s+detalles|inicia\s+la\s+conversaci[oó]n|a\s+la\s+espera\s+de\s+ser\s+atendido|saludo\s+de\s+buenos\s+d[ií]as|sin\s+mencionar\s+datos/i.test(str);
+}
+
+export async function performAutoExtract(id: string, options?: { force?: boolean }) {
   try {
     const supabase = createServiceClient();
 
@@ -49,9 +54,10 @@ export async function performAutoExtract(id: string) {
     }
 
     const cli = (caseData.cliente && typeof caseData.cliente === "object") ? caseData.cliente as Record<string, unknown> : {};
-    const hasEquipmentData = caseData.problema && caseData.marca && caseData.modelo;
+    const hasEquipmentData = caseData.problema && caseData.marca && caseData.modelo && !isPlaceholderDesc(caseData.problema);
     const hasClientData = !!(cli.nombre && (cli.correo || cli.cuenta));
-    if (hasEquipmentData && hasClientData) {
+    const descIsPlaceholder = isPlaceholderDesc(cli.descripcion) || isPlaceholderDesc(caseData.problema);
+    if (!options?.force && !descIsPlaceholder && hasEquipmentData && hasClientData) {
       return { ok: true, skipped: true, reason: "already_has_data" };
     }
 
@@ -447,7 +453,7 @@ Responde ÚNICAMENTE en formato JSON:
       clienteChanged = true;
     }
 
-    if (descProblema && !currentCliente.descripcion) {
+    if (descProblema && (!currentCliente.descripcion || isPlaceholderDesc(currentCliente.descripcion) || options?.force)) {
       updatedCliente.descripcion = descProblema;
       clienteChanged = true;
     }
@@ -455,11 +461,11 @@ Responde ÚNICAMENTE en formato JSON:
       updatedCliente.tipo_consulta = tema;
       clienteChanged = true;
     }
-    if (marca && !currentCliente.marca) {
+    if (marca && (!currentCliente.marca || currentCliente.marca === "..." || options?.force)) {
       updatedCliente.marca = marca;
       clienteChanged = true;
     }
-    if (modelo && !currentCliente.modelo) {
+    if (modelo && (!currentCliente.modelo || currentCliente.modelo === "..." || options?.force)) {
       updatedCliente.modelo = modelo;
       clienteChanged = true;
     }
@@ -470,9 +476,11 @@ Responde ÚNICAMENTE en formato JSON:
 
     if (tema && TEMAS_VALIDOS.includes(tema)) {
       updates.problema = temaToProblema[tema] || tema.toLowerCase();
+    } else if (isPlaceholderDesc(caseData.problema)) {
+      updates.problema = "consulta";
     }
-    if (marca) updates.marca = marca;
-    if (modelo) updates.modelo = modelo;
+    if (marca && (!caseData.marca || caseData.marca === "..." || options?.force)) updates.marca = marca;
+    if (modelo && (!caseData.modelo || caseData.modelo === "..." || options?.force)) updates.modelo = modelo;
 
     const titleParts: string[] = [];
     if (tema) titleParts.push(tema);

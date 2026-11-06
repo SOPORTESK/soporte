@@ -994,11 +994,16 @@ export function ChatView({
     if (!targetId) return;
     const hasHistory = (Array.isArray(sekCase.histcliente) && sekCase.histcliente.length > 0) ||
                        (Array.isArray(sekCase.histtecnico) && sekCase.histtecnico.length > 0);
-    const missingEquipment = (!sekCase.marca || !sekCase.modelo) && !(sekCase.cliente as any)?.marca;
-    if (!hasHistory || !missingEquipment) return;
+    const isPlaceholderDesc = (str: unknown) => {
+      if (!str || typeof str !== "string") return false;
+      return /pendiente\s+de\s+detalles|inicia\s+la\s+conversaci[oó]n|a\s+la\s+espera\s+de\s+ser\s+atendido/i.test(str);
+    };
+    const missingEquipment = (!sekCase.marca || !sekCase.modelo || sekCase.marca === "..." || sekCase.modelo === "...") && !(sekCase.cliente as any)?.marca;
+    const hasPendingDetails = isPlaceholderDesc((sekCase.cliente as any)?.descripcion) || isPlaceholderDesc(sekCase.problema);
+    if (!hasHistory || (!missingEquipment && !hasPendingDetails)) return;
 
     const timer = setTimeout(() => {
-      fetch(`/api/cases/${targetId}/auto-extract`, { method: "POST" })
+      fetch(`/api/cases/${targetId}/auto-extract`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ force: true }) })
         .then(r => r.json())
         .then(data => {
           if (data?.ok && data?.extracted) {
@@ -2068,7 +2073,7 @@ export function ChatView({
       if (closeErr) throw closeErr;
 
       // 4. Disparar extracción de IA en segundo plano
-      fetch(`/api/cases/${targetId}/auto-extract`, { method: "POST" })
+      fetch(`/api/cases/${targetId}/auto-extract`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ force: true }) })
         .then(r => r.json())
         .catch(e => console.warn("[cerrarCasoConMensaje] auto-extract:", e));
 
@@ -2151,7 +2156,7 @@ export function ChatView({
 
         // Auto-extract: extraer datos del cliente de la conversación y actualizar estado local
         try {
-          const extractRes = await fetch(`/api/cases/${targetId}/auto-extract`, { method: "POST" });
+          const extractRes = await fetch(`/api/cases/${targetId}/auto-extract`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ force: true }) });
           const extractData = await extractRes.json().catch(() => ({}));
           if (extractData?.ok && extractData?.extracted) {
             const ex = extractData.extracted;
@@ -2196,7 +2201,7 @@ export function ChatView({
         fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online" }) });
 
         // Auto-extract IA: analizar chat en segundo plano y extraer cliente/marca/modelo/problema
-        fetch(`/api/cases/${targetId}/auto-extract`, { method: "POST" })
+        fetch(`/api/cases/${targetId}/auto-extract`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ force: true }) })
           .then(r => r.json())
           .then(d => { if (d?.ok) console.log("[confirmClose] Auto-extract WhatsApp OK:", d); })
           .catch(e => console.warn("[confirmClose] Auto-extract failed:", e));
@@ -2227,7 +2232,7 @@ export function ChatView({
         modalShownRef.current = true;
         setSekCase(prev => ({ ...prev, cliente: updatedCliente }));
         toast.success("Calificación del agente guardada");
-        fetch(`/api/cases/${targetId}/auto-extract`, { method: "POST" })
+        fetch(`/api/cases/${targetId}/auto-extract`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ force: true }) })
           .catch(e => console.warn("[confirmClose] auto-extract:", e));
         setShowRatingModal(false);
         fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online" }) });
@@ -2248,7 +2253,7 @@ export function ChatView({
 
         // Auto-extract: extraer datos del cliente de la conversación y actualizar estado local
         try {
-          const extractRes = await fetch(`/api/cases/${targetId}/auto-extract`, { method: "POST" });
+          const extractRes = await fetch(`/api/cases/${targetId}/auto-extract`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ force: true }) });
           const extractData = await extractRes.json().catch(() => ({}));
           if (extractData?.ok && extractData?.extracted) {
             const ex = extractData.extracted;
@@ -2605,7 +2610,7 @@ export function ChatView({
           customer_phone: data.customer_phone || prev.customer_phone,
           marca: clienteDraft.marca || null,
           modelo: clienteDraft.modelo || null,
-          problema: clienteDraft.descripcion || null,
+          problema: clienteDraft.tipo_consulta || prev.problema || null,
         };
         caseHistoryCache.set(cacheKey, { sekCase: next, timestamp: Date.now() });
         return next;
@@ -2619,7 +2624,7 @@ export function ChatView({
             customer_phone: data.customer_phone,
             marca: clienteDraft.marca || null,
             modelo: clienteDraft.modelo || null,
-            problema: clienteDraft.descripcion || null,
+            problema: clienteDraft.tipo_consulta || sekCase.problema || null,
           }
         }));
       }
