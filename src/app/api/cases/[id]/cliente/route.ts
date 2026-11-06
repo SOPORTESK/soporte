@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { createClient } from "@/lib/supabase/server";
 import { createGarantiasServiceClient } from "@/lib/supabase-garantias";
+import { isInvalidVendorStr } from "@/lib/utils";
 
 export async function PATCH(
   req: NextRequest,
@@ -36,9 +37,12 @@ export async function PATCH(
         cleanFields[key] = value.trim();
       }
     }
-    // Normalizar vendedor_asignado a vendedor
+    // Normalizar vendedor_asignado a vendedor y descartar valores corruptos ("uno de", etc.)
     if (cleanFields.vendedor_asignado && !cleanFields.vendedor) {
       cleanFields.vendedor = cleanFields.vendedor_asignado;
+    }
+    if (cleanFields.vendedor && isInvalidVendorStr(cleanFields.vendedor)) {
+      cleanFields.vendedor = "";
     }
 
     if (Object.keys(cleanFields).length === 0) {
@@ -102,7 +106,7 @@ export async function PATCH(
           .maybeSingle();
         if (pastWithVendedor?.cliente && typeof pastWithVendedor.cliente === "object") {
           const v = (pastWithVendedor.cliente as any).vendedor;
-          if (v && typeof v === "string" && v.trim()) {
+          if (v && typeof v === "string" && !isInvalidVendorStr(v.trim())) {
             cleanFields.vendedor = v.trim();
           }
         }
@@ -190,7 +194,7 @@ export async function PATCH(
     // Propagar vendedor a cualquier otro caso de la misma empresa/cuenta
     const finalCuenta = (cleanFields.cuenta || currentCliente.cuenta as string || "").trim();
     const finalVendedor = (cleanFields.vendedor || currentCliente.vendedor as string || "").trim();
-    if (finalCuenta && finalVendedor && !/^(sin\s+cuenta|no\s+tengo|ninguna|cliente\s+final)$/i.test(finalCuenta)) {
+    if (finalCuenta && finalVendedor && !isInvalidVendorStr(finalVendedor) && !/^(sin\s+cuenta|no\s+tengo|ninguna|cliente\s+final)$/i.test(finalCuenta)) {
       try {
         const { data: accountCases } = await supabase
           .from("sek_cases")

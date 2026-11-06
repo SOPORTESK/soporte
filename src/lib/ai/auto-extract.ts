@@ -1,5 +1,6 @@
 import { createServiceClient } from "@/lib/supabase/service";
 import { generateText } from "@/lib/ai/config";
+import { isInvalidVendorStr } from "@/lib/utils";
 
 export const KNOWN_SEKUNET_VENDORS = [
   "fabiana perozo", "fabiana peroza", "fabiana p", "fabiana",
@@ -82,9 +83,10 @@ export async function performAutoExtract(id: string) {
 1. "nombre": Nombre completo de la persona que escribe (cliente). NUNCA uses el nombre del vendedor ni el de ejecutivos de ventas de Sekunet aquí. Si el cliente aún no ha dicho su nombre personal, déjalo vacío (""). NUNCA uses el nombre de perfil de WhatsApp.
 2. "correo": Correo electrónico (si aparece).
 3. "cuenta": Empresa o cuenta comercial afiliada a Sekunet (si la menciona expresamente). NUNCA pongas el nombre de una persona física aquí. Si no menciona empresa o negocio, déjalo vacío (""). NUNCA dupliques el "nombre" en "cuenta".
-4. "vendedor": Nombre del ejecutivo o ejecutiva de ventas de Sekunet que atiende su cuenta (ej: Fabiana Perozo, Carolina Chavarría, Luis Fallas, Sharon Del Cid, Joaquín Sánchez, Nicol Espinoza, Bryan Anchía, etc., si el cliente lo indica, si responde a la pregunta de vendedor, o si viene precedido por "vendedor:", "mi vendedor es", etc.). NUNCA pongas al vendedor como "nombre".
+4. "vendedor": Nombre del ejecutivo o ejecutiva de ventas de Sekunet que atiende su cuenta (ej: Fabiana Perozo, Carolina Chavarría, Luis Fallas, Sharon Del Cid, Joaquín Sánchez, Nicol Espinoza, Bryan Anchía, etc., si el cliente lo indica, si responde a la pregunta de vendedor, o si viene precedido por "vendedor:", "mi vendedor es", etc.). NUNCA extraigas fragmentos de saludos institucionales o mensajes del bot ("uno de", "uno de nuestros agentes", "agente", etc.). Si el cliente no indicó un vendedor de ventas de Sekunet, déjalo estrictamente vacío (""). NUNCA pongas al vendedor como "nombre".
 REGLAS ESTRICTAS DE VENDEDOR VS CLIENTE:
 - Los vendedores de Sekunet son personal de ventas de la empresa, NUNCA son el cliente.
+- NUNCA pongas como vendedor palabras genéricas como "uno de", "agente", "soporte" o "sekunet".
 - Si en la conversación solo se menciona a un vendedor (o el cliente responde a quién es su vendedor), ese nombre va estrictamente en "vendedor", JAMÁS en "nombre".
 - "nombre" y "vendedor" NUNCA pueden ser la misma persona.
 5. "ticket": Número de ticket abierto o boleta de taller (si el cliente lo menciona).
@@ -231,42 +233,62 @@ Responde ÚNICAMENTE en formato JSON:
     }
 
     // 5. Vendedor por regex y catálogo de ejecutivos comerciales Sekunet
-    if (!extracted.vendedor) {
+    if (extracted.vendedor && isInvalidVendorStr(extracted.vendedor)) {
+      extracted.vendedor = "";
+    }
+
+    const KNOWN_SEKUNET_VENDEDORES: [RegExp, string][] = [
+      [/\b(luis\s+fallas(?:\s+chaves)?)\b/i, "Luis Fallas"],
+      [/\b(sharon(?:\s+del\s+cid)?)\b/i, "Sharon Del Cid"],
+      [/\b(carolina(?:\s+chavarr[ií]a)?|karolina)\b/i, "Carolina Chavarría"],
+      [/\b(fabiana(?:\s+perozo|\s+peroza|\s+p\.?)?)\b/i, "Fabiana Perozo"],
+      [/\b(nicole(?:\s+espinoza)?|nicol\s+espinoza)\b/i, "Nicole Espinoza"],
+      [/\b(bryan\s+anch[ií]a|brayan\s+anch[ií]a)\b/i, "Bryan Anchía"],
+      [/\b(joaqu[ií]n(?:\s+s[aá]nchez)?|juakin)\b/i, "Joaquín Sánchez"],
+      [/\b(roberto\s+d[ií]az|roverto)\b/i, "Roberto Díaz"],
+      [/\b(cristofer(?:\s+alvarado)?|christopher(?:\s+alvarado)?)\b/i, "Christopher Alvarado"],
+      [/\b(henry(?:\s+ram[ií]rez)?)\b/i, "Henry Ramírez"],
+      [/\b(mariano(?:\s+castro)?)\b/i, "Mariano Castro"],
+    ];
+
+    // Primero: buscar si el cliente escribió directamente el nombre de un vendedor de Sekunet en sus mensajes
+    const clientText = allMsgs
+      .filter(m => m.role === "user")
+      .map(m => m.content)
+      .join("\n");
+
+    for (const [rx, canonName] of KNOWN_SEKUNET_VENDEDORES) {
+      if (rx.test(clientText)) {
+        extracted.vendedor = canonName;
+        break;
+      }
+    }
+
+    // Segundo: si aún no hay vendedor o es inválido, buscar regexes explícitas de vendedor
+    if (!extracted.vendedor || isInvalidVendorStr(extracted.vendedor)) {
       const vendedorRegexes = [
         /(?:vendedor|vendedora|ejecutivo|ejecutiva)(?:\s+(?:de\s+ventas|encargado|asignado|responsable))?[:\s-]+([A-Za-záéíóúÁÉÍÓÚñÑ]{2,25}(?:\s+[A-Za-záéíóúÁÉÍÓÚñÑ]{2,25})?)/i,
         /(?:mi|el|la)\s+(?:vendedor|vendedora|ejecutivo|ejecutiva)\s+es\s+([A-Za-záéíóúÁÉÍÓÚñÑ]{2,25}(?:\s+[A-Za-záéíóúÁÉÍÓÚñÑ]{2,25})?)/i,
-        /atendido\s+por\s+(?:el\s+vendedor\s+)?([A-Za-záéíóúÁÉÍÓÚñÑ]{2,25}(?:\s+[A-Za-záéíóúÁÉÍÓÚñÑ]{2,25})?)/i,
+        /(?:atendido|atendida)\s+por\s+el\s+vendedor\s+([A-Za-záéíóúÁÉÍÓÚñÑ]{2,25}(?:\s+[A-Za-záéíóúÁÉÍÓÚñÑ]{2,25})?)/i,
       ];
       for (const rx of vendedorRegexes) {
         const m = fullText.match(rx);
         if (m && m[1]) {
           const cand = m[1].trim();
-          if (!/^(no\s+se|ninguno|sin\s+vendedor|no\s+tengo|sekunet|soporte|taller|cliente|equipo)$/i.test(cand)) {
+          if (!isInvalidVendorStr(cand)) {
             extracted.vendedor = cand;
             break;
           }
         }
       }
+    }
 
-      if (!extracted.vendedor) {
-        const KNOWN_SEKUNET_VENDEDORES: [RegExp, string][] = [
-          [/\b(luis\s+fallas(?:\s+chaves)?)\b/i, "Luis Fallas"],
-          [/\b(sharon(?:\s+del\s+cid)?)\b/i, "Sharon Del Cid"],
-          [/\b(carolina(?:\s+chavarr[ií]a)?|karolina)\b/i, "Carolina Chavarría"],
-          [/\b(fabiana(?:\s+perozo|\s+peroza|\s+p\.?)?)\b/i, "Fabiana Perozo"],
-          [/\b(nicole(?:\s+espinoza)?|nicol\s+espinoza)\b/i, "Nicole Espinoza"],
-          [/\b(bryan\s+anch[ií]a|brayan\s+anch[ií]a)\b/i, "Bryan Anchía"],
-          [/\b(joaqu[ií]n(?:\s+s[aá]nchez)?|juakin)\b/i, "Joaquín Sánchez"],
-          [/\b(roberto\s+d[ií]az|roverto)\b/i, "Roberto Díaz"],
-          [/\b(cristofer(?:\s+alvarado)?|christopher(?:\s+alvarado)?)\b/i, "Christopher Alvarado"],
-          [/\b(henry(?:\s+ram[ií]rez)?)\b/i, "Henry Ramírez"],
-          [/\b(mariano(?:\s+castro)?)\b/i, "Mariano Castro"],
-        ];
-        for (const [rx, canonName] of KNOWN_SEKUNET_VENDEDORES) {
-          if (rx.test(fullText)) {
-            extracted.vendedor = canonName;
-            break;
-          }
+    // Tercero: si aún no hay vendedor, buscar en todo el historial contra la lista de vendedores conocidos
+    if (!extracted.vendedor || isInvalidVendorStr(extracted.vendedor)) {
+      for (const [rx, canonName] of KNOWN_SEKUNET_VENDEDORES) {
+        if (rx.test(fullText)) {
+          extracted.vendedor = canonName;
+          break;
         }
       }
     }
@@ -380,14 +402,24 @@ Responde ÚNICAMENTE en formato JSON:
       clienteChanged = true;
     }
 
-    if (extractVendedor && !currentCliente.vendedor) {
-      updatedCliente.vendedor = extractVendedor;
+    // Sanear vendedor actual si contiene basura previa ("uno de", etc.)
+    if (updatedCliente.vendedor && isInvalidVendorStr(updatedCliente.vendedor)) {
+      console.log(`[auto-extract] Saneando vendedor inválido existente en caso ${id}: '${updatedCliente.vendedor}'`);
+      delete updatedCliente.vendedor;
       clienteChanged = true;
     }
 
-    // Auto-recuperar vendedor desde la memoria de la cuenta si aún no está asignado
+    if (extractVendedor && !isInvalidVendorStr(extractVendedor)) {
+      // Solo asignar si el caso no tiene ya un vendedor válido
+      if (!updatedCliente.vendedor || isInvalidVendorStr(updatedCliente.vendedor)) {
+        updatedCliente.vendedor = extractVendedor;
+        clienteChanged = true;
+      }
+    }
+
+    // Auto-recuperar vendedor desde la memoria de la cuenta si aún no está asignado o era inválido
     const targetCuenta = String(updatedCliente.cuenta || currentCliente.cuenta || extractCuenta || "").trim();
-    if (!updatedCliente.vendedor && targetCuenta && !/^(sin\s+cuenta|no\s+tengo|ninguna|cliente\s+final)$/i.test(targetCuenta)) {
+    if ((!updatedCliente.vendedor || isInvalidVendorStr(updatedCliente.vendedor)) && targetCuenta && !/^(sin\s+cuenta|no\s+tengo|ninguna|cliente\s+final)$/i.test(targetCuenta)) {
       try {
         const { data: pastAc } = await supabase
           .from("sek_cases")
@@ -399,7 +431,7 @@ Responde ÚNICAMENTE en formato JSON:
 
         if (pastAc?.cliente && typeof pastAc.cliente === "object") {
           const pastV = (pastAc.cliente as any).vendedor;
-          if (pastV && typeof pastV === "string" && pastV.trim()) {
+          if (pastV && typeof pastV === "string" && !isInvalidVendorStr(pastV.trim())) {
             updatedCliente.vendedor = pastV.trim();
             clienteChanged = true;
             console.log(`[auto-extract] Vendedor auto-asignado por cuenta (${targetCuenta}): ${pastV.trim()}`);

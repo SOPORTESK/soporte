@@ -27,6 +27,13 @@ export function formatFullTime(iso: string | null | undefined): string {
 }
 
 /** Extrae info del campo cliente (que puede ser objeto, string o null) */
+export function isInvalidVendorStr(str: unknown): boolean {
+  if (!str || typeof str !== "string") return true;
+  const s = str.trim().toLowerCase();
+  if (s.length < 3) return true;
+  return /^(uno\s+de(?:\s+nuestros\s+agentes)?|uno|de|agente|agentes|nuestro|nuestros|soporte|sekunet|taller|cliente|equipo|no\s+se|no\s+s[eé]|ninguno|sin\s+vendedor|no\s+tengo(?:\s+vendedor)?|null|undefined|\(vac[ií]o\))$/i.test(s);
+}
+
 export function clienteInfo(cliente: unknown): {
   nombre: string;
   telefono: string;
@@ -62,7 +69,8 @@ export function clienteInfo(cliente: unknown): {
   const whatsappName = s(c.whatsapp_name ?? c.pushName ?? c.profileName ?? c.verifiedName);
   const tel = s(c.telefono ?? c.phone ?? c.tel);
   const avatarUrl = s(c.avatar_url ?? c.profilePicUrl ?? c.profilePictureUrl ?? c.picture);
-  const vendedor = s(c.vendedor ?? c.vendedor_asignado ?? c.sales_rep ?? c.ejecutivo);
+  const rawVendedor = s(c.vendedor ?? c.vendedor_asignado ?? c.sales_rep ?? c.ejecutivo);
+  const vendedor = isInvalidVendorStr(rawVendedor) ? "" : rawVendedor;
   const ticket = s(c.ticket ?? c.ticket_id ?? c.numero_ticket ?? c.boleta);
 
   return {

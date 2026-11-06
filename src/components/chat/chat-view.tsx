@@ -16,7 +16,7 @@ import { logActivity } from "@/lib/activity-client";
 import { Avatar, Badge } from "@/components/ui/avatar";
 import { Textarea } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { cn, formatTime, formatFullTime, asText, clienteInfo } from "@/lib/utils";
+import { cn, formatTime, formatFullTime, asText, clienteInfo, isInvalidVendorStr } from "@/lib/utils";
 import { toast } from "sonner";
 import { CaseHistoryDrawer } from "./case-history-drawer";
 import { TemplateManager } from "./template-manager";
@@ -1012,7 +1012,7 @@ export function ChatView({
                 // NUNCA sobreescribir nombre si ya existe o fue ingresado/editado manualmente
                 ...(ext.nombre && !currentCli.nombre ? { nombre: ext.nombre } : {}),
                 ...(ext.cuenta && !currentCli.cuenta ? { cuenta: ext.cuenta } : {}),
-                ...(ext.vendedor && !currentCli.vendedor ? { vendedor: ext.vendedor } : {}),
+                ...(ext.vendedor && !isInvalidVendorStr(ext.vendedor) && (!currentCli.vendedor || isInvalidVendorStr(currentCli.vendedor)) ? { vendedor: ext.vendedor } : {}),
                 ...(ext.ticket && !currentCli.ticket ? { ticket: ext.ticket } : {}),
               };
               const next = {
@@ -1031,7 +1031,7 @@ export function ChatView({
     }, 1500);
 
     return () => clearTimeout(timer);
-  }, [targetId, sekCase.marca, sekCase.modelo, (sekCase.cliente as any)?.marca, (sekCase.cliente as any)?.vendedor, cacheKey]);
+  }, [targetId, sekCase.marca, sekCase.modelo, (sekCase.cliente as any)?.marca, cacheKey]);
 
   React.useEffect(() => {
     let mounted = true;
@@ -2158,7 +2158,7 @@ export function ChatView({
             if (ex.nombre && !updatedCliente.nombre) updatedCliente.nombre = ex.nombre;
             if (ex.correo && !updatedCliente.correo) updatedCliente.correo = ex.correo;
             if (ex.cuenta && !updatedCliente.cuenta) updatedCliente.cuenta = ex.cuenta;
-            if (ex.vendedor && !updatedCliente.vendedor) updatedCliente.vendedor = ex.vendedor;
+            if (ex.vendedor && !isInvalidVendorStr(ex.vendedor) && (!updatedCliente.vendedor || isInvalidVendorStr(updatedCliente.vendedor))) updatedCliente.vendedor = ex.vendedor;
             if (ex.ticket && !updatedCliente.ticket) updatedCliente.ticket = ex.ticket;
             console.log("[confirmClose] auto-extract OK:", ex);
           }
@@ -2255,7 +2255,7 @@ export function ChatView({
             if (ex.nombre && !updatedCliente.nombre) updatedCliente.nombre = ex.nombre;
             if (ex.correo && !updatedCliente.correo) updatedCliente.correo = ex.correo;
             if (ex.cuenta && !updatedCliente.cuenta) updatedCliente.cuenta = ex.cuenta;
-            if (ex.vendedor && !updatedCliente.vendedor) updatedCliente.vendedor = ex.vendedor;
+            if (ex.vendedor && !isInvalidVendorStr(ex.vendedor) && (!updatedCliente.vendedor || isInvalidVendorStr(updatedCliente.vendedor))) updatedCliente.vendedor = ex.vendedor;
             if (ex.ticket && !updatedCliente.ticket) updatedCliente.ticket = ex.ticket;
             console.log("[confirmClose] auto-extract OK:", ex);
           }
@@ -2435,7 +2435,7 @@ export function ChatView({
 
         const rawCuenta = (clientData.cuenta || "").trim();
         const hasValidCuenta = Boolean(rawCuenta && !/^(sin\s+cuenta|no\s+tengo|ninguna|cliente\s+final|\(vacío\)|null)$/i.test(rawCuenta));
-        const hasVendedor = Boolean(clientData.vendedor || (clientData as any).vendedor_asignado);
+        const hasVendedor = Boolean((clientData.vendedor && !isInvalidVendorStr(clientData.vendedor)) || ((clientData as any).vendedor_asignado && !isInvalidVendorStr((clientData as any).vendedor_asignado)));
 
         // Evaluar qué campos faltan estrictamente del bloque de datos
         const missingFields: string[] = [];
@@ -2721,7 +2721,7 @@ export function ChatView({
               )}
               {ci.correo && <span className="hidden sm:inline-flex items-center gap-1"><Mail className="h-3 w-3" />{ci.correo}</span>}
               {ci.cuenta && <span className="inline-flex items-center gap-1"><Building2 className="h-3 w-3" />{ci.cuenta}</span>}
-              {ci.vendedor && (
+              {ci.vendedor && !isInvalidVendorStr(ci.vendedor) && (
                 <span className="inline-flex items-center gap-1 text-brand-600 dark:text-brand-400 font-medium" title="Vendedor Asignado">
                   <Briefcase className="h-3 w-3" />
                   <span className="hidden md:inline">Vendedor:</span> {ci.vendedor}
