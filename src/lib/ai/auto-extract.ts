@@ -84,22 +84,26 @@ export async function performAutoExtract(id: string, options?: { force?: boolean
       .join("\n")
       .slice(0, 4000);
 
-    const prompt = `Eres un analista de soporte técnico de Sekunet (Costa Rica). Analiza la siguiente conversación de soporte técnico y extrae con máxima precisión los datos técnicos del equipo y del cliente:
+    const prompt = `Eres un analista de soporte técnico de Sekunet (Costa Rica). Analiza la siguiente conversación de soporte técnico y extrae con máxima precisión los datos técnicos del equipo y del cliente.
+
+REGLA FUNDAMENTAL DE MENSAJES ENTRANTES VS SALIENTES:
+- Los datos del cliente (nombre, correo, cuenta, vendedor, ticket) deben extraerse EXCLUSIVAMENTE de los mensajes marcados como "Cliente:" (mensajes entrantes).
+- NUNCA extraigas datos a partir de lo que escribe el "Agente/IA:" (sus plantillas, saludos, preguntas, correos @sekunet.com, etc.). Si el Agente/IA pregunta por un dato y el Cliente NO lo respondió, el dato queda estrictamente vacío ("").
 
 1. "nombre": Nombre completo de la persona que escribe (cliente). NUNCA uses el nombre del vendedor ni el de ejecutivos de ventas de Sekunet aquí. Si el cliente aún no ha dicho su nombre personal, déjalo vacío (""). NUNCA uses el nombre de perfil de WhatsApp.
-2. "correo": Correo electrónico (si aparece).
-3. "cuenta": Empresa o cuenta comercial afiliada a Sekunet (si la menciona expresamente). NUNCA pongas el nombre de una persona física aquí. Si no menciona empresa o negocio, déjalo vacío (""). NUNCA dupliques el "nombre" en "cuenta".
-4. "vendedor": Nombre del ejecutivo o ejecutiva de ventas de Sekunet que atiende su cuenta (ej: Fabiana Perozo, Carolina Chavarría, Luis Fallas, Sharon Del Cid, Joaquín Sánchez, Nicol Espinoza, Bryan Anchía, etc., si el cliente lo indica, si responde a la pregunta de vendedor, o si viene precedido por "vendedor:", "mi vendedor es", etc.). NUNCA extraigas fragmentos de saludos institucionales o mensajes del bot ("uno de", "uno de nuestros agentes", "agente", etc.). Si el cliente no indicó un vendedor de ventas de Sekunet, déjalo estrictamente vacío (""). NUNCA pongas al vendedor como "nombre".
+2. "correo": Correo electrónico del cliente (si el cliente lo proporciona). NUNCA uses correos del personal de Sekunet.
+3. "cuenta": Empresa o cuenta comercial afiliada a Sekunet (si el cliente la menciona expresamente). NUNCA pongas el nombre de una persona física aquí. Si no menciona empresa o negocio, déjalo vacío (""). NUNCA dupliques el "nombre" en "cuenta".
+4. "vendedor": Nombre propio del ejecutivo o ejecutiva de ventas de Sekunet que atiende su cuenta (ej: Fabiana Perozo, Carolina Chavarría, Luis Fallas, Sharon Del Cid, Joaquín Sánchez, Nicol Espinoza, Bryan Anchía, etc., si el cliente lo indica en sus mensajes). Los vendedores tienen NOMBRES PROPIOS de personas. NUNCA extraigas preposiciones, pronombres ni fragmentos de preguntas como "de su", "uno de", "en que", "no especificado". Si el cliente no indicó con nombre propio a un vendedor de Sekunet, déjalo estrictamente vacío (""). NUNCA pongas al vendedor como "nombre".
 REGLAS ESTRICTAS DE VENDEDOR VS CLIENTE:
 - Los vendedores de Sekunet son personal de ventas de la empresa, NUNCA son el cliente.
-- NUNCA pongas como vendedor palabras genéricas como "uno de", "agente", "soporte" o "sekunet".
+- NUNCA pongas como vendedor palabras genéricas como "uno de", "de su", "agente", "soporte" o "sekunet".
 - Si en la conversación solo se menciona a un vendedor (o el cliente responde a quién es su vendedor), ese nombre va estrictamente en "vendedor", JAMÁS en "nombre".
 - "nombre" y "vendedor" NUNCA pueden ser la misma persona.
 5. "ticket": Número de ticket abierto o boleta de taller (si el cliente lo menciona).
 6. "tema": Tema de la consulta. Debe ser exactamente uno de: ${TEMAS_VALIDOS.join(", ")}.
 7. "marca": Marca exacta del equipo (ej: HIKVISION, DAHUA, ZKTECO, EPCOM, HILOOK, EZVIZ, IMOU, MIKROTIK, UBIQUITI). Si no se menciona explícitamente pero se deduce, indícala.
 8. "modelo": Modelo alfanumérico exacto del equipo (ej: DS-2CD2043G2-I, DS-7208HQHI-K1, K40, XVR5108, IPC-B120H).
-9. "descripcion_problema": Resumen conciso de la falla y solución técnica aplicada (máximo 250 caracteres).
+9. "descripcion_problema": Resumen conciso de la falla y solución técnica planteada por el cliente (máximo 250 caracteres).
 
 DATOS ACTUALES DEL CLIENTE:
 - nombre: ${String(cli.nombre || "")}
@@ -221,10 +225,19 @@ Responde ÚNICAMENTE en formato JSON:
       else if (/^(K\d|MB\d|INBIO|F\d|SF\d|ZK|BIOTIME)/i.test(extracted.modelo)) extracted.marca = "ZKTECO";
     }
 
-    // 3. Correo
+    // Texto exclusivo escrito por el cliente (entrantes) para datos personales
+    const clientText = allMsgs
+      .filter(m => m.role === "user")
+      .map(m => m.content)
+      .join("\n");
+
+    // 3. Correo (únicamente de mensajes entrantes del cliente, descartando correos internos de Sekunet)
     if (!extracted.correo) {
-      const emailMatch = fullText.match(/[\w.-]+@[\w.-]+\.[a-zA-Z]{2,}/);
-      if (emailMatch) extracted.correo = emailMatch[0];
+      const emailMatches = clientText.match(/[\w.-]+@[\w.-]+\.[a-zA-Z]{2,}/g);
+      if (emailMatches) {
+        const validClientEmail = emailMatches.find(e => !e.toLowerCase().endsWith("@sekunet.com"));
+        if (validClientEmail) extracted.correo = validClientEmail;
+      }
     }
 
     // 4. Tema si está vacío
@@ -262,11 +275,6 @@ Responde ÚNICAMENTE en formato JSON:
     ];
 
     // Primero: buscar si el cliente escribió directamente el nombre de un vendedor de Sekunet en sus mensajes
-    const clientText = allMsgs
-      .filter(m => m.role === "user")
-      .map(m => m.content)
-      .join("\n");
-
     for (const [rx, canonName] of KNOWN_SEKUNET_VENDEDORES) {
       if (rx.test(clientText)) {
         extracted.vendedor = canonName;
@@ -294,9 +302,9 @@ Responde ÚNICAMENTE en formato JSON:
       }
     }
 
-    // 6. Ticket si el cliente menciona un ticket o boleta abierto
+    // 6. Ticket si el cliente menciona un ticket o boleta abierto (solo mensajes del cliente)
     if (!extracted.ticket) {
-      const ticketMatch = fullText.match(/\b(?:ticket|boleta|caso\s*#?)\s*[:#]?\s*([0-9]{3,8})\b/i);
+      const ticketMatch = clientText.match(/\b(?:ticket|boleta|caso\s*#?)\s*[:#]?\s*([0-9]{3,8})\b/i);
       if (ticketMatch && ticketMatch[1]) {
         extracted.ticket = ticketMatch[1].trim();
       }
