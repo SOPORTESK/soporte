@@ -1284,13 +1284,48 @@ Deno.serve(async (req: Request) => {
         return new Response(JSON.stringify({ ok: true, skipped: true, dedup: true }), { status: 200, headers: corsHeaders });
       }
       const msgBienvenida = getFlowMessageById(flowConfig, "start") || "Hola\nBienvenido al soporte técnico de Sekunet. Soy el Asistente Virtual y con gusto le brindaré asistencia. Antes de comenzar, necesito registrar algunos datos para atender su solicitud.";
-      const msgNombre = getFlowMessageById(flowConfig, "pedir_nombre") || "Para comenzar, ¿me podría indicar su nombre completo?";
+
+      // ── EVALUAR QUÉ DATO PERSONAL FALTA ESTRICTAMENTE ──
+      const cli0 = (caso.cliente && typeof caso.cliente === "object") ? { ...(caso.cliente as any) } : {};
+      const rawN0 = String(cli0.nombre || "").trim();
+      const hasN0 = Boolean(rawN0 && rawN0 !== "(vacío)" && rawN0 !== "." && !/^[+\d\s()-]{6,}$/.test(rawN0) && rawN0.toLowerCase() !== "cliente");
+
+      let rawE0 = String(cli0.correo || "").trim();
+      // Si el cliente en su primer mensaje ya escribió un correo válido, extraerlo
+      const emailInMsg0 = lastUserMsgContent.match(/[\w.-]+@[\w.-]+\.\w+/);
+      if (!rawE0 && emailInMsg0 && esCorreoValido(emailInMsg0[0])) {
+        rawE0 = emailInMsg0[0];
+        cli0.correo = rawE0;
+      }
+      const hasE0 = Boolean(rawE0 && rawE0 !== "(vacío)" && rawE0 !== "null");
+
+      const rawC0 = String(cli0.cuenta || "").trim();
+      const hasC0 = Boolean(rawC0 && rawC0 !== "(vacío)" && rawC0 !== "null");
+
+      let nextStepMsg = "";
+      if (!hasN0) {
+        // Falta nombre
+        nextStepMsg = getFlowMessageById(flowConfig, "pedir_nombre") || "Para comenzar, ¿me podría indicar su nombre completo?";
+      } else if (!hasE0) {
+        // Falta correo
+        nextStepMsg = getFlowMessageById(flowConfig, "pedir_correo") || "Gracias. ¿Me podría indicar su correo electrónico?";
+      } else if (!hasC0) {
+        // Falta cuenta o empresa
+        nextStepMsg = getFlowMessageById(flowConfig, "pedir_cuenta") || "Entiendo. ¿Cuál es el nombre de la empresa o cuenta afiliada a Sekunet?";
+      } else {
+        // Bloque personal 100% completo: pasar directo al bloque técnico (menú de temas)
+        const flowMenuOptions = getFlowMenuOptions(flowConfig);
+        nextStepMsg = (flowMenuOptions && flowMenuOptions.length > 0)
+          ? `¿En relación a qué tema sería su consulta?\n\n${flowMenuOptions.map((o, i) => `${i + 1}. ${o}`).join("\n")}\n\nResponda con el número o el nombre del tema.`
+          : (getFlowMessageById(flowConfig, "menu_temas") || "¿En relación a qué tema sería su consulta?\n\n1. Configuraciones\n2. Reset\n3. Desvinculación\n4. Firmware\n5. Software\n6. Licencias\n7. Otro\n\nResponda con el número o el nombre del tema.");
+      }
+
       const newMsgs: HistMsg[] = [
         { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: msgBienvenida },
-        { role: "ia", author: "Asistente Sekunet", time: new Date(Date.now() + 10).toISOString(), content: msgNombre },
+        { role: "ia", author: "Asistente Sekunet", time: new Date(Date.now() + 10).toISOString(), content: nextStepMsg },
       ];
-      await appendTecnicoMulti(case_id, newMsgs);
-      return new Response(JSON.stringify({ ok: true, reply: [msgBienvenida, msgNombre] }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      await appendTecnicoMulti(case_id, newMsgs, cli0.correo !== (caso.cliente as any)?.correo ? { cliente: cli0 } : undefined);
+      return new Response(JSON.stringify({ ok: true, reply: [msgBienvenida, nextStepMsg] }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -1438,10 +1473,12 @@ REGLAS DE ANÁLISIS:
   JAMÁS uses el contenido de un campo para inferir otro. Son independientes.
 - PROHIBIDO ASUMIR EL TEMA: NUNCA inventes ni infieras el "tema". Si el cliente no eligió explícitamente uno de los 8 temas, deja "tema" en null y usa accion "PEDIR_TEMA". Jamás escribas frases como "su consulta sobre configuraciones" si el cliente no lo dijo.
 - ORDEN OBLIGATORIO (PASO A PASO): Los datos iniciales deben pedirse UNO POR UNO.
+  REGLA DE EVALUACIÓN ESTRICTA DE CAMPOS FALTANTES:
+  - Si el cliente ya tiene registrados algunos datos en base de datos, NUNCA los vuelvas a pedir. Pide ESTRICTAMENTE el dato que falta.
   1. Si falta el nombre, la accion debe ser "PEDIR_NOMBRE".
-  2. Si ya tienes el nombre pero el campo correo está VACÍO en base de datos (no se ha preguntado ni respondido aún), la accion DEBE ser "PEDIR_CORREO". El correo es OPCIONAL para el cliente: si responde que no lo tiene en cualquier forma, extrae "Sin correo" y en el siguiente mensaje avanza a cuenta. PERO DEBES PREGUNTARLO SIEMPRE — no lo omitas ni lo saltes aunque no sea obligatorio.
-  3. Si ya tienes nombre Y el correo ya fue respondido (tiene valor real o "Sin correo" en base de datos), pero falta la cuenta, la accion debe ser "PEDIR_CUENTA".
-  4. Si tienes nombre, correo respondido y cuenta, pero falta el tema, la accion debe ser "PEDIR_TEMA".
+  2. Si ya tienes el nombre pero el campo correo está VACÍO en base de datos (no se ha preguntado ni respondido aún), la accion DEBE ser "PEDIR_CORREO". El correo es OPCIONAL para el cliente: si responde que no lo tiene en cualquier forma, extrae "Sin correo" y en el siguiente mensaje avanza a cuenta. PERO DEBES PREGUNTARLO SIEMPRE — no lo omitas ni lo saltes aunque no sea obligatorio. NUNCA pidas nombre si ya se tiene.
+  3. Si ya tienes nombre Y el correo ya fue respondido (tiene valor real o "Sin correo" en base de datos), pero falta la cuenta, la accion debe ser "PEDIR_CUENTA". NUNCA pidas nombre ni correo si ya se tienen.
+  4. Si tienes nombre, correo respondido y cuenta (los 3 datos personales están completos), el bloque personal ha concluido: la accion DEBE ser "PEDIR_TEMA" para pasar inmediatamente al bloque técnico. NUNCA vuelvas a pedir ningún dato personal.
   5. REGLA PARA TODOS LOS TEMAS EXCEPTO "Otro":
      - Si tienes tema pero falta la marca, la accion debe ser "PEDIR_MARCA".
      - Si tienes tema y marca, pero falta el modelo, la accion debe ser "PEDIR_MODELO".

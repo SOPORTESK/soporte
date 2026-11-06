@@ -40,7 +40,7 @@ if (existsSync(ENV_FILE)) {
 }
 
 try {
-  const cmd = `npx supabase functions deploy ${fnArg} --project-ref ${PROJECT_REF}`;
+  const cmd = `npx supabase functions deploy ${fnArg} --project-ref ${PROJECT_REF} --yes`;
   execSync(cmd, { stdio: "inherit" });
   console.log("\n✅ Deploy exitoso.\n");
 } catch (e) {

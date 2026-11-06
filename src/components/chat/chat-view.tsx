@@ -2428,23 +2428,35 @@ export function ChatView({
         const clientData = clienteInfo(sekCase.cliente);
         const rawName = (clientData.nombre || "").trim();
         const isRawPhone = /^[+\d\s()-]{6,}$/.test(rawName);
-        const rawCuenta = (clientData.cuenta || "").trim();
-        const hasValidCuenta = Boolean(rawCuenta && !/^(sin\s+cuenta|no\s+tengo|ninguna|cliente\s+final)$/i.test(rawCuenta));
+        const hasValidName = Boolean(rawName && !isRawPhone && rawName.toLowerCase() !== "cliente");
 
-        // Solo se considera cliente registrado si tiene nombre formal real Y cuenta afiliada válida
-        const hasClientInfo = Boolean(rawName && !isRawPhone && rawName.toLowerCase() !== "cliente" && hasValidCuenta);
+        const rawEmail = (clientData.correo || "").trim();
+        const hasValidEmail = Boolean(rawEmail && rawEmail.includes("@") && !rawEmail.includes("(vacío)") && !rawEmail.toLowerCase().includes("sin correo"));
+
+        const rawCuenta = (clientData.cuenta || "").trim();
+        const hasValidCuenta = Boolean(rawCuenta && !/^(sin\s+cuenta|no\s+tengo|ninguna|cliente\s+final|\(vacío\)|null)$/i.test(rawCuenta));
         const hasVendedor = Boolean(clientData.vendedor || (clientData as any).vendedor_asignado);
 
+        // Evaluar qué campos faltan estrictamente del bloque de datos
+        const missingFields: string[] = [];
+        if (!hasValidName) missingFields.push("Nombre completo");
+        if (!hasValidEmail) missingFields.push("Correo electrónico");
+        if (!hasValidCuenta) missingFields.push("Nombre de la cuenta afiliada a Sekunet");
+        if (!hasVendedor) missingFields.push("Nombre del vendedor encargado de su cuenta");
+
         let welcomeMsg = "";
-        if (hasClientInfo) {
-          // Cliente ya registrado / conocido: si ya tiene vendedor asignado, no se lo pedimos
+        if (hasValidName && hasValidCuenta) {
+          // Cliente con datos personales esenciales completos: pasar directo al bloque técnico
           if (hasVendedor) {
             welcomeMsg = `Buen día. Gracias por contactarnos.\n\nMi nombre es ${agentName} y con gusto le asistiré con su caso.\n\nPara el registro, por favor indíquenos:\n\n-Marca y modelo del equipo a consultar\n-Motivo de la consulta o solicitud\n\nCon esta información podremos brindarle una atención más precisa.`;
           } else {
             welcomeMsg = `Buen día. Gracias por contactarnos.\n\nMi nombre es ${agentName} y con gusto le asistiré con su caso.\n\nPara el registro, por favor indíquenos:\n\n-Marca y modelo del equipo a consultar\n-Motivo de la consulta o solicitud\n-Nombre del vendedor encargado de su cuenta\n\nCon esta información podremos brindarle una atención más precisa.`;
           }
+        } else if (missingFields.length > 0 && missingFields.length < 3) {
+          // Faltan solo 1 o 2 campos puntuales: pedir estrictamente lo que falta
+          welcomeMsg = `Buen día. Gracias por contactarnos.\n\nMi nombre es ${agentName} y con gusto le asistiré con su caso.\n\nPara complementar el registro de su atención, por favor facilítenos:\n\n${missingFields.map(f => `-${f}`).join("\n")}\n\nQuedamos atentos. Gracias.`;
         } else {
-          // Cliente nuevo / sin datos personales: pedir ficha de registro
+          // Cliente nuevo / sin datos personales: pedir ficha de registro completa
           if (hasVendedor) {
             welcomeMsg = `Buen día. Gracias por contactarnos.\n\nMi nombre es ${agentName} y con gusto le asistiré con su caso.\n\nPara el registro, por favor facilítenos su:\n\nNombre completo\nCorreo electrónico\nNombre de la cuenta afiliada a Sekunet.\n\nQuedamos atentos. Gracias.`;
           } else {
