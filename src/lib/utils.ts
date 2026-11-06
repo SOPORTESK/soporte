@@ -31,7 +31,15 @@ export function isInvalidVendorStr(str: unknown): boolean {
   if (!str || typeof str !== "string") return true;
   const s = str.trim().toLowerCase();
   if (s.length < 3) return true;
-  return /^(uno\s+de(?:\s+nuestros\s+agentes)?|uno|de|agente|agentes|nuestro|nuestros|soporte|sekunet|taller|cliente|equipo|no\s+se|no\s+s[eé]|ninguno|sin\s+vendedor|no\s+tengo(?:\s+vendedor)?|null|undefined|\(vac[ií]o\))$/i.test(s);
+  // Descartar frases genéricas, preposiciones, conectores y respuestas de sistema
+  if (/^(de\s+su|uno\s+de(?:\s+nuestros\s+agentes)?|uno|de|su|en\s+que|no\s+especificado|no\s+especificada|sin\s+especificar|no\s+se|no\s+s[eé]|ninguno|ninguna|sin\s+vendedor|no\s+tengo(?:\s+vendedor)?|agente|agentes|nuestro|nuestros|soporte|sekunet|taller|cliente|equipo|null|undefined|\(vac[ií]o\)|\.{2,}|n\/a)$/i.test(s)) {
+    return true;
+  }
+  // Los vendedores tienen nombres propios: no pueden contener preposiciones o fragmentos de preguntas de plantilla
+  if (/\b(de\s+su|en\s+que|su\s+cuenta|encargado\s+de)\b/i.test(s)) {
+    return true;
+  }
+  return false;
 }
 
 export function clienteInfo(cliente: unknown): {

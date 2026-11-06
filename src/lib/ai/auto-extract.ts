@@ -245,16 +245,20 @@ Responde ÚNICAMENTE en formato JSON:
 
     const KNOWN_SEKUNET_VENDEDORES: [RegExp, string][] = [
       [/\b(luis\s+fallas(?:\s+chaves)?)\b/i, "Luis Fallas"],
-      [/\b(sharon(?:\s+del\s+cid)?)\b/i, "Sharon Del Cid"],
+      [/\b(sharon(?:\s+del\s+cid|\s+del\s+sid)?)\b/i, "Sharon Del Cid"],
       [/\b(carolina(?:\s+chavarr[ií]a)?|karolina)\b/i, "Carolina Chavarría"],
-      [/\b(fabiana(?:\s+perozo|\s+peroza|\s+p\.?)?)\b/i, "Fabiana Perozo"],
-      [/\b(nicole(?:\s+espinoza)?|nicol\s+espinoza)\b/i, "Nicole Espinoza"],
-      [/\b(bryan\s+anch[ií]a|brayan\s+anch[ií]a)\b/i, "Bryan Anchía"],
-      [/\b(joaqu[ií]n(?:\s+s[aá]nchez)?|juakin)\b/i, "Joaquín Sánchez"],
-      [/\b(roberto\s+d[ií]az|roverto)\b/i, "Roberto Díaz"],
+      [/\b(fabiana(?:\s+perozo|\s+peroza|\s+pedroza|\s+p\.?)?)\b/i, "Fabiana Perozo"],
+      [/\b(nicole(?:\s+espinoza)?|nicol\s+espinoza|nicol\b)\b/i, "Nicole Espinoza"],
+      [/\b(bryan\s+anch[ií]a|brayan\s+anch[ií]a|bryan\b|brayan\b)\b/i, "Bryan Anchía"],
+      [/\b(joaqu[ií]n(?:\s+s[aá]nchez)?|juakin|juaquin)\b/i, "Joaquín Sánchez"],
+      [/\b(roberto(?:\s+d[ií]az)?|roverto)\b/i, "Roberto Díaz"],
       [/\b(cristofer(?:\s+alvarado)?|christopher(?:\s+alvarado)?)\b/i, "Christopher Alvarado"],
       [/\b(henry(?:\s+ram[ií]rez)?)\b/i, "Henry Ramírez"],
-      [/\b(mariano(?:\s+castro)?)\b/i, "Mariano Castro"],
+      [/\b(mariano(?:\s+castro|\s+p[eé]rez)?)\b/i, "Mariano Castro"],
+      [/\b(josseph(?:\s+bolsios)?)\b/i, "Josseph Bolsios"],
+      [/\b(joshua(?:\s+valverde)?)\b/i, "Joshua Valverde"],
+      [/\b(mar[ií]a\s+palma)\b/i, "María Palma"],
+      [/\b(natalia\s+gonz[aá]les)\b/i, "Natalia Gonzáles"],
     ];
 
     // Primero: buscar si el cliente escribió directamente el nombre de un vendedor de Sekunet en sus mensajes
@@ -270,31 +274,22 @@ Responde ÚNICAMENTE en formato JSON:
       }
     }
 
-    // Segundo: si aún no hay vendedor o es inválido, buscar regexes explícitas de vendedor
+    // Segundo: si aún no hay vendedor o es inválido, buscar regexes explícitas ÚNICAMENTE en mensajes del cliente
+    // NUNCA buscar en mensajes del técnico o saludos institucionales para evitar capturar fragmentos de preguntas
     if (!extracted.vendedor || isInvalidVendorStr(extracted.vendedor)) {
       const vendedorRegexes = [
-        /(?:vendedor|vendedora|ejecutivo|ejecutiva)(?:\s+(?:de\s+ventas|encargado|asignado|responsable))?[:\s-]+([A-Za-záéíóúÁÉÍÓÚñÑ]{2,25}(?:\s+[A-Za-záéíóúÁÉÍÓÚñÑ]{2,25})?)/i,
-        /(?:mi|el|la)\s+(?:vendedor|vendedora|ejecutivo|ejecutiva)\s+es\s+([A-Za-záéíóúÁÉÍÓÚñÑ]{2,25}(?:\s+[A-Za-záéíóúÁÉÍÓÚñÑ]{2,25})?)/i,
-        /(?:atendido|atendida)\s+por\s+el\s+vendedor\s+([A-Za-záéíóúÁÉÍÓÚñÑ]{2,25}(?:\s+[A-Za-záéíóúÁÉÍÓÚñÑ]{2,25})?)/i,
+        /(?:vendedor|vendedora|ejecutivo|ejecutiva)(?:\s+(?:de\s+ventas|encargado|asignado|responsable))?[:\s-]+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,25}(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,25})?)/i,
+        /(?:mi|el|la)\s+(?:vendedor|vendedora|ejecutivo|ejecutiva)\s+es\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,25}(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,25})?)/i,
+        /(?:atendido|atendida)\s+por\s+el\s+vendedor\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,25}(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,25})?)/i,
       ];
       for (const rx of vendedorRegexes) {
-        const m = fullText.match(rx);
+        const m = clientText.match(rx);
         if (m && m[1]) {
           const cand = m[1].trim();
           if (!isInvalidVendorStr(cand)) {
             extracted.vendedor = cand;
             break;
           }
-        }
-      }
-    }
-
-    // Tercero: si aún no hay vendedor, buscar en todo el historial contra la lista de vendedores conocidos
-    if (!extracted.vendedor || isInvalidVendorStr(extracted.vendedor)) {
-      for (const [rx, canonName] of KNOWN_SEKUNET_VENDEDORES) {
-        if (rx.test(fullText)) {
-          extracted.vendedor = canonName;
-          break;
         }
       }
     }
