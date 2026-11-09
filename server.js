@@ -1,3 +1,11 @@
+process.env.UV_THREADPOOL_SIZE = process.env.UV_THREADPOOL_SIZE || '16';
+const dns = require('dns');
+if (dns && dns.setDefaultResultOrder) {
+  try {
+    dns.setDefaultResultOrder('ipv4first');
+  } catch {}
+}
+
 const { createServer } = require('http');
 const { parse } = require('url');
 const next = require('next');

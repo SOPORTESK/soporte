@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { getUserWithTimeout } from "@/lib/supabase/resilient";
+import { getUserWithTimeout, queryWithFallback } from "@/lib/supabase/resilient";
 import { redirect } from "next/navigation";
 import { DangerZonePanel } from "@/components/admin/danger-zone-panel";
 import {
@@ -33,65 +33,108 @@ export default async function AdminSettingsPage() {
   }
   const email = user.email;
 
-  const { data: agent } = await supabase
-    .from("sek_agent_config")
-    .select("*")
-    .ilike("email", email)
-    .maybeSingle();
+  const [agentRes, allAgentsRes, sysPromptRes, requireElectronRes, openCasesRes, totalCasesRes] = await Promise.all([
+    queryWithFallback(
+      `agent_config_${email}`,
+      async () => {
+        const { data, error } = await supabase
+          .from("sek_agent_config")
+          .select("*")
+          .ilike("email", email)
+          .maybeSingle();
+        return { data, error };
+      },
+      null,
+      60000
+    ),
+    queryWithFallback(
+      "settings_all_agents",
+      async () => {
+        const { data, error } = await supabase
+          .from("sek_agent_config")
+          .select("email, nombre, apellido, rol, status, last_seen_at, created_at")
+          .neq("rol", "bot")
+          .order("created_at");
+        return { data: data || [], error };
+      },
+      [],
+      30000
+    ),
+    queryWithFallback(
+      "system_prompt_agent_config",
+      async () => {
+        const { data, error } = await supabase
+          .from("sek_agent_config")
+          .select("system_prompt, nombre, apellido, ia_activa, modo_no_atendido")
+          .eq("email", "system_prompt@sekunet.com")
+          .maybeSingle();
+        return { data, error };
+      },
+      null,
+      30000
+    ),
+    queryWithFallback(
+      "require_electron_desktop_app",
+      async () => {
+        const { data, error } = await supabase
+          .from("sek_app_settings")
+          .select("value")
+          .eq("key", "require_electron_desktop_app")
+          .maybeSingle();
+        let enabled = false;
+        if (data?.value) {
+          try {
+            enabled = Boolean(JSON.parse(data.value).enabled);
+          } catch {
+            enabled = data.value === "true";
+          }
+        }
+        return { data: enabled, error };
+      },
+      false,
+      30000
+    ),
+    queryWithFallback(
+      "settings_open_cases_count",
+      async () => {
+        const { count, error } = await supabase
+          .from("sek_cases")
+          .select("id", { count: "exact", head: true })
+          .neq("estado", "cerrado")
+          .neq("estado", "resuelto");
+        return { data: count ?? 0, error };
+      },
+      0,
+      30000
+    ),
+    queryWithFallback(
+      "settings_total_cases_count",
+      async () => {
+        const { count, error } = await supabase
+          .from("sek_cases")
+          .select("id", { count: "exact", head: true });
+        return { data: count ?? 0, error };
+      },
+      0,
+      30000
+    ),
+  ]);
 
+  const agent = agentRes.data;
   const fallbackRol = (email === "cbatista@sekunet.com" || email.includes("admin")) ? "superadmin" : "admin";
   const rol = agent?.rol || fallbackRol;
   const isSuperadmin = rol === "superadmin";
   const isAdmin = rol === "admin" || isSuperadmin;
 
-  const { data: allAgents } = isAdmin
-    ? await supabase
-        .from("sek_agent_config")
-        .select("email, nombre, apellido, rol, status, last_seen_at, created_at")
-        .neq("rol", "bot")
-        .order("created_at")
-    : { data: [] };
+  const allAgents = isAdmin ? (allAgentsRes.data || []) : [];
+  const totalAgents = allAgents.length;
+  const activeAgents = allAgents.filter(a => a.status === "online" || a.status === "away").length;
 
-  const totalAgents = allAgents?.length ?? 0;
-  const activeAgents = (allAgents || []).filter(a => a.status === "online" || a.status === "away").length;
-
-  const { data: iaConfig } = await supabase
-    .from("sek_agent_config")
-    .select("ia_activa")
-    .eq("email", "system_prompt@sekunet.com")
-    .maybeSingle();
-  const iaActiva = iaConfig?.ia_activa ?? true;
-
-  const { data: unattendedConfig } = await supabase
-    .from("sek_agent_config")
-    .select("modo_no_atendido")
-    .eq("email", "system_prompt@sekunet.com")
-    .maybeSingle();
-  const modoNoAtendido = unattendedConfig?.modo_no_atendido ?? false;
-
-  const { data: requireElectronSetting } = await supabase
-    .from("sek_app_settings")
-    .select("value")
-    .eq("key", "require_electron_desktop_app")
-    .maybeSingle();
-  let requireElectron = false;
-  if (requireElectronSetting?.value) {
-    try {
-      requireElectron = Boolean(JSON.parse(requireElectronSetting.value).enabled);
-    } catch {
-      requireElectron = requireElectronSetting.value === "true";
-    }
-  }
-
-  const { count: openCasesCount } = await supabase
-    .from("sek_cases")
-    .select("id", { count: "exact", head: true })
-    .neq("estado", "cerrado")
-    .neq("estado", "resuelto");
-
-  const { count: caseCount } = await supabase
-    .from("sek_cases")
-    .select("id", { count: "exact", head: true });
+  const iaActiva = sysPromptRes.data?.ia_activa ?? true;
+  const modoNoAtendido = sysPromptRes.data?.modo_no_atendido ?? false;
+  const requireElectron = Boolean(requireElectronRes.data);
+  const openCasesCount = openCasesRes.data ?? 0;
+  const caseCount = totalCasesRes.data ?? 0;
 
   const nowStr = new Date().toLocaleString("es-CR", {
     timeZone: "America/Costa_Rica",

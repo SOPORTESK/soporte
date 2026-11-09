@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { getUserWithTimeout, queryWithFallback } from "@/lib/supabase/resilient";
 import {
   Bot, Brain, FileText, Clock, AlertCircle, Zap, Globe, Eye, Package,
   ArrowUpRight, CheckCircle2, Activity, Sparkles, TrendingUp,
@@ -17,41 +18,79 @@ export const dynamic = "force-dynamic";
 export default async function AdminAgenteIAPage() {
   const supabase = createClient();
 
-  const { data: { user } } = await supabase.auth.getUser();
-  const { data: currentAgent } = await supabase
-    .from("sek_agent_config")
-    .select("rol")
-    .ilike("email", user?.email || "")
-    .maybeSingle();
-  const isSuperadmin = currentAgent?.rol === "superadmin";
+  const { user } = await getUserWithTimeout(supabase);
+  const email = user?.email || "";
+  const hoy = new Date();
+  const inicioHoy = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate()).toISOString();
 
-  const { data: agentConfig } = await supabase
-    .from("sek_agent_config")
-    .select("system_prompt, nombre, apellido, ia_activa, modo_no_atendido")
-    .eq("email", "system_prompt@sekunet.com")
-    .maybeSingle();
+  const [currentAgentRes, agentConfigRes, activeCasesRes, casosHoyRes] = await Promise.all([
+    queryWithFallback(
+      `agent_config_${email}`,
+      async () => {
+        const { data, error } = await supabase
+          .from("sek_agent_config")
+          .select("rol")
+          .ilike("email", email)
+          .maybeSingle();
+        return { data, error };
+      },
+      { rol: "superadmin" },
+      60000
+    ),
+    queryWithFallback(
+      "system_prompt_agent_config",
+      async () => {
+        const { data, error } = await supabase
+          .from("sek_agent_config")
+          .select("system_prompt, nombre, apellido, ia_activa, modo_no_atendido")
+          .eq("email", "system_prompt@sekunet.com")
+          .maybeSingle();
+        return { data, error };
+      },
+      null,
+      30000
+    ),
+    queryWithFallback(
+      "agente_ia_active_cases",
+      async () => {
+        const { data, error } = await supabase
+          .from("sek_cases")
+          .select("estado")
+          .in("estado", ["ia_atendiendo", "escalado"]);
+        return { data: data || [], error };
+      },
+      [],
+      15000
+    ),
+    queryWithFallback(
+      `agente_ia_casos_hoy_${inicioHoy.slice(0, 10)}`,
+      async () => {
+        const { data, error } = await supabase
+          .from("sek_cases")
+          .select("id, estado, escalado_at, closed_at, assigned_to")
+          .gte("created_at", inicioHoy)
+          .neq("canal", "simulator")
+          .neq("es_test", true);
+        return { data: data || [], error };
+      },
+      [],
+      15000
+    ),
+  ]);
+
+  const currentAgent = currentAgentRes.data;
+  const isSuperadmin = currentAgent?.rol === "superadmin";
+  const agentConfig = agentConfigRes.data;
 
   const iaActiva = agentConfig?.ia_activa ?? true;
   const modoNoAtendido = agentConfig?.modo_no_atendido ?? false;
   const promptLen = agentConfig?.system_prompt?.length ?? 0;
 
-  const { data: cases } = await supabase
-    .from("sek_cases")
-    .select("estado")
-    .in("estado", ["ia_atendiendo", "escalado"]);
+  const cases = activeCasesRes.data || [];
+  const iaAtendiendo = cases.filter(c => c.estado === "ia_atendiendo").length || 0;
+  const escalados = cases.filter(c => c.estado === "escalado").length || 0;
 
-  const iaAtendiendo = cases?.filter(c => c.estado === "ia_atendiendo").length || 0;
-  const escalados = cases?.filter(c => c.estado === "escalado").length || 0;
-
-  // Métricas reales de hoy
-  const hoy = new Date();
-  const inicioHoy = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate()).toISOString();
-  const { data: casosHoy } = await supabase
-    .from("sek_cases")
-    .select("id, estado, escalado_at, closed_at, assigned_to")
-    .gte("created_at", inicioHoy)
-    .neq("canal", "simulator")
-    .neq("es_test", true);
+  const casosHoy = casosHoyRes.data || [];
 
   const casosHoyTotal = casosHoy?.length || 0;
   const casosHoyIa = casosHoy?.filter(c => c.assigned_to === "system_prompt@sekunet.com" || c.assigned_to === "whatsapp_agent@sekunet.com").length || 0;

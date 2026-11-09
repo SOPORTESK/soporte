@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { queryWithFallback } from "@/lib/supabase/resilient";
 import { Users, Clock, Star, TrendingUp, CheckCircle, FileText, Activity, ArrowUpRight, Target, BarChart3, Zap, AlertTriangle, UserCheck, TrendingDown, Minus, Layers } from "lucide-react";
 import Link from "next/link";
 import { StatsExportButton } from "@/components/admin/stats-export-button";
@@ -159,6 +160,36 @@ const MESES_NOMBRES = [
   "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
 ];
 
+type LightHistoryEntry = {
+  updated_at: string;
+  histtecnico: any[];
+  histcliente: any[];
+};
+
+const globalForAtencion = globalThis as unknown as {
+  __sekAtencionHistoryCache?: Map<string, LightHistoryEntry>;
+  __sekAtencionWarming?: boolean;
+};
+
+const historyCache: Map<string, LightHistoryEntry> =
+  globalForAtencion.__sekAtencionHistoryCache ||
+  (globalForAtencion.__sekAtencionHistoryCache = new Map<string, LightHistoryEntry>());
+
+function compactMsgList(arr: any): any[] {
+  if (!Array.isArray(arr)) return [];
+  return arr.map((m: any) => {
+    if (!m || typeof m !== "object") return m;
+    const rawText = String(m.content || m.text || "");
+    return {
+      role: m.role,
+      author: m.author,
+      time: m.time || m.timestamp || m.created_at,
+      deleted: m.deleted,
+      content: rawText.length > 160 ? rawText.slice(0, 160) : rawText,
+    };
+  });
+}
+
 export default async function EstadisticasAtencionPage({ 
   searchParams 
 }: { 
@@ -166,34 +197,72 @@ export default async function EstadisticasAtencionPage({
 }) {
   const supabase = createClient();
 
-  // Cargar todos los casos paginados en bloques de 1000 para no topar con el límite de Supabase/PostgREST
-  const casos: any[] = [];
-  let pageOffset = 0;
-  const PAGE_SIZE = 1000;
-  while (true) {
-    const { data, error } = await supabase
-      .from("sek_cases")
-      .select("id, assigned_to, created_at, updated_at, closed_at, estado, cliente, title, canal, cat, prioridad, histtecnico, histcliente, accepted_at, escalado_at, tags, problema, es_test")
-      .neq("canal", "simulator")
-      .neq("es_test", true)
-      .order("created_at", { ascending: false })
-      .range(pageOffset, pageOffset + PAGE_SIZE - 1);
+  // 1. Cargar metadatos ligeros de casos + agentes + plantillas en paralelo con caché en memoria (SWR)
+  const [casosMetaRes, agentesRes, flowRowRes] = await Promise.all([
+    queryWithFallback(
+      "atencion_cases_meta_v2",
+      async () => {
+        const loaded: any[] = [];
+        let pageOffset = 0;
+        const PAGE_SIZE = 1000;
+        while (true) {
+          const { data, error } = await supabase
+            .from("sek_cases")
+            .select("id, assigned_to, created_at, updated_at, closed_at, estado, cliente, title, canal, cat, prioridad, accepted_at, escalado_at, tags, problema, es_test")
+            .neq("canal", "simulator")
+            .neq("es_test", true)
+            .order("created_at", { ascending: false })
+            .range(pageOffset, pageOffset + PAGE_SIZE - 1);
 
-    if (error || !data || data.length === 0) break;
-    casos.push(...data);
-    if (data.length < PAGE_SIZE) break;
-    pageOffset += PAGE_SIZE;
-  }
+          if (error || !data || data.length === 0) break;
+          loaded.push(...data);
+          if (data.length < PAGE_SIZE) break;
+          pageOffset += PAGE_SIZE;
+        }
+        return { data: loaded, error: null };
+      },
+      [],
+      30000 // 30s fresh TTL + SWR instantáneo
+    ),
+    queryWithFallback(
+      "atencion_agentes_config",
+      async () => {
+        const { data, error } = await supabase
+          .from("sek_agent_config")
+          .select("email, nombre, apellido, rol");
+        return { data: data || [], error };
+      },
+      [],
+      60000
+    ),
+    queryWithFallback(
+      "atencion_flow_config",
+      async () => {
+        const { data, error } = await supabase
+          .from("sek_flow_configs")
+          .select("flow_data")
+          .limit(1)
+          .maybeSingle();
+        return { data, error };
+      },
+      null,
+      120000
+    ),
+  ]);
 
-  // Helper para convertir timestamp a fecha local de Costa Rica (YYYY-MM-DD)
+  const casos = (casosMetaRes.data || []) as any[];
+  const agentes = agentesRes.data || [];
+  const flowRow = flowRowRes.data;
+
+  // Helper ultra-rápido para convertir timestamp a fecha local de Costa Rica (YYYY-MM-DD, UTC-6 fijo)
   const toCRDate = (dateVal: string | Date | number) => {
-    const d = new Date(dateVal);
-    if (isNaN(d.getTime())) return "";
-    return d.toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
+    const ms = typeof dateVal === "number" ? dateVal : new Date(dateVal).getTime();
+    if (isNaN(ms)) return "";
+    return new Date(ms - CR_OFFSET_MS).toISOString().slice(0, 10);
   };
 
-  const nowCRStr = toCRDate(new Date());
-  const ayerCRStr = toCRDate(new Date(Date.now() - 86400000));
+  const nowCRStr = toCRDate(Date.now());
+  const ayerCRStr = toCRDate(Date.now() - 86400000);
 
   // ── Filtros de fecha / período
   const mesSeleccionado = searchParams.mes || "";
@@ -217,7 +286,7 @@ export default async function EstadisticasAtencionPage({
     filtroLabel = `${MESES_NOMBRES[parseInt(m, 10) - 1] || m} ${y}`;
   }
 
-  const casosFiltrados = casos.filter(c => {
+  const rawCasosFiltrados = casos.filter(c => {
     if (!c.created_at) return false;
     const crDate = toCRDate(c.created_at);
     const cTime = new Date(c.created_at).getTime();
@@ -250,11 +319,92 @@ export default async function EstadisticasAtencionPage({
     return true;
   });
 
+  // 2. Hidratar histtecnico y histcliente SOLO para los casos filtrados que no estén en caché en RAM
+  const missingIds: string[] = [];
+  for (const c of rawCasosFiltrados) {
+    const idStr = String(c.id);
+    const cached = historyCache.get(idStr);
+    const ver = String(c.updated_at || c.closed_at || c.created_at || "");
+    if (!cached || cached.updated_at !== ver) {
+      missingIds.push(idStr);
+    }
+  }
+
+  if (missingIds.length > 0) {
+    const CHUNK = 80;
+    const chunks: string[][] = [];
+    for (let i = 0; i < missingIds.length; i += CHUNK) {
+      chunks.push(missingIds.slice(i, i + CHUNK));
+    }
+    await Promise.all(
+      chunks.map(async (idBatch) => {
+        const { data: rows } = await supabase
+          .from("sek_cases")
+          .select("id, updated_at, closed_at, created_at, histtecnico, histcliente")
+          .in("id", idBatch);
+        if (rows) {
+          for (const r of rows) {
+            const ver = String(r.updated_at || r.closed_at || r.created_at || "");
+            historyCache.set(String(r.id), {
+              updated_at: ver,
+              histtecnico: compactMsgList(r.histtecnico),
+              histcliente: compactMsgList(r.histcliente),
+            });
+          }
+        }
+      })
+    );
+  }
+
+  // Pre-calentar en segundo plano el resto del historial sin bloquear la respuesta actual
+  if (!globalForAtencion.__sekAtencionWarming && historyCache.size < casos.length) {
+    globalForAtencion.__sekAtencionWarming = true;
+    Promise.resolve().then(async () => {
+      try {
+        const bgMissing = casos
+          .filter((c) => {
+            const cached = historyCache.get(String(c.id));
+            const ver = String(c.updated_at || c.closed_at || c.created_at || "");
+            return !cached || cached.updated_at !== ver;
+          })
+          .map((c) => String(c.id));
+        for (let i = 0; i < bgMissing.length; i += 80) {
+          const batch = bgMissing.slice(i, i + 80);
+          const { data: rows } = await supabase
+            .from("sek_cases")
+            .select("id, updated_at, closed_at, created_at, histtecnico, histcliente")
+            .in("id", batch);
+          if (rows) {
+            for (const r of rows) {
+              const ver = String(r.updated_at || r.closed_at || r.created_at || "");
+              historyCache.set(String(r.id), {
+                updated_at: ver,
+                histtecnico: compactMsgList(r.histtecnico),
+                histcliente: compactMsgList(r.histcliente),
+              });
+            }
+          }
+        }
+      } catch {} finally {
+        globalForAtencion.__sekAtencionWarming = false;
+      }
+    });
+  }
+
+  const casosFiltrados = rawCasosFiltrados.map((c) => {
+    const cached = historyCache.get(String(c.id));
+    return {
+      ...c,
+      histtecnico: cached?.histtecnico || [],
+      histcliente: cached?.histcliente || [],
+    };
+  });
+
   // ── Meses disponibles para el selector (basado en todos los casos)
   const mesesSet = new Set<string>();
   casos.forEach(c => {
-    const d = new Date(c.created_at);
-    mesesSet.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+    const ym = toCRDate(c.created_at).slice(0, 7);
+    if (ym) mesesSet.add(ym);
   });
   const mesesDisponibles = Array.from(mesesSet).sort().reverse();
 
@@ -265,18 +415,6 @@ export default async function EstadisticasAtencionPage({
     if (!cl || typeof cl !== "object") return "Anónimo";
     return cl.cuenta || cl.empresa || cl.nombre || cl.name || cl.telefono || cl.phone || "Anónimo";
   };
-
-  const { data: agentes } = await supabase
-    .from("sek_agent_config")
-    .select("email, nombre, apellido, rol");
-
-  // ── Plantillas del sistema (saludos, cierres, encuestas). Se excluyen del AHT
-  //    porque no las escribe el agente: las inserta el flujo automáticamente.
-  const { data: flowRow } = await supabase
-    .from("sek_flow_configs")
-    .select("flow_data")
-    .limit(1)
-    .maybeSingle();
   const plantillas: string[] = [
     ...(((flowRow?.flow_data as any)?.nodes || []) as any[])
       .map(n => String(n?.data?.message || ""))
@@ -792,10 +930,6 @@ export default async function EstadisticasAtencionPage({
     .sort((a, b) => b.total - a.total)
     .slice(0, 10);
 
-  console.log("[DEBUG] total casos humanos:", casosConAsig.length);
-  console.log("[DEBUG] problemasMap:", JSON.stringify(problemasMap, null, 2));
-  console.log("[DEBUG] topProblemas:", JSON.stringify(topProblemas, null, 2));
-
   const formatSLA = (m: number) => m === 0 ? "—" : m < 60 ? `${m}m` : `${Math.floor(m / 60)}h${m % 60 > 0 ? ` ${m % 60}m` : ""}`;
 
   const canalColors: Record<string, string> = {
@@ -815,10 +949,9 @@ export default async function EstadisticasAtencionPage({
 
   const getCRHour = (tStr?: string) => {
     if (!tStr) return -1;
-    const d = new Date(tStr);
-    if (isNaN(d.getTime())) return -1;
-    const h = parseInt(d.toLocaleTimeString("en-US", { timeZone: "America/Costa_Rica", hour12: false, hour: "numeric" }), 10);
-    return isNaN(h) ? -1 : h;
+    const ms = new Date(tStr).getTime();
+    if (isNaN(ms)) return -1;
+    return new Date(ms - CR_OFFSET_MS).getUTCHours();
   };
 
   const agentMessageStats: Record<string, { email: string; nombre: string; enviados: number; recibidos: number; casos: number }> = {};

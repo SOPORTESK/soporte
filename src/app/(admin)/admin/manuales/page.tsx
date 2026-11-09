@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { queryWithFallback } from "@/lib/supabase/resilient";
 import { BookOpen, FileText, Brain, Database, Layers, Search } from "lucide-react";
 import { Badge } from "@/components/ui/avatar";
 import { ManualesClient } from "@/components/admin/manuales-client";
@@ -7,30 +8,39 @@ export const dynamic = "force-dynamic";
 
 export default async function AdminManualesPage() {
   const supabase = createClient();
-  
-  // Obtener documentos
-  const { data: docs, error: docsError } = await supabase
-    .from("sek_docs")
-    .select("id,name,size,date")
-    .order("date", { ascending: false });
 
-  if (docsError) {
-    console.error("[manuales] Error fetching docs:", docsError.message);
-  }
+  const [docsRes, chunksRes] = await Promise.all([
+    queryWithFallback(
+      "admin_manuales_docs",
+      async () => {
+        const { data, error } = await supabase
+          .from("sek_docs")
+          .select("id,name,size,date")
+          .order("date", { ascending: false });
+        return { data: data || [], error };
+      },
+      [],
+      60000
+    ),
+    queryWithFallback(
+      "admin_manuales_chunks_sample",
+      async () => {
+        const { data, count, error } = await supabase
+          .from("sek_doc_chunks")
+          .select("doc_name, content, created_at", { count: "exact" })
+          .order("created_at", { ascending: false })
+          .limit(5);
+        return { data: { chunks: data || [], count: count || 0 }, error };
+      },
+      { chunks: [], count: 0 },
+      60000
+    ),
+  ]);
 
-  // Obtener chunks (fragmentos con embeddings)
-  const { data: chunks, count: chunksCount, error: chunksError } = await supabase
-    .from("sek_doc_chunks")
-    .select("*", { count: "exact" })
-    .order("created_at", { ascending: false })
-    .limit(5);
-
-  if (chunksError) {
-    console.error("[manuales] Error fetching chunks:", chunksError.message);
-  }
-
-  const totalDocs = docs?.length || 0;
-  const totalChunks = chunksCount || 0;
+  const docs = docsRes.data || [];
+  const chunks = chunksRes.data?.chunks || [];
+  const totalDocs = docs.length;
+  const totalChunks = chunksRes.data?.count || 0;
 
   return (
     <div className="max-w-7xl mx-auto p-6 lg:p-8 space-y-8">

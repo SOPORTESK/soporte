@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { queryWithFallback } from "@/lib/supabase/resilient";
 import { Users, TrendingUp, CheckCircle, Star, ArrowUpRight, Repeat2, BarChart3, TrendingDown, Minus, ExternalLink, Clock, Activity, Globe, UserPlus, ShieldAlert, ShieldBan, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { AnalyticsClientView } from "@/components/admin/analytics-client-view";
@@ -10,34 +11,51 @@ export const dynamic = "force-dynamic";
 export default async function EstadisticasClientePage() {
   const supabase = createClient();
 
-  // Cargar todos los casos paginados sin el tope de 1000 de PostgREST
-  const loadedCasos: any[] = [];
-  let pageOffset = 0;
-  const PAGE_SIZE = 1000;
-  while (true) {
-    let { data, error } = await supabase
-      .from("sek_cases")
-      .select("id, estado, cliente, customer_phone, created_at, updated_at, closed_at, canal, title, tags, prioridad, assigned_to, marca, modelo, resolucion, problema")
-      .order("created_at", { ascending: false })
-      .range(pageOffset, pageOffset + PAGE_SIZE - 1);
+  const [casosRes, inventarioRes] = await Promise.all([
+    queryWithFallback(
+      "estadisticas_cliente_casos_v1",
+      async () => {
+        const loadedCasos: any[] = [];
+        let pageOffset = 0;
+        const PAGE_SIZE = 1000;
+        while (true) {
+          let { data, error } = await supabase
+            .from("sek_cases")
+            .select("id, estado, cliente, customer_phone, created_at, updated_at, closed_at, canal, title, tags, prioridad, assigned_to, marca, modelo, resolucion, problema")
+            .order("created_at", { ascending: false })
+            .range(pageOffset, pageOffset + PAGE_SIZE - 1);
 
-    if (error) {
-      const { data: fbData } = await supabase
-        .from("sek_cases")
-        .select("id, estado, cliente, customer_phone, created_at, updated_at, closed_at, canal, title, tags, prioridad, assigned_to")
-        .order("created_at", { ascending: false })
-        .range(pageOffset, pageOffset + PAGE_SIZE - 1);
-      data = fbData as any;
-    }
-    if (!data || data.length === 0) break;
-    loadedCasos.push(...data);
-    if (data.length < PAGE_SIZE) break;
-    pageOffset += PAGE_SIZE;
-  }
-  let casos = loadedCasos;
+          if (error) {
+            const { data: fbData } = await supabase
+              .from("sek_cases")
+              .select("id, estado, cliente, customer_phone, created_at, updated_at, closed_at, canal, title, tags, prioridad, assigned_to")
+              .order("created_at", { ascending: false })
+              .range(pageOffset, pageOffset + PAGE_SIZE - 1);
+            data = fbData as any;
+          }
+          if (!data || data.length === 0) break;
+          loadedCasos.push(...data);
+          if (data.length < PAGE_SIZE) break;
+          pageOffset += PAGE_SIZE;
+        }
+        return { data: loadedCasos, error: null };
+      },
+      [],
+      60000
+    ),
+    queryWithFallback(
+      "estadisticas_inventario_marcas",
+      async () => {
+        const { data, error } = await supabase.from("sek_inventario").select("marca").limit(1000);
+        return { data: data || [], error };
+      },
+      [],
+      120000
+    ),
+  ]);
 
-  // Cargar marcas del inventario para validar títulos de casos (RLS staff)
-  const { data: inventario } = await supabase.from("sek_inventario").select("marca").limit(1000);
+  let casos = casosRes.data || [];
+  const inventario = inventarioRes.data || [];
   const marcasInventario = new Set(
     (inventario || [])
       .map((r: any) => String(r.marca).trim().toLowerCase())

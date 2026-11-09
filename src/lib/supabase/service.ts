@@ -1,4 +1,4 @@
-import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { createClient as createSupabaseClient, type SupabaseClient } from "@supabase/supabase-js";
 import dns from "node:dns";
 
 if (typeof window === "undefined" && dns?.setDefaultResultOrder) {
@@ -7,12 +7,17 @@ if (typeof window === "undefined" && dns?.setDefaultResultOrder) {
   } catch {}
 }
 
+let cachedServiceClient: SupabaseClient | null = null;
+
 /** Cliente con service_role — solo usar en server-side / API routes */
 export function createServiceClient() {
-  return createSupabaseClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { persistSession: false, autoRefreshToken: false } }
-  );
+  if (!cachedServiceClient) {
+    cachedServiceClient = createSupabaseClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { auth: { persistSession: false, autoRefreshToken: false } }
+    );
+  }
+  return cachedServiceClient;
 }
 

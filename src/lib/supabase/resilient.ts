@@ -9,10 +9,11 @@ import { cacheGet, cacheGetFresh, cacheSet } from "./cache";
 import { cookies } from "next/headers";
 
 const AUTH_TIMEOUT_MS = 3500;
-const DATA_TIMEOUT_MS = 6000;
+const DATA_TIMEOUT_MS = 15000;
 const USER_CACHE_TTL_MS = 60000; // 60s de caché en memoria por token
 
 const userMemoryCache = new Map<string, { user: any; ts: number }>();
+const inFlightRevalidations = new Set<string>();
 
 function getAuthTokenFromCookies(): string | null {
   try {
@@ -76,9 +77,9 @@ export async function getUserWithTimeout(supabase: any): Promise<{ user: any; ti
     if (cached && Date.now() - cached.ts < USER_CACHE_TTL_MS) {
       return { user: cached.user, timedOut: false };
     }
-    // Fast-path 0ms: decodificar directamente el JWT válido de la cookie sin hacer roundtrip de red a Supabase Auth
+    // Fast-path 0ms: decodificar directamente el JWT de la cookie sin hacer roundtrip de red a Supabase Auth
     const fastCookieUser = decodeUserFromCookieToken(token);
-    if (fastCookieUser && fastCookieUser._isFreshJwt) {
+    if (fastCookieUser) {
       if (userMemoryCache.size > 100) userMemoryCache.clear();
       userMemoryCache.set(token, { user: fastCookieUser, ts: Date.now() });
       return { user: fastCookieUser, timedOut: false };
@@ -139,7 +140,28 @@ export async function queryWithFallback<T>(
     }
   }
 
-  // 1. Intentar Supabase con timeout
+  // 0.5 Stale-While-Revalidate: si existe valor en caché (aunque haya expirado su TTL fresco),
+  // devolverlo en 0ms para navegación instantánea y refrescar en segundo plano sin bloquear la UI.
+  const stale = cacheGet(cacheKey);
+  if (stale !== undefined) {
+    if (!inFlightRevalidations.has(cacheKey)) {
+      inFlightRevalidations.add(cacheKey);
+      Promise.resolve()
+        .then(() => queryFn())
+        .then((res) => {
+          if (res && !res.error && res.data !== null && res.data !== undefined) {
+            cacheSet(cacheKey, res.data);
+          }
+        })
+        .catch(() => {})
+        .finally(() => {
+          inFlightRevalidations.delete(cacheKey);
+        });
+    }
+    return { data: stale as T, error: null, fromCache: true };
+  }
+
+  // 1. Intentar Supabase con timeout (solo en el primer arranque en frío sin caché)
   try {
     const result = await Promise.race([
       queryFn(),

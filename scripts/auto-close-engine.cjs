@@ -1,3 +1,9 @@
+const dns = require("dns");
+if (dns && dns.setDefaultResultOrder) {
+  try {
+    dns.setDefaultResultOrder("ipv4first");
+  } catch {}
+}
 const { createClient } = require("@supabase/supabase-js");
 const dotenv = require("dotenv");
 const path = require("path");

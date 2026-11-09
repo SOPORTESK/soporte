@@ -5,6 +5,12 @@
  * Escucha cambios en tiempo real en la tabla `garantias` y mantiene
  * la tabla `sek_cases` del Chat 100% sincronizada sin modificar el proyecto de Garantías.
  */
+const dns = require('dns');
+if (dns && dns.setDefaultResultOrder) {
+  try {
+    dns.setDefaultResultOrder('ipv4first');
+  } catch {}
+}
 const { createClient } = require('@supabase/supabase-js');
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env.local') });

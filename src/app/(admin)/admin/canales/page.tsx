@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { queryWithFallback } from "@/lib/supabase/resilient";
 import { ChannelsClient } from "@/components/admin/channels-client";
 import type { SekChannel } from "@/lib/types";
 
@@ -88,8 +89,28 @@ export default async function AdminCanalesPage() {
   const supabase = createClient();
 
   const [channelsRes, casesRes] = await Promise.all([
-    supabase.from("sek_channels").select("*").order("created_at"),
-    supabase.from("sek_cases").select("id, canal, estado, created_at, closed_at, updated_at").order("created_at", { ascending: false }).limit(3000),
+    queryWithFallback(
+      "admin_channels_list",
+      async () => {
+        const { data, error } = await supabase.from("sek_channels").select("*").order("created_at");
+        return { data: data || [], error };
+      },
+      [],
+      60000
+    ),
+    queryWithFallback(
+      "admin_channels_cases_stats",
+      async () => {
+        const { data, error } = await supabase
+          .from("sek_cases")
+          .select("id, canal, estado, created_at, closed_at, updated_at")
+          .order("created_at", { ascending: false })
+          .limit(3000);
+        return { data: data || [], error };
+      },
+      [],
+      30000
+    ),
   ]);
 
   const rawCases = casesRes.data || [];
