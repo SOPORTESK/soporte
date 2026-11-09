@@ -1,3 +1,4 @@
+import "@/lib/dns-boost";
 import { createClient as createSupabaseClient, type SupabaseClient } from "@supabase/supabase-js";
 import dns from "node:dns";
 
