@@ -1,4 +1,4 @@
-﻿const { execSync } = require('child_process');
+const { execSync } = require('child_process');
 const crypto = require('crypto');
 
 const SUPABASE_URL = "https://kzcyxeracvfxynddyjld.supabase.co";
@@ -22,7 +22,6 @@ let lastSyncTime = 0;
 async function syncToSupabase(url) {
   try {
     const payload = JSON.stringify({ url, apiKey: 'SEKUNET_EVO_KEY_123', instance: 'sekunet' });
-    const { encrypted, iv, tag } = encrypt(payload);
     const res = await fetch(SUPABASE_URL + '/rest/v1/sek_app_settings?on_conflict=key', {
       method: 'POST',
       headers: {
@@ -31,7 +30,7 @@ async function syncToSupabase(url) {
         'Authorization': 'Bearer ' + SUPABASE_KEY,
         'Prefer': 'resolution=merge-duplicates'
       },
-      body: JSON.stringify({ key: 'evolution_api_config', value: encrypted, iv, tag, updated_at: new Date().toISOString() })
+      body: JSON.stringify({ key: 'evolution_api_config', value: payload, iv: 'none', tag: 'none', updated_at: new Date().toISOString() })
     });
     if (res.ok) {
       lastSyncedUrl = url;

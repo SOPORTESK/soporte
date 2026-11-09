@@ -21,7 +21,6 @@ async function tick() {
     if (match && match[0] && match[0] !== lastUrl) {
       const url = match[0];
       const payload = JSON.stringify({ url, apiKey: 'SEKUNET_EVO_KEY_123', instance: 'sekunet' });
-      const { encrypted, iv, tag } = encrypt(payload);
       const res = await fetch(SUPABASE_URL + '/rest/v1/sek_app_settings?on_conflict=key', {
         method: 'POST',
         headers: {
@@ -30,7 +29,7 @@ async function tick() {
           'Authorization': 'Bearer ' + SUPABASE_KEY,
           'Prefer': 'resolution=merge-duplicates'
         },
-        body: JSON.stringify({ key: 'evolution_api_config', value: encrypted, iv, tag, updated_at: new Date().toISOString() })
+        body: JSON.stringify({ key: 'evolution_api_config', value: payload, iv: 'none', tag: 'none', updated_at: new Date().toISOString() })
       });
       if (res.ok) {
         lastUrl = url;

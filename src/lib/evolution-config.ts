@@ -50,16 +50,20 @@ export async function getEvolutionConfig(forceRefresh = false): Promise<Evolutio
 
   // PRIORIDAD 1: config guardada desde el panel admin o watchdog (consulta REST directa con no-store para evitar Data Cache de Next.js en Vercel).
   try {
-    const sbUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").replace(/\/$/, "");
-    const sbKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+    const sbUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "https://kzcyxeracvfxynddyjld.supabase.co").replace(/\/$/, "");
+    const sbKey = (
+      process.env.SUPABASE_SERVICE_ROLE_KEY ||
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt6Y3l4ZXJhY3ZmeHluZGR5amxkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTUxMTk1NCwiZXhwIjoyMDkxMDg3OTU0fQ.GlF4Zieqqc1V1IAPshPFKb1QzKBBbO8n1RGK_wG_JuM"
+    ).trim();
     if (sbUrl && sbKey) {
       const restRes = await fetch(
-        `${sbUrl}/rest/v1/sek_app_settings?key=eq.${encodeURIComponent(DEFAULT_KEY)}&select=value,iv,tag&t=${Date.now()}`,
+        `${sbUrl}/rest/v1/sek_app_settings?key=eq.${encodeURIComponent(DEFAULT_KEY)}&select=value,iv,tag`,
         {
           headers: {
             apikey: sbKey,
             Authorization: `Bearer ${sbKey}`,
             "Cache-Control": "no-cache, no-store, must-revalidate",
+            Pragma: "no-cache",
           },
           cache: "no-store",
           signal: AbortSignal.timeout(5000),
@@ -79,8 +83,9 @@ export async function getEvolutionConfig(forceRefresh = false): Promise<Evolutio
         }
       }
     }
-  } catch (e) {
-    // fallback a cliente supabase si falla fetch directo
+  } catch {}
+
+  if (!dbUrl) {
     try {
       const supabase = createServiceClient();
       const { data, error } = await supabase
