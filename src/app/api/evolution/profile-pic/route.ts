@@ -39,32 +39,44 @@ export async function GET(req: NextRequest) {
 
     const evoCfg = await getEvolutionConfig();
     if (!evoCfg.url || !evoCfg.apiKey || !evoCfg.instance) {
-      return NextResponse.json({ url: null });
+      const res = NextResponse.json({ url: null });
+      res.headers.set("Access-Control-Allow-Origin", "*");
+      res.headers.set("Cache-Control", "no-cache");
+      return res;
     }
 
-    const baseUrl = evoCfg.url.replace(/\/$/, "");
+    const candidateUrls = Array.from(
+      new Set(
+        [evoCfg.url, ...(evoCfg.candidates || [])]
+          .map((u) => (u || "").replace(/\/$/, ""))
+          .filter(Boolean)
+      )
+    );
     const instance = encodeURIComponent(evoCfg.instance);
 
     // Consultar siempre en vivo a WhatsApp vía fetchProfilePictureUrl
     // porque las URLs guardadas en findContacts caducan en el CDN de WhatsApp (403 URL signature expired)
     let liveUrl: string | null = null;
-    try {
-      const liveRes = await fetch(`${baseUrl}/chat/fetchProfilePictureUrl/${instance}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", apikey: evoCfg.apiKey },
-        body: JSON.stringify({ number: phone }),
-        signal: AbortSignal.timeout(5000),
-      });
-      if (liveRes.ok) {
-        const data = await liveRes.json().catch(() => ({}));
-        const candidate = data?.profilePictureUrl || data?.profilePicUrl || data?.picture || null;
-        if (typeof candidate === "string" && candidate.startsWith("http")) {
-          liveUrl = candidate;
+    for (const baseUrl of candidateUrls) {
+      try {
+        const liveRes = await fetch(`${baseUrl}/chat/fetchProfilePictureUrl/${instance}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", apikey: evoCfg.apiKey },
+          body: JSON.stringify({ number: phone }),
+          signal: AbortSignal.timeout(8000),
+        });
+        if (liveRes.ok) {
+          const data = await liveRes.json().catch(() => ({}));
+          const candidate = data?.profilePictureUrl || data?.profilePicUrl || data?.picture || null;
+          if (typeof candidate === "string" && candidate.startsWith("http")) {
+            liveUrl = candidate;
+            break;
+          }
         }
-      }
-    } catch {}
+      } catch {}
+    }
 
-    const ttl = liveUrl ? SINGLE_TTL_MS : 30 * 1000;
+    const ttl = liveUrl ? SINGLE_TTL_MS : 15 * 1000;
     picCache.set(phone, {
       url: liveUrl,
       checkedLive: Boolean(liveUrl),
@@ -72,6 +84,7 @@ export async function GET(req: NextRequest) {
     });
 
     const res = NextResponse.json({ url: liveUrl });
+    res.headers.set("Access-Control-Allow-Origin", "*");
     if (liveUrl) {
       res.headers.set("Cache-Control", "public, max-age=3600");
     } else {
@@ -79,6 +92,9 @@ export async function GET(req: NextRequest) {
     }
     return res;
   } catch {
-    return NextResponse.json({ url: null });
+    const res = NextResponse.json({ url: null });
+    res.headers.set("Access-Control-Allow-Origin", "*");
+    res.headers.set("Cache-Control", "no-cache");
+    return res;
   }
 }

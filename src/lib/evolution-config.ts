@@ -1,4 +1,4 @@
-﻿import { createServiceClient } from "@/lib/supabase/service";
+import { createServiceClient } from "@/lib/supabase/service";
 import { encrypt, decrypt } from "@/lib/crypto-config";
 
 export interface EvolutionConfig {
@@ -9,7 +9,7 @@ export interface EvolutionConfig {
 }
 
 const DEFAULT_KEY = "evolution_api_config";
-const EVO_CONFIG_CACHE_TTL_MS = 60 * 1000; // 1 minuto en memoria
+const EVO_CONFIG_CACHE_TTL_MS = 15 * 1000; // 15 segundos en memoria
 let cachedEvoConfig: EvolutionConfig | null = null;
 let cachedEvoConfigAt = 0;
 
@@ -46,7 +46,7 @@ export async function getEvolutionConfig(): Promise<EvolutionConfig> {
   let dbKey = "";
   let dbInstance = "";
 
-  // PRIORIDAD 1: config guardada desde el panel admin o watchdog (cifrada en Supabase).
+  // PRIORIDAD 1: config guardada desde el panel admin o watchdog (cifrada o JSON en Supabase).
   try {
     const { data, error } = await supabase
       .from("sek_app_settings")
@@ -54,8 +54,10 @@ export async function getEvolutionConfig(): Promise<EvolutionConfig> {
       .eq("key", DEFAULT_KEY)
       .maybeSingle();
 
-    if (data && !error) {
-      const raw = decrypt(data.value, data.iv, data.tag);
+    if (data && !error && data.value) {
+      const raw = data.value.trim().startsWith("{")
+        ? data.value
+        : decrypt(data.value, data.iv, data.tag);
       const parsed = JSON.parse(raw) as EvolutionConfig;
       dbUrl = parsed.url || "";
       dbKey = parsed.apiKey || "";
@@ -71,7 +73,7 @@ export async function getEvolutionConfig(): Promise<EvolutionConfig> {
 
   const candidateList: string[] = [];
   if (primaryUrl) candidateList.push(primaryUrl);
-  if (envUrl && !candidateList.includes(envUrl)) candidateList.push(envUrl);
+  if (!dbUrl && envUrl && !candidateList.includes(envUrl)) candidateList.push(envUrl);
   if (!process.env.VERCEL) {
     if (!candidateList.includes("http://127.0.0.1:28080")) candidateList.push("http://127.0.0.1:28080");
     if (!candidateList.includes("http://localhost:28080")) candidateList.push("http://localhost:28080");

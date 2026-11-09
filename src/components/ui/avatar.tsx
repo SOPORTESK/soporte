@@ -8,7 +8,7 @@ const clientProfilePicCache = new Map<string, string | null>();
 const inflightPicRequests = new Map<string, Promise<string | null>>();
 
 // Hidratar caché de fotos de perfil desde sessionStorage para evitar re-consultas al navegar
-const SESSION_PIC_CACHE_KEY = "sek_profile_pics_v3";
+const SESSION_PIC_CACHE_KEY = "sek_profile_pics_v4";
 let sessionCacheHydrated = false;
 function ensureSessionPicCache() {
   if (sessionCacheHydrated || typeof window === "undefined") return;
@@ -16,6 +16,7 @@ function ensureSessionPicCache() {
   try {
     sessionStorage.removeItem("sek_profile_pics_v1");
     sessionStorage.removeItem("sek_profile_pics_v2");
+    sessionStorage.removeItem("sek_profile_pics_v3");
     const raw = sessionStorage.getItem(SESSION_PIC_CACHE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
@@ -155,15 +156,27 @@ export function Avatar({
       return;
     }
     let active = true;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
     const timer = setTimeout(() => {
       if (!active) return;
       fetchWhatsAppProfilePic(phone).then((url) => {
-        if (active) setResolvedSrc(url);
+        if (!active) return;
+        if (url) {
+          setResolvedSrc(url);
+        } else {
+          retryTimer = setTimeout(() => {
+            if (!active) return;
+            fetchWhatsAppProfilePic(phone, true).then((retryUrl) => {
+              if (active && retryUrl) setResolvedSrc(retryUrl);
+            });
+          }, 2500);
+        }
       });
     }, 50);
     return () => {
       active = false;
       clearTimeout(timer);
+      if (retryTimer) clearTimeout(retryTimer);
     };
   }, [src, phone]);
 
