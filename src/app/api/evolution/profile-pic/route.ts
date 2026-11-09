@@ -10,10 +10,7 @@ interface PicCacheEntry {
 }
 
 const picCache = new Map<string, PicCacheEntry>();
-let contactsLoadedAt = 0;
-let loadingContactsPromise: Promise<void> | null = null;
-const CONTACTS_TTL_MS = 2 * 60 * 60 * 1000; // 2 horas en RAM del servidor (0 consumo en Supabase)
-const SINGLE_TTL_MS = 6 * 60 * 60 * 1000;   // 6 horas por número consultado
+const SINGLE_TTL_MS = 6 * 60 * 60 * 1000; // 6 horas por número consultado en vivo
 
 function normalizePhone(raw: string): string {
   const digits = (raw || "").replace(/\D/g, "");
@@ -21,61 +18,23 @@ function normalizePhone(raw: string): string {
   return digits;
 }
 
-async function ensureContactsLoaded(baseUrl: string, instance: string, apiKey: string) {
-  const now = Date.now();
-  if (now - contactsLoadedAt < CONTACTS_TTL_MS && picCache.size > 0) return;
-  if (loadingContactsPromise) return loadingContactsPromise;
-
-  loadingContactsPromise = (async () => {
-    try {
-      const res = await fetch(`${baseUrl}/chat/findContacts/${instance}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", apikey: apiKey },
-        body: JSON.stringify({ where: {} }),
-        signal: AbortSignal.timeout(8000),
-      });
-      if (!res.ok) return;
-      const list = await res.json().catch(() => []);
-      if (!Array.isArray(list)) return;
-
-      const exp = Date.now() + CONTACTS_TTL_MS;
-      for (const item of list) {
-        const jid = String(item?.remoteJid || "");
-        if (!jid.endsWith("@s.whatsapp.net")) continue;
-        const phone = normalizePhone(jid.split("@")[0]);
-        if (!phone) continue;
-        const pic = typeof item?.profilePicUrl === "string" && item.profilePicUrl.startsWith("http")
-          ? item.profilePicUrl
-          : null;
-        if (pic) {
-          picCache.set(phone, { url: pic, checkedLive: true, expires: exp });
-        }
-      }
-      contactsLoadedAt = Date.now();
-    } catch {
-      // Silencioso si Evolution no responde temporalmente
-    } finally {
-      loadingContactsPromise = null;
-    }
-  })();
-
-  return loadingContactsPromise;
-}
-
 export async function GET(req: NextRequest) {
   try {
     const rawPhone = req.nextUrl.searchParams.get("phone") || "";
+    const forceRefresh = req.nextUrl.searchParams.get("refresh") === "1";
     const phone = normalizePhone(rawPhone);
     if (!phone || phone.length < 8) {
       return NextResponse.json({ url: null });
     }
 
     const now = Date.now();
-    const cached = picCache.get(phone);
-    if (cached && now < cached.expires && cached.checkedLive) {
-      const res = NextResponse.json({ url: cached.url });
-      res.headers.set("Cache-Control", "public, max-age=21600");
-      return res;
+    if (!forceRefresh) {
+      const cached = picCache.get(phone);
+      if (cached && now < cached.expires && cached.checkedLive && cached.url) {
+        const res = NextResponse.json({ url: cached.url });
+        res.headers.set("Cache-Control", "public, max-age=3600");
+        return res;
+      }
     }
 
     const evoCfg = await getEvolutionConfig();
@@ -86,23 +45,15 @@ export async function GET(req: NextRequest) {
     const baseUrl = evoCfg.url.replace(/\/$/, "");
     const instance = encodeURIComponent(evoCfg.instance);
 
-    await ensureContactsLoaded(baseUrl, instance, evoCfg.apiKey);
-
-    const afterBulk = picCache.get(phone);
-    if (afterBulk?.url) {
-      const res = NextResponse.json({ url: afterBulk.url });
-      res.headers.set("Cache-Control", "public, max-age=21600");
-      return res;
-    }
-
-    // Si no estaba en el directorio masivo o estaba en null, consultar en vivo
+    // Consultar siempre en vivo a WhatsApp vía fetchProfilePictureUrl
+    // porque las URLs guardadas en findContacts caducan en el CDN de WhatsApp (403 URL signature expired)
     let liveUrl: string | null = null;
     try {
       const liveRes = await fetch(`${baseUrl}/chat/fetchProfilePictureUrl/${instance}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", apikey: evoCfg.apiKey },
         body: JSON.stringify({ number: phone }),
-        signal: AbortSignal.timeout(4000),
+        signal: AbortSignal.timeout(5000),
       });
       if (liveRes.ok) {
         const data = await liveRes.json().catch(() => ({}));
@@ -122,7 +73,7 @@ export async function GET(req: NextRequest) {
 
     const res = NextResponse.json({ url: liveUrl });
     if (liveUrl) {
-      res.headers.set("Cache-Control", "public, max-age=21600");
+      res.headers.set("Cache-Control", "public, max-age=3600");
     } else {
       res.headers.set("Cache-Control", "no-cache");
     }

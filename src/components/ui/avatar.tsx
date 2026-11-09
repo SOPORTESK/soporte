@@ -8,12 +8,14 @@ const clientProfilePicCache = new Map<string, string | null>();
 const inflightPicRequests = new Map<string, Promise<string | null>>();
 
 // Hidratar caché de fotos de perfil desde sessionStorage para evitar re-consultas al navegar
-const SESSION_PIC_CACHE_KEY = "sek_profile_pics_v1";
+const SESSION_PIC_CACHE_KEY = "sek_profile_pics_v3";
 let sessionCacheHydrated = false;
 function ensureSessionPicCache() {
   if (sessionCacheHydrated || typeof window === "undefined") return;
   sessionCacheHydrated = true;
   try {
+    sessionStorage.removeItem("sek_profile_pics_v1");
+    sessionStorage.removeItem("sek_profile_pics_v2");
     const raw = sessionStorage.getItem(SESSION_PIC_CACHE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
@@ -47,9 +49,9 @@ function schedulePersistPicCache() {
   }, 500);
 }
 
-// Cola con límite de concurrencia (máx 2 peticiones simultáneas) para NUNCA saturar
-// las 6 conexiones TCP del navegador y dejar vía libre a la navegación entre menús y chats.
-const MAX_CONCURRENT_PIC_FETCHES = 2;
+// Cola con límite de concurrencia (máx 4 peticiones simultáneas) para no saturar
+// las conexiones TCP del navegador y dejar vía libre a la navegación entre menús y chats.
+const MAX_CONCURRENT_PIC_FETCHES = 4;
 let activePicFetches = 0;
 const picFetchQueue: Array<() => void> = [];
 
@@ -63,23 +65,27 @@ function pumpPicFetchQueue() {
   }
 }
 
-function fetchWhatsAppProfilePic(rawPhone: string): Promise<string | null> {
+function fetchWhatsAppProfilePic(rawPhone: string, forceRefresh = false): Promise<string | null> {
   ensureSessionPicCache();
   const cleanPhone = rawPhone.replace(/\D/g, "");
   if (cleanPhone.length < 8) return Promise.resolve(null);
   const key = cleanPhone.length === 8 ? `506${cleanPhone}` : cleanPhone;
 
-  if (clientProfilePicCache.has(key)) {
+  if (!forceRefresh && clientProfilePicCache.has(key)) {
     const cached = clientProfilePicCache.get(key);
     if (cached) return Promise.resolve(cached);
   }
   const existing = inflightPicRequests.get(key);
-  if (existing) return existing;
+  if (existing && !forceRefresh) return existing;
 
   const p = new Promise<string | null>((resolve) => {
     picFetchQueue.push(() => {
-      fetch(`/api/evolution/profile-pic?phone=${encodeURIComponent(key)}`, {
+      const qs = forceRefresh
+        ? `phone=${encodeURIComponent(key)}&refresh=1`
+        : `phone=${encodeURIComponent(key)}`;
+      fetch(`/api/evolution/profile-pic?${qs}`, {
         priority: "low" as any,
+        cache: forceRefresh ? "no-store" : "default",
       })
         .then((r) => (r.ok ? r.json() : { url: null }))
         .then((d) => {
@@ -126,10 +132,12 @@ export function Avatar({
 }) {
   const [resolvedSrc, setResolvedSrc] = React.useState<string | null>(src || null);
   const [imgFailed, setImgFailed] = React.useState(false);
+  const [retriedLive, setRetriedLive] = React.useState(false);
   const [zoomed, setZoomed] = React.useState(false);
 
   React.useEffect(() => {
     setImgFailed(false);
+    setRetriedLive(false);
     if (src) {
       setResolvedSrc(src);
       return;
@@ -141,8 +149,9 @@ export function Avatar({
     ensureSessionPicCache();
     const cleanPhone = phone.replace(/\D/g, "");
     const key = cleanPhone.length === 8 ? `506${cleanPhone}` : cleanPhone;
-    if (clientProfilePicCache.has(key)) {
-      setResolvedSrc(clientProfilePicCache.get(key) ?? null);
+    const cachedUrl = clientProfilePicCache.get(key);
+    if (cachedUrl) {
+      setResolvedSrc(cachedUrl);
       return;
     }
     let active = true;
@@ -151,12 +160,32 @@ export function Avatar({
       fetchWhatsAppProfilePic(phone).then((url) => {
         if (active) setResolvedSrc(url);
       });
-    }, 80);
+    }, 50);
     return () => {
       active = false;
       clearTimeout(timer);
     };
   }, [src, phone]);
+
+  const handleImgError = React.useCallback(() => {
+    if (phone && !retriedLive) {
+      setRetriedLive(true);
+      const cleanPhone = phone.replace(/\D/g, "");
+      const key = cleanPhone.length === 8 ? `506${cleanPhone}` : cleanPhone;
+      clientProfilePicCache.delete(key);
+      schedulePersistPicCache();
+      fetchWhatsAppProfilePic(phone, true).then((freshUrl) => {
+        if (freshUrl) {
+          setResolvedSrc(freshUrl);
+          setImgFailed(false);
+        } else {
+          setImgFailed(true);
+        }
+      });
+      return;
+    }
+    setImgFailed(true);
+  }, [phone, retriedLive]);
 
   const showImg = Boolean(resolvedSrc && !imgFailed);
   const canZoom = showImg && Boolean(onClickPic || zoomOnClick);
@@ -198,7 +227,7 @@ export function Avatar({
               src={resolvedSrc}
               alt={name || "avatar"}
               loading="lazy"
-              onError={() => setImgFailed(true)}
+              onError={handleImgError}
               className="h-full w-full object-cover"
             />
           ) : (
