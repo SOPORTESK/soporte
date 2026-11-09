@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getEvolutionConfig } from "@/lib/evolution-config";
 
 export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
 
 interface PicCacheEntry {
   url: string | null;
@@ -37,11 +38,12 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const evoCfg = await getEvolutionConfig();
+    const evoCfg = await getEvolutionConfig(forceRefresh);
     if (!evoCfg.url || !evoCfg.apiKey || !evoCfg.instance) {
       const res = NextResponse.json({ url: null });
       res.headers.set("Access-Control-Allow-Origin", "*");
       res.headers.set("Cache-Control", "no-cache");
+      res.headers.set("x-evo-debug", "missing-config");
       return res;
     }
 
@@ -57,14 +59,21 @@ export async function GET(req: NextRequest) {
     // Consultar siempre en vivo a WhatsApp vía fetchProfilePictureUrl
     // porque las URLs guardadas en findContacts caducan en el CDN de WhatsApp (403 URL signature expired)
     let liveUrl: string | null = null;
+    let lastStatus = "none";
     for (const baseUrl of candidateUrls) {
       try {
         const liveRes = await fetch(`${baseUrl}/chat/fetchProfilePictureUrl/${instance}`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", apikey: evoCfg.apiKey },
+          headers: {
+            "Content-Type": "application/json",
+            apikey: evoCfg.apiKey,
+            "User-Agent": "SekunetChat/1.0",
+          },
           body: JSON.stringify({ number: phone }),
+          cache: "no-store",
           signal: AbortSignal.timeout(8000),
         });
+        lastStatus = `${liveRes.status}@${baseUrl.replace(/^https?:\/\//, "").slice(0, 24)}`;
         if (liveRes.ok) {
           const data = await liveRes.json().catch(() => ({}));
           const candidate = data?.profilePictureUrl || data?.profilePicUrl || data?.picture || null;
@@ -73,7 +82,9 @@ export async function GET(req: NextRequest) {
             break;
           }
         }
-      } catch {}
+      } catch (err: any) {
+        lastStatus = `err:${(err?.message || "fetch").slice(0, 20)}@${baseUrl.replace(/^https?:\/\//, "").slice(0, 20)}`;
+      }
     }
 
     const ttl = liveUrl ? SINGLE_TTL_MS : 15 * 1000;
@@ -85,6 +96,7 @@ export async function GET(req: NextRequest) {
 
     const res = NextResponse.json({ url: liveUrl });
     res.headers.set("Access-Control-Allow-Origin", "*");
+    res.headers.set("x-evo-debug", lastStatus);
     if (liveUrl) {
       res.headers.set("Cache-Control", "public, max-age=3600");
     } else {

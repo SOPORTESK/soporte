@@ -3,6 +3,8 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { getEvolutionConfig } from "@/lib/evolution-config";
 import { pickPhone } from "@/lib/evolution-phone";
 
+export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
 export const maxDuration = 60;
 
 function detectMediaType(mime: string): "image" | "video" | "audio" | "document" {
@@ -21,7 +23,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Faltan parámetros" }, { status: 400 });
     }
 
-    const evoCfg = await getEvolutionConfig();
+    const evoCfg = await getEvolutionConfig(true);
     if (!evoCfg.url || !evoCfg.apiKey || !evoCfg.instance) {
       return NextResponse.json({ error: "Evolution no configurado" }, { status: 503 });
     }

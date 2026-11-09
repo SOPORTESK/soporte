@@ -3,6 +3,9 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { getEvolutionConfig } from "@/lib/evolution-config";
 import { normalizePhone, pickPhone } from "@/lib/evolution-phone";
 
+export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
+
 function inferMimeFromExt(ext: string): string {
   const map: Record<string, string> = {
     xml: "text/xml",
@@ -45,7 +48,7 @@ export async function POST(req: NextRequest) {
     await req.json().catch(() => ({}));
   if ((!case_id && !phone) || (!text && !mediaUrl)) return NextResponse.json({ error: "invalid" }, { status: 400 });
 
-  const evoCfg = await getEvolutionConfig();
+  const evoCfg = await getEvolutionConfig(true);
   const EVO_URL = evoCfg.url;
   const EVO_KEY = evoCfg.apiKey;
   const EVO_INSTANCE = evoCfg.instance;

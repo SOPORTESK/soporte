@@ -13,8 +13,8 @@ const EVO_CONFIG_CACHE_TTL_MS = 15 * 1000; // 15 segundos en memoria
 let cachedEvoConfig: EvolutionConfig | null = null;
 let cachedEvoConfigAt = 0;
 
-export async function getEvolutionConfig(): Promise<EvolutionConfig> {
-  if (cachedEvoConfig && Date.now() - cachedEvoConfigAt < EVO_CONFIG_CACHE_TTL_MS) {
+export async function getEvolutionConfig(forceRefresh = false): Promise<EvolutionConfig> {
+  if (!forceRefresh && cachedEvoConfig && Date.now() - cachedEvoConfigAt < EVO_CONFIG_CACHE_TTL_MS) {
     return cachedEvoConfig;
   }
 
@@ -25,7 +25,10 @@ export async function getEvolutionConfig(): Promise<EvolutionConfig> {
   // PRIORIDAD 0: Conexión directa ultra-rápida si el contenedor local de Evolution API (127.0.0.1:28080) está activo (omitir en Vercel)
   if (!process.env.VERCEL) {
     try {
-      const localRes = await fetch("http://127.0.0.1:28080", { signal: AbortSignal.timeout(3000) });
+      const localRes = await fetch("http://127.0.0.1:28080", {
+        cache: "no-store",
+        signal: AbortSignal.timeout(3000),
+      });
       if (localRes.ok) {
         cachedEvoConfig = {
           url: "http://127.0.0.1:28080",
@@ -41,30 +44,61 @@ export async function getEvolutionConfig(): Promise<EvolutionConfig> {
     }
   }
 
-  const supabase = createServiceClient();
   let dbUrl = "";
   let dbKey = "";
   let dbInstance = "";
 
-  // PRIORIDAD 1: config guardada desde el panel admin o watchdog (cifrada o JSON en Supabase).
+  // PRIORIDAD 1: config guardada desde el panel admin o watchdog (consulta REST directa con no-store para evitar Data Cache de Next.js en Vercel).
   try {
-    const { data, error } = await supabase
-      .from("sek_app_settings")
-      .select("value, iv, tag")
-      .eq("key", DEFAULT_KEY)
-      .maybeSingle();
-
-    if (data && !error && data.value) {
-      const raw = data.value.trim().startsWith("{")
-        ? data.value
-        : decrypt(data.value, data.iv, data.tag);
-      const parsed = JSON.parse(raw) as EvolutionConfig;
-      dbUrl = parsed.url || "";
-      dbKey = parsed.apiKey || "";
-      dbInstance = parsed.instance || "";
+    const sbUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").replace(/\/$/, "");
+    const sbKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+    if (sbUrl && sbKey) {
+      const restRes = await fetch(
+        `${sbUrl}/rest/v1/sek_app_settings?key=eq.${encodeURIComponent(DEFAULT_KEY)}&select=value,iv,tag&t=${Date.now()}`,
+        {
+          headers: {
+            apikey: sbKey,
+            Authorization: `Bearer ${sbKey}`,
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+          },
+          cache: "no-store",
+          signal: AbortSignal.timeout(5000),
+        }
+      );
+      if (restRes.ok) {
+        const rows = await restRes.json();
+        const data = Array.isArray(rows) ? rows[0] : null;
+        if (data && data.value) {
+          const raw = data.value.trim().startsWith("{")
+            ? data.value
+            : decrypt(data.value, data.iv, data.tag);
+          const parsed = JSON.parse(raw) as EvolutionConfig;
+          dbUrl = parsed.url || "";
+          dbKey = parsed.apiKey || "";
+          dbInstance = parsed.instance || "";
+        }
+      }
     }
   } catch (e) {
-    // tabla no existe o error de descifrado
+    // fallback a cliente supabase si falla fetch directo
+    try {
+      const supabase = createServiceClient();
+      const { data, error } = await supabase
+        .from("sek_app_settings")
+        .select("value, iv, tag")
+        .eq("key", DEFAULT_KEY)
+        .maybeSingle();
+
+      if (data && !error && data.value) {
+        const raw = data.value.trim().startsWith("{")
+          ? data.value
+          : decrypt(data.value, data.iv, data.tag);
+        const parsed = JSON.parse(raw) as EvolutionConfig;
+        dbUrl = parsed.url || "";
+        dbKey = parsed.apiKey || "";
+        dbInstance = parsed.instance || "";
+      }
+    } catch {}
   }
 
   const primaryUrl = dbUrl || envUrl || (!process.env.VERCEL ? "http://127.0.0.1:28080" : "");
