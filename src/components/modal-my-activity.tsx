@@ -339,7 +339,20 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
       ? activeDetectedGaps.reduce((acc, g) => acc + g.minutes, 0)
       : Math.round(officialIdleMs / 60000);
 
-  const targetMs = targetDailyHours * 60 * 60 * 1000;
+  // Cantidad de días hábiles/evaluados en el rango (para rangos multidiarios como semana o mes)
+  const evaluatedDaysCount = useMemo(() => {
+    if (rangeMode === "hoy" || rangeMode === "ayer" || rangeMode === "custom") return 1;
+    const days = new Set<string>();
+    for (const t of timeline) {
+      if (t.created_at) {
+        const d = new Date(t.created_at).toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
+        days.add(d);
+      }
+    }
+    return Math.max(1, days.size);
+  }, [rangeMode, timeline]);
+
+  const targetMs = targetDailyHours * evaluatedDaysCount * 60 * 60 * 1000;
   const officialActiveMs = metrics.masterBuckets.Productivo.durationMs;
   const officialBreakMs = metrics.masterBuckets.Descanso.durationMs;
   const officialSanitaryMs = metrics.masterBuckets["Pausa Sanitaria"].durationMs;
