@@ -979,12 +979,23 @@ export function ChatView({
           .from("sek_agent_config").select("nombre,apellido,rol").ilike("email", effectiveEmail).maybeSingle();
         if (!mounted) return;
         const a: any = agent;
-        const name = [a?.nombre, a?.apellido].filter(Boolean).join(" ") || effectiveEmail;
-        const role = a?.rol || "tecnico";
+        const fromList = cachedAgentsList?.find((ag: any) => ag.email?.toLowerCase() === effectiveEmail.toLowerCase());
+        const fallbackName = effectiveEmail.split("@")[0].replace(/[._]/g, " ").replace(/\b\w/g, l => l.toUpperCase());
+        const name = [a?.nombre, a?.apellido].filter(Boolean).join(" ")
+          || [fromList?.nombre, fromList?.apellido].filter(Boolean).join(" ")
+          || fallbackName;
+        const role = a?.rol || fromList?.rol || "tecnico";
         cachedAgentUser = { email: effectiveEmail, name, role };
         setAgentName(name);
         setAgentRole(role);
-      } catch { /* lock timeout en dev - ignorar */ }
+      } catch {
+        if (mounted && desiredEmail) {
+          const fromList = cachedAgentsList?.find((ag: any) => ag.email?.toLowerCase() === desiredEmail.toLowerCase());
+          const fallbackName = [fromList?.nombre, fromList?.apellido].filter(Boolean).join(" ")
+            || desiredEmail.split("@")[0].replace(/[._]/g, " ").replace(/\b\w/g, l => l.toUpperCase());
+          setAgentName(prev => prev || fallbackName);
+        }
+      }
     })();
     return () => { mounted = false; };
   }, [supabase, currentAgentEmail]);
@@ -2415,11 +2426,40 @@ export function ChatView({
         return;
       }
 
+      // Resolver el nombre del agente de forma garantizada aunque el estado asíncrono aún no haya terminado de cargar
+      let effectiveAgentName = (agentName || "").trim();
+      if (!effectiveAgentName || effectiveAgentName.includes("@")) {
+        const fromCache = cachedAgentUser?.email?.toLowerCase() === agentEmail.toLowerCase() ? cachedAgentUser.name : "";
+        const fromAgents = (agents.length ? agents : (cachedAgentsList || [])).find(
+          (ag: any) => ag.email?.toLowerCase() === agentEmail.toLowerCase()
+        );
+        const listName = fromAgents ? [fromAgents.nombre, fromAgents.apellido].filter(Boolean).join(" ") : "";
+        if (fromCache && !fromCache.includes("@")) {
+          effectiveAgentName = fromCache;
+        } else if (listName) {
+          effectiveAgentName = listName;
+        } else {
+          try {
+            const { data: agRow } = await supabase
+              .from("sek_agent_config")
+              .select("nombre,apellido")
+              .ilike("email", agentEmail)
+              .maybeSingle();
+            const dbName = [agRow?.nombre, agRow?.apellido].filter(Boolean).join(" ");
+            if (dbName) effectiveAgentName = dbName;
+          } catch {}
+        }
+        if (!effectiveAgentName) {
+          effectiveAgentName = agentEmail.split("@")[0].replace(/[._]/g, " ").replace(/\b\w/g, l => l.toUpperCase());
+        }
+        setAgentName(effectiveAgentName);
+      }
+
       setSekCase(prev => ({ ...prev, estado: "abierto", assigned_to: agentEmail }));
       toast.success("Caso aceptado");
       logActivity({
         agent_email: agentEmail,
-        agent_name: agentName || agentEmail,
+        agent_name: effectiveAgentName || agentEmail,
         action: `Tomó el caso ${sekCase.customer_phone || targetId} del estado "escalado" y lo movió a "abierto"`,
         category: "Gestión de casos",
         case_id: targetId,
@@ -2428,9 +2468,10 @@ export function ChatView({
       fetch("/api/profile/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "busy" }) });
 
       // Enviar mensaje de bienvenida automático para casos WhatsApp
-      const isWhatsApp = String(sekCase.canal || "").toLowerCase() === "whatsapp";
-      if (isWhatsApp && agentName) {
-        const clientData = clienteInfo(sekCase.cliente);
+      const canalEffective = String(sekCase.canal || initialCase.canal || "").toLowerCase();
+      const isWhatsApp = canalEffective === "whatsapp" || (!canalEffective && Boolean(sekCase.customer_phone || (sekCase.cliente as any)?.telefono));
+      if (isWhatsApp && effectiveAgentName) {
+        const clientData = clienteInfo(sekCase.cliente || initialCase.cliente);
         const rawName = (clientData.nombre || "").trim();
         const isRawPhone = /^[+\d\s()-]{6,}$/.test(rawName);
         const hasValidName = Boolean(rawName && !isRawPhone && rawName.toLowerCase() !== "cliente");
@@ -2453,19 +2494,19 @@ export function ChatView({
         if (hasValidName && hasValidCuenta) {
           // Cliente con datos personales esenciales completos: pasar directo al bloque técnico
           if (hasVendedor) {
-            welcomeMsg = `Buen día. Gracias por contactarnos.\n\nMi nombre es ${agentName} y con gusto le asistiré con su caso.\n\nPara el registro, por favor indíquenos:\n\n-Marca y modelo del equipo a consultar\n-Motivo de la consulta o solicitud\n\nCon esta información podremos brindarle una atención más precisa.`;
+            welcomeMsg = `Buen día. Gracias por contactarnos.\n\nMi nombre es ${effectiveAgentName} y con gusto le asistiré con su caso.\n\nPara el registro, por favor indíquenos:\n\n-Marca y modelo del equipo a consultar\n-Motivo de la consulta o solicitud\n\nCon esta información podremos brindarle una atención más precisa.`;
           } else {
-            welcomeMsg = `Buen día. Gracias por contactarnos.\n\nMi nombre es ${agentName} y con gusto le asistiré con su caso.\n\nPara el registro, por favor indíquenos:\n\n-Marca y modelo del equipo a consultar\n-Motivo de la consulta o solicitud\n-Nombre del vendedor encargado de su cuenta\n\nCon esta información podremos brindarle una atención más precisa.`;
+            welcomeMsg = `Buen día. Gracias por contactarnos.\n\nMi nombre es ${effectiveAgentName} y con gusto le asistiré con su caso.\n\nPara el registro, por favor indíquenos:\n\n-Marca y modelo del equipo a consultar\n-Motivo de la consulta o solicitud\n-Nombre del vendedor encargado de su cuenta\n\nCon esta información podremos brindarle una atención más precisa.`;
           }
         } else if (missingFields.length > 0 && missingFields.length < 3) {
           // Faltan solo 1 o 2 campos puntuales: pedir estrictamente lo que falta
-          welcomeMsg = `Buen día. Gracias por contactarnos.\n\nMi nombre es ${agentName} y con gusto le asistiré con su caso.\n\nPara complementar el registro de su atención, por favor facilítenos:\n\n${missingFields.map(f => `-${f}`).join("\n")}\n\nQuedamos atentos. Gracias.`;
+          welcomeMsg = `Buen día. Gracias por contactarnos.\n\nMi nombre es ${effectiveAgentName} y con gusto le asistiré con su caso.\n\nPara complementar el registro de su atención, por favor facilítenos:\n\n${missingFields.map(f => `-${f}`).join("\n")}\n\nQuedamos atentos. Gracias.`;
         } else {
           // Cliente nuevo / sin datos personales: pedir ficha de registro completa
           if (hasVendedor) {
-            welcomeMsg = `Buen día. Gracias por contactarnos.\n\nMi nombre es ${agentName} y con gusto le asistiré con su caso.\n\nPara el registro, por favor facilítenos su:\n\nNombre completo\nCorreo electrónico\nNombre de la cuenta afiliada a Sekunet.\n\nQuedamos atentos. Gracias.`;
+            welcomeMsg = `Buen día. Gracias por contactarnos.\n\nMi nombre es ${effectiveAgentName} y con gusto le asistiré con su caso.\n\nPara el registro, por favor facilítenos su:\n\nNombre completo\nCorreo electrónico\nNombre de la cuenta afiliada a Sekunet.\n\nQuedamos atentos. Gracias.`;
           } else {
-            welcomeMsg = `Buen día. Gracias por contactarnos.\n\nMi nombre es ${agentName} y con gusto le asistiré con su caso.\n\nPara el registro, por favor facilítenos su:\n\nNombre completo\nCorreo electrónico\nNombre de la cuenta afiliada a Sekunet.\nNombre del vendedor encargado de su cuenta\n\nQuedamos atentos. Gracias.`;
+            welcomeMsg = `Buen día. Gracias por contactarnos.\n\nMi nombre es ${effectiveAgentName} y con gusto le asistiré con su caso.\n\nPara el registro, por favor facilítenos su:\n\nNombre completo\nCorreo electrónico\nNombre de la cuenta afiliada a Sekunet.\nNombre del vendedor encargado de su cuenta\n\nQuedamos atentos. Gracias.`;
           }
         }
 
@@ -2476,23 +2517,54 @@ export function ChatView({
         // si WhatsApp confirma la entrega.
         const welcomeEntry = {
           role: "tecnico",
-          author: agentName,
+          author: effectiveAgentName,
           time: new Date().toISOString(),
           content: welcomeMsg,
         };
         try {
-          const res = await fetch("/api/evolution/send", {
+          let res = await fetch("/api/evolution/send", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ case_id: targetId, text: welcomeMsg, entry: welcomeEntry }),
           });
           if (!res.ok) {
+            await new Promise(r => setTimeout(r, 800));
+            res = await fetch("/api/evolution/send", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ case_id: targetId, text: welcomeMsg, entry: welcomeEntry }),
+            });
+          }
+          if (!res.ok) {
             const d = await res.json().catch(() => ({}));
             toast.error("No se entregó la bienvenida a WhatsApp", { description: d.error || `Error ${res.status}` });
+          } else {
+            const sentData = await res.json().catch(() => ({}));
+            const persistedEntry = {
+              ...welcomeEntry,
+              fromMe: true,
+              ...(sentData?.id ? { messageId: sentData.id } : {}),
+            };
+            caseHistoryCache.delete(cacheKey);
+            caseHistoryCache.delete(String(targetId));
+            setSekCase(prev => {
+              const prevHt = Array.isArray(prev.histtecnico) ? prev.histtecnico : [];
+              return {
+                ...prev,
+                estado: "abierto",
+                assigned_to: agentEmail,
+                last_message_at: welcomeEntry.time,
+                last_message_preview: welcomeMsg.slice(0, 200),
+                histtecnico: [...prevHt, persistedEntry as any],
+              };
+            });
           }
         } catch {
           toast.error("No se entregó la bienvenida a WhatsApp", { description: "Error de red" });
         }
+      } else {
+        caseHistoryCache.delete(cacheKey);
+        caseHistoryCache.delete(String(targetId));
       }
 
       // Prevent the ChatView from disappearing by navigating to Mi Gestión where the case is currently assigned.
