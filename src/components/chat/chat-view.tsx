@@ -1399,7 +1399,11 @@ export function ChatView({
         updates.assigned_to = agentEmail;
       }
       if (Object.keys(updates).length > 0) {
-        await supabase.from("sek_cases").update(updates).eq("id", targetId);
+        try {
+          await supabase.from("sek_cases").update(updates).eq("id", targetId);
+        } catch (upErr) {
+          console.warn("[send] No se pudo actualizar estado previo del caso:", upErr);
+        }
       }
 
       if (targetCerrado && !isNota) {
@@ -1412,31 +1416,54 @@ export function ChatView({
         // /api/evolution/send envía a WhatsApp y, solo si confirma,
         // guarda en la BD con el ID real de WhatsApp.
         // Si WhatsApp falla, no se guarda nada en la BD.
-        const res = await fetch("/api/evolution/send", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            case_id: targetId,
-            text: body || undefined,
-            mediaUrl: mediaUrl || undefined,
-            mediaType: mediaType || undefined,
-            fileName: fileName || undefined,
-            entry: entry as any,
-            quotedMessageId: replyTo?.messageId || undefined,
-            quotedText: replyTo?.content?.slice(0, 200) || undefined,
-            quotedFromMe: replyTo?.fromMe ?? false,
-          })
+        const sendPayload = JSON.stringify({
+          case_id: targetId,
+          text: body || undefined,
+          mediaUrl: mediaUrl || undefined,
+          mediaType: mediaType || undefined,
+          fileName: fileName || undefined,
+          entry: entry as any,
+          quotedMessageId: replyTo?.messageId || undefined,
+          quotedText: replyTo?.content?.slice(0, 200) || undefined,
+          quotedFromMe: replyTo?.fromMe ?? false,
         });
+        let res: Response;
+        try {
+          res = await fetch("/api/evolution/send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: sendPayload,
+          });
+          if (res.status >= 500) {
+            await new Promise(r => setTimeout(r, 800));
+            res = await fetch("/api/evolution/send", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: sendPayload,
+            });
+          }
+        } catch {
+          await new Promise(r => setTimeout(r, 800));
+          res = await fetch("/api/evolution/send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: sendPayload,
+          });
+        }
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...m, status: "error" } : m));
           toast.error("No se entregó a WhatsApp", { description: data.error || "Evolution API falló" });
           return;
         }
-        // WhatsApp confirmó. Recargar preservando la fusión del grupo.
-        const reloaded = await reloadCaseFromDb(sekCase, targetId);
-        if (reloaded) setSekCase(reloaded);
+        // WhatsApp confirmó. Marcar como enviado de inmediato y recargar historial sin fallar si hay hipo de red.
         setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...m, status: "sent", ...(data?.messageId ? { messageId: data.messageId } : {}) } : m));
+        try {
+          const reloaded = await reloadCaseFromDb(sekCase, targetId);
+          if (reloaded) setSekCase(reloaded);
+        } catch (reloadErr) {
+          console.warn("[send] Mensaje entregado pero falló recarga secundaria:", reloadErr);
+        }
       } else {
         // FLUJO NO-WHATSAPP (notas, widget, o archivo ya enviado por send-base64): guardar en BD directamente.
         let mergedExisting = false;

@@ -23,7 +23,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Faltan parámetros" }, { status: 400 });
     }
 
-    const evoCfg = await getEvolutionConfig(true);
+    let evoCfg = await getEvolutionConfig(false);
+    if (!evoCfg.url || !evoCfg.apiKey || !evoCfg.instance) {
+      evoCfg = await getEvolutionConfig(true);
+    }
     if (!evoCfg.url || !evoCfg.apiKey || !evoCfg.instance) {
       return NextResponse.json({ error: "Evolution no configurado" }, { status: 503 });
     }
@@ -65,7 +68,7 @@ export async function POST(req: NextRequest) {
     let res: Response | null = null;
     let lastError: any = null;
 
-    for (const baseUrl of candidateUrls) {
+    const trySendToUrl = async (baseUrl: string, apiKey: string): Promise<Response | null> => {
       let evoBody: Record<string, unknown>;
       let evoEndpoint: string;
 
@@ -89,7 +92,7 @@ export async function POST(req: NextRequest) {
       try {
         let attemptRes = await fetch(evoEndpoint, {
           method: "POST",
-          headers: { "Content-Type": "application/json", apikey: evoCfg.apiKey },
+          headers: { "Content-Type": "application/json", apikey: apiKey },
           body: JSON.stringify(evoBody),
           signal: AbortSignal.timeout(18000),
         });
@@ -100,23 +103,40 @@ export async function POST(req: NextRequest) {
           delete fallbackBody.quoted;
           attemptRes = await fetch(evoEndpoint, {
             method: "POST",
-            headers: { "Content-Type": "application/json", apikey: evoCfg.apiKey },
+            headers: { "Content-Type": "application/json", apikey: apiKey },
             body: JSON.stringify(fallbackBody),
             signal: AbortSignal.timeout(18000),
           });
         }
 
         if (attemptRes.ok) {
-          res = attemptRes;
-          break;
-        } else {
-          const errText = await attemptRes.text().catch(() => "");
-          console.warn(`[send-base64] Error desde ${baseUrl}:`, attemptRes.status, errText);
-          lastError = new Error(`Evolution ${attemptRes.status}: ${errText}`);
+          return attemptRes;
         }
+        const errText = await attemptRes.text().catch(() => "");
+        console.warn(`[send-base64] Error desde ${baseUrl}:`, attemptRes.status, errText);
+        lastError = new Error(`Evolution ${attemptRes.status}: ${errText}`);
       } catch (fetchErr: any) {
         console.warn(`[send-base64] Falló conexión a ${baseUrl}:`, fetchErr.message);
         lastError = fetchErr;
+      }
+      return null;
+    };
+
+    for (const baseUrl of candidateUrls) {
+      res = await trySendToUrl(baseUrl, evoCfg.apiKey);
+      if (res && res.ok) break;
+    }
+
+    if (!res || !res.ok) {
+      const freshCfg = await getEvolutionConfig(true);
+      const freshUrls = Array.from(new Set([
+        (freshCfg.url || "").replace(/\/$/, ""),
+        ...(freshCfg.candidates || []).map((u) => (u || "").replace(/\/$/, "")),
+      ].filter((u) => u && !candidateUrls.includes(u))));
+
+      for (const baseUrl of freshUrls) {
+        res = await trySendToUrl(baseUrl, freshCfg.apiKey || evoCfg.apiKey);
+        if (res && res.ok) break;
       }
     }
 

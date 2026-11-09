@@ -48,7 +48,10 @@ export async function POST(req: NextRequest) {
     await req.json().catch(() => ({}));
   if ((!case_id && !phone) || (!text && !mediaUrl)) return NextResponse.json({ error: "invalid" }, { status: 400 });
 
-  const evoCfg = await getEvolutionConfig(true);
+  let evoCfg = await getEvolutionConfig(false);
+  if (!evoCfg.url || !evoCfg.apiKey || !evoCfg.instance) {
+    evoCfg = await getEvolutionConfig(true);
+  }
   const EVO_URL = evoCfg.url;
   const EVO_KEY = evoCfg.apiKey;
   const EVO_INSTANCE = evoCfg.instance;
@@ -249,6 +252,29 @@ export async function POST(req: NextRequest) {
         } catch (fetchErr: any) {
           console.warn(`[evo-send] Falló fetch hacia ${baseUrl}: ${fetchErr.message}. Probando siguiente candidato...`);
           lastError = fetchErr;
+        }
+      }
+
+      if (!sendSuccess) {
+        const freshCfg = await getEvolutionConfig(true);
+        const freshUrl = (freshCfg.url || "").replace(/\/$/, "");
+        if (freshUrl && !candidateUrls.includes(freshUrl)) {
+          try {
+            const evoEndpoint = `${freshUrl}/message/sendText/${encodeURIComponent(freshCfg.instance || EVO_INSTANCE)}`;
+            const res = await fetch(evoEndpoint, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", apikey: freshCfg.apiKey || EVO_KEY },
+              body: JSON.stringify({ number: to, text }),
+              signal: AbortSignal.timeout(12000),
+            });
+            const resData = await res.json().catch(() => ({}));
+            if (res.ok) {
+              msgId = resData?.key?.id || resData?.messageId || null;
+              sendSuccess = true;
+            }
+          } catch (e) {
+            lastError = e;
+          }
         }
       }
 
