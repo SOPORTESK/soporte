@@ -32,7 +32,7 @@ async function ensureContactsLoaded(baseUrl: string, instance: string, apiKey: s
         method: "POST",
         headers: { "Content-Type": "application/json", apikey: apiKey },
         body: JSON.stringify({ where: {} }),
-        signal: AbortSignal.timeout(2500),
+        signal: AbortSignal.timeout(8000),
       });
       if (!res.ok) return;
       const list = await res.json().catch(() => []);
@@ -47,8 +47,8 @@ async function ensureContactsLoaded(baseUrl: string, instance: string, apiKey: s
         const pic = typeof item?.profilePicUrl === "string" && item.profilePicUrl.startsWith("http")
           ? item.profilePicUrl
           : null;
-        if (pic || !picCache.has(phone)) {
-          picCache.set(phone, { url: pic, checkedLive: Boolean(pic), expires: exp });
+        if (pic) {
+          picCache.set(phone, { url: pic, checkedLive: true, expires: exp });
         }
       }
       contactsLoadedAt = Date.now();
@@ -95,14 +95,14 @@ export async function GET(req: NextRequest) {
       return res;
     }
 
-    // Si no estaba en el directorio masivo o estaba en null, consultar en vivo 1 sola vez cada 6 horas
+    // Si no estaba en el directorio masivo o estaba en null, consultar en vivo
     let liveUrl: string | null = null;
     try {
       const liveRes = await fetch(`${baseUrl}/chat/fetchProfilePictureUrl/${instance}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", apikey: evoCfg.apiKey },
         body: JSON.stringify({ number: phone }),
-        signal: AbortSignal.timeout(1500),
+        signal: AbortSignal.timeout(4000),
       });
       if (liveRes.ok) {
         const data = await liveRes.json().catch(() => ({}));
@@ -113,14 +113,19 @@ export async function GET(req: NextRequest) {
       }
     } catch {}
 
+    const ttl = liveUrl ? SINGLE_TTL_MS : 30 * 1000;
     picCache.set(phone, {
       url: liveUrl,
-      checkedLive: true,
-      expires: Date.now() + SINGLE_TTL_MS,
+      checkedLive: Boolean(liveUrl),
+      expires: Date.now() + ttl,
     });
 
     const res = NextResponse.json({ url: liveUrl });
-    res.headers.set("Cache-Control", "public, max-age=21600");
+    if (liveUrl) {
+      res.headers.set("Cache-Control", "public, max-age=21600");
+    } else {
+      res.headers.set("Cache-Control", "no-cache");
+    }
     return res;
   } catch {
     return NextResponse.json({ url: null });

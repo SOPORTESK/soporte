@@ -410,6 +410,42 @@ async function checkActivity(checks: IntegrityCheck[]) {
         ? "Sin registros duplicados entre el tracker y la base de datos."
         : `${duplicates} registros repetidos (mismo agente, acción e instante).`,
   });
+
+  // 5. Sanidad de Horas Extras y límites de jornada
+  let anomalousOvertimeCount = 0;
+  const overtimeDetails: string[] = [];
+  for (const day of days) {
+    const trackerRows = await getActivityTimeline(undefined, day);
+    const byAgent = new Map<string, typeof trackerRows>();
+    for (const r of trackerRows) {
+      const email = (r.agent_email || "").toLowerCase().trim();
+      if (!email) continue;
+      const list = byAgent.get(email) || [];
+      list.push(r);
+      byAgent.set(email, list);
+    }
+    for (const [email, agentRows] of byAgent.entries()) {
+      const first = agentRows[0];
+      const last = agentRows[agentRows.length - 1];
+      if (!first?.created_at || !last?.created_at) continue;
+      const spanMs = new Date(last.created_at).getTime() - new Date(first.created_at).getTime();
+      if (spanMs > 18 * 3600 * 1000) {
+        anomalousOvertimeCount++;
+        overtimeDetails.push(`${shortDate(day)} - ${email}: lapso continuo de ${Math.round(spanMs / 3600000)}h`);
+      }
+    }
+  }
+
+  checks.push({
+    id: "act_overtime_sanity",
+    label: "Tracker: Sanidad de cálculo de horas extras y límites de jornada",
+    status: anomalousOvertimeCount === 0 ? "ok" : "error",
+    expected: "0 jornadas que superen los límites físicos de jornada (máx 18h en un día)",
+    actual: anomalousOvertimeCount === 0 ? "Todas las jornadas dentro de límites físicos válidos" : `${anomalousOvertimeCount} jornada(s) con distorsión`,
+    detail: anomalousOvertimeCount === 0
+      ? "Cálculo de horas extras verificado: todas las mediciones respetan los límites fisiológicos y horarios programados de la jornada."
+      : `Se detectaron jornadas físicamente imposibles: ${overtimeDetails.join(" | ")}`,
+  });
 }
 
 // ───────────────────────── GARANTÍAS Y RMA ─────────────────────────

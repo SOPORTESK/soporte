@@ -362,7 +362,8 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
   const firstLoginTime = metrics.firstLoginTime;
   const lastLogoutTime = metrics.lastLogoutTime;
   const isOvertimeApproved = overtimeInfo?.status === "approved";
-  const rawOvertimeMs = Math.max(0, officialWorkdayMs - targetMs);
+  // Horas extras medidas estrictamente como tiempo laborado antes de la hora de entrada o después de la salida oficial
+  const rawOvertimeMs = (metrics as any).overtimeMs ?? 0;
 
   // Modo de visualización en la pestaña Resumen (Por Categorías oficiales vs Por Software/Labor)
   const [categoryViewMode, setCategoryViewMode] = useState<"categories" | "software">("categories");

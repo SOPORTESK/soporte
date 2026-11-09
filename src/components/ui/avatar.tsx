@@ -19,7 +19,9 @@ function ensureSessionPicCache() {
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === "object") {
         for (const [k, v] of Object.entries(parsed)) {
-          clientProfilePicCache.set(k, typeof v === "string" ? v : null);
+          if (typeof v === "string" && v.startsWith("http")) {
+            clientProfilePicCache.set(k, v);
+          }
         }
       }
     }
@@ -33,9 +35,13 @@ function schedulePersistPicCache() {
     persistTimer = null;
     try {
       const obj: Record<string, string | null> = {};
-      // Guardar hasta 400 entradas recientes
+      // Guardar hasta 400 entradas recientes con URL válida (nunca persistir null)
       const entries = Array.from(clientProfilePicCache.entries()).slice(-400);
-      for (const [k, v] of entries) obj[k] = v;
+      for (const [k, v] of entries) {
+        if (typeof v === "string" && v.startsWith("http")) {
+          obj[k] = v;
+        }
+      }
       sessionStorage.setItem(SESSION_PIC_CACHE_KEY, JSON.stringify(obj));
     } catch {}
   }, 500);
@@ -64,7 +70,8 @@ function fetchWhatsAppProfilePic(rawPhone: string): Promise<string | null> {
   const key = cleanPhone.length === 8 ? `506${cleanPhone}` : cleanPhone;
 
   if (clientProfilePicCache.has(key)) {
-    return Promise.resolve(clientProfilePicCache.get(key) ?? null);
+    const cached = clientProfilePicCache.get(key);
+    if (cached) return Promise.resolve(cached);
   }
   const existing = inflightPicRequests.get(key);
   if (existing) return existing;

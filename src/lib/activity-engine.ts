@@ -94,6 +94,7 @@ export interface UnifiedDayMetrics {
   pcWorkTime: string;
   manualJustificationMs: number;
   manualJustificationTime: string;
+  overtimeMs: number;
 }
 
 export const MASTER_COLORS: Record<MasterCategory, { hex: string; bg: string; text: string }> = {
@@ -846,6 +847,7 @@ export function computeUnifiedActivityMetrics(
       pcWorkTime: "0s",
       manualJustificationMs: 0,
       manualJustificationTime: "0s",
+      overtimeMs: 0,
     };
   }
 
@@ -880,6 +882,19 @@ export function computeUnifiedActivityMetrics(
     if (validStart !== null && refMs < validStart) isWithin = false;
     if (validEnd !== null && refMs >= validEnd) isWithin = false;
     return { startMs: validStart, endMs: validEnd, isWithin };
+  };
+
+  // Cálculo de horas extras estrictas: labores productivas realizadas fuera de la jornada programada
+  let overtimeMs = 0;
+  const isProductiveOp = (cat: string) => !["descansos", "pausa sanitaria", "inactividad"].includes((cat || "").toLowerCase());
+  const addWorkDuration = (cat: string, dur: number, refTime: number) => {
+    if (dur <= 0) return;
+    if (isProductiveOp(cat)) {
+      const bounds = getScheduleBoundsForMs(refTime);
+      if (!bounds.isWithin) {
+        overtimeMs += dur;
+      }
+    }
   };
 
   // Pre-escaneo de intervalos de labores manuales, descansos y justificaciones legítimas
@@ -1647,6 +1662,7 @@ export function computeUnifiedActivityMetrics(
       const explicitDur = Number(it.duration_ms || (meta.duration_seconds ? meta.duration_seconds * 1000 : 0)) || 60000;
       opTimes[opCategory] = (opTimes[opCategory] || 0) + explicitDur;
       recordSoftwareTime(itemName, explicitDur, opCategory);
+      addWorkDuration(opCategory, explicitDur, currTime);
       continue;
     }
 
@@ -1658,6 +1674,7 @@ export function computeUnifiedActivityMetrics(
       if (dur > 0) {
         opTimes[opCategory] = (opTimes[opCategory] || 0) + dur;
         recordSoftwareTime(itemName, dur, opCategory);
+        addWorkDuration(opCategory, dur, currTime);
 
         const crHour =
           parseInt(
@@ -1696,6 +1713,7 @@ export function computeUnifiedActivityMetrics(
         if (dur > 0) {
           opTimes[opCategory] = (opTimes[opCategory] || 0) + dur;
           recordSoftwareTime(itemName, dur, opCategory);
+          addWorkDuration(opCategory, dur, currTime);
 
           const crHour =
             parseInt(
@@ -1715,6 +1733,7 @@ export function computeUnifiedActivityMetrics(
         if (productivePart > 0) {
           opTimes[opCategory] = (opTimes[opCategory] || 0) + productivePart;
           recordSoftwareTime(itemName, productivePart, opCategory);
+          addWorkDuration(opCategory, productivePart, currTime);
 
           const crHour =
             parseInt(
@@ -2045,6 +2064,22 @@ export function computeUnifiedActivityMetrics(
   const minutesSinceLastEvent = lastEventMs > 0 ? Math.max(0, (Date.now() - lastEventMs) / 60000) : 999;
   const isShiftActive = isTodayDayCalc && minutesSinceLastEvent < 25;
 
+  // Computar horas extras en labores manuales fuera de la jornada
+  for (const inv of manualIntervals) {
+    if (isProductiveOp(inv.category)) {
+      const bounds = getScheduleBoundsForMs(inv.startMs);
+      if (bounds.startMs !== null && inv.startMs < bounds.startMs) {
+        overtimeMs += Math.max(0, Math.min(bounds.startMs, inv.endMs) - inv.startMs);
+      }
+      if (bounds.endMs !== null && inv.endMs > bounds.endMs) {
+        overtimeMs += Math.max(0, inv.endMs - Math.max(bounds.endMs, inv.startMs));
+      }
+      if (bounds.startMs === null && bounds.endMs === null) {
+        overtimeMs += Math.max(0, inv.endMs - inv.startMs);
+      }
+    }
+  }
+
   return {
     totalDayMs,
     totalDayTime: formatDurationMs(totalDayMs),
@@ -2066,5 +2101,6 @@ export function computeUnifiedActivityMetrics(
     pcWorkTime: formatDurationMs(pcWorkMs),
     manualJustificationMs: totalManualMs,
     manualJustificationTime: formatDurationMs(totalManualMs),
+    overtimeMs: Math.round(overtimeMs),
   };
 }
