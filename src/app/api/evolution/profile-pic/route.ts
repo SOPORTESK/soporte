@@ -11,12 +11,66 @@ interface PicCacheEntry {
 }
 
 const picCache = new Map<string, PicCacheEntry>();
-const SINGLE_TTL_MS = 6 * 60 * 60 * 1000; // 6 horas por número consultado en vivo
+let contactsLoadedAt = 0;
+let loadingContactsPromise: Promise<void> | null = null;
+const CONTACTS_TTL_MS = 2 * 60 * 60 * 1000; // 2 horas en RAM del servidor
+const SINGLE_TTL_MS = 6 * 60 * 60 * 1000;   // 6 horas para números con foto
+const NULL_TTL_MS = 2 * 60 * 60 * 1000;     // 2 horas para números sin foto pública
 
 function normalizePhone(raw: string): string {
   const digits = (raw || "").replace(/\D/g, "");
   if (digits.length === 8) return `506${digits}`;
   return digits;
+}
+
+async function ensureContactsLoaded(candidateUrls: string[], instance: string, apiKey: string) {
+  const now = Date.now();
+  if (now - contactsLoadedAt < CONTACTS_TTL_MS && picCache.size > 0) return;
+  if (loadingContactsPromise) return loadingContactsPromise;
+
+  loadingContactsPromise = (async () => {
+    try {
+      for (const baseUrl of candidateUrls) {
+        try {
+          const res = await fetch(`${baseUrl}/chat/findContacts/${instance}`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              apikey: apiKey,
+              "User-Agent": "SekunetChat/1.0",
+            },
+            body: JSON.stringify({ where: {} }),
+            cache: "no-store",
+            signal: AbortSignal.timeout(2500),
+          });
+          if (!res.ok) continue;
+          const list = await res.json().catch(() => []);
+          if (!Array.isArray(list)) continue;
+
+          const exp = Date.now() + CONTACTS_TTL_MS;
+          for (const item of list) {
+            const jid = String(item?.remoteJid || "");
+            if (!jid.endsWith("@s.whatsapp.net")) continue;
+            const phone = normalizePhone(jid.split("@")[0]);
+            if (!phone) continue;
+            const pic =
+              typeof item?.profilePicUrl === "string" && item.profilePicUrl.startsWith("http")
+                ? item.profilePicUrl
+                : null;
+            if (pic || !picCache.has(phone)) {
+              picCache.set(phone, { url: pic, checkedLive: Boolean(pic), expires: exp });
+            }
+          }
+          contactsLoadedAt = Date.now();
+          break;
+        } catch {}
+      }
+    } finally {
+      loadingContactsPromise = null;
+    }
+  })();
+
+  return loadingContactsPromise;
 }
 
 export async function GET(req: NextRequest) {
@@ -31,19 +85,21 @@ export async function GET(req: NextRequest) {
     const now = Date.now();
     if (!forceRefresh) {
       const cached = picCache.get(phone);
-      if (cached && now < cached.expires && cached.checkedLive && cached.url) {
+      if (cached && now < cached.expires && cached.checkedLive) {
         const res = NextResponse.json({ url: cached.url });
         res.headers.set("Cache-Control", "public, max-age=3600");
         return res;
       }
     }
 
-    const evoCfg = await getEvolutionConfig(forceRefresh);
+    let evoCfg = await getEvolutionConfig(false);
+    if (!evoCfg.url || !evoCfg.apiKey || !evoCfg.instance) {
+      evoCfg = await getEvolutionConfig(true);
+    }
     if (!evoCfg.url || !evoCfg.apiKey || !evoCfg.instance) {
       const res = NextResponse.json({ url: null });
       res.headers.set("Access-Control-Allow-Origin", "*");
       res.headers.set("Cache-Control", "no-cache");
-      res.headers.set("x-evo-debug", "missing-config");
       return res;
     }
 
@@ -56,9 +112,19 @@ export async function GET(req: NextRequest) {
     );
     const instance = encodeURIComponent(evoCfg.instance);
 
-    // Consultar siempre en vivo a WhatsApp vía fetchProfilePictureUrl
-    // porque las URLs guardadas en findContacts caducan en el CDN de WhatsApp (403 URL signature expired)
+    if (!forceRefresh) {
+      await ensureContactsLoaded(candidateUrls, instance, evoCfg.apiKey);
+      const afterBulk = picCache.get(phone);
+      if (afterBulk?.url) {
+        const res = NextResponse.json({ url: afterBulk.url });
+        res.headers.set("Access-Control-Allow-Origin", "*");
+        res.headers.set("Cache-Control", "public, max-age=3600");
+        return res;
+      }
+    }
+
     let liveUrl: string | null = null;
+    let evoRespondedOk = false;
     let lastStatus = "none";
     for (const baseUrl of candidateUrls) {
       try {
@@ -71,33 +137,35 @@ export async function GET(req: NextRequest) {
           },
           body: JSON.stringify({ number: phone }),
           cache: "no-store",
-          signal: AbortSignal.timeout(8000),
+          signal: AbortSignal.timeout(2000),
         });
         lastStatus = `${liveRes.status}@${baseUrl.replace(/^https?:\/\//, "").slice(0, 24)}`;
         if (liveRes.ok) {
+          evoRespondedOk = true;
           const data = await liveRes.json().catch(() => ({}));
           const candidate = data?.profilePictureUrl || data?.profilePicUrl || data?.picture || null;
           if (typeof candidate === "string" && candidate.startsWith("http")) {
             liveUrl = candidate;
-            break;
           }
+          break;
         }
       } catch (err: any) {
         lastStatus = `err:${(err?.message || "fetch").slice(0, 20)}@${baseUrl.replace(/^https?:\/\//, "").slice(0, 20)}`;
       }
     }
 
-    const ttl = liveUrl ? SINGLE_TTL_MS : 15 * 1000;
-    picCache.set(phone, {
-      url: liveUrl,
-      checkedLive: Boolean(liveUrl),
-      expires: Date.now() + ttl,
-    });
+    if (evoRespondedOk) {
+      picCache.set(phone, {
+        url: liveUrl,
+        checkedLive: true,
+        expires: Date.now() + (liveUrl ? SINGLE_TTL_MS : NULL_TTL_MS),
+      });
+    }
 
     const res = NextResponse.json({ url: liveUrl });
     res.headers.set("Access-Control-Allow-Origin", "*");
     res.headers.set("x-evo-debug", lastStatus);
-    if (liveUrl) {
+    if (evoRespondedOk) {
       res.headers.set("Cache-Control", "public, max-age=3600");
     } else {
       res.headers.set("Cache-Control", "no-cache");

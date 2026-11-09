@@ -8,7 +8,7 @@ const clientProfilePicCache = new Map<string, string | null>();
 const inflightPicRequests = new Map<string, Promise<string | null>>();
 
 // Hidratar caché de fotos de perfil desde sessionStorage para evitar re-consultas al navegar
-const SESSION_PIC_CACHE_KEY = "sek_profile_pics_v4";
+const SESSION_PIC_CACHE_KEY = "sek_profile_pics_v5";
 let sessionCacheHydrated = false;
 function ensureSessionPicCache() {
   if (sessionCacheHydrated || typeof window === "undefined") return;
@@ -17,14 +17,13 @@ function ensureSessionPicCache() {
     sessionStorage.removeItem("sek_profile_pics_v1");
     sessionStorage.removeItem("sek_profile_pics_v2");
     sessionStorage.removeItem("sek_profile_pics_v3");
+    sessionStorage.removeItem("sek_profile_pics_v4");
     const raw = sessionStorage.getItem(SESSION_PIC_CACHE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === "object") {
         for (const [k, v] of Object.entries(parsed)) {
-          if (typeof v === "string" && v.startsWith("http")) {
-            clientProfilePicCache.set(k, v);
-          }
+          clientProfilePicCache.set(k, typeof v === "string" && v.startsWith("http") ? v : null);
         }
       }
     }
@@ -38,21 +37,19 @@ function schedulePersistPicCache() {
     persistTimer = null;
     try {
       const obj: Record<string, string | null> = {};
-      // Guardar hasta 400 entradas recientes con URL válida (nunca persistir null)
+      // Guardar hasta 400 entradas recientes (incluyendo null para no re-consultar teléfonos sin foto al navegar)
       const entries = Array.from(clientProfilePicCache.entries()).slice(-400);
       for (const [k, v] of entries) {
-        if (typeof v === "string" && v.startsWith("http")) {
-          obj[k] = v;
-        }
+        obj[k] = typeof v === "string" && v.startsWith("http") ? v : null;
       }
       sessionStorage.setItem(SESSION_PIC_CACHE_KEY, JSON.stringify(obj));
     } catch {}
   }, 500);
 }
 
-// Cola con límite de concurrencia (máx 4 peticiones simultáneas) para no saturar
-// las conexiones TCP del navegador y dejar vía libre a la navegación entre menús y chats.
-const MAX_CONCURRENT_PIC_FETCHES = 4;
+// Cola con límite estricto de concurrencia (máx 2 peticiones simultáneas) para NUNCA saturar
+// las 6 conexiones TCP del navegador y dejar vía libre a la navegación entre menús y chats.
+const MAX_CONCURRENT_PIC_FETCHES = 2;
 let activePicFetches = 0;
 const picFetchQueue: Array<() => void> = [];
 
@@ -73,8 +70,7 @@ function fetchWhatsAppProfilePic(rawPhone: string, forceRefresh = false): Promis
   const key = cleanPhone.length === 8 ? `506${cleanPhone}` : cleanPhone;
 
   if (!forceRefresh && clientProfilePicCache.has(key)) {
-    const cached = clientProfilePicCache.get(key);
-    if (cached) return Promise.resolve(cached);
+    return Promise.resolve(clientProfilePicCache.get(key) ?? null);
   }
   const existing = inflightPicRequests.get(key);
   if (existing && !forceRefresh) return existing;
@@ -86,7 +82,6 @@ function fetchWhatsAppProfilePic(rawPhone: string, forceRefresh = false): Promis
         : `phone=${encodeURIComponent(key)}`;
       fetch(`/api/evolution/profile-pic?${qs}`, {
         priority: "low" as any,
-        cache: forceRefresh ? "no-store" : "default",
       })
         .then((r) => (r.ok ? r.json() : { url: null }))
         .then((d) => {
@@ -96,7 +91,6 @@ function fetchWhatsAppProfilePic(rawPhone: string, forceRefresh = false): Promis
           resolve(url);
         })
         .catch(() => {
-          clientProfilePicCache.set(key, null);
           resolve(null);
         })
         .finally(() => {
@@ -150,33 +144,20 @@ export function Avatar({
     ensureSessionPicCache();
     const cleanPhone = phone.replace(/\D/g, "");
     const key = cleanPhone.length === 8 ? `506${cleanPhone}` : cleanPhone;
-    const cachedUrl = clientProfilePicCache.get(key);
-    if (cachedUrl) {
-      setResolvedSrc(cachedUrl);
+    if (clientProfilePicCache.has(key)) {
+      setResolvedSrc(clientProfilePicCache.get(key) ?? null);
       return;
     }
     let active = true;
-    let retryTimer: ReturnType<typeof setTimeout> | null = null;
     const timer = setTimeout(() => {
       if (!active) return;
       fetchWhatsAppProfilePic(phone).then((url) => {
-        if (!active) return;
-        if (url) {
-          setResolvedSrc(url);
-        } else {
-          retryTimer = setTimeout(() => {
-            if (!active) return;
-            fetchWhatsAppProfilePic(phone, true).then((retryUrl) => {
-              if (active && retryUrl) setResolvedSrc(retryUrl);
-            });
-          }, 2500);
-        }
+        if (active) setResolvedSrc(url);
       });
-    }, 50);
+    }, 80);
     return () => {
       active = false;
       clearTimeout(timer);
-      if (retryTimer) clearTimeout(retryTimer);
     };
   }, [src, phone]);
 

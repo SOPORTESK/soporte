@@ -9,14 +9,31 @@ export interface EvolutionConfig {
 }
 
 const DEFAULT_KEY = "evolution_api_config";
-const EVO_CONFIG_CACHE_TTL_MS = 15 * 1000; // 15 segundos en memoria
+const EVO_CONFIG_CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutos en memoria
 let cachedEvoConfig: EvolutionConfig | null = null;
 let cachedEvoConfigAt = 0;
+let inflightEvoConfigPromise: Promise<EvolutionConfig> | null = null;
 
 export async function getEvolutionConfig(forceRefresh = false): Promise<EvolutionConfig> {
   if (!forceRefresh && cachedEvoConfig && Date.now() - cachedEvoConfigAt < EVO_CONFIG_CACHE_TTL_MS) {
     return cachedEvoConfig;
   }
+  if (!forceRefresh && inflightEvoConfigPromise) {
+    return inflightEvoConfigPromise;
+  }
+
+  inflightEvoConfigPromise = (async () => {
+    try {
+      return await loadEvolutionConfigInternal();
+    } finally {
+      inflightEvoConfigPromise = null;
+    }
+  })();
+
+  return inflightEvoConfigPromise;
+}
+
+async function loadEvolutionConfigInternal(): Promise<EvolutionConfig> {
 
   const envUrl = process.env.EVOLUTION_API_URL || "";
   const envKey = process.env.EVOLUTION_API_KEY || "SEKUNET_EVO_KEY_123";
