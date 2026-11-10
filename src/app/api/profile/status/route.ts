@@ -4,6 +4,9 @@ import { createServiceClient } from "@/lib/supabase/service";
 
 export const dynamic = "force-dynamic";
 
+const lastStatusWriteByEmail = new Map<string, { status: string; ts: number }>();
+const STATUS_HEARTBEAT_MIN_MS = 10 * 60 * 1000; // 10 min si el estado no cambió
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -50,12 +53,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, reason: "no_auth" }, { status: 200 });
     }
 
+    const normEmail = email.trim().toLowerCase();
+    const nowMs = Date.now();
+    const prev = lastStatusWriteByEmail.get(normEmail);
+    if (prev && prev.status === status && nowMs - prev.ts < STATUS_HEARTBEAT_MIN_MS) {
+      return NextResponse.json({ ok: true, cached: true });
+    }
+
     const svc = createServiceClient();
     await svc
       .from("sek_agent_config")
-      .update({ status, last_seen_at: new Date().toISOString() })
-      .ilike("email", email);
+      .update({ status, last_seen_at: new Date(nowMs).toISOString() })
+      .ilike("email", normEmail);
 
+    lastStatusWriteByEmail.set(normEmail, { status, ts: nowMs });
     return NextResponse.json({ ok: true });
   } catch (err: any) {
     return NextResponse.json({ ok: false, error: err?.message }, { status: 200 });

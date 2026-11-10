@@ -70,8 +70,9 @@ export async function GET() {
         try {
           const parsed = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
           if (row.key === "auto_close_config" && parsed) {
+            const isEnabled = parsed.local_enabled !== undefined ? Boolean(parsed.local_enabled) : (parsed.enabled !== undefined ? Boolean(parsed.enabled) : DEFAULT_CONFIG.enabled);
             config = {
-              enabled: parsed.enabled !== undefined ? Boolean(parsed.enabled) : DEFAULT_CONFIG.enabled,
+              enabled: isEnabled,
               inactivity_minutes: Number(parsed.inactivity_minutes) || DEFAULT_CONFIG.inactivity_minutes,
               close_message: parsed.close_message || DEFAULT_CONFIG.close_message,
             };
@@ -81,8 +82,9 @@ export async function GET() {
               message: parsed.message || DEFAULT_AFTER_HOURS.message,
             };
           } else if (row.key === "daily_close_config" && parsed) {
+            const isDailyEnabled = parsed.local_enabled !== undefined ? Boolean(parsed.local_enabled) : Boolean(parsed.enabled);
             dailyClose = {
-              enabled: Boolean(parsed.enabled),
+              enabled: isDailyEnabled,
               close_time: parsed.close_time || DEFAULT_DAILY_CLOSE.close_time,
               message: parsed.message || DEFAULT_DAILY_CLOSE.message,
             };
@@ -135,9 +137,11 @@ export async function POST(req: NextRequest) {
     const nowIso = new Date().toISOString();
     const upserts = [];
 
-    // Auto-cierre por inactividad
+    // Auto-cierre por inactividad (enabled: false desactiva la Edge Function en la nube; local_enabled gobierna el motor local)
+    const userEnabled = body?.enabled !== undefined ? Boolean(body.enabled) : DEFAULT_CONFIG.enabled;
     const configToSave = {
-      enabled: body?.enabled !== undefined ? Boolean(body.enabled) : DEFAULT_CONFIG.enabled,
+      enabled: false,
+      local_enabled: userEnabled,
       inactivity_minutes: Math.max(1, Math.min(10080, Number(body.inactivity_minutes) || 10)),
       close_message: String(body.close_message || DEFAULT_CONFIG.close_message).trim(),
     };
@@ -167,7 +171,8 @@ export async function POST(req: NextRequest) {
     // Cierre diario al fin de jornada
     if (body.daily_close) {
       const dailyCloseToSave = {
-        enabled: Boolean(body.daily_close.enabled),
+        enabled: false,
+        local_enabled: Boolean(body.daily_close.enabled),
         close_time: String(body.daily_close.close_time || DEFAULT_DAILY_CLOSE.close_time).trim(),
         message: String(body.daily_close.message || DEFAULT_DAILY_CLOSE.message).trim(),
       };
@@ -219,7 +224,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      config: configToSave,
+      config: { ...configToSave, enabled: userEnabled },
       after_hours: body.after_hours,
       daily_close: body.daily_close,
       survey: body.survey,

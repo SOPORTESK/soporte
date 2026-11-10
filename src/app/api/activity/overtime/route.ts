@@ -14,12 +14,24 @@ import { computeUnifiedActivityMetrics } from "@/lib/activity-engine";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+const overtimeCache = new Map<string, { data: any; expires: number }>();
+const OVERTIME_CACHE_TTL_MS = 120000; // 2 minutos
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const date = searchParams.get("date") || undefined;
     const rawAgent = searchParams.get("agent") || undefined;
     const agent = rawAgent && rawAgent !== "all" ? rawAgent.trim().toLowerCase() : undefined;
+    const forceRefresh = searchParams.get("force") === "true";
+
+    const cacheKey = `${date || "recent"}_${agent || "all"}`;
+    if (!forceRefresh) {
+      const cached = overtimeCache.get(cacheKey);
+      if (cached && Date.now() < cached.expires) {
+        return NextResponse.json(cached.data);
+      }
+    }
 
     const supabase = createServiceClient();
 
@@ -62,11 +74,11 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // Auto-detectar horas extras de los últimos 14 días en activity_log para que ningún colaborador quede por fuera
+    // Auto-detectar horas extras de los últimos 3 días en activity_log para ahorrar ancho de banda de Supabase
     const todayCR = getTodayCostaRica();
     const [ty, tm, td] = todayCR.split("-").map(Number);
     const startObj = new Date(Date.UTC(ty, tm - 1, td, 12, 0, 0));
-    startObj.setUTCDate(startObj.getUTCDate() - 14);
+    startObj.setUTCDate(startObj.getUTCDate() - 3);
     const startStr = `${startObj.getUTCFullYear()}-${String(startObj.getUTCMonth() + 1).padStart(2, "0")}-${String(startObj.getUTCDate()).padStart(2, "0")}`;
 
     let logQuery = supabase
@@ -75,7 +87,7 @@ export async function GET(req: NextRequest) {
       .gte("created_at", `${date || startStr}T00:00:00-06:00`)
       .lte("created_at", `${date || todayCR}T23:59:59.999-06:00`)
       .order("created_at", { ascending: true })
-      .limit(10000);
+      .limit(2500);
 
     if (agent) {
       logQuery = logQuery.ilike("agent_email", agent);
@@ -204,11 +216,14 @@ export async function GET(req: NextRequest) {
       (b.date || "").localeCompare(a.date || "")
     );
 
-    return NextResponse.json({
+    const payload = {
       success: true,
       requests: finalRequests,
       agents: agentsList,
-    });
+    };
+    overtimeCache.set(cacheKey, { data: payload, expires: Date.now() + OVERTIME_CACHE_TTL_MS });
+
+    return NextResponse.json(payload);
   } catch (err: any) {
     console.error("[api/activity/overtime] GET error:", err);
     return NextResponse.json({ error: err.message }, { status: 500 });
@@ -217,6 +232,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    overtimeCache.clear();
     const body = await req.json();
     const { action } = body;
 

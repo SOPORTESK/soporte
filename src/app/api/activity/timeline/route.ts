@@ -15,8 +15,8 @@ export async function GET(req: NextRequest) {
     const lastMinutes = searchParams.get("lastMinutes");
 
     const cacheKey = `${agent || "all"}_${date}_${endDate || ""}_${metricsParam || ""}_${lastMinutes || ""}`;
-    const hasCacheBuster = searchParams.has("_t") || Boolean(lastMinutes) || req.headers.get("cache-control")?.includes("no-cache");
-    const cached = !hasCacheBuster ? timelineCache.get(cacheKey) : null;
+    const forceRefresh = searchParams.get("force") === "true" || Boolean(lastMinutes);
+    const cached = !forceRefresh ? timelineCache.get(cacheKey) : null;
     if (cached && Date.now() < cached.expires) {
       const res = NextResponse.json(cached.data);
       res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");

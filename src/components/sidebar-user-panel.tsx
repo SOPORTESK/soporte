@@ -1409,7 +1409,7 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
     const handleUnload = () => navigator.sendBeacon("/api/profile/status", JSON.stringify({ status: "offline", email: agent.email }));
     window.addEventListener("beforeunload", handleUnload);
 
-    // Heartbeat cada 2 minutos preservando el estado real actual (busy, online o away)
+    // Heartbeat cada 10 minutos preservando el estado real actual (evita broadcasts Realtime innecesarios)
     const heartbeat = setInterval(() => {
       fetch("/api/profile/status", { 
         method: "POST", 
@@ -1417,7 +1417,7 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
         headers: { "Content-Type": "application/json" }, 
         body: JSON.stringify({ status: statusRef.current, email: agent.email }) 
       }).catch(() => {});
-    }, 120000);
+    }, 600000);
 
     // Idle timer — auto switch to "away" after inactivity based on official tolerance
     const timeoutMs = (toleranceMin || 15) * 60 * 1000;

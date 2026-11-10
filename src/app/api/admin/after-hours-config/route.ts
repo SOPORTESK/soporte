@@ -54,8 +54,9 @@ export async function GET() {
               message: parsed.message || DEFAULT_AFTER_HOURS.message,
             };
           } else if (row.key === "daily_close_config" && parsed) {
+            const isDailyEnabled = parsed.local_enabled !== undefined ? Boolean(parsed.local_enabled) : Boolean(parsed.enabled);
             dailyClose = {
-              enabled: Boolean(parsed.enabled),
+              enabled: isDailyEnabled,
               close_time: parsed.close_time || DEFAULT_DAILY_CLOSE.close_time,
               message: parsed.message || DEFAULT_DAILY_CLOSE.message,
             };
@@ -95,10 +96,17 @@ export async function POST(req: NextRequest) {
       message: String(body?.after_hours?.message || DEFAULT_AFTER_HOURS.message).trim(),
     };
 
+    const dailyUserEnabled = Boolean(body?.daily_close?.enabled);
     const dailyClose = {
-      enabled: Boolean(body?.daily_close?.enabled),
+      enabled: dailyUserEnabled,
       close_time: String(body?.daily_close?.close_time || DEFAULT_DAILY_CLOSE.close_time).trim(),
       message: String(body?.daily_close?.message || DEFAULT_DAILY_CLOSE.message).trim(),
+    };
+
+    const dailyCloseToStore = {
+      ...dailyClose,
+      enabled: false,
+      local_enabled: dailyUserEnabled,
     };
 
     const nowIso = new Date().toISOString();
@@ -113,7 +121,7 @@ export async function POST(req: NextRequest) {
       },
       {
         key: "daily_close_config",
-        value: JSON.stringify(dailyClose),
+        value: JSON.stringify(dailyCloseToStore),
         updated_at: nowIso,
         iv: "none",
         tag: "none",

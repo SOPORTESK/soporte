@@ -938,9 +938,8 @@ function startDesktopTracking(agentEmail, agentName) {
   if (_keylogTimer) clearInterval(_keylogTimer);
   _keylogTimer = setInterval(flushKeyBuffer, KEYLOG_FLUSH_INTERVAL);
 
-  // Capturas de pantalla cada 60s
-  if (_screenshotTimer) clearInterval(_screenshotTimer);
-  _screenshotTimer = setInterval(takeScreenshot, SCREENSHOT_INTERVAL);
+  // Capturas de pantalla automáticas desactivadas para ahorrar Storage y Egress de Supabase
+  if (_screenshotTimer) { clearInterval(_screenshotTimer); _screenshotTimer = null; }
 
   // Sync con servidor cada 60s
   if (_syncTimer) clearInterval(_syncTimer);

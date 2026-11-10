@@ -104,9 +104,8 @@ async function checkTunnel() {
     }
 
     const currentUrl = match[0];
-    // Sincronizar URL asignada aunque el túnel esté reconectando al edge,
-    // para que Supabase siempre tenga el hostname vigente del contenedor.
-    if (currentUrl !== lastSyncedUrl || Date.now() - lastSyncTime > 5 * 60 * 1000) {
+    // Sincronizar en Supabase únicamente cuando cambia la URL del túnel (o cada 6 horas como respaldo)
+    if (currentUrl !== lastSyncedUrl || Date.now() - lastSyncTime > 6 * 60 * 60 * 1000) {
       await syncToSupabase(currentUrl);
     }
 

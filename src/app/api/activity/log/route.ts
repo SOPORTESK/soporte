@@ -143,7 +143,14 @@ export async function POST(req: NextRequest) {
         console.error("[activity/log] Async insert error:", e.message);
       }
 
-      clearTimelineCache(agent_email);
+      const isManualAction =
+        Boolean(metadata?.manual) ||
+        catLower === "pausa" ||
+        catLower === "sanitario" ||
+        /^inici[óo]:|^termin[óo]:/i.test(String(finalAction || ""));
+      if (isManualAction) {
+        clearTimelineCache(agent_email);
+      }
       return NextResponse.json({ success: true });
     }
 
@@ -162,7 +169,14 @@ export async function POST(req: NextRequest) {
       console.error("[activity/log] Async insert error:", e.message);
     }
 
-    clearTimelineCache(agent_email);
+    const isManualEvent =
+      Boolean(metadata?.manual) ||
+      String(category || "").toLowerCase() === "pausa" ||
+      String(category || "").toLowerCase() === "sanitario" ||
+      /^inici[óo]:|^termin[óo]:/i.test(String(action || ""));
+    if (isManualEvent) {
+      clearTimelineCache(agent_email);
+    }
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error("[activity/log] Error:", error);
@@ -234,6 +248,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: updateErr.message }, { status: 500 });
     }
 
+    clearTimelineCache(existing.agent_email);
     return NextResponse.json({ success: true, record: updated });
   } catch (error: any) {
     console.error("[activity/log PATCH] Error:", error);
@@ -260,6 +275,7 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: deleteErr.message }, { status: 500 });
     }
 
+    clearTimelineCache();
     return NextResponse.json({ success: true, deletedId: id });
   } catch (error: any) {
     console.error("[activity/log DELETE] Error:", error);

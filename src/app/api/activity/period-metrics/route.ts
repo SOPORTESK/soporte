@@ -16,7 +16,7 @@ interface CacheEntry {
 }
 
 const metricsCache = new Map<string, CacheEntry>();
-const CACHE_TTL_MS = 30000; // 30 segundos
+const CACHE_TTL_MS = 120000; // 2 minutos
 
 export async function GET(req: NextRequest) {
   try {
@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
     const startDate = searchParams.get("startDate") || searchParams.get("date") || new Date().toISOString().split("T")[0];
     const endDate = searchParams.get("endDate") || startDate;
     const agentEmail = searchParams.get("agent") || undefined;
-    const forceRefresh = searchParams.has("_t") || req.headers.get("cache-control")?.includes("no-cache");
+    const forceRefresh = searchParams.get("force") === "true";
 
     const cacheKey = `${startDate}_${endDate}_${agentEmail || "all"}`;
     if (!forceRefresh) {

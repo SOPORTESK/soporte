@@ -421,11 +421,25 @@ export async function insertActivityLog(entry: ActivityLog): Promise<void> {
     cacheDelete(`active_manual_${normEmail}`);
   }
 
-  const dedupKey = `${normEmail}|${normAction}`;
   const now = Date.now();
+  const isOngoingIdle =
+    String(entry.category || "").toLowerCase() === "inactividad" &&
+    (normAction.startsWith("sin actividad por") || normAction.startsWith("inactividad continua"));
+
+  if (isOngoingIdle) {
+    const idleKey = `idle_throttle|${normEmail}`;
+    const lastIdleInsert = recentInsertsCache.get(idleKey);
+    if (lastIdleInsert && now - lastIdleInsert < 300_000) {
+      // Bloquear spam de cada 20s desde clientes de escritorio antiguos: máximo 1 registro cada 5 min
+      return;
+    }
+    recentInsertsCache.set(idleKey, now);
+  }
+
+  const dedupKey = `${normEmail}|${normAction}`;
   const lastInsert = recentInsertsCache.get(dedupKey);
-  if (lastInsert && (now - lastInsert < 15000)) {
-    // Duplicado en menos de 15s (reintento de red o doble proceso), omitir silenciosamente
+  if (lastInsert && (now - lastInsert < 60000)) {
+    // Duplicado en menos de 60s (reintento de red o doble proceso), omitir silenciosamente
     return;
   }
   recentInsertsCache.set(dedupKey, now);
@@ -644,28 +658,16 @@ export async function cleanupOldEvents(daysToKeep: number = 60, storageRetention
   await supabase.from("activity_log").delete().lt("created_at", cutoffStr);
   await supabase.from("activity_summary").delete().lt("created_at", cutoffStr);
 
-  // Retención automática de adjuntos pesados en Storage (> 30 días) sin tocar conversaciones ni manuales
+  // Retención ligera de adjuntos pesados en Storage (> 30 días) únicamente en carpetas planas sin barrido recursivo
   try {
     const retentionMs = Math.max(30, storageRetentionDays) * 24 * 60 * 60 * 1000;
     const now = Date.now();
-    const queue: string[] = ["cases", "internal-chat"];
     const toRemove: string[] = [];
-
-    while (queue.length > 0) {
-      const batch = queue.splice(0, 15);
-      const lists = await Promise.all(
-        batch.map(async (prefix) => {
-          const { data } = await supabase.storage.from("attachments").list(prefix, { limit: 1000 });
-          return (data || []).map((item) => ({ ...item, fullPath: `${prefix}/${item.name}` }));
-        })
-      );
-      for (const list of lists) {
-        for (const item of list) {
-          if (!item.id) {
-            queue.push(item.fullPath);
-          } else if (item.created_at && now - new Date(item.created_at).getTime() > retentionMs) {
-            toRemove.push(item.fullPath);
-          }
+    for (const prefix of ["cases/evolution", "internal-chat"]) {
+      const { data } = await supabase.storage.from("attachments").list(prefix, { limit: 500 });
+      for (const item of data || []) {
+        if (item.id && item.created_at && now - new Date(item.created_at).getTime() > retentionMs) {
+          toRemove.push(`${prefix}/${item.name}`);
         }
       }
     }

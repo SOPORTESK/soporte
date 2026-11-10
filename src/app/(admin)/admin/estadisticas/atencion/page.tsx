@@ -362,13 +362,16 @@ export default async function EstadisticasAtencionPage({
   const thirtyFiveDaysAgoMs = nowMs - 35 * 86400000;
   const minWindowHydrateMs = Math.min(thirtyFiveDaysAgoMs, prevMonthStartMs);
 
+  const hasExplicitFilter = Boolean(diaSeleccionado || rangoSeleccionado || tieneMesFiltroEarly);
   const hydrateIdSet = new Set<string>();
   const hydrateList: any[] = [];
-  for (const c of rawCasosFiltrados) {
-    const idStr = String(c.id);
-    if (!hydrateIdSet.has(idStr)) {
-      hydrateIdSet.add(idStr);
-      hydrateList.push(c);
+  if (hasExplicitFilter) {
+    for (const c of rawCasosFiltrados) {
+      const idStr = String(c.id);
+      if (!hydrateIdSet.has(idStr)) {
+        hydrateIdSet.add(idStr);
+        hydrateList.push(c);
+      }
     }
   }
   for (const c of casos) {

@@ -96,11 +96,11 @@ async function getAutoCloseSettings() {
       try {
         const parsed = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
         if (row.key === "auto_close_config" && parsed) {
-          config.enabled = Boolean(parsed.enabled);
+          config.enabled = parsed.local_enabled !== undefined ? Boolean(parsed.local_enabled) : Boolean(parsed.enabled);
           config.inactivity_minutes = Number(parsed.inactivity_minutes) || 20;
           config.close_message = parsed.close_message || config.close_message;
         } else if (row.key === "daily_close_config" && parsed) {
-          dailyClose.enabled = Boolean(parsed.enabled);
+          dailyClose.enabled = parsed.local_enabled !== undefined ? Boolean(parsed.local_enabled) : Boolean(parsed.enabled);
           dailyClose.close_time = parsed.close_time || "17:15";
           dailyClose.message = parsed.message || dailyClose.message;
         } else if (row.key === "evolution_api_config" && parsed) {

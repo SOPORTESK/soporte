@@ -173,12 +173,13 @@ async function checkCases(checks: IntegrityCheck[]) {
   const monthCases = rows.filter((c) => toCRDateStr(c.created_at).startsWith(currentYM));
   const prevMonthCases = rows.filter((c) => toCRDateStr(c.created_at).startsWith(prevYM));
 
-  // Hidratar histcliente y histtecnico SOLO para los casos del mes actual (necesario para getAgenteEmail / getMinutosResolucionAudit)
-  if (monthCases.length > 0) {
+  // Hidratar histcliente y histtecnico SOLO para los casos del mes actual que carecen de assigned_to o accepted_at
+  const casesNeedingHist = monthCases.filter((c) => !c.assigned_to || (!c.accepted_at && isResuelto(c))).slice(0, 60);
+  if (casesNeedingHist.length > 0) {
     const histMap = new Map<string, { histcliente: any[]; histtecnico: any[] }>();
-    const monthIds = monthCases.map((c) => c.id);
-    for (let i = 0; i < monthIds.length; i += 200) {
-      const chunk = monthIds.slice(i, i + 200);
+    const monthIds = casesNeedingHist.map((c) => c.id);
+    for (let i = 0; i < monthIds.length; i += 60) {
+      const chunk = monthIds.slice(i, i + 60);
       const { data: histRows, error: histErr } = await sb
         .from("sek_cases")
         .select("id, histcliente, histtecnico")
