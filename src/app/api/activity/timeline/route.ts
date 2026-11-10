@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
     const lastMinutes = searchParams.get("lastMinutes");
 
     const cacheKey = `${agent || "all"}_${date}_${endDate || ""}_${metricsParam || ""}_${lastMinutes || ""}`;
-    const forceRefresh = searchParams.get("force") === "true" || Boolean(lastMinutes);
+    const forceRefresh = searchParams.get("force") === "true";
     const cached = !forceRefresh ? timelineCache.get(cacheKey) : null;
     if (cached && Date.now() < cached.expires) {
       const res = NextResponse.json(cached.data);

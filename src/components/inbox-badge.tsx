@@ -35,9 +35,14 @@ export function InboxBadge({ initialCount }: { initialCount: number }) {
     fetchCount();
 
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-    const debouncedFetch = () => {
+    const debouncedFetch = (payload?: any) => {
+      if (payload?.eventType === "UPDATE" && payload.new && payload.old) {
+        if (payload.new.estado === payload.old.estado && payload.new.unread_count === payload.old.unread_count) {
+          return;
+        }
+      }
       if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(fetchCount, 2000);
+      debounceTimer = setTimeout(fetchCount, 6000);
     };
 
     const unsubscribe = subscribeCasesRealtime(supabase, debouncedFetch);

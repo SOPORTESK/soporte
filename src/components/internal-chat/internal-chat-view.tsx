@@ -324,10 +324,17 @@ export function InternalChatView({
 
   // Polling de respaldo cada 180s (la entrega instantánea va por Supabase Broadcast)
   useEffect(() => {
-    const handleFocus = () => fetchMessagesSilent();
+    let lastSilentFetch = Date.now();
+    const handleFocus = () => {
+      if (Date.now() - lastSilentFetch > 120000) {
+        lastSilentFetch = Date.now();
+        fetchMessagesSilent();
+      }
+    };
     window.addEventListener("focus", handleFocus);
     const interval = setInterval(() => {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      lastSilentFetch = Date.now();
       fetchMessagesSilent();
     }, 180000);
     return () => {

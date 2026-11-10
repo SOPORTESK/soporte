@@ -37,11 +37,19 @@ export function EscalatedCasesBanner() {
 
     fetchEscalated();
 
-    // Debounce para no disparar múltiples queries si llegan ráfagas de cambios
+    // Solo reconsultar si el evento Realtime involucra el estado "escalado" o eliminación
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-    const debouncedFetch = () => {
+    const debouncedFetch = (payload?: any) => {
+      if (payload?.eventType === "UPDATE") {
+        const newEst = String(payload.new?.estado || "").toLowerCase();
+        const oldEst = String(payload.old?.estado || "").toLowerCase();
+        if (newEst !== "escalado" && oldEst !== "escalado") return;
+      } else if (payload?.eventType === "INSERT") {
+        const newEst = String(payload.new?.estado || "").toLowerCase();
+        if (newEst !== "escalado") return;
+      }
       if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(fetchEscalated, 2000);
+      debounceTimer = setTimeout(fetchEscalated, 3000);
     };
 
     const unsubscribe = subscribeCasesRealtime(supabase, debouncedFetch);

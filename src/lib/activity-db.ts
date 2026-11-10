@@ -442,6 +442,28 @@ export async function insertActivityLog(entry: ActivityLog): Promise<void> {
     // Duplicado en menos de 60s (reintento de red o doble proceso), omitir silenciosamente
     return;
   }
+
+  // Evitar doble inserción cuando coexisten el daemon en segundo plano y el tracker de Electron en la misma PC
+  const isManualOrCase =
+    Boolean(entry.metadata?.manual) ||
+    Boolean(entry.case_id) ||
+    String(entry.category || "").toLowerCase() === "gestión de casos" ||
+    normAction.startsWith("inició:") ||
+    normAction.startsWith("inicio:") ||
+    normAction.startsWith("terminó:") ||
+    normAction.startsWith("termino:");
+  if (!isManualOrCase) {
+    const appRaw = String(entry.metadata?.app || entry.metadata?.app_name || "").toLowerCase().trim();
+    if (appRaw) {
+      const appBurstKey = `app_burst|${normEmail}|${appRaw}`;
+      const lastAppInsert = recentInsertsCache.get(appBurstKey);
+      if (lastAppInsert && now - lastAppInsert < 25000) {
+        return;
+      }
+      recentInsertsCache.set(appBurstKey, now);
+    }
+  }
+
   recentInsertsCache.set(dedupKey, now);
   if (recentInsertsCache.size > 2000) {
     const oldest = recentInsertsCache.keys().next().value;

@@ -33,11 +33,19 @@ export function SmartInboxBadge({ initialCount }: { initialCount: number }) {
 
     fetchCount();
 
-    // Debounce para no disparar múltiples queries si llegan ráfagas de cambios
+    // Solo reconsultar si el evento involucra el estado "ia_atendiendo"
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-    const debouncedFetch = () => {
+    const debouncedFetch = (payload?: any) => {
+      if (payload?.eventType === "UPDATE") {
+        const newEst = String(payload.new?.estado || "").toLowerCase();
+        const oldEst = String(payload.old?.estado || "").toLowerCase();
+        if (newEst !== "ia_atendiendo" && oldEst !== "ia_atendiendo") return;
+      } else if (payload?.eventType === "INSERT") {
+        const newEst = String(payload.new?.estado || "").toLowerCase();
+        if (newEst !== "ia_atendiendo") return;
+      }
       if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(fetchCount, 2000);
+      debounceTimer = setTimeout(fetchCount, 3000);
     };
 
     const unsubscribe = subscribeCasesRealtime(supabase, debouncedFetch);

@@ -891,14 +891,15 @@ export function InboxClient({
       // 1. Si la pestaña está oculta en segundo plano y no es forzado, no ejecutar (0 bytes en segundo plano)
       if (typeof document !== "undefined" && document.visibilityState === "hidden" && !force) return;
 
-      if (Date.now() - lastRefetch < 3000) return; // throttle 3s para permitir refresco ágil
+      if (!force && Date.now() - lastRefetch < 30000) return; // throttle 30s para evitar descargas repetidas al cambiar de ventana
       lastRefetch = Date.now();
       try {
         if (containerType === "mi-gestion" && !agentEmail) return;
 
-        // 2. Chequeo ultraliviano (~60 bytes) antes de descargar ~280 KB masivos:
-        // Si no es forzado y ya conocemos el último updated_at, verificar si hubo algún cambio en la tabla
-        if (!force && lastKnownMaxUpdatedAtRef.current) {
+        // 2. Chequeo ultraliviano (~60 bytes) antes de descargar la lista:
+        // Si no es forzado, verificar si hubo algún cambio global en sek_cases
+        let globalLatestUpdatedAt = "";
+        if (!force) {
           const { data: latestRow, error: checkErr } = await supabase
             .from("sek_cases")
             .select("updated_at")
@@ -906,19 +907,23 @@ export function InboxClient({
             .limit(1)
             .maybeSingle();
 
-          if (!checkErr && latestRow?.updated_at && latestRow.updated_at <= lastKnownMaxUpdatedAtRef.current) {
-            // Cero cambios en la base de datos: omitir la descarga masiva de 300 casos
-            return;
+          if (!checkErr && latestRow?.updated_at) {
+            globalLatestUpdatedAt = latestRow.updated_at;
+            if (lastKnownMaxUpdatedAtRef.current && globalLatestUpdatedAt <= lastKnownMaxUpdatedAtRef.current) {
+              // Cero cambios en la base de datos: omitir la descarga masiva de casos
+              return;
+            }
           }
         }
 
         const fetchEmail = containerType === "mi-gestion" ? (agentEmail || undefined) : undefined;
-        const newCases = await fetchCasesMeta(supabase, 300, fetchEmail, isUserAdmin);
+        const newCases = await fetchCasesMeta(supabase, 150, fetchEmail, isUserAdmin);
 
-        // Actualizar el timestamp más reciente conocido
+        // Actualizar el timestamp más reciente conocido usando el máximo global para no entrar en bucle cuando el cambio fue de otro agente
         const newMax = getMaxUpdatedAt(newCases);
-        if (newMax) {
-          lastKnownMaxUpdatedAtRef.current = newMax;
+        const bestMax = globalLatestUpdatedAt && globalLatestUpdatedAt > newMax ? globalLatestUpdatedAt : newMax;
+        if (bestMax) {
+          lastKnownMaxUpdatedAtRef.current = bestMax;
         }
         setAllCases(newCases);
         const filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail, agentName, isUserAdmin, adminFilterMode);

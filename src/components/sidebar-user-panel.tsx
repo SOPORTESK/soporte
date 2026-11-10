@@ -333,8 +333,14 @@ export function SidebarUserPanel({
       } catch {}
     };
 
+    let lastTeamFetch = Date.now();
     fetchTeam();
-    const handleTeamFocus = () => fetchTeam();
+    const handleTeamFocus = () => {
+      if (Date.now() - lastTeamFetch > 120000) {
+        lastTeamFetch = Date.now();
+        fetchTeam();
+      }
+    };
     window.addEventListener("focus", handleTeamFocus);
 
     const agentChannel = supabase
@@ -415,13 +421,26 @@ export function SidebarUserPanel({
     };
 
     let debounceTimer: any = null;
-    const debouncedCheck = () => {
+    let lastActiveChatsCheck = Date.now();
+    const debouncedCheck = (payload?: any) => {
+      if (payload?.eventType === "UPDATE" && payload.new && payload.old) {
+        if (payload.new.estado === payload.old.estado && payload.new.assigned_to === payload.old.assigned_to) {
+          return;
+        }
+      }
       if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(checkActiveChats, 2500);
+      debounceTimer = setTimeout(() => {
+        lastActiveChatsCheck = Date.now();
+        checkActiveChats();
+      }, 4000);
     };
 
     checkActiveChats();
-    const handleChatsFocus = () => debouncedCheck();
+    const handleChatsFocus = () => {
+      if (Date.now() - lastActiveChatsCheck > 120000) {
+        debouncedCheck();
+      }
+    };
     window.addEventListener("focus", handleChatsFocus);
 
     const unsubscribeCases = subscribeCasesRealtime(supabase, debouncedCheck);
@@ -562,10 +581,15 @@ export function SidebarUserPanel({
   }, []);
 
   useEffect(() => {
+    let lastChatConvFetch = Date.now();
     loadChatConversations();
-    // Polling ligero de respaldo (cada 45s), no satura la BD ni ralentiza la navegación
     // Los mensajes en vivo se reciben instantáneamente mediante Supabase Realtime
-    const handleFocus = () => loadChatConversations();
+    const handleFocus = () => {
+      if (Date.now() - lastChatConvFetch > 120000) {
+        lastChatConvFetch = Date.now();
+        loadChatConversations();
+      }
+    };
     window.addEventListener("focus", handleFocus);
 
     const ch = supabase.channel("sek_internal_chat");
@@ -1209,12 +1233,21 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
     };
 
     // Verificación inmediata al montar
+    let lastServerTimelineCheck = Date.now();
     checkServerTimeline();
 
-    // Verificación al volver a la ventana (p. ej. el usuario vuelve de almorzar o enfoca la app Electron)
-    const handleFocus = () => checkServerTimeline();
+    // Verificación al volver a la ventana (máximo 1 vez cada 3 minutos; Realtime sincroniza al instante)
+    const handleFocus = () => {
+      if (Date.now() - lastServerTimelineCheck > 180000) {
+        lastServerTimelineCheck = Date.now();
+        checkServerTimeline();
+      }
+    };
     const handleVisibility = () => {
-      if (document.visibilityState === "visible") checkServerTimeline();
+      if (document.visibilityState === "visible" && Date.now() - lastServerTimelineCheck > 180000) {
+        lastServerTimelineCheck = Date.now();
+        checkServerTimeline();
+      }
     };
     window.addEventListener("focus", handleFocus);
     document.addEventListener("visibilitychange", handleVisibility);

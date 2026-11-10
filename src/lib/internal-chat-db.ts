@@ -4,6 +4,16 @@ import type { InternalMessage, InternalConversationSummary } from "@/lib/interna
 const SETTING_PREFIX = "internal_chat_channel_";
 const RECENT_CHATS_KEY = "internal_chat_active_channels";
 
+const channelMessagesCache = new Map<string, { data: InternalMessage[]; expires: number }>();
+const summaryCache = new Map<string, { data: InternalConversationSummary[]; expires: number }>();
+const INTERNAL_CHAT_CACHE_TTL_MS = 30000; // 30s TTL para evitar descargas masivas de JSON en cada focus
+
+function invalidateInternalChatCache(channelKey?: string) {
+  if (channelKey) channelMessagesCache.delete(channelKey);
+  else channelMessagesCache.clear();
+  summaryCache.clear();
+}
+
 export function getChannelSettingKey(channelId: string): string {
   // sanitizar key para evitar colisiones
   return `${SETTING_PREFIX}${channelId.toLowerCase().replace(/[^a-z0-9_@.-]/g, "_")}`;
@@ -16,8 +26,12 @@ export function buildDirectChannelId(email1: string, email2: string): string {
 
 export async function getChannelMessages(channelId: string): Promise<InternalMessage[]> {
   try {
-    const supabase = createServiceClient();
     const key = getChannelSettingKey(channelId);
+    const cached = channelMessagesCache.get(key);
+    if (cached && Date.now() < cached.expires) {
+      return cached.data;
+    }
+    const supabase = createServiceClient();
     const { data, error } = await supabase
       .from("sek_app_settings")
       .select("value")
@@ -25,11 +39,14 @@ export async function getChannelMessages(channelId: string): Promise<InternalMes
       .maybeSingle();
 
     if (error || !data?.value) {
+      channelMessagesCache.set(key, { data: [], expires: Date.now() + INTERNAL_CHAT_CACHE_TTL_MS });
       return [];
     }
 
     const parsed = JSON.parse(data.value);
-    return Array.isArray(parsed) ? parsed : [];
+    const list = Array.isArray(parsed) ? parsed : [];
+    channelMessagesCache.set(key, { data: list, expires: Date.now() + INTERNAL_CHAT_CACHE_TTL_MS });
+    return list;
   } catch (err) {
     console.error(`[getChannelMessages] Error loading channel ${channelId}:`, err);
     return [];
@@ -57,6 +74,8 @@ export async function saveChannelMessage(
     },
     { onConflict: "key" }
   );
+  invalidateInternalChatCache(key);
+  channelMessagesCache.set(key, { data: updated, expires: Date.now() + INTERNAL_CHAT_CACHE_TTL_MS });
 
   // Registrar canal activo si no está registrado
   try {
@@ -121,6 +140,8 @@ export async function markChannelMessagesAsRead(
       },
       { onConflict: "key" }
     );
+    invalidateInternalChatCache(key);
+    channelMessagesCache.set(key, { data: updated, expires: Date.now() + INTERNAL_CHAT_CACHE_TTL_MS });
   }
 }
 
@@ -129,6 +150,10 @@ export async function getConversationsSummary(
   allAgents: Array<{ email: string; nombre: string | null; apellido: string | null; avatar_url?: string | null }>
 ): Promise<InternalConversationSummary[]> {
   const normalizedUser = userEmail.trim().toLowerCase();
+  const cachedSummary = summaryCache.get(normalizedUser);
+  if (cachedSummary && Date.now() < cachedSummary.expires) {
+    return cachedSummary.data;
+  }
   const summaries: InternalConversationSummary[] = [];
 
   const generalKey = getChannelSettingKey("group_general");
@@ -205,5 +230,6 @@ export async function getConversationsSummary(
     });
   }
 
+  summaryCache.set(normalizedUser, { data: summaries, expires: Date.now() + INTERNAL_CHAT_CACHE_TTL_MS });
   return summaries;
 }

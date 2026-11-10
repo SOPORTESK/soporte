@@ -93,19 +93,28 @@ export function startLocalCronJobs() {
       }
 
       const supabase = createServiceClient();
-      
-      // Consultar solo casos de whatsapp ABIERTOS con actividad en los últimos 15 minutos
-      // Esto evita descargar historiales completos innecesariamente (ahorra Egress)
+
+      // Solo consultar historiales si la IA está activa (en modo no atendido la IA no genera respuestas pendientes)
+      const { data: sysRow } = await supabase
+        .from("sek_agent_config")
+        .select("ia_activa, modo_no_atendido")
+        .eq("email", "system_prompt@sekunet.com")
+        .maybeSingle();
+      if (!sysRow?.ia_activa || sysRow?.modo_no_atendido) {
+        return;
+      }
+
+      // Consultar solo casos de whatsapp en ia_atendiendo con actividad en los últimos 15 minutos
       const recentCutoff = new Date(Date.now() - 15 * 60 * 1000).toISOString();
       const { data: cases, error } = await supabase
         .from("sek_cases")
         .select("id, canal, customer_phone, cliente, histcliente, histtecnico, estado")
         .eq("canal", "whatsapp")
-        .not("estado", "in", '("cerrado","resuelto","escalado")')
+        .eq("estado", "ia_atendiendo")
         .neq("es_test", true)
         .or(`updated_at.gte.${recentCutoff},last_message_at.gte.${recentCutoff},created_at.gte.${recentCutoff}`)
         .order("updated_at", { ascending: false })
-        .limit(25);
+        .limit(10);
 
       if (error || !cases) return;
 

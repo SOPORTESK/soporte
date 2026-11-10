@@ -1057,9 +1057,13 @@ export function ChatView({
        disponible de forma segura tanto para Realtime (.subscribe / postgres_changes)
        como para el polling activo y los eventos de visibilidad. */
     let pollInFlight = false;
+    let lastGroupMetaHash = (sekCaseRef.current as any)?._groupMetaHash || "";
+    let lastPollAt = Date.now();
     const doPoll = async (forceFullFetch = false) => {
       if (pollInFlight || !mounted) return;
+      if (!forceFullFetch && Date.now() - lastPollAt < 5000) return;
       pollInFlight = true;
+      lastPollAt = Date.now();
       try {
         const pollGroupIds = initialCaseRef.current._group?.openCaseIds?.length
           ? initialCaseRef.current._group.openCaseIds
@@ -1073,11 +1077,18 @@ export function ChatView({
               .in("id", pollGroupIds);
             if (meta && mounted) {
               const metaHash = meta.map((m: any) => `${m.id}:${m.last_message_at || ""}:${m.updated_at || ""}:${m.estado || ""}`).sort().join("|");
-              const prevHash = (sekCaseRef.current as any)?._groupMetaHash;
+              const prevHash = lastGroupMetaHash || (sekCaseRef.current as any)?._groupMetaHash;
               if (prevHash && prevHash === metaHash) {
                 // Sin cambios: evitar descargar historial repetido (cero Egress)
                 return;
               }
+              if (!prevHash && historyLoadedRef.current) {
+                // El historial ya fue cargado al abrir el chat: registrar hash inicial sin volver a descargar todo
+                lastGroupMetaHash = metaHash;
+                (sekCaseRef.current as any)._groupMetaHash = metaHash;
+                return;
+              }
+              lastGroupMetaHash = metaHash;
               (sekCaseRef.current as any)._groupMetaHash = metaHash;
             }
           }
@@ -1089,6 +1100,9 @@ export function ChatView({
             .in("id", pollGroupIds);
           if (data && mounted) {
             const merged = buildMergedCase(initialCaseRef.current, data as SekCase[]);
+            if (lastGroupMetaHash) {
+              (merged as any)._groupMetaHash = lastGroupMetaHash;
+            }
             setSekCase(merged);
             caseHistoryCache.set(cacheKey, { sekCase: merged, timestamp: Date.now() });
           }
@@ -1253,18 +1267,15 @@ export function ChatView({
       .subscribe();
     presenceChannelRef.current = presenceCh;
 
-    /* Polling activo de respaldo cada 8s (solo pestaña visible) para máxima inmediatez ante cualquier latencia de socket */
+    /* Polling activo de respaldo cada 45s (solo pestaña visible) — Realtime entrega cambios al instante */
     const poll = setInterval(() => {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       doPoll();
-    }, 8000);
+    }, 45000);
 
-    /* Refetch inmediato al volver a la pestaña/ventana. Cubre el caso donde el
-       navegador o el sistema operativo pausó los timers en segundo plano (pestaña
-       inactiva, minimizada, o equipo suspendido) y se perdieron mensajes nuevos
-       sin que el agente lo notara. */
+    /* Refetch al volver a la pestaña solo si pasaron más de 30s desde el último chequeo */
     const handleVisibility = () => {
-      if (document.visibilityState === "visible") {
+      if (document.visibilityState === "visible" && Date.now() - lastPollAt > 30000) {
         doPoll(false);
       }
     };
