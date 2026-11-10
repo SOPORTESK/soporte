@@ -46,8 +46,8 @@ function noteSupabaseSuccess() {
 
 function noteSupabaseOffline() {
   supabaseOfflineBackoffMs = supabaseOfflineBackoffMs
-    ? Math.min(supabaseOfflineBackoffMs * 2, 120000)
-    : 15000;
+    ? Math.min(supabaseOfflineBackoffMs * 2, 30000)
+    : 10000;
   nextSupabaseAttemptAt = Date.now() + supabaseOfflineBackoffMs;
 }
 
@@ -104,14 +104,24 @@ async function checkTunnel() {
     }
 
     const currentUrl = match[0];
+    // Sincronizar URL asignada aunque el túnel esté reconectando al edge,
+    // para que Supabase siempre tenga el hostname vigente del contenedor.
+    if (currentUrl !== lastSyncedUrl || Date.now() - lastSyncTime > 5 * 60 * 1000) {
+      await syncToSupabase(currentUrl);
+    }
+
     const haMatch = text.match(/^cloudflared_tunnel_ha_connections\s+(\d+)/m);
     const haConnections = haMatch ? parseInt(haMatch[1], 10) : 1;
     if (haConnections <= 0) {
+      // Verificar si hay internet antes de culpar al contenedor cloudflared.
+      // Si el ISP cayó, NO reiniciar el contenedor porque eso destruye el hostname actual.
+      try {
+        const netCheck = await fetch('https://1.1.1.1/cdn-cgi/trace', { signal: AbortSignal.timeout(3000) });
+        if (!netCheck.ok) return;
+      } catch {
+        return;
+      }
       throw new Error('cloudflared_tunnel_ha_connections is 0 (tunnel disconnected from Cloudflare edge)');
-    }
-
-    if (currentUrl !== lastSyncedUrl || Date.now() - lastSyncTime > 5 * 60 * 1000) {
-      await syncToSupabase(currentUrl);
     }
 
     failCount = 0;
@@ -119,7 +129,8 @@ async function checkTunnel() {
     failCount++;
     console.warn(`[Tunnel Watchdog] Fallo #${failCount}: ${err.message}`);
 
-    if (failCount >= 4 && Date.now() - lastRestart > 300000) {
+    // Solo reiniciar tras 12 fallos seguidos (6 minutos con internet activo) y cooldown de 15 min
+    if (failCount >= 12 && Date.now() - lastRestart > 900000) {
       lastRestart = Date.now();
       failCount = 0;
       console.log('[Tunnel Watchdog] Reiniciando contenedor chatdeatencinsekunet-evolution-tunnel-1...');
@@ -230,17 +241,29 @@ async function drainRelayQueue() {
 }
 
 function startWebhookRelayServer() {
+  const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+  };
+
   const server = http.createServer((req, res) => {
     const urlPath = (req.url || '/').split('?')[0];
 
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, corsHeaders);
+      res.end();
+      return;
+    }
+
     if (req.method === 'GET' && (urlPath === '/health' || urlPath === '/')) {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.writeHead(200, { ...corsHeaders, 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true, relayQueue: relayQueue.length }));
       return;
     }
 
     if (req.method !== 'POST') {
-      res.writeHead(405, { 'Content-Type': 'application/json' });
+      res.writeHead(405, { ...corsHeaders, 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'method_not_allowed' }));
       return;
     }
@@ -255,7 +278,7 @@ function startWebhookRelayServer() {
       totalBytes += chunk.length;
       if (totalBytes > MAX_BYTES) {
         aborted = true;
-        res.writeHead(413, { 'Content-Type': 'application/json' });
+        res.writeHead(413, { ...corsHeaders, 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'payload_too_large' }));
         req.destroy();
         return;
@@ -263,10 +286,27 @@ function startWebhookRelayServer() {
       chunks.push(chunk);
     });
 
-    req.on('end', () => {
+    req.on('end', async () => {
       if (aborted) return;
       const rawBody = Buffer.concat(chunks).toString('utf8');
-      res.writeHead(200, { 'Content-Type': 'application/json' });
+
+      if (urlPath === '/send-local') {
+        try {
+          const job = JSON.parse(rawBody);
+          const result = await deliverJobWithDeduplication(job, 'local-direct');
+          res.writeHead(result.ok ? 200 : 502, { ...corsHeaders, 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(result));
+          if (result.ok) {
+            setTimeout(() => processOutboxQueue(true), 200);
+          }
+        } catch (err) {
+          res.writeHead(500, { ...corsHeaders, 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: err.message }));
+        }
+        return;
+      }
+
+      res.writeHead(200, { ...corsHeaders, 'Content-Type': 'application/json' });
       res.end('{"ok":true}');
 
       let payload = null;
@@ -292,7 +332,7 @@ function startWebhookRelayServer() {
 
     req.on('error', () => {
       if (!res.headersSent) {
-        res.writeHead(400);
+        res.writeHead(400, corsHeaders);
         res.end();
       }
     });
@@ -303,16 +343,75 @@ function startWebhookRelayServer() {
   });
 
   server.listen(RELAY_PORT, '0.0.0.0', () => {
-    console.log(`[WA Relay] Escuchando webhooks de Evolution en http://0.0.0.0:${RELAY_PORT}/webhook`);
+    console.log(`[WA Relay] Escuchando webhooks y envíos locales en http://0.0.0.0:${RELAY_PORT}/webhook y /send-local`);
   });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 3. WORKER LOCAL DE OUTBOX (entrega directa via http://127.0.0.1:28080)
-//    Sondeo ultraligero por updated_at (~50 bytes) + Realtime instantáneo.
+//    Sondeo ultraligero por updated_at (~50 bytes) + Realtime instantáneo + /send-local
 // ═══════════════════════════════════════════════════════════════════════════════
 let outboxRunning = false;
 let lastOutboxUpdatedAt = null;
+const deliveredJobIds = new Map(); // jobId -> { messageId, ts }
+const deliveredSigMap = new Map(); // signature -> { messageId, ts }
+const inFlightJobPromises = new Map(); // jobId/sig -> Promise
+
+function getJobSignature(job) {
+  const dest = String(job.case_id || job.to || '').trim();
+  const body = String(job.text || job.mediaUrl || job.fileName || '').trim().slice(0, 160);
+  return `${dest}|${body}`;
+}
+
+function pruneDeduplicationMaps() {
+  const now = Date.now();
+  for (const [k, v] of deliveredJobIds.entries()) {
+    if (now - v.ts > 10 * 60 * 1000) deliveredJobIds.delete(k);
+  }
+  for (const [k, v] of deliveredSigMap.entries()) {
+    if (now - v.ts > 25000) deliveredSigMap.delete(k);
+  }
+}
+
+async function deliverJobWithDeduplication(job, sourceLabel = 'outbox') {
+  pruneDeduplicationMaps();
+  const jobId = String(job.id || '');
+  const sig = getJobSignature(job);
+
+  if (jobId && deliveredJobIds.has(jobId)) {
+    const prev = deliveredJobIds.get(jobId);
+    return { ok: true, status: 200, messageId: prev.messageId, deduplicated: true };
+  }
+  if (sig && deliveredSigMap.has(sig)) {
+    const prev = deliveredSigMap.get(sig);
+    if (jobId) deliveredJobIds.set(jobId, prev);
+    return { ok: true, status: 200, messageId: prev.messageId, deduplicated: true };
+  }
+
+  const lockKey = jobId || sig;
+  if (lockKey && inFlightJobPromises.has(lockKey)) {
+    return inFlightJobPromises.get(lockKey);
+  }
+
+  const runPromise = (async () => {
+    const result = await sendOutboxItemViaLocalEvo(job);
+    if (result.ok) {
+      const entry = { messageId: result.messageId, ts: Date.now() };
+      if (jobId) deliveredJobIds.set(jobId, entry);
+      if (sig) deliveredSigMap.set(sig, entry);
+      console.log(`[WA Outbox:${sourceLabel}] Entregado con éxito ${jobId || sig} -> WhatsApp id=${result.messageId}`);
+      await markCaseQueuedMessageDelivered(job, result.messageId, false);
+    }
+    return result;
+  })();
+
+  if (lockKey) inFlightJobPromises.set(lockKey, runPromise);
+  try {
+    return await runPromise;
+  } finally {
+    if (lockKey) inFlightJobPromises.delete(lockKey);
+  }
+}
 
 function detectMediaTypeFromMime(mime, fileName) {
   const m = String(mime || '').toLowerCase();
@@ -490,10 +589,8 @@ async function processOutboxQueue(forceRead = false) {
 
     for (const job of pendingJobs) {
       try {
-        const result = await sendOutboxItemViaLocalEvo(job);
+        const result = await deliverJobWithDeduplication(job, 'queue');
         if (result.ok) {
-          console.log(`[WA Outbox] Entregado con éxito ${job.id} -> WhatsApp id=${result.messageId}`);
-          await markCaseQueuedMessageDelivered(job, result.messageId, false);
           deliveredIds.add(job.id);
           queueModified = true;
         } else {

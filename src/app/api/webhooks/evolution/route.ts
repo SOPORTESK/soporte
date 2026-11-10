@@ -4,6 +4,7 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { getEvolutionConfig } from "@/lib/evolution-config";
 import { performAutoExtract } from "@/lib/ai/auto-extract";
 import { analyzeMedia, transcribeAudio } from "@/lib/ai/vision";
+import { enqueueWaOutbox, generateQueuedMessageId } from "@/lib/wa-outbox";
 
 async function preAnalyzeCaseAttachment(
   supabase: any,
@@ -223,28 +224,67 @@ async function sendWhatsAppText(phone: string, text: string, evoCfg: any, delayM
     }
     const to = phone.toString().trim();
     const formattedTo = to.replace(/[^0-9]/g, "");
-    const url = `${evoCfg.url.replace(/\/$/, "")}/message/sendText/${encodeURIComponent(evoCfg.instance)}`;
+    const candidateUrls = Array.from(
+      new Set(
+        [
+          ...(evoCfg.candidates || []),
+          evoCfg.url,
+          "http://127.0.0.1:28080",
+        ]
+          .map((u: string) => (u || "").replace(/\/$/, ""))
+          .filter(Boolean)
+      )
+    );
+    const instance = encodeURIComponent(evoCfg.instance);
     console.log(`[evo-webhook] Enviando WhatsApp a ${formattedTo}:`, text.slice(0, 60) + "...");
-    
+
     const payload: any = { number: formattedTo, text };
     if (delayMs > 0) {
       payload.delay = delayMs;
     }
 
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", apikey: evoCfg.apiKey },
-      body: JSON.stringify(payload)
-    });
-    if (!res.ok) {
-      const err = await res.text();
-      console.error("[evo-webhook] Error sending text:", res.status, err);
-      return { ok: false, messageId: null };
+    let lastStatus = 0;
+    let lastErr = "";
+    for (const baseUrl of candidateUrls) {
+      try {
+        const res = await fetch(`${baseUrl}/message/sendText/${instance}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", apikey: evoCfg.apiKey },
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(4800),
+        });
+        lastStatus = res.status;
+        if (res.ok) {
+          const data = await res.json().catch(() => ({} as any));
+          const messageId = data?.key?.id || data?.messageId || null;
+          console.log("[evo-webhook] Mensaje enviado exitosamente vía", baseUrl, "messageId:", messageId);
+          return { ok: true, messageId };
+        }
+        lastErr = await res.text().catch(() => "");
+      } catch (e: any) {
+        lastErr = e?.message || "fetch_failed";
+      }
     }
-    const data = await res.json().catch(() => ({} as any));
-    const messageId = data?.key?.id || null;
-    console.log("[evo-webhook] Mensaje enviado exitosamente. messageId:", messageId);
-    return { ok: true, messageId };
+
+    if (lastStatus !== 400 && formattedTo) {
+      const queuedId = generateQueuedMessageId();
+      const sb = createServiceClient();
+      await enqueueWaOutbox(sb, {
+        id: queuedId,
+        case_id: "",
+        to: formattedTo,
+        text,
+        created_at: new Date().toISOString(),
+        status: "pending",
+        attempts: 0,
+        last_error: lastErr || `status_${lastStatus}`,
+      });
+      console.warn("[evo-webhook] Túnel no disponible, respuesta IA encolada en outbox:", queuedId);
+      return { ok: true, messageId: queuedId };
+    }
+
+    console.error("[evo-webhook] Error sending text:", lastStatus, lastErr);
+    return { ok: false, messageId: null };
   } catch (e: any) {
     console.error("[evo-webhook] Exception sending text:", e.message);
     return { ok: false, messageId: null };

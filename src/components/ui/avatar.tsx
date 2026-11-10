@@ -8,8 +8,14 @@ const clientProfilePicCache = new Map<string, string | null>();
 const inflightPicRequests = new Map<string, Promise<string | null>>();
 
 // Hidratar caché de fotos de perfil desde sessionStorage para evitar re-consultas al navegar
-const SESSION_PIC_CACHE_KEY = "sek_profile_pics_v5";
+const SESSION_PIC_CACHE_KEY = "sek_profile_pics_v6";
 let sessionCacheHydrated = false;
+function isSafeAvatarSrc(val: unknown): val is string {
+  if (typeof val !== "string" || !val) return false;
+  if (val.includes("pps.whatsapp.net")) return false;
+  return val.startsWith("data:image/") || val.startsWith("http") || val.startsWith("/");
+}
+
 function ensureSessionPicCache() {
   if (sessionCacheHydrated || typeof window === "undefined") return;
   sessionCacheHydrated = true;
@@ -18,12 +24,13 @@ function ensureSessionPicCache() {
     sessionStorage.removeItem("sek_profile_pics_v2");
     sessionStorage.removeItem("sek_profile_pics_v3");
     sessionStorage.removeItem("sek_profile_pics_v4");
+    sessionStorage.removeItem("sek_profile_pics_v5");
     const raw = sessionStorage.getItem(SESSION_PIC_CACHE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === "object") {
         for (const [k, v] of Object.entries(parsed)) {
-          clientProfilePicCache.set(k, typeof v === "string" && v.startsWith("http") ? v : null);
+          clientProfilePicCache.set(k, isSafeAvatarSrc(v) ? v : null);
         }
       }
     }
@@ -37,10 +44,10 @@ function schedulePersistPicCache() {
     persistTimer = null;
     try {
       const obj: Record<string, string | null> = {};
-      // Guardar hasta 400 entradas recientes (incluyendo null para no re-consultar teléfonos sin foto al navegar)
-      const entries = Array.from(clientProfilePicCache.entries()).slice(-400);
+      // Guardar hasta 120 entradas recientes (incluyendo data:image y null)
+      const entries = Array.from(clientProfilePicCache.entries()).slice(-120);
       for (const [k, v] of entries) {
-        obj[k] = typeof v === "string" && v.startsWith("http") ? v : null;
+        obj[k] = isSafeAvatarSrc(v) ? v : null;
       }
       sessionStorage.setItem(SESSION_PIC_CACHE_KEY, JSON.stringify(obj));
     } catch {}
@@ -85,7 +92,7 @@ function fetchWhatsAppProfilePic(rawPhone: string, forceRefresh = false): Promis
       })
         .then((r) => (r.ok ? r.json() : { url: null }))
         .then((d) => {
-          const url = typeof d?.url === "string" && d.url.startsWith("http") ? d.url : null;
+          const url = isSafeAvatarSrc(d?.url) ? d.url : null;
           clientProfilePicCache.set(key, url);
           schedulePersistPicCache();
           resolve(url);
@@ -125,7 +132,8 @@ export function Avatar({
   onClickPic?: (url: string) => void;
   zoomOnClick?: boolean;
 }) {
-  const [resolvedSrc, setResolvedSrc] = React.useState<string | null>(src || null);
+  const safeInitialSrc = isSafeAvatarSrc(src) ? src : null;
+  const [resolvedSrc, setResolvedSrc] = React.useState<string | null>(safeInitialSrc);
   const [imgFailed, setImgFailed] = React.useState(false);
   const [retriedLive, setRetriedLive] = React.useState(false);
   const [zoomed, setZoomed] = React.useState(false);
@@ -133,8 +141,8 @@ export function Avatar({
   React.useEffect(() => {
     setImgFailed(false);
     setRetriedLive(false);
-    if (src) {
-      setResolvedSrc(src);
+    if (safeInitialSrc) {
+      setResolvedSrc(safeInitialSrc);
       return;
     }
     if (!phone) {
@@ -159,7 +167,7 @@ export function Avatar({
       active = false;
       clearTimeout(timer);
     };
-  }, [src, phone]);
+  }, [safeInitialSrc, phone]);
 
   const handleImgError = React.useCallback(() => {
     if (phone && !retriedLive) {

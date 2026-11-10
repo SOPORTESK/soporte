@@ -12,7 +12,22 @@ const statusListeners = new Set<SekCasesStatusListener>();
 let busChannel: RealtimeChannel | null = null;
 let busSupabase: SupabaseClient<any, any, any> | null = null;
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
+let retryAttempt = 0;
+let onlineListenerBound = false;
 let currentStatus: string = "IDLE";
+
+function bindOnlineRecovery() {
+  if (onlineListenerBound || typeof window === "undefined") return;
+  onlineListenerBound = true;
+  window.addEventListener("online", () => {
+    retryAttempt = 0;
+    if (listeners.size > 0 && busSupabase && currentStatus !== "SUBSCRIBED") {
+      const sb = busSupabase;
+      teardownChannel();
+      ensureChannel(sb);
+    }
+  });
+}
 
 function notifyStatus(status: string) {
   currentStatus = status;
@@ -39,7 +54,12 @@ function teardownChannel() {
 
 function ensureChannel(supabase: SupabaseClient<any, any, any>) {
   if (typeof window === "undefined") return;
+  bindOnlineRecovery();
   if (busChannel) return;
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    busSupabase = supabase;
+    return;
+  }
 
   busSupabase = supabase;
   notifyStatus("CONNECTING");
@@ -62,19 +82,22 @@ function ensureChannel(supabase: SupabaseClient<any, any, any>) {
       notifyStatus(status);
 
       if (status === "SUBSCRIBED") {
+        retryAttempt = 0;
         if (retryTimer) {
           clearTimeout(retryTimer);
           retryTimer = null;
         }
       } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
         if (listeners.size > 0 && !retryTimer) {
+          retryAttempt = Math.min(retryAttempt + 1, 5);
+          const delayMs = Math.min(4000 * Math.pow(1.8, retryAttempt - 1), 30000);
           retryTimer = setTimeout(() => {
             retryTimer = null;
             if (listeners.size === 0 || !busSupabase) return;
             const sb = busSupabase;
             teardownChannel();
             ensureChannel(sb);
-          }, 4000);
+          }, delayMs);
         }
       }
     });

@@ -137,8 +137,12 @@ export function ElectronReminderListener({
 
     // 2. Comprobador en segundo plano de tareas y eventos del día (Recordatorios por hora/vencimiento)
     const checkReminders = async () => {
+      if (typeof navigator !== "undefined" && navigator.onLine === false) return;
       try {
-        const res = await fetch("/api/agenda", { cache: "no-store" });
+        const res = await fetch("/api/agenda", {
+          cache: "no-store",
+          signal: AbortSignal.timeout(8000),
+        });
         if (!res.ok) return;
         const data = await res.json();
         const now = new Date();
@@ -205,14 +209,14 @@ export function ElectronReminderListener({
             }
           }
         }
-      } catch (e) {
-        console.warn("[checkReminders error]", e);
+      } catch {
+        // Ignorar errores transitorios de red (ERR_NETWORK_CHANGED / Failed to fetch)
       }
     };
 
-    // Ejecutar chequeo al montar y cada 40 segundos
+    // Ejecutar chequeo al montar y cada 2 minutos
     checkReminders();
-    const interval = setInterval(checkReminders, 40000);
+    const interval = setInterval(checkReminders, 120000);
 
     return () => {
       supabase.removeChannel(channel);

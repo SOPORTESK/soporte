@@ -292,10 +292,10 @@ export async function POST(req: NextRequest) {
 
     // Si falló por túnel/red/timeout (no rechazo 400 de WhatsApp), encolar en outbox local y persistir en BD
     if (!sendSuccess) {
-      const canQueue = Boolean(case_id) && lastStatus !== 400;
+      const canQueue = Boolean(to) && lastStatus !== 400;
       if (canQueue) {
         const queuedId = generateQueuedMessageId();
-        if (entry) {
+        if (case_id && entry) {
           const queuedEntry: Record<string, any> = {
             ...entry,
             messageId: queuedId,
@@ -324,7 +324,7 @@ export async function POST(req: NextRequest) {
 
         const enqueued = await enqueueWaOutbox(supabase, {
           id: queuedId,
-          case_id: String(case_id),
+          case_id: case_id ? String(case_id) : "",
           to,
           ...(text ? { text } : {}),
           ...(mediaUrl ? { mediaUrl } : {}),
@@ -338,10 +338,14 @@ export async function POST(req: NextRequest) {
           last_error: lastError?.message || `status_${lastStatus}`,
         });
 
-        if (enqueued) {
-          console.warn(`[evo-send] Túnel/Evolution no disponible (${lastError?.message || lastStatus}). Mensaje encolado en outbox: ${queuedId}`);
-          return NextResponse.json({ ok: true, queued: true, messageId: queuedId });
-        }
+        console.warn(`[evo-send] Túnel/Evolution no disponible (${lastError?.message || lastStatus}). Mensaje encolado (outbox=${enqueued}): ${queuedId}`);
+        return NextResponse.json({
+          ok: true,
+          queued: true,
+          messageId: queuedId,
+          id: queuedId,
+          to,
+        });
       }
 
       throw lastError || new Error("No se pudo entregar el mensaje a través de Evolution API");

@@ -23,6 +23,49 @@ function normalizePhone(raw: string): string {
   return digits;
 }
 
+function isWhatsappUrlExpired(rawUrl: string): boolean {
+  try {
+    const u = new URL(rawUrl);
+    const oe = u.searchParams.get("oe");
+    if (oe && /^[0-9a-fA-F]{6,10}$/.test(oe)) {
+      const expSec = parseInt(oe, 16);
+      if (expSec > 1_000_000_000 && expSec * 1000 < Date.now() + 60_000) {
+        return true;
+      }
+    }
+  } catch {
+    return true;
+  }
+  return false;
+}
+
+async function resolvePicToDataUrl(rawUrl: string | null): Promise<string | null> {
+  if (!rawUrl || typeof rawUrl !== "string") return null;
+  if (rawUrl.startsWith("data:image/")) return rawUrl;
+  if (!rawUrl.startsWith("http")) return null;
+  if (rawUrl.includes("pps.whatsapp.net") && isWhatsappUrlExpired(rawUrl)) {
+    return null;
+  }
+  try {
+    const res = await fetch(rawUrl, {
+      headers: {
+        "User-Agent": "WhatsApp/2.24.12.78 A",
+        Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+      },
+      cache: "no-store",
+      signal: AbortSignal.timeout(2200),
+    });
+    if (!res.ok) return null;
+    const contentType = (res.headers.get("content-type") || "image/jpeg").split(";")[0].trim();
+    if (!contentType.startsWith("image/")) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.byteLength === 0 || buf.byteLength > 350 * 1024) return null;
+    return `data:${contentType};base64,${buf.toString("base64")}`;
+  } catch {
+    return null;
+  }
+}
+
 async function ensureContactsLoaded(candidateUrls: string[], instance: string, apiKey: string) {
   const now = Date.now();
   if (now - contactsLoadedAt < CONTACTS_TTL_MS && picCache.size > 0) return;
@@ -86,9 +129,11 @@ export async function GET(req: NextRequest) {
     if (!forceRefresh) {
       const cached = picCache.get(phone);
       if (cached && now < cached.expires && cached.checkedLive) {
-        const res = NextResponse.json({ url: cached.url });
-        res.headers.set("Cache-Control", "public, max-age=3600");
-        return res;
+        if (!cached.url || cached.url.startsWith("data:image/")) {
+          const res = NextResponse.json({ url: cached.url });
+          res.headers.set("Cache-Control", "public, max-age=3600");
+          return res;
+        }
       }
     }
 
@@ -116,10 +161,19 @@ export async function GET(req: NextRequest) {
       await ensureContactsLoaded(candidateUrls, instance, evoCfg.apiKey);
       const afterBulk = picCache.get(phone);
       if (afterBulk?.url) {
-        const res = NextResponse.json({ url: afterBulk.url });
-        res.headers.set("Access-Control-Allow-Origin", "*");
-        res.headers.set("Cache-Control", "public, max-age=3600");
-        return res;
+        const verifiedDataUrl = await resolvePicToDataUrl(afterBulk.url);
+        if (verifiedDataUrl) {
+          picCache.set(phone, {
+            url: verifiedDataUrl,
+            checkedLive: true,
+            expires: Date.now() + SINGLE_TTL_MS,
+          });
+          const res = NextResponse.json({ url: verifiedDataUrl });
+          res.headers.set("Access-Control-Allow-Origin", "*");
+          res.headers.set("Cache-Control", "public, max-age=3600");
+          return res;
+        }
+        picCache.delete(phone);
       }
     }
 
@@ -145,7 +199,7 @@ export async function GET(req: NextRequest) {
           const data = await liveRes.json().catch(() => ({}));
           const candidate = data?.profilePictureUrl || data?.profilePicUrl || data?.picture || null;
           if (typeof candidate === "string" && candidate.startsWith("http")) {
-            liveUrl = candidate;
+            liveUrl = await resolvePicToDataUrl(candidate);
           }
           break;
         }

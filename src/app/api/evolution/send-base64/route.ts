@@ -166,10 +166,8 @@ export async function POST(req: NextRequest) {
           attempts: 0,
           last_error: lastError?.message || `status_${lastStatus}`,
         });
-        if (enqueued) {
-          console.warn(`[send-base64] Túnel no disponible (${lastError?.message || lastStatus}). Archivo encolado en outbox: ${queuedId}`);
-          return NextResponse.json({ ok: true, queued: true, messageId: queuedId });
-        }
+        console.warn(`[send-base64] Túnel no disponible (${lastError?.message || lastStatus}). Archivo encolado (outbox=${enqueued}): ${queuedId}`);
+        return NextResponse.json({ ok: true, queued: true, messageId: queuedId, id: queuedId, to });
       }
 
       console.error("[send-base64] Todos los candidatos fallaron:", lastError?.message);

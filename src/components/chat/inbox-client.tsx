@@ -880,7 +880,7 @@ export function InboxClient({
       (status) => {
         if (!isMounted) return;
         if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-          console.warn(`[inbox] canal realtime ${status}, reconectando automáticamente...`);
+          doRefetch(false);
         }
       }
     );

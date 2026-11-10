@@ -1339,6 +1339,55 @@ export function ChatView({
     prevEstadoRef.current = curr;
   }, [sekCase.estado, targetId, sekCase.assigned_to, agentEmail]);
 
+  async function tryLocalRelaySend(job: {
+    id?: string | null;
+    case_id?: string | number | null;
+    to?: string | null;
+    text?: string;
+    mediaUrl?: string;
+    mediaType?: string;
+    fileName?: string;
+    matchContent?: string;
+  }): Promise<{ ok: boolean; messageId?: string | null } | null> {
+    const fallbackPhone = String(
+      job.to ||
+      (sekCase as any)?.customer_phone ||
+      (sekCase?.cliente as any)?.telefono_real ||
+      (sekCase?.cliente as any)?.telefono ||
+      ""
+    )
+      .replace(/@(s\.whatsapp\.net|lid|g\.us)$/i, "")
+      .replace(/\D/g, "");
+    const resolvedTo = fallbackPhone.length === 8 ? `506${fallbackPhone}` : fallbackPhone;
+    if (!resolvedTo || resolvedTo.length < 8) return null;
+
+    try {
+      const res = await fetch("http://127.0.0.1:28082/send-local", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: job.id || undefined,
+          case_id: job.case_id ? String(job.case_id) : "",
+          to: resolvedTo,
+          ...(job.text ? { text: job.text } : {}),
+          ...(job.mediaUrl ? { mediaUrl: job.mediaUrl } : {}),
+          ...(job.mediaType ? { mediaType: job.mediaType } : {}),
+          ...(job.fileName ? { fileName: job.fileName } : {}),
+          ...(job.matchContent ? { matchContent: job.matchContent } : {}),
+        }),
+        signal: AbortSignal.timeout(4500),
+      });
+      if (!res.ok) return null;
+      const d = await res.json().catch(() => ({}));
+      if (d?.ok) {
+        return { ok: true, messageId: d.messageId || null };
+      }
+    } catch {
+      // Silencioso si el navegador no está en el equipo anfitrión local
+    }
+    return null;
+  }
+
   async function send(overrideContent?: string, mediaUrl?: string, mediaType?: string, fileName?: string, skipWhatsApp?: boolean, externalMessageId?: string | null, externalQueued?: boolean) {
     const body = (overrideContent ?? draft).trim();
     if ((!body && !mediaUrl) || sendingRef.current || !agentEmail) return;
@@ -1455,13 +1504,53 @@ export function ChatView({
         }
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
+          const localDelivered = await tryLocalRelaySend({
+            case_id: targetId,
+            text: body || undefined,
+            mediaUrl: mediaUrl || undefined,
+            mediaType: mediaType || undefined,
+            fileName: fileName || undefined,
+          });
+          if (localDelivered?.ok) {
+            const finalLocalEntry: Record<string, any> = {
+              ...entry,
+              ...(localDelivered.messageId ? { messageId: localDelivered.messageId } : {}),
+              fromMe: true,
+            };
+            await supabase.rpc("sek_append_hist", {
+              p_case_id: String(targetId),
+              p_entry: finalLocalEntry as any,
+              p_col: "histtecnico",
+              p_preview: (body || fileName || "").slice(0, 200),
+            });
+            setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...m, status: "sent", ...(localDelivered.messageId ? { messageId: localDelivered.messageId } : {}) } : m));
+            const reloaded = await reloadCaseFromDb(sekCase, targetId);
+            if (reloaded) setSekCase(reloaded);
+            return;
+          }
           setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...m, status: "error" } : m));
           toast.error("No se entregó a WhatsApp", { description: data.error || "Evolution API falló" });
           return;
         }
-        // WhatsApp confirmó o quedó en cola de envío local. Actualizar estado visual y recargar historial.
-        const wasQueued = Boolean(data?.queued);
-        setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...m, status: wasQueued ? "pending" : "sent", ...(data?.messageId ? { messageId: data.messageId } : {}) } : m));
+        // WhatsApp confirmó o quedó en cola de envío local. Si quedó en cola, intentar entrega local inmediata.
+        let wasQueued = Boolean(data?.queued);
+        let resolvedMsgId = data?.messageId || data?.id || null;
+        if (wasQueued) {
+          const localDelivered = await tryLocalRelaySend({
+            id: resolvedMsgId,
+            case_id: targetId,
+            to: data?.to,
+            text: body || undefined,
+            mediaUrl: mediaUrl || undefined,
+            mediaType: mediaType || undefined,
+            fileName: fileName || undefined,
+          });
+          if (localDelivered?.ok) {
+            wasQueued = false;
+            if (localDelivered.messageId) resolvedMsgId = localDelivered.messageId;
+          }
+        }
+        setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...m, status: wasQueued ? "pending" : "sent", ...(resolvedMsgId ? { messageId: resolvedMsgId } : {}) } : m));
         if (wasQueued) {
           toast.info("Mensaje en cola de entrega WhatsApp", { description: "Se entregará automáticamente al restablecer conexión local." });
         }
@@ -1555,8 +1644,24 @@ export function ChatView({
         setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, status: "error" } : m));
         toast.error("No se entregó a WhatsApp", { description: data.error || "Evolution API falló" });
       } else {
-        const wasQueued = Boolean(data?.queued);
-        setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, status: wasQueued ? "pending" : "sent", ...(data?.messageId ? { messageId: data.messageId } : {}) } : m));
+        let wasQueued = Boolean(data?.queued);
+        let resolvedMsgId = data?.messageId || data?.id || null;
+        if (wasQueued) {
+          const localDelivered = await tryLocalRelaySend({
+            id: resolvedMsgId,
+            case_id: targetId,
+            to: data?.to,
+            text: msg.content || undefined,
+            mediaUrl: msg.mediaUrl || undefined,
+            mediaType: msg.mediaType || undefined,
+            fileName: msg.fileName || undefined,
+          });
+          if (localDelivered?.ok) {
+            wasQueued = false;
+            if (localDelivered.messageId) resolvedMsgId = localDelivered.messageId;
+          }
+        }
+        setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, status: wasQueued ? "pending" : "sent", ...(resolvedMsgId ? { messageId: resolvedMsgId } : {}) } : m));
         toast.success(wasQueued ? "Mensaje en cola de envío WhatsApp" : "Mensaje enviado");
       }
     } catch (err) {
@@ -1807,6 +1912,18 @@ export function ChatView({
         }
         const d = await sendRes.json().catch(() => ({}));
         wasQueued = Boolean(d?.queued);
+        if (wasQueued) {
+          const localDelivered = await tryLocalRelaySend({
+            id: d?.messageId || d?.id || null,
+            case_id: targetId,
+            to: d?.to,
+            text: driveMsg,
+            matchContent: driveMsg,
+          });
+          if (localDelivered?.ok) {
+            wasQueued = false;
+          }
+        }
       }
 
       toast.success(
@@ -1931,8 +2048,23 @@ export function ChatView({
 
         // Envío exitoso directo por WhatsApp o encolado para entrega local
         const sendData = await res.json().catch(() => ({}));
-        const fileQueued = Boolean(sendData?.queued);
-        await send("", pubUrl, file.type, file.name, true, sendData?.messageId || null, fileQueued);
+        let fileQueued = Boolean(sendData?.queued);
+        let fileMsgId = sendData?.messageId || sendData?.id || null;
+        if (fileQueued) {
+          const localDelivered = await tryLocalRelaySend({
+            id: fileMsgId,
+            case_id: targetId,
+            to: sendData?.to,
+            mediaUrl: pubUrl,
+            mediaType: file.type,
+            fileName: file.name,
+          });
+          if (localDelivered?.ok) {
+            fileQueued = false;
+            if (localDelivered.messageId) fileMsgId = localDelivered.messageId;
+          }
+        }
+        await send("", pubUrl, file.type, file.name, true, fileMsgId, fileQueued);
         toast.success(fileQueued ? "Archivo en cola de entrega WhatsApp" : "Archivo enviado directamente a WhatsApp");
       } else {
         // Canales Web / Widget (Anti-antivirus / firewall proxy first)
@@ -2582,11 +2714,54 @@ export function ChatView({
           }
           if (!res.ok) {
             const d = await res.json().catch(() => ({}));
-            toast.error("No se entregó la bienvenida a WhatsApp", { description: d.error || `Error ${res.status}` });
+            const localDelivered = await tryLocalRelaySend({
+              case_id: targetId,
+              text: welcomeMsg,
+            });
+            if (localDelivered?.ok) {
+              const persistedLocal = {
+                ...welcomeEntry,
+                fromMe: true,
+                ...(localDelivered.messageId ? { messageId: localDelivered.messageId } : {}),
+              };
+              await supabase.rpc("sek_append_hist", {
+                p_case_id: String(targetId),
+                p_entry: persistedLocal as any,
+                p_col: "histtecnico",
+                p_preview: welcomeMsg.slice(0, 200),
+              });
+              caseHistoryCache.delete(cacheKey);
+              caseHistoryCache.delete(String(targetId));
+              setSekCase(prev => {
+                const prevHt = Array.isArray(prev.histtecnico) ? prev.histtecnico : [];
+                return {
+                  ...prev,
+                  estado: "abierto",
+                  assigned_to: agentEmail,
+                  last_message_at: welcomeEntry.time,
+                  last_message_preview: welcomeMsg.slice(0, 200),
+                  histtecnico: [...prevHt, persistedLocal as any],
+                };
+              });
+            } else {
+              toast.error("No se entregó la bienvenida a WhatsApp", { description: d.error || `Error ${res.status}` });
+            }
           } else {
             const sentData = await res.json().catch(() => ({}));
-            const sentMsgId = sentData?.messageId || sentData?.id || null;
-            const wasQueued = Boolean(sentData?.queued);
+            let sentMsgId = sentData?.messageId || sentData?.id || null;
+            let wasQueued = Boolean(sentData?.queued);
+            if (wasQueued) {
+              const localDelivered = await tryLocalRelaySend({
+                id: sentMsgId,
+                case_id: targetId,
+                to: sentData?.to,
+                text: welcomeMsg,
+              });
+              if (localDelivered?.ok) {
+                wasQueued = false;
+                if (localDelivered.messageId) sentMsgId = localDelivered.messageId;
+              }
+            }
             const persistedEntry = {
               ...welcomeEntry,
               fromMe: true,

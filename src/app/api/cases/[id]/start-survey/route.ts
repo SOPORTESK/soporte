@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getEvolutionConfig } from "@/lib/evolution-config";
 import { performAutoExtract } from "@/lib/ai/auto-extract";
+import { enqueueWaOutbox, generateQueuedMessageId } from "@/lib/wa-outbox";
 
 export async function POST(
   _req: NextRequest,
@@ -117,28 +118,62 @@ export async function POST(
 
   let to = phone.toString().trim();
   if (!to.includes("@")) to = `${to.replace(/[^0-9]/g, "")}@s.whatsapp.net`;
-  const endpoint = `${evoCfg.url.replace(/\/$/, "")}/message/sendText/${encodeURIComponent(evoCfg.instance)}`;
-  console.log("[start-survey] Sending to:", to, "endpoint:", endpoint);
+  const candidateUrls = Array.from(
+    new Set(
+      [evoCfg.url, ...(evoCfg.candidates || [])]
+        .map((u) => (u || "").replace(/\/$/, ""))
+        .filter(Boolean)
+    )
+  );
+  const instance = encodeURIComponent(evoCfg.instance);
 
   let msgId: string | null = null;
-  try {
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", apikey: evoCfg.apiKey },
-      body: JSON.stringify({ number: to, text: surveyMsg }),
-      signal: AbortSignal.timeout(30000),
-    });
-    if (!res.ok) {
-      const errText = await res.text();
-      console.error("[start-survey] Error Evolution API:", res.status, errText);
-      return NextResponse.json({ error: `Error enviando mensaje: ${res.status} ${errText.slice(0, 200)}` }, { status: 500 });
+  let surveyQueued = false;
+  let lastStatus = 0;
+  let lastErrText = "";
+
+  for (const baseUrl of candidateUrls) {
+    const endpoint = `${baseUrl}/message/sendText/${instance}`;
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: evoCfg.apiKey },
+        body: JSON.stringify({ number: to, text: surveyMsg }),
+        signal: AbortSignal.timeout(4500),
+      });
+      lastStatus = res.status;
+      if (res.ok) {
+        const resData = await res.json().catch(() => ({}));
+        msgId = resData?.key?.id || resData?.messageId || null;
+        console.log("[start-survey] Evolution API success via", baseUrl, "msgId:", msgId);
+        break;
+      } else {
+        lastErrText = await res.text().catch(() => "");
+        console.warn("[start-survey] Error Evolution API via", baseUrl, res.status, lastErrText.slice(0, 120));
+      }
+    } catch (e: any) {
+      lastErrText = e?.message || "fetch_failed";
+      console.warn("[start-survey] Exception via", baseUrl, lastErrText);
     }
-    const resData = await res.json().catch(() => ({}));
-    msgId = resData?.key?.id || null;
-    console.log("[start-survey] Evolution API success, msgId:", msgId);
-  } catch (e: any) {
-    console.error("[start-survey] Exception:", e.message);
-    return NextResponse.json({ error: "Error de conexión con Evolution" }, { status: 500 });
+  }
+
+  if (!msgId && lastStatus !== 400) {
+    const queuedId = generateQueuedMessageId();
+    await enqueueWaOutbox(supabase, {
+      id: queuedId,
+      case_id: String(caseId),
+      to: to.replace(/@s\.whatsapp\.net$/i, ""),
+      text: surveyMsg,
+      created_at: new Date().toISOString(),
+      status: "pending",
+      attempts: 0,
+      last_error: lastErrText || `status_${lastStatus}`,
+    });
+    msgId = queuedId;
+    surveyQueued = true;
+    console.warn("[start-survey] Túnel no disponible, encuesta encolada en outbox:", queuedId);
+  } else if (!msgId && lastStatus === 400) {
+    return NextResponse.json({ error: `Error enviando encuesta: ${lastStatus} ${lastErrText.slice(0, 200)}` }, { status: 400 });
   }
 
   // Guardar mensaje en histtecnico + cambiar estado
@@ -148,11 +183,10 @@ export async function POST(
     author: "Asistente Sekunet",
     time: now,
     content: surveyMsg,
+    fromMe: true,
+    ...(msgId ? { messageId: msgId } : {}),
+    ...(surveyQueued ? { queued: true } : {}),
   };
-  if (msgId) {
-    surveyEntry.messageId = msgId;
-    surveyEntry.fromMe = true;
-  }
 
   await supabase.rpc("sek_append_hist", {
     p_case_id: caseId,

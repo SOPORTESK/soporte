@@ -76,7 +76,9 @@ export function clienteInfo(cliente: unknown): {
   const nombreReal = s(c.nombre ?? c.full_name ?? c.name);
   const whatsappName = s(c.whatsapp_name ?? c.pushName ?? c.profileName ?? c.verifiedName);
   const tel = s(c.telefono ?? c.phone ?? c.tel);
-  const avatarUrl = s(c.avatar_url ?? c.profilePicUrl ?? c.profilePictureUrl ?? c.picture);
+  const rawAvatarUrl = s(c.avatar_url ?? c.profilePicUrl ?? c.profilePictureUrl ?? c.picture);
+  // Ignorar URLs efímeras del CDN de WhatsApp (pps.whatsapp.net) guardadas en BD porque su firma expira con 403
+  const avatarUrl = rawAvatarUrl.includes("pps.whatsapp.net") ? "" : rawAvatarUrl;
   const rawVendedor = s(c.vendedor ?? c.vendedor_asignado ?? c.sales_rep ?? c.ejecutivo);
   const vendedor = isInvalidVendorStr(rawVendedor) ? "" : rawVendedor;
   const ticket = s(c.ticket ?? c.ticket_id ?? c.numero_ticket ?? c.boleta);

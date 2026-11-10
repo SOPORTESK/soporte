@@ -34,55 +34,62 @@ export async function enqueueWaOutbox(
   supabase: any,
   item: WaOutboxItem
 ): Promise<boolean> {
-  try {
-    const { data: row } = await supabase
-      .from("sek_app_settings")
-      .select("value")
-      .eq("key", WA_OUTBOX_KEY)
-      .maybeSingle();
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const { data: row } = await supabase
+        .from("sek_app_settings")
+        .select("value")
+        .eq("key", WA_OUTBOX_KEY)
+        .maybeSingle();
 
-    let queue: WaOutboxItem[] = [];
-    if (row?.value) {
-      try {
-        const parsed = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
-        if (Array.isArray(parsed)) queue = parsed;
-      } catch {
-        queue = [];
+      let queue: WaOutboxItem[] = [];
+      if (row?.value) {
+        try {
+          const parsed = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
+          if (Array.isArray(parsed)) queue = parsed;
+        } catch {
+          queue = [];
+        }
       }
-    }
 
-    const nowMs = Date.now();
-    const MAX_AGE_MS = 48 * 60 * 60 * 1000;
-    queue = queue.filter((q) => {
-      if (!q || !q.id) return false;
-      if (q.id === item.id) return false;
-      const t = q.created_at ? new Date(q.created_at).getTime() : 0;
-      if (t && nowMs - t > MAX_AGE_MS) return false;
-      return true;
-    });
-
-    queue.push(item);
-    if (queue.length > 200) {
-      queue = queue.slice(-200);
-    }
-
-    const { error } = await supabase
-      .from("sek_app_settings")
-      .upsert({
-        key: WA_OUTBOX_KEY,
-        value: JSON.stringify(queue),
-        iv: "none",
-        tag: "none",
-        updated_at: new Date().toISOString(),
+      const nowMs = Date.now();
+      const MAX_AGE_MS = 48 * 60 * 60 * 1000;
+      queue = queue.filter((q) => {
+        if (!q || !q.id) return false;
+        if (q.id === item.id) return false;
+        const t = q.created_at ? new Date(q.created_at).getTime() : 0;
+        if (t && nowMs - t > MAX_AGE_MS) return false;
+        return true;
       });
 
-    if (error) {
-      console.error("[wa-outbox] Error encolando mensaje:", error.message);
-      return false;
+      queue.push(item);
+      if (queue.length > 200) {
+        queue = queue.slice(-200);
+      }
+
+      const { error } = await supabase
+        .from("sek_app_settings")
+        .upsert(
+          {
+            key: WA_OUTBOX_KEY,
+            value: JSON.stringify(queue),
+            iv: "none",
+            tag: "none",
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "key" }
+        );
+
+      if (!error) {
+        return true;
+      }
+      console.error(`[wa-outbox] Error encolando mensaje (intento ${attempt}/2):`, error.message);
+    } catch (e: any) {
+      console.error(`[wa-outbox] Excepción encolando mensaje (intento ${attempt}/2):`, e?.message);
     }
-    return true;
-  } catch (e: any) {
-    console.error("[wa-outbox] Excepción encolando mensaje:", e?.message);
-    return false;
+    if (attempt < 2) {
+      await new Promise((r) => setTimeout(r, 350));
+    }
   }
+  return false;
 }
