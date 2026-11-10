@@ -50,6 +50,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
+  // En servidor local con webhook directo activo (Evolution Docker local), omitir polling periódico
+  // a menos que se solicite explícitamente con ?force=1 para no consumir Egress innecesario.
+  if (!process.env.VERCEL && req.nextUrl.searchParams.get("force") !== "1") {
+    return NextResponse.json({ ok: true, skipped: "local_webhook_active" });
+  }
+
   const supabase = createServiceClient();
   const evoCfg = await getEvolutionConfig();
   const EVO_URL = evoCfg.url;

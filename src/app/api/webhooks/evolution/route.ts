@@ -502,8 +502,15 @@ async function processIncomingReaction(supabase: any, targetMessageId: string, e
   return false;
 }
 
-// Procesar confirmación de lectura de mensajes
+// Procesar confirmación de lectura de mensajes (con caché en memoria para evitar consultas repetidas del mismo messageId)
+const processedReadReceipts = new Set<string>();
 async function processReadReceipt(supabase: any, messageId: string): Promise<boolean> {
+  if (!messageId || processedReadReceipts.has(messageId)) return false;
+  processedReadReceipts.add(messageId);
+  if (processedReadReceipts.size > 2000) {
+    const first = processedReadReceipts.values().next().value;
+    if (first) processedReadReceipts.delete(first);
+  }
   console.log("[evo-webhook] Procesando confirmación de lectura para mensaje:", messageId);
 
   const openCases = await findCasesContainingMessageId(supabase, messageId, ["histtecnico"]);
@@ -1592,45 +1599,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, error: "no_jid" });
   }
 
-  // EXCEPCIÓN: Si viene pushName o senderPn en cualquier evento (ej. contacts.update), actualizamos el cliente
+  // Extraer pushName del remitente para usarlo al crear o enriquecer el caso en Paso 8/9 (sin hacer un UPDATE extra previo)
   const pushNameRaw = get(payload, "data.pushName") || get(payload, "pushName") || 
                    (Array.isArray(payload?.data) ? get(payload?.data[0], "pushName") : undefined);
   const pushName = (pushNameRaw === "Você" || pushNameRaw === "Tú") ? null : pushNameRaw;
-
-  if (pushName || senderPn) {
-    try {
-      const searchPhone = phone || senderPn || jid;
-      const { data: existing } = await supabase
-        .from("sek_cases")
-        .select("id, cliente, title")
-        .eq("canal", "whatsapp")
-        .eq("customer_phone", searchPhone)
-        .not("estado", "in", '("cerrado","resuelto")')
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (existing) {
-        const currentCliente = (existing.cliente && typeof existing.cliente === "object") ? existing.cliente : {};
-        const updatedCliente = { 
-          ...currentCliente, 
-          whatsapp_name: ( !isOutgoing && pushName ) ? pushName : currentCliente.whatsapp_name,
-          telefono_real: senderPn || currentCliente.telefono_real,
-          ...(rawLid ? { lid: rawLid } : {}),
-        };
-        await supabase
-          .from("sek_cases")
-          .update({ 
-            cliente: updatedCliente,
-            title: pushName ? `WhatsApp — ${pushName}` : existing.title
-          })
-          .eq("id", existing.id);
-        console.log(`[evo-webhook] Cliente actualizado: pushName=${pushName}, senderPn=${senderPn} para JID: ${jid}`);
-      }
-    } catch (err: any) {
-      console.error("[evo-webhook] Error actualizando datos de cliente:", err.message);
-    }
-  }
 
   if (!text && !mediaType) return NextResponse.json({ ok: true });
 
@@ -2206,22 +2178,30 @@ export async function POST(req: NextRequest) {
           console.log("[evo-webhook] Mensaje ya estaba en el historial, no se duplica:", keyId);
         }
 
-        // Metadatos del caso: van en un update aparte porque no tocan el historial.
-        // Se relee cliente/title para no pisar datos que la IA haya extraído mientras
-        // procesábamos este mensaje.
-        const { data: latestCase } = await supabase.from("sek_cases").select("title, cliente").eq("id", existing.id).maybeSingle();
-        const currentCliente = (latestCase?.cliente && typeof latestCase.cliente === "object") ? latestCase.cliente as Record<string, unknown> : {};
-        const metaUpdate: Record<string, unknown> = {
-          cliente: {
-            ...currentCliente,
-            whatsapp_name: pushName || currentCliente.whatsapp_name,
-            telefono_real: senderPn || currentCliente.telefono_real,
-            ...(rawLid ? { lid: rawLid } : {}),
-          },
-          title: pushName ? `WhatsApp — ${pushName}` : (latestCase?.title || `WhatsApp — ${jid}`),
-          ...(reopenClosedCase ? { estado: "ia_atendiendo" } : {}),
-        };
-        await supabase.from("sek_cases").update(metaUpdate).eq("id", existing.id);
+        // Metadatos del caso: solo ejecutar UPDATE si realmente cambió algún campo de metadatos
+        // para no disparar broadcasts duplicados de Realtime en cada mensaje entrante.
+        const currentCliente = (existing?.cliente && typeof existing.cliente === "object") ? existing.cliente as Record<string, unknown> : {};
+        const needWaName = Boolean(pushName && currentCliente.whatsapp_name !== pushName);
+        const needTelReal = Boolean(senderPn && currentCliente.telefono_real !== senderPn);
+        const needLid = Boolean(rawLid && currentCliente.lid !== rawLid);
+        const existingTitle = String(existing?.title || "");
+        const needTitle = Boolean(pushName && (!existingTitle || existingTitle === `WhatsApp — ${jid}` || existingTitle === `WhatsApp — ${phone}`));
+
+        if (needWaName || needTelReal || needLid || needTitle || reopenClosedCase) {
+          const { data: latestCase } = await supabase.from("sek_cases").select("title, cliente").eq("id", existing.id).maybeSingle();
+          const freshCli = (latestCase?.cliente && typeof latestCase.cliente === "object") ? latestCase.cliente as Record<string, unknown> : currentCliente;
+          const metaUpdate: Record<string, unknown> = {
+            cliente: {
+              ...freshCli,
+              whatsapp_name: pushName || freshCli.whatsapp_name,
+              telefono_real: senderPn || freshCli.telefono_real,
+              ...(rawLid ? { lid: rawLid } : {}),
+            },
+            ...(needTitle ? { title: `WhatsApp — ${pushName}` } : {}),
+            ...(reopenClosedCase ? { estado: "ia_atendiendo" } : {}),
+          };
+          await supabase.from("sek_cases").update(metaUpdate).eq("id", existing.id);
+        }
         
         console.log("[evo-webhook] Paso 9 OK - mensaje guardado en histcliente");
 
@@ -2232,9 +2212,9 @@ export async function POST(req: NextRequest) {
           );
         }
 
-        // Enriquecer caso con marca/modelo/cliente/vendedor si aún no los tiene
+        // Enriquecer caso con marca/modelo/cliente/vendedor si aún no los tiene (con cooldown interno en performAutoExtract)
         const exCli = (existing as any)?.cliente || {};
-        const missingClientData = !exCli.vendedor || !exCli.nombre || !exCli.cuenta || !(existing as any)?.marca || !(existing as any)?.modelo;
+        const missingClientData = !exCli.nombre || !(existing as any)?.marca || !(existing as any)?.problema;
         if ((existing as any)?.id && missingClientData) {
           performAutoExtract(String((existing as any).id)).catch(e =>
             console.warn("[evo-webhook] auto-extract background:", e?.message)
@@ -2377,7 +2357,7 @@ export async function POST(req: NextRequest) {
             console.log(`[evo-webhook] Pausa de 1s para agrupar mensajes concurrentes...`);
             await new Promise(resolve => setTimeout(resolve, 1000));
             
-            const { data: checkCase } = await supabase.from("sek_cases").select("last_message_at, histcliente").eq("id", existing.id).single();
+            const { data: checkCase } = await supabase.from("sek_cases").select("last_message_at").eq("id", existing.id).single();
             if (checkCase) {
               const nowMs = new Date(now).getTime();
               const lastMsgMs = new Date(checkCase.last_message_at).getTime();

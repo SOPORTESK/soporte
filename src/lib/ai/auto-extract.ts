@@ -39,8 +39,22 @@ export function isPlaceholderDesc(str: unknown): boolean {
   return /pendiente\s+de\s+detalles|inicia\s+la\s+conversaci[oó]n|a\s+la\s+espera\s+de\s+ser\s+atendido|saludo\s+de\s+buenos\s+d[ií]as|sin\s+mencionar\s+datos/i.test(str);
 }
 
+const autoExtractCooldown = new Map<string, number>();
+
 export async function performAutoExtract(id: string, options?: { force?: boolean }) {
   try {
+    const now = Date.now();
+    const lastRun = autoExtractCooldown.get(String(id)) || 0;
+    const cooldownMs = options?.force ? 120_000 : 300_000;
+    if (now - lastRun < cooldownMs) {
+      return { ok: true, skipped: true, reason: "cooldown" };
+    }
+    autoExtractCooldown.set(String(id), now);
+    if (autoExtractCooldown.size > 1000) {
+      const oldest = autoExtractCooldown.keys().next().value;
+      if (oldest) autoExtractCooldown.delete(oldest);
+    }
+
     const supabase = createServiceClient();
 
     const { data: caseData, error: fetchError } = await supabase
@@ -473,27 +487,34 @@ Responde ÚNICAMENTE en formato JSON:
       clienteChanged = true;
     }
 
-    if (clienteChanged) {
+    if (clienteChanged && JSON.stringify(updatedCliente) !== JSON.stringify(currentCliente)) {
       updates.cliente = updatedCliente;
     }
 
+    let nextProblema: string | null = null;
     if (tema && TEMAS_VALIDOS.includes(tema)) {
-      updates.problema = temaToProblema[tema] || tema.toLowerCase();
+      nextProblema = temaToProblema[tema] || tema.toLowerCase();
     } else if (isPlaceholderDesc(caseData.problema)) {
-      updates.problema = "consulta";
+      nextProblema = "consulta";
     }
-    if (marca && (!caseData.marca || caseData.marca === "..." || options?.force)) updates.marca = marca;
-    if (modelo && (!caseData.modelo || caseData.modelo === "..." || options?.force)) updates.modelo = modelo;
+    if (nextProblema && nextProblema !== caseData.problema) {
+      updates.problema = nextProblema;
+    }
+    if (marca && (!caseData.marca || caseData.marca === "..." || options?.force) && marca !== caseData.marca) updates.marca = marca;
+    if (modelo && (!caseData.modelo || caseData.modelo === "..." || options?.force) && modelo !== caseData.modelo) updates.modelo = modelo;
 
     const titleParts: string[] = [];
     if (tema) titleParts.push(tema);
     if (marca && modelo) titleParts.push(`${marca} ${modelo}`);
     else if (marca) titleParts.push(marca);
     if (titleParts.length > 0) {
-      updates.title = titleParts.join(" — ").substring(0, 120);
+      const nextTitle = titleParts.join(" — ").substring(0, 120);
+      if (nextTitle !== caseData.title) {
+        updates.title = nextTitle;
+      }
     }
 
-    if (descProblema && !caseData.resolucion) {
+    if (descProblema && !caseData.resolucion && descProblema !== caseData.resolucion) {
       updates.resolucion = descProblema;
     }
 

@@ -674,20 +674,7 @@ export function ConversationList({
               <button
                 onClick={() => onSelect(id)}
                 onMouseDown={() => {
-                  if (hoverPrefetchTimer) clearTimeout(hoverPrefetchTimer);
                   prefetchCaseHistory(supabase, c);
-                }}
-                onMouseEnter={() => {
-                  if (hoverPrefetchTimer) clearTimeout(hoverPrefetchTimer);
-                  hoverPrefetchTimer = setTimeout(() => {
-                    prefetchCaseHistory(supabase, c);
-                  }, 70);
-                }}
-                onMouseLeave={() => {
-                  if (hoverPrefetchTimer) {
-                    clearTimeout(hoverPrefetchTimer);
-                    hoverPrefetchTimer = null;
-                  }
                 }}
                 className={cn(
                   "flex-1 min-w-0 text-left flex items-start gap-3 px-3 sm:px-4 py-3 transition-colors focus-visible:outline-none focus-visible:bg-muted active:bg-muted/80",

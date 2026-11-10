@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
   } else {
     const row = await supabase
       .from("sek_cases")
-      .select("id, canal, customer_phone, cliente, histcliente, histtecnico")
+      .select("id, canal, customer_phone, cliente")
       .eq("id", case_id)
       .maybeSingle();
     c = row.data;
@@ -77,10 +77,16 @@ export async function POST(req: NextRequest) {
   }
   if (!to) return NextResponse.json({ error: "no_phone" }, { status: 400 });
 
-  if (case_id && !c) {
+  // Solo cargar histcliente/histtecnico si hay una cita sin messageId que requiera búsqueda por texto
+  const needsQuotedLookup = Boolean(
+    case_id &&
+    !(quotedMessageId || entry?.replyTo?.messageId) &&
+    (quotedText || entry?.replyTo?.content)
+  );
+  if (needsQuotedLookup) {
     const row = await supabase
       .from("sek_cases")
-      .select("id, canal, customer_phone, cliente, histcliente, histtecnico")
+      .select("id, histcliente, histtecnico")
       .eq("id", case_id)
       .maybeSingle();
     c = row.data;

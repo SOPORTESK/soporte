@@ -184,8 +184,10 @@ interface AgentRatingConfig {
   require_comment: boolean;
 }
 let cachedAgentRatingConfig: AgentRatingConfig | null = null;
+const CASE_CACHE_TTL_MS = 300000;
 const caseHistoryCache = new Map<string, { sekCase: SekCase; timestamp: number }>();
 const inflightHistoryRequests = new Map<string, Promise<SekCase | null>>();
+const autoExtractedCases = new Set<string>();
 
 function buildMergedCaseStatic(baseCase: SekCase, casesData: SekCase[]): SekCase {
   const sorted = [...casesData].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
@@ -234,7 +236,7 @@ export function prefetchCaseHistory(supabase: any, baseCase: SekCase): Promise<S
   if (!baseCase) return Promise.resolve(null);
   const cacheKey = String(baseCase._group?.targetCaseId || baseCase.id);
   const cached = caseHistoryCache.get(cacheKey);
-  if (cached && (Date.now() - cached.timestamp < 90000)) {
+  if (cached && (Date.now() - cached.timestamp < CASE_CACHE_TTL_MS)) {
     return Promise.resolve(cached.sekCase);
   }
   const inflight = inflightHistoryRequests.get(cacheKey);
@@ -242,8 +244,8 @@ export function prefetchCaseHistory(supabase: any, baseCase: SekCase): Promise<S
 
   const p = (async () => {
     try {
-      const openIds = baseCase._group?.openCaseIds || [];
-      const fallbackIds = (baseCase._group?.caseIds || []).slice(0, 5);
+      const openIds = (baseCase._group?.openCaseIds || []).slice(-3);
+      const fallbackIds = (baseCase._group?.caseIds || []).slice(-3);
       const rawIds = [
         ...(openIds.length > 0 ? openIds : fallbackIds),
         baseCase._group?.targetCaseId,
@@ -310,14 +312,14 @@ export function ChatView({
   const cacheKey = String(initialCase._group?.targetCaseId || initialCase.id);
   const [sekCase, setSekCase] = React.useState<SekCase>(() => {
     const cached = caseHistoryCache.get(cacheKey);
-    if (cached && (Date.now() - cached.timestamp < 180000)) {
+    if (cached && (Date.now() - cached.timestamp < CASE_CACHE_TTL_MS)) {
       return cached.sekCase;
     }
     return initialCase;
   });
   const [messages, setMessages] = React.useState<UnifiedMessage[]>(() => {
     const cached = caseHistoryCache.get(cacheKey);
-    if (cached && (Date.now() - cached.timestamp < 180000)) {
+    if (cached && (Date.now() - cached.timestamp < CASE_CACHE_TTL_MS)) {
       return unifyMessages(cached.sekCase);
     }
     return unifyMessages(initialCase);
@@ -778,7 +780,7 @@ export function ChatView({
   React.useEffect(() => { sekCaseRef.current = sekCase; }, [sekCase]);
   React.useEffect(() => {
     const cached = caseHistoryCache.get(cacheKey);
-    if (cached && (Date.now() - cached.timestamp < 180000)) {
+    if (cached && (Date.now() - cached.timestamp < CASE_CACHE_TTL_MS)) {
       setSekCase(cached.sekCase);
       historyLoadedRef.current = true;
     } else {
@@ -807,8 +809,8 @@ export function ChatView({
   const reloadCaseFromDb = React.useCallback(async (baseCase: SekCase, fallbackId: string | number) => {
     const HIST_FIELDS = "id,estado,canal,cliente,assigned_to,customer_phone,created_at,updated_at,last_message_at,last_message_preview,histcliente,histtecnico,accepted_at,closed_at,tags,prioridad,title,marca,modelo,problema,resolucion";
     const ids = baseCase._group?.openCaseIds?.length
-      ? baseCase._group.openCaseIds
-      : (baseCase._group?.caseIds?.length ? baseCase._group.caseIds.slice(0, 5) : [fallbackId]);
+      ? baseCase._group.openCaseIds.slice(-3)
+      : (baseCase._group?.caseIds?.length ? baseCase._group.caseIds.slice(-3) : [fallbackId]);
     const { data } = await supabase.from("sek_cases").select(HIST_FIELDS).in("id", ids);
     if (!data || data.length === 0) return null;
     const merged = buildMergedCase(baseCase, data as unknown as SekCase[]);
@@ -821,7 +823,7 @@ export function ChatView({
   React.useEffect(() => {
     let mounted = true;
     const cached = caseHistoryCache.get(cacheKey);
-    if (cached && (Date.now() - cached.timestamp < 90000)) {
+    if (cached && (Date.now() - cached.timestamp < CASE_CACHE_TTL_MS)) {
       setSekCase(cached.sekCase);
       historyLoadedRef.current = true;
       return;
@@ -1001,9 +1003,9 @@ export function ChatView({
     return () => { mounted = false; };
   }, [supabase, currentAgentEmail]);
 
-  // Auto-enriquecimiento de equipo (marca y modelo) en segundo plano si faltan datos en un caso con historial
+  // Auto-enriquecimiento de equipo (marca y modelo) en segundo plano si faltan datos en un caso con historial (máximo 1 vez por caso por sesión)
   React.useEffect(() => {
-    if (!targetId) return;
+    if (!targetId || autoExtractedCases.has(String(targetId))) return;
     const hasHistory = (Array.isArray(sekCase.histcliente) && sekCase.histcliente.length > 0) ||
                        (Array.isArray(sekCase.histtecnico) && sekCase.histtecnico.length > 0);
     const isPlaceholderDesc = (str: unknown) => {
@@ -1015,7 +1017,8 @@ export function ChatView({
     if (!hasHistory || (!missingEquipment && !hasPendingDetails)) return;
 
     const timer = setTimeout(() => {
-      fetch(`/api/cases/${targetId}/auto-extract`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ force: true }) })
+      autoExtractedCases.add(String(targetId));
+      fetch(`/api/cases/${targetId}/auto-extract`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ force: false }) })
         .then(r => r.json())
         .then(data => {
           if (data?.ok && data?.extracted) {
@@ -1066,8 +1069,8 @@ export function ChatView({
       lastPollAt = Date.now();
       try {
         const pollGroupIds = initialCaseRef.current._group?.openCaseIds?.length
-          ? initialCaseRef.current._group.openCaseIds
-          : (initialCaseRef.current._group?.caseIds?.length ? initialCaseRef.current._group.caseIds : [targetId]);
+          ? initialCaseRef.current._group.openCaseIds.slice(-3)
+          : (initialCaseRef.current._group?.caseIds?.length ? initialCaseRef.current._group.caseIds.slice(-3) : [targetId]);
         if (isGrouped && pollGroupIds.length) {
           // Chequeo ultraliviano de metadatos si no es forzado (~100 bytes en vez de megabytes)
           if (!forceFullFetch) {
@@ -1193,46 +1196,37 @@ export function ChatView({
         const rowId = String((payload.new as any)?.id || (payload.old as any)?.id || "");
         if (rowId !== String(targetId)) return;
 
-        // Para chats agrupados, recargar solo los casos activos del grupo
-        const groupIds = initialCaseRef.current._group?.openCaseIds?.length
-          ? initialCaseRef.current._group.openCaseIds
-          : (initialCaseRef.current._group?.caseIds?.length ? initialCaseRef.current._group.caseIds : [targetId]);
-        if (isGrouped && groupIds.length) {
-          try {
-            const { data } = await supabase
-              .from("sek_cases")
-              .select("id,estado,canal,cliente,assigned_to,customer_phone,created_at,updated_at,last_message_at,last_message_preview,histcliente,histtecnico,marca,modelo,problema,resolucion,title")
-              .in("id", groupIds);
-            if (data && mounted) {
-              const merged = buildMergedCase(initialCaseRef.current, data as SekCase[]);
-              setSekCase(merged);
-              caseHistoryCache.set(cacheKey, { sekCase: merged, timestamp: Date.now() });
-            }
-          } catch (e) {
-            console.error("[chat-view] realtime reload group error:", e);
-          }
-          return;
-        }
+        const newData = (payload.new || {}) as any;
+        const prevCase = sekCaseRef.current;
+        const msgTimeChanged = Boolean(newData.last_message_at && newData.last_message_at !== prevCase?.last_message_at);
 
-        let hasNewMessages = false;
+        let hasInlineHistory = false;
         setSekCase(prev => {
-          const newData = payload.new as any;
-          const update: any = { ...newData };
-          // Proteger historial cargado: no reemplazar arrays con datos reales por arrays vacíos
-          if (newData.histcliente !== undefined && Array.isArray(newData.histcliente) && newData.histcliente.length === 0 &&
-              Array.isArray(prev.histcliente) && prev.histcliente.length > 0) {
+          const update: any = { ...newData, id: prev.id, _group: prev._group };
+          const tagEntries = (arr: any[]) =>
+            arr.map((e: any) => (e && typeof e === "object" && e._sourceCaseId === undefined ? { ...e, _sourceCaseId: rowId } : e));
+
+          if (Array.isArray(newData.histcliente) && !(newData.histcliente.length === 0 && Array.isArray(prev.histcliente) && prev.histcliente.length > 0)) {
+            hasInlineHistory = true;
+            const otherCliente = isGrouped && Array.isArray(prev.histcliente)
+              ? prev.histcliente.filter((e: any) => e?._sourceCaseId && String(e._sourceCaseId) !== rowId)
+              : [];
+            update.histcliente = [...otherCliente, ...tagEntries(newData.histcliente)];
+          } else {
             delete update.histcliente;
           }
-          if (newData.histtecnico !== undefined && Array.isArray(newData.histtecnico) && newData.histtecnico.length === 0 &&
-              Array.isArray(prev.histtecnico) && prev.histtecnico.length > 0) {
+
+          if (Array.isArray(newData.histtecnico) && !(newData.histtecnico.length === 0 && Array.isArray(prev.histtecnico) && prev.histtecnico.length > 0)) {
+            hasInlineHistory = true;
+            const otherTecnico = isGrouped && Array.isArray(prev.histtecnico)
+              ? prev.histtecnico.filter((e: any) => e?._sourceCaseId && String(e._sourceCaseId) !== rowId)
+              : [];
+            update.histtecnico = [...otherTecnico, ...tagEntries(newData.histtecnico)];
+          } else {
             delete update.histtecnico;
           }
-          if (Array.isArray(update.histcliente) && update.histcliente.length > 0) hasNewMessages = true;
-          if (Array.isArray(update.histtecnico) && update.histtecnico.length > 0) hasNewMessages = true;
 
-          // Proteger estado escalado: el webhook puede cambiar el estado via realtime
-          // pero si el caso estaba escalado, solo permitir cambios a abierto/cerrado/resuelto
-          // (cambios hechos por acción explícita del agente), no retroceder a ia_atendiendo/pendiente
+          // Proteger estado escalado
           if (prev.estado === "escalado" && update.estado && ["ia_atendiendo", "pendiente"].includes(update.estado)) {
             delete update.estado;
           }
@@ -1241,8 +1235,8 @@ export function ChatView({
           return next;
         });
 
-        // Solo si Realtime no entregó el array de mensajes (ej. truncamiento TOAST en Postgres) se fuerza consulta HTTP
-        if (!hasNewMessages) {
+        // Solo si llegó un mensaje nuevo real (cambió last_message_at) y Postgres TOAST omitió el historial en Realtime, consultar la BD
+        if (msgTimeChanged && !hasInlineHistory) {
           doPoll(true);
         }
       },
@@ -1535,8 +1529,17 @@ export function ChatView({
               p_preview: (body || fileName || "").slice(0, 200),
             });
             setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...m, status: "sent", ...(localDelivered.messageId ? { messageId: localDelivered.messageId } : {}) } : m));
-            const reloaded = await reloadCaseFromDb(sekCase, targetId);
-            if (reloaded) setSekCase(reloaded);
+            skipUnifyRef.current = true;
+            setSekCase(prev => {
+              const prevHt = Array.isArray(prev.histtecnico) ? prev.histtecnico : [];
+              const next = {
+                ...prev,
+                histtecnico: [...prevHt, { ...finalLocalEntry, _sourceCaseId: targetId } as any],
+                last_message_at: new Date().toISOString(),
+              };
+              caseHistoryCache.set(cacheKey, { sekCase: next, timestamp: Date.now() });
+              return next;
+            });
             return;
           }
           setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...m, status: "error" } : m));
@@ -1565,12 +1568,19 @@ export function ChatView({
         if (wasQueued) {
           toast.info("Mensaje en cola de entrega WhatsApp", { description: "Se entregará automáticamente al restablecer conexión local." });
         }
-        try {
-          const reloaded = await reloadCaseFromDb(sekCase, targetId);
-          if (reloaded) setSekCase(reloaded);
-        } catch (reloadErr) {
-          console.warn("[send] Mensaje procesado pero falló recarga secundaria:", reloadErr);
-        }
+        skipUnifyRef.current = true;
+        setSekCase(prev => {
+          const prevHt = Array.isArray(prev.histtecnico) ? prev.histtecnico : [];
+          const finalSentEntry = { ...entry, ...(resolvedMsgId ? { messageId: resolvedMsgId } : {}), fromMe: true, _sourceCaseId: targetId };
+          const alreadyHas = resolvedMsgId && prevHt.some((m: any) => m?.messageId === resolvedMsgId);
+          const next = {
+            ...prev,
+            histtecnico: alreadyHas ? prevHt : [...prevHt, finalSentEntry as any],
+            last_message_at: new Date().toISOString(),
+          };
+          caseHistoryCache.set(cacheKey, { sekCase: next, timestamp: Date.now() });
+          return next;
+        });
       } else {
         // FLUJO NO-WHATSAPP (notas, widget, o archivo ya enviado por send-base64): guardar en BD directamente.
         let mergedExisting = false;
@@ -1610,8 +1620,17 @@ export function ChatView({
           });
           if (appendErr) throw appendErr;
         }
-        const reloaded = await reloadCaseFromDb(sekCase, targetId);
-        if (reloaded) setSekCase(reloaded);
+        skipUnifyRef.current = true;
+        setSekCase(prev => {
+          const prevHt = Array.isArray(prev.histtecnico) ? prev.histtecnico : [];
+          const next = {
+            ...prev,
+            histtecnico: [...prevHt, { ...entry, _sourceCaseId: targetId } as any],
+            last_message_at: new Date().toISOString(),
+          };
+          caseHistoryCache.set(cacheKey, { sekCase: next, timestamp: Date.now() });
+          return next;
+        });
         setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...m, status: externalQueued ? "pending" : "sent" } : m));
       }
     } catch (e: any) {
