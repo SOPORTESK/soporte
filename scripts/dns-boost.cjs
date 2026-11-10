@@ -37,9 +37,7 @@ if (!global.__sekDnsBoosted && dns && typeof dns.lookup === "function") {
     }
 
     const host = String(hostname || "").toLowerCase().trim();
-    if (host.endsWith(".supabase.co")) {
-      return deliverResult(SUPABASE_FALLBACK_IPS, opts, cb);
-    }
+    const isSupabase = host.endsWith(".supabase.co");
 
     const cached = dnsCache.get(host);
     if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
@@ -54,6 +52,9 @@ if (!global.__sekDnsBoosted && dns && typeof dns.lookup === "function") {
       }
       if (cached) {
         return deliverResult(cached.addresses, opts, cb);
+      }
+      if (isSupabase) {
+        return deliverResult(SUPABASE_FALLBACK_IPS, opts, cb);
       }
       return origLookup(hostname, opts, cb);
     });

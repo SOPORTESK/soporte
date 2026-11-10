@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { Camera, Lock, Eye, EyeOff, Check, X, ChevronUp, ChevronDown, ChevronLeft, Circle, LogOut, Activity as ActivityIcon, FileText, ChevronRight, X as XIcon, RefreshCw, Wrench, Coffee, Timer, BarChart3, Package, LayoutDashboard, ClipboardList, Sparkles, UserPlus, Briefcase, GraduationCap, Users, Utensils, Sandwich, Bath, Square, Trash2, Clock, CheckCircle2, Calendar, Maximize2, Minimize2, Plus, UserCheck, Save, MessageSquare, Search, Play, Layers, ShieldCheck, Phone, Settings, User } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { subscribeCasesRealtime } from "@/lib/cases-realtime-bus";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { logActivity } from "@/lib/activity-client";
@@ -423,19 +424,12 @@ export function SidebarUserPanel({
     const handleChatsFocus = () => debouncedCheck();
     window.addEventListener("focus", handleChatsFocus);
 
-    const casesChannel = supabase
-      .channel("sidebar_active_chats_realtime")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "sek_cases" },
-        debouncedCheck
-      )
-      .subscribe();
+    const unsubscribeCases = subscribeCasesRealtime(supabase, debouncedCheck);
 
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer);
       window.removeEventListener("focus", handleChatsFocus);
-      supabase.removeChannel(casesChannel);
+      unsubscribeCases();
     };
   }, [safeAgent.email, supabase]);
 

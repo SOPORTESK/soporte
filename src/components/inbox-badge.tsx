@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { createClient } from "@/lib/supabase/client";
+import { subscribeCasesRealtime } from "@/lib/cases-realtime-bus";
 import { usePathname } from "next/navigation";
 
 export function InboxBadge({ initialCount }: { initialCount: number }) {
@@ -13,6 +14,7 @@ export function InboxBadge({ initialCount }: { initialCount: number }) {
   React.useEffect(() => {
     const supabase = supabaseRef.current;
     const fetchCount = async () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       const { data, error } = await supabase
         .from("sek_cases")
         .select("id, estado, unread_count")
@@ -25,34 +27,25 @@ export function InboxBadge({ initialCount }: { initialCount: number }) {
       let unread = 0;
       data.forEach((c: any) => {
         const estado = String(c.estado || "").toLowerCase();
-        if (estado === "escalado") { unread++; return; }
-        const hc = Array.isArray(c.histcliente) ? c.histcliente : [];
-        const ht = Array.isArray(c.histtecnico) ? c.histtecnico : [];
-        if (hc.length === 0) return;
-        const lastUserMsg = [...hc].reverse().find((m: any) => m.role === "user");
-        if (!lastUserMsg) return;
-        const lastUserTime = new Date(lastUserMsg.time || 0).getTime();
-        const hasAgentReply = ht.some((t: any) => {
-          const tTime = new Date(t.time || 0).getTime();
-          return tTime > lastUserTime && t.role !== "nota";
-        });
-        if (!hasAgentReply) unread++;
+        if (estado === "escalado" || (Number(c.unread_count) || 0) > 0) unread++;
       });
       setCount(unread);
     };
 
     fetchCount();
 
-    const channel = supabase
-      .channel("inbox-badge-watch-" + Date.now())
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "sek_cases" },
-        () => { fetchCount(); }
-      )
-      .subscribe();
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const debouncedFetch = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(fetchCount, 2000);
+    };
 
-    return () => { supabase.removeChannel(channel); };
+    const unsubscribe = subscribeCasesRealtime(supabase, debouncedFetch);
+
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      unsubscribe();
+    };
   }, []);
 
   if (!count) return null;

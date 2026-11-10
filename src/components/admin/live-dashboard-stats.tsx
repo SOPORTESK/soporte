@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { createClient } from "@/lib/supabase/client";
+import { subscribeCasesRealtime } from "@/lib/cases-realtime-bus";
 import {
   AlertCircle, CheckCircle, Clock, Star, ArrowUpRight,
   Circle, Activity, Brain, Zap, ChevronRight,
@@ -118,18 +119,23 @@ export function LiveDashboardStats({ initial }: { initial: InitialData }) {
       fetchStats();
     }, 300000);
 
-    // Realtime: suscribirse a cambios en sek_cases
-    const channel = supabase
-      .channel("dashboard-stats")
-      .on("postgres_changes", { event: "*", schema: "public", table: "sek_cases" }, () => {
+    // Realtime compartido: debounce de 5s para evitar ráfagas
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const debouncedFetch = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
         fetchStats();
-      })
-      .subscribe();
+      }, 5000);
+    };
+
+    const unsubscribe = subscribeCasesRealtime(supabase, debouncedFetch);
 
     return () => {
       mountedRef.current = false;
+      if (debounceTimer) clearTimeout(debounceTimer);
       clearInterval(interval);
-      supabase.removeChannel(channel);
+      unsubscribe();
     };
   }, []); // eslint-disable-line
 

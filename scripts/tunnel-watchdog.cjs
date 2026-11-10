@@ -1,23 +1,60 @@
+require('./dns-boost.cjs');
+
+const http = require('http');
+const path = require('path');
 const { execSync } = require('child_process');
-const dns = require('dns');
+const dotenv = require('dotenv');
 
-if (dns.setDefaultResultOrder) {
-  try {
-    dns.setDefaultResultOrder('ipv4first');
-  } catch {}
-}
+dotenv.config({ path: path.join(__dirname, '..', '.env.local') });
 
-const SUPABASE_URL = "https://kzcyxeracvfxynddyjld.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt6Y3l4ZXJhY3ZmeHluZGR5amxkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTUxMTk1NCwiZXhwIjoyMDkxMDg3OTU0fQ.GlF4Zieqqc1V1IAPshPFKb1QzKBBbO8n1RGK_wG_JuM";
+const SUPABASE_URL = (process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://kzcyxeracvfxynddyjld.supabase.co').replace(/\/$/, '');
+const SUPABASE_KEY = (
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt6Y3l4ZXJhY3ZmeHluZGR5amxkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTUxMTk1NCwiZXhwIjoyMDkxMDg3OTU0fQ.GlF4Zieqqc1V1IAPshPFKb1QzKBBbO8n1RGK_wG_JuM'
+).trim();
 
+const EVO_LOCAL_URL = 'http://127.0.0.1:28080';
+const EVO_KEY = (process.env.EVOLUTION_API_KEY || 'SEKUNET_EVO_KEY_123').trim();
+const EVO_INSTANCE = (process.env.EVOLUTION_INSTANCE || 'sekunet').trim();
+const RELAY_PORT = Number(process.env.WA_RELAY_PORT || 28082);
+const WA_OUTBOX_KEY = 'wa_outbox_queue';
+
+let supabaseClient = null;
+try {
+  const { createClient } = require('@supabase/supabase-js');
+  if (SUPABASE_URL && SUPABASE_KEY) {
+    supabaseClient = createClient(SUPABASE_URL, SUPABASE_KEY, {
+      realtime: { params: { eventsPerSecond: 4 } },
+    });
+  }
+} catch {}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 1. CLOUDFLARE TUNNEL WATCHDOG + SUPABASE SYNC (con backoff offline)
+// ═══════════════════════════════════════════════════════════════════════════════
 let failCount = 0;
 let lastRestart = 0;
 let lastSyncedUrl = '';
 let lastSyncTime = 0;
+let supabaseOfflineBackoffMs = 0;
+let nextSupabaseAttemptAt = 0;
+
+function noteSupabaseSuccess() {
+  supabaseOfflineBackoffMs = 0;
+  nextSupabaseAttemptAt = 0;
+}
+
+function noteSupabaseOffline() {
+  supabaseOfflineBackoffMs = supabaseOfflineBackoffMs
+    ? Math.min(supabaseOfflineBackoffMs * 2, 120000)
+    : 15000;
+  nextSupabaseAttemptAt = Date.now() + supabaseOfflineBackoffMs;
+}
 
 async function syncToSupabase(url) {
-  const payload = JSON.stringify({ url, apiKey: 'SEKUNET_EVO_KEY_123', instance: 'sekunet' });
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  if (Date.now() < nextSupabaseAttemptAt) return false;
+  const payload = JSON.stringify({ url, apiKey: EVO_KEY, instance: EVO_INSTANCE });
+  for (let attempt = 1; attempt <= 2; attempt++) {
     try {
       const res = await fetch(SUPABASE_URL + '/rest/v1/sek_app_settings?on_conflict=key', {
         method: 'POST',
@@ -25,28 +62,32 @@ async function syncToSupabase(url) {
           'Content-Type': 'application/json',
           'apikey': SUPABASE_KEY,
           'Authorization': 'Bearer ' + SUPABASE_KEY,
-          'Prefer': 'resolution=merge-duplicates'
+          'Prefer': 'resolution=merge-duplicates',
         },
         body: JSON.stringify({
           key: 'evolution_api_config',
           value: payload,
           iv: 'none',
           tag: 'none',
-          updated_at: new Date().toISOString()
+          updated_at: new Date().toISOString(),
         }),
-        signal: AbortSignal.timeout(8000),
+        signal: AbortSignal.timeout(7000),
       });
       if (res.ok) {
+        noteSupabaseSuccess();
         lastSyncedUrl = url;
         lastSyncTime = Date.now();
         console.log('[Tunnel Watchdog] URL sincronizada en Supabase con éxito:', url);
         return true;
-      } else {
-        console.warn('[Tunnel Watchdog] Supabase sync retornó:', res.status);
       }
+      console.warn('[Tunnel Watchdog] Supabase sync retornó:', res.status);
     } catch (e) {
-      console.error(`[Tunnel Watchdog] Error sincronizando a Supabase (intento ${attempt}/3):`, e.message);
-      await new Promise(r => setTimeout(r, 1500));
+      if (attempt === 2) {
+        noteSupabaseOffline();
+        console.warn(`[Tunnel Watchdog] Supabase inalcanzable (${e.message}), reintentando en ${Math.round(supabaseOfflineBackoffMs / 1000)}s`);
+      } else {
+        await new Promise((r) => setTimeout(r, 1000));
+      }
     }
   }
   return false;
@@ -63,16 +104,12 @@ async function checkTunnel() {
     }
 
     const currentUrl = match[0];
-
-    // Verificar conexiones HA activas de cloudflared directamente en las métricas locales
-    // (evita falsos positivos por bloqueo de loopback/IPv6 hacia trycloudflare.com desde la misma red)
     const haMatch = text.match(/^cloudflared_tunnel_ha_connections\s+(\d+)/m);
     const haConnections = haMatch ? parseInt(haMatch[1], 10) : 1;
     if (haConnections <= 0) {
       throw new Error('cloudflared_tunnel_ha_connections is 0 (tunnel disconnected from Cloudflare edge)');
     }
 
-    // Sincronizar con Supabase si cambió la URL o cada 5 minutos
     if (currentUrl !== lastSyncedUrl || Date.now() - lastSyncTime > 5 * 60 * 1000) {
       await syncToSupabase(currentUrl);
     }
@@ -82,7 +119,6 @@ async function checkTunnel() {
     failCount++;
     console.warn(`[Tunnel Watchdog] Fallo #${failCount}: ${err.message}`);
 
-    // Solo reiniciar si las métricas locales del contenedor o las conexiones HA llevan 4 fallos seguidos (2 min)
     if (failCount >= 4 && Date.now() - lastRestart > 300000) {
       lastRestart = Date.now();
       failCount = 0;
@@ -98,6 +134,472 @@ async function checkTunnel() {
   }
 }
 
-console.log('[Tunnel Watchdog] Iniciado con verificación HA local y auto-sync IPv4 a Supabase.');
+// ═══════════════════════════════════════════════════════════════════════════════
+// 2. RELAY LOCAL DE WEBHOOKS (0.0.0.0:28082) -> 127.0.0.1:3100 (fallback Vercel)
+//    Filtra eventos ruidosos en RAM antes de tocar Next.js o Supabase.
+// ═══════════════════════════════════════════════════════════════════════════════
+const IGNORED_EVENTS = new Set([
+  'CONNECTION_UPDATE',
+  'CHATS_SET',
+  'CHATS_UPSERT',
+  'CHATS_UPDATE',
+  'CHATS_DELETE',
+  'CONTACTS_SET',
+  'CONTACTS_UPSERT',
+  'CONTACTS_UPDATE',
+  'PRESENCE_UPDATE',
+  'GROUPS_UPSERT',
+  'GROUP_UPDATE',
+  'GROUP_PARTICIPANTS_UPDATE',
+  'LABELS_EDIT',
+  'LABELS_ASSOCIATION',
+  'CALL',
+  'SEND_MESSAGE',
+  'NEW_JWT_TOKEN',
+  'LOGOUT_INSTANCE',
+  'REMOVE_INSTANCE',
+  'APPLICATION_STARTUP',
+  'TYPEBOT_START',
+  'TYPEBOT_CHANGE_STATUS',
+]);
+
+const relayQueue = [];
+let relayProcessing = false;
+
+function shouldForwardWebhook(payload) {
+  if (!payload || typeof payload !== 'object') return false;
+  const normalizedEvent = String(payload.event || '')
+    .trim()
+    .replace(/\./g, '_')
+    .toUpperCase();
+
+  if (!normalizedEvent || IGNORED_EVENTS.has(normalizedEvent)) {
+    return false;
+  }
+
+  if (normalizedEvent === 'MESSAGES_UPDATE') {
+    const updates = Array.isArray(payload.data) ? payload.data : (payload.data ? [payload.data] : []);
+    const hasActionable = updates.some((item) => {
+      if (!item) return false;
+      const reactions = item.update?.reactions;
+      if (Array.isArray(reactions) && reactions.length > 0) return true;
+      const status = String(item.update?.status || item.status || '').toUpperCase();
+      return status === 'READ' && Boolean(item.key?.fromMe || item.fromMe);
+    });
+    return hasActionable;
+  }
+
+  return true;
+}
+
+async function postWebhookTarget(url, rawBody) {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: rawBody,
+    signal: AbortSignal.timeout(25000),
+  });
+  return res.ok;
+}
+
+async function drainRelayQueue() {
+  if (relayProcessing) return;
+  relayProcessing = true;
+  try {
+    while (relayQueue.length > 0) {
+      const job = relayQueue.shift();
+      let ok = false;
+      try {
+        ok = await postWebhookTarget('http://127.0.0.1:3100/api/webhooks/evolution', job.rawBody);
+      } catch (e) {
+        console.warn('[WA Relay] Falló webhook local 127.0.0.1:3100:', e.message);
+      }
+
+      if (!ok) {
+        try {
+          ok = await postWebhookTarget('https://sekachat.vercel.app/api/webhooks/evolution', job.rawBody);
+          if (ok) console.log('[WA Relay] Reenviado a Vercel fallback:', job.event);
+        } catch (e2) {
+          console.warn('[WA Relay] Falló Vercel fallback:', e2.message);
+        }
+      }
+    }
+  } finally {
+    relayProcessing = false;
+  }
+}
+
+function startWebhookRelayServer() {
+  const server = http.createServer((req, res) => {
+    const urlPath = (req.url || '/').split('?')[0];
+
+    if (req.method === 'GET' && (urlPath === '/health' || urlPath === '/')) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, relayQueue: relayQueue.length }));
+      return;
+    }
+
+    if (req.method !== 'POST') {
+      res.writeHead(405, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'method_not_allowed' }));
+      return;
+    }
+
+    const chunks = [];
+    let totalBytes = 0;
+    const MAX_BYTES = 20 * 1024 * 1024;
+    let aborted = false;
+
+    req.on('data', (chunk) => {
+      if (aborted) return;
+      totalBytes += chunk.length;
+      if (totalBytes > MAX_BYTES) {
+        aborted = true;
+        res.writeHead(413, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'payload_too_large' }));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+
+    req.on('end', () => {
+      if (aborted) return;
+      const rawBody = Buffer.concat(chunks).toString('utf8');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end('{"ok":true}');
+
+      let payload = null;
+      try {
+        payload = JSON.parse(rawBody);
+      } catch {
+        return;
+      }
+
+      if (!shouldForwardWebhook(payload)) {
+        return;
+      }
+
+      if (relayQueue.length > 500) {
+        relayQueue.shift();
+      }
+      relayQueue.push({
+        event: String(payload.event || ''),
+        rawBody,
+      });
+      drainRelayQueue();
+    });
+
+    req.on('error', () => {
+      if (!res.headersSent) {
+        res.writeHead(400);
+        res.end();
+      }
+    });
+  });
+
+  server.on('error', (err) => {
+    console.error(`[WA Relay] Error en servidor HTTP puerto ${RELAY_PORT}:`, err.message);
+  });
+
+  server.listen(RELAY_PORT, '0.0.0.0', () => {
+    console.log(`[WA Relay] Escuchando webhooks de Evolution en http://0.0.0.0:${RELAY_PORT}/webhook`);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 3. WORKER LOCAL DE OUTBOX (entrega directa via http://127.0.0.1:28080)
+//    Sondeo ultraligero por updated_at (~50 bytes) + Realtime instantáneo.
+// ═══════════════════════════════════════════════════════════════════════════════
+let outboxRunning = false;
+let lastOutboxUpdatedAt = null;
+
+function detectMediaTypeFromMime(mime, fileName) {
+  const m = String(mime || '').toLowerCase();
+  if (m.startsWith('image/')) return 'image';
+  if (m.startsWith('video/')) return 'video';
+  if (m.startsWith('audio/')) return 'audio';
+  const ext = String(fileName || '').split('.').pop().toLowerCase();
+  if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) return 'image';
+  if (['mp4', 'mov', 'avi', 'webm', 'mkv'].includes(ext)) return 'video';
+  if (['mp3', 'ogg', 'wav', 'aac', 'm4a', 'opus'].includes(ext)) return 'audio';
+  return 'document';
+}
+
+async function sendOutboxItemViaLocalEvo(job) {
+  const instance = encodeURIComponent(EVO_INSTANCE);
+  let evoEndpoint;
+  let evoBody;
+
+  if (job.mediaUrl) {
+    const mediatype = detectMediaTypeFromMime(job.mediaType, job.fileName);
+    if (mediatype === 'audio') {
+      evoEndpoint = `${EVO_LOCAL_URL}/message/sendWhatsAppAudio/${instance}`;
+      evoBody = { number: job.to, audio: job.mediaUrl, ...(job.quoted ? { quoted: job.quoted } : {}) };
+    } else {
+      evoEndpoint = `${EVO_LOCAL_URL}/message/sendMedia/${instance}`;
+      evoBody = {
+        number: job.to,
+        mediatype,
+        mimetype: job.mediaType || undefined,
+        caption: job.text || undefined,
+        media: job.mediaUrl,
+        fileName: job.fileName || undefined,
+        ...(job.quoted ? { quoted: job.quoted } : {}),
+      };
+    }
+  } else {
+    evoEndpoint = `${EVO_LOCAL_URL}/message/sendText/${instance}`;
+    evoBody = { number: job.to, text: job.text || '', ...(job.quoted ? { quoted: job.quoted } : {}) };
+  }
+
+  let res = await fetch(evoEndpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', apikey: EVO_KEY },
+    body: JSON.stringify(evoBody),
+    signal: AbortSignal.timeout(15000),
+  });
+
+  if (!res.ok && job.quoted && (res.status === 400 || res.status === 422 || res.status === 500)) {
+    const fallbackBody = { ...evoBody };
+    delete fallbackBody.quoted;
+    res = await fetch(evoEndpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: EVO_KEY },
+      body: JSON.stringify(fallbackBody),
+      signal: AbortSignal.timeout(15000),
+    });
+  }
+
+  const data = await res.json().catch(() => ({}));
+  return {
+    ok: res.ok,
+    status: res.status,
+    messageId: data?.key?.id || data?.messageId || null,
+    errorText: res.ok ? null : `evo_${res.status}: ${JSON.stringify(data).slice(0, 180)}`,
+  };
+}
+
+async function markCaseQueuedMessageDelivered(job, realMsgId, failed) {
+  if (!job.case_id) return;
+  try {
+    const getRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/sek_cases?id=eq.${encodeURIComponent(job.case_id)}&select=histtecnico`,
+      {
+        headers: {
+          apikey: SUPABASE_KEY,
+          Authorization: 'Bearer ' + SUPABASE_KEY,
+        },
+        signal: AbortSignal.timeout(8000),
+      }
+    );
+    if (!getRes.ok) return;
+    const rows = await getRes.json().catch(() => []);
+    const row = Array.isArray(rows) ? rows[0] : null;
+    if (!row || !Array.isArray(row.histtecnico)) return;
+
+    const hist = [...row.histtecnico];
+    let idx = hist.findIndex((m) => m && m.messageId === job.id);
+    if (idx < 0 && job.matchContent) {
+      for (let i = hist.length - 1; i >= 0; i--) {
+        const m = hist[i];
+        if (m && m.role === 'tecnico' && m.content === job.matchContent && (!m.messageId || String(m.messageId).startsWith('queued-'))) {
+          idx = i;
+          break;
+        }
+      }
+    }
+    if (idx < 0) return;
+
+    const updatedEntry = {
+      ...hist[idx],
+      queued: false,
+      fromMe: true,
+      ...(realMsgId ? { messageId: realMsgId } : {}),
+      ...(failed ? { sendError: true } : {}),
+    };
+    hist[idx] = updatedEntry;
+
+    await fetch(`${SUPABASE_URL}/rest/v1/sek_cases?id=eq.${encodeURIComponent(job.case_id)}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: SUPABASE_KEY,
+        Authorization: 'Bearer ' + SUPABASE_KEY,
+      },
+      body: JSON.stringify({ histtecnico: hist }),
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch (e) {
+    console.warn('[WA Outbox] Error actualizando histtecnico en Supabase:', e.message);
+  }
+}
+
+async function processOutboxQueue(forceRead = false) {
+  if (outboxRunning) return;
+  if (Date.now() < nextSupabaseAttemptAt) return;
+  outboxRunning = true;
+  try {
+    // Chequeo ligero (~50 bytes) salvo cuando forceRead es true (ej. notificación Realtime)
+    if (!forceRead) {
+      const metaRes = await fetch(
+        `${SUPABASE_URL}/rest/v1/sek_app_settings?key=eq.${WA_OUTBOX_KEY}&select=updated_at`,
+        {
+          headers: { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY },
+          signal: AbortSignal.timeout(6000),
+        }
+      );
+      if (!metaRes.ok) return;
+      noteSupabaseSuccess();
+      const metaRows = await metaRes.json().catch(() => []);
+      const rowUpdatedAt = Array.isArray(metaRows) && metaRows[0] ? metaRows[0].updated_at : null;
+      if (!rowUpdatedAt || (lastOutboxUpdatedAt && rowUpdatedAt === lastOutboxUpdatedAt)) {
+        return;
+      }
+      lastOutboxUpdatedAt = rowUpdatedAt;
+    }
+
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/sek_app_settings?key=eq.${WA_OUTBOX_KEY}&select=value,updated_at`,
+      {
+        headers: { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY },
+        signal: AbortSignal.timeout(7000),
+      }
+    );
+    if (!res.ok) return;
+    noteSupabaseSuccess();
+    const rows = await res.json().catch(() => []);
+    const row = Array.isArray(rows) ? rows[0] : null;
+    if (!row?.value) return;
+    if (row.updated_at) lastOutboxUpdatedAt = row.updated_at;
+
+    let queue = [];
+    try {
+      queue = typeof row.value === 'string' ? JSON.parse(row.value) : row.value;
+    } catch {
+      queue = [];
+    }
+    if (!Array.isArray(queue) || queue.length === 0) return;
+
+    const pendingJobs = queue.filter((j) => j && j.status === 'pending' && (j.attempts || 0) < 8);
+    if (pendingJobs.length === 0) return;
+
+    console.log(`[WA Outbox] Procesando ${pendingJobs.length} mensaje(s) pendiente(s) por Evolution local...`);
+    let queueModified = false;
+    const deliveredIds = new Set();
+
+    for (const job of pendingJobs) {
+      try {
+        const result = await sendOutboxItemViaLocalEvo(job);
+        if (result.ok) {
+          console.log(`[WA Outbox] Entregado con éxito ${job.id} -> WhatsApp id=${result.messageId}`);
+          await markCaseQueuedMessageDelivered(job, result.messageId, false);
+          deliveredIds.add(job.id);
+          queueModified = true;
+        } else {
+          job.attempts = (job.attempts || 0) + 1;
+          job.last_error = result.errorText;
+          if (result.status === 400 || job.attempts >= 8) {
+            job.status = 'failed';
+            await markCaseQueuedMessageDelivered(job, null, true);
+          }
+          queueModified = true;
+          console.warn(`[WA Outbox] Falló entrega ${job.id} (intento ${job.attempts}): ${result.errorText}`);
+        }
+      } catch (err) {
+        job.attempts = (job.attempts || 0) + 1;
+        job.last_error = err.message;
+        if (job.attempts >= 8) {
+          job.status = 'failed';
+          await markCaseQueuedMessageDelivered(job, null, true);
+        }
+        queueModified = true;
+        console.warn(`[WA Outbox] Excepción enviando ${job.id}: ${err.message}`);
+      }
+    }
+
+    if (queueModified) {
+      // Re-leer la cola actual para no perder elementos encolados durante el envío
+      let latestQueue = queue;
+      try {
+        const latestRes = await fetch(
+          `${SUPABASE_URL}/rest/v1/sek_app_settings?key=eq.${WA_OUTBOX_KEY}&select=value`,
+          {
+            headers: { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY },
+            signal: AbortSignal.timeout(5000),
+          }
+        );
+        if (latestRes.ok) {
+          const latestRows = await latestRes.json().catch(() => []);
+          const latestRaw = Array.isArray(latestRows) && latestRows[0] ? latestRows[0].value : null;
+          if (latestRaw) {
+            const parsedLatest = typeof latestRaw === 'string' ? JSON.parse(latestRaw) : latestRaw;
+            if (Array.isArray(parsedLatest)) latestQueue = parsedLatest;
+          }
+        }
+      } catch {}
+
+      const updatedMap = new Map(queue.map((j) => [j && j.id, j]));
+      const remaining = latestQueue
+        .filter((j) => j && !deliveredIds.has(j.id))
+        .map((j) => updatedMap.get(j.id) || j);
+      const newUpdatedAt = new Date().toISOString();
+      const saveRes = await fetch(`${SUPABASE_URL}/rest/v1/sek_app_settings?on_conflict=key`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: SUPABASE_KEY,
+          Authorization: 'Bearer ' + SUPABASE_KEY,
+          Prefer: 'resolution=merge-duplicates',
+        },
+        body: JSON.stringify({
+          key: WA_OUTBOX_KEY,
+          value: JSON.stringify(remaining),
+          iv: 'none',
+          tag: 'none',
+          updated_at: newUpdatedAt,
+        }),
+        signal: AbortSignal.timeout(7000),
+      });
+      if (saveRes.ok) {
+        lastOutboxUpdatedAt = newUpdatedAt;
+      }
+    }
+  } catch (e) {
+    noteSupabaseOffline();
+  } finally {
+    outboxRunning = false;
+  }
+}
+
+function startOutboxRealtime() {
+  if (!supabaseClient) return;
+  try {
+    supabaseClient
+      .channel('wa-outbox-watch')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'sek_app_settings', filter: `key=eq.${WA_OUTBOX_KEY}` },
+        () => {
+          lastOutboxUpdatedAt = null;
+          processOutboxQueue(true);
+        }
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('[WA Outbox] Realtime suscrito a wa_outbox_queue');
+          processOutboxQueue(true);
+        }
+      });
+  } catch (e) {
+    console.warn('[WA Outbox] No se pudo iniciar Realtime:', e.message);
+  }
+}
+
+console.log('[Tunnel Watchdog] Iniciado con Webhook Relay (28082), Outbox Worker local y Tunnel Sync.');
+startWebhookRelayServer();
+startOutboxRealtime();
 setInterval(checkTunnel, 30000);
+setInterval(() => processOutboxQueue(false), 15000);
 checkTunnel();
+processOutboxQueue(true);

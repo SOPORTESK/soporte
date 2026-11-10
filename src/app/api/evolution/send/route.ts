@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getEvolutionConfig } from "@/lib/evolution-config";
 import { normalizePhone, pickPhone } from "@/lib/evolution-phone";
+import { enqueueWaOutbox, generateQueuedMessageId } from "@/lib/wa-outbox";
 
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
@@ -132,6 +133,16 @@ export async function POST(req: NextRequest) {
         }
       : undefined;
 
+    const startedAt = Date.now();
+    const isVercel = Boolean(process.env.VERCEL);
+    const mediaTimeoutMs = isVercel ? 5500 : 18000;
+    const textTimeoutMs = isVercel ? 4200 : 10000;
+
+    let sendSuccess = false;
+    let lastError: any = null;
+    let lastStatus = 0;
+    let resolvedMediaType: string | undefined = mediaType || undefined;
+
     if (mediaUrl) {
       let finalMimeType = mediaType;
       if (!finalMimeType || finalMimeType === "application/octet-stream") {
@@ -140,13 +151,13 @@ export async function POST(req: NextRequest) {
           if (ext) finalMimeType = inferMimeFromExt(ext);
         }
       }
+      resolvedMediaType = finalMimeType || mediaType || undefined;
 
       const mediatype = detectMediaType(finalMimeType);
       const instance = encodeURIComponent(EVO_INSTANCE);
-      let sendSuccess = false;
-      let lastError: any = null;
 
       for (const baseUrl of candidateUrls) {
+        if (isVercel && Date.now() - startedAt > 5800) break;
         let evoEndpoint: string;
         let evoBody: Record<string, unknown>;
 
@@ -172,11 +183,12 @@ export async function POST(req: NextRequest) {
             method: "POST",
             headers: { "Content-Type": "application/json", apikey: EVO_KEY },
             body: JSON.stringify(evoBody),
-            signal: AbortSignal.timeout(18000),
+            signal: AbortSignal.timeout(mediaTimeoutMs),
           });
+          lastStatus = res.status;
 
-          // Si falla y venía con cita, reintentar sin cita como respaldo
-          if (!res.ok && quoted) {
+          // Solo reintentar sin cita si Evolution respondió 400/422/500 (no en fallos de túnel 502/503/504/530)
+          if (!res.ok && quoted && (res.status === 400 || res.status === 422 || res.status === 500) && (!isVercel || Date.now() - startedAt < 5000)) {
             console.warn(`[evo-send] Falló con cita en ${baseUrl}, reintentando media sin cita...`);
             const fallbackBody = { ...evoBody };
             delete fallbackBody.quoted;
@@ -184,8 +196,9 @@ export async function POST(req: NextRequest) {
               method: "POST",
               headers: { "Content-Type": "application/json", apikey: EVO_KEY },
               body: JSON.stringify(fallbackBody),
-              signal: AbortSignal.timeout(18000),
+              signal: AbortSignal.timeout(mediaTimeoutMs),
             });
+            lastStatus = res.status;
           }
 
           const mediaRes = await res.json().catch(() => ({}));
@@ -203,10 +216,6 @@ export async function POST(req: NextRequest) {
           lastError = fetchErr;
         }
       }
-
-      if (!sendSuccess) {
-        throw lastError || new Error("No se pudo entregar el archivo multimedia a través de Evolution API");
-      }
     } else {
       const sendTextBody: Record<string, unknown> = {
         number: to,
@@ -214,10 +223,8 @@ export async function POST(req: NextRequest) {
         ...(quoted ? { quoted } : {}),
       };
 
-      let sendSuccess = false;
-      let lastError: any = null;
-
       for (const baseUrl of candidateUrls) {
+        if (isVercel && Date.now() - startedAt > 5200) break;
         const evoEndpoint = `${baseUrl}/message/sendText/${encodeURIComponent(EVO_INSTANCE)}`;
         try {
           console.log(`[evo-send] Intentando enviar texto a ${to} vía ${baseUrl}...`);
@@ -225,18 +232,19 @@ export async function POST(req: NextRequest) {
             method: "POST",
             headers: { "Content-Type": "application/json", apikey: EVO_KEY },
             body: JSON.stringify(sendTextBody),
-            signal: AbortSignal.timeout(12000),
+            signal: AbortSignal.timeout(textTimeoutMs),
           });
+          lastStatus = res.status;
 
-          // Si falla y venía con cita, reintentar sin cita como respaldo para garantizar entrega
-          if (!res.ok && quoted) {
+          if (!res.ok && quoted && (res.status === 400 || res.status === 422 || res.status === 500) && (!isVercel || Date.now() - startedAt < 5000)) {
             console.warn(`[evo-send] Falló sendText con cita en ${baseUrl}, reintentando sin cita...`);
             res = await fetch(evoEndpoint, {
               method: "POST",
               headers: { "Content-Type": "application/json", apikey: EVO_KEY },
               body: JSON.stringify({ number: to, text }),
-              signal: AbortSignal.timeout(12000),
+              signal: AbortSignal.timeout(textTimeoutMs),
             });
+            lastStatus = res.status;
           }
 
           const resData = await res.json().catch(() => ({}));
@@ -255,7 +263,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      if (!sendSuccess) {
+      if (!sendSuccess && (!isVercel || Date.now() - startedAt < 4800)) {
         const freshCfg = await getEvolutionConfig(true);
         const freshUrl = (freshCfg.url || "").replace(/\/$/, "");
         if (freshUrl && !candidateUrls.includes(freshUrl)) {
@@ -265,27 +273,87 @@ export async function POST(req: NextRequest) {
               method: "POST",
               headers: { "Content-Type": "application/json", apikey: freshCfg.apiKey || EVO_KEY },
               body: JSON.stringify({ number: to, text }),
-              signal: AbortSignal.timeout(12000),
+              signal: AbortSignal.timeout(textTimeoutMs),
             });
+            lastStatus = res.status;
             const resData = await res.json().catch(() => ({}));
             if (res.ok) {
               msgId = resData?.key?.id || resData?.messageId || null;
               sendSuccess = true;
+            } else {
+              lastError = new Error(`evolution ${res.status}: ${JSON.stringify(resData)}`);
             }
           } catch (e) {
             lastError = e;
           }
         }
       }
-
-      if (!sendSuccess) {
-        throw lastError || new Error("No se pudo entregar el mensaje de texto a través de Evolution API");
-      }
     }
 
-    // WhatsApp confirmó la entrega. Ahora sí guardar en la BD con el ID real.
-    if (msgId && case_id && entry) {
-      const finalEntry = { ...entry, messageId: msgId, fromMe: true };
+    // Si falló por túnel/red/timeout (no rechazo 400 de WhatsApp), encolar en outbox local y persistir en BD
+    if (!sendSuccess) {
+      const canQueue = Boolean(case_id) && lastStatus !== 400;
+      if (canQueue) {
+        const queuedId = generateQueuedMessageId();
+        if (entry) {
+          const queuedEntry: Record<string, any> = {
+            ...entry,
+            messageId: queuedId,
+            queued: true,
+            fromMe: true,
+          };
+          if (targetQuotedId) {
+            queuedEntry.replyTo = {
+              ...(queuedEntry.replyTo || {}),
+              messageId: targetQuotedId,
+              content: targetQuotedText || queuedEntry.replyTo?.content || "",
+              fromMe: targetQuotedFromMe,
+              author: entry?.replyTo?.author || (targetQuotedFromMe ? "Soporte Sekunet" : "Cliente"),
+            };
+          }
+          const { error: appendErr } = await supabase.rpc("sek_append_hist", {
+            p_case_id: String(case_id),
+            p_entry: queuedEntry as any,
+            p_col: "histtecnico",
+            p_preview: (text || fileName || "").slice(0, 200),
+          });
+          if (appendErr) {
+            console.error("[evo-send] Error guardando mensaje encolado en BD:", appendErr);
+          }
+        }
+
+        const enqueued = await enqueueWaOutbox(supabase, {
+          id: queuedId,
+          case_id: String(case_id),
+          to,
+          ...(text ? { text } : {}),
+          ...(mediaUrl ? { mediaUrl } : {}),
+          ...(resolvedMediaType ? { mediaType: resolvedMediaType } : {}),
+          ...(fileName ? { fileName } : {}),
+          ...(quoted ? { quoted } : {}),
+          ...(!entry && text ? { matchContent: text } : {}),
+          created_at: new Date().toISOString(),
+          status: "pending",
+          attempts: 0,
+          last_error: lastError?.message || `status_${lastStatus}`,
+        });
+
+        if (enqueued) {
+          console.warn(`[evo-send] Túnel/Evolution no disponible (${lastError?.message || lastStatus}). Mensaje encolado en outbox: ${queuedId}`);
+          return NextResponse.json({ ok: true, queued: true, messageId: queuedId });
+        }
+      }
+
+      throw lastError || new Error("No se pudo entregar el mensaje a través de Evolution API");
+    }
+
+    // WhatsApp confirmó la entrega. Guardar en la BD (incluso si Evolution no devolvió messageId).
+    if (case_id && entry) {
+      const finalEntry: Record<string, any> = {
+        ...entry,
+        ...(msgId ? { messageId: msgId } : {}),
+        fromMe: true,
+      };
       if (targetQuotedId) {
         finalEntry.replyTo = {
           ...(finalEntry.replyTo || {}),

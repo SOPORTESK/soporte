@@ -117,31 +117,48 @@ async function syncGarantiaToSoporte(rec) {
   }
 }
 
+let pollBackoffMs = 120000;
+let pollTimer = null;
+let lastPollOfflineLogAt = 0;
+
 /**
- * Escaneo periódico de cambios recientes como respaldo de seguridad
+ * Escaneo periódico de cambios recientes como respaldo de seguridad (con backoff si está offline)
  */
 async function pollRecentChanges() {
+  let ok = false;
   try {
-    const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+    const twoMinutesAgo = new Date(Date.now() - Math.max(2 * 60 * 1000, pollBackoffMs + 30000)).toISOString();
     const { data: recs, error } = await gClient
       .from('garantias')
-      .select('*')
+      .select('id, ticket, nombre, numero_serie, serie, marca, falla, descripcion, boleta, estatus, dev, fecha_modificacion, fecha_creacion')
       .or(`fecha_modificacion.gte.${twoMinutesAgo},fecha_creacion.gte.${twoMinutesAgo}`)
       .limit(50);
 
     if (error) {
-      console.warn('[Sync Garantías Poll] Error al consultar cambios recientes:', error.message);
-      return;
-    }
-
-    if (recs && recs.length > 0) {
-      for (const r of recs) {
-        await syncGarantiaToSoporte(r);
+      const now = Date.now();
+      if (now - lastPollOfflineLogAt > 300000) {
+        lastPollOfflineLogAt = now;
+        console.warn('[Sync Garantías Poll] Error al consultar cambios recientes:', error.message);
+      }
+    } else {
+      ok = true;
+      if (recs && recs.length > 0) {
+        for (const r of recs) {
+          await syncGarantiaToSoporte(r);
+        }
       }
     }
   } catch (e) {
-    console.warn('[Sync Garantías Poll] Error en ciclo:', e.message);
+    const now = Date.now();
+    if (now - lastPollOfflineLogAt > 300000) {
+      lastPollOfflineLogAt = now;
+      console.warn('[Sync Garantías Poll] Error en ciclo:', e.message);
+    }
   }
+
+  pollBackoffMs = ok ? 120000 : Math.min(pollBackoffMs * 2, 600000);
+  if (pollTimer) clearTimeout(pollTimer);
+  pollTimer = setTimeout(pollRecentChanges, pollBackoffMs);
 }
 
 /**
@@ -166,10 +183,11 @@ function initGarantiasSyncEngine() {
         console.log(`[Sync Garantías Realtime] Estado canal: ${status}`);
       });
 
-    // 2. Polling periódico de seguridad cada 2 minutos (Realtime atiende cambios al instante)
-    setInterval(pollRecentChanges, 120000);
+    // 2. Polling periódico adaptativo (2m normal, backoff hasta 10m si está offline)
+    if (pollTimer) clearTimeout(pollTimer);
+    pollTimer = setTimeout(pollRecentChanges, 120000);
 
-    console.log('[Sync Garantías] Motor autónomo de sincronización iniciado (Realtime + Polling 2m).');
+    console.log('[Sync Garantías] Motor autónomo de sincronización iniciado (Realtime + Polling adaptativo).');
   } catch (e) {
     console.error('[Sync Garantías] Fallo al inicializar motor:', e.message);
   }

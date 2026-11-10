@@ -104,6 +104,22 @@ export default async function AdminDashboardPage() {
           supabase.from("sek_agent_config").select("system_prompt, ia_activa, modo_no_atendido").eq("email", "system_prompt@sekunet.com").maybeSingle(),
         ]);
 
+        const summaryError =
+          agentesRes.error ||
+          casosRes.error ||
+          resueltosRes.error ||
+          abiertosRes.error ||
+          escaladosRes.error ||
+          iaRes.error ||
+          canalesRes.error ||
+          docChunksRes.error ||
+          inventarioRes.error ||
+          recientesRes.error ||
+          allAgentesRes.error;
+        if (summaryError) {
+          return { data: null, error: summaryError };
+        }
+
         return {
           data: {
             totalAgentes: agentesRes.count,
@@ -144,6 +160,7 @@ export default async function AdminDashboardPage() {
         const loaded: any[] = [];
         let pageOffset = 0;
         const PAGE_SIZE = 1000;
+        let fetchError: any = null;
         while (true) {
           const { data, error } = await supabase
             .from("sek_cases")
@@ -152,11 +169,16 @@ export default async function AdminDashboardPage() {
             .neq("es_test", true)
             .order("created_at", { ascending: false })
             .range(pageOffset, pageOffset + PAGE_SIZE - 1);
-          if (error || !data || data.length === 0) break;
+          if (error) {
+            fetchError = error;
+            break;
+          }
+          if (!data || data.length === 0) break;
           loaded.push(...data);
           if (data.length < PAGE_SIZE) break;
           pageOffset += PAGE_SIZE;
         }
+        if (fetchError) return { data: null, error: fetchError };
         return { data: loaded, error: null };
       },
       [],

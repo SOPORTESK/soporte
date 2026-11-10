@@ -15,22 +15,28 @@ const RETENTION_HOURS = 24;
 
 let cachedAccessToken = null;
 let tokenExpiresAt = 0;
+let loggedDriveConfigWarning = false;
 
 async function getAccessToken(force = false) {
   if (!force && cachedAccessToken && Date.now() < tokenExpiresAt - 60000) {
     return cachedAccessToken;
   }
 
-  const { data: config } = await supabase
+  const { data: config, error: cfgErr } = await supabase
     .from("sek_drive_config")
     .select("refresh_token")
     .eq("id", 1)
     .single();
 
+  if (cfgErr && cfgErr.message && cfgErr.message.includes("fetch failed")) {
+    throw new Error("OFFLINE_SKIP");
+  }
+
   const refreshToken = config?.refresh_token || process.env.GOOGLE_DRIVE_REFRESH_TOKEN;
   if (!refreshToken) {
-    throw new Error("No hay refresh_token de Google Drive configurado en sek_drive_config.");
+    throw new Error("NO_REFRESH_TOKEN");
   }
+  loggedDriveConfigWarning = false;
 
   const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
@@ -130,6 +136,16 @@ async function runDriveCleanup() {
       console.log(`[DriveCleanup] Ciclo completado. Se eliminaron ${deletedCount} archivos expirados.`);
     }
   } catch (err) {
+    if (err.message === "NO_REFRESH_TOKEN") {
+      if (!loggedDriveConfigWarning) {
+        loggedDriveConfigWarning = true;
+        console.log("[DriveCleanup] Google Drive sin refresh_token configurado; limpieza omitida.");
+      }
+      return;
+    }
+    if (err.message === "OFFLINE_SKIP" || String(err.message || "").includes("fetch failed")) {
+      return;
+    }
     console.error("[DriveCleanup] Error en ciclo de limpieza:", err.message);
   }
 }

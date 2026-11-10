@@ -49,6 +49,7 @@ export default async function AdminEquipoPage() {
         const loaded: any[] = [];
         let pageOffset = 0;
         const PAGE_SIZE = 1000;
+        let fetchError: any = null;
         while (true) {
           const { data, error } = await supabase
             .from("sek_cases")
@@ -57,11 +58,16 @@ export default async function AdminEquipoPage() {
             .neq("es_test", true)
             .order("created_at", { ascending: false })
             .range(pageOffset, pageOffset + PAGE_SIZE - 1);
-          if (error || !data || data.length === 0) break;
+          if (error) {
+            fetchError = error;
+            break;
+          }
+          if (!data || data.length === 0) break;
           loaded.push(...data);
           if (data.length < PAGE_SIZE) break;
           pageOffset += PAGE_SIZE;
         }
+        if (fetchError) return { data: null, error: fetchError };
         return { data: loaded, error: null };
       },
       [],

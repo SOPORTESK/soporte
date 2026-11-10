@@ -81,8 +81,59 @@ function isOpenNowCR(): boolean {
   return crMin >= 450 && crMin < 1020; // 7:30 = 450, 17:00 = 1020
 }
 
+// Cachés en memoria con TTL corto (60s) para no re-consultar configuración estática en cada webhook
+const CONFIG_CACHE_TTL_MS = 60_000;
+let flowConfigCache: { settings?: { typingDelayMs?: number; betweenMessagesDelayMs?: number }; nodes: any[]; ts: number } | null = null;
+let modoNoAtendidoCache: { value: boolean; ts: number } | null = null;
+let afterHoursConfigCache: { enabled: boolean; message: string; ts: number } | null = null;
+
+async function getFlowConfigCached(supabase: any): Promise<{ settings?: { typingDelayMs?: number; betweenMessagesDelayMs?: number }; nodes: any[] }> {
+  if (flowConfigCache && Date.now() - flowConfigCache.ts < CONFIG_CACHE_TTL_MS) {
+    return { settings: flowConfigCache.settings, nodes: flowConfigCache.nodes };
+  }
+  try {
+    const { data: flowRow } = await supabase
+      .from("sek_flow_configs")
+      .select("flow_data")
+      .limit(1)
+      .single();
+    const res = {
+      settings: flowRow?.flow_data?.settings,
+      nodes: Array.isArray(flowRow?.flow_data?.nodes) ? flowRow.flow_data.nodes : [],
+      ts: Date.now(),
+    };
+    flowConfigCache = res;
+    return { settings: res.settings, nodes: res.nodes };
+  } catch (e: any) {
+    console.warn("[evo-webhook] No se pudieron cargar flow settings:", e?.message);
+    return flowConfigCache ? { settings: flowConfigCache.settings, nodes: flowConfigCache.nodes } : { nodes: [] };
+  }
+}
+
+async function getModoNoAtendidoCached(supabase: any): Promise<boolean> {
+  if (modoNoAtendidoCache && Date.now() - modoNoAtendidoCache.ts < CONFIG_CACHE_TTL_MS) {
+    return modoNoAtendidoCache.value;
+  }
+  try {
+    const { data: unattendedRow } = await supabase
+      .from("sek_agent_config")
+      .select("modo_no_atendido")
+      .eq("email", "system_prompt@sekunet.com")
+      .maybeSingle();
+    const val = unattendedRow?.modo_no_atendido ?? false;
+    modoNoAtendidoCache = { value: val, ts: Date.now() };
+    return val;
+  } catch (e: any) {
+    console.warn("[evo-webhook] No se pudo verificar modo_no_atendido:", e?.message);
+    return modoNoAtendidoCache?.value ?? false;
+  }
+}
+
 // El mensaje y activación de fuera de horario se gestionan desde sek_app_settings (after_hours_config)
 async function getFueraHorarioConfig(supabase: any): Promise<{ enabled: boolean; message: string }> {
+  if (afterHoursConfigCache && Date.now() - afterHoursConfigCache.ts < CONFIG_CACHE_TTL_MS) {
+    return { enabled: afterHoursConfigCache.enabled, message: afterHoursConfigCache.message };
+  }
   try {
     const { data: settingRow } = await supabase
       .from("sek_app_settings")
@@ -93,18 +144,25 @@ async function getFueraHorarioConfig(supabase: any): Promise<{ enabled: boolean;
     if (settingRow?.value) {
       const parsed = typeof settingRow.value === "string" ? JSON.parse(settingRow.value) : settingRow.value;
       if (parsed) {
-        return {
+        const res = {
           enabled: Boolean(parsed.enabled),
           message: parsed.message || MSG_HORARIO,
+          ts: Date.now(),
         };
+        afterHoursConfigCache = res;
+        return { enabled: res.enabled, message: res.message };
       }
     }
 
-    const { data: flowData } = await supabase.from("sek_flow_configs").select("flow_data").eq("activo", true).maybeSingle();
-    const node = flowData?.flow_data?.nodes?.find((n: any) => n.id === "fuera_horario");
-    return { enabled: false, message: node?.data?.message || MSG_HORARIO };
+    const flowCfg = await getFlowConfigCached(supabase);
+    const node = flowCfg.nodes?.find((n: any) => n.id === "fuera_horario");
+    const res = { enabled: false, message: node?.data?.message || MSG_HORARIO, ts: Date.now() };
+    afterHoursConfigCache = res;
+    return { enabled: res.enabled, message: res.message };
   } catch {
-    return { enabled: false, message: MSG_HORARIO };
+    return afterHoursConfigCache
+      ? { enabled: afterHoursConfigCache.enabled, message: afterHoursConfigCache.message }
+      : { enabled: false, message: MSG_HORARIO };
   }
 }
 
@@ -288,16 +346,53 @@ async function sendWhatsAppMessages(phone: string, reply: any | any[], evoCfg: a
   }
 }
 
+async function findCasesContainingMessageId(
+  supabase: any,
+  messageId: string,
+  cols: ("histtecnico" | "histcliente")[]
+): Promise<any[]> {
+  const selectCols = ["id", ...cols].join(", ");
+  const csFilter = JSON.stringify([{ messageId }]);
+  try {
+    const queries = cols.map((col) =>
+      supabase
+        .from("sek_cases")
+        .select(selectCols)
+        .contains(col, csFilter)
+        .not("estado", "in", '("cerrado","resuelto")')
+        .limit(3)
+    );
+    const results = await Promise.all(queries);
+    const hasError = results.some((r: any) => Boolean(r?.error));
+    if (!hasError) {
+      const seen = new Set<string>();
+      const combined: any[] = [];
+      for (const r of results) {
+        for (const row of r?.data || []) {
+          if (row?.id && !seen.has(String(row.id))) {
+            seen.add(String(row.id));
+            combined.push(row);
+          }
+        }
+      }
+      return combined;
+    }
+  } catch {}
+
+  const { data: fallbackCases } = await supabase
+    .from("sek_cases")
+    .select(selectCols)
+    .not("estado", "in", '("cerrado","resuelto")')
+    .order("updated_at", { ascending: false })
+    .limit(15);
+  return fallbackCases || [];
+}
+
 async function processIncomingReaction(supabase: any, targetMessageId: string, emoji: string | null, author: string) {
   console.log("[evo-webhook] Buscando mensaje para reacción en base de datos:", { targetMessageId, emoji, author });
-  
-  const { data: openCases } = await supabase
-    .from("sek_cases")
-    .select("id, histcliente, histtecnico")
-    .not("estado", "in", '("cerrado","resuelto")')
-    .limit(50);
 
-  if (!openCases) return false;
+  const openCases = await findCasesContainingMessageId(supabase, targetMessageId, ["histcliente", "histtecnico"]);
+  if (!openCases || openCases.length === 0) return false;
 
   for (const c of openCases) {
     let updated = false;
@@ -370,14 +465,9 @@ async function processIncomingReaction(supabase: any, targetMessageId: string, e
 // Procesar confirmación de lectura de mensajes
 async function processReadReceipt(supabase: any, messageId: string): Promise<boolean> {
   console.log("[evo-webhook] Procesando confirmación de lectura para mensaje:", messageId);
-  
-  const { data: openCases } = await supabase
-    .from("sek_cases")
-    .select("id, histcliente, histtecnico")
-    .not("estado", "in", '("cerrado","resuelto")')
-    .limit(50);
 
-  if (!openCases) return false;
+  const openCases = await findCasesContainingMessageId(supabase, messageId, ["histtecnico"]);
+  if (!openCases || openCases.length === 0) return false;
 
   const now = new Date().toISOString();
 
@@ -391,15 +481,15 @@ async function processReadReceipt(supabase: any, messageId: string): Promise<boo
         console.log("[evo-webhook] Mensaje ya estaba leído:", messageId);
         return true;
       }
-      
+
       const updatedHistory = [...histTecnico];
       updatedHistory[idxTecnico] = { ...updatedHistory[idxTecnico], read_at: now };
-      
+
       const { error } = await supabase
         .from("sek_cases")
         .update({ histtecnico: updatedHistory })
         .eq("id", c.id);
-      
+
       if (error) {
         console.error("[evo-webhook] Error actualizando read_at:", error);
         return false;
@@ -414,14 +504,8 @@ async function processReadReceipt(supabase: any, messageId: string): Promise<boo
 // Procesar revocación / eliminación de mensajes por parte del remitente (WhatsApp "Se eliminó este mensaje")
 async function processRevokedMessage(supabase: any, messageId: string): Promise<boolean> {
   console.log("[evo-webhook] Procesando revocación de mensaje:", messageId);
-  const { data: openCases } = await supabase
-    .from("sek_cases")
-    .select("id, histcliente, histtecnico")
-    .not("estado", "in", '("cerrado","resuelto")')
-    .order("created_at", { ascending: false })
-    .limit(50);
-
-  if (!openCases) return false;
+  const openCases = await findCasesContainingMessageId(supabase, messageId, ["histcliente", "histtecnico"]);
+  if (!openCases || openCases.length === 0) return false;
 
   for (const c of openCases) {
     let updated = false;
@@ -465,14 +549,8 @@ async function processRevokedMessage(supabase: any, messageId: string): Promise<
 async function processEditedMessage(supabase: any, messageId: string, newContent: string): Promise<boolean> {
   if (!messageId || !newContent) return false;
   console.log("[evo-webhook] Procesando edición in-place de mensaje:", { messageId, newContent });
-  const { data: openCases } = await supabase
-    .from("sek_cases")
-    .select("id, histcliente, histtecnico")
-    .not("estado", "in", '("cerrado","resuelto")')
-    .order("created_at", { ascending: false })
-    .limit(50);
-
-  if (!openCases) return false;
+  const openCases = await findCasesContainingMessageId(supabase, messageId, ["histcliente", "histtecnico"]);
+  if (!openCases || openCases.length === 0) return false;
 
   for (const c of openCases) {
     let updated = false;
@@ -1158,113 +1236,44 @@ async function claimWaCase(
   return { caseId: String(row.case_id), created: !!row.was_created };
 }
 
+const IGNORED_WEBHOOK_EVENTS = new Set([
+  "APPLICATION_STARTUP",
+  "QRCODE_UPDATED",
+  "CONNECTION_UPDATE",
+  "CHATS_SET",
+  "CHATS_UPSERT",
+  "CHATS_UPDATE",
+  "CHATS_DELETE",
+  "PRESENCE_UPDATE",
+  "CONTACTS_SET",
+  "CONTACTS_UPSERT",
+  "CONTACTS_UPDATE",
+  "GROUPS_UPSERT",
+  "GROUP_UPDATE",
+  "GROUP_PARTICIPANTS_UPDATE",
+  "NEW_JWT_TOKEN",
+  "LABELS_EDIT",
+  "LABELS_ASSOCIATION",
+  "CALL",
+  "SEND_MESSAGE",
+  "MESSAGES_SET",
+  "REMOVE_INSTANCE",
+  "LOGOUT_INSTANCE",
+]);
+
 export async function POST(req: NextRequest) {
-  console.log("[evo-webhook] === INICIO WEBHOOK ===");
-  const supabase = createServiceClient();
   let payload: any = null;
   try { payload = await req.json(); } catch { payload = null; }
-  console.log("[evo-webhook] Payload recibido, event:", payload?.event);
+  if (!payload) return NextResponse.json({ ok: true });
 
-  // LOG: si el mensaje tiene documentMessage, guardar el payload completo para debug
-  const _dbgMsg = payload?.data?.message || payload?.data?.messages?.[0]?.message || payload?.message;
-  if (_dbgMsg?.documentMessage) {
-    console.log("[evo-webhook] DOCUMENT MESSAGE DETECTADO - documentMessage keys:", Object.keys(_dbgMsg.documentMessage));
-    console.log("[evo-webhook] documentMessage.url:", _dbgMsg.documentMessage.url?.slice(0, 80));
-    console.log("[evo-webhook] documentMessage.mediaKey type:", typeof _dbgMsg.documentMessage.mediaKey);
-    console.log("[evo-webhook] documentMessage.fileName:", _dbgMsg.documentMessage.fileName);
-    console.log("[evo-webhook] documentMessage.mimetype:", _dbgMsg.documentMessage.mimetype);
+  const event = String(payload?.event || "").trim().replace(/\./g, "_").toUpperCase();
+
+  // Corte rápido ANTES de tocar Supabase o Evolution API para eventos ruidosos
+  if (event && IGNORED_WEBHOOK_EVENTS.has(event)) {
+    return NextResponse.json({ ok: true, skipped: event });
   }
 
-  console.log("[evo-webhook] Paso 1: getEvolutionConfig...");
-  const evoCfg = await getEvolutionConfig();
-  const EVO_URL = evoCfg.url;
-  const EVO_KEY = evoCfg.apiKey;
-  const EVO_INSTANCE = evoCfg.instance;
-  console.log("[evo-webhook] Paso 1 OK - Evo config:", { url: EVO_URL, instance: EVO_INSTANCE, keyPresente: !!EVO_KEY });
-
-  // Cargar settings del flow (delays configurables) y nodos para encuesta
-  let flowSettings: { typingDelayMs?: number; betweenMessagesDelayMs?: number } | undefined;
-  let flowNodes: any[] = [];
-  try {
-    const supabaseForFlow = createServiceClient();
-    const { data: flowRow } = await supabaseForFlow
-      .from("sek_flow_configs")
-      .select("flow_data")
-      .limit(1)
-      .single();
-    if (flowRow?.flow_data?.settings) {
-      flowSettings = flowRow.flow_data.settings;
-      console.log("[evo-webhook] Flow settings cargados:", flowSettings);
-    }
-    if (flowRow?.flow_data?.nodes) {
-      flowNodes = flowRow.flow_data.nodes;
-    }
-  } catch (e: any) {
-    console.warn("[evo-webhook] No se pudieron cargar flow settings:", e.message);
-  }
-
-  // ── Verificar Modo No Atendido (jerarquía máxima) ──
-  let modoNoAtendido = false;
-  try {
-    const { data: unattendedRow } = await supabase
-      .from("sek_agent_config")
-      .select("modo_no_atendido")
-      .eq("email", "system_prompt@sekunet.com")
-      .maybeSingle();
-    modoNoAtendido = unattendedRow?.modo_no_atendido ?? false;
-    console.log(`[evo-webhook] Modo No Atendido: ${modoNoAtendido ? "ON" : "OFF"}`);
-  } catch (e: any) {
-    console.warn("[evo-webhook] No se pudo verificar modo_no_atendido:", e.message);
-  }
-
-  console.log("[evo-webhook] Paso 2: extractText...");
-  let text = extractText(payload);
-  console.log("[evo-webhook] Paso 2 OK - text:", text?.slice(0, 50));
-
-  // DEBUG: si no hay texto, guardar payload crudo para diagnosticar videos/media que no se detectan
-  if (!text) {
-    try {
-      const msgObjDbg = get(payload, "data.messages.0.message") || get(payload, "data.message") || get(payload, "message");
-      const msgKeys = msgObjDbg ? Object.keys(msgObjDbg) : [];
-      const debugEntry = {
-        event: payload?.event,
-        time: new Date().toISOString(),
-        msgKeys,
-        dataKeys: payload?.data ? Object.keys(payload.data) : [],
-        hasKey: !!payload?.data?.key,
-        hasMessage: !!payload?.data?.message,
-        messageType: payload?.data?.messageType || payload?.data?.messages?.[0]?.messageType,
-      };
-      await supabase.from("sek_app_settings").upsert({
-        key: "debug_last_notext",
-        value: JSON.stringify(debugEntry),
-        updated_at: new Date().toISOString(),
-      });
-    } catch {}
-  }
-
-  console.log("[evo-webhook] Paso 3: extractJid...");
-  const jid = await extractJid(payload, EVO_URL, EVO_KEY, EVO_INSTANCE);
-  console.log("[evo-webhook] Paso 3 OK - jid:", jid);
-
-  // Ignorar mensajes de grupos de WhatsApp
-  if (jid && String(jid).endsWith("@g.us")) {
-    console.log(`[evo-webhook] Ignorando mensaje de grupo: ${jid}`);
-    return NextResponse.json({ ok: true, skipped: "group" });
-  }
-
-  console.log("[evo-webhook] Paso 4: jidToPhone...");
-  const phone = jidToPhone(jid);
-  console.log("[evo-webhook] Paso 4 OK - phone:", phone);
-
-  const msgObj = get(payload, "data.messages.0.message") || get(payload, "data.message") || get(payload, "message");
-  // Unwrap ephemeral/viewOnce wrappers to get the real media object
-  const unwrappedMsgObj = msgObj?.ephemeralMessage?.message || msgObj?.viewOnceMessage?.message || msgObj?.documentWithCaptionMessage?.message || msgObj;
-  const dupMediaUrl = msgObj?.imageMessage?.url || msgObj?.videoMessage?.url || msgObj?.ptvMessage?.url || unwrappedMsgObj?.videoMessage?.url || msgObj?.documentMessage?.url;
-
-  // messageId que WhatsApp asigna a cada mensaje. Se usa para deduplicar en vez
-  // de comparar el texto, que descartaba respuestas repetidas legítimas del
-  // cliente ("1", "si", "ok") dentro de la ventana de 30s.
+  // messageId único asignado por WhatsApp
   const keyId: string | null =
     get(payload, "data.key.id") || get(payload, "key.id") || get(payload, "data.messages.0.key.id") || get(payload, "data.message.key.id") || get(payload, "message.key.id") || null;
 
@@ -1274,23 +1283,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, skipped: "test_payload" });
   }
 
-  // Hora real de envío según WhatsApp. La UI ordena los mensajes por este campo,
-  // así que usar la hora de recepción hacía que el orden no coincidiera con el
-  // de la app de WhatsApp.
-  const msgTime = extractMessageTime(payload);
-
-  console.log("[evo-webhook] Paso 5: verificar duplicado...", { keyId, msgTime });
-  if (isDuplicateMessage(jid, text, dupMediaUrl, keyId)) {
-    console.log("[evo-webhook] Paso 5: DUPLICADO, saliendo");
-    return NextResponse.json({ ok: true, duplicate: true });
-  }
-  console.log("[evo-webhook] Paso 5 OK - no es duplicado");
-
-  if (!payload) return NextResponse.json({ ok: true });
-
-  const event = String(payload?.event || "").toUpperCase();
-
-  // 1. Interceptar eventos dedicados de Reacciones de Evolution (SEND_REACTION)
+  // 1. Interceptar eventos dedicados de Reacciones de Evolution (SEND_REACTION) sin cargar configs/extractJid
   if (event === "SEND_REACTION") {
     const reaction = payload?.data?.reaction || payload?.reaction;
     const key = payload?.data?.key || payload?.key;
@@ -1299,83 +1292,149 @@ export async function POST(req: NextRequest) {
     const sender = payload?.data?.key?.participant || payload?.data?.sender || payload?.sender;
     const author = jidToPhone(sender) || sender || "WhatsApp";
 
-    console.log("[evo-webhook] Recibido evento SEND_REACTION:", { targetMessageId, emoji, author });
     if (targetMessageId) {
+      const supabase = createServiceClient();
       await processIncomingReaction(supabase, targetMessageId, emoji, author);
     }
     return NextResponse.json({ ok: true });
   }
 
-  // 2. Interceptar eventos de actualización (MESSAGES_UPDATE) para reacciones Y confirmaciones de lectura
+  // 2. Interceptar actualizaciones (MESSAGES_UPDATE) antes de cualquier consulta:
+  //    solo interesan reacciones o lecturas reales (READ) de mensajes propios (fromMe).
+  //    Se excluye DELIVERY_ACK (causaba falsos leídos y cientos de queries extra).
   if (event === "MESSAGES_UPDATE") {
-    const updates = payload?.data;
-    if (Array.isArray(updates)) {
-      for (const item of updates) {
-        const reactions = item.update?.reactions;
-        const status = item.update?.status || item.status;
-        const targetMessageId = item.key?.id || item.messageId || item.keyId;
+    const updates = Array.isArray(payload?.data)
+      ? payload.data
+      : payload?.data
+        ? [payload.data]
+        : [];
+    const actionable = updates.filter((item: any) => {
+      const reactions = item?.update?.reactions;
+      const status = item?.update?.status || item?.status;
+      const targetMessageId = item?.key?.id || item?.messageId || item?.keyId;
+      const isFromMe = Boolean(item?.key?.fromMe || item?.fromMe);
+      return Boolean(
+        targetMessageId &&
+          ((Array.isArray(reactions) && reactions.length > 0) ||
+            (status === "READ" && isFromMe))
+      );
+    });
+    if (actionable.length === 0) {
+      return NextResponse.json({ ok: true, skipped: "noop_messages_update" });
+    }
+    const supabase = createServiceClient();
+    for (const item of actionable) {
+      const reactions = item.update?.reactions;
+      const status = item.update?.status || item.status;
+      const targetMessageId = item.key?.id || item.messageId || item.keyId;
 
-        // Procesar reacciones
-        if (Array.isArray(reactions) && targetMessageId) {
-          console.log("[evo-webhook] Recibido evento MESSAGES_UPDATE con reacciones:", { targetMessageId, count: reactions.length });
-          for (const r of reactions) {
-            const emoji = r.text;
-            const sender = r.key?.participant || r.key?.remoteJid;
-            const author = jidToPhone(sender) || sender || "WhatsApp";
-            await processIncomingReaction(supabase, targetMessageId, emoji, author);
-          }
+      if (Array.isArray(reactions) && targetMessageId) {
+        for (const r of reactions) {
+          const emoji = r.text;
+          const sender = r.key?.participant || r.key?.remoteJid;
+          const author = jidToPhone(sender) || sender || "WhatsApp";
+          await processIncomingReaction(supabase, targetMessageId, emoji, author);
         }
-
-        // Procesar confirmación de lectura (READ) o entrega (DELIVERY_ACK)
-        if (targetMessageId && (status === "READ" || status === "DELIVERY_ACK")) {
-          console.log("[evo-webhook] Recibido evento de lectura/entrega:", { targetMessageId, status, fromMe: item.key?.fromMe });
-          // Solo procesar si es un mensaje saliente (fromMe: true) - mensajes enviados por nosotros
-          if (item.key?.fromMe || item.fromMe) {
-            await processReadReceipt(supabase, targetMessageId);
-          }
-        }
+      }
+      if (targetMessageId && status === "READ" && (item.key?.fromMe || item.fromMe)) {
+        await processReadReceipt(supabase, targetMessageId);
       }
     }
     return NextResponse.json({ ok: true });
   }
 
-  // 3. Interceptar reacción incrustada en mensaje normal (MESSAGES_UPSERT)
+  // 2b. Interceptar revocaciones directas MESSAGES_DELETE si traen key/id
+  if (event === "MESSAGES_DELETE") {
+    const deletedId = payload?.data?.id || payload?.data?.key?.id || payload?.id || keyId;
+    if (deletedId) {
+      const supabase = createServiceClient();
+      await processRevokedMessage(supabase, String(deletedId));
+    }
+    return NextResponse.json({ ok: true });
+  }
+
+  // 3. Interceptar reacción o protocolMessage incrustado en UPSERT antes de getEvolutionConfig/extractJid
   const upsertMsgObj = get(payload, "data.messages.0.message") || get(payload, "data.message") || get(payload, "message");
   const reactionMsg = upsertMsgObj?.reactionMessage || payload?.data?.message?.reactionMessage || payload?.message?.reactionMessage;
-
   if (reactionMsg) {
+    if (keyId && isDuplicateMessage("wa", null, undefined, keyId)) {
+      return NextResponse.json({ ok: true, duplicate: true });
+    }
     const targetMessageId = reactionMsg.key?.id;
     const emoji = reactionMsg.text;
     const sender = payload?.data?.messages?.[0]?.key?.participant || payload?.data?.messages?.[0]?.key?.remoteJid;
     const author = jidToPhone(sender) || sender || "WhatsApp";
 
-    console.log("[evo-webhook] Recibido reactionMessage en UPSERT:", { targetMessageId, emoji, author });
     if (targetMessageId) {
+      const supabase = createServiceClient();
       await processIncomingReaction(supabase, targetMessageId, emoji, author);
     }
     return NextResponse.json({ ok: true });
   }
 
-  // 4. Interceptar mensaje editado o eliminado por el usuario (protocolMessage)
   const protocolMsg = upsertMsgObj?.protocolMessage || payload?.data?.message?.protocolMessage || payload?.message?.protocolMessage;
   if (protocolMsg) {
+    if (keyId && isDuplicateMessage("wa", null, undefined, keyId)) {
+      return NextResponse.json({ ok: true, duplicate: true });
+    }
     const targetMessageId = protocolMsg.key?.id || protocolMsg.keyId;
     const isEdit = protocolMsg.type === 14 || protocolMsg.type === "MESSAGE_EDIT" || !!protocolMsg.editedMessage;
-    console.log("[evo-webhook] Recibido protocolMessage:", { targetMessageId, type: protocolMsg.type, isEdit });
 
     if (isEdit && targetMessageId) {
       const edMsg = protocolMsg.editedMessage?.message || protocolMsg.editedMessage;
       const editedContent = edMsg?.conversation || edMsg?.extendedTextMessage?.text || "";
       if (editedContent) {
+        const supabase = createServiceClient();
         await processEditedMessage(supabase, targetMessageId, editedContent);
         return NextResponse.json({ ok: true, edited: true });
       }
     }
 
     if (targetMessageId && (protocolMsg.type === 0 || protocolMsg.type === "REVOKE" || !isEdit)) {
+      const supabase = createServiceClient();
       await processRevokedMessage(supabase, targetMessageId);
       return NextResponse.json({ ok: true, revoked: true });
     }
+  }
+
+  console.log("[evo-webhook] === INICIO WEBHOOK ===", event);
+  const supabase = createServiceClient();
+
+  const _dbgMsg = upsertMsgObj;
+  if (_dbgMsg?.documentMessage) {
+    console.log("[evo-webhook] DOCUMENT MESSAGE DETECTADO - fileName:", _dbgMsg.documentMessage.fileName, "mimetype:", _dbgMsg.documentMessage.mimetype);
+  }
+
+  const [evoCfg, flowCfg, modoNoAtendido] = await Promise.all([
+    getEvolutionConfig(),
+    getFlowConfigCached(supabase),
+    getModoNoAtendidoCached(supabase),
+  ]);
+  const EVO_URL = evoCfg.url;
+  const EVO_KEY = evoCfg.apiKey;
+  const EVO_INSTANCE = evoCfg.instance;
+  const flowSettings = flowCfg.settings;
+  const flowNodes = flowCfg.nodes;
+
+  let text = extractText(payload);
+
+  const jid = await extractJid(payload, EVO_URL, EVO_KEY, EVO_INSTANCE);
+
+  // Ignorar mensajes de grupos de WhatsApp
+  if (jid && String(jid).endsWith("@g.us")) {
+    return NextResponse.json({ ok: true, skipped: "group" });
+  }
+
+  const phone = jidToPhone(jid);
+
+  const msgObj = upsertMsgObj;
+  const unwrappedMsgObj = msgObj?.ephemeralMessage?.message || msgObj?.viewOnceMessage?.message || msgObj?.documentWithCaptionMessage?.message || msgObj;
+  const dupMediaUrl = msgObj?.imageMessage?.url || msgObj?.videoMessage?.url || msgObj?.ptvMessage?.url || unwrappedMsgObj?.videoMessage?.url || msgObj?.documentMessage?.url;
+
+  const msgTime = extractMessageTime(payload);
+
+  if (isDuplicateMessage(jid, text, dupMediaUrl, keyId)) {
+    return NextResponse.json({ ok: true, duplicate: true });
   }
 
   // Detectar si es un mensaje propio (fromMe=true, enviado desde WhatsApp Web/Móvil o por la app/IA)
@@ -1872,52 +1931,20 @@ export async function POST(req: NextRequest) {
     ? { role: "tecnico", time: msgTime, content: text || "", author: "Soporte Sekunet", mediaUrl, mediaType: finalMediaType, fileName, messageId: keyId, fromMe: true, ...(replyTo ? { replyTo } : {}) } as any
     : { role: "user", time: msgTime, content: text || "", mediaUrl, mediaType: finalMediaType, fileName, messageId: keyId, fromMe: false, ...(replyTo ? { replyTo } : {}) } as any;
 
-  console.log("[evo-webhook] Paso 6: buscando casos activos recientes...");
+  console.log("[evo-webhook] Paso 6: buscando casos activos recientes (sin historiales)...");
   try {
     const ACTIVE_STATES_LIST = ["ia_atendiendo", "pendiente", "escalado", "abierto", "calificacion_pendiente"];
     const { data: openCases } = await supabase
       .from("sek_cases")
-      .select("id, histcliente, histtecnico, estado, customer_phone, cliente, title, created_at, updated_at, last_message_at, accepted_at, escalado_at, tags, assigned_to, marca, modelo, problema")
+      .select("id, estado, customer_phone, cliente, title, created_at, updated_at, last_message_at, accepted_at, escalado_at, tags, assigned_to, marca, modelo, problema")
       .eq("canal", "whatsapp")
       .in("estado", ACTIVE_STATES_LIST)
       .order("updated_at", { ascending: false })
       .limit(200);
     console.log("[evo-webhook] Paso 6 OK - casos activos encontrados:", openCases?.length || 0);
 
-    // Si la cita tenía un messageId / stanzaId, enriquecer con el texto real del mensaje previo en la BD
-    try {
-      if (quotedStanzaId && openCases && Array.isArray(openCases)) {
-        for (const oc of openCases) {
-          const allMsgs = [...(Array.isArray(oc.histtecnico) ? oc.histtecnico : []), ...(Array.isArray(oc.histcliente) ? oc.histcliente : [])];
-          const found = allMsgs.find((m: any) => m && m.messageId === quotedStanzaId);
-          if (found) {
-            const authorResolved = found.author || (found.role === "tecnico" || found.fromMe ? "Soporte Sekunet" : "Cliente");
-            const textResolved = (found.content && !found.content.startsWith("[Procesando") && !found.content.startsWith("[Archivo"))
-              ? found.content
-              : (found.fileName ? `📎 ${found.fileName}` : (found.mediaType ? `[${found.mediaType}]` : "Mensaje"));
-
-            if (!replyTo) {
-              replyTo = { content: textResolved.slice(0, 200), author: authorResolved, messageId: quotedStanzaId, fromMe: found.fromMe ?? false };
-            } else {
-              replyTo.author = authorResolved;
-              if (!replyTo.content || replyTo.content.startsWith("📷") || replyTo.content.startsWith("🎵") || replyTo.content.startsWith("📹") || replyTo.content === "Mensaje") {
-                replyTo.content = textResolved.slice(0, 200);
-              }
-            }
-            if (entry) {
-              entry.replyTo = replyTo;
-            }
-            console.log("[evo-webhook] Cita vinculada con mensaje previo en BD:", { quotedStanzaId, author: authorResolved, text: textResolved.slice(0, 40) });
-            break;
-          }
-        }
-      }
-    } catch (err: any) {
-      console.warn("[evo-webhook] Error enriqueciendo cita con historial:", err?.message);
-    }
-
     let existing = null;
-    let reopenClosedCase = false;
+    const reopenClosedCase = false;
     if (openCases) {
       const matchesPhone = (c: any) => {
         if (c.customer_phone === jid) return true;
@@ -1956,7 +1983,60 @@ export async function POST(req: NextRequest) {
       //    Solo un humano puede reabrir un caso cerrado (desde la UI).
       //    La re-apertura automatica causaba: historial viejo confundiendo a la IA,
       //    datos corruptos persistiendo, y la IA sin saludar al continuar el flujo.
+    }
 
+    // Si la cita tenía un messageId / stanzaId, enriquecer consultando SOLO el caso relevante
+    try {
+      if (quotedStanzaId) {
+        let candidateRows: any[] = [];
+        if (existing?.id) {
+          const { data: exHist } = await supabase
+            .from("sek_cases")
+            .select("id, histtecnico, histcliente")
+            .eq("id", existing.id)
+            .maybeSingle();
+          if (exHist) candidateRows = [exHist];
+        }
+
+        const resolveFromRows = (rows: any[]) => {
+          for (const oc of rows) {
+            const allMsgs = [
+              ...(Array.isArray(oc.histtecnico) ? oc.histtecnico : []),
+              ...(Array.isArray(oc.histcliente) ? oc.histcliente : []),
+            ];
+            const found = allMsgs.find((m: any) => m && m.messageId === quotedStanzaId);
+            if (found) {
+              const authorResolved = found.author || (found.role === "tecnico" || found.fromMe ? "Soporte Sekunet" : "Cliente");
+              const textResolved = (found.content && !found.content.startsWith("[Procesando") && !found.content.startsWith("[Archivo"))
+                ? found.content
+                : (found.fileName ? `📎 ${found.fileName}` : (found.mediaType ? `[${found.mediaType}]` : "Mensaje"));
+
+              if (!replyTo) {
+                replyTo = { content: textResolved.slice(0, 200), author: authorResolved, messageId: quotedStanzaId, fromMe: found.fromMe ?? false };
+              } else {
+                replyTo.author = authorResolved;
+                if (!replyTo.content || replyTo.content.startsWith("📷") || replyTo.content.startsWith("🎵") || replyTo.content.startsWith("📹") || replyTo.content === "Mensaje") {
+                  replyTo.content = textResolved.slice(0, 200);
+                }
+              }
+              if (entry) {
+                entry.replyTo = replyTo;
+              }
+              console.log("[evo-webhook] Cita vinculada con mensaje previo en BD:", { quotedStanzaId, author: authorResolved, text: textResolved.slice(0, 40) });
+              return true;
+            }
+          }
+          return false;
+        };
+
+        let resolvedQuote = resolveFromRows(candidateRows);
+        if (!resolvedQuote) {
+          const matchedRows = await findCasesContainingMessageId(supabase, quotedStanzaId, ["histtecnico", "histcliente"]);
+          resolvedQuote = resolveFromRows(matchedRows);
+        }
+      }
+    } catch (err: any) {
+      console.warn("[evo-webhook] Error enriqueciendo cita con historial:", err?.message);
     }
     console.log("[evo-webhook] Paso 7: caso existente:", existing ? existing.id : "ninguno");
 

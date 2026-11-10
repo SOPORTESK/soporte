@@ -80,7 +80,7 @@ export const DEFAULT_GROUPS: PermissionGroup[] = [
   },
 ];
 
-import { cacheGetFresh, cacheSet, cacheDelete, cacheDeletePrefix } from "@/lib/supabase/cache";
+import { cacheGet, cacheGetFresh, cacheSet, cacheDelete, cacheDeletePrefix } from "@/lib/supabase/cache";
 
 export function invalidatePermissionsCache(): void {
   cacheDelete("app_permission_groups");
@@ -138,8 +138,12 @@ export async function getActiveGroups(): Promise<PermissionGroup[]> {
     }
   } catch (e) {
     console.error("Error loading permission groups:", e);
+    const stale = cacheGet("app_permission_groups");
+    if (stale) return stale;
+    return DEFAULT_GROUPS;
   }
-  cacheSet("app_permission_groups", DEFAULT_GROUPS);
+  const staleFallback = cacheGet("app_permission_groups");
+  if (staleFallback) return staleFallback;
   return DEFAULT_GROUPS;
 }
 

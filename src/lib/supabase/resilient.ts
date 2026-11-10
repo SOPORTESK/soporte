@@ -130,7 +130,8 @@ export async function queryWithFallback<T>(
   cacheKey: string,
   queryFn: () => PromiseLike<{ data: T | null; error: any }>,
   fallback: T,
-  freshTtlMs?: number
+  freshTtlMs?: number,
+  timeoutMs: number = DATA_TIMEOUT_MS
 ): Promise<{ data: T; error: string | null; fromCache: boolean }> {
   // 0. Si hay caché reciente y aún dentro de su TTL, devolver de inmediato (0ms)
   if (freshTtlMs && freshTtlMs > 0) {
@@ -163,12 +164,22 @@ export async function queryWithFallback<T>(
 
   // 1. Intentar Supabase con timeout (solo en el primer arranque en frío sin caché)
   try {
+    const pendingQuery = Promise.resolve().then(() => queryFn());
+    // Si la query termina después de un timeout en frío, igualmente poblar la caché para la siguiente carga
+    pendingQuery
+      .then((lateRes) => {
+        if (lateRes && !lateRes.error && lateRes.data !== null && lateRes.data !== undefined) {
+          cacheSet(cacheKey, lateRes.data);
+        }
+      })
+      .catch(() => {});
+
     const result = await Promise.race([
-      queryFn(),
+      pendingQuery,
       new Promise<{ data: null; error: { message: string } }>((resolve) =>
         setTimeout(
           () => resolve({ data: null, error: { message: "timeout" } }),
-          DATA_TIMEOUT_MS
+          timeoutMs
         )
       ),
     ]);

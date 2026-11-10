@@ -22,6 +22,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { subscribeCasesRealtime } from "@/lib/cases-realtime-bus";
 import { StatsExportButton } from "@/components/admin/stats-export-button";
 import { ClientProfilePanel, type PerfilClienteDTO } from "@/components/admin/client-profile-panel";
 import { EquiposTable } from "@/components/admin/equipos-table";
@@ -115,34 +116,41 @@ export function AnalyticsClientView(props: AnalyticsClientViewProps) {
     });
   };
 
-  // 1. Supabase Realtime subscription en sek_cases
+  // 1. Supabase Realtime compartida en sek_cases (con debounce de 8s para evitar ráfagas)
   useEffect(() => {
     const supabase = createClient();
-    const channel = supabase
-      .channel("sek_cases_analytics_realtime")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "sek_cases" },
-        () => {
-          refreshData();
-        }
-      )
-      .subscribe((status) => {
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const debouncedRefresh = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        refreshData();
+      }, 8000);
+    };
+
+    const unsubscribe = subscribeCasesRealtime(
+      supabase,
+      () => {
+        debouncedRefresh();
+      },
+      (status) => {
         if (status === "SUBSCRIBED") {
           setRealtimeStatus("connected");
         } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
           setRealtimeStatus("disconnected");
         }
-      });
+      }
+    );
 
-    // 2. Auto-polling preventivo cada 90 segundos (con pausa en pestaña oculta; Realtime actualiza al instante)
+    // 2. Auto-polling preventivo cada 5 min (con pausa en pestaña oculta; Realtime actualiza vía bus compartido)
     const interval = setInterval(() => {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       refreshData();
-    }, 90000);
+    }, 300000);
 
     return () => {
-      supabase.removeChannel(channel);
+      if (debounceTimer) clearTimeout(debounceTimer);
+      unsubscribe();
       clearInterval(interval);
     };
   }, []);

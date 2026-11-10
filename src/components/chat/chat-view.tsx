@@ -12,6 +12,7 @@ import {
   FileArchive, FileCode, FileSpreadsheet, Eye, ShieldCheck, Cpu, Plus, Ticket, Briefcase
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { subscribeCasesRealtime } from "@/lib/cases-realtime-bus";
 import { logActivity } from "@/lib/activity-client";
 import { Avatar, Badge } from "@/components/ui/avatar";
 import { Textarea } from "@/components/ui/input";
@@ -80,7 +81,7 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
       content: asText(e.content),
       time: toTime(e),
       authorName: isAgente ? (asText(e.author) || "Soporte Sekunet") : undefined,
-      status: "sent",
+      status: (e as any).queued ? "pending" : "sent",
       read_at: e.read_at as string | undefined,
       mediaUrl: e.mediaUrl as string | undefined,
       mediaType: e.mediaType as string | undefined,
@@ -110,7 +111,7 @@ function unifyMessages(c: SekCase): UnifiedMessage[] {
       content: asText(e.content),
       time: toTime(e),
       authorName: asText(e.author) || undefined,
-      status: "sent",
+      status: (e as any).queued ? "pending" : "sent",
       read_at: e.read_at as string | undefined,
       mediaUrl: e.mediaUrl as string | undefined,
       mediaType: e.mediaType as string | undefined,
@@ -1171,12 +1172,12 @@ export function ChatView({
     };
 
 
-    const channel = supabase
-      .channel(`case-${targetId}`)
-      .on("postgres_changes", {
-        event: "UPDATE", schema: "public", table: "sek_cases",
-        filter: `id=eq.${targetId}`
-      }, async (payload) => {
+    const unsubscribeCaseBus = subscribeCasesRealtime(
+      supabase,
+      async (payload) => {
+        if (payload.eventType !== "UPDATE") return;
+        const rowId = String((payload.new as any)?.id || (payload.old as any)?.id || "");
+        if (rowId !== String(targetId)) return;
 
         // Para chats agrupados, recargar solo los casos activos del grupo
         const groupIds = initialCaseRef.current._group?.openCaseIds?.length
@@ -1230,15 +1231,16 @@ export function ChatView({
         if (!hasNewMessages) {
           doPoll(true);
         }
-      })
-      .subscribe((status, err) => {
+      },
+      (status) => {
+        if (!mounted) return;
         if (status === "SUBSCRIBED") {
           doPoll(false);
         } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
           doPoll(false);
-          setTimeout(() => { if (mounted) { try { channel.subscribe(); } catch {} } }, 1000);
         }
-      });
+      }
+    );
 
     /* Presence para indicador de escritura — mismo canal que widget */
     const presenceCh = supabase.channel(`wgt-typing-${targetId}`, { config: { presence: { key: "agent" } } })
@@ -1288,7 +1290,7 @@ export function ChatView({
       clearInterval(poll);
       document.removeEventListener("visibilitychange", handleVisibility);
       window.removeEventListener("focus", handleVisibility);
-      supabase.removeChannel(channel);
+      unsubscribeCaseBus();
       supabase.removeChannel(presenceCh);
     };
   }, [targetId, supabase, isGrouped]);
@@ -1337,7 +1339,7 @@ export function ChatView({
     prevEstadoRef.current = curr;
   }, [sekCase.estado, targetId, sekCase.assigned_to, agentEmail]);
 
-  async function send(overrideContent?: string, mediaUrl?: string, mediaType?: string, fileName?: string, skipWhatsApp?: boolean, externalMessageId?: string | null) {
+  async function send(overrideContent?: string, mediaUrl?: string, mediaType?: string, fileName?: string, skipWhatsApp?: boolean, externalMessageId?: string | null, externalQueued?: boolean) {
     const body = (overrideContent ?? draft).trim();
     if ((!body && !mediaUrl) || sendingRef.current || !agentEmail) return;
     sendingRef.current = true;
@@ -1350,6 +1352,7 @@ export function ChatView({
       content: body || (fileName ?? "Archivo adjunto"),
       author: agentName || agentEmail,
       ...(externalMessageId ? { messageId: externalMessageId, fromMe: true } : {}),
+      ...(externalQueued ? { queued: true } : {}),
       ...(mediaUrl ? { mediaUrl, mediaType, fileName } : {}),
       ...(replyTo && !isNota ? {
         replyTo: {
@@ -1456,13 +1459,17 @@ export function ChatView({
           toast.error("No se entregó a WhatsApp", { description: data.error || "Evolution API falló" });
           return;
         }
-        // WhatsApp confirmó. Marcar como enviado de inmediato y recargar historial sin fallar si hay hipo de red.
-        setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...m, status: "sent", ...(data?.messageId ? { messageId: data.messageId } : {}) } : m));
+        // WhatsApp confirmó o quedó en cola de envío local. Actualizar estado visual y recargar historial.
+        const wasQueued = Boolean(data?.queued);
+        setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...m, status: wasQueued ? "pending" : "sent", ...(data?.messageId ? { messageId: data.messageId } : {}) } : m));
+        if (wasQueued) {
+          toast.info("Mensaje en cola de entrega WhatsApp", { description: "Se entregará automáticamente al restablecer conexión local." });
+        }
         try {
           const reloaded = await reloadCaseFromDb(sekCase, targetId);
           if (reloaded) setSekCase(reloaded);
         } catch (reloadErr) {
-          console.warn("[send] Mensaje entregado pero falló recarga secundaria:", reloadErr);
+          console.warn("[send] Mensaje procesado pero falló recarga secundaria:", reloadErr);
         }
       } else {
         // FLUJO NO-WHATSAPP (notas, widget, o archivo ya enviado por send-base64): guardar en BD directamente.
@@ -1487,6 +1494,7 @@ export function ChatView({
               mediaType: entry.mediaType || currHist[dupIdx].mediaType,
               fileName: entry.fileName || currHist[dupIdx].fileName,
               messageId: externalMessageId || currHist[dupIdx].messageId,
+              ...(externalQueued ? { queued: true } : { queued: false }),
               fromMe: true,
             };
             await supabase.from("sek_cases").update({ histtecnico: currHist }).eq("id", targetId);
@@ -1504,7 +1512,7 @@ export function ChatView({
         }
         const reloaded = await reloadCaseFromDb(sekCase, targetId);
         if (reloaded) setSekCase(reloaded);
-        setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...m, status: "sent" } : m));
+        setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...m, status: externalQueued ? "pending" : "sent" } : m));
       }
     } catch (e: any) {
       toast.error("No se pudo enviar", { description: (e as any)?.message });
@@ -1547,8 +1555,9 @@ export function ChatView({
         setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, status: "error" } : m));
         toast.error("No se entregó a WhatsApp", { description: data.error || "Evolution API falló" });
       } else {
-        setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, status: "sent", ...(data?.messageId ? { messageId: data.messageId } : {}) } : m));
-        toast.success("Mensaje enviado");
+        const wasQueued = Boolean(data?.queued);
+        setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, status: wasQueued ? "pending" : "sent", ...(data?.messageId ? { messageId: data.messageId } : {}) } : m));
+        toast.success(wasQueued ? "Mensaje en cola de envío WhatsApp" : "Mensaje enviado");
       }
     } catch (err) {
       console.error("Retry send failed:", err);
@@ -1781,6 +1790,7 @@ export function ChatView({
       // Registrar en histtecnico PRIMERO (para que persistMessageId lo encuentre)
       await send(driveMsg, undefined, undefined, undefined, true);
 
+      let wasQueued = false;
       if (isWhatsApp) {
         // Enviar el mensaje con el enlace por WhatsApp
         const sendRes = await fetch("/api/evolution/send", {
@@ -1795,9 +1805,15 @@ export function ChatView({
           const d = await sendRes.json().catch(() => ({}));
           throw new Error(d.error || `Error enviando a WhatsApp ${sendRes.status}`);
         }
+        const d = await sendRes.json().catch(() => ({}));
+        wasQueued = Boolean(d?.queued);
       }
 
-      toast.success("Archivo subido a Google Drive y enlace compartido con el cliente");
+      toast.success(
+        wasQueued
+          ? "Archivo subido a Google Drive y enlace en cola de entrega WhatsApp"
+          : "Archivo subido a Google Drive y enlace compartido con el cliente"
+      );
     } catch (err: any) {
       console.error("[uploadToDriveAndSend] Error:", err);
       toast.error("Error al subir archivo a Google Drive", { description: err?.message });
@@ -1876,6 +1892,7 @@ export function ChatView({
           payload = {
             case_id: caseIdStr,
             base64,
+            mediaUrl: pubUrl,
             mimeType: file.type || "application/octet-stream",
             fileName: file.name,
             quotedMessageId: replyTo?.messageId || undefined,
@@ -1912,10 +1929,11 @@ export function ChatView({
           return;
         }
 
-        // Envío exitoso directo por WhatsApp
+        // Envío exitoso directo por WhatsApp o encolado para entrega local
         const sendData = await res.json().catch(() => ({}));
-        await send("", pubUrl, file.type, file.name, true, sendData?.messageId || null);
-        toast.success("Archivo enviado directamente a WhatsApp");
+        const fileQueued = Boolean(sendData?.queued);
+        await send("", pubUrl, file.type, file.name, true, sendData?.messageId || null, fileQueued);
+        toast.success(fileQueued ? "Archivo en cola de entrega WhatsApp" : "Archivo enviado directamente a WhatsApp");
       } else {
         // Canales Web / Widget (Anti-antivirus / firewall proxy first)
         const ext = file.name.split(".").pop();
@@ -2567,11 +2585,19 @@ export function ChatView({
             toast.error("No se entregó la bienvenida a WhatsApp", { description: d.error || `Error ${res.status}` });
           } else {
             const sentData = await res.json().catch(() => ({}));
+            const sentMsgId = sentData?.messageId || sentData?.id || null;
+            const wasQueued = Boolean(sentData?.queued);
             const persistedEntry = {
               ...welcomeEntry,
               fromMe: true,
-              ...(sentData?.id ? { messageId: sentData.id } : {}),
+              ...(sentMsgId ? { messageId: sentMsgId } : {}),
+              ...(wasQueued ? { queued: true } : {}),
             };
+            if (wasQueued) {
+              toast.info("Bienvenida en cola de entrega WhatsApp", {
+                description: "Se entregará automáticamente al restablecer conexión local.",
+              });
+            }
             caseHistoryCache.delete(cacheKey);
             caseHistoryCache.delete(String(targetId));
             setSekCase(prev => {
@@ -5028,8 +5054,10 @@ function Bubble({ m, prev, next, clienteName, onImageClick, onHikvisionInspect, 
         )}>
           <span suppressHydrationWarning title={formatFullTime(m.time)}>{formatTime(m.time)}</span>
           {m.edited && <span className="italic opacity-60">· editado</span>}
-            {isTecnico && m.status === "pending" && (
-            <svg className="h-3.5 w-3.5 opacity-50" viewBox="0 0 16 16" fill="currentColor"><path d="M13.5 4L6.5 11 3 7.5" stroke="currentColor" strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          {isTecnico && m.status === "pending" && (
+            <span title="En cola de entrega (se enviará automáticamente)" className="inline-flex">
+              <svg className="h-3.5 w-3.5 opacity-50" viewBox="0 0 16 16" fill="currentColor"><path d="M13.5 4L6.5 11 3 7.5" stroke="currentColor" strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            </span>
           )}
           {isTecnico && m.status === "sent" && !m.read_at && (
             <span className="inline-flex opacity-70">

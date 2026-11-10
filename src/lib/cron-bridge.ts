@@ -39,7 +39,9 @@ async function refreshDriveTokenDaily() {
       console.warn("[drive-keepalive] No se pudo refrescar el token de Google Drive:", errText.substring(0, 200));
     }
   } catch (e: any) {
-    console.warn("[drive-keepalive] Error:", e.message);
+    if (!String(e?.message || "").includes("fetch failed")) {
+      console.warn("[drive-keepalive] Error:", e.message);
+    }
   }
 }
 
@@ -75,7 +77,8 @@ export function startLocalCronJobs() {
     cleanExpiredDriveFiles().catch(() => {});
   }, 10000);
 
-  // Ejecutar cada 15 segundos
+  // Ejecutar cada 2 minutos (120s) con silencio ante caídas de red temporales
+  let lastBridgeErrLogAt = 0;
   setInterval(async () => {
     if (running) return;
     running = true;
@@ -92,7 +95,7 @@ export function startLocalCronJobs() {
       const supabase = createServiceClient();
       
       // Consultar solo casos de whatsapp ABIERTOS con actividad en los últimos 15 minutos
-      // Esto evita descargar 50 historiales completos cada pocos segundos (ahorra ~2.5 GB/mes de Egress)
+      // Esto evita descargar historiales completos innecesariamente (ahorra Egress)
       const recentCutoff = new Date(Date.now() - 15 * 60 * 1000).toISOString();
       const { data: cases, error } = await supabase
         .from("sek_cases")
@@ -176,11 +179,15 @@ export function startLocalCronJobs() {
         }
       }
     } catch (e: any) {
-      console.error("[local-cron-bridge] Error general en loop de bridge:", e.message);
+      const now = Date.now();
+      if (now - lastBridgeErrLogAt > 300_000) {
+        lastBridgeErrLogAt = now;
+        console.error("[local-cron-bridge] Error general en loop de bridge:", e.message);
+      }
     } finally {
       running = false;
     }
-  }, 45000);
+  }, 120000);
 
   // Cleanup de activity_log >60 días, 1 vez al día
   let lastCleanup = 0;

@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { subscribeCasesRealtime } from "@/lib/cases-realtime-bus";
 import { AlertTriangle } from "lucide-react";
 import type { SekCase } from "@/lib/types";
 
@@ -17,6 +18,7 @@ export function EscalatedCasesBanner() {
 
   React.useEffect(() => {
     const fetchEscalated = async () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       const { data, error } = await supabase
         .from("sek_cases")
         .select("id")
@@ -42,18 +44,11 @@ export function EscalatedCasesBanner() {
       debounceTimer = setTimeout(fetchEscalated, 2000);
     };
 
-    const channel = supabase
-      .channel("escalated-cases-banner")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "sek_cases" },
-        debouncedFetch
-      )
-      .subscribe();
+    const unsubscribe = subscribeCasesRealtime(supabase, debouncedFetch);
 
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer);
-      supabase.removeChannel(channel);
+      unsubscribe();
     };
   }, [supabase]);
 

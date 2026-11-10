@@ -74,10 +74,11 @@ export function DataIntegrityBanner() {
 
   useEffect(() => {
     fetchReport();
-    // Revalidación silenciosa cada 10 minutos
+    // Revalidación silenciosa cada 30 minutos (solo si la pestaña está visible)
     const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       fetchReport();
-    }, 10 * 60 * 1000);
+    }, 30 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
 

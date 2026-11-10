@@ -116,7 +116,7 @@ async function checkCases(checks: IntegrityCheck[]) {
   while (true) {
     const { data, error } = await sb
       .from("sek_cases")
-      .select("id, assigned_to, created_at, updated_at, closed_at, accepted_at, estado, cliente, histcliente, histtecnico")
+      .select("id, assigned_to, created_at, updated_at, closed_at, accepted_at, estado, cliente")
       .neq("canal", "simulator")
       .neq("es_test", true)
       .order("created_at", { ascending: false })
@@ -172,6 +172,33 @@ async function checkCases(checks: IntegrityCheck[]) {
 
   const monthCases = rows.filter((c) => toCRDateStr(c.created_at).startsWith(currentYM));
   const prevMonthCases = rows.filter((c) => toCRDateStr(c.created_at).startsWith(prevYM));
+
+  // Hidratar histcliente y histtecnico SOLO para los casos del mes actual (necesario para getAgenteEmail / getMinutosResolucionAudit)
+  if (monthCases.length > 0) {
+    const histMap = new Map<string, { histcliente: any[]; histtecnico: any[] }>();
+    const monthIds = monthCases.map((c) => c.id);
+    for (let i = 0; i < monthIds.length; i += 200) {
+      const chunk = monthIds.slice(i, i + 200);
+      const { data: histRows, error: histErr } = await sb
+        .from("sek_cases")
+        .select("id, histcliente, histtecnico")
+        .in("id", chunk);
+      if (histErr) throw new Error(`lectura de historiales del mes: ${histErr.message}`);
+      for (const hr of histRows || []) {
+        histMap.set(String(hr.id), {
+          histcliente: Array.isArray(hr.histcliente) ? hr.histcliente : [],
+          histtecnico: Array.isArray(hr.histtecnico) ? hr.histtecnico : [],
+        });
+      }
+    }
+    for (const c of monthCases) {
+      const h = histMap.get(String(c.id));
+      if (h) {
+        c.histcliente = h.histcliente;
+        c.histtecnico = h.histtecnico;
+      }
+    }
+  }
 
   // 1. Casos del período por fecha de creación contra KPI Total Casos
   const uniqueIds = new Set(rows.map((r) => r.id)).size;
@@ -306,6 +333,7 @@ async function checkActivity(checks: IntegrityCheck[]) {
   const sb = createServiceClient();
   const now = new Date();
   const days = [crDate(now), crDate(new Date(now.getTime() - 86_400_000))];
+  const trackerRowsByDay = new Map<string, Awaited<ReturnType<typeof getActivityTimeline>>>();
 
   let totalDbCount = 0;
   let totalTrackerCount = 0;
@@ -326,8 +354,9 @@ async function checkActivity(checks: IntegrityCheck[]) {
 
     if (countErr) throw new Error(`conteo de activity_log (${day}): ${countErr.message}`);
 
-    // 2. Registros leídos por las analíticas del Tracker
+    // 2. Registros leídos por las analíticas del Tracker (cacheados para reutilizar en la auditoría)
     const trackerRows = await getActivityTimeline(undefined, day);
+    trackerRowsByDay.set(day, trackerRows);
     const expectedDayCount = dbDayCount ?? 0;
 
     totalDbCount += expectedDayCount;
@@ -411,11 +440,11 @@ async function checkActivity(checks: IntegrityCheck[]) {
         : `${duplicates} registros repetidos (mismo agente, acción e instante).`,
   });
 
-  // 5. Sanidad de Horas Extras y límites de jornada
+  // 5. Sanidad de Horas Extras y límites de jornada (reutilizando trackerRowsByDay)
   let anomalousOvertimeCount = 0;
   const overtimeDetails: string[] = [];
   for (const day of days) {
-    const trackerRows = await getActivityTimeline(undefined, day);
+    const trackerRows = trackerRowsByDay.get(day) || [];
     const byAgent = new Map<string, typeof trackerRows>();
     for (const r of trackerRows) {
       const email = (r.agent_email || "").toLowerCase().trim();

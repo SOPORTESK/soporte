@@ -2,6 +2,7 @@
 import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { subscribeCasesRealtime } from "@/lib/cases-realtime-bus";
 import type { SekCase, SekHistEntry } from "@/lib/types";
 import { ConversationList } from "./conversation-list";
 import { ChatView } from "./chat-view";
@@ -661,10 +662,9 @@ export function InboxClient({
   React.useEffect(() => {
     let isMounted = true;
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-    const channel = supabase
-      .channel("cases-list")
-      .on("postgres_changes", { event: "*", schema: "public", table: "sek_cases" },
-        (payload) => {
+    const unsubscribeCasesBus = subscribeCasesRealtime(
+      supabase,
+      (payload) => {
           // Ignorar updates triviales donde no cambiaron metadatos de lista
           if (payload.eventType === "UPDATE") {
             const upd = payload.new as any;
@@ -876,19 +876,14 @@ export function InboxClient({
               return nextAll;
             });
           }, 150);
-        }
-      )
-      .subscribe((status) => {
+      },
+      (status) => {
         if (!isMounted) return;
         if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-          console.warn(`[inbox] canal realtime ${status}, reintentando en 5s...`);
-          setTimeout(() => {
-            if (isMounted) {
-              try { channel.subscribe(); } catch {}
-            }
-          }, 5000);
+          console.warn(`[inbox] canal realtime ${status}, reconectando automáticamente...`);
         }
-      });
+      }
+    );
 
     /* Refetch silencioso: reutilizado por polling y por focus/visibility */
     let lastRefetch = Date.now();
@@ -998,7 +993,7 @@ export function InboxClient({
       window.removeEventListener("sek-case-updated", handleCaseUpdated);
       window.removeEventListener("sek-open-case", handleDirectOpenCase);
       try {
-        supabase.removeChannel(channel);
+        unsubscribeCasesBus();
       } catch {}
     };
   }, [supabase, containerType, agentEmail, agentName, selectCase]);

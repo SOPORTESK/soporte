@@ -42,47 +42,87 @@ async function sendWhatsApp(phone, text) {
   return null;
 }
 
-async function runAutoClose() {
-  try {
-    // 1. Leer configuración oficial desde sek_app_settings
-    const { data: settingsRows } = await supabase
-      .from("sek_app_settings")
-      .select("key, value")
-      .in("key", ["auto_close_config", "daily_close_config", "evolution_api_config"]);
+const SETTINGS_TTL_MS = 180_000;
+let settingsCache = null;
+let offlineUntilMs = 0;
+let offlineBackoffMs = 15_000;
+let lastOfflineLogAt = 0;
+const evalSkipCache = new Map();
 
-    let config = {
-      enabled: false,
-      inactivity_minutes: 20,
-      close_message: "Al no haber recibido respuesta, procederemos a cerrar esta conversación. Si necesita asistencia adicional, puede contactarnos nuevamente y con gusto le atenderemos. ¡Que tenga un excelente día!"
-    };
+function recordOffline(label, errMsg) {
+  const now = Date.now();
+  offlineUntilMs = now + offlineBackoffMs;
+  if (now - lastOfflineLogAt > 300_000) {
+    lastOfflineLogAt = now;
+    console.warn(`[auto-close] ${label} offline (${errMsg || "network"}), reintento con backoff (${Math.round(offlineBackoffMs / 1000)}s).`);
+  }
+  offlineBackoffMs = Math.min(offlineBackoffMs * 2, 180_000);
+}
 
-    let dailyClose = {
-      enabled: false,
-      close_time: "17:15",
-      message: "Estimado cliente, nuestra jornada de atención ha finalizado por hoy. Procedemos al cierre de esta sesión."
-    };
+function resetOffline() {
+  offlineUntilMs = 0;
+  offlineBackoffMs = 15_000;
+}
 
-    if (settingsRows && settingsRows.length > 0) {
-      for (const row of settingsRows) {
-        if (!row.value) continue;
-        try {
-          const parsed = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
-          if (row.key === "auto_close_config" && parsed) {
-            config.enabled = Boolean(parsed.enabled);
-            config.inactivity_minutes = Number(parsed.inactivity_minutes) || 20;
-            config.close_message = parsed.close_message || config.close_message;
-          } else if (row.key === "daily_close_config" && parsed) {
-            dailyClose.enabled = Boolean(parsed.enabled);
-            dailyClose.close_time = parsed.close_time || "17:15";
-            dailyClose.message = parsed.message || dailyClose.message;
-          } else if (row.key === "evolution_api_config" && parsed) {
-            if (parsed.url && !String(parsed.url).includes("onrender.com")) EVO_URL = String(parsed.url).trim();
-            if (parsed.apiKey) EVO_KEY = String(parsed.apiKey).trim();
-            if (parsed.instance) EVO_INSTANCE = String(parsed.instance).trim();
-          }
-        } catch {}
-      }
+async function getAutoCloseSettings() {
+  if (settingsCache && Date.now() - settingsCache.ts < SETTINGS_TTL_MS) {
+    return settingsCache;
+  }
+
+  const { data: settingsRows, error } = await supabase
+    .from("sek_app_settings")
+    .select("key, value")
+    .in("key", ["auto_close_config", "daily_close_config", "evolution_api_config"]);
+
+  if (error) {
+    throw new Error(error.message || "Error consultando settings");
+  }
+
+  const config = {
+    enabled: false,
+    inactivity_minutes: 20,
+    close_message: "Al no haber recibido respuesta, procederemos a cerrar esta conversación. Si necesita asistencia adicional, puede contactarnos nuevamente y con gusto le atenderemos. ¡Que tenga un excelente día!"
+  };
+
+  const dailyClose = {
+    enabled: false,
+    close_time: "17:15",
+    message: "Estimado cliente, nuestra jornada de atención ha finalizado por hoy. Procedemos al cierre de esta sesión."
+  };
+
+  if (settingsRows && settingsRows.length > 0) {
+    for (const row of settingsRows) {
+      if (!row.value) continue;
+      try {
+        const parsed = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
+        if (row.key === "auto_close_config" && parsed) {
+          config.enabled = Boolean(parsed.enabled);
+          config.inactivity_minutes = Number(parsed.inactivity_minutes) || 20;
+          config.close_message = parsed.close_message || config.close_message;
+        } else if (row.key === "daily_close_config" && parsed) {
+          dailyClose.enabled = Boolean(parsed.enabled);
+          dailyClose.close_time = parsed.close_time || "17:15";
+          dailyClose.message = parsed.message || dailyClose.message;
+        } else if (row.key === "evolution_api_config" && parsed) {
+          if (parsed.url && !String(parsed.url).includes("onrender.com")) EVO_URL = String(parsed.url).trim();
+          if (parsed.apiKey) EVO_KEY = String(parsed.apiKey).trim();
+          if (parsed.instance) EVO_INSTANCE = String(parsed.instance).trim();
+        }
+      } catch {}
     }
+  }
+
+  settingsCache = { config, dailyClose, ts: Date.now() };
+  return settingsCache;
+}
+
+async function runAutoClose() {
+  if (Date.now() < offlineUntilMs) return;
+
+  try {
+    // 1. Leer configuración oficial desde sek_app_settings (cacheada 3 min para minimizar egresos)
+    const { config, dailyClose } = await getAutoCloseSettings();
+    resetOffline();
 
     // Si ambas funciones están desactivadas en el panel de gestión, no hacer nada
     if (!config.enabled && !dailyClose.enabled) return;
@@ -117,28 +157,36 @@ async function runAutoClose() {
     // Fin de jornada del día actual: únicamente cuando ya llegó/pasó la hora de corte (17:15) en día entre semana
     const isAfterDailyCutoff = !isWeekend && currentCrMin >= dcMin;
 
+    // 2. Primero consultar ÚNICAMENTE metadatos escalares (sin histcliente/histtecnico)
     const { data: casos, error } = await supabase
       .from("sek_cases")
-      .select("id, canal, estado, histcliente, histtecnico, created_at, last_message_at, accepted_at, updated_at, assigned_to, customer_phone, cliente, auto_close_paused, tags")
+      .select("id, canal, estado, created_at, last_message_at, accepted_at, updated_at, assigned_to, customer_phone, cliente, auto_close_paused, tags")
       .in("estado", ["abierto", "ia_atendiendo"])
       .neq("canal", "simulator")
       .neq("es_test", true)
       .limit(50);
 
-    if (error || !casos || casos.length === 0) return;
+    if (error) {
+      recordOffline("Consulta sek_cases", error.message);
+      return;
+    }
+    resetOffline();
+    if (!casos || casos.length === 0) return;
 
     const now = Date.now();
     const thresholdMs = config.inactivity_minutes * 60 * 1000;
 
+    // Filtrar qué casos realmente requieren descargar histcliente/histtecnico
+    const prepared = [];
+    const candidateIds = [];
+
     for (const caso of casos) {
-      const canalLower = String(caso.canal || "").toLowerCase().trim();
       const clienteObj = typeof caso.cliente === "object" ? caso.cliente : {};
       const realPhone = clienteObj?.telefono_real || clienteObj?.telefono || caso.customer_phone || "";
       const tags = Array.isArray(caso.tags) ? caso.tags : [];
       const isReopen = tags.some(t => String(t).toLowerCase() === "re-open");
       const isSaliente = tags.some(t => String(t).toLowerCase() === "saliente");
 
-      // Fecha del último mensaje del caso en hora de Costa Rica
       const lastMsgDate = new Date(caso.last_message_at || caso.created_at);
       const caseDateParts = new Intl.DateTimeFormat("en-US", {
         timeZone: "America/Costa_Rica",
@@ -149,9 +197,71 @@ async function runAutoClose() {
       const getCasePart = (type) => caseDateParts.find(p => p.type === type)?.value || "";
       const caseDayDateStr = `${getCasePart("year")}-${getCasePart("month")}-${getCasePart("day")}`;
       const isFromPreviousDay = caseDayDateStr < crTodayDateStr;
+      const shouldCloseByDayEnd = dailyClose.enabled && (isAfterDailyCutoff || isFromPreviousDay);
+
+      if (!shouldCloseByDayEnd) {
+        if (caso.auto_close_paused || isSaliente || !config.enabled) continue;
+
+        // Optimización egress: si last_message_at reciente ni siquiera se acerca al umbral, omitir descarga de historial
+        const lmMs = caso.last_message_at ? new Date(caso.last_message_at).getTime() : 0;
+        const accMs = caso.accepted_at ? new Date(caso.accepted_at).getTime() : 0;
+        const recentActivityMs = Math.max(isNaN(lmMs) ? 0 : lmMs, isNaN(accMs) ? 0 : accMs);
+        if (recentActivityMs > 0 && (now - recentActivityMs) < Math.max(0, thresholdMs - 60_000)) {
+          continue;
+        }
+
+        // Si el estado y updated_at no han cambiado desde que verificamos que el cliente está esperando al agente, omitir
+        const skipKey = `${caso.updated_at || ""}|${caso.last_message_at || ""}|${caso.estado}|${thresholdMs}|${isReopen}`;
+        const cachedSkip = evalSkipCache.get(String(caso.id));
+        if (cachedSkip && cachedSkip.key === skipKey && (now - cachedSkip.ts) < 15 * 60 * 1000) {
+          continue;
+        }
+      }
+
+      prepared.push({
+        caso,
+        realPhone,
+        isReopen,
+        isSaliente,
+        getCasePart,
+        isFromPreviousDay,
+        shouldCloseByDayEnd,
+      });
+      candidateIds.push(caso.id);
+    }
+
+    if (candidateIds.length === 0) return;
+
+    // 3. Descargar histcliente y histtecnico SOLO para los casos candidatos filtrados
+    const histMap = new Map();
+    const { data: histRows, error: histErr } = await supabase
+      .from("sek_cases")
+      .select("id, histcliente, histtecnico")
+      .in("id", candidateIds.slice(0, 30));
+
+    if (histErr) {
+      recordOffline("Consulta historiales", histErr.message);
+      return;
+    }
+    for (const hr of histRows || []) {
+      histMap.set(String(hr.id), hr);
+    }
+
+    // Limpiar entradas antiguas del caché en memoria
+    if (evalSkipCache.size > 200) {
+      for (const [k, v] of evalSkipCache) {
+        if (now - v.ts > 30 * 60 * 1000) evalSkipCache.delete(k);
+      }
+    }
+
+    for (const item of prepared) {
+      const histRow = histMap.get(String(item.caso.id));
+      if (!histRow) continue;
+      const caso = { ...item.caso, histcliente: histRow.histcliente, histtecnico: histRow.histtecnico };
+      const canalLower = String(caso.canal || "").toLowerCase().trim();
+      const { realPhone, isReopen, isSaliente, getCasePart, isFromPreviousDay, shouldCloseByDayEnd } = item;
 
       // 1. CIERRE POR FIN DE JORNADA (Solo al llegar a la hora de corte 17:15 o para casos rezagados de días anteriores)
-      const shouldCloseByDayEnd = dailyClose.enabled && (isAfterDailyCutoff || isFromPreviousDay);
       if (shouldCloseByDayEnd) {
         let effectiveClosedAt = new Date().toISOString();
         if (isFromPreviousDay) {
@@ -185,6 +295,7 @@ async function runAutoClose() {
           .select("id");
 
         if (updated && updated.length > 0) {
+          evalSkipCache.delete(String(caso.id));
           const reason = isFromPreviousDay ? "día anterior rezagado" : `fin de jornada (${dailyClose.close_time})`;
           console.log(`[auto-close] Caso ${caso.id} cerrado automáticamente por ${reason}.`);
           // Solo enviar mensaje de fin de jornada por WhatsApp cuando se cierra en la ventana real de fin de jornada del mismo día,
@@ -205,11 +316,16 @@ async function runAutoClose() {
       // 3. CIERRE POR INACTIVIDAD SEGÚN TIEMPO CONFIGURADO EN EL PANEL
       if (!config.enabled) continue;
 
+      const skipKey = `${caso.updated_at || ""}|${caso.last_message_at || ""}|${caso.estado}|${thresholdMs}|${isReopen}`;
+
       const clientMsgs = (caso.histcliente || []).filter(m => m?.time && m?.role === "user");
       const agentMsgs = (caso.histtecnico || []).filter(m => m?.time && m?.role !== "nota");
 
       // Si el agente nunca respondió, no cerrar por inactividad de cliente
-      if (agentMsgs.length === 0) continue;
+      if (agentMsgs.length === 0) {
+        evalSkipCache.set(String(caso.id), { key: skipKey, ts: now });
+        continue;
+      }
 
       // Unir y ordenar todos los mensajes conversacionales con el mismo criterio cronológico del chat (time + seq)
       const allMsgs = [
@@ -231,14 +347,23 @@ async function runAutoClose() {
       });
 
       const lastMsg = allMsgs[allMsgs.length - 1];
-      if (!lastMsg) continue;
+      if (!lastMsg) {
+        evalSkipCache.set(String(caso.id), { key: skipKey, ts: now });
+        continue;
+      }
 
       // Si el último mensaje fue del cliente, el cliente está esperando respuesta -> NO cerrar
-      if (lastMsg.isClient) continue;
+      if (lastMsg.isClient) {
+        evalSkipCache.set(String(caso.id), { key: skipKey, ts: now });
+        continue;
+      }
 
       // Debe haber al menos una respuesta del agente humano (no solo IA de bienvenida)
       const hasHumanAgent = agentMsgs.some(m => m.role === "tecnico" && m.author !== "Soporte Sekunet");
-      if (!hasHumanAgent && caso.estado !== "ia_atendiendo") continue;
+      if (!hasHumanAgent && caso.estado !== "ia_atendiendo") {
+        evalSkipCache.set(String(caso.id), { key: skipKey, ts: now });
+        continue;
+      }
 
       // Tiempo transcurrido desde el último mensaje del agente
       const lastAgentTime = new Date(lastMsg.time).getTime();
@@ -269,6 +394,7 @@ async function runAutoClose() {
             .select("id");
 
           if (updated && updated.length > 0) {
+            evalSkipCache.delete(String(caso.id));
             console.log(`[auto-close] Caso reabierto ${caso.id} cerrado por inactividad (${Math.round(elapsed / 60000)} min >= ${Math.round(reopenGraceMs / 60000)} min).`);
             if (canalLower === "whatsapp" && realPhone) {
               await sendWhatsApp(realPhone, msg);
@@ -302,6 +428,7 @@ async function runAutoClose() {
         .select("id");
 
       if (updated && updated.length > 0) {
+        evalSkipCache.delete(String(caso.id));
         console.log(`[auto-close] Caso ${caso.id} cerrado por inactividad (${Math.round(elapsed / 60000)} min >= ${config.inactivity_minutes} min). Mensaje de cierre enviado.`);
         if (canalLower === "whatsapp" && realPhone) {
           await sendWhatsApp(realPhone, msg);
@@ -311,7 +438,7 @@ async function runAutoClose() {
       }
     }
   } catch (err) {
-    console.error("[auto-close] Error en ciclo:", err.message);
+    recordOffline("Ciclo general", err?.message);
   }
 }
 

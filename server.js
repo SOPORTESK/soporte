@@ -18,14 +18,14 @@ app.prepare().then(() => {
     if (err) throw err;
     console.log('> Ready on http://localhost:3100 (Production)');
 
-    // Motor autónomo de auto-cierre del backend (revisa cada 30 segundos según configuración del panel)
+    // Motor autónomo de auto-cierre del backend (revisa cada 90 segundos con filtro escalar liviano)
     try {
       const { runAutoClose } = require('./scripts/auto-close-engine.cjs');
       runAutoClose().catch((e) => console.error('[AutoClose Backend] Error inicial:', e.message));
       setInterval(() => {
         runAutoClose().catch((e) => console.error('[AutoClose Backend] Error cíclico:', e.message));
-      }, 30000);
-      console.log('[AutoClose Backend] Motor de auto-cierre activo en server.js (intervalo 30s)');
+      }, 90000);
+      console.log('[AutoClose Backend] Motor de auto-cierre activo en server.js (intervalo 90s)');
     } catch (e) {
       console.error('[AutoClose Backend] Error cargando motor:', e.message);
     }

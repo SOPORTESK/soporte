@@ -137,7 +137,8 @@ function getMinutosResolucion(c: any): number | null {
     .filter(t => !isNaN(t) && t > 0);
 
   // Si hay mensajes técnicos previos al cierre, tomamos el último; de lo contrario closed_at
-  let tEnd = msgTimes.length > 0 ? Math.max(...msgTimes) : tClosed;
+  const maxMsgTime = msgTimes.reduce((mx, t) => (t > mx ? t : mx), 0);
+  let tEnd = msgTimes.length > 0 ? maxMsgTime : tClosed;
 
   // Tope al cierre original: nunca puede exceder la fecha de cierre registrada
   if (!isNaN(tClosed) && tEnd > tClosed) {
@@ -202,27 +203,52 @@ export default async function EstadisticasAtencionPage({
     queryWithFallback(
       "atencion_cases_meta_v2",
       async () => {
-        const loaded: any[] = [];
-        let pageOffset = 0;
         const PAGE_SIZE = 1000;
-        while (true) {
-          const { data, error } = await supabase
+        const cols = "id, assigned_to, created_at, updated_at, closed_at, estado, cliente, title, canal, cat, prioridad, accepted_at, escalado_at, tags, problema, es_test";
+        const [p1, p2] = await Promise.all([
+          supabase
             .from("sek_cases")
-            .select("id, assigned_to, created_at, updated_at, closed_at, estado, cliente, title, canal, cat, prioridad, accepted_at, escalado_at, tags, problema, es_test")
+            .select(cols)
             .neq("canal", "simulator")
             .neq("es_test", true)
             .order("created_at", { ascending: false })
-            .range(pageOffset, pageOffset + PAGE_SIZE - 1);
+            .range(0, PAGE_SIZE - 1),
+          supabase
+            .from("sek_cases")
+            .select(cols)
+            .neq("canal", "simulator")
+            .neq("es_test", true)
+            .order("created_at", { ascending: false })
+            .range(PAGE_SIZE, PAGE_SIZE * 2 - 1),
+        ]);
 
-          if (error || !data || data.length === 0) break;
-          loaded.push(...data);
-          if (data.length < PAGE_SIZE) break;
-          pageOffset += PAGE_SIZE;
+        if (p1.error) return { data: null, error: p1.error };
+        if (p2.error) return { data: null, error: p2.error };
+
+        const loaded: any[] = [...(p1.data || []), ...(p2.data || [])];
+        let pageOffset = PAGE_SIZE * 2;
+        if ((p2.data || []).length === PAGE_SIZE) {
+          while (true) {
+            const { data, error } = await supabase
+              .from("sek_cases")
+              .select(cols)
+              .neq("canal", "simulator")
+              .neq("es_test", true)
+              .order("created_at", { ascending: false })
+              .range(pageOffset, pageOffset + PAGE_SIZE - 1);
+
+            if (error) return { data: null, error };
+            if (!data || data.length === 0) break;
+            loaded.push(...data);
+            if (data.length < PAGE_SIZE) break;
+            pageOffset += PAGE_SIZE;
+          }
         }
         return { data: loaded, error: null };
       },
       [],
-      30000 // 30s fresh TTL + SWR instantáneo
+      30000, // 30s fresh TTL + SWR instantáneo
+      35000 // Timeout amplio en frío para descarga inicial ~1.7MB
     ),
     queryWithFallback(
       "atencion_agentes_config",
@@ -265,9 +291,12 @@ export default async function EstadisticasAtencionPage({
   const ayerCRStr = toCRDate(Date.now() - 86400000);
 
   // ── Filtros de fecha / período
-  const mesSeleccionado = searchParams.mes || "";
+  const rawMesParam = String(searchParams.mes || "").trim();
+  const isValidYM = (s: string) => /^\d{4}-(0[1-9]|1[0-2])$/.test(s);
+  const mesSeleccionado = rawMesParam === "all" || isValidYM(rawMesParam) ? rawMesParam : "";
   const rangoSeleccionado = searchParams.rango || "";
-  const diaSeleccionado = searchParams.dia || "";
+  const rawDiaParam = String(searchParams.dia || "").trim();
+  const diaSeleccionado = /^\d{4}-\d{2}-\d{2}$/.test(rawDiaParam) ? rawDiaParam : "";
 
   let filtroLabel = "Todo el historial";
 
@@ -286,6 +315,7 @@ export default async function EstadisticasAtencionPage({
     filtroLabel = `${MESES_NOMBRES[parseInt(m, 10) - 1] || m} ${y}`;
   }
 
+  const nowMs = Date.now();
   const rawCasosFiltrados = casos.filter(c => {
     if (!c.created_at) return false;
     const crDate = toCRDate(c.created_at);
@@ -305,11 +335,11 @@ export default async function EstadisticasAtencionPage({
     }
 
     if (rangoSeleccionado === "7d") {
-      return cTime >= Date.now() - 7 * 86400000;
+      return cTime >= nowMs - 7 * 86400000;
     }
 
     if (rangoSeleccionado === "30d") {
-      return cTime >= Date.now() - 30 * 86400000;
+      return cTime >= nowMs - 30 * 86400000;
     }
 
     if (mesSeleccionado && mesSeleccionado !== "all") {
@@ -319,9 +349,46 @@ export default async function EstadisticasAtencionPage({
     return true;
   });
 
-  // 2. Hidratar histtecnico y histcliente SOLO para los casos filtrados que no estén en caché en RAM
-  const missingIds: string[] = [];
+  // 2. Hidratar histtecnico y histcliente SOLO para los casos filtrados + ventana reciente de conteo de mensajes
+  // (Nunca descargar los 1,889 historiales completos desde 2024 en cada carga fría)
+  const tieneMesFiltroEarly = Boolean(mesSeleccionado && mesSeleccionado !== "all");
+  const mesActualYMEarly = isValidYM(tieneMesFiltroEarly ? mesSeleccionado : "")
+    ? mesSeleccionado
+    : (isValidYM(nowCRStr.slice(0, 7)) ? nowCRStr.slice(0, 7) : new Date().toISOString().slice(0, 7));
+  const [earlyY, earlyM] = mesActualYMEarly.split("-").map(Number);
+  const prevMonthEarly = new Date(Date.UTC(earlyY, earlyM - 2, 15));
+  const prevMonthYMEarly = `${prevMonthEarly.getUTCFullYear()}-${String(prevMonthEarly.getUTCMonth() + 1).padStart(2, "0")}`;
+  const prevMonthStartMs = Date.UTC(prevMonthEarly.getUTCFullYear(), prevMonthEarly.getUTCMonth(), 1, 6, 0, 0);
+  const thirtyFiveDaysAgoMs = nowMs - 35 * 86400000;
+  const minWindowHydrateMs = Math.min(thirtyFiveDaysAgoMs, prevMonthStartMs);
+
+  const hydrateIdSet = new Set<string>();
+  const hydrateList: any[] = [];
   for (const c of rawCasosFiltrados) {
+    const idStr = String(c.id);
+    if (!hydrateIdSet.has(idStr)) {
+      hydrateIdSet.add(idStr);
+      hydrateList.push(c);
+    }
+  }
+  for (const c of casos) {
+    const idStr = String(c.id);
+    if (hydrateIdSet.has(idStr)) continue;
+    const lastAct = c.updated_at || c.closed_at || c.created_at;
+    const lastMs = lastAct ? new Date(lastAct).getTime() : 0;
+    const crYM = c.created_at ? toCRDate(c.created_at).slice(0, 7) : "";
+    if (
+      (!isNaN(lastMs) && lastMs >= minWindowHydrateMs) ||
+      crYM === mesActualYMEarly ||
+      crYM === prevMonthYMEarly
+    ) {
+      hydrateIdSet.add(idStr);
+      hydrateList.push(c);
+    }
+  }
+
+  const missingIds: string[] = [];
+  for (const c of hydrateList) {
     const idStr = String(c.id);
     const cached = historyCache.get(idStr);
     const ver = String(c.updated_at || c.closed_at || c.created_at || "");
@@ -338,43 +405,12 @@ export default async function EstadisticasAtencionPage({
     }
     await Promise.all(
       chunks.map(async (idBatch) => {
-        const { data: rows } = await supabase
-          .from("sek_cases")
-          .select("id, updated_at, closed_at, created_at, histtecnico, histcliente")
-          .in("id", idBatch);
-        if (rows) {
-          for (const r of rows) {
-            const ver = String(r.updated_at || r.closed_at || r.created_at || "");
-            historyCache.set(String(r.id), {
-              updated_at: ver,
-              histtecnico: compactMsgList(r.histtecnico),
-              histcliente: compactMsgList(r.histcliente),
-            });
-          }
-        }
-      })
-    );
-  }
-
-  // Pre-calentar en segundo plano el resto del historial sin bloquear la respuesta actual
-  if (!globalForAtencion.__sekAtencionWarming && historyCache.size < casos.length) {
-    globalForAtencion.__sekAtencionWarming = true;
-    Promise.resolve().then(async () => {
-      try {
-        const bgMissing = casos
-          .filter((c) => {
-            const cached = historyCache.get(String(c.id));
-            const ver = String(c.updated_at || c.closed_at || c.created_at || "");
-            return !cached || cached.updated_at !== ver;
-          })
-          .map((c) => String(c.id));
-        for (let i = 0; i < bgMissing.length; i += 80) {
-          const batch = bgMissing.slice(i, i + 80);
-          const { data: rows } = await supabase
+        try {
+          const { data: rows, error } = await supabase
             .from("sek_cases")
             .select("id, updated_at, closed_at, created_at, histtecnico, histcliente")
-            .in("id", batch);
-          if (rows) {
+            .in("id", idBatch);
+          if (!error && rows) {
             for (const r of rows) {
               const ver = String(r.updated_at || r.closed_at || r.created_at || "");
               historyCache.set(String(r.id), {
@@ -384,11 +420,11 @@ export default async function EstadisticasAtencionPage({
               });
             }
           }
+        } catch (err) {
+          console.warn("[atencion] Error hidratando historial:", (err as Error)?.message);
         }
-      } catch {} finally {
-        globalForAtencion.__sekAtencionWarming = false;
-      }
-    });
+      })
+    );
   }
 
   const casosFiltrados = rawCasosFiltrados.map((c) => {
@@ -488,7 +524,7 @@ export default async function EstadisticasAtencionPage({
   // ── Modo mes y ventana de 7 días (alineados en zona horaria Costa Rica)
   const periodoModo = searchParams.periodo || "semana";
   const tieneMesFiltro = Boolean(mesSeleccionado && mesSeleccionado !== "all");
-  const mesActualYM = tieneMesFiltro ? mesSeleccionado : nowCRStr.slice(0, 7);
+  const mesActualYM = mesActualYMEarly;
   const [ymYear, ymMonth] = mesActualYM.split("-").map(Number);
   const prevMonthDate = new Date(Date.UTC(ymYear, ymMonth - 2, 15));
   const mesAnteriorYM = `${prevMonthDate.getUTCFullYear()}-${String(prevMonthDate.getUTCMonth() + 1).padStart(2, "0")}`;
@@ -499,19 +535,21 @@ export default async function EstadisticasAtencionPage({
   const tendenciaMes = casosMesAnterior > 0 ? Math.round(((casosMesActual - casosMesAnterior) / casosMesAnterior) * 100) : null;
 
   // Spark por día del mes actual (en fecha Costa Rica)
-  const diasEnMes = new Date(ymYear, ymMonth, 0).getDate();
+  const rawDiasEnMes = new Date(Date.UTC(ymYear, ymMonth, 0)).getUTCDate();
+  const diasEnMes = Number.isFinite(rawDiasEnMes) && rawDiasEnMes >= 28 && rawDiasEnMes <= 31 ? rawDiasEnMes : 30;
   const sparkMes: number[] = Array(diasEnMes).fill(0);
   casosMesActual_data.forEach(c => {
     const dayNum = parseInt(toCRDate(c.created_at).slice(8, 10), 10);
     if (dayNum >= 1 && dayNum <= diasEnMes) sparkMes[dayNum - 1]++;
   });
-  const sparkMaxMes = Math.max(...sparkMes, 1);
+  const sparkMaxMes = sparkMes.reduce((mx, v) => (v > mx ? v : mx), 1);
 
   // ── Últimos 7 días — volumen por día (dentro del período activo si hay filtro de mes)
   const isCurrentOrAllMonth = !tieneMesFiltro || mesActualYM === nowCRStr.slice(0, 7);
-  const refEndDateObj = isCurrentOrAllMonth
+  const rawRefEndDateObj = isCurrentOrAllMonth
     ? new Date(`${nowCRStr}T12:00:00Z`)
     : new Date(`${mesActualYM}-${String(diasEnMes).padStart(2, "0")}T12:00:00Z`);
+  const refEndDateObj = isNaN(rawRefEndDateObj.getTime()) ? new Date() : rawRefEndDateObj;
   const days7CR: string[] = [];
   const prev7CR: string[] = [];
   for (let i = 6; i >= 0; i--) {
@@ -527,7 +565,7 @@ export default async function EstadisticasAtencionPage({
   const spark7d: number[] = days7CR.map(dayStr =>
     sourceFor7d.filter(c => toCRDate(c.created_at) === dayStr).length
   );
-  const sparkMax7d = Math.max(...spark7d, 1);
+  const sparkMax7d = spark7d.reduce((mx, v) => (v > mx ? v : mx), 1);
   const casos7d = spark7d.reduce((a, b) => a + b, 0);
   const casosAntes7d = casos.filter(c => prev7Set.has(toCRDate(c.created_at))).length;
   const tendencia7d = casosAntes7d > 0 ? Math.round(((casos7d - casosAntes7d) / casosAntes7d) * 100) : null;
@@ -722,13 +760,15 @@ export default async function EstadisticasAtencionPage({
 
   // ── Ventana de medición, para convertir volumen en ritmo por día hábil.
   const mesInicioMs = tieneMesFiltro
-    ? new Date(mesSeleccionado + "-01T00:00:00-06:00").getTime() : 0;
+    ? Date.UTC(ymYear, ymMonth - 1, 1, 6, 0, 0) : 0;
   const mesFinMs = tieneMesFiltro
-    ? new Date(new Date(mesInicioMs).getUTCFullYear(), new Date(mesInicioMs).getUTCMonth() + 1, 1).getTime() : 0;
+    ? Date.UTC(ymYear, ymMonth, 1, 6, 0, 0) : 0;
   const ventanaFin = tieneMesFiltro ? Math.min(now.getTime(), mesFinMs) : now.getTime();
-  const ventanaInicio = tieneMesFiltro
-    ? mesInicioMs
-    : Math.min(...casosConAsig.map(c => new Date(c.created_at).getTime()).filter(t => !isNaN(t)), now.getTime());
+  const minCasoInicio = casosConAsig.reduce((mn, c) => {
+    const t = new Date(c.created_at).getTime();
+    return !isNaN(t) && t < mn ? t : mn;
+  }, now.getTime());
+  const ventanaInicio = tieneMesFiltro ? mesInicioMs : minCasoInicio;
 
   // ── Mediana de AHT del equipo y volumen máximo resuelto del equipo.
   const ahtsPorAgente = Object.values(statsPorAgente)
@@ -742,9 +782,12 @@ export default async function EstadisticasAtencionPage({
         : (ahtsPorAgente[ahtsPorAgente.length / 2 - 1] + ahtsPorAgente[ahtsPorAgente.length / 2]) / 2)
     : 0;
   const habilesVentana = Math.max(1, diasHabiles(ventanaInicio, ventanaFin));
-  const maxCasosEquipo = Math.max(
-    1,
-    ...Object.values(statsPorAgente).map(s => (s.resueltos > 0 ? s.resueltos : s.totalAtendidos))
+  const maxCasosEquipo = Object.values(statsPorAgente).reduce(
+    (mx, s) => {
+      const v = s.resueltos > 0 ? s.resueltos : s.totalAtendidos;
+      return v > mx ? v : mx;
+    },
+    1
   );
 
   const rankingAgentes = Object.values(statsPorAgente).map(s => {
@@ -840,10 +883,12 @@ export default async function EstadisticasAtencionPage({
     }
   }
   const avgConcurrentes = tiempoTotal > 0 ? (sumaPonderada / tiempoTotal).toFixed(1) : "0";
-  const maxConcurrentes = eventos.length > 0 ? Math.max(...eventos.reduce((acc, e, i) => {
-    if (i === 0) { acc.push(e.delta); return acc; }
-    acc.push(acc[acc.length - 1] + e.delta); return acc;
-  }, [] as number[])) : 0;
+  let maxConcurrentes = 0;
+  let runningConcurrentes = 0;
+  for (const ev of eventos) {
+    runningConcurrentes += ev.delta;
+    if (runningConcurrentes > maxConcurrentes) maxConcurrentes = runningConcurrentes;
+  }
 
   // ── Volumen promedio: diario, semanal y mensual (coherente con el universo de casos del período)
   const casos30d = tieneMesFiltro
@@ -1045,9 +1090,12 @@ export default async function EstadisticasAtencionPage({
   let msgs30dTotal = 0;
 
   casos.forEach(c => {
+    const cachedHist = historyCache.get(String(c.id));
+    const hc = cachedHist?.histcliente ?? c.histcliente;
+    const ht = cachedHist?.histtecnico ?? c.histtecnico;
     const todosMsgs = [
-      ...(Array.isArray(c.histcliente) ? c.histcliente : []),
-      ...(Array.isArray(c.histtecnico) ? c.histtecnico : []),
+      ...(Array.isArray(hc) ? hc : []),
+      ...(Array.isArray(ht) ? ht : []),
     ].filter((m: any) => m && !m.deleted && m.role !== "nota");
 
     todosMsgs.forEach((m: any) => {

@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { createClient } from "@/lib/supabase/client";
+import { subscribeCasesRealtime } from "@/lib/cases-realtime-bus";
 import { usePathname } from "next/navigation";
 
 export function N2Badge({ initialCount }: { initialCount: number }) {
@@ -20,9 +21,10 @@ export function N2Badge({ initialCount }: { initialCount: number }) {
     }
   }, [pathname]);
 
-  // Suscripción Realtime a cambios en sek_cases (con debounce)
+  // Suscripción Realtime compartida a cambios en sek_cases (con debounce)
   React.useEffect(() => {
     const fetchCount = async () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       const { count: c } = await supabase
         .from("sek_cases")
         .select("*", { count: "exact", head: true })
@@ -39,21 +41,14 @@ export function N2Badge({ initialCount }: { initialCount: number }) {
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     const debouncedFetch = () => {
       if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(fetchCount, 1500);
+      debounceTimer = setTimeout(fetchCount, 2000);
     };
 
-    const channel = supabase
-      .channel("n2-badge-watch")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "sek_cases" },
-        debouncedFetch
-      )
-      .subscribe();
+    const unsubscribe = subscribeCasesRealtime(supabase, debouncedFetch);
 
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer);
-      supabase.removeChannel(channel);
+      unsubscribe();
     };
   }, [supabase]);
 

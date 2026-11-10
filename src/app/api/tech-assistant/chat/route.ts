@@ -526,19 +526,13 @@ async function getFullKnowledgeAndCasesIndex(serviceClient: any): Promise<{
   const selectCols =
     "id, title, marca, modelo, problema, resolucion, assigned_to, closed_at, cliente, histcliente, histtecnico, es_test, calificacion";
 
-  const [batch1, batch2, agentsRes, chunksRes] = await Promise.all([
+  const [batch1, agentsRes, chunksRes] = await Promise.all([
     serviceClient
       .from("sek_cases")
       .select(selectCols)
       .in("estado", ["cerrado", "resuelto"])
       .order("closed_at", { ascending: false })
-      .range(0, 999),
-    serviceClient
-      .from("sek_cases")
-      .select(selectCols)
-      .in("estado", ["cerrado", "resuelto"])
-      .order("closed_at", { ascending: false })
-      .range(1000, 2499),
+      .limit(600),
     serviceClient.from("sek_agent_config").select("email, nombre, apellido"),
     serviceClient.from("sek_doc_chunks").select("id, doc_name, content").limit(500),
   ]);
@@ -553,7 +547,7 @@ async function getFullKnowledgeAndCasesIndex(serviceClient: any): Promise<{
     }
   }
 
-  const allClosedCases = [...(batch1.data || []), ...(batch2.data || [])];
+  const allClosedCases = [...(batch1.data || [])];
   const seenCaseIds = new Set<string>();
   const precedents: IndexedPrecedent[] = [];
 

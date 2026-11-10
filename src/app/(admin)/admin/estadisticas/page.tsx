@@ -18,6 +18,7 @@ export default async function EstadisticasClientePage() {
         const loadedCasos: any[] = [];
         let pageOffset = 0;
         const PAGE_SIZE = 1000;
+        let fetchError: any = null;
         while (true) {
           let { data, error } = await supabase
             .from("sek_cases")
@@ -26,17 +27,24 @@ export default async function EstadisticasClientePage() {
             .range(pageOffset, pageOffset + PAGE_SIZE - 1);
 
           if (error) {
-            const { data: fbData } = await supabase
+            const { data: fbData, error: fbError } = await supabase
               .from("sek_cases")
               .select("id, estado, cliente, customer_phone, created_at, updated_at, closed_at, canal, title, tags, prioridad, assigned_to")
               .order("created_at", { ascending: false })
               .range(pageOffset, pageOffset + PAGE_SIZE - 1);
+            if (fbError) {
+              fetchError = fbError;
+              break;
+            }
             data = fbData as any;
           }
           if (!data || data.length === 0) break;
           loadedCasos.push(...data);
           if (data.length < PAGE_SIZE) break;
           pageOffset += PAGE_SIZE;
+        }
+        if (fetchError) {
+          return { data: null, error: fetchError };
         }
         return { data: loadedCasos, error: null };
       },

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getEvolutionConfig } from "@/lib/evolution-config";
 import { pickPhone } from "@/lib/evolution-phone";
+import { enqueueWaOutbox, generateQueuedMessageId } from "@/lib/wa-outbox";
 
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
@@ -67,20 +68,25 @@ export async function POST(req: NextRequest) {
 
     let res: Response | null = null;
     let lastError: any = null;
+    let lastStatus = 0;
+    const startedAt = Date.now();
+    const isVercel = Boolean(process.env.VERCEL);
+    const reqTimeoutMs = isVercel ? 5500 : 18000;
 
-    const trySendToUrl = async (baseUrl: string, apiKey: string): Promise<Response | null> => {
+    const trySendToUrl = async (baseUrl: string, apiKey: string, preferUrl = false): Promise<Response | null> => {
       let evoBody: Record<string, unknown>;
       let evoEndpoint: string;
+      const useMediaUrl = (preferUrl || !base64) && mediaUrl;
 
       if (mediatype === "audio") {
         evoEndpoint = `${baseUrl}/message/sendWhatsAppAudio/${instance}`;
-        if (mediaUrl) {
+        if (useMediaUrl) {
           evoBody = { number: to, audio: mediaUrl, ...(quoted ? { quoted } : {}) };
         } else {
           const mediaData = base64.startsWith("data:") ? base64.split(",")[1] : base64;
           evoBody = { number: to, audio: mediaData, ...(quoted ? { quoted } : {}) };
         }
-      } else if (mediaUrl) {
+      } else if (useMediaUrl) {
         evoEndpoint = `${baseUrl}/message/sendMedia/${instance}`;
         evoBody = { number: to, mediatype, mimetype: mimeType, media: mediaUrl, fileName, ...(quoted ? { quoted } : {}) };
       } else {
@@ -94,10 +100,11 @@ export async function POST(req: NextRequest) {
           method: "POST",
           headers: { "Content-Type": "application/json", apikey: apiKey },
           body: JSON.stringify(evoBody),
-          signal: AbortSignal.timeout(18000),
+          signal: AbortSignal.timeout(reqTimeoutMs),
         });
+        lastStatus = attemptRes.status;
 
-        if (!attemptRes.ok && quoted) {
+        if (!attemptRes.ok && quoted && (attemptRes.status === 400 || attemptRes.status === 422 || attemptRes.status === 500) && (!isVercel || Date.now() - startedAt < 5000)) {
           console.warn(`[send-base64] Falló con cita en ${baseUrl}, reintentando sin cita...`);
           const fallbackBody = { ...evoBody };
           delete fallbackBody.quoted;
@@ -105,8 +112,9 @@ export async function POST(req: NextRequest) {
             method: "POST",
             headers: { "Content-Type": "application/json", apikey: apiKey },
             body: JSON.stringify(fallbackBody),
-            signal: AbortSignal.timeout(18000),
+            signal: AbortSignal.timeout(reqTimeoutMs),
           });
+          lastStatus = attemptRes.status;
         }
 
         if (attemptRes.ok) {
@@ -123,11 +131,12 @@ export async function POST(req: NextRequest) {
     };
 
     for (const baseUrl of candidateUrls) {
+      if (isVercel && Date.now() - startedAt > 5800) break;
       res = await trySendToUrl(baseUrl, evoCfg.apiKey);
       if (res && res.ok) break;
     }
 
-    if (!res || !res.ok) {
+    if ((!res || !res.ok) && (!isVercel || Date.now() - startedAt < 4800)) {
       const freshCfg = await getEvolutionConfig(true);
       const freshUrls = Array.from(new Set([
         (freshCfg.url || "").replace(/\/$/, ""),
@@ -135,14 +144,37 @@ export async function POST(req: NextRequest) {
       ].filter((u) => u && !candidateUrls.includes(u))));
 
       for (const baseUrl of freshUrls) {
+        if (isVercel && Date.now() - startedAt > 5800) break;
         res = await trySendToUrl(baseUrl, freshCfg.apiKey || evoCfg.apiKey);
         if (res && res.ok) break;
       }
     }
 
     if (!res || !res.ok) {
+      if (mediaUrl && lastStatus !== 400) {
+        const queuedId = generateQueuedMessageId();
+        const enqueued = await enqueueWaOutbox(supabase, {
+          id: queuedId,
+          case_id: String(case_id),
+          to,
+          mediaUrl,
+          mediaType: mimeType,
+          fileName,
+          ...(quoted ? { quoted } : {}),
+          created_at: new Date().toISOString(),
+          status: "pending",
+          attempts: 0,
+          last_error: lastError?.message || `status_${lastStatus}`,
+        });
+        if (enqueued) {
+          console.warn(`[send-base64] Túnel no disponible (${lastError?.message || lastStatus}). Archivo encolado en outbox: ${queuedId}`);
+          return NextResponse.json({ ok: true, queued: true, messageId: queuedId });
+        }
+      }
+
       console.error("[send-base64] Todos los candidatos fallaron:", lastError?.message);
-      return NextResponse.json({ error: lastError?.message || "Error al enviar multimedia a WhatsApp" }, { status: 502 });
+      const errStatus = lastStatus === 400 ? 400 : 502;
+      return NextResponse.json({ error: lastError?.message || "Error al enviar multimedia a WhatsApp" }, { status: errStatus });
     }
 
     const mediaRes = await res.json().catch(() => ({}));
