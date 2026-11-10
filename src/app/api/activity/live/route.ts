@@ -83,10 +83,13 @@ export async function GET(_req: NextRequest) {
       const idleMs = computed.masterBuckets.Inactivo.durationMs;
       const productivityScore = computed.productivityScore;
 
-      // Calcular estado online/away/offline
+      // Calcular estado online/away/offline combinando último log y heartbeat de presencia
       let status: "active" | "away" | "idle" | "offline" = "offline";
       let currentApp = "Sin actividad reciente";
       let secondsAgo = 999999;
+
+      const lastSeenMs = ag.last_seen_at ? new Date(ag.last_seen_at).getTime() : 0;
+      const lastSeenSec = lastSeenMs > 0 ? Math.max(0, Math.floor((now.getTime() - lastSeenMs) / 1000)) : 999999;
 
       if (latestLog && latestLog.created_at) {
         const logTime = new Date(latestLog.created_at).getTime();
@@ -96,12 +99,20 @@ export async function GET(_req: NextRequest) {
         const meta = (latestLog.metadata || {}) as Record<string, any>;
         currentApp = meta.app_name || meta.label || meta.page || latestLog.action || "Plataforma Sekunet";
 
-        if (latestLog.category === "Inactividad" || secondsAgo > 600) {
+        if (latestLog.category === "Inactividad" || secondsAgo > 900) {
           status = "offline";
-        } else if (secondsAgo <= 180) {
+        } else if (secondsAgo <= 390) {
           status = "active";
         } else {
           status = "away";
+        }
+      }
+
+      if (status === "offline" && ag.status && ag.status !== "offline" && lastSeenSec <= 900) {
+        status = ag.status === "away" ? "away" : "active";
+        secondsAgo = Math.min(secondsAgo, lastSeenSec);
+        if (currentApp === "Sin actividad reciente") {
+          currentApp = "Plataforma Sekunet";
         }
       }
 

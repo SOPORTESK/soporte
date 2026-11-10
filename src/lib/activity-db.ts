@@ -453,7 +453,8 @@ export async function insertActivityLog(entry: ActivityLog): Promise<void> {
     normAction.startsWith("terminó:") ||
     normAction.startsWith("termino:");
   if (!isManualOrCase) {
-    const appRaw = String(entry.metadata?.app || entry.metadata?.app_name || "").toLowerCase().trim();
+    const actionPrefix = normAction.replace(/^en curso\s*[•·-]\s*/i, "").split(":")[0].split("-")[0].trim();
+    const appRaw = String(entry.metadata?.app || entry.metadata?.app_name || actionPrefix || "").toLowerCase().trim();
     if (appRaw) {
       const appBurstKey = `app_burst|${normEmail}|${appRaw}`;
       const lastAppInsert = recentInsertsCache.get(appBurstKey);
@@ -471,6 +472,29 @@ export async function insertActivityLog(entry: ActivityLog): Promise<void> {
   }
 
   const supabase = getClient();
+
+  // Mantener presencia en línea actualizada cuando el agente registra actividad real (escritorio o web)
+  const isLogout = normAction.includes("cierre de sesión") || normAction.includes("cerro sesion") || entry.metadata?.type === "auth_logout";
+  if (normEmail && String(entry.category || "").toLowerCase() !== "inactividad" && !isLogout) {
+    const presenceKey = `presence|${normEmail}`;
+    const lastPresenceSync = recentInsertsCache.get(presenceKey) || 0;
+    if (now - lastPresenceSync >= 180_000) {
+      recentInsertsCache.set(presenceKey, now);
+      const nowIso = new Date(now).toISOString();
+      (async () => {
+        const { data } = await supabase
+          .from("sek_agent_config")
+          .select("status")
+          .ilike("email", normEmail)
+          .maybeSingle();
+        const nextStatus = data?.status === "busy" ? "busy" : "online";
+        await supabase
+          .from("sek_agent_config")
+          .update({ status: nextStatus, last_seen_at: nowIso })
+          .ilike("email", normEmail);
+      })().catch(() => {});
+    }
+  }
   const insertPayload: any = {
     agent_email: entry.agent_email,
     agent_name: entry.agent_name,

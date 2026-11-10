@@ -67,7 +67,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       async () => {
         const { data, error } = await supabase
           .from("sek_agent_config")
-          .select("email, nombre, apellido, avatar_url, status")
+          .select("email, nombre, apellido, avatar_url, status, last_seen_at, rol")
           .neq("status", "offline")
           .not("rol", "in", "(bot,sistema)")
           .not("email", "in", "(technician_assistant@sekunet.com,whatsapp_agent@sekunet.com,system_prompt@sekunet.com)");

@@ -5,7 +5,7 @@ import { createServiceClient } from "@/lib/supabase/service";
 export const dynamic = "force-dynamic";
 
 const lastStatusWriteByEmail = new Map<string, { status: string; ts: number }>();
-const STATUS_HEARTBEAT_MIN_MS = 10 * 60 * 1000; // 10 min si el estado no cambió
+const STATUS_HEARTBEAT_MIN_MS = 150 * 1000; // 2.5 min si el estado no cambió
 
 export async function POST(req: NextRequest) {
   try {

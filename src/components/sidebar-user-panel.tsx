@@ -32,6 +32,7 @@ interface OnlineAgent {
   apellido: string | null;
   avatar_url?: string | null;
   status?: string | null;
+  last_seen_at?: string | null;
   rol?: string | null;
 }
 
@@ -312,8 +313,14 @@ export function SidebarUserPanel({
     if (Array.isArray(onlineAgents) && onlineAgents.length > 0) {
       setTeamAgents((prev) => {
         const map = new Map<string, OnlineAgent>();
-        onlineAgents.forEach(a => { if (a?.email) map.set(a.email.toLowerCase(), a); });
-        prev.forEach(a => { if (a?.email && !map.has(a.email.toLowerCase())) map.set(a.email.toLowerCase(), a); });
+        prev.forEach(a => { if (a?.email) map.set(a.email.toLowerCase(), a); });
+        onlineAgents.forEach(a => {
+          if (a?.email) {
+            const key = a.email.toLowerCase();
+            const existing = map.get(key);
+            map.set(key, existing ? { ...existing, ...a, last_seen_at: a.last_seen_at || existing.last_seen_at } : a);
+          }
+        });
         return Array.from(map.values());
       });
     }
@@ -1442,7 +1449,7 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
     const handleUnload = () => navigator.sendBeacon("/api/profile/status", JSON.stringify({ status: "offline", email: agent.email }));
     window.addEventListener("beforeunload", handleUnload);
 
-    // Heartbeat cada 10 minutos preservando el estado real actual (evita broadcasts Realtime innecesarios)
+    // Heartbeat cada 3 minutos preservando el estado real actual
     const heartbeat = setInterval(() => {
       fetch("/api/profile/status", { 
         method: "POST", 
@@ -1450,7 +1457,7 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
         headers: { "Content-Type": "application/json" }, 
         body: JSON.stringify({ status: statusRef.current, email: agent.email }) 
       }).catch(() => {});
-    }, 600000);
+    }, 180000);
 
     // Idle timer — auto switch to "away" after inactivity based on official tolerance
     const timeoutMs = (toleranceMin || 15) * 60 * 1000;
@@ -1551,9 +1558,9 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
   const getEffectiveAgentStatus = (a: any): string => {
     if (!a || !a.email) return "offline";
     if (a.status === "offline") return "offline";
-    if (!a.last_seen_at) return "offline";
+    if (!a.last_seen_at) return a.status || "online";
     const diff = Date.now() - new Date(a.last_seen_at).getTime();
-    if (diff > 4 * 60 * 1000) return "offline";
+    if (diff > IDLE_TIMEOUT_MS) return "offline";
     return a.status || "online";
   };
 
