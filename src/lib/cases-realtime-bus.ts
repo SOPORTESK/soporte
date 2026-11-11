@@ -223,16 +223,18 @@ export function subscribeAgentsRealtime(
  */
 export function emitCaseBroadcastClient(
   payloadOrList: CaseRealtimePayload | CaseRealtimePayload[]
-): void {
-  if (typeof window === "undefined") return;
+): Promise<void> {
+  if (typeof window === "undefined") return Promise.resolve();
   const events = Array.isArray(payloadOrList) ? payloadOrList : [payloadOrList];
-  if (events.length === 0) return;
-  fetch("/api/realtime/broadcast", {
+  if (events.length === 0) return Promise.resolve();
+  return fetch("/api/realtime/broadcast", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ kind: "case", events }),
     keepalive: true,
-  }).catch(() => {});
+  })
+    .then(() => {})
+    .catch(() => {});
 }
 
 /**

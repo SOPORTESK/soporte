@@ -1527,12 +1527,15 @@ export function ChatView({
       if (Object.keys(updates).length > 0) {
         try {
           await supabase.from("sek_cases").update(updates).eq("id", targetId);
-          emitCaseBroadcastClient({
-            eventType: "UPDATE",
-            action: "meta",
-            caseId: String(targetId),
-            new: { id: targetId, ...(updates as Record<string, any>) },
-          });
+          await Promise.race([
+            emitCaseBroadcastClient({
+              eventType: "UPDATE",
+              action: "meta",
+              caseId: String(targetId),
+              new: { id: targetId, ...(updates as Record<string, any>) },
+            }),
+            new Promise<void>(r => setTimeout(r, 350)),
+          ]);
         } catch (upErr) {
           console.warn("[send] No se pudo actualizar estado previo del caso:", upErr);
         }
@@ -2336,12 +2339,15 @@ export function ChatView({
     };
     const { error } = await supabase.from("sek_cases").update(reopenUpdates).eq("id", targetId);
     if (error) { toast.error("Error al cambiar estado"); return; }
-    emitCaseBroadcastClient({
-      eventType: "UPDATE",
-      action: "meta",
-      caseId: String(targetId),
-      new: { id: targetId, ...(reopenUpdates as Record<string, any>) },
-    });
+    await Promise.race([
+      emitCaseBroadcastClient({
+        eventType: "UPDATE",
+        action: "meta",
+        caseId: String(targetId),
+        new: { id: targetId, ...(reopenUpdates as Record<string, any>) },
+      }),
+      new Promise<void>(r => setTimeout(r, 350)),
+    ]);
     setSekCase(prev => ({ ...prev, estado: newEstado, tags: reopenTags as any, assigned_to: reopenUpdates.assigned_to as string }));
     toast.success(`Caso reabierto`, { description: "El caso se movió a Mi Gestión. Auto-close pausado." });
     setShowActions(false);
@@ -2798,7 +2804,7 @@ export function ChatView({
       }
 
       setSekCase(prev => ({ ...prev, estado: "abierto", assigned_to: agentEmail }));
-      emitCaseBroadcastClient({
+      const acceptBroadcastPromise = emitCaseBroadcastClient({
         eventType: "UPDATE",
         action: "meta",
         caseId: String(targetId),
@@ -2980,6 +2986,7 @@ export function ChatView({
       }
 
       // Prevent the ChatView from disappearing by navigating to Mi Gestión where the case is currently assigned.
+      await Promise.race([acceptBroadcastPromise, new Promise<void>(r => setTimeout(r, 350))]);
       router.push(`/mi-gestion?c=${targetId}`);
     } catch (e: any) {
       toast.error("Error al aceptar", { description: e?.message });

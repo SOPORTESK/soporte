@@ -1,4 +1,5 @@
 import "@/lib/dns-boost";
+import { cacheDelete, cacheDeletePrefix } from "@/lib/supabase/cache";
 
 export const CASES_BROADCAST_TOPIC = "sek_cases_live";
 export const CASES_BROADCAST_EVENT = "case_event";
@@ -156,6 +157,13 @@ export async function broadcastCaseEvent(payload: CaseBroadcastPayload): Promise
 
 export async function broadcastCaseEvents(payloads: CaseBroadcastPayload[]): Promise<boolean> {
   if (!Array.isArray(payloads) || payloads.length === 0) return true;
+  // Invalidar cachés de listas en memoria del servidor Next.js (0 egress extra en reposo)
+  cacheDelete("soporte_avanzado");
+  cacheDelete("smart_inbox");
+  cacheDelete("inbox_cases");
+  cacheDelete("n2_count");
+  cacheDelete("smart_count");
+  cacheDeletePrefix("mi_gestion_cases");
   const messages = payloads.map((p) => ({
     topic: CASES_BROADCAST_TOPIC,
     event: CASES_BROADCAST_EVENT,

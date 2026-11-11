@@ -372,11 +372,30 @@ export function InboxClient({
   const supabase = React.useMemo(() => createClient(), []);
   const prevCasesRef = React.useRef<SekCase[]>(initialCases);
   const casesRef = React.useRef<SekCase[]>(initialCases);
+  const allCasesRef = React.useRef<SekCase[]>(initialCases);
+  const prevInitialCasesRef = React.useRef<SekCase[]>(initialCases);
   const lastKnownMaxUpdatedAtRef = React.useRef<string>(getMaxUpdatedAt(initialCases));
   const alertedCasesRef = React.useRef<Map<string, number>>(new Map());
   const selectedIdRef = React.useRef<string | null>(initialSelectedId);
   const agentEmailRef = React.useRef<string | null>(null);
   const agentNameRef = React.useRef<string | null>(null);
+
+  React.useEffect(() => { allCasesRef.current = allCases; }, [allCases]);
+  React.useEffect(() => {
+    if (initialCases === prevInitialCasesRef.current) return;
+    prevInitialCasesRef.current = initialCases;
+    const mergedMap = new Map<string, SekCase>();
+    for (const c of allCasesRef.current) mergedMap.set(String(c.id), c);
+    for (const c of initialCases) mergedMap.set(String(c.id), c);
+    const nextAll = Array.from(mergedMap.values());
+    allCasesRef.current = nextAll;
+    setAllCases(nextAll);
+    const filtered = filterCasesByContainer(nextAll, containerType, agentEmailRef.current, agentNameRef.current, isUserAdmin, adminFilterMode);
+    casesRef.current = filtered;
+    setCases(filtered);
+    prevCasesRef.current = filtered;
+    prevMergedRef.current = mergeGroups(filtered);
+  }, [initialCases, containerType, isUserAdmin, adminFilterMode]);
 
   React.useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
   React.useEffect(() => { agentEmailRef.current = agentEmail; }, [agentEmail]);
@@ -530,8 +549,10 @@ export function InboxClient({
       .then(newCases => {
         const newMax = getMaxUpdatedAt(newCases);
         if (newMax) lastKnownMaxUpdatedAtRef.current = newMax;
+        allCasesRef.current = newCases;
         setAllCases(newCases);
         const filteredNew = filterCasesByContainer(newCases, containerType, agentEmail, agentNameRef.current, canSupervise, adminFilterMode);
+        casesRef.current = filteredNew;
         setCases(filteredNew);
         prevCasesRef.current = filteredNew;
         prevMergedRef.current = mergeGroups(filteredNew);
@@ -555,13 +576,19 @@ export function InboxClient({
       }
     }
     // Las claves de grupo (tel:/case:) siempre provienen de la lista renderizada → seleccionar directo.
-    // Solo se carga de Supabase cuando es un id real (numérico/uuid) aún no presente (ej. caso saliente nuevo).
+    // Solo se carga de Supabase cuando es un id real (numérico/uuid) aún no presente (o desactualizado en Mi Gestión).
     const isGroupKey = id.startsWith("tel:") || id.startsWith("case:");
-    const exists = isGroupKey || casesRef.current.some(c => String(c.id) === id || (c as any)._group?.caseIds?.some((cid: any) => String(cid) === id));
+    const matchedCase = casesRef.current.find(c => String(c.id) === id || (c as any)._group?.caseIds?.some((cid: any) => String(cid) === id));
+    const isStaleEscalatedInGestion = Boolean(
+      containerType === "mi-gestion" &&
+      matchedCase &&
+      String(matchedCase.estado || "").toLowerCase() === "escalado"
+    );
+    const exists = isGroupKey || (Boolean(matchedCase) && !isStaleEscalatedInGestion);
     if (exists) {
       setSelectedId(id);
     } else {
-      // No está en lista: marcar pendiente y cargarlo desde Supabase
+      // No está en lista (o vino con estado viejo de caché): marcar pendiente y cargarlo desde Supabase
       setPendingSelectId(id);
       const query = id.length < 36
         ? supabase.from("sek_cases").select(CASE_LIST_FIELDS).ilike("id", `${id}%`).limit(1).maybeSingle()
@@ -569,22 +596,21 @@ export function InboxClient({
 
       query.then(({ data }) => {
         if (data) {
-          setCases(p => {
-            if (p.some(c => String(c.id) === String(data.id))) return p;
-            return [data as any, ...p];
-          });
-          setAllCases(p => {
-            if (p.some(c => String(c.id) === String(data.id))) return p;
-            return [data as any, ...p];
-          });
-          setSelectedId(String(data.id));
+          const row = data as unknown as SekCase;
+          const nextCases = [row, ...casesRef.current.filter(c => String(c.id) !== String(row.id))];
+          casesRef.current = nextCases;
+          setCases(nextCases);
+          const nextAll = [row, ...allCasesRef.current.filter(c => String(c.id) !== String(row.id))];
+          allCasesRef.current = nextAll;
+          setAllCases(nextAll);
+          setSelectedId(String(row.id));
           setPendingSelectId(null);
         } else {
           setPendingSelectId(null);
         }
       });
     }
-  }, [router, supabase]);
+  }, [router, supabase, containerType]);
 
   const handleCaseDeleted = React.useCallback((id: string) => {
     if (selectedId === id) {
@@ -629,25 +655,21 @@ export function InboxClient({
     return mergeGroups(escalated);
   }, [allCases]);
 
+  const paramCaseId = params.get("c");
+  const paramSource = params.get("source");
   React.useEffect(() => {
-    const source = params.get("source");
-    const c = params.get("c");
-    const isPwa = source === "pwa" ||
-      window.matchMedia("(display-mode: standalone)").matches ||
-      (window.navigator as any).standalone === true;
-    if (isPwa && c) {
-      // En modo PWA, al abrir siempre volver a la bandeja (no al último chat)
+    if (paramSource === "pwa" && paramCaseId) {
+      // En modo PWA, al abrir explícitamente desde el acceso directo (?source=pwa), volver a la bandeja
       setSelectedId(null);
       const url = new URL(window.location.href);
       url.searchParams.delete("c");
       url.searchParams.delete("source");
       router.replace(url.pathname + (url.search || ""), { scroll: false });
-    } else if (c) {
+    } else if (paramCaseId) {
       // selectCase carga el caso desde la BD si no está en la lista filtrada actual
-      selectCase(c);
+      selectCase(paramCaseId);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [paramCaseId, paramSource, router, selectCase]);
 
   /* Intervalo: recordar casos escalados pendientes cada 60s */
   React.useEffect(() => {
@@ -667,7 +689,7 @@ export function InboxClient({
       supabase,
       (payload) => {
           // Ignorar updates triviales donde no cambiaron metadatos de lista (si old está disponible)
-          if (payload.eventType === "UPDATE" && payload.action !== "deltaEntry") {
+          if (payload.eventType === "UPDATE" && payload.action !== "deltaEntry" && payload.action !== "refresh_history") {
             const upd = payload.new as any;
             const old = payload.old as any;
             if (upd && old &&
@@ -686,74 +708,127 @@ export function InboxClient({
           pendingPayloads.push(payload);
           if (debounceTimer) clearTimeout(debounceTimer);
           debounceTimer = setTimeout(() => {
+            if (!isMounted) return;
             const batch = pendingPayloads;
             pendingPayloads = [];
             if (batch.length === 0) return;
 
-            let missingFetchId: string | null = null;
+            const missingFetchIds = new Set<string>();
+            const prevSnapshot = allCasesRef.current;
+            let nextAll = [...prevSnapshot];
 
-            setAllCases(prevAll => {
-              let nextAll = [...prevAll];
-              for (const ev of batch) {
-                if (ev.eventType === "INSERT") {
-                  const ins = ev.new as SekCase;
-                  if (ins && ins.canal !== "simulator" && !(ins as any).es_test) {
-                    if (ins.updated_at && ins.updated_at > lastKnownMaxUpdatedAtRef.current) {
-                      lastKnownMaxUpdatedAtRef.current = ins.updated_at;
-                    }
+            for (const ev of batch) {
+              if (ev.eventType === "INSERT") {
+                const ins = ev.new as SekCase;
+                const insId = String(ev.caseId || ins?.id || "");
+                if (ins && ins.canal !== "simulator" && !(ins as any).es_test) {
+                  if (ins.updated_at && ins.updated_at > lastKnownMaxUpdatedAtRef.current) {
+                    lastKnownMaxUpdatedAtRef.current = ins.updated_at;
+                  }
+                  if (ins.id) {
                     nextAll = [ins, ...nextAll.filter(c => String(c.id) !== String(ins.id))];
                   }
-                } else if (ev.eventType === "UPDATE") {
-                  const upd = (ev.new || {}) as SekCase;
-                  const targetCid = String(ev.caseId || upd.id || "");
-                  if (targetCid && upd.canal !== "simulator" && !(upd as any).es_test) {
-                    if (upd.updated_at && upd.updated_at > lastKnownMaxUpdatedAtRef.current) {
-                      lastKnownMaxUpdatedAtRef.current = upd.updated_at;
-                    }
-                    const idx = nextAll.findIndex(c => String(c.id) === targetCid);
-                    const deltaPatch: Record<string, any> = {};
-                    if (ev.action === "deltaEntry" && ev.delta?.entry) {
-                      const entry = ev.delta.entry;
-                      if (!upd.last_message_at) deltaPatch.last_message_at = entry.time || new Date().toISOString();
-                      if (!upd.last_message_preview && entry.content) deltaPatch.last_message_preview = String(entry.content).slice(0, 200);
-                      if (idx !== -1 && ev.delta.col === "histcliente" && (!entry.role || entry.role === "user") && upd.unread_count === undefined) {
-                        deltaPatch.unread_count = (Number(nextAll[idx].unread_count) || 0) + 1;
-                      }
-                    }
-                    if (idx !== -1) {
-                      nextAll[idx] = { ...nextAll[idx], ...upd, ...deltaPatch };
-                    } else if (upd.id && upd.canal && upd.estado) {
-                      nextAll = [{ ...upd, ...deltaPatch } as SekCase, ...nextAll];
-                    } else {
-                      missingFetchId = targetCid;
+                  if (insId && (!ins.id || !ins.canal || !ins.estado)) {
+                    missingFetchIds.add(insId);
+                  }
+                } else if (insId && !ins) {
+                  missingFetchIds.add(insId);
+                }
+              } else if (ev.eventType === "UPDATE") {
+                const upd = (ev.new || {}) as SekCase;
+                const targetCid = String(ev.caseId || upd.id || "");
+                if (targetCid && upd.canal !== "simulator" && !(upd as any).es_test) {
+                  if (upd.updated_at && upd.updated_at > lastKnownMaxUpdatedAtRef.current) {
+                    lastKnownMaxUpdatedAtRef.current = upd.updated_at;
+                  }
+                  if (ev.action === "refresh_history") {
+                    // refresh_history llega sin campos escalares nuevos; recargar metadata de ese caso
+                    missingFetchIds.add(targetCid);
+                  }
+                  const idx = nextAll.findIndex(c => String(c.id) === targetCid);
+                  const deltaPatch: Record<string, any> = {};
+                  if (ev.action === "deltaEntry" && ev.delta?.entry) {
+                    const entry = ev.delta.entry;
+                    if (!upd.last_message_at) deltaPatch.last_message_at = entry.time || new Date().toISOString();
+                    if (!upd.last_message_preview && entry.content) deltaPatch.last_message_preview = String(entry.content).slice(0, 200);
+                    if (idx !== -1 && ev.delta.col === "histcliente" && (!entry.role || entry.role === "user") && upd.unread_count === undefined) {
+                      deltaPatch.unread_count = (Number(nextAll[idx].unread_count) || 0) + 1;
                     }
                   }
-                } else if (ev.eventType === "DELETE" || ev.action === "delete_bulk") {
-                  const delIds = new Set<string>([
-                    ...(Array.isArray(ev.caseIds) ? ev.caseIds.map(String) : []),
-                    ...(ev.caseId ? [String(ev.caseId)] : []),
-                    ...((ev.old as any)?.id ? [String((ev.old as any).id)] : []),
-                  ]);
-                  if (delIds.size > 0) {
-                    nextAll = nextAll.filter(c => !delIds.has(String(c.id)));
+                  if (idx !== -1) {
+                    nextAll[idx] = { ...nextAll[idx], ...upd, ...deltaPatch };
+                  } else if (upd.id && upd.canal && upd.estado) {
+                    nextAll = [{ ...upd, ...deltaPatch } as SekCase, ...nextAll];
+                  } else {
+                    missingFetchIds.add(targetCid);
                   }
                 }
+              } else if (ev.eventType === "DELETE" || ev.action === "delete_bulk") {
+                const delIds = new Set<string>([
+                  ...(Array.isArray(ev.caseIds) ? ev.caseIds.map(String) : []),
+                  ...(ev.caseId ? [String(ev.caseId)] : []),
+                  ...((ev.old as any)?.id ? [String((ev.old as any).id)] : []),
+                ]);
+                if (delIds.size > 0) {
+                  nextAll = nextAll.filter(c => !delIds.has(String(c.id)));
+                }
               }
+            }
 
-              const payload = batch[batch.length - 1];
+            // Ordenar por última actividad
+            nextAll.sort((a, b) => {
+              const tA = new Date(a.last_message_at || a.updated_at || a.created_at).getTime();
+              const tB = new Date(b.last_message_at || b.updated_at || b.created_at).getTime();
+              return tB - tA;
+            });
 
-              // Ordenar por última actividad
-              nextAll.sort((a, b) => {
-                const tA = new Date(a.last_message_at || a.updated_at || a.created_at).getTime();
-                const tB = new Date(b.last_message_at || b.updated_at || b.created_at).getTime();
-                return tB - tA;
-              });
+            allCasesRef.current = nextAll;
+            setAllCases(nextAll);
 
-              // Si es Mi Gestión y aún no tenemos agentEmail, no filtrar
-              if (containerType === "mi-gestion" && !agentEmail) {
-                return nextAll;
+            const notifyEscaladoIfNew = (caseObj: SekCase, wasEscalated: boolean) => {
+              const nuevoEstado = String(caseObj?.estado || "").toLowerCase();
+              if (nuevoEstado !== "escalado" || wasEscalated || !caseObj?.id) return;
+              const escKey = `escalado-${caseObj.id}`;
+              const now = Date.now();
+              const lastAlert = alertedCasesRef.current.get(escKey) || 0;
+              if (now - lastAlert > 15000) {
+                alertedCasesRef.current.set(escKey, now);
+                const ci3 = clienteInfo(caseObj.cliente);
+                const name3 = ci3.nombre || ci3.telefono || asText(caseObj.title) || "Cliente";
+                const equipo3 = (caseObj.cliente as any)?.equipo || "";
+
+                playEscaladoAlert();
+                toast.warning(`Nueva conversación: ${name3}`, {
+                  id: `toast-escalado-${caseObj.id}`,
+                  description: equipo3 ? `Equipo: ${equipo3} · Requiere atención` : "Requiere atención de un agente",
+                  duration: 30000,
+                  action: { label: "Atender", onClick: () => selectCase(String(caseObj.id)) }
+                });
               }
+            };
 
+            const notifySmartInsertIfNew = (caseObj: SekCase) => {
+              const insEstado = String(caseObj?.estado || "").toLowerCase();
+              if (insEstado !== "ia_atendiendo" || !caseObj?.id) return;
+              const insertKey = `insert-${caseObj.id}`;
+              const now = Date.now();
+              const lastAlert = alertedCasesRef.current.get(insertKey) || 0;
+              if (now - lastAlert > 10000) {
+                alertedCasesRef.current.set(insertKey, now);
+                const ci = clienteInfo(caseObj.cliente);
+                const name = ci.nombre || ci.telefono || asText(caseObj.title) || "Cliente";
+                playNotif();
+                toast.info(`🤖 Nuevo caso en Smart Inbox: ${name}`, {
+                  id: `toast-insert-${caseObj.id}`,
+                  description: "La IA está recopilando la información del cliente.",
+                  duration: 10000,
+                  action: { label: "Ver", onClick: () => router.push("/smart-inbox") }
+                });
+              }
+            };
+
+            // Si es Mi Gestión y aún no tenemos agentEmail, no filtrar todavía
+            if (containerType !== "mi-gestion" || agentEmail) {
               let filteredNewCases = filterCasesByContainer(nextAll, containerType, agentEmail, agentName, isUserAdmin, adminFilterMode);
 
               // Preservar caso seleccionado si está abierto
@@ -772,11 +847,12 @@ export function InboxClient({
                 }
               }
 
+              casesRef.current = filteredNewCases;
               setCases(filteredNewCases);
               const newMerged = mergeGroups(filteredNewCases);
 
               /* Detectar mensajes nuevos comparando los GRUPOS de cliente (filtrados) */
-              if (payload.eventType !== "DELETE") {
+              if (batch.some(ev => ev.eventType !== "DELETE")) {
                 const currentSelId = selectedIdRef.current;
                 const changed = newMerged.find(ng => {
                   if (String(ng.id) === currentSelId) return false;
@@ -815,59 +891,20 @@ export function InboxClient({
                 }
               }
 
-              /* 🔔 Nuevo caso creado directamente (INSERT) */
-              if (payload.eventType === "INSERT") {
-                const insCase = payload.new as SekCase;
-                const insEstado = String(insCase?.estado || "").toLowerCase();
-                if (insEstado === "ia_atendiendo" && insCase?.id) {
-                  const insertKey = `insert-${insCase.id}`;
-                  const now = Date.now();
-                  const lastAlert = alertedCasesRef.current.get(insertKey) || 0;
-                  if (now - lastAlert > 10000) {
-                    alertedCasesRef.current.set(insertKey, now);
-                    const ci = clienteInfo(insCase.cliente);
-                    const name = ci.nombre || ci.telefono || asText(insCase.title) || "Cliente";
-                    playNotif();
-                    toast.info(`🤖 Nuevo caso en Smart Inbox: ${name}`, {
-                      id: `toast-insert-${insCase.id}`,
-                      description: "La IA está recopilando la información del cliente.",
-                      duration: 10000,
-                      action: { label: "Ver", onClick: () => router.push("/smart-inbox") }
-                    });
-                  }
-                }
-              }
-
-              /* 🔔 Alerta para caso escalado por IA */
+              /* 🔔 Nuevo caso / caso escalado / N2 */
               for (const ev of batch) {
-                if (ev.eventType === "UPDATE") {
-                  const updCase = ev.new as SekCase;
+                if (ev.eventType === "INSERT" && ev.new) {
+                  notifySmartInsertIfNew(ev.new as SekCase);
+                }
+
+                if (ev.eventType === "UPDATE" || ev.eventType === "INSERT") {
+                  const updCase = (ev.new || {}) as SekCase;
                   const targetCid = String(updCase?.id || ev.caseId || "");
                   const mergedUpd = targetCid ? (nextAll.find(c => String(c.id) === targetCid) || updCase) : updCase;
-                  const nuevoEstado = String(mergedUpd?.estado || "").toLowerCase();
-                  const prevInList = prevCasesRef.current.find(c => String(c.id) === targetCid);
+                  const prevInList = prevCasesRef.current.find(c => String(c.id) === targetCid) || prevSnapshot.find(c => String(c.id) === targetCid);
                   const prevEstadoInList = String(prevInList?.estado || ev.old?.estado || "").toLowerCase();
                   const wasAlreadyEscalated = prevEstadoInList === "escalado";
-
-                  if (nuevoEstado === "escalado" && !wasAlreadyEscalated && mergedUpd?.id) {
-                    const escKey = `escalado-${mergedUpd.id}`;
-                    const now = Date.now();
-                    const lastAlert = alertedCasesRef.current.get(escKey) || 0;
-                    if (now - lastAlert > 15000) {
-                      alertedCasesRef.current.set(escKey, now);
-                      const ci3 = clienteInfo(mergedUpd.cliente);
-                      const name3 = ci3.nombre || ci3.telefono || asText(mergedUpd.title) || "Cliente";
-                      const equipo3 = (mergedUpd.cliente as any)?.equipo || "";
-
-                      playEscaladoAlert();
-                      toast.warning(`Nueva conversación: ${name3}`, {
-                        id: `toast-escalado-${mergedUpd.id}`,
-                        description: equipo3 ? `Equipo: ${equipo3} · Requiere atención` : "Requiere atención de un agente",
-                        duration: 30000,
-                        action: { label: "Atender", onClick: () => selectCase(String(mergedUpd.id)) }
-                      });
-                    }
-                  }
+                  notifyEscaladoIfNew(mergedUpd, wasAlreadyEscalated);
                 }
 
                 /* 🔔 Alerta especial para Soporte Avanzado: nuevo caso con etiqueta n2 */
@@ -905,28 +942,69 @@ export function InboxClient({
 
               prevCasesRef.current = filteredNewCases;
               prevMergedRef.current = newMerged;
+            }
 
-              return nextAll;
-            });
-
-            if (missingFetchId && isMounted) {
+            if (missingFetchIds.size > 0 && isMounted) {
               supabase
                 .from("sek_cases")
                 .select(CASE_LIST_FIELDS)
-                .eq("id", missingFetchId)
-                .maybeSingle()
-                .then(({ data: fetched }) => {
-                  if (!fetched || !isMounted || fetched.canal === "simulator" || (fetched as any).es_test) return;
-                  setAllCases(prevAll => {
-                    const nextAll = [fetched as unknown as SekCase, ...prevAll.filter(c => String(c.id) !== String(fetched.id))];
-                    if (containerType !== "mi-gestion" || agentEmail) {
-                      const filtered = filterCasesByContainer(nextAll, containerType, agentEmail, agentName, isUserAdmin, adminFilterMode);
-                      setCases(filtered);
-                      prevCasesRef.current = filtered;
-                      prevMergedRef.current = mergeGroups(filtered);
-                    }
-                    return nextAll;
+                .in("id", Array.from(missingFetchIds))
+                .then(({ data: fetchedList }) => {
+                  if (!Array.isArray(fetchedList) || fetchedList.length === 0 || !isMounted) return;
+                  const valid = fetchedList.filter(
+                    (f: any) => f && f.canal !== "simulator" && !f.es_test
+                  ) as unknown as SekCase[];
+                  if (valid.length === 0) return;
+
+                  const currentSnapshot = allCasesRef.current;
+                  const fetchedById = new Map(valid.map(f => [String(f.id), f]));
+                  const mergedAll = [
+                    ...valid,
+                    ...currentSnapshot.filter(c => !fetchedById.has(String(c.id))),
+                  ];
+                  mergedAll.sort((a, b) => {
+                    const tA = new Date(a.last_message_at || a.updated_at || a.created_at).getTime();
+                    const tB = new Date(b.last_message_at || b.updated_at || b.created_at).getTime();
+                    return tB - tA;
                   });
+                  const fetchedMax = getMaxUpdatedAt(valid);
+                  if (fetchedMax && fetchedMax > lastKnownMaxUpdatedAtRef.current) {
+                    lastKnownMaxUpdatedAtRef.current = fetchedMax;
+                  }
+
+                  allCasesRef.current = mergedAll;
+                  setAllCases(mergedAll);
+
+                  if (containerType !== "mi-gestion" || agentEmail) {
+                    let filtered = filterCasesByContainer(mergedAll, containerType, agentEmail, agentName, isUserAdmin, adminFilterMode);
+                    const curSelNow = selectedIdRef.current;
+                    if (curSelNow) {
+                      const keptSel =
+                        mergedAll.find(c => String(c.id) === curSelNow) ||
+                        mergedAll.find(c => c._group?.caseIds?.some(cid => String(cid) === curSelNow)) ||
+                        casesRef.current.find(c => String(c.id) === curSelNow) ||
+                        null;
+                      if (keptSel && !filtered.some(c => String(c.id) === String(keptSel.id))) {
+                        filtered = [keptSel, ...filtered];
+                      }
+                    }
+                    casesRef.current = filtered;
+                    setCases(filtered);
+                    prevCasesRef.current = filtered;
+                    prevMergedRef.current = mergeGroups(filtered);
+                  }
+
+                  // Si alguno de estos casos completos recién cargados pasó a escalado o ia_atendiendo, alertar una única vez
+                  for (const f of valid) {
+                    const prevRow = prevSnapshot.find(p => String(p.id) === String(f.id));
+                    const prevEst = String(prevRow?.estado || "").toLowerCase();
+                    if (String(f.estado || "").toLowerCase() === "escalado" && prevEst !== "escalado") {
+                      notifyEscaladoIfNew(f, false);
+                    }
+                    if (!prevRow && String(f.estado || "").toLowerCase() === "ia_atendiendo") {
+                      notifySmartInsertIfNew(f);
+                    }
+                  }
                 });
             }
           }, 120);
@@ -979,6 +1057,7 @@ export function InboxClient({
         if (bestMax) {
           lastKnownMaxUpdatedAtRef.current = bestMax;
         }
+        allCasesRef.current = newCases;
         setAllCases(newCases);
         const filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail, agentName, isUserAdmin, adminFilterMode);
         const curSel = selectedIdRef.current;
@@ -995,6 +1074,7 @@ export function InboxClient({
         if (currentSelected && !filteredNewCases.some(c => String(c.id) === String(currentSelected.id))) {
           filteredNewCases.unshift(currentSelected);
         }
+        casesRef.current = filteredNewCases;
         setCases(filteredNewCases);
         prevCasesRef.current = filteredNewCases;
         prevMergedRef.current = mergeGroups(filteredNewCases);
@@ -1032,8 +1112,12 @@ export function InboxClient({
           prioridad: detail.prioridad !== undefined ? detail.prioridad : c.prioridad,
         };
       };
-      setCases(prev => prev.map(updateFn));
-      setAllCases(prev => prev.map(updateFn));
+      const nextCases = casesRef.current.map(updateFn);
+      casesRef.current = nextCases;
+      setCases(nextCases);
+      const nextAll = allCasesRef.current.map(updateFn);
+      allCasesRef.current = nextAll;
+      setAllCases(nextAll);
     };
     window.addEventListener("sek-case-updated", handleCaseUpdated);
 

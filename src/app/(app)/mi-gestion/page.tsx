@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { InboxClient } from "@/components/chat/inbox-client";
 import { getUserWithTimeout, queryWithFallback } from "@/lib/supabase/resilient";
+import { cacheSet } from "@/lib/supabase/cache";
 import { getAgentGroupPermissions } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
@@ -45,10 +46,12 @@ export default async function MiGestionPage({ searchParams }: { searchParams: { 
 
   const CASE_LIST_FIELDS = "id,estado,canal,cliente,assigned_to,last_message_at,last_message_preview,unread_count,created_at,updated_at,title,prioridad,tags,customer_phone,es_test";
   
+  const cacheKey = isAdmin ? `mi_gestion_cases_admin_${agentEmail}` : `mi_gestion_cases_${agentEmail}`;
+
   // Siempre traer TODOS los casos del agente (abiertos y cerrados, sin perder historial)
   // Y si tiene permiso de supervisión, traer también los casos activos asignados a otros agentes
   const { data: myCases, error: casesError } = await queryWithFallback(
-    isAdmin ? `mi_gestion_cases_admin_${agentEmail}` : `mi_gestion_cases_${agentEmail}`,
+    cacheKey,
     async () => {
       const myCasesPromise = supabase
         .from("sek_cases")
@@ -89,7 +92,26 @@ export default async function MiGestionPage({ searchParams }: { searchParams: { 
 
   if (casesError) console.error("[mi-gestion] sek_cases error:", casesError);
 
-  const myCasesArray = myCases || [];
+  let myCasesArray = [...(myCases || [])];
+  if (searchParams.c && !String(searchParams.c).startsWith("tel:") && !String(searchParams.c).startsWith("case:")) {
+    const requestedId = String(searchParams.c);
+    const existingRequested = myCasesArray.find((c: any) => String(c.id) === requestedId);
+    const needsFreshTarget =
+      !existingRequested ||
+      String(existingRequested.estado || "").toLowerCase() === "escalado" ||
+      String(existingRequested.assigned_to || "").toLowerCase() !== agentEmail.toLowerCase();
+    if (needsFreshTarget) {
+      const { data: freshTarget } = await supabase
+        .from("sek_cases")
+        .select(CASE_LIST_FIELDS)
+        .eq("id", requestedId)
+        .maybeSingle();
+      if (freshTarget && freshTarget.canal !== "simulator" && !(freshTarget as any).es_test) {
+        myCasesArray = [freshTarget, ...myCasesArray.filter((c: any) => String(c.id) !== requestedId)];
+        cacheSet(cacheKey, myCasesArray);
+      }
+    }
+  }
   console.log(`[mi-gestion] Agente: ${agentEmail} (${agentFullName}), Rol: ${agentConfig?.rol || 'tecnico'}, Supervisión: ${isAdmin}, Casos cargados: ${myCasesArray.length}`);
 
   const selectedId = searchParams.c || (myCasesArray[0]?.id ? String(myCasesArray[0].id) : null);
