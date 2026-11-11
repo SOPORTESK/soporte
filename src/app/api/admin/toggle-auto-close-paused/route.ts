@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { broadcastCaseEvent } from "@/lib/realtime-broadcast";
 
 export async function POST(req: NextRequest) {
   try {
@@ -26,6 +27,13 @@ export async function POST(req: NextRequest) {
       .eq("id", caseId);
 
     if (error) throw error;
+
+    await broadcastCaseEvent({
+      eventType: "UPDATE",
+      action: "meta",
+      caseId: String(caseId),
+      new: { id: caseId, updated_at: new Date().toISOString() },
+    });
 
     return NextResponse.json({ success: true, paused });
   } catch (error: any) {

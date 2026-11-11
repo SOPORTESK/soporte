@@ -3,6 +3,7 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { cacheDelete } from "@/lib/supabase/cache";
 import { revalidatePath } from "next/cache";
 import { NextRequest, NextResponse } from "next/server";
+import { broadcastAgentEvent, broadcastCaseEvents } from "@/lib/realtime-broadcast";
 
 function clearAllAgentCaches(email?: string) {
   cacheDelete("all_agents_config");
@@ -180,6 +181,14 @@ export async function PATCH(req: NextRequest) {
   }
 
   clearAllAgentCaches(normEmail);
+  await broadcastAgentEvent({
+    eventType: "UPDATE",
+    email: updatedAgent?.email || normEmail,
+    nombre: updatedAgent?.nombre,
+    apellido: updatedAgent?.apellido,
+    rol: updatedAgent?.rol,
+    fullReload: true,
+  });
   return NextResponse.json({ data: updatedAgent, success: true });
 }
 
@@ -306,11 +315,24 @@ export async function DELETE(req: NextRequest) {
 
   // 5. Liberar casos abiertos que estuvieran asignados al usuario eliminado
   try {
-    await supabaseAdmin
+    const releasedAt = new Date().toISOString();
+    const { data: releasedCases } = await supabaseAdmin
       .from("sek_cases")
-      .update({ assigned_to: null, updated_at: new Date().toISOString() })
+      .update({ assigned_to: null, updated_at: releasedAt })
       .ilike("assigned_to", normEmail)
-      .in("estado", ["abierto", "asignado", "pendiente", "en_proceso"]);
+      .in("estado", ["abierto", "asignado", "pendiente", "en_proceso"])
+      .select("id");
+    if (Array.isArray(releasedCases) && releasedCases.length > 0) {
+      await broadcastCaseEvents(
+        releasedCases.map((c: any) => ({
+          eventType: "UPDATE" as const,
+          action: "meta" as const,
+          caseId: String(c.id),
+          new: { id: c.id, assigned_to: null, updated_at: releasedAt },
+          old: { assigned_to: normEmail },
+        }))
+      );
+    }
   } catch (e) {
     console.error("[admin/agentes DELETE] Error releasing open cases:", e);
   }
@@ -324,5 +346,10 @@ export async function DELETE(req: NextRequest) {
   }
 
   clearAllAgentCaches(normEmail);
+  await broadcastAgentEvent({
+    eventType: "DELETE",
+    email: normEmail,
+    fullReload: true,
+  });
   return NextResponse.json({ success: true });
 }

@@ -1,6 +1,7 @@
 import { createServiceClient } from "@/lib/supabase/service";
 import { generateText } from "@/lib/ai/config";
 import { isInvalidVendorStr } from "@/lib/utils";
+import { broadcastCaseEvent } from "@/lib/realtime-broadcast";
 
 export const KNOWN_SEKUNET_VENDORS = [
   "fabiana perozo", "fabiana peroza", "fabiana p", "fabiana",
@@ -521,6 +522,12 @@ Responde ÚNICAMENTE en formato JSON:
     if (Object.keys(updates).length > 0) {
       await supabase.from("sek_cases").update(updates).eq("id", id);
       console.log(`[auto-extract] Caso ${id} enriquecido automáticamente en segundo plano:`, updates);
+      await broadcastCaseEvent({
+        eventType: "UPDATE",
+        action: "meta",
+        caseId: String(id),
+        new: { id, ...updates, updated_at: new Date().toISOString() },
+      });
     }
 
     return {

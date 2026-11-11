@@ -518,7 +518,7 @@ async function markCaseQueuedMessageDelivered(job, realMsgId, failed) {
     };
     hist[idx] = updatedEntry;
 
-    await fetch(`${SUPABASE_URL}/rest/v1/sek_cases?id=eq.${encodeURIComponent(job.case_id)}`, {
+    const patchRes = await fetch(`${SUPABASE_URL}/rest/v1/sek_cases?id=eq.${encodeURIComponent(job.case_id)}`, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -528,6 +528,30 @@ async function markCaseQueuedMessageDelivered(job, realMsgId, failed) {
       body: JSON.stringify({ histtecnico: hist }),
       signal: AbortSignal.timeout(8000),
     });
+    if (patchRes.ok && SUPABASE_URL && SUPABASE_KEY) {
+      fetch(`${SUPABASE_URL}/realtime/v1/api/broadcast`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: SUPABASE_KEY,
+          Authorization: 'Bearer ' + SUPABASE_KEY,
+        },
+        body: JSON.stringify({
+          messages: [{
+            topic: 'sek_cases_live',
+            event: 'case_event',
+            payload: {
+              eventType: 'UPDATE',
+              action: 'refresh_history',
+              caseId: String(job.case_id),
+              new: { id: job.case_id, updated_at: new Date().toISOString() },
+              ts: Date.now(),
+            },
+          }],
+        }),
+        signal: AbortSignal.timeout(2500),
+      }).catch(() => {});
+    }
   } catch (e) {
     console.warn('[WA Outbox] Error actualizando histtecnico en Supabase:', e.message);
   }

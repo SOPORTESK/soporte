@@ -29,6 +29,26 @@ interface FlowConfig {
 let _cachedFlow: FlowConfig | null | undefined = undefined;
 let _cachedFlowTime = 0;
 
+async function broadcastCaseEvent(payload: Record<string, unknown>): Promise<void> {
+  if (!SUPABASE_URL || !SERVICE_KEY) return;
+  try {
+    await fetch(`${SUPABASE_URL.replace(/\/$/, "")}/realtime/v1/api/broadcast`, {
+      method: "POST",
+      headers: {
+        apikey: SERVICE_KEY,
+        Authorization: `Bearer ${SERVICE_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        messages: [{ topic: "sek_cases_live", event: "case_event", payload: { ts: Date.now(), ...payload } }],
+      }),
+      signal: AbortSignal.timeout(2500),
+    });
+  } catch (e: any) {
+    console.warn("[seka-whatsapp] Broadcast warning:", e?.message || e);
+  }
+}
+
 // Helper: append un mensaje a histtecnico via sek_append_hist (RPC atómico).
 // Esto garantiza que cada mensaje reciba seq y messageId automáticamente.
 // Los extras (estado, closed_at, cliente, etc.) se aplican en un update aparte.
@@ -45,6 +65,13 @@ async function appendTecnico(caseId: string, msg: HistMsg, extra: Record<string,
     const { data: fresh } = await db.from("sek_cases").select("histtecnico").eq("id", caseId).maybeSingle();
     const freshHist: HistMsg[] = Array.isArray(fresh?.histtecnico) ? (fresh as any).histtecnico : [];
     await db.from("sek_cases").update({ histtecnico: [...freshHist, msg], ...extra }).eq("id", caseId);
+    await broadcastCaseEvent({
+      eventType: "UPDATE",
+      action: "deltaEntry",
+      caseId: String(caseId),
+      new: { id: caseId, ...extra, last_message_at: msg.time || new Date().toISOString(), last_message_preview: (msg.content || "").slice(0, 200) },
+      delta: { col: "histtecnico", entry: msg },
+    });
     return false;
   }
   // Aplicar extras (estado, closed_at, etc.) en un update separado
@@ -52,6 +79,13 @@ async function appendTecnico(caseId: string, msg: HistMsg, extra: Record<string,
   if (extraKeys.length > 0) {
     await db.from("sek_cases").update(extra).eq("id", caseId);
   }
+  await broadcastCaseEvent({
+    eventType: "UPDATE",
+    action: "deltaEntry",
+    caseId: String(caseId),
+    new: { id: caseId, ...extra, last_message_at: msg.time || new Date().toISOString(), last_message_preview: (msg.content || "").slice(0, 200) },
+    delta: { col: "histtecnico", entry: msg },
+  });
   return true;
 }
 
@@ -62,6 +96,12 @@ async function appendTecnicoMulti(caseId: string, msgs: HistMsg[], extra: Record
   }
   if (Object.keys(extra).length > 0) {
     await db.from("sek_cases").update(extra).eq("id", caseId);
+    await broadcastCaseEvent({
+      eventType: "UPDATE",
+      action: "meta",
+      caseId: String(caseId),
+      new: { id: caseId, ...extra, updated_at: new Date().toISOString() },
+    });
   }
 }
 
@@ -620,6 +660,12 @@ async function processTags(text: string, caseId: string): Promise<string> {
   // [CERRAR]
   if (/\[CERRAR\]/i.test(text)) {
     await db.from("sek_cases").update({ estado: "cerrado" }).eq("id", caseId);
+    await broadcastCaseEvent({
+      eventType: "UPDATE",
+      action: "meta",
+      caseId: String(caseId),
+      new: { id: caseId, estado: "cerrado", updated_at: new Date().toISOString() },
+    });
     result = result.replace(/\[CERRAR\]/gi, "").trim();
   }
 
@@ -769,9 +815,21 @@ async function safeUpdateCase(update: Record<string, unknown>, caseId: string): 
     const { n2_reason: _, ...fallbackUpdate } = update;
     const { error: retryErr } = await db.from("sek_cases").update(fallbackUpdate).eq("id", caseId);
     if (retryErr) throw new Error(`safeUpdateCase fallback error: ${retryErr.message}`);
+    await broadcastCaseEvent({
+      eventType: "UPDATE",
+      action: "meta",
+      caseId: String(caseId),
+      new: { id: caseId, ...fallbackUpdate, updated_at: new Date().toISOString() },
+    });
     return;
   }
   if (error) throw new Error(`safeUpdateCase error: ${error.message}`);
+  await broadcastCaseEvent({
+    eventType: "UPDATE",
+    action: "meta",
+    caseId: String(caseId),
+    new: { id: caseId, ...update, updated_at: new Date().toISOString() },
+  });
 }
 
 /**

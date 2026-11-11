@@ -10,6 +10,26 @@ const NIM_BASE = "https://integrate.api.nvidia.com/v1";
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
 
+async function broadcastCaseEvent(payload: Record<string, unknown>): Promise<void> {
+  if (!SUPABASE_URL || !SERVICE_KEY) return;
+  try {
+    await fetch(`${SUPABASE_URL.replace(/\/$/, "")}/realtime/v1/api/broadcast`, {
+      method: "POST",
+      headers: {
+        apikey: SERVICE_KEY,
+        Authorization: `Bearer ${SERVICE_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        messages: [{ topic: "sek_cases_live", event: "case_event", payload: { ts: Date.now(), ...payload } }],
+      }),
+      signal: AbortSignal.timeout(2500),
+    });
+  } catch (e: any) {
+    console.warn("[ia-agent] Broadcast warning:", e?.message || e);
+  }
+}
+
 // ── Configuración de modelos y keys ────────────────────────────────────────
 // Se resuelve desde la BD (tablas sek_ai_providers / sek_ai_models) en cada
 // request. El administrador la gestiona en /admin/agente-ia. Si la BD no
@@ -1500,6 +1520,13 @@ Deno.serve(async (req) => {
     if (afterHoursActive && !isWithinBusinessHours() && !isTestAccount && !isSimulator) {
       const offEntry = { role: "assistant", author: "Asistente Virtual", time: new Date().toISOString(), content: offMsg };
       await db.from("sek_cases").update({ histcliente: [...histcliente, offEntry] }).eq("id", case_id);
+      await broadcastCaseEvent({
+        eventType: "UPDATE",
+        action: "deltaEntry",
+        caseId: String(case_id),
+        new: { id: case_id, last_message_at: offEntry.time, last_message_preview: offMsg.slice(0, 200) },
+        delta: { col: "histcliente", entry: offEntry },
+      });
       return new Response(JSON.stringify({ ok: true, response: offMsg, escalated: false, closed: false }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -1513,7 +1540,15 @@ Deno.serve(async (req) => {
     const isWelcomePhase = histcliente.length <= 4;
     if (!iaActiva && !isSimulator && !isWelcomePhase) {
       console.log("[ia-agent] ia_activa=false — modo manual activo, sin respuesta automática");
-      await db.from("sek_cases").update({ estado: "escalado", escalado_at: new Date().toISOString() }).eq("id", case_id);
+      const escAt = new Date().toISOString();
+      await db.from("sek_cases").update({ estado: "escalado", escalado_at: escAt }).eq("id", case_id);
+      await broadcastCaseEvent({
+        eventType: "UPDATE",
+        action: "meta",
+        caseId: String(case_id),
+        new: { id: case_id, estado: "escalado", updated_at: escAt },
+        old: { estado: caso.estado },
+      });
       return new Response(JSON.stringify({ ok: true, skipped: true }), { headers: { "Content-Type": "application/json" } });
     }
 
@@ -1978,6 +2013,20 @@ INSTRUCCIONES PARA LA BÚSQUEDA:
     }
 
     await db.from("sek_cases").update(updates).eq("id", case_id);
+    await broadcastCaseEvent({
+      eventType: "UPDATE",
+      action: "refresh_history",
+      caseId: String(case_id),
+      new: {
+        id: case_id,
+        ...(updates.estado ? { estado: updates.estado } : {}),
+        ...(updates.closed_at ? { closed_at: updates.closed_at } : {}),
+        ...(updates.title ? { title: updates.title } : {}),
+        ...(updates.tags ? { tags: updates.tags } : {}),
+        ...(updates.cliente ? { cliente: updates.cliente } : {}),
+        updated_at: new Date().toISOString(),
+      },
+    });
 
     // Si el canal es whatsapp y la IA generó una respuesta visible, enviarla por Evolution API
     const finalMsg = aiResponse.trim();
@@ -2004,6 +2053,13 @@ INSTRUCCIONES PARA LA BÚSQUEDA:
           const ht = Array.isArray(latestCase?.histtecnico) ? latestCase.histtecnico : [];
           const surveyEntry = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: surveyMsg };
           await db.from("sek_cases").update({ histtecnico: [...ht, surveyEntry] }).eq("id", case_id);
+          await broadcastCaseEvent({
+            eventType: "UPDATE",
+            action: "deltaEntry",
+            caseId: String(case_id),
+            new: { id: case_id, last_message_at: surveyEntry.time, last_message_preview: surveyMsg.slice(0, 200) },
+            delta: { col: "histtecnico", entry: surveyEntry },
+          });
           console.log(`[ia-agent] Encuesta enviada para caso ${case_id}`);
         }
       } catch (e: any) {

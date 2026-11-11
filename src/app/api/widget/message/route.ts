@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { broadcastCaseEvent } from "@/lib/realtime-broadcast";
 
 export const runtime = "nodejs";
 
@@ -52,6 +53,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: updateErr.message }, { status: 500 });
     }
 
+    const pushedEntry = Array.isArray(newHist) && newHist.length > 0 ? newHist[newHist.length - 1] : null;
+    await broadcastCaseEvent({
+      eventType: "UPDATE",
+      action: pushedEntry ? "deltaEntry" : "refresh_history",
+      caseId: String(session_id),
+      new: {
+        id: session_id,
+        last_message_at: pushedEntry?.time || new Date().toISOString(),
+        last_message_preview: String(pushedEntry?.content || "").slice(0, 200),
+      },
+      delta: pushedEntry
+        ? { col: role === "user" ? "histcliente" : "histtecnico", entry: pushedEntry }
+        : undefined,
+    });
+
     // Disparar ia-agent para que responda al mensaje
     const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
     const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
@@ -67,6 +83,15 @@ export async function POST(req: NextRequest) {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ case_id: session_id }),
+        }).then(async (iaRes) => {
+          if (iaRes.ok) {
+            await broadcastCaseEvent({
+              eventType: "UPDATE",
+              action: "refresh_history",
+              caseId: String(session_id),
+              new: { id: session_id, updated_at: new Date().toISOString() },
+            });
+          }
         }).catch(err => console.error("[widget-webhook] Error background ia-agent:", err));
       } catch (err) {
         console.error("[widget-webhook] Error invocando ia-agent:", err);

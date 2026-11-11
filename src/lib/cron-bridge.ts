@@ -1,6 +1,7 @@
 import { createServiceClient } from "@/lib/supabase/service";
 import { pickPhone } from "@/lib/evolution-phone";
 import { cleanExpiredDriveFiles } from "@/lib/google-drive";
+import { broadcastCaseEvent } from "@/lib/realtime-broadcast";
 
 async function refreshDriveTokenDaily() {
   try {
@@ -184,6 +185,12 @@ export function startLocalCronJobs() {
             console.error(`[local-cron-bridge] Error actualizando historial del caso ${c.id} en BD:`, updateErr.message);
           } else {
             console.log(`[local-cron-bridge] Caso ${c.id} actualizado con messageIds correspondientes.`);
+            await broadcastCaseEvent({
+              eventType: "UPDATE",
+              action: "refresh_history",
+              caseId: String(c.id),
+              new: { id: c.id, updated_at: new Date().toISOString() },
+            });
           }
         }
       }

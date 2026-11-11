@@ -12,7 +12,8 @@ import {
   FileArchive, FileCode, FileSpreadsheet, Eye, ShieldCheck, Cpu, Plus, Ticket, Briefcase
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { subscribeCasesRealtime } from "@/lib/cases-realtime-bus";
+import { subscribeCasesRealtime, emitCaseBroadcastClient } from "@/lib/cases-realtime-bus";
+import { toCachedMediaUrl } from "@/lib/media-proxy";
 import { logActivity } from "@/lib/activity-client";
 import { Avatar, Badge } from "@/components/ui/avatar";
 import { Textarea } from "@/components/ui/input";
@@ -611,6 +612,13 @@ export function ChatView({
 
       if (error) throw error;
 
+      const nowIso = new Date().toISOString();
+      emitCaseBroadcastClient({
+        eventType: "UPDATE",
+        action: "meta",
+        caseId: String(targetId),
+        new: { id: targetId, assigned_to: agentEmail, updated_at: nowIso },
+      });
       setSekCase(prev => ({ ...prev, assigned_to: agentEmail }));
       toast.success("Has tomado la gestión de este caso");
       logActivity({
@@ -724,6 +732,12 @@ export function ChatView({
       if (!res.ok) {
         const { error } = await supabase.from("sek_cases").update({ [field]: value }).eq("id", targetId);
         if (error) throw error;
+        emitCaseBroadcastClient({
+          eventType: "UPDATE",
+          action: "meta",
+          caseId: String(targetId),
+          new: { id: targetId, [field]: value },
+        });
       }
       setSekCase(prev => {
         const next = { ...prev, [field]: value };
@@ -1192,12 +1206,67 @@ export function ChatView({
     const unsubscribeCaseBus = subscribeCasesRealtime(
       supabase,
       async (payload) => {
-        if (payload.eventType !== "UPDATE") return;
-        const rowId = String((payload.new as any)?.id || (payload.old as any)?.id || "");
-        if (rowId !== String(targetId)) return;
+        if (payload.eventType !== "UPDATE" && payload.eventType !== "INSERT") return;
+        const groupIds = new Set<string>([
+          String(targetId),
+          ...((initialCaseRef.current._group?.caseIds || []).map(String)),
+          ...((sekCaseRef.current._group?.caseIds || []).map(String)),
+        ]);
+        const rowId = String(payload.caseId || (payload.new as any)?.id || (payload.old as any)?.id || "");
+        if (!rowId || !groupIds.has(rowId)) return;
 
         const newData = (payload.new || {}) as any;
         const prevCase = sekCaseRef.current;
+
+        if (payload.action === "refresh_history") {
+          doPoll(true);
+          return;
+        }
+
+        if (payload.action === "deltaEntry" && payload.delta?.entry) {
+          const { col, entry } = payload.delta;
+          const taggedEntry = { ...entry, _sourceCaseId: rowId };
+          const hasMatchingEntry = (arr: any[]) =>
+            arr.some((m: any) => {
+              if (!m) return false;
+              if (entry.messageId && m.messageId === entry.messageId) return true;
+              if (
+                String(m.content || "") === String(entry.content || "") &&
+                String(m.role || "") === String(entry.role || "") &&
+                String(m.mediaUrl || "") === String(entry.mediaUrl || "")
+              ) {
+                const ta = new Date(m.time || 0).getTime();
+                const tb = new Date(entry.time || 0).getTime();
+                if (!isNaN(ta) && !isNaN(tb) && Math.abs(ta - tb) < 20000) return true;
+              }
+              return false;
+            });
+
+          setSekCase(prev => {
+            const scalarUpdate: any = { ...newData, id: prev.id, _group: prev._group };
+            delete scalarUpdate.histcliente;
+            delete scalarUpdate.histtecnico;
+            if (prev.estado === "escalado" && scalarUpdate.estado && ["ia_atendiendo", "pendiente"].includes(scalarUpdate.estado)) {
+              delete scalarUpdate.estado;
+            }
+            if (col === "histcliente") {
+              const prevArr = Array.isArray(prev.histcliente) ? prev.histcliente : [];
+              scalarUpdate.histcliente = hasMatchingEntry(prevArr) ? prevArr : [...prevArr, taggedEntry];
+            } else if (col === "histtecnico") {
+              const prevArr = Array.isArray(prev.histtecnico) ? prev.histtecnico : [];
+              scalarUpdate.histtecnico = hasMatchingEntry(prevArr) ? prevArr : [...prevArr, taggedEntry];
+            }
+            const next = { ...prev, ...scalarUpdate };
+            caseHistoryCache.set(cacheKey, { sekCase: next, timestamp: Date.now() });
+            return next;
+          });
+
+          if (col === "histcliente" && !entry.read_at && typeof document !== "undefined" && document.visibilityState === "visible") {
+            supabase.rpc("mark_histcliente_read", { p_case_id: String(rowId), p_reader_email: agentEmail || undefined }).then(() => {}, () => {});
+          }
+          return;
+        }
+
         const msgTimeChanged = Boolean(newData.last_message_at && newData.last_message_at !== prevCase?.last_message_at);
 
         let hasInlineHistory = false;
@@ -1235,8 +1304,8 @@ export function ChatView({
           return next;
         });
 
-        // Solo si llegó un mensaje nuevo real (cambió last_message_at) y Postgres TOAST omitió el historial en Realtime, consultar la BD
-        if (msgTimeChanged && !hasInlineHistory) {
+        // Solo si llegó un mensaje nuevo real sin payload inline ni acción meta pura, consultar la BD
+        if (msgTimeChanged && !hasInlineHistory && payload.action !== "meta") {
           doPoll(true);
         }
       },
@@ -1458,6 +1527,12 @@ export function ChatView({
       if (Object.keys(updates).length > 0) {
         try {
           await supabase.from("sek_cases").update(updates).eq("id", targetId);
+          emitCaseBroadcastClient({
+            eventType: "UPDATE",
+            action: "meta",
+            caseId: String(targetId),
+            new: { id: targetId, ...(updates as Record<string, any>) },
+          });
         } catch (upErr) {
           console.warn("[send] No se pudo actualizar estado previo del caso:", upErr);
         }
@@ -1527,6 +1602,17 @@ export function ChatView({
               p_entry: finalLocalEntry as any,
               p_col: "histtecnico",
               p_preview: (body || fileName || "").slice(0, 200),
+            });
+            emitCaseBroadcastClient({
+              eventType: "UPDATE",
+              action: "deltaEntry",
+              caseId: String(targetId),
+              new: {
+                id: targetId,
+                last_message_at: finalLocalEntry.time || new Date().toISOString(),
+                last_message_preview: (body || fileName || "").slice(0, 200),
+              },
+              delta: { col: "histtecnico", entry: finalLocalEntry },
             });
             setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...m, status: "sent", ...(localDelivered.messageId ? { messageId: localDelivered.messageId } : {}) } : m));
             skipUnifyRef.current = true;
@@ -1619,6 +1705,24 @@ export function ChatView({
             p_preview: (body || fileName || "").slice(0, 200),
           });
           if (appendErr) throw appendErr;
+          emitCaseBroadcastClient({
+            eventType: "UPDATE",
+            action: "deltaEntry",
+            caseId: String(targetId),
+            new: {
+              id: targetId,
+              last_message_at: entry.time,
+              last_message_preview: (body || fileName || "").slice(0, 200),
+            },
+            delta: { col: "histtecnico", entry: entry as any },
+          });
+        } else {
+          emitCaseBroadcastClient({
+            eventType: "UPDATE",
+            action: "refresh_history",
+            caseId: String(targetId),
+            new: { id: targetId, updated_at: new Date().toISOString() },
+          });
         }
         skipUnifyRef.current = true;
         setSekCase(prev => {
@@ -2232,6 +2336,12 @@ export function ChatView({
     };
     const { error } = await supabase.from("sek_cases").update(reopenUpdates).eq("id", targetId);
     if (error) { toast.error("Error al cambiar estado"); return; }
+    emitCaseBroadcastClient({
+      eventType: "UPDATE",
+      action: "meta",
+      caseId: String(targetId),
+      new: { id: targetId, ...(reopenUpdates as Record<string, any>) },
+    });
     setSekCase(prev => ({ ...prev, estado: newEstado, tags: reopenTags as any, assigned_to: reopenUpdates.assigned_to as string }));
     toast.success(`Caso reabierto`, { description: "El caso se movió a Mi Gestión. Auto-close pausado." });
     setShowActions(false);
@@ -2289,6 +2399,19 @@ export function ChatView({
       }).eq("id", targetId);
 
       if (closeErr) throw closeErr;
+      emitCaseBroadcastClient({
+        eventType: "UPDATE",
+        action: "deltaEntry",
+        caseId: String(targetId),
+        new: {
+          id: targetId,
+          estado: "cerrado",
+          closed_at: nowIso,
+          last_message_at: nowIso,
+          last_message_preview: msg.slice(0, 200),
+        },
+        delta: { col: "histtecnico", entry },
+      });
 
       // 4. Disparar extracción de IA en segundo plano
       fetch(`/api/cases/${targetId}/auto-extract`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ force: true }) })
@@ -2371,6 +2494,12 @@ export function ChatView({
           .eq("id", targetId);
 
         if (error) throw error;
+        emitCaseBroadcastClient({
+          eventType: "UPDATE",
+          action: "meta",
+          caseId: String(targetId),
+          new: { id: targetId, cliente: updatedCliente },
+        });
 
         // Auto-extract: extraer datos del cliente de la conversación y actualizar estado local
         try {
@@ -2446,6 +2575,12 @@ export function ChatView({
           .eq("id", targetId);
 
         if (error) throw error;
+        emitCaseBroadcastClient({
+          eventType: "UPDATE",
+          action: "meta",
+          caseId: String(targetId),
+          new: { id: targetId, cliente: updatedCliente },
+        });
 
         modalShownRef.current = true;
         setSekCase(prev => ({ ...prev, cliente: updatedCliente }));
@@ -2663,6 +2798,12 @@ export function ChatView({
       }
 
       setSekCase(prev => ({ ...prev, estado: "abierto", assigned_to: agentEmail }));
+      emitCaseBroadcastClient({
+        eventType: "UPDATE",
+        action: "meta",
+        caseId: String(targetId),
+        new: { id: targetId, estado: "abierto", assigned_to: agentEmail },
+      });
       toast.success("Caso aceptado");
       logActivity({
         agent_email: agentEmail,
@@ -2759,6 +2900,19 @@ export function ChatView({
                 p_entry: persistedLocal as any,
                 p_col: "histtecnico",
                 p_preview: welcomeMsg.slice(0, 200),
+              });
+              emitCaseBroadcastClient({
+                eventType: "UPDATE",
+                action: "deltaEntry",
+                caseId: String(targetId),
+                new: {
+                  id: targetId,
+                  estado: "abierto",
+                  assigned_to: agentEmail,
+                  last_message_at: welcomeEntry.time,
+                  last_message_preview: welcomeMsg.slice(0, 200),
+                },
+                delta: { col: "histtecnico", entry: persistedLocal as any },
               });
               caseHistoryCache.delete(cacheKey);
               caseHistoryCache.delete(String(targetId));
@@ -2868,6 +3022,13 @@ export function ChatView({
 
       const { error } = await supabase.from("sek_cases").update(updates).eq("id", targetId);
       if (error) throw error;
+      emitCaseBroadcastClient({
+        eventType: "UPDATE",
+        action: "deltaEntry",
+        caseId: String(targetId),
+        new: { id: targetId, assigned_to: newAgentEmail },
+        delta: { col: "histtecnico", entry: noteEntry },
+      });
       setSekCase(prev => ({ ...prev, assigned_to: newAgentEmail }));
       toast.success(`Caso reasignado a ${newName}`);
       setShowReassign(false);
@@ -2892,6 +3053,12 @@ export function ChatView({
         .update({ cliente: updatedCliente })
         .eq("id", targetId);
       if (error) throw error;
+      emitCaseBroadcastClient({
+        eventType: "UPDATE",
+        action: "meta",
+        caseId: String(targetId),
+        new: { id: targetId, cliente: updatedCliente },
+      });
       setSekCase(prev => ({ ...prev, cliente: updatedCliente }));
       toast.success("Teléfono real vinculado correctamente");
       setEditingPhone(false);
@@ -4298,6 +4465,7 @@ export function ChatView({
 }
 
 function VideoNote({ url, type }: { url: string; type: string }) {
+  const cachedUrl = toCachedMediaUrl(url);
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = React.useState(false);
 
@@ -4327,7 +4495,7 @@ function VideoNote({ url, type }: { url: string; type: string }) {
         onEnded={() => setPlaying(false)}
         onClick={toggle}
       >
-        <source src={url} type={type} />
+        <source src={cachedUrl} type={type} />
       </video>
       {!playing && (
         <button
@@ -4349,6 +4517,7 @@ function VideoNote({ url, type }: { url: string; type: string }) {
 }
 
 function AudioPlayer({ url }: { url: string }) {
+  const cachedUrl = toCachedMediaUrl(url);
   const audioRef = React.useRef<HTMLAudioElement>(null);
   const barRef = React.useRef<HTMLDivElement>(null);
   const [playing, setPlaying] = React.useState(false);
@@ -4403,7 +4572,7 @@ function AudioPlayer({ url }: { url: string }) {
     <div className="flex items-center gap-3 mt-2 px-3 py-2.5 rounded-2xl bg-white/15 backdrop-blur-sm border border-white/10 w-[260px]">
       <audio
         ref={audioRef}
-        src={url}
+        src={cachedUrl}
         preload="metadata"
         onTimeUpdate={() => {
           if (draggingRef.current) return;
@@ -4596,6 +4765,8 @@ function MediaPreview({ url, type, name, onImageClick, onHikvisionInspect }: {
     || type
     || "";
 
+  const cachedUrl = toCachedMediaUrl(url);
+
   if (t.startsWith("image/")) {
     return (
       <div 
@@ -4604,7 +4775,7 @@ function MediaPreview({ url, type, name, onImageClick, onHikvisionInspect }: {
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={url}
+          src={cachedUrl}
           alt={name || "imagen"}
           loading="lazy"
           className="max-w-[280px] max-h-60 rounded-xl object-cover border border-white/20 shadow-sm bg-black/20"
@@ -4615,7 +4786,7 @@ function MediaPreview({ url, type, name, onImageClick, onHikvisionInspect }: {
   if (t.startsWith("video/")) {
     const isNote = (name || url).includes("nota-video");
     if (isNote) return <VideoNote url={url} type={t} />;
-    const videoSrcWithThumb = url.includes("#") ? url : `${url}#t=0.1`;
+    const videoSrcWithThumb = cachedUrl.includes("#") ? cachedUrl : `${cachedUrl}#t=0.1`;
     return (
       <div className="mt-1.5 rounded-xl overflow-hidden bg-neutral-950/90 border border-white/20 max-w-[300px] shadow-md">
         <div className="relative group">
@@ -4657,7 +4828,7 @@ function MediaPreview({ url, type, name, onImageClick, onHikvisionInspect }: {
   const handleDownload = async (e: React.MouseEvent<HTMLAnchorElement>) => {
     e.preventDefault();
     try {
-      const res = await fetch(url);
+      const res = await fetch(cachedUrl);
       const blob = await res.blob();
       const blobUrl = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -4668,7 +4839,7 @@ function MediaPreview({ url, type, name, onImageClick, onHikvisionInspect }: {
       a.remove();
       window.URL.revokeObjectURL(blobUrl);
     } catch (err) {
-      window.open(url, "_blank");
+      window.open(cachedUrl, "_blank");
     }
   };
 
@@ -4684,7 +4855,7 @@ function MediaPreview({ url, type, name, onImageClick, onHikvisionInspect }: {
           title="Clic para abrir vista previa completa del PDF"
         >
           <iframe
-            src={`${url}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`}
+            src={`${cachedUrl}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`}
             title={displayName}
             loading="lazy"
             className="w-full h-full pointer-events-none border-0"
@@ -4749,7 +4920,7 @@ function MediaPreview({ url, type, name, onImageClick, onHikvisionInspect }: {
           </button>
         )}
         <a
-          href={url}
+          href={cachedUrl}
           onClick={handleDownload}
           download={displayName}
           className={cn(

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { toCachedMediaUrl } from "@/lib/media-proxy";
 import {
   ArrowLeft,
   Send,
@@ -903,20 +904,20 @@ export function InternalChatView({
                         {m.mediaType === "image/webp+sticker" && m.mediaUrl ? (
                           <div className="py-1 flex items-center justify-center">
                             <img
-                              src={m.mediaUrl}
+                              src={toCachedMediaUrl(m.mediaUrl)}
                               alt={m.content || "Sticker"}
                               className="h-28 w-28 object-contain drop-shadow-md hover:scale-110 transition-transform cursor-pointer select-none"
-                              onClick={() => setPreviewMedia({ url: m.mediaUrl!, type: "image", name: "Sticker" })}
+                              onClick={() => setPreviewMedia({ url: toCachedMediaUrl(m.mediaUrl!), type: "image", name: "Sticker" })}
                             />
                           </div>
                         ) : isImage && m.mediaUrl ? (
                           /* IMAGEN ADJUNTA CON PREVIEW PREMIUM */
                           <div
-                            onClick={() => setPreviewMedia({ url: m.mediaUrl!, type: "image", name: m.fileName || "Foto" })}
+                            onClick={() => setPreviewMedia({ url: toCachedMediaUrl(m.mediaUrl!), type: "image", name: m.fileName || "Foto" })}
                             className="cursor-pointer overflow-hidden rounded-xl border border-black/10 max-h-56 group/img relative shadow-xs"
                           >
                             <img
-                              src={m.mediaUrl}
+                              src={toCachedMediaUrl(m.mediaUrl)}
                               alt="Adjunto"
                               className="w-full h-full object-cover transition-transform duration-200 group-hover/img:scale-105"
                             />
@@ -931,7 +932,7 @@ export function InternalChatView({
                         {/* VIDEO ADJUNTO */}
                         {isVideo && m.mediaUrl && (
                           <video
-                            src={m.mediaUrl}
+                            src={toCachedMediaUrl(m.mediaUrl)}
                             controls
                             className="w-full rounded-xl max-h-56 bg-black/60 border border-black/20"
                           />
@@ -939,13 +940,13 @@ export function InternalChatView({
 
                         {/* NOTA DE VOZ / AUDIO PLAYER PREMIUM */}
                         {isAudio && m.mediaUrl && (
-                          <InternalAudioPlayer url={m.mediaUrl} isMe={isMe} />
+                          <InternalAudioPlayer url={toCachedMediaUrl(m.mediaUrl)} isMe={isMe} />
                         )}
 
                         {/* DOCUMENTO / ARCHIVO ADJUNTO */}
                         {m.mediaUrl && !isImage && !isVideo && !isAudio && (
                           <a
-                            href={m.mediaUrl}
+                            href={toCachedMediaUrl(m.mediaUrl)}
                             target="_blank"
                             rel="noopener noreferrer"
                             className={`flex items-center gap-2.5 p-2.5 rounded-xl border transition-all ${
@@ -1346,7 +1347,7 @@ export function InternalChatView({
               </button>
             </div>
             <img
-              src={previewMedia.url}
+              src={toCachedMediaUrl(previewMedia.url)}
               alt={previewMedia.name || "Preview"}
               className="max-h-[80vh] w-auto object-contain"
             />
@@ -1359,6 +1360,7 @@ export function InternalChatView({
 
 // ── REPRODUCTOR DE AUDIO ELEGANTE CON CONTROL DE VELOCIDAD Y FORMA DE ONDA ──
 function InternalAudioPlayer({ url, isMe }: { url: string; isMe: boolean }) {
+  const cachedUrl = toCachedMediaUrl(url);
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -1436,7 +1438,7 @@ function InternalAudioPlayer({ url, isMe }: { url: string; isMe: boolean }) {
           : "bg-card/90 border border-border/80 text-foreground shadow-xs"
       }`}
     >
-      <audio ref={audioRef} src={url} preload="metadata" />
+      <audio ref={audioRef} src={cachedUrl} preload="metadata" />
 
       {/* Botón Play / Pause */}
       <button

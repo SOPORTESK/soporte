@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { broadcastCaseEvent } from "@/lib/realtime-broadcast";
 
 function getSupabaseAdmin() {
   return createClient(
@@ -74,39 +75,82 @@ export async function POST(req: NextRequest) {
     if (existingCase) {
       // Agregar mensaje al historial existente
       const hist = Array.isArray(existingCase.histcliente) ? [...existingCase.histcliente, newMsg] : [newMsg];
+      const nextEstado = existingCase.estado === "cerrado" || existingCase.estado === "resuelto" ? "abierto" : existingCase.estado;
+      const nextUnread = (existingCase.unread_count || 0) + 1;
       await supabase
         .from("sek_cases")
         .update({
           histcliente: hist,
           last_message_at: nowIso,
           last_message_preview: content.slice(0, 100),
-          unread_count: (existingCase.unread_count || 0) + 1,
+          unread_count: nextUnread,
           updated_at: nowIso,
-          estado: existingCase.estado === "cerrado" || existingCase.estado === "resuelto" ? "abierto" : existingCase.estado,
+          estado: nextEstado,
         })
         .eq("id", existingCase.id);
+      await broadcastCaseEvent({
+        eventType: "UPDATE",
+        action: "deltaEntry",
+        caseId: String(existingCase.id),
+        new: {
+          id: existingCase.id,
+          last_message_at: nowIso,
+          last_message_preview: content.slice(0, 100),
+          unread_count: nextUnread,
+          updated_at: nowIso,
+          estado: nextEstado,
+        },
+        old: { estado: existingCase.estado, unread_count: existingCase.unread_count },
+        delta: { col: "histcliente", entry: newMsg },
+      });
     } else {
       // Crear nuevo caso en Sekunet
-      await supabase.from("sek_cases").insert({
-        canal: canal,
-        channel_id: chatwootRef,
-        title: `[${canal.toUpperCase()}] ${senderName} (#${conversationId})`,
-        cliente: {
-          nombre: senderName,
-          email: sender?.email || "",
-          telefono: sender?.phone_number || "",
-          chatwoot_conversation_id: conversationId,
-          chatwoot_inbox_id: inbox?.id,
-        },
-        estado: "abierto",
-        prioridad: "media",
-        histcliente: [newMsg],
-        last_message_at: nowIso,
-        last_message_preview: content.slice(0, 100),
-        unread_count: 1,
-        created_at: nowIso,
-        updated_at: nowIso,
-      });
+      const clienteMeta = {
+        nombre: senderName,
+        email: sender?.email || "",
+        telefono: sender?.phone_number || "",
+        chatwoot_conversation_id: conversationId,
+        chatwoot_inbox_id: inbox?.id,
+      };
+      const title = `[${canal.toUpperCase()}] ${senderName} (#${conversationId})`;
+      const { data: createdCase } = await supabase
+        .from("sek_cases")
+        .insert({
+          canal: canal,
+          channel_id: chatwootRef,
+          title,
+          cliente: clienteMeta,
+          estado: "abierto",
+          prioridad: "media",
+          histcliente: [newMsg],
+          last_message_at: nowIso,
+          last_message_preview: content.slice(0, 100),
+          unread_count: 1,
+          created_at: nowIso,
+          updated_at: nowIso,
+        })
+        .select("id")
+        .single();
+      if (createdCase?.id) {
+        await broadcastCaseEvent({
+          eventType: "INSERT",
+          action: "insert",
+          caseId: String(createdCase.id),
+          new: {
+            id: createdCase.id,
+            canal,
+            title,
+            cliente: clienteMeta,
+            estado: "abierto",
+            prioridad: "media",
+            last_message_at: nowIso,
+            last_message_preview: content.slice(0, 100),
+            unread_count: 1,
+            created_at: nowIso,
+            updated_at: nowIso,
+          },
+        });
+      }
     }
 
     return NextResponse.json({ success: true, canal, conversationId });

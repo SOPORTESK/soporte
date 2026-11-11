@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { broadcastAgentEvent } from "@/lib/realtime-broadcast";
 
 export const dynamic = "force-dynamic";
 
@@ -60,13 +61,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, cached: true });
     }
 
+    const lastSeenAt = new Date(nowMs).toISOString();
     const svc = createServiceClient();
     await svc
       .from("sek_agent_config")
-      .update({ status, last_seen_at: new Date(nowMs).toISOString() })
+      .update({ status, last_seen_at: lastSeenAt })
       .ilike("email", normEmail);
 
     lastStatusWriteByEmail.set(normEmail, { status, ts: nowMs });
+    await broadcastAgentEvent({
+      eventType: "UPDATE",
+      email: normEmail,
+      status,
+      last_seen_at: lastSeenAt,
+    });
     return NextResponse.json({ ok: true });
   } catch (err: any) {
     return NextResponse.json({ ok: false, error: err?.message }, { status: 200 });

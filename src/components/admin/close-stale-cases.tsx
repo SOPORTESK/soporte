@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { createClient } from "@/lib/supabase/client";
+import { emitCaseBroadcastClient } from "@/lib/cases-realtime-bus";
 import { toast } from "sonner";
 import { Clock, XCircle, Loader2 } from "lucide-react";
 
@@ -60,6 +61,14 @@ export function CloseStaleCases({ hoursThreshold = 2 }: { hoursThreshold?: numbe
         .in("id", ids);
 
       if (error) throw error;
+      emitCaseBroadcastClient(
+        ids.map((caseId) => ({
+          eventType: "UPDATE" as const,
+          action: "meta" as const,
+          caseId,
+          new: { id: caseId, estado: "cerrado", closed_at: now },
+        }))
+      );
       toast.success(`${ids.length} casos cerrados`);
       setStaleCases([]);
       setShowPanel(false);
@@ -79,6 +88,12 @@ export function CloseStaleCases({ hoursThreshold = 2 }: { hoursThreshold?: numbe
         .eq("id", id);
 
       if (error) throw error;
+      emitCaseBroadcastClient({
+        eventType: "UPDATE",
+        action: "meta",
+        caseId: id,
+        new: { id, estado: "cerrado", closed_at: now },
+      });
       setStaleCases(prev => prev.filter(c => c.id !== id));
       toast.success("Caso cerrado");
     } catch (e: any) {

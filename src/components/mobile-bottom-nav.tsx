@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 import { useTheme } from "next-themes";
+import { toCachedMediaUrl } from "@/lib/media-proxy";
 
 interface OnlineAgent {
   email: string;
@@ -71,8 +72,9 @@ function NavAvatar({ url, name, size = 24 }: { url?: string | null; name?: strin
     .toUpperCase() || "U";
   const colors = ["bg-violet-500", "bg-indigo-500", "bg-sky-500", "bg-emerald-500", "bg-amber-500", "bg-rose-500"];
   const color = colors[safeName.charCodeAt(0) % colors.length];
-  if (url) {
-    return <img src={url} alt={safeName} style={{ width: size, height: size }} className="rounded-full object-cover" />;
+  const cachedUrl = toCachedMediaUrl(url);
+  if (cachedUrl) {
+    return <img src={cachedUrl} alt={safeName} style={{ width: size, height: size }} className="rounded-full object-cover" />;
   }
   return (
     <div style={{ width: size, height: size, fontSize: size * 0.38 }} className={`${color} rounded-full flex items-center justify-center text-white font-bold shrink-0`}>
@@ -155,8 +157,8 @@ function MobileBottomNavInner({ isAdmin, agentName, avatarUrl, agent, onlineAgen
               "flex items-center justify-center w-10 h-7 rounded-full transition-all",
               profileOpen && "bg-brand-100 dark:bg-brand-900/40"
             )}>
-              {avatarUrl ? (
-                <img src={avatarUrl} alt="" className="h-5 w-5 rounded-full object-cover" />
+              {toCachedMediaUrl(avatarUrl) ? (
+                <img src={toCachedMediaUrl(avatarUrl)!} alt="" className="h-5 w-5 rounded-full object-cover" />
               ) : (
                 <User className="h-[18px] w-[18px]" />
               )}
@@ -231,7 +233,7 @@ function MobileProfileDrawer({
     form.append("avatar", file);
     const res = await fetch("/api/profile/avatar", { method: "POST", body: form });
     const data = await res.json();
-    if (res.ok) { setLocalAvatar(data.url + "?t=" + Date.now()); toast.success("Avatar actualizado"); router.refresh(); }
+    if (res.ok) { setLocalAvatar(data.url); toast.success("Avatar actualizado"); router.refresh(); }
     else toast.error(data.error || "Error al subir avatar");
     setUploadingAvatar(false);
   };

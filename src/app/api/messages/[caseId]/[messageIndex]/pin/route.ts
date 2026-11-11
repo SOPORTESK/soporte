@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { broadcastCaseEvent } from "@/lib/realtime-broadcast";
 
 export async function POST(
   req: NextRequest,
@@ -55,6 +56,13 @@ export async function POST(
     console.error("[PIN MSG API] Error:", updateError);
     return NextResponse.json({ error: "update_failed" }, { status: 500 });
   }
+
+  await broadcastCaseEvent({
+    eventType: "UPDATE",
+    action: "refresh_history",
+    caseId: String(caseId),
+    new: { id: caseId, updated_at: new Date().toISOString() },
+  });
 
   return NextResponse.json({ ok: true, pinned: !currentlyPinned });
 }

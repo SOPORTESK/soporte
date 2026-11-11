@@ -73,6 +73,7 @@ async function syncGarantiaToSoporte(rec) {
     if (matchedCases.length > 0) {
       const now = new Date().toISOString();
       let actualUpdatesCount = 0;
+      const broadcastMessages = [];
       for (const c of matchedCases) {
         const cCliente = (c.cliente && typeof c.cliente === 'object') ? { ...c.cliente } : {};
         if (rec.marca) cCliente.marca = rec.marca;
@@ -107,6 +108,29 @@ async function syncGarantiaToSoporte(rec) {
 
         await chatClient.from('sek_cases').update(updates).eq('id', c.id);
         actualUpdatesCount++;
+        broadcastMessages.push({
+          topic: 'sek_cases_live',
+          event: 'case_event',
+          payload: {
+            eventType: 'UPDATE',
+            action: 'meta',
+            caseId: String(c.id),
+            new: { id: c.id, cliente: cCliente, updated_at: now },
+            ts: Date.now(),
+          },
+        });
+      }
+      if (broadcastMessages.length > 0 && CHAT_URL && CHAT_SERVICE_KEY) {
+        fetch(`${CHAT_URL.replace(/\/$/, '')}/realtime/v1/api/broadcast`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            apikey: CHAT_SERVICE_KEY,
+            Authorization: `Bearer ${CHAT_SERVICE_KEY}`,
+          },
+          body: JSON.stringify({ messages: broadcastMessages }),
+          signal: AbortSignal.timeout(2500),
+        }).catch(() => {});
       }
       if (actualUpdatesCount > 0) {
         console.log(`[Sync Garantías->Soporte] Sincronizado boleta ${rec.boleta} (Ticket: ${rec.ticket || '—'}) con ${actualUpdatesCount} caso(s) en Soporte.`);

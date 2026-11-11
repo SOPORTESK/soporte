@@ -3,6 +3,7 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { createClient } from "@/lib/supabase/server";
 import { createGarantiasServiceClient } from "@/lib/supabase-garantias";
 import { isInvalidVendorStr } from "@/lib/utils";
+import { broadcastCaseEvent, broadcastCaseEvents } from "@/lib/realtime-broadcast";
 
 export async function PATCH(
   req: NextRequest,
@@ -149,6 +150,21 @@ export async function PATCH(
       return NextResponse.json({ error: updateError.message }, { status: 500 });
     }
 
+    const broadcastBatch: any[] = [
+      {
+        eventType: "UPDATE",
+        action: "meta",
+        caseId: String(targetCaseId),
+        new: {
+          id: targetCaseId,
+          cliente: updatedCliente,
+          updated_at: new Date().toISOString(),
+          ...(nuevoTitle ? { title: nuevoTitle } : {}),
+          ...(clienteTel ? { customer_phone: clienteTel } : {}),
+        },
+      },
+    ];
+
     // Propagar datos de identidad del contacto a los demás casos del cliente
     const contactOnlyFields: Record<string, string> = {};
     for (const k of ["nombre", "cuenta", "correo", "cedula", "telefono", "vendedor"]) {
@@ -178,9 +194,10 @@ export async function PATCH(
             ? rc.cliente as Record<string, unknown>
             : {};
           const mergedCliente = { ...rcCliente, ...contactOnlyFields };
+          const rcNow = new Date().toISOString();
           const rcUpdates: Record<string, unknown> = {
             cliente: mergedCliente,
-            updated_at: new Date().toISOString(),
+            updated_at: rcNow,
           };
           if (nuevoTitle) rcUpdates.title = nuevoTitle;
           if (clienteTel) rcUpdates.customer_phone = clienteTel;
@@ -189,6 +206,12 @@ export async function PATCH(
             .from("sek_cases")
             .update(rcUpdates)
             .eq("id", rc.id);
+          broadcastBatch.push({
+            eventType: "UPDATE",
+            action: "meta",
+            caseId: String(rc.id),
+            new: { id: rc.id, ...rcUpdates },
+          });
         }
       }
     }
@@ -209,19 +232,33 @@ export async function PATCH(
           for (const ac of accountCases) {
             const acCliente = (ac.cliente && typeof ac.cliente === "object") ? ac.cliente as Record<string, unknown> : {};
             if (acCliente.vendedor !== finalVendedor) {
+              const acClienteNext = { ...acCliente, vendedor: finalVendedor };
+              const acNow = new Date().toISOString();
               await supabase
                 .from("sek_cases")
                 .update({
-                  cliente: { ...acCliente, vendedor: finalVendedor },
-                  updated_at: new Date().toISOString(),
+                  cliente: acClienteNext,
+                  updated_at: acNow,
                 })
                 .eq("id", ac.id);
+              broadcastBatch.push({
+                eventType: "UPDATE",
+                action: "meta",
+                caseId: String(ac.id),
+                new: { id: ac.id, cliente: acClienteNext, updated_at: acNow },
+              });
             }
           }
         }
       } catch (err) {
         console.warn("[PATCH cliente] Error propagando vendedor por cuenta:", err);
       }
+    }
+
+    if (broadcastBatch.length === 1) {
+      await broadcastCaseEvent(broadcastBatch[0]);
+    } else if (broadcastBatch.length > 1) {
+      await broadcastCaseEvents(broadcastBatch);
     }
 
     // ── Sincronización automática hacia la base de datos de Garantías ──

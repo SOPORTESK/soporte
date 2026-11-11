@@ -6,6 +6,47 @@ const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
 
+async function broadcastCaseEvent(payload: Record<string, unknown>): Promise<void> {
+  if (!SUPABASE_URL || !SERVICE_KEY) return;
+  try {
+    await fetch(`${SUPABASE_URL.replace(/\/$/, "")}/realtime/v1/api/broadcast`, {
+      method: "POST",
+      headers: {
+        apikey: SERVICE_KEY,
+        Authorization: `Bearer ${SERVICE_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        messages: [{ topic: "sek_cases_live", event: "case_event", payload: { ts: Date.now(), ...payload } }],
+      }),
+      signal: AbortSignal.timeout(2500),
+    });
+  } catch (e: any) {
+    console.warn("[seka-widget] Broadcast warning:", e?.message || e);
+  }
+}
+
+async function saveWidgetHistUpdate(
+  caseId: string,
+  newMsg: any,
+  histcliente: any[],
+  extra: Record<string, unknown> = {}
+): Promise<void> {
+  await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg], ...extra }).eq("id", caseId);
+  await broadcastCaseEvent({
+    eventType: "UPDATE",
+    action: "deltaEntry",
+    caseId: String(caseId),
+    new: {
+      id: caseId,
+      ...extra,
+      last_message_at: newMsg?.time || new Date().toISOString(),
+      last_message_preview: String(newMsg?.content || "").slice(0, 200),
+    },
+    delta: { col: "histcliente", entry: newMsg },
+  });
+}
+
 // ─── SYSTEM PROMPT ────────────────────────────────────────────────────────────
 const SYSTEM_PROMPT = `Usted es el Asistente Virtual de Sekunet (Costa Rica), especialista de soporte técnico.
 Trate siempre de usted. Sin emojis. Máximo 2 oraciones por respuesta.
@@ -396,16 +437,29 @@ async function processTags(text: string, caseId: string): Promise<string> {
   // [ESCALAR_N2: ...]
   const escMatch = text.match(/\[ESCALAR_N2:\s*([^\]]+)\]/i);
   if (escMatch) {
+    const reason = escMatch[1].trim();
     await db.from("sek_cases").update({
       estado: "escalado",
-      n2_reason: escMatch[1].trim(),
+      n2_reason: reason,
     }).eq("id", caseId);
+    await broadcastCaseEvent({
+      eventType: "UPDATE",
+      action: "meta",
+      caseId: String(caseId),
+      new: { id: caseId, estado: "escalado", n2_reason: reason, updated_at: new Date().toISOString() },
+    });
     result = result.replace(escMatch[0], "").trim();
   }
 
   // [CERRAR]
   if (/\[CERRAR\]/i.test(text)) {
     await db.from("sek_cases").update({ estado: "cerrado" }).eq("id", caseId);
+    await broadcastCaseEvent({
+      eventType: "UPDATE",
+      action: "meta",
+      caseId: String(caseId),
+      new: { id: caseId, estado: "cerrado", updated_at: new Date().toISOString() },
+    });
     result = result.replace(/\[CERRAR\]/gi, "").trim();
   }
 
@@ -561,7 +615,7 @@ Deno.serve(async (req: Request) => {
     // Blindaje de media: si el bot pidió texto y el usuario envía imagen/audio, redirigir.
     if (lastUserMsg && esMensajeDeMedia(lastUserMsg) && pasoPideTexto(lastIA?.content || "")) {
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: MSG_MEDIA_NO_PERMITIDA };
-      await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg] }).eq("id", case_id);
+      await saveWidgetHistUpdate(case_id, newMsg, histcliente);
       return new Response(JSON.stringify({ ok: true, reply: MSG_MEDIA_NO_PERMITIDA }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     // ═══════════════════════════════════════════════════════════════════════
@@ -642,7 +696,7 @@ Responde SOLO con JSON válido:
       cleanReply = cleanReply.replace(/__INV__.*?__INV__/gs, "").trim();
       if (!cleanReply) return new Response(JSON.stringify({ ok: true, skipped: true }), { status: 200, headers: corsHeaders });
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: cleanReply };
-      await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg] }).eq("id", case_id);
+      await saveWidgetHistUpdate(case_id, newMsg, histcliente);
       return new Response(JSON.stringify({ ok: true, reply: cleanReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -749,7 +803,7 @@ Responde SOLO con JSON válido:
     if (cuentaDetectada === "sin cuenta" || cuentaDetectada === "no tengo" || cuentaDetectada === "cliente final") {
       const M_NO_CUENTA = "Gracias por comunicarse con Sekunet.\n\nLe informamos que nuestro servicio de soporte técnico es un beneficio exclusivo para clientes y distribuidores autorizados de nuestra red.\n\nPor este motivo, le recomendamos contactar directamente a su proveedor o instalador, quien podrá brindarle la asistencia correspondiente con su requerimiento.\n\nAgradecemos su comprensión y le deseamos un excelente día.";
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M_NO_CUENTA };
-      await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg], estado: "cerrado" }).eq("id", case_id);
+      await saveWidgetHistUpdate(case_id, newMsg, histcliente, { estado: "cerrado" });
       return new Response(JSON.stringify({ ok: true, reply: M_NO_CUENTA }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -796,26 +850,26 @@ Responde SOLO con JSON válido:
         if (!imagenUrl && !xmlUrl) {
           const retry = "Por favor, adjunte la imagen de la etiqueta del equipo y el archivo XML.";
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: retry };
-          await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg] }).eq("id", case_id);
+          await saveWidgetHistUpdate(case_id, newMsg, histcliente);
           return new Response(JSON.stringify({ ok: true, reply: retry }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
         if (!imagenUrl) {
           const retry = "Por favor, adjunte una imagen clara y legible de la etiqueta del equipo.";
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: retry };
-          await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg] }).eq("id", case_id);
+          await saveWidgetHistUpdate(case_id, newMsg, histcliente);
           return new Response(JSON.stringify({ ok: true, reply: retry }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
         if (!xmlUrl) {
           const retry = "Por favor, adjunte el archivo XML obtenido con SAPD Tools.";
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: retry };
-          await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg] }).eq("id", case_id);
+          await saveWidgetHistUpdate(case_id, newMsg, histcliente);
           return new Response(JSON.stringify({ ok: true, reply: retry }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
       } else {
         if (!imagenUrl) {
           const retry = "Por favor, adjunte una imagen clara y legible de la etiqueta del equipo.";
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: retry };
-          await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg] }).eq("id", case_id);
+          await saveWidgetHistUpdate(case_id, newMsg, histcliente);
           return new Response(JSON.stringify({ ok: true, reply: retry }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
       }
@@ -928,13 +982,12 @@ No agregues nada más.`,
         if (imagenOk && xmlOk && snCoinciden) {
           const M02_TEXT = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M02_TEXT };
-          await db.from("sek_cases").update({
-            histcliente: [...histcliente, newMsg],
+          await saveWidgetHistUpdate(case_id, newMsg, histcliente, {
             estado: "escalado",
             escalado_at: new Date().toISOString(),
             title: `${temaSupervisor} — ${marca} ${modelo}`.substring(0, 120),
             tags: [temaSupervisor === "Desvinculación" ? "desvinculacion" : "reset"],
-          }).eq("id", case_id);
+          });
           return new Response(JSON.stringify({ ok: true, reply: M02_TEXT }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
 
@@ -977,13 +1030,12 @@ No agregues nada más.`,
         if (imagenOk) {
           const M02_TEXT = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M02_TEXT };
-          await db.from("sek_cases").update({
-            histcliente: [...histcliente, newMsg],
+          await saveWidgetHistUpdate(case_id, newMsg, histcliente, {
             estado: "escalado",
             escalado_at: new Date().toISOString(),
             title: `${temaSupervisor} — ${marca} ${modelo}`.substring(0, 120),
             tags: [temaSupervisor === "Desvinculación" ? "desvinculacion" : "reset"],
-          }).eq("id", case_id);
+          });
           return new Response(JSON.stringify({ ok: true, reply: M02_TEXT }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
       }
@@ -997,48 +1049,51 @@ No agregues nada más.`,
           if (yaReintentoImagen && yaReintentoXML) {
             const M02_TEXT = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
             const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M02_TEXT };
-            await db.from("sek_cases").update({
-              histcliente: [...histcliente, newMsg], estado: "escalado", escalado_at: new Date().toISOString(),
+            await saveWidgetHistUpdate(case_id, newMsg, histcliente, {
+              estado: "escalado",
+              escalado_at: new Date().toISOString(),
               title: `${temaSupervisor} — ${marca} ${modelo} — verificación pendiente`.substring(0, 120),
               tags: ["reset", "verificacion_pendiente"],
-            }).eq("id", case_id);
+            });
             return new Response(JSON.stringify({ ok: true, reply: M02_TEXT }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
           }
           const retry = `Le informamos que ${motivoImagen} y ${motivoXml}. Por favor, adjunte nuevamente ambos archivos.`;
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: retry };
-          await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg] }).eq("id", case_id);
+          await saveWidgetHistUpdate(case_id, newMsg, histcliente);
           return new Response(JSON.stringify({ ok: true, reply: retry }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
         if (!imagenOk) {
           if (yaReintentoImagen) {
             const M02_TEXT = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
             const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M02_TEXT };
-            await db.from("sek_cases").update({
-              histcliente: [...histcliente, newMsg], estado: "escalado", escalado_at: new Date().toISOString(),
+            await saveWidgetHistUpdate(case_id, newMsg, histcliente, {
+              estado: "escalado",
+              escalado_at: new Date().toISOString(),
               title: `${temaSupervisor} — ${marca} ${modelo} — imagen pendiente`.substring(0, 120),
               tags: ["reset", "imagen_pendiente"],
-            }).eq("id", case_id);
+            });
             return new Response(JSON.stringify({ ok: true, reply: M02_TEXT }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
           }
           const retry = `Le informamos que ${motivoImagen}. Por favor, adjunte nuevamente una imagen clara de la etiqueta del equipo.`;
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: retry };
-          await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg] }).eq("id", case_id);
+          await saveWidgetHistUpdate(case_id, newMsg, histcliente);
           return new Response(JSON.stringify({ ok: true, reply: retry }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
         if (!xmlOk) {
           if (yaReintentoXML) {
             const M02_TEXT = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
             const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M02_TEXT };
-            await db.from("sek_cases").update({
-              histcliente: [...histcliente, newMsg], estado: "escalado", escalado_at: new Date().toISOString(),
+            await saveWidgetHistUpdate(case_id, newMsg, histcliente, {
+              estado: "escalado",
+              escalado_at: new Date().toISOString(),
               title: `${temaSupervisor} — ${marca} ${modelo} — XML pendiente`.substring(0, 120),
               tags: ["reset", "xml_pendiente"],
-            }).eq("id", case_id);
+            });
             return new Response(JSON.stringify({ ok: true, reply: M02_TEXT }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
           }
           const retry = `Le informamos que ${motivoXml}. Por favor, adjunte nuevamente el archivo XML.`;
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: retry };
-          await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg] }).eq("id", case_id);
+          await saveWidgetHistUpdate(case_id, newMsg, histcliente);
           return new Response(JSON.stringify({ ok: true, reply: retry }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
       } else {
@@ -1046,16 +1101,17 @@ No agregues nada más.`,
           if (yaReintentoImagen) {
             const M02_TEXT = "Agradecemos su preferencia. En un momento será atendido por uno de nuestros agentes.";
             const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M02_TEXT };
-            await db.from("sek_cases").update({
-              histcliente: [...histcliente, newMsg], estado: "escalado", escalado_at: new Date().toISOString(),
+            await saveWidgetHistUpdate(case_id, newMsg, histcliente, {
+              estado: "escalado",
+              escalado_at: new Date().toISOString(),
               title: `${temaSupervisor} — ${marca} ${modelo} — imagen pendiente`.substring(0, 120),
               tags: [temaSupervisor === "Desvinculación" ? "desvinculacion" : "reset", "imagen_pendiente"],
-            }).eq("id", case_id);
+            });
             return new Response(JSON.stringify({ ok: true, reply: M02_TEXT }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
           }
           const retry = `Le informamos que ${motivoImagen}. Por favor, adjunte nuevamente una imagen clara de la etiqueta del equipo.`;
           const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: retry };
-          await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg] }).eq("id", case_id);
+          await saveWidgetHistUpdate(case_id, newMsg, histcliente);
           return new Response(JSON.stringify({ ok: true, reply: retry }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
       }
@@ -1065,7 +1121,7 @@ No agregues nada más.`,
     if (accion === "CERRAR") {
       const M03_TEXT = "Ha sido un gusto atenderle. Si tiene alguna otra consulta, no dude en contactarnos nuevamente. ¡Que tenga un excelente día!";
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M03_TEXT };
-      await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg], estado: "cerrado" }).eq("id", case_id);
+      await saveWidgetHistUpdate(case_id, newMsg, histcliente, { estado: "cerrado" });
       return new Response(JSON.stringify({ ok: true, reply: M03_TEXT }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -1073,7 +1129,7 @@ No agregues nada más.`,
     if (accion === "VENTAS") {
       const M04_TEXT = "Agradecemos mucho su interés.\n\nLe informamos que su consulta corresponde al Departamento de Ventas. Con gusto podrán asistirle a través de los siguientes medios:\n\n• Teléfono: +506 2290 5585\n• WhatsApp: +506 8757 5820\n• Correo electrónico: info@sekunet.com\n\nSerá un gusto atenderle por cualquiera de estos canales.\n\n¡Le deseamos un excelente día!";
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M04_TEXT };
-      await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg], estado: "cerrado" }).eq("id", case_id);
+      await saveWidgetHistUpdate(case_id, newMsg, histcliente, { estado: "cerrado" });
       return new Response(JSON.stringify({ ok: true, reply: M04_TEXT }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -1083,14 +1139,13 @@ No agregues nada más.`,
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M02_TEXT };
       const temaTag = temaToTag(temaSupervisor);
       const upd: Record<string, unknown> = {
-        histcliente: [...histcliente, newMsg],
         estado: "escalado",
         escalado_at: new Date().toISOString(),
         n2_reason: "Solicitud directa del cliente",
       };
       if (temaTag) upd.tags = [temaTag];
       if (temaSupervisor) upd.title = `${temaSupervisor}`.substring(0, 120);
-      await db.from("sek_cases").update(upd).eq("id", case_id);
+      await saveWidgetHistUpdate(case_id, newMsg, histcliente, upd);
       return new Response(JSON.stringify({ ok: true, reply: M02_TEXT }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -1098,7 +1153,7 @@ No agregues nada más.`,
     if (accion === "PEDIR_TEMA") {
       const directReply = "¿En relación a qué tema sería su consulta?";
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
-      await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg] }).eq("id", case_id);
+      await saveWidgetHistUpdate(case_id, newMsg, histcliente);
       return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -1106,7 +1161,7 @@ No agregues nada más.`,
     if (accion === "PEDIR_MARCA") {
       const directReply = "Por favor, indíquenos la marca del equipo.";
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
-      await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg] }).eq("id", case_id);
+      await saveWidgetHistUpdate(case_id, newMsg, histcliente);
       return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -1114,7 +1169,7 @@ No agregues nada más.`,
     if (accion === "PEDIR_MODELO") {
       const directReply = "¿Nos podría indicar el modelo del equipo, por favor?";
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
-      await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg] }).eq("id", case_id);
+      await saveWidgetHistUpdate(case_id, newMsg, histcliente);
       return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -1122,7 +1177,7 @@ No agregues nada más.`,
     if (accion === "PEDIR_MARCA_Y_MODELO") {
       const directReply = "Por favor, indíquenos la marca y el modelo del equipo.";
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
-      await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg] }).eq("id", case_id);
+      await saveWidgetHistUpdate(case_id, newMsg, histcliente);
       return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -1146,14 +1201,14 @@ No agregues nada más.`,
       }
       
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
-      const upd: Record<string, unknown> = { histcliente: [...histcliente, newMsg] };
+      const upd: Record<string, unknown> = {};
       if (inv.encontrado && (marcaSupervisor || modeloSupervisor)) {
         upd.title = `${temaSupervisor} — ${inv.detalle}`.substring(0, 120);
         // Persistir marca/modelo para no perderlos en turnos posteriores
         const currentCliente = (caso.cliente && typeof caso.cliente === "object") ? caso.cliente : {};
         upd.cliente = { ...currentCliente, marca: marcaSupervisor, modelo: modeloSupervisor };
       }
-      await db.from("sek_cases").update(upd).eq("id", case_id);
+      await saveWidgetHistUpdate(case_id, newMsg, histcliente, Object.keys(upd).length > 0 ? upd : undefined);
       return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -1161,13 +1216,13 @@ No agregues nada más.`,
     if (accion === "PEDIR_ETIQUETA") {
       const directReply = "Por favor, adjunte una imagen clara y legible de la etiqueta del equipo.";
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
-      const upd: Record<string, unknown> = { histcliente: [...histcliente, newMsg] };
+      const upd: Record<string, unknown> = {};
       if (marcaSupervisor || modeloSupervisor) {
         const currentCliente = (caso.cliente && typeof caso.cliente === "object") ? caso.cliente : {};
         upd.cliente = { ...currentCliente, marca: marcaSupervisor, modelo: modeloSupervisor };
         upd.title = `${temaSupervisor} — ${marcaSupervisor} ${modeloSupervisor}`.substring(0, 120);
       }
-      await db.from("sek_cases").update(upd).eq("id", case_id);
+      await saveWidgetHistUpdate(case_id, newMsg, histcliente, Object.keys(upd).length > 0 ? upd : undefined);
       return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -1175,13 +1230,13 @@ No agregues nada más.`,
     if (accion === "PEDIR_ETIQUETA_Y_XML") {
       const directReply = "Como parte de los requisitos del fabricante, requerimos una imagen clara y legible de la etiqueta del equipo y el archivo XML, el cual puede obtener mediante la herramienta SAPD Tools en la opción \"Olvidé mi contraseña\", ubicada en la parte inferior derecha del software. Por favor, adjunte ambos archivos.";
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
-      const upd: Record<string, unknown> = { histcliente: [...histcliente, newMsg] };
+      const upd: Record<string, unknown> = {};
       if (marcaSupervisor || modeloSupervisor) {
         const currentCliente = (caso.cliente && typeof caso.cliente === "object") ? caso.cliente : {};
         upd.cliente = { ...currentCliente, marca: marcaSupervisor, modelo: modeloSupervisor };
         upd.title = `${temaSupervisor} — ${marcaSupervisor} ${modeloSupervisor}`.substring(0, 120);
       }
-      await db.from("sek_cases").update(upd).eq("id", case_id);
+      await saveWidgetHistUpdate(case_id, newMsg, histcliente, Object.keys(upd).length > 0 ? upd : undefined);
       return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -1189,7 +1244,7 @@ No agregues nada más.`,
     if (accion === "PEDIR_DESCRIPCION") {
       const directReply = "Por favor, describa brevemente el inconveniente que presenta.";
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
-      await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg] }).eq("id", case_id);
+      await saveWidgetHistUpdate(case_id, newMsg, histcliente);
       return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -1199,7 +1254,6 @@ No agregues nada más.`,
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: M02_TEXT };
       const temaTag = temaToTag(temaSupervisor);
       const upd: Record<string, unknown> = {
-        histcliente: [...histcliente, newMsg],
         estado: "escalado",
         escalado_at: new Date().toISOString(),
       };
@@ -1209,7 +1263,7 @@ No agregues nada más.`,
       } else if (temaSupervisor) {
         upd.title = `${temaSupervisor}`.substring(0, 120);
       }
-      await db.from("sek_cases").update(upd).eq("id", case_id);
+      await saveWidgetHistUpdate(case_id, newMsg, histcliente, upd);
       return new Response(JSON.stringify({ ok: true, reply: M02_TEXT }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -1217,7 +1271,7 @@ No agregues nada más.`,
     if (supervisorResult.respuesta_sugerida) {
       const directReply = supervisorResult.respuesta_sugerida;
       const newMsg: HistMsg = { role: "ia", author: "Asistente Sekunet", time: new Date().toISOString(), content: directReply };
-      await db.from("sek_cases").update({ histcliente: [...histcliente, newMsg] }).eq("id", case_id);
+      await saveWidgetHistUpdate(case_id, newMsg, histcliente);
       return new Response(JSON.stringify({ ok: true, reply: directReply }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -1272,6 +1326,13 @@ No agregues nada más.`,
 
     const updatedHist = [...histcliente, newMsg];
     await db.from("sek_cases").update({ histcliente: updatedHist }).eq("id", case_id);
+    await broadcastCaseEvent({
+      eventType: "UPDATE",
+      action: "deltaEntry",
+      caseId: String(case_id),
+      new: { id: case_id, last_message_at: newMsg.time, last_message_preview: cleanReply.slice(0, 200) },
+      delta: { col: "histcliente", entry: newMsg },
+    });
 
     return new Response(JSON.stringify({ ok: true, reply: cleanReply }), {
       status: 200,
@@ -1292,12 +1353,20 @@ No agregues nada más.`,
           content: M02_PANIC,
         };
         const updatedHist = [...globalHistCliente, newMsg];
+        const panicAt = new Date().toISOString();
         await db.from("sek_cases").update({
           histcliente: updatedHist,
           estado: "escalado",
-          escalado_at: new Date().toISOString(),
+          escalado_at: panicAt,
           n2_reason: "Escalado por error crítico",
         }).eq("id", globalCaseId);
+        await broadcastCaseEvent({
+          eventType: "UPDATE",
+          action: "deltaEntry",
+          caseId: String(globalCaseId),
+          new: { id: globalCaseId, estado: "escalado", last_message_at: newMsg.time, last_message_preview: M02_PANIC.slice(0, 200) },
+          delta: { col: "histcliente", entry: newMsg },
+        });
         
         console.warn(`[seka-widget] Escalado final activado para el caso ${globalCaseId}`);
         return new Response(JSON.stringify({ ok: true, reply: M02_PANIC }), {

@@ -2,6 +2,7 @@ import { createServiceClient } from "@/lib/supabase/service";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { cacheGetFresh, cacheSet, cacheDelete } from "@/lib/supabase/cache";
 import { computeUnifiedActivityMetrics } from "@/lib/activity-engine";
+import { broadcastAgentEvent } from "@/lib/realtime-broadcast";
 
 export interface ActivityLog {
   id?: number;
@@ -488,10 +489,18 @@ export async function insertActivityLog(entry: ActivityLog): Promise<void> {
           .ilike("email", normEmail)
           .maybeSingle();
         const nextStatus = data?.status === "busy" ? "busy" : "online";
-        await supabase
+        const { error: updErr } = await supabase
           .from("sek_agent_config")
           .update({ status: nextStatus, last_seen_at: nowIso })
           .ilike("email", normEmail);
+        if (!updErr) {
+          await broadcastAgentEvent({
+            eventType: "UPDATE",
+            email: normEmail,
+            status: nextStatus,
+            last_seen_at: nowIso,
+          });
+        }
       })().catch(() => {});
     }
   }

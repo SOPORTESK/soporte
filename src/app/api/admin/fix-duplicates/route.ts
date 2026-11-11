@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-
+import { broadcastCaseEvent, broadcastCaseEvents } from "@/lib/realtime-broadcast";
 
 export async function POST(req: Request) {
   const supabase = await createClient();
@@ -9,6 +9,12 @@ export async function POST(req: Request) {
   // Modo: limpiar historial completo de un caso específico (solo videos de prueba)
   if (body.clear_case) {
     await supabase.from("sek_cases").update({ histcliente: [], histtecnico: [] }).eq("id", body.clear_case);
+    await broadcastCaseEvent({
+      eventType: "UPDATE",
+      action: "refresh_history",
+      caseId: String(body.clear_case),
+      new: { id: body.clear_case, updated_at: new Date().toISOString() },
+    });
     return NextResponse.json({ ok: true, cleared: body.clear_case });
   }
 
@@ -21,6 +27,7 @@ export async function POST(req: Request) {
 
   let fixed = 0;
 
+  const broadcastList: any[] = [];
   for (const c of cases ?? []) {
     const hc: any[] = Array.isArray(c.histcliente) ? c.histcliente : [];
     const ht: any[] = Array.isArray(c.histtecnico) ? c.histtecnico : [];
@@ -53,7 +60,17 @@ export async function POST(req: Request) {
     if (finalHc.length !== hc.length) {
       await supabase.from("sek_cases").update({ histcliente: finalHc }).eq("id", c.id);
       fixed++;
+      broadcastList.push({
+        eventType: "UPDATE",
+        action: "refresh_history",
+        caseId: String(c.id),
+        new: { id: c.id, updated_at: new Date().toISOString() },
+      });
     }
+  }
+
+  if (broadcastList.length > 0) {
+    await broadcastCaseEvents(broadcastList);
   }
 
   return NextResponse.json({ ok: true, fixed, total: cases?.length ?? 0 });

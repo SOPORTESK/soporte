@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { broadcastCaseEvents } from "@/lib/realtime-broadcast";
 
 export async function POST(
   req: NextRequest,
@@ -118,10 +119,18 @@ export async function POST(
       }
     };
 
+    const pinEvents: any[] = [];
     // Actualizar todos los casos relacionados del cliente
     for (const c of targetCases) {
       const updatedTags = computeNewTags(c.tags);
       await supabase.from("sek_cases").update({ tags: updatedTags }).eq("id", c.id);
+      pinEvents.push({
+        eventType: "UPDATE",
+        action: "meta",
+        caseId: String(c.id),
+        new: { id: c.id, tags: updatedTags, updated_at: new Date().toISOString() },
+        old: { tags: Array.isArray(c.tags) ? c.tags : [] },
+      });
     }
 
     // Si tiene teléfono, sincronizar también cualquier otro caso no capturado arriba
@@ -137,9 +146,20 @@ export async function POST(
           if (!allIds.includes(ec.id)) {
             const newTags = computeNewTags(ec.tags);
             await supabase.from("sek_cases").update({ tags: newTags }).eq("id", ec.id);
+            pinEvents.push({
+              eventType: "UPDATE",
+              action: "meta",
+              caseId: String(ec.id),
+              new: { id: ec.id, tags: newTags, updated_at: new Date().toISOString() },
+              old: { tags: Array.isArray(ec.tags) ? ec.tags : [] },
+            });
           }
         }
       }
+    }
+
+    if (pinEvents.length > 0) {
+      await broadcastCaseEvents(pinEvents);
     }
 
     const nextPrimaryTags = computeNewTags(currentTags);

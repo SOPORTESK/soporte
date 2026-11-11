@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { broadcastCaseEvent } from "@/lib/realtime-broadcast";
 
 export const runtime = "nodejs";
 
@@ -87,6 +88,22 @@ export async function POST(req: NextRequest) {
         }, { onConflict: "cedula", ignoreDuplicates: true });
       if (upErr) console.warn("[widget/session] upsert cliente warning:", upErr.message);
     }
+
+    await broadcastCaseEvent({
+      eventType: "INSERT",
+      action: "insert",
+      caseId: String(newCase.id),
+      new: {
+        id: newCase.id,
+        title: `Chat web — ${cliente.nombre}`,
+        canal: "widget",
+        estado: newCase.estado || "ia_atendiendo",
+        prioridad: "media",
+        cliente: newCase.cliente || cliente,
+        last_message_at: welcomeMsg.time,
+        last_message_preview: welcomeMsg.content.slice(0, 200),
+      },
+    });
 
     return NextResponse.json({ session_id: String(newCase.id), case: newCase }, { status: 201 });
   } catch (e: any) {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { pickPhone } from "@/lib/evolution-phone";
+import { broadcastCaseEvent } from "@/lib/realtime-broadcast";
 
 function resolveMessageId(messageObj: any, caseData: any, historyType: string): string | null {
   if (messageObj?.messageId) return messageObj.messageId;
@@ -51,7 +52,7 @@ export async function POST(
 
   const { data: caseData, error: fetchError } = await supabase
     .from("sek_cases")
-    .select("*")
+    .select("id, canal, customer_phone, cliente, histcliente, histtecnico")
     .eq("id", targetCaseId)
     .single();
 
@@ -60,7 +61,7 @@ export async function POST(
     return NextResponse.json({ ok: false, error: "Caso no encontrado" }, { status: 404 });
   }
 
-  const history = caseData[historyType] || [];
+  const history = (caseData as any)[historyType] || [];
   const msgIndex = parseInt(params.messageIndex);
 
   if (msgIndex < 0 || msgIndex >= history.length) {
@@ -145,6 +146,13 @@ export async function POST(
     console.error("[REACTION API] Error al actualizar:", updateError);
     return NextResponse.json({ ok: false, error: updateError.message }, { status: 500 });
   }
+
+  await broadcastCaseEvent({
+    eventType: "UPDATE",
+    action: "refresh_history",
+    caseId: String(targetCaseId),
+    new: { id: targetCaseId, updated_at: new Date().toISOString() },
+  });
 
   return NextResponse.json({ ok: true, reactions: updatedReactions });
 }

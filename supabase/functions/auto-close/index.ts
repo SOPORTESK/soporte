@@ -20,6 +20,26 @@ async function getFlowMessage(nodeId: string, fallback: string): Promise<string>
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
 
+async function broadcastCaseEvent(payload: Record<string, unknown>): Promise<void> {
+  if (!SUPABASE_URL || !SERVICE_KEY) return;
+  try {
+    await fetch(`${SUPABASE_URL.replace(/\/$/, "")}/realtime/v1/api/broadcast`, {
+      method: "POST",
+      headers: {
+        apikey: SERVICE_KEY,
+        Authorization: `Bearer ${SERVICE_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        messages: [{ topic: "sek_cases_live", event: "case_event", payload: { ts: Date.now(), ...payload } }],
+      }),
+      signal: AbortSignal.timeout(2500),
+    });
+  } catch (e: any) {
+    console.warn("[auto-close-fn] Broadcast warning:", e?.message || e);
+  }
+}
+
 async function resolveEvoConfig(): Promise<{ EVO_URL: string; EVO_KEY: string; EVO_INSTANCE: string }> {
   let EVO_URL = Deno.env.get("EVOLUTION_API_URL") || "";
   let EVO_KEY = Deno.env.get("EVOLUTION_API_KEY") || "";
@@ -275,9 +295,10 @@ Deno.serve(async (req) => {
       };
       const newHist = alreadyHasCloseMsg ? existingTech : [...existingTech, dailyCloseEntry];
 
+      const dailyClosedAt = new Date().toISOString();
       const { data: closedDaily, error: dailyErr } = await db
         .from("sek_cases")
-        .update({ estado: "cerrado", closed_at: new Date().toISOString(), histtecnico: newHist })
+        .update({ estado: "cerrado", closed_at: dailyClosedAt, histtecnico: newHist })
         .eq("id", caso.id)
         .not("estado", "in", '("cerrado","resuelto")')
         .select("id");
@@ -285,6 +306,21 @@ Deno.serve(async (req) => {
       if (dailyErr || !closedDaily || closedDaily.length === 0) {
         continue;
       }
+
+      await broadcastCaseEvent({
+        eventType: "UPDATE",
+        action: alreadyHasCloseMsg ? "meta" : "deltaEntry",
+        caseId: String(caso.id),
+        new: {
+          id: caso.id,
+          estado: "cerrado",
+          closed_at: dailyClosedAt,
+          updated_at: dailyClosedAt,
+          ...(alreadyHasCloseMsg ? {} : { last_message_at: dailyCloseEntry.time, last_message_preview: dailyCloseConfig.message.slice(0, 200) }),
+        },
+        old: { estado: caso.estado },
+        ...(alreadyHasCloseMsg ? {} : { delta: { col: "histtecnico", entry: dailyCloseEntry } }),
+      });
 
       // Enviar el mensaje por WhatsApp únicamente en el corte vespertino del mismo día (no en la mañana siguiente)
       if (isAfterDailyCutoff && !isFromPreviousDay && canalLower === "whatsapp" && realPhone) {
@@ -332,6 +368,13 @@ Deno.serve(async (req) => {
         .select("id");
       if (timeoutUpdated && timeoutUpdated.length > 0) {
         closed++;
+        await broadcastCaseEvent({
+          eventType: "UPDATE",
+          action: "meta",
+          caseId: String(caso.id),
+          new: { id: caso.id, estado: "cerrado", updated_at: new Date().toISOString() },
+          old: { estado: "calificacion_pendiente" },
+        });
         learnFromCase(caso).catch(() => {});
         fetch(`${SUPABASE_URL}/functions/v1/learn-case`, {
           method: "POST",
@@ -359,8 +402,18 @@ Deno.serve(async (req) => {
       }
       console.log(`[auto-close] Caso ${caso.id} zombi (${Math.round(ageMs/3600000)}h sin assigned_to) → cerrando`);
       const closeEntry = { role: "tecnico", content: autoCloseConfig.close_message || CLOSE_MSG, time: new Date().toISOString(), author: "Soporte Sekunet" };
-      await db.from("sek_cases").update({ estado: "cerrado", closed_at: new Date().toISOString(), histtecnico: [...(caso.histtecnico ?? []), closeEntry] })
-        .eq("id", caso.id).not("estado", "in", '("cerrado","resuelto")');
+      const { data: zombieUpdated } = await db.from("sek_cases").update({ estado: "cerrado", closed_at: closeEntry.time, histtecnico: [...(caso.histtecnico ?? []), closeEntry] })
+        .eq("id", caso.id).not("estado", "in", '("cerrado","resuelto")').select("id");
+      if (zombieUpdated && zombieUpdated.length > 0) {
+        await broadcastCaseEvent({
+          eventType: "UPDATE",
+          action: "deltaEntry",
+          caseId: String(caso.id),
+          new: { id: caso.id, estado: "cerrado", closed_at: closeEntry.time, updated_at: closeEntry.time },
+          old: { estado: caso.estado },
+          delta: { col: "histtecnico", entry: closeEntry },
+        });
+      }
       closed++;
       console.log(`[auto-close] Caso zombi ${caso.id} cerrado.`);
       continue;
@@ -384,11 +437,19 @@ Deno.serve(async (req) => {
         const newHist = [...(caso.histtecnico ?? []), closeEntry];
         const { data: updated } = await db.from("sek_cases").update({
           estado: "cerrado",
-          closed_at: new Date().toISOString(),
+          closed_at: closeEntry.time,
           histtecnico: newHist
         }).eq("id", caso.id).not("estado", "in", '("cerrado","resuelto")').select("id");
         if (updated && updated.length > 0) {
           closed++;
+          await broadcastCaseEvent({
+            eventType: "UPDATE",
+            action: "deltaEntry",
+            caseId: String(caso.id),
+            new: { id: caso.id, estado: "cerrado", closed_at: closeEntry.time, updated_at: closeEntry.time },
+            old: { estado: caso.estado },
+            delta: { col: "histtecnico", entry: closeEntry },
+          });
           if (canalLower === "whatsapp" && realPhone) {
             await sendViaEvolution(realPhone, autoCloseConfig.close_message || CLOSE_MSG);
           }
@@ -460,17 +521,18 @@ Deno.serve(async (req) => {
     // Para WhatsApp: enviar encuesta en lugar de cerrar directamente
     if (canalLower === "whatsapp") {
       const surveyMsg = await getFlowMessage("pedir_calificacion", "¿Cómo calificaría la atención recibida? Responda con un número del 1 al 5, donde 1 es muy mala y 5 es excelente.");
+      const surveyNow = new Date().toISOString();
       const surveyEntry = {
         role: "ia",
         content: surveyMsg,
-        time: new Date().toISOString(),
+        time: surveyNow,
         author: "Asistente Sekunet",
       };
       const newHistSurvey = [...(caso.histtecnico ?? []), surveyEntry];
 
       const { data: surveyUpdated, error: surveyErr } = await db
         .from("sek_cases")
-        .update({ estado: "calificacion_pendiente", closed_at: new Date().toISOString(), histtecnico: newHistSurvey, last_message_at: new Date().toISOString(), last_message_preview: surveyMsg.slice(0, 200) })
+        .update({ estado: "calificacion_pendiente", closed_at: surveyNow, histtecnico: newHistSurvey, last_message_at: surveyNow, last_message_preview: surveyMsg.slice(0, 200) })
         .eq("id", caso.id)
         .not("estado", "in", '("cerrado","resuelto","calificacion_pendiente")')
         .select("id");
@@ -484,6 +546,22 @@ Deno.serve(async (req) => {
         continue;
       }
 
+      await broadcastCaseEvent({
+        eventType: "UPDATE",
+        action: "deltaEntry",
+        caseId: String(caso.id),
+        new: {
+          id: caso.id,
+          estado: "calificacion_pendiente",
+          closed_at: surveyNow,
+          last_message_at: surveyNow,
+          last_message_preview: surveyMsg.slice(0, 200),
+          updated_at: surveyNow,
+        },
+        old: { estado: caso.estado },
+        delta: { col: "histtecnico", entry: surveyEntry },
+      });
+
       if (realPhone) {
         console.log(`[auto-close] Enviando encuesta por WhatsApp a ${realPhone}`);
         const msgId = await sendViaEvolution(realPhone, surveyMsg);
@@ -495,6 +573,12 @@ Deno.serve(async (req) => {
               h[h.length - 1].messageId = msgId;
               h[h.length - 1].fromMe = true;
               await db.from("sek_cases").update({ histtecnico: h }).eq("id", caso.id);
+              await broadcastCaseEvent({
+                eventType: "UPDATE",
+                action: "refresh_history",
+                caseId: String(caso.id),
+                new: { id: caso.id, updated_at: new Date().toISOString() },
+              });
             }
           }
         }
@@ -518,7 +602,7 @@ Deno.serve(async (req) => {
 
     const { data: updatedCases, error: updateErr } = await db
       .from("sek_cases")
-      .update({ estado: "cerrado", closed_at: new Date().toISOString(), histtecnico: newHist })
+      .update({ estado: "cerrado", closed_at: closeEntry.time, histtecnico: newHist })
       .eq("id", caso.id)
       .not("estado", "in", '("cerrado","resuelto")')
       .select("id");
@@ -533,6 +617,15 @@ Deno.serve(async (req) => {
       console.log(`[auto-close] Caso ${caso.id} ya fue cerrado por otro proceso, saltando`);
       continue;
     }
+
+    await broadcastCaseEvent({
+      eventType: "UPDATE",
+      action: "deltaEntry",
+      caseId: String(caso.id),
+      new: { id: caso.id, estado: "cerrado", closed_at: closeEntry.time, updated_at: closeEntry.time },
+      old: { estado: caso.estado },
+      delta: { col: "histtecnico", entry: closeEntry },
+    });
 
     // Solo llegar aquí si somos el proceso que realmente cerró el caso
     // (WhatsApp cases are handled above in the survey block)

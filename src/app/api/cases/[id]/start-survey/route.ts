@@ -3,6 +3,7 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { getEvolutionConfig } from "@/lib/evolution-config";
 import { performAutoExtract } from "@/lib/ai/auto-extract";
 import { enqueueWaOutbox, generateQueuedMessageId } from "@/lib/wa-outbox";
+import { broadcastCaseEvent } from "@/lib/realtime-broadcast";
 
 export async function POST(
   _req: NextRequest,
@@ -69,6 +70,14 @@ export async function POST(
       estado: "cerrado",
       closed_at: now,
     }).eq("id", caseId);
+
+    await broadcastCaseEvent({
+      eventType: "UPDATE",
+      action: "meta",
+      caseId: String(caseId),
+      new: { id: caseId, estado: "cerrado", closed_at: now, updated_at: now },
+      old: { estado: caso.estado },
+    });
 
     // Auto-extracción de IA 100% en backend (automática)
     performAutoExtract(caseId).catch(e => console.warn("[start-survey] Auto-extract error:", e));
@@ -202,6 +211,22 @@ export async function POST(
     last_message_at: now,
     last_message_preview: surveyMsg.slice(0, 200),
   }).eq("id", caseId);
+
+  await broadcastCaseEvent({
+    eventType: "UPDATE",
+    action: "deltaEntry",
+    caseId: String(caseId),
+    new: {
+      id: caseId,
+      estado: "calificacion_pendiente",
+      closed_at: now,
+      last_message_at: now,
+      last_message_preview: surveyMsg.slice(0, 200),
+      updated_at: now,
+    },
+    old: { estado: caso.estado },
+    delta: { col: "histtecnico", entry: surveyEntry },
+  });
 
   // Auto-extracción de IA 100% en backend (automática y sin depender del navegador)
   performAutoExtract(caseId).catch(e => console.warn("[start-survey] Auto-extract error:", e));

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { broadcastAgentEvent } from "@/lib/realtime-broadcast";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +48,13 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (error) throw error;
+
+    await broadcastAgentEvent({
+      eventType: "UPDATE",
+      email: data?.email || email,
+      rol: groupId,
+      fullReload: true,
+    });
 
     return NextResponse.json({ success: true, data });
   } catch (e: any) {

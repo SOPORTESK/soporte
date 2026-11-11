@@ -3,6 +3,7 @@ import { createGarantiasServiceClient } from "@/lib/supabase-garantias";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { cacheDelete } from "@/lib/supabase/cache";
+import { broadcastCaseEvents } from "@/lib/realtime-broadcast";
 
 export const dynamic = "force-dynamic";
 
@@ -204,6 +205,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       }
 
       if (matchedCases.length > 0) {
+        const events: any[] = [];
         for (const c of matchedCases) {
           const cCliente = (c.cliente && typeof c.cliente === "object") ? { ...c.cliente } : {};
           if (body.marca !== undefined) cCliente.marca = body.marca || "";
@@ -226,7 +228,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
           if (body.falla !== undefined) updates.problema = body.falla || null;
 
           await chatSupabase.from("sek_cases").update(updates).eq("id", c.id);
+          events.push({
+            eventType: "UPDATE",
+            action: "meta",
+            caseId: String(c.id),
+            new: { id: c.id, ...updates },
+          });
         }
+        await broadcastCaseEvents(events);
         console.log(`[garantias->soporte] Sincronizados ${matchedCases.length} casos para garantía ${params.id}`);
       }
     } catch (syncErr) {

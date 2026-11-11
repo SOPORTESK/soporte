@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
+import { broadcastAgentEvent } from "@/lib/realtime-broadcast";
 
 export async function POST(req: NextRequest) {
   const supabase = createClient();
@@ -27,10 +28,17 @@ export async function POST(req: NextRequest) {
   if (uploadError) return NextResponse.json({ error: uploadError.message }, { status: 500 });
 
   const { data: { publicUrl } } = service.storage.from("avatars").getPublicUrl(path);
+  const versionedUrl = `${publicUrl}${publicUrl.includes("?") ? "&" : "?"}v=${Date.now()}`;
 
   await service.from("sek_agent_config")
-    .update({ avatar_url: publicUrl })
+    .update({ avatar_url: versionedUrl })
     .ilike("email", user.email!);
 
-  return NextResponse.json({ url: publicUrl });
+  await broadcastAgentEvent({
+    eventType: "UPDATE",
+    email: user.email!,
+    avatar_url: versionedUrl,
+  });
+
+  return NextResponse.json({ url: versionedUrl });
 }

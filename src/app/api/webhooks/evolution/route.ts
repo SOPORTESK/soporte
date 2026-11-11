@@ -5,6 +5,7 @@ import { getEvolutionConfig } from "@/lib/evolution-config";
 import { performAutoExtract } from "@/lib/ai/auto-extract";
 import { analyzeMedia, transcribeAudio } from "@/lib/ai/vision";
 import { enqueueWaOutbox, generateQueuedMessageId } from "@/lib/wa-outbox";
+import { broadcastCaseEvent } from "@/lib/realtime-broadcast";
 
 async function preAnalyzeCaseAttachment(
   supabase: any,
@@ -55,6 +56,12 @@ async function preAnalyzeCaseAttachment(
         .update({ histcliente: nextCliente, histtecnico: nextTecnico })
         .eq("id", caseId);
       console.log(`[evo-webhook] Adjunto pre-analizado y guardado en segundo plano para caso ${caseId}`);
+      await broadcastCaseEvent({
+        eventType: "UPDATE",
+        action: "refresh_history",
+        caseId: String(caseId),
+        new: { id: caseId, updated_at: new Date().toISOString() },
+      });
     }
   } catch (e: any) {
     console.warn("[evo-webhook] Error en pre-análisis de adjunto:", e?.message);
@@ -495,6 +502,13 @@ async function processIncomingReaction(supabase: any, targetMessageId: string, e
         .eq("id", c.id);
       if (error) {
         console.error("[evo-webhook] Error actualizando caso con reacción:", error);
+      } else {
+        await broadcastCaseEvent({
+          eventType: "UPDATE",
+          action: "refresh_history",
+          caseId: String(c.id),
+          new: { id: c.id, updated_at: new Date().toISOString() },
+        });
       }
       return true;
     }
@@ -541,6 +555,12 @@ async function processReadReceipt(supabase: any, messageId: string): Promise<boo
         console.error("[evo-webhook] Error actualizando read_at:", error);
         return false;
       }
+      await broadcastCaseEvent({
+        eventType: "UPDATE",
+        action: "refresh_history",
+        caseId: String(c.id),
+        new: { id: c.id, updated_at: now },
+      });
       console.log(`[evo-webhook] Confirmación de lectura actualizada para mensaje ${messageId} en caso ${c.id}`);
       return true;
     }
@@ -585,6 +605,12 @@ async function processRevokedMessage(supabase: any, messageId: string): Promise<
         .from("sek_cases")
         .update({ histcliente: histCliente, histtecnico: histTecnico })
         .eq("id", c.id);
+      await broadcastCaseEvent({
+        eventType: "UPDATE",
+        action: "refresh_history",
+        caseId: String(c.id),
+        new: { id: c.id, updated_at: new Date().toISOString() },
+      });
       console.log(`[evo-webhook] Mensaje ${messageId} marcado como eliminado en caso ${c.id}`);
       return true;
     }
@@ -630,6 +656,12 @@ async function processEditedMessage(supabase: any, messageId: string, newContent
         .from("sek_cases")
         .update({ histcliente: histCliente, histtecnico: histTecnico })
         .eq("id", c.id);
+      await broadcastCaseEvent({
+        eventType: "UPDATE",
+        action: "refresh_history",
+        caseId: String(c.id),
+        new: { id: c.id, updated_at: new Date().toISOString() },
+      });
       console.log(`[evo-webhook] Mensaje ${messageId} editado in-place con éxito en caso ${c.id}`);
       return true;
     }
@@ -1983,10 +2015,18 @@ export async function POST(req: NextRequest) {
         const inactiveHours = (Date.now() - new Date(lastActivityStr).getTime()) / (1000 * 60 * 60);
         if (inactiveHours > 24) {
           console.log(`[evo-webhook] Caso ${existing.id} lleva ${inactiveHours.toFixed(1)}h sin actividad. Cerrando automáticamente para abrir caso nuevo fresco.`);
+          const staleClosedAt = new Date().toISOString();
           await supabase
             .from("sek_cases")
-            .update({ estado: "cerrado", closed_at: new Date().toISOString() })
+            .update({ estado: "cerrado", closed_at: staleClosedAt })
             .eq("id", existing.id);
+          await broadcastCaseEvent({
+            eventType: "UPDATE",
+            action: "meta",
+            caseId: String(existing.id),
+            new: { id: existing.id, estado: "cerrado", closed_at: staleClosedAt, updated_at: staleClosedAt },
+            old: { estado: existing.estado },
+          });
           existing = null;
         }
       }
@@ -2143,6 +2183,12 @@ export async function POST(req: NextRequest) {
             .from("sek_cases")
             .update({ histtecnico: updatedHist })
             .eq("id", existing.id);
+          await broadcastCaseEvent({
+            eventType: "UPDATE",
+            action: "refresh_history",
+            caseId: String(existing.id),
+            new: { id: existing.id, updated_at: new Date().toISOString() },
+          });
           return NextResponse.json({ ok: true, duplicate: true, updatedId: true });
         }
 
@@ -2157,6 +2203,21 @@ export async function POST(req: NextRequest) {
         });
         if (appendOutErr) {
           console.error("[evo-webhook] Error en sek_append_hist (histtecnico):", appendOutErr);
+        } else {
+          await broadcastCaseEvent({
+            eventType: "UPDATE",
+            action: "deltaEntry",
+            caseId: String(existing.id),
+            new: {
+              id: existing.id,
+              last_message_at: msgTime,
+              last_message_preview: previewText.slice(0, 200),
+              customer_phone: phone || jid,
+              updated_at: new Date().toISOString(),
+            },
+            old: { estado: existing.estado },
+            delta: { col: "histtecnico", entry },
+          });
         }
       } else {
         // Mensaje entrante: guardar en histcliente
@@ -2176,6 +2237,21 @@ export async function POST(req: NextRequest) {
           console.error("[evo-webhook] Error en sek_append_hist (histcliente):", appendErr);
         } else if (appended === false) {
           console.log("[evo-webhook] Mensaje ya estaba en el historial, no se duplica:", keyId);
+        } else {
+          await broadcastCaseEvent({
+            eventType: "UPDATE",
+            action: "deltaEntry",
+            caseId: String(existing.id),
+            new: {
+              id: existing.id,
+              last_message_at: msgTime,
+              last_message_preview: previewText.slice(0, 200),
+              customer_phone: phone || jid,
+              updated_at: new Date().toISOString(),
+            },
+            old: { estado: existing.estado },
+            delta: { col: "histcliente", entry },
+          });
         }
 
         // Metadatos del caso: solo ejecutar UPDATE si realmente cambió algún campo de metadatos
@@ -2201,6 +2277,17 @@ export async function POST(req: NextRequest) {
             ...(reopenClosedCase ? { estado: "ia_atendiendo" } : {}),
           };
           await supabase.from("sek_cases").update(metaUpdate).eq("id", existing.id);
+          await broadcastCaseEvent({
+            eventType: "UPDATE",
+            action: "meta",
+            caseId: String(existing.id),
+            new: {
+              id: existing.id,
+              ...metaUpdate,
+              updated_at: new Date().toISOString(),
+            },
+            old: { estado: existing.estado },
+          });
         }
         
         console.log("[evo-webhook] Paso 9 OK - mensaje guardado en histcliente");
@@ -2232,6 +2319,11 @@ export async function POST(req: NextRequest) {
           caseId: String(existing.id),
           messageId: keyId,
         });
+        await broadcastCaseEvent({
+          eventType: "UPDATE",
+          action: "refresh_history",
+          caseId: String(existing.id),
+        });
       }
 
       // ── Modo No Atendido: mensaje guardado, no procesar nada más ──
@@ -2255,6 +2347,17 @@ export async function POST(req: NextRequest) {
             if (!updErr) {
               currentEstado = "ia_atendiendo";
               console.log(`[evo-webhook] Caso ${existing.id} actualizado a ia_atendiendo`);
+              await broadcastCaseEvent({
+                eventType: "UPDATE",
+                action: "meta",
+                caseId: String(existing.id),
+                new: {
+                  id: existing.id,
+                  estado: "ia_atendiendo",
+                  updated_at: new Date().toISOString(),
+                },
+                old: { estado: "pendiente" },
+              });
             } else {
               console.error(`[evo-webhook] Error actualizando estado del caso ${existing.id}:`, updErr);
             }
@@ -2321,6 +2424,19 @@ export async function POST(req: NextRequest) {
             }
 
             await supabase.from("sek_cases").update(stateUpdates).eq("id", existing.id);
+            await broadcastCaseEvent({
+              eventType: "UPDATE",
+              action: "deltaEntry",
+              caseId: String(existing.id),
+              new: {
+                id: existing.id,
+                ...stateUpdates,
+                last_message_preview: (reply || "").slice(0, 200),
+                updated_at: new Date().toISOString(),
+              },
+              old: { estado: currentEstado },
+              delta: { col: "histtecnico", entry: replyEntry },
+            });
 
             console.log(`[evo-webhook] Encuesta procesada: caso ${existing.id}, rating=${rating}, estado=${newEstado}`);
 
@@ -2389,6 +2505,13 @@ export async function POST(req: NextRequest) {
                 await sendWhatsAppMessages(phone || jid || "", iaData.reply, evoCfg, flowSettings);
               } else {
                 console.warn(`[evo-webhook] seka-whatsapp no devolvió reply para caso ${existing.id}:`, iaData);
+              }
+              if (iaRes.ok && !iaData.skipped) {
+                await broadcastCaseEvent({
+                  eventType: "UPDATE",
+                  action: "refresh_history",
+                  caseId: String(existing.id),
+                });
               }
             } catch (err: any) {
               console.error(`[evo-webhook] Error invocando seka-whatsapp para caso ${existing.id}:`, err?.message || err);
@@ -2524,6 +2647,19 @@ export async function POST(req: NextRequest) {
             p_preview: previewText.slice(0, 200),
             p_customer_phone: phone || jid,
           });
+          await broadcastCaseEvent({
+            eventType: "UPDATE",
+            action: "deltaEntry",
+            caseId: String(recentAfterHoursCaseId),
+            new: {
+              id: recentAfterHoursCaseId,
+              last_message_at: msgTime,
+              last_message_preview: previewText.slice(0, 200),
+              customer_phone: phone || jid,
+              updated_at: new Date().toISOString(),
+            },
+            delta: { col: "histcliente", entry },
+          });
           console.log(`[evo-webhook] Fuera de horario / sync histórico — mensaje agregado al caso cerrado reciente ${recentAfterHoursCaseId}, sin crear duplicado`);
           if (needsOptimizer) {
             await triggerSidecarOptimizer({
@@ -2534,6 +2670,11 @@ export async function POST(req: NextRequest) {
               fileName,
               caseId: String(recentAfterHoursCaseId),
               messageId: keyId,
+            });
+            await broadcastCaseEvent({
+              eventType: "UPDATE",
+              action: "refresh_history",
+              caseId: String(recentAfterHoursCaseId),
             });
           }
           return NextResponse.json({ ok: true, unattended: true, fueraHorario: true, reused: true });
@@ -2565,6 +2706,19 @@ export async function POST(req: NextRequest) {
               p_preview: previewText.slice(0, 200),
               p_customer_phone: phone || jid,
             });
+            await broadcastCaseEvent({
+              eventType: "UPDATE",
+              action: "deltaEntry",
+              caseId: String(claimed.caseId),
+              new: {
+                id: claimed.caseId,
+                last_message_at: msgTime,
+                last_message_preview: previewText.slice(0, 200),
+                customer_phone: phone || jid,
+                updated_at: new Date().toISOString(),
+              },
+              delta: { col: "histcliente", entry },
+            });
             console.log(`[evo-webhook] Fuera de horario — mensaje agregado al caso existente ${claimed.caseId}, sin repetir aviso`);
             if (needsOptimizer && claimed?.caseId) {
               await triggerSidecarOptimizer({
@@ -2575,6 +2729,11 @@ export async function POST(req: NextRequest) {
                 fileName,
                 caseId: String(claimed.caseId),
                 messageId: keyId,
+              });
+              await broadcastCaseEvent({
+                eventType: "UPDATE",
+                action: "refresh_history",
+                caseId: String(claimed.caseId),
               });
             }
             return NextResponse.json({ ok: true, unattended: true, fueraHorario: true, reused: true });
@@ -2609,6 +2768,12 @@ export async function POST(req: NextRequest) {
               messageId: keyId,
             });
           }
+          await broadcastCaseEvent({
+            eventType: "INSERT",
+            action: "insert",
+            caseId: String(claimed.caseId),
+            new: { id: claimed.caseId, canal: "whatsapp", ...horarioPayload },
+          });
           return NextResponse.json({ ok: true, unattended: true, fueraHorario: true });
         }
 
@@ -2642,6 +2807,14 @@ export async function POST(req: NextRequest) {
             messageId: keyId,
           });
         }
+        if (newCase?.id) {
+          await broadcastCaseEvent({
+            eventType: "INSERT",
+            action: "insert",
+            caseId: String(newCase.id),
+            new: { id: newCase.id, canal: "whatsapp", ...horarioPayload },
+          });
+        }
         return NextResponse.json({ ok: true, unattended: true, fueraHorario: true });
       }
 
@@ -2672,6 +2845,20 @@ export async function POST(req: NextRequest) {
               p_preview: previewText.slice(0, 200),
               p_customer_phone: phone || jid,
             });
+            await broadcastCaseEvent({
+              eventType: "UPDATE",
+              action: "deltaEntry",
+              caseId: String(claimed.caseId),
+              new: {
+                id: claimed.caseId,
+                last_message_at: msgTime,
+                last_message_preview: previewText.slice(0, 200),
+                customer_phone: phone || jid,
+                updated_at: new Date().toISOString(),
+              },
+              old: { estado: "escalado" },
+              delta: { col: "histcliente", entry },
+            });
             console.log(`[evo-webhook] Modo No Atendido — mensaje agregado al caso existente ${claimed.caseId}, sin repetir bienvenida`);
             if (needsOptimizer && claimed?.caseId) {
               await triggerSidecarOptimizer({
@@ -2682,6 +2869,11 @@ export async function POST(req: NextRequest) {
                 fileName,
                 caseId: String(claimed.caseId),
                 messageId: keyId,
+              });
+              await broadcastCaseEvent({
+                eventType: "UPDATE",
+                action: "refresh_history",
+                caseId: String(claimed.caseId),
               });
             }
             return NextResponse.json({ ok: true, unattended: true, reused: true });
@@ -2713,6 +2905,12 @@ export async function POST(req: NextRequest) {
               messageId: keyId,
             });
           }
+          await broadcastCaseEvent({
+            eventType: "INSERT",
+            action: "insert",
+            caseId: String(claimed.caseId),
+            new: { id: claimed.caseId, canal: "whatsapp", ...unattPayload },
+          });
           return NextResponse.json({ ok: true, unattended: true });
         }
 
@@ -2743,6 +2941,14 @@ export async function POST(req: NextRequest) {
             fileName,
             caseId: String(newCase.id),
             messageId: keyId,
+          });
+        }
+        if (newCase?.id) {
+          await broadcastCaseEvent({
+            eventType: "INSERT",
+            action: "insert",
+            caseId: String(newCase.id),
+            new: { id: newCase.id, canal: "whatsapp", ...unattPayload },
           });
         }
         return NextResponse.json({ ok: true, unattended: true });
@@ -2776,6 +2982,20 @@ export async function POST(req: NextRequest) {
             p_preview: previewText.slice(0, 200),
             p_customer_phone: phone || jid,
           });
+          await broadcastCaseEvent({
+            eventType: "UPDATE",
+            action: "deltaEntry",
+            caseId: String(nuevoCaseId),
+            new: {
+              id: nuevoCaseId,
+              last_message_at: msgTime,
+              last_message_preview: previewText.slice(0, 200),
+              customer_phone: phone || jid,
+              updated_at: new Date().toISOString(),
+            },
+            old: { estado: "ia_atendiendo" },
+            delta: { col: "histcliente", entry },
+          });
           console.log(`[evo-webhook] Mensaje agregado al caso existente ${nuevoCaseId}, sin disparar IA de nuevo`);
         }
       } else {
@@ -2795,6 +3015,22 @@ export async function POST(req: NextRequest) {
           fileName,
           caseId: String(nuevoCaseId),
           messageId: keyId,
+        });
+        if (!seCreo) {
+          await broadcastCaseEvent({
+            eventType: "UPDATE",
+            action: "refresh_history",
+            caseId: String(nuevoCaseId),
+          });
+        }
+      }
+
+      if (nuevoCaseId && seCreo) {
+        await broadcastCaseEvent({
+          eventType: "INSERT",
+          action: "insert",
+          caseId: String(nuevoCaseId),
+          new: { id: nuevoCaseId, canal: "whatsapp", ...iaPayload },
         });
       }
 
@@ -2827,6 +3063,13 @@ export async function POST(req: NextRequest) {
             await sendWhatsAppMessages(phone || jid || "", iaData.reply, evoCfg, flowSettings);
           } else {
             console.warn(`[evo-webhook] seka-whatsapp no devolvió reply para nuevo caso ${nuevoCaseId}:`, iaData);
+          }
+          if (iaRes.ok && !iaData.skipped) {
+            await broadcastCaseEvent({
+              eventType: "UPDATE",
+              action: "refresh_history",
+              caseId: String(nuevoCaseId),
+            });
           }
         } catch (err: any) {
           console.error(`[evo-webhook] Error invocando seka-whatsapp para nuevo caso ${nuevoCaseId}:`, err?.message || err);

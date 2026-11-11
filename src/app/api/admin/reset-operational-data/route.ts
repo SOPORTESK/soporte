@@ -6,6 +6,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { NextResponse } from "next/server";
+import { broadcastCaseEvent } from "@/lib/realtime-broadcast";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +49,12 @@ export async function POST(req: Request) {
       const { count: before } = await supabase.from("sek_cases").select("id", { count: "exact", head: true });
       const { error: e } = await supabase.from("sek_cases").delete().not("id", "is", null);
       result.sek_cases = { deleted: before ?? 0, error: e?.message };
+      if (!e) {
+        await broadcastCaseEvent({
+          eventType: "DELETE",
+          action: "delete",
+        });
+      }
     }
 
     // 3) sek_clientes

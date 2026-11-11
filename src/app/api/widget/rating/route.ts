@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { broadcastCaseEvent } from "@/lib/realtime-broadcast";
 
 export const runtime = "nodejs";
 
@@ -40,6 +41,13 @@ export async function POST(req: NextRequest) {
       .eq("id", session_id);
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    await broadcastCaseEvent({
+      eventType: "UPDATE",
+      action: "meta",
+      caseId: String(session_id),
+      new: { id: session_id, cliente: updatedCliente, updated_at: new Date().toISOString() },
+    });
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {

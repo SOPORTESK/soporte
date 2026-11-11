@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getEvolutionConfig } from "@/lib/evolution-config";
 import { pickPhone } from "@/lib/evolution-phone";
+import { broadcastCaseEvent } from "@/lib/realtime-broadcast";
 
 // El messageId lo rellena el webhook al recibir el eco del envío. Si el entry
 // consultado aún no lo tiene, se busca la copia del mismo mensaje en el otro
@@ -68,7 +69,7 @@ export async function POST(
 
   const { data: caseData, error: fetchError } = await supabase
     .from("sek_cases")
-    .select("*")
+    .select("id, canal, customer_phone, cliente, histcliente, histtecnico")
     .eq("id", targetCaseId)
     .single();
 
@@ -77,7 +78,7 @@ export async function POST(
     return NextResponse.json({ ok: false, error: "Caso no encontrado" }, { status: 404 });
   }
 
-  const history = caseData[historyType] || [];
+  const history = (caseData as any)[historyType] || [];
   const msgIndex = parseInt(params.messageIndex);
 
   if (msgIndex < 0 || msgIndex >= history.length) {
@@ -229,6 +230,13 @@ export async function POST(
     console.error("[DELETE MSG API] No se actualizó ninguna fila - caso no encontrado:", targetCaseId);
     return NextResponse.json({ ok: false, error: "No se pudo eliminar - caso no encontrado" }, { status: 404 });
   }
+
+  await broadcastCaseEvent({
+    eventType: "UPDATE",
+    action: "refresh_history",
+    caseId: String(targetCaseId),
+    new: { id: targetCaseId, updated_at: new Date().toISOString() },
+  });
 
   console.log("[DELETE MSG API] Mensaje eliminado exitosamente en caso:", targetCaseId);
   return NextResponse.json({ ok: true });

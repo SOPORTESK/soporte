@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getEvolutionConfig } from "@/lib/evolution-config";
 import { pickPhone } from "@/lib/evolution-phone";
+import { broadcastCaseEvent } from "@/lib/realtime-broadcast";
 
 function resolveMessageId(messageObj: any, caseData: any, historyType: string): string | null {
   if (messageObj?.messageId) return messageObj.messageId;
@@ -40,7 +41,7 @@ export async function POST(
   // Leer el caso completo (necesitamos canal, cliente, etc.)
   const { data: caseData, error: caseError } = await supabase
     .from("sek_cases")
-    .select("*")
+    .select("id, canal, customer_phone, cliente, histcliente, histtecnico")
     .eq("id", caseId)
     .maybeSingle();
 
@@ -48,7 +49,8 @@ export async function POST(
     return NextResponse.json({ error: "case_not_found" }, { status: 404 });
   }
 
-  const history = Array.isArray(caseData[historyType]) ? caseData[historyType] : [];
+  const rawCol = (caseData as any)[historyType];
+  const history = Array.isArray(rawCol) ? rawCol : [];
   if (idx < 0 || idx >= history.length) {
     return NextResponse.json({ error: "message_not_found" }, { status: 404 });
   }
@@ -138,6 +140,12 @@ export async function POST(
       console.error("[EDIT MSG API] Error actualizando BD:", updateError);
       return NextResponse.json({ error: "update_failed" }, { status: 500 });
     }
+    await broadcastCaseEvent({
+      eventType: "UPDATE",
+      action: "refresh_history",
+      caseId: String(caseId),
+      new: { id: caseId, updated_at: new Date().toISOString() },
+    });
   }
 
   return NextResponse.json({ ok: true, messageId });

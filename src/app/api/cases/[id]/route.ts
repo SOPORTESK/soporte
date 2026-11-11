@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { broadcastCaseEvent, pickCaseScalarMeta } from "@/lib/realtime-broadcast";
 
 function isBoilerplateOrFileNote(text?: string | null): boolean {
   if (!text || typeof text !== "string") return true;
@@ -215,12 +216,22 @@ export async function DELETE(
       if (deleteError) {
         return NextResponse.json({ ok: false, error: deleteError.message }, { status: 500 });
       }
+      await broadcastCaseEvent({
+        eventType: "DELETE",
+        action: "delete_bulk",
+        caseIds: ids.map((cid) => String(cid)),
+      });
       return NextResponse.json({ ok: true, deleted: cases.length });
     } else {
       const { error: directDeleteError } = await supabase.from("sek_cases").delete().eq("id", id);
       if (directDeleteError) {
         return NextResponse.json({ ok: false, error: "No se encontraron casos y falló eliminación directa" }, { status: 404 });
       }
+      await broadcastCaseEvent({
+        eventType: "DELETE",
+        action: "delete",
+        caseId: String(id),
+      });
       return NextResponse.json({ ok: true, deleted: 1 });
     }
   } else {
@@ -228,6 +239,11 @@ export async function DELETE(
     if (error) {
       return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
     }
+    await broadcastCaseEvent({
+      eventType: "DELETE",
+      action: "delete",
+      caseId: String(id),
+    });
     return NextResponse.json({ ok: true });
   }
 }
@@ -273,6 +289,18 @@ export async function PATCH(
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+
+    const touchedHistory = body.histcliente !== undefined || body.histtecnico !== undefined;
+    await broadcastCaseEvent({
+      eventType: "UPDATE",
+      action: touchedHistory ? "refresh_history" : "meta",
+      caseId: String(targetCaseId),
+      new: pickCaseScalarMeta(data) || {
+        id: targetCaseId,
+        ...(pickCaseScalarMeta(body) || {}),
+        updated_at: new Date().toISOString(),
+      },
+    });
 
     return NextResponse.json({ ok: true, data, id: targetCaseId });
   } catch (e: any) {

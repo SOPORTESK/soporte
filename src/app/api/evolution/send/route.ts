@@ -3,6 +3,7 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { getEvolutionConfig } from "@/lib/evolution-config";
 import { normalizePhone, pickPhone } from "@/lib/evolution-phone";
 import { enqueueWaOutbox, generateQueuedMessageId } from "@/lib/wa-outbox";
+import { broadcastCaseEvent } from "@/lib/realtime-broadcast";
 
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
@@ -325,6 +326,18 @@ export async function POST(req: NextRequest) {
           });
           if (appendErr) {
             console.error("[evo-send] Error guardando mensaje encolado en BD:", appendErr);
+          } else {
+            await broadcastCaseEvent({
+              eventType: "UPDATE",
+              action: "deltaEntry",
+              caseId: String(case_id),
+              new: {
+                id: String(case_id),
+                last_message_at: (queuedEntry as any)?.time || new Date().toISOString(),
+                last_message_preview: (text || fileName || "").slice(0, 200),
+              },
+              delta: { col: "histtecnico", entry: queuedEntry },
+            });
           }
         }
 
@@ -381,6 +394,18 @@ export async function POST(req: NextRequest) {
       });
       if (appendErr) {
         console.error("[evo-send] Error guardando en BD tras envío exitoso:", appendErr);
+      } else {
+        await broadcastCaseEvent({
+          eventType: "UPDATE",
+          action: "deltaEntry",
+          caseId: String(case_id),
+          new: {
+            id: String(case_id),
+            last_message_at: (finalEntry as any)?.time || new Date().toISOString(),
+            last_message_preview: (text || fileName || "").slice(0, 200),
+          },
+          delta: { col: "histtecnico", entry: finalEntry },
+        });
       }
     }
 

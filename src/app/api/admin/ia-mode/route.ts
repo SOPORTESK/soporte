@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { broadcastAgentEvent, broadcastCaseEvents } from "@/lib/realtime-broadcast";
 
 export async function GET() {
   try {
@@ -45,14 +46,32 @@ export async function POST(req: NextRequest) {
       .update({ ia_activa })
       .in("email", ["system_prompt@sekunet.com", "whatsapp_agent@sekunet.com"]);
 
+    await broadcastAgentEvent({
+      eventType: "UPDATE",
+      email: "system_prompt@sekunet.com",
+      ia_activa,
+    });
+
     // Si se está apagando el bot, escalar casos pendientes de la IA a Soporte Avanzado
     if (!ia_activa) {
+      const escAt = new Date().toISOString();
       const { data: escalated, error: escErr } = await supabase
         .from("sek_cases")
-        .update({ estado: "escalado", escalado_at: new Date().toISOString() })
+        .update({ estado: "escalado", escalado_at: escAt })
         .eq("estado", "ia_atendiendo")
         .select("id");
       console.log(`[ia-mode] Bot apagado — ${escalated?.length || 0} casos escalados de ia_atendiendo a escalado`, escErr?.message || "");
+      if (Array.isArray(escalated) && escalated.length > 0) {
+        await broadcastCaseEvents(
+          escalated.map((c: any) => ({
+            eventType: "UPDATE" as const,
+            action: "meta" as const,
+            caseId: String(c.id),
+            new: { id: c.id, estado: "escalado", updated_at: escAt },
+            old: { estado: "ia_atendiendo" },
+          }))
+        );
+      }
     }
 
     return NextResponse.json({ success: true, ia_activa });

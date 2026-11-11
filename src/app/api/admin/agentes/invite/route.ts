@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { broadcastAgentEvent } from "@/lib/realtime-broadcast";
 
 function normalizeEmail(raw: string): string {
   return raw
@@ -75,6 +76,15 @@ export async function POST(req: NextRequest) {
       }, { onConflict: "email" });
 
     if (dbError) throw dbError;
+
+    await broadcastAgentEvent({
+      eventType: "INSERT",
+      email,
+      nombre,
+      apellido,
+      rol: rol || "tecnico",
+      fullReload: true,
+    });
 
     try {
       const { cacheDelete } = await import("@/lib/supabase/cache");

@@ -3,6 +3,7 @@ import { createGarantiasServiceClient, GarantiaRecord } from "@/lib/supabase-gar
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { cacheDelete } from "@/lib/supabase/cache";
+import { broadcastCaseEvents } from "@/lib/realtime-broadcast";
 
 export const dynamic = "force-dynamic";
 
@@ -222,6 +223,7 @@ export async function POST(req: NextRequest) {
       }
 
       if (matchedCases.length > 0) {
+        const events: any[] = [];
         for (const c of matchedCases) {
           const cCliente = (c.cliente && typeof c.cliente === "object") ? { ...c.cliente } : {};
           if (savedRecord.marca) cCliente.marca = savedRecord.marca;
@@ -234,16 +236,24 @@ export async function POST(req: NextRequest) {
           if (savedRecord.boleta) cCliente.boleta = savedRecord.boleta;
           if (savedRecord.estatus) cCliente.estatus_garantia = savedRecord.estatus;
 
+          const updatedAt = new Date().toISOString();
           const updates: Record<string, any> = {
             cliente: cCliente,
-            updated_at: new Date().toISOString()
+            updated_at: updatedAt
           };
           if (savedRecord.marca) updates.marca = savedRecord.marca;
           if (savedRecord.serie) updates.modelo = savedRecord.serie;
           if (savedRecord.falla) updates.problema = savedRecord.falla;
 
           await chatSupabase.from("sek_cases").update(updates).eq("id", c.id);
+          events.push({
+            eventType: "UPDATE",
+            action: "meta",
+            caseId: String(c.id),
+            new: { id: c.id, ...updates },
+          });
         }
+        await broadcastCaseEvents(events);
         console.log(`[garantias POST->soporte] Sincronizados ${matchedCases.length} casos para nueva boleta ${savedRecord.boleta}`);
       }
     } catch (syncErr) {

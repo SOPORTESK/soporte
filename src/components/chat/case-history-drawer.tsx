@@ -3,6 +3,7 @@ import * as React from "react";
 import { X, History, ChevronDown, ChevronUp, Calendar, FolderOpen, MessageSquare, FileText } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { cn, formatTime, formatFullTime, asText, clienteInfo, customerKey } from "@/lib/utils";
+import { toCachedMediaUrl } from "@/lib/media-proxy";
 import { Badge } from "@/components/ui/avatar";
 import type { SekCase, SekHistEntry } from "@/lib/types";
 
@@ -14,7 +15,11 @@ interface CaseHistoryDrawerProps {
 
 interface CaseWithDetails extends SekCase {
   _expanded?: boolean;
+  _histLoaded?: boolean;
+  _loadingHist?: boolean;
 }
+
+const CASE_HISTORY_META_FIELDS = "id, title, estado, created_at, cliente, customer_phone, canal";
 
 export function CaseHistoryDrawer({ isOpen, onClose, currentCase }: CaseHistoryDrawerProps) {
   const supabase = React.useMemo(() => createClient(), []);
@@ -22,7 +27,8 @@ export function CaseHistoryDrawer({ isOpen, onClose, currentCase }: CaseHistoryD
   const [loading, setLoading] = React.useState(false);
   const [hasMore, setHasMore] = React.useState(true);
   const [drawerTab, setDrawerTab] = React.useState<"casos" | "mensajes">("casos");
-  const PAGE_SIZE = 5;
+  const PAGE_SIZE = 10;
+  const offsetRef = React.useRef(0);
 
   const ci = clienteInfo(currentCase.cliente);
   const customerKeyValue = customerKey(currentCase);
@@ -33,28 +39,45 @@ export function CaseHistoryDrawer({ isOpen, onClose, currentCase }: CaseHistoryD
     snapshotRef.current = { ci, currentCase };
   });
 
-  const loadCases = React.useCallback(async () => {
+  const loadCases = React.useCallback(async (append = false) => {
     const { ci: info, currentCase: cc } = snapshotRef.current;
+    const nextOffset = append ? offsetRef.current : 0;
     setLoading(true);
     try {
       let query;
       if (info.correo) {
-        query = supabase.from("sek_cases").select("*").filter("cliente->>correo", "eq", info.correo);
+        query = supabase.from("sek_cases").select(CASE_HISTORY_META_FIELDS).filter("cliente->>correo", "eq", info.correo);
       } else if (info.telefono || cc.customer_phone) {
-        query = supabase.from("sek_cases").select("*").eq("customer_phone", info.telefono || cc.customer_phone);
+        query = supabase.from("sek_cases").select(CASE_HISTORY_META_FIELDS).eq("customer_phone", info.telefono || cc.customer_phone);
       } else {
-        query = supabase.from("sek_cases").select("*").filter("cliente->>nombre", "eq", info.nombre);
+        query = supabase.from("sek_cases").select(CASE_HISTORY_META_FIELDS).filter("cliente->>nombre", "eq", info.nombre);
       }
 
-      const { data, error } = await query.order("created_at", { ascending: false }).limit(50);
+      const { data, error } = await query
+        .order("created_at", { ascending: false })
+        .range(nextOffset, nextOffset + PAGE_SIZE);
       if (error) throw error;
+
+      const rawRows = data || [];
+      const moreAvailable = rawRows.length > PAGE_SIZE;
+      const pageRows = moreAvailable ? rawRows.slice(0, PAGE_SIZE) : rawRows;
+      offsetRef.current = nextOffset + pageRows.length;
 
       // Excluir solo el caso objetivo (el que se muestra en el chat activo).
       // Los demás casos del grupo son el historial anterior que el usuario quiere ver.
       const excludeId = String(cc._group?.targetCaseId ?? cc.id);
-      const otherCases = (data || []).filter(c => String(c.id) !== excludeId);
-      setCases(otherCases as CaseWithDetails[]);
-      setHasMore(otherCases.length >= PAGE_SIZE);
+      const otherCases = pageRows.filter(c => String(c.id) !== excludeId) as CaseWithDetails[];
+
+      if (append) {
+        setCases(prev => {
+          const seen = new Set(prev.map(p => String(p.id)));
+          const added = otherCases.filter(c => !seen.has(String(c.id)));
+          return [...prev, ...added];
+        });
+      } else {
+        setCases(otherCases);
+      }
+      setHasMore(moreAvailable);
     } catch (err) {
       console.error("Error loading case history:", err);
     } finally {
@@ -64,13 +87,49 @@ export function CaseHistoryDrawer({ isOpen, onClose, currentCase }: CaseHistoryD
 
   React.useEffect(() => {
     if (!isOpen) return;
-    loadCases();
+    offsetRef.current = 0;
+    loadCases(false);
   }, [isOpen, currentCase.id, loadCases]);
 
-  function toggleExpand(caseId: string | number) {
+  async function toggleExpand(caseId: string | number) {
+    const idStr = String(caseId);
+    const target = cases.find(c => String(c.id) === idStr);
+    const willExpand = !(target?._expanded);
+
     setCases(prev => prev.map(c =>
-      String(c.id) === String(caseId) ? { ...c, _expanded: !c._expanded } : c
+      String(c.id) === idStr
+        ? {
+            ...c,
+            _expanded: !c._expanded,
+            ...(willExpand && !c._histLoaded ? { _loadingHist: true } : {}),
+          }
+        : c
     ));
+
+    if (willExpand && target && !target._histLoaded && !target._loadingHist) {
+      try {
+        const { data } = await supabase
+          .from("sek_cases")
+          .select("histcliente, histtecnico")
+          .eq("id", target.id)
+          .maybeSingle();
+        setCases(prev => prev.map(c =>
+          String(c.id) === idStr
+            ? {
+                ...c,
+                histcliente: Array.isArray(data?.histcliente) ? data.histcliente : [],
+                histtecnico: Array.isArray(data?.histtecnico) ? data.histtecnico : [],
+                _histLoaded: true,
+                _loadingHist: false,
+              }
+            : c
+        ));
+      } catch {
+        setCases(prev => prev.map(c =>
+          String(c.id) === idStr ? { ...c, _loadingHist: false } : c
+        ));
+      }
+    }
   }
 
   function renderMessage(e: SekHistEntry, idx: number, isCliente: boolean) {
@@ -118,7 +177,7 @@ export function CaseHistoryDrawer({ isOpen, onClose, currentCase }: CaseHistoryD
           <p className="whitespace-pre-wrap break-words">{asText(e.content)}</p>
           {(e as any).mediaUrl && (
             <a 
-              href={(e as any).mediaUrl} 
+              href={toCachedMediaUrl((e as any).mediaUrl)} 
               target="_blank" 
               rel="noopener noreferrer"
               className="text-xs underline opacity-80 mt-1 block"
@@ -185,7 +244,7 @@ export function CaseHistoryDrawer({ isOpen, onClose, currentCase }: CaseHistoryD
             </div>
           )}
 
-          {drawerTab === "casos" && cases.map((c, idx) => {
+          {drawerTab === "casos" && cases.map((c) => {
             const isExpanded = c._expanded;
             const estadoLower = String(c.estado || "").toLowerCase();
             const pastCi = clienteInfo(c.cliente);
@@ -234,7 +293,7 @@ export function CaseHistoryDrawer({ isOpen, onClose, currentCase }: CaseHistoryD
                       </span>
                       <span className="flex items-center gap-1">
                         <MessageSquare className="h-3 w-3" />
-                        {totalMsgs} mensajes
+                        {c._histLoaded ? `${totalMsgs} mensajes` : "Ver mensajes"}
                       </span>
                     </div>
                   </div>
@@ -250,7 +309,11 @@ export function CaseHistoryDrawer({ isOpen, onClose, currentCase }: CaseHistoryD
                   <div className="px-4 pb-4 border-t border-border">
                     {/* Messages */}
                     <div className="py-3 space-y-1 max-h-[400px] overflow-y-auto">
-                      {(() => {
+                      {c._loadingHist ? (
+                        <p className="text-center text-sm text-muted-foreground py-4">
+                          Cargando mensajes...
+                        </p>
+                      ) : (() => {
                         const allMsgs: (SekHistEntry & { _isCliente: boolean })[] = [];
                         (c.histcliente || []).forEach(e => {
                           allMsgs.push({ ...e, _isCliente: true });
@@ -296,7 +359,7 @@ export function CaseHistoryDrawer({ isOpen, onClose, currentCase }: CaseHistoryD
                               {files.map((f, idx) => (
                                 <a
                                   key={idx}
-                                  href={f.url}
+                                  href={toCachedMediaUrl(f.url)}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="text-xs px-2 py-1 bg-muted rounded border border-border hover:bg-muted/80 transition-colors"
@@ -319,7 +382,7 @@ export function CaseHistoryDrawer({ isOpen, onClose, currentCase }: CaseHistoryD
           {/* Load More */}
           {hasMore && cases.length > 0 && (
             <button
-              onClick={loadCases}
+              onClick={() => loadCases(true)}
               disabled={loading}
               className="w-full py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
             >

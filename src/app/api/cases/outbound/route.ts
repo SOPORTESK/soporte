@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getEvolutionConfig } from "@/lib/evolution-config";
+import { broadcastCaseEvent } from "@/lib/realtime-broadcast";
 
 export const dynamic = "force-dynamic";
 
@@ -75,6 +76,13 @@ export async function POST(req: NextRequest) {
           .from("sek_cases")
           .update({ assigned_to: agent.email })
           .eq("id", existing.id);
+        await broadcastCaseEvent({
+          eventType: "UPDATE",
+          action: "meta",
+          caseId: String(existing.id),
+          new: { id: existing.id, assigned_to: agent.email, updated_at: new Date().toISOString() },
+          old: { assigned_to: null, estado: existing.estado },
+        });
       }
       return NextResponse.json({ ok: true, case_id: existing.id, phone: cleanPhone, existing: true, isNew: false });
     }
@@ -129,6 +137,24 @@ export async function POST(req: NextRequest) {
       console.error("[outbound] Error creando caso nuevo:", createError);
       return NextResponse.json({ error: createError?.message || "Error creando caso" }, { status: 500 });
     }
+
+    await broadcastCaseEvent({
+      eventType: "INSERT",
+      action: "insert",
+      caseId: String(newCase.id),
+      new: {
+        id: newCase.id,
+        title: `${channel === "whatsapp" ? "WhatsApp" : "Widget"} — ${displayName}`,
+        canal: channel,
+        estado: channel === "whatsapp" ? "abierto" : "ia_atendiendo",
+        prioridad: "media",
+        cliente,
+        customer_phone: cleanPhone,
+        assigned_to: agent.email,
+        created_at: now,
+        tags: ["saliente"],
+      },
+    });
 
     return NextResponse.json({ ok: true, case_id: newCase.id, phone: cleanPhone, existing: false, isNew: true });
   } catch (e: any) {

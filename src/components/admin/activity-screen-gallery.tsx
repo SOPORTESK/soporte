@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { toCachedMediaUrl } from "@/lib/media-proxy";
 import {
   Camera,
   Maximize2,
@@ -129,7 +130,7 @@ export function ActivityScreenGallery({ agentEmail, agentName, date, endDate }: 
             >
               <div className="aspect-video bg-muted/40 overflow-hidden relative">
                 <img
-                  src={item.url}
+                  src={toCachedMediaUrl(item.url)}
                   alt={`Captura ${formatTime(item.created_at)}`}
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                   loading="lazy"
@@ -173,7 +174,7 @@ export function ActivityScreenGallery({ agentEmail, agentName, date, endDate }: 
               </div>
               <div className="flex items-center gap-2">
                 <a
-                  href={screenshots[selectedIdx].url}
+                  href={toCachedMediaUrl(screenshots[selectedIdx].url)}
                   download={`captura_${date}_${selectedIdx + 1}.jpg`}
                   target="_blank"
                   rel="noreferrer"
@@ -194,7 +195,7 @@ export function ActivityScreenGallery({ agentEmail, agentName, date, endDate }: 
             {/* Imagen central con controles */}
             <div className="relative flex-1 bg-black/60 overflow-auto flex items-center justify-center p-2 min-h-[400px]">
               <img
-                src={screenshots[selectedIdx].url}
+                src={toCachedMediaUrl(screenshots[selectedIdx].url)}
                 alt="Captura ampliada"
                 className="max-h-[70vh] w-auto object-contain rounded-lg shadow-2xl"
               />

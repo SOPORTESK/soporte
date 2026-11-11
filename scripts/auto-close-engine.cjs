@@ -42,6 +42,28 @@ async function sendWhatsApp(phone, text) {
   return null;
 }
 
+async function broadcastCaseEvent(payload) {
+  const baseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").replace(/\/$/, "");
+  const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
+  if (!baseUrl || !key) return;
+  try {
+    await fetch(`${baseUrl}/realtime/v1/api/broadcast`, {
+      method: "POST",
+      headers: {
+        apikey: key,
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        messages: [{ topic: "sek_cases_live", event: "case_event", payload: { ts: Date.now(), ...payload } }],
+      }),
+      signal: AbortSignal.timeout(2500),
+    });
+  } catch (e) {
+    console.warn("[auto-close] Broadcast warning:", e?.message || e);
+  }
+}
+
 const SETTINGS_TTL_MS = 180_000;
 let settingsCache = null;
 let offlineUntilMs = 0;
@@ -298,6 +320,21 @@ async function runAutoClose() {
           evalSkipCache.delete(String(caso.id));
           const reason = isFromPreviousDay ? "día anterior rezagado" : `fin de jornada (${dailyClose.close_time})`;
           console.log(`[auto-close] Caso ${caso.id} cerrado automáticamente por ${reason}.`);
+          await broadcastCaseEvent({
+            eventType: "UPDATE",
+            action: "deltaEntry",
+            caseId: String(caso.id),
+            new: {
+              id: caso.id,
+              estado: "cerrado",
+              closed_at: effectiveClosedAt,
+              last_message_at: effectiveClosedAt,
+              last_message_preview: msg.slice(0, 200),
+              updated_at: effectiveClosedAt,
+            },
+            old: { estado: caso.estado },
+            delta: { col: "histtecnico", entry },
+          });
           // Solo enviar mensaje de fin de jornada por WhatsApp cuando se cierra en la ventana real de fin de jornada del mismo día,
           // nunca en la mañana siguiente por un caso rezagado del día anterior.
           if (!isFromPreviousDay && isAfterDailyCutoff && canalLower === "whatsapp" && realPhone) {
@@ -396,6 +433,21 @@ async function runAutoClose() {
           if (updated && updated.length > 0) {
             evalSkipCache.delete(String(caso.id));
             console.log(`[auto-close] Caso reabierto ${caso.id} cerrado por inactividad (${Math.round(elapsed / 60000)} min >= ${Math.round(reopenGraceMs / 60000)} min).`);
+            await broadcastCaseEvent({
+              eventType: "UPDATE",
+              action: "deltaEntry",
+              caseId: String(caso.id),
+              new: {
+                id: caso.id,
+                estado: "cerrado",
+                closed_at: entry.time,
+                last_message_at: entry.time,
+                last_message_preview: msg.slice(0, 200),
+                updated_at: entry.time,
+              },
+              old: { estado: caso.estado },
+              delta: { col: "histtecnico", entry },
+            });
             if (canalLower === "whatsapp" && realPhone) {
               await sendWhatsApp(realPhone, msg);
             }
@@ -430,6 +482,21 @@ async function runAutoClose() {
       if (updated && updated.length > 0) {
         evalSkipCache.delete(String(caso.id));
         console.log(`[auto-close] Caso ${caso.id} cerrado por inactividad (${Math.round(elapsed / 60000)} min >= ${config.inactivity_minutes} min). Mensaje de cierre enviado.`);
+        await broadcastCaseEvent({
+          eventType: "UPDATE",
+          action: "deltaEntry",
+          caseId: String(caso.id),
+          new: {
+            id: caso.id,
+            estado: "cerrado",
+            closed_at: entry.time,
+            last_message_at: entry.time,
+            last_message_preview: msg.slice(0, 200),
+            updated_at: entry.time,
+          },
+          old: { estado: caso.estado },
+          delta: { col: "histtecnico", entry },
+        });
         if (canalLower === "whatsapp" && realPhone) {
           await sendWhatsApp(realPhone, msg);
         }

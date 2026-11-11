@@ -15,30 +15,26 @@ export function InboxBadge({ initialCount }: { initialCount: number }) {
     const supabase = supabaseRef.current;
     const fetchCount = async () => {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-      const { data, error } = await supabase
+      const { count: nextCount, error } = await supabase
         .from("sek_cases")
-        .select("id, estado, unread_count")
+        .select("id", { count: "exact", head: true })
+        .or("estado.eq.escalado,unread_count.gt.0")
         .in("estado", ["escalado", "abierto", "ia_atendiendo"])
         .neq("canal", "simulator")
-        .neq("es_test", true)
-        .order("created_at", { ascending: false })
-        .limit(100);
-      if (error || !data) { console.warn("[InboxBadge] error:", error); return; }
-      let unread = 0;
-      data.forEach((c: any) => {
-        const estado = String(c.estado || "").toLowerCase();
-        if (estado === "escalado" || (Number(c.unread_count) || 0) > 0) unread++;
-      });
-      setCount(unread);
+        .neq("es_test", true);
+      if (error || nextCount === null) { console.warn("[InboxBadge] error:", error); return; }
+      setCount(nextCount);
     };
 
     fetchCount();
 
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     const debouncedFetch = (payload?: any) => {
-      if (payload?.eventType === "UPDATE" && payload.new && payload.old) {
-        if (payload.new.estado === payload.old.estado && payload.new.unread_count === payload.old.unread_count) {
-          return;
+      if (payload?.eventType === "UPDATE") {
+        if (payload.new && payload.old && payload.old.estado !== undefined && payload.old.unread_count !== undefined) {
+          if (payload.new.estado === payload.old.estado && payload.new.unread_count === payload.old.unread_count) {
+            return;
+          }
         }
       }
       if (debounceTimer) clearTimeout(debounceTimer);

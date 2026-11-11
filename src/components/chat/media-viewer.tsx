@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { toCachedMediaUrl } from "@/lib/media-proxy";
 import {
   X, Download, ZoomIn, ZoomOut, RotateCcw, RotateCw, Play,
   Copy, Check, Search, FileCode, FileText, FileArchive, Loader2,
@@ -76,6 +77,7 @@ export function MediaViewer({
     ["zip", "rar", "7z", "tar", "gz"].includes(ext) ||
     activeType.includes("zip") ||
     activeType.includes("compressed");
+  const cachedActiveUrl = React.useMemo(() => toCachedMediaUrl(activeUrl), [activeUrl]);
 
   // Transformaciones de imagen: Zoom, Pan y Rotación
   const [scale, setScale] = React.useState(1);
@@ -105,10 +107,10 @@ export function MediaViewer({
 
   // Cargar texto de archivos XML / TXT / JSON / CSV
   React.useEffect(() => {
-    if (isTextDoc && activeUrl) {
+    if (isTextDoc && cachedActiveUrl) {
       setLoadingText(true);
       setTextError(null);
-      fetch(activeUrl)
+      fetch(cachedActiveUrl)
         .then(async (res) => {
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           return res.text();
@@ -117,7 +119,7 @@ export function MediaViewer({
         .catch((err) => setTextError(err.message || "Error al cargar contenido"))
         .finally(() => setLoadingText(false));
     }
-  }, [isTextDoc, activeUrl]);
+  }, [isTextDoc, cachedActiveUrl]);
 
   // Centrar miniatura activa en el filmstrip
   React.useEffect(() => {
@@ -261,7 +263,7 @@ export function MediaViewer({
   async function handleDownload(e?: React.MouseEvent) {
     e?.stopPropagation();
     try {
-      const res = await fetch(activeUrl);
+      const res = await fetch(cachedActiveUrl);
       const blob = await res.blob();
       const blobUrl = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -280,7 +282,7 @@ export function MediaViewer({
       a.remove();
       window.URL.revokeObjectURL(blobUrl);
     } catch {
-      window.open(activeUrl, "_blank");
+      window.open(cachedActiveUrl, "_blank");
     }
   }
 
@@ -288,7 +290,7 @@ export function MediaViewer({
   async function handleCopyImage(e: React.MouseEvent) {
     e.stopPropagation();
     try {
-      const response = await fetch(activeUrl);
+      const response = await fetch(cachedActiveUrl);
       const blob = await response.blob();
       if (blob.type === "image/png") {
         await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
@@ -296,7 +298,7 @@ export function MediaViewer({
         // Convertir a PNG via canvas para asegurar compatibilidad de portapapeles
         const img = new Image();
         img.crossOrigin = "anonymous";
-        img.src = activeUrl;
+        img.src = cachedActiveUrl;
         await new Promise((res, rej) => {
           img.onload = res;
           img.onerror = rej;
@@ -643,7 +645,7 @@ export function MediaViewer({
           /* CASO 2: Documento PDF */
           <div className="w-[94vw] max-w-6xl h-[78vh] rounded-2xl bg-neutral-900 border border-white/15 shadow-2xl overflow-hidden flex flex-col">
             <iframe
-              src={`${activeUrl}#toolbar=1`}
+              src={`${cachedActiveUrl}#toolbar=1`}
               className="w-full h-full bg-white"
               title={activeName || "Visor PDF"}
             />
@@ -685,8 +687,8 @@ export function MediaViewer({
           >
             <video
               ref={videoRef}
-              key={activeUrl}
-              src={activeUrl}
+              key={cachedActiveUrl}
+              src={cachedActiveUrl}
               controls
               autoPlay
               playsInline
@@ -698,8 +700,8 @@ export function MediaViewer({
           /* CASO 5: Imagen con zoom, pan y rotación suave */
           <div className="relative flex items-center justify-center">
             <img
-              key={activeUrl}
-              src={activeUrl}
+              key={cachedActiveUrl}
+              src={cachedActiveUrl}
               alt={activeName || "Vista completa"}
               className="max-w-[90vw] max-h-[75vh] object-contain rounded-xl shadow-2xl border border-white/10 select-none"
               style={{
@@ -775,7 +777,7 @@ export function MediaViewer({
                 >
                   {itemIsVid ? (
                     <div className="w-full h-full bg-neutral-800 flex items-center justify-center relative">
-                      <video src={item.url} className="w-full h-full object-cover" />
+                      <video src={toCachedMediaUrl(item.url)} className="w-full h-full object-cover" />
                       <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
                         <Play className="h-4 w-4 text-white fill-white" />
                       </div>
@@ -787,7 +789,7 @@ export function MediaViewer({
                     </div>
                   ) : (
                     <img
-                      src={item.url}
+                      src={toCachedMediaUrl(item.url)}
                       alt=""
                       className="w-full h-full object-cover bg-neutral-900"
                       loading="lazy"

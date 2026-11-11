@@ -3,6 +3,7 @@ import * as React from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { cn, initials as getInitials } from "@/lib/utils";
+import { toCachedMediaUrl } from "@/lib/media-proxy";
 
 const clientProfilePicCache = new Map<string, string | null>();
 const inflightPicRequests = new Map<string, Promise<string | null>>();
@@ -189,7 +190,8 @@ export function Avatar({
     setImgFailed(true);
   }, [phone, retriedLive]);
 
-  const showImg = Boolean(resolvedSrc && !imgFailed);
+  const displaySrc = React.useMemo(() => toCachedMediaUrl(resolvedSrc), [resolvedSrc]);
+  const showImg = Boolean(displaySrc && !imgFailed);
   const canZoom = showImg && Boolean(onClickPic || zoomOnClick);
   const dim = { width: size, height: size };
 
@@ -203,12 +205,12 @@ export function Avatar({
         )}
         style={dim}
         onClick={
-          canZoom && resolvedSrc
+          canZoom && displaySrc
             ? (e) => {
                 e.stopPropagation();
                 e.preventDefault();
                 if (onClickPic) {
-                  onClickPic(resolvedSrc);
+                  onClickPic(displaySrc);
                 } else {
                   setZoomed(true);
                 }
@@ -223,10 +225,10 @@ export function Avatar({
           aria-hidden={showImg}
           suppressHydrationWarning
         >
-          {showImg && resolvedSrc ? (
+          {showImg && displaySrc ? (
             /* eslint-disable-next-line @next/next/no-img-element */
             <img
-              src={resolvedSrc}
+              src={displaySrc}
               alt={name || "avatar"}
               loading="lazy"
               onError={handleImgError}
@@ -253,7 +255,7 @@ export function Avatar({
       </div>
 
       {zoomed &&
-        resolvedSrc &&
+        displaySrc &&
         typeof document !== "undefined" &&
         createPortal(
           <div
@@ -283,7 +285,7 @@ export function Avatar({
               <div className="p-4 flex items-center justify-center bg-black">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={resolvedSrc}
+                  src={displaySrc}
                   alt={name || "Foto de perfil"}
                   className="max-h-[75vh] w-auto object-contain rounded-xl"
                 />

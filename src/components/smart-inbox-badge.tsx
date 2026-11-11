@@ -37,9 +37,10 @@ export function SmartInboxBadge({ initialCount }: { initialCount: number }) {
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     const debouncedFetch = (payload?: any) => {
       if (payload?.eventType === "UPDATE") {
-        const newEst = String(payload.new?.estado || "").toLowerCase();
-        const oldEst = String(payload.old?.estado || "").toLowerCase();
-        if (newEst !== "ia_atendiendo" && oldEst !== "ia_atendiendo") return;
+        if (payload.action === "deltaEntry" && String(payload.new?.estado || "").toLowerCase() !== "ia_atendiendo") return;
+        const newEst = payload.new?.estado !== undefined ? String(payload.new.estado || "").toLowerCase() : null;
+        const oldEst = payload.old?.estado !== undefined ? String(payload.old.estado || "").toLowerCase() : null;
+        if (newEst !== null && oldEst !== null && newEst !== "ia_atendiendo" && oldEst !== "ia_atendiendo") return;
       } else if (payload?.eventType === "INSERT") {
         const newEst = String(payload.new?.estado || "").toLowerCase();
         if (newEst !== "ia_atendiendo") return;

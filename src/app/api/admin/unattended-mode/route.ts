@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { broadcastAgentEvent } from "@/lib/realtime-broadcast";
 
 export const dynamic = "force-dynamic";
 
@@ -61,6 +62,12 @@ export async function POST(req: NextRequest) {
 
     cachedModoNoAtendido = modo_no_atendido;
     lastCacheTime = Date.now();
+
+    await broadcastAgentEvent({
+      eventType: "UPDATE",
+      email: "system_prompt@sekunet.com",
+      modo_no_atendido,
+    });
 
     return NextResponse.json({ success: true, modo_no_atendido });
   } catch (e: any) {

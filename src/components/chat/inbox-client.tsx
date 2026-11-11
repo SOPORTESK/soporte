@@ -564,8 +564,8 @@ export function InboxClient({
       // No está en lista: marcar pendiente y cargarlo desde Supabase
       setPendingSelectId(id);
       const query = id.length < 36
-        ? supabase.from("sek_cases").select("*").ilike("id", `${id}%`).limit(1).maybeSingle()
-        : supabase.from("sek_cases").select("*").eq("id", id).maybeSingle();
+        ? supabase.from("sek_cases").select(CASE_LIST_FIELDS).ilike("id", `${id}%`).limit(1).maybeSingle()
+        : supabase.from("sek_cases").select(CASE_LIST_FIELDS).eq("id", id).maybeSingle();
 
       query.then(({ data }) => {
         if (data) {
@@ -662,14 +662,16 @@ export function InboxClient({
   React.useEffect(() => {
     let isMounted = true;
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    let pendingPayloads: any[] = [];
     const unsubscribeCasesBus = subscribeCasesRealtime(
       supabase,
       (payload) => {
-          // Ignorar updates triviales donde no cambiaron metadatos de lista
-          if (payload.eventType === "UPDATE") {
+          // Ignorar updates triviales donde no cambiaron metadatos de lista (si old está disponible)
+          if (payload.eventType === "UPDATE" && payload.action !== "deltaEntry") {
             const upd = payload.new as any;
             const old = payload.old as any;
             if (upd && old &&
+                old.last_message_at !== undefined &&
                 upd.last_message_at === old.last_message_at &&
                 upd.estado === old.estado &&
                 upd.assigned_to === old.assigned_to &&
@@ -681,37 +683,64 @@ export function InboxClient({
             }
           }
 
+          pendingPayloads.push(payload);
           if (debounceTimer) clearTimeout(debounceTimer);
           debounceTimer = setTimeout(() => {
+            const batch = pendingPayloads;
+            pendingPayloads = [];
+            if (batch.length === 0) return;
+
+            let missingFetchId: string | null = null;
+
             setAllCases(prevAll => {
               let nextAll = [...prevAll];
-              if (payload.eventType === "INSERT") {
-                const ins = payload.new as SekCase;
-                if (ins && ins.canal !== "simulator" && !(ins as any).es_test) {
-                  if (ins.updated_at && ins.updated_at > lastKnownMaxUpdatedAtRef.current) {
-                    lastKnownMaxUpdatedAtRef.current = ins.updated_at;
+              for (const ev of batch) {
+                if (ev.eventType === "INSERT") {
+                  const ins = ev.new as SekCase;
+                  if (ins && ins.canal !== "simulator" && !(ins as any).es_test) {
+                    if (ins.updated_at && ins.updated_at > lastKnownMaxUpdatedAtRef.current) {
+                      lastKnownMaxUpdatedAtRef.current = ins.updated_at;
+                    }
+                    nextAll = [ins, ...nextAll.filter(c => String(c.id) !== String(ins.id))];
                   }
-                  nextAll = [ins, ...nextAll.filter(c => String(c.id) !== String(ins.id))];
-                }
-              } else if (payload.eventType === "UPDATE") {
-                const upd = payload.new as SekCase;
-                if (upd && upd.canal !== "simulator" && !(upd as any).es_test) {
-                  if (upd.updated_at && upd.updated_at > lastKnownMaxUpdatedAtRef.current) {
-                    lastKnownMaxUpdatedAtRef.current = upd.updated_at;
+                } else if (ev.eventType === "UPDATE") {
+                  const upd = (ev.new || {}) as SekCase;
+                  const targetCid = String(ev.caseId || upd.id || "");
+                  if (targetCid && upd.canal !== "simulator" && !(upd as any).es_test) {
+                    if (upd.updated_at && upd.updated_at > lastKnownMaxUpdatedAtRef.current) {
+                      lastKnownMaxUpdatedAtRef.current = upd.updated_at;
+                    }
+                    const idx = nextAll.findIndex(c => String(c.id) === targetCid);
+                    const deltaPatch: Record<string, any> = {};
+                    if (ev.action === "deltaEntry" && ev.delta?.entry) {
+                      const entry = ev.delta.entry;
+                      if (!upd.last_message_at) deltaPatch.last_message_at = entry.time || new Date().toISOString();
+                      if (!upd.last_message_preview && entry.content) deltaPatch.last_message_preview = String(entry.content).slice(0, 200);
+                      if (idx !== -1 && ev.delta.col === "histcliente" && (!entry.role || entry.role === "user") && upd.unread_count === undefined) {
+                        deltaPatch.unread_count = (Number(nextAll[idx].unread_count) || 0) + 1;
+                      }
+                    }
+                    if (idx !== -1) {
+                      nextAll[idx] = { ...nextAll[idx], ...upd, ...deltaPatch };
+                    } else if (upd.id && upd.canal && upd.estado) {
+                      nextAll = [{ ...upd, ...deltaPatch } as SekCase, ...nextAll];
+                    } else {
+                      missingFetchId = targetCid;
+                    }
                   }
-                  const idx = nextAll.findIndex(c => String(c.id) === String(upd.id));
-                  if (idx !== -1) {
-                    nextAll[idx] = { ...nextAll[idx], ...upd };
-                  } else {
-                    nextAll = [upd, ...nextAll];
+                } else if (ev.eventType === "DELETE" || ev.action === "delete_bulk") {
+                  const delIds = new Set<string>([
+                    ...(Array.isArray(ev.caseIds) ? ev.caseIds.map(String) : []),
+                    ...(ev.caseId ? [String(ev.caseId)] : []),
+                    ...((ev.old as any)?.id ? [String((ev.old as any).id)] : []),
+                  ]);
+                  if (delIds.size > 0) {
+                    nextAll = nextAll.filter(c => !delIds.has(String(c.id)));
                   }
-                }
-              } else if (payload.eventType === "DELETE") {
-                const oldId = (payload.old as any)?.id;
-                if (oldId) {
-                  nextAll = nextAll.filter(c => String(c.id) !== String(oldId));
                 }
               }
+
+              const payload = batch[batch.length - 1];
 
               // Ordenar por última actividad
               nextAll.sort((a, b) => {
@@ -810,62 +839,66 @@ export function InboxClient({
               }
 
               /* 🔔 Alerta para caso escalado por IA */
-              if (payload.eventType === "UPDATE") {
-                const updCase = payload.new as SekCase;
-                const nuevoEstado = String(updCase?.estado || "").toLowerCase();
-                const prevInList = prevCasesRef.current.find(c => String(c.id) === String(updCase?.id));
-                const prevEstadoInList = String(prevInList?.estado || "").toLowerCase();
-                const wasAlreadyEscalated = prevEstadoInList === "escalado";
+              for (const ev of batch) {
+                if (ev.eventType === "UPDATE") {
+                  const updCase = ev.new as SekCase;
+                  const targetCid = String(updCase?.id || ev.caseId || "");
+                  const mergedUpd = targetCid ? (nextAll.find(c => String(c.id) === targetCid) || updCase) : updCase;
+                  const nuevoEstado = String(mergedUpd?.estado || "").toLowerCase();
+                  const prevInList = prevCasesRef.current.find(c => String(c.id) === targetCid);
+                  const prevEstadoInList = String(prevInList?.estado || ev.old?.estado || "").toLowerCase();
+                  const wasAlreadyEscalated = prevEstadoInList === "escalado";
 
-                if (nuevoEstado === "escalado" && !wasAlreadyEscalated && updCase?.id) {
-                  const escKey = `escalado-${updCase.id}`;
-                  const now = Date.now();
-                  const lastAlert = alertedCasesRef.current.get(escKey) || 0;
-                  if (now - lastAlert > 15000) {
-                    alertedCasesRef.current.set(escKey, now);
-                    const ci3 = clienteInfo(updCase.cliente);
-                    const name3 = ci3.nombre || ci3.telefono || asText(updCase.title) || "Cliente";
-                    const equipo3 = (updCase.cliente as any)?.equipo || "";
-                    
-                    playEscaladoAlert();
-                    toast.warning(`Nueva conversación: ${name3}`, {
-                      id: `toast-escalado-${updCase.id}`,
-                      description: equipo3 ? `Equipo: ${equipo3} · Requiere atención` : "Requiere atención de un agente",
-                      duration: 30000,
-                      action: { label: "Atender", onClick: () => selectCase(String(updCase.id)) }
-                    });
+                  if (nuevoEstado === "escalado" && !wasAlreadyEscalated && mergedUpd?.id) {
+                    const escKey = `escalado-${mergedUpd.id}`;
+                    const now = Date.now();
+                    const lastAlert = alertedCasesRef.current.get(escKey) || 0;
+                    if (now - lastAlert > 15000) {
+                      alertedCasesRef.current.set(escKey, now);
+                      const ci3 = clienteInfo(mergedUpd.cliente);
+                      const name3 = ci3.nombre || ci3.telefono || asText(mergedUpd.title) || "Cliente";
+                      const equipo3 = (mergedUpd.cliente as any)?.equipo || "";
+
+                      playEscaladoAlert();
+                      toast.warning(`Nueva conversación: ${name3}`, {
+                        id: `toast-escalado-${mergedUpd.id}`,
+                        description: equipo3 ? `Equipo: ${equipo3} · Requiere atención` : "Requiere atención de un agente",
+                        duration: 30000,
+                        action: { label: "Atender", onClick: () => selectCase(String(mergedUpd.id)) }
+                      });
+                    }
                   }
                 }
-              }
 
-              /* 🔔 Alerta especial para Soporte Avanzado: nuevo caso con etiqueta n2 */
-              if (containerType === "soporte-avanzado" && payload.eventType === "UPDATE") {
-                const newCase = payload.new as SekCase;
-                const oldCase = payload.old as SekCase;
-                const newTags = Array.isArray(newCase?.tags) ? newCase.tags : [];
-                const oldTags = Array.isArray(oldCase?.tags) ? oldCase.tags : [];
-                const hasN2Now = newTags.some((t: string) => t.toLowerCase() === "n2" || t.toLowerCase() === "soporte-n2");
-                const hadN2Before = oldTags.some((t: string) => t.toLowerCase() === "n2" || t.toLowerCase() === "soporte-n2");
-                
-                if (hasN2Now && !hadN2Before && newCase?.id) {
-                  const n2Key = `n2-${newCase.id}`;
-                  const now = Date.now();
-                  const lastAlert = alertedCasesRef.current.get(n2Key) || 0;
-                  if (now - lastAlert > 10000) {
-                    alertedCasesRef.current.set(n2Key, now);
-                    playN2Alert();
-                    const ci2 = clienteInfo(newCase.cliente);
-                    const name2 = ci2.nombre || ci2.telefono || asText(newCase.title) || "Cliente";
-                    
-                    toast.success("🔧 Nueva solicitud de soporte avanzado", {
-                      id: `toast-n2-${newCase.id}`,
-                      description: `${name2} ha sido etiquetado como N2`,
-                      duration: 8000,
-                      action: { 
-                        label: "Ver caso", 
-                        onClick: () => selectCase(String(newCase.id)) 
-                      }
-                    });
+                /* 🔔 Alerta especial para Soporte Avanzado: nuevo caso con etiqueta n2 */
+                if (containerType === "soporte-avanzado" && (ev.eventType === "UPDATE" || ev.eventType === "INSERT")) {
+                  const newCase = ev.new as SekCase;
+                  const oldCase = (ev.old as SekCase) || prevCasesRef.current.find(c => String(c.id) === String(newCase?.id));
+                  const newTags = Array.isArray(newCase?.tags) ? newCase.tags : [];
+                  const oldTags = Array.isArray(oldCase?.tags) ? oldCase.tags : [];
+                  const hasN2Now = newTags.some((t: string) => t.toLowerCase() === "n2" || t.toLowerCase() === "soporte-n2");
+                  const hadN2Before = oldTags.some((t: string) => t.toLowerCase() === "n2" || t.toLowerCase() === "soporte-n2");
+
+                  if (hasN2Now && !hadN2Before && newCase?.id) {
+                    const n2Key = `n2-${newCase.id}`;
+                    const now = Date.now();
+                    const lastAlert = alertedCasesRef.current.get(n2Key) || 0;
+                    if (now - lastAlert > 10000) {
+                      alertedCasesRef.current.set(n2Key, now);
+                      playN2Alert();
+                      const ci2 = clienteInfo(newCase.cliente);
+                      const name2 = ci2.nombre || ci2.telefono || asText(newCase.title) || "Cliente";
+
+                      toast.success("🔧 Nueva solicitud de soporte avanzado", {
+                        id: `toast-n2-${newCase.id}`,
+                        description: `${name2} ha sido etiquetado como N2`,
+                        duration: 8000,
+                        action: {
+                          label: "Ver caso",
+                          onClick: () => selectCase(String(newCase.id))
+                        }
+                      });
+                    }
                   }
                 }
               }
@@ -875,7 +908,28 @@ export function InboxClient({
 
               return nextAll;
             });
-          }, 150);
+
+            if (missingFetchId && isMounted) {
+              supabase
+                .from("sek_cases")
+                .select(CASE_LIST_FIELDS)
+                .eq("id", missingFetchId)
+                .maybeSingle()
+                .then(({ data: fetched }) => {
+                  if (!fetched || !isMounted || fetched.canal === "simulator" || (fetched as any).es_test) return;
+                  setAllCases(prevAll => {
+                    const nextAll = [fetched as unknown as SekCase, ...prevAll.filter(c => String(c.id) !== String(fetched.id))];
+                    if (containerType !== "mi-gestion" || agentEmail) {
+                      const filtered = filterCasesByContainer(nextAll, containerType, agentEmail, agentName, isUserAdmin, adminFilterMode);
+                      setCases(filtered);
+                      prevCasesRef.current = filtered;
+                      prevMergedRef.current = mergeGroups(filtered);
+                    }
+                    return nextAll;
+                  });
+                });
+            }
+          }, 120);
       },
       (status) => {
         if (!isMounted) return;

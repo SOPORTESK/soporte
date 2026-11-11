@@ -3,7 +3,8 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { Camera, Lock, Eye, EyeOff, Check, X, ChevronUp, ChevronDown, ChevronLeft, Circle, LogOut, Activity as ActivityIcon, FileText, ChevronRight, X as XIcon, RefreshCw, Wrench, Coffee, Timer, BarChart3, Package, LayoutDashboard, ClipboardList, Sparkles, UserPlus, Briefcase, GraduationCap, Users, Utensils, Sandwich, Bath, Square, Trash2, Clock, CheckCircle2, Calendar, Maximize2, Minimize2, Plus, UserCheck, Save, MessageSquare, Search, Play, Layers, ShieldCheck, Phone, Settings, User } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { subscribeCasesRealtime } from "@/lib/cases-realtime-bus";
+import { subscribeCasesRealtime, subscribeAgentsRealtime, emitAgentBroadcastClient } from "@/lib/cases-realtime-bus";
+import { toCachedMediaUrl } from "@/lib/media-proxy";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { logActivity } from "@/lib/activity-client";
@@ -218,7 +219,7 @@ function AvatarImg({ url, name, size = 36 }: { url?: string | null; name?: strin
   const color = colors[safeName.charCodeAt(0) % colors.length];
 
   if (url) {
-    return <img src={url} alt={safeName} style={{ width: size, height: size }} className="rounded-full object-cover ring-2 ring-border" />;
+    return <img src={toCachedMediaUrl(url)} alt={safeName} style={{ width: size, height: size }} className="rounded-full object-cover ring-2 ring-border" />;
   }
   return (
     <div style={{ width: size, height: size, fontSize: size * 0.35 }} className={`${color} rounded-full flex items-center justify-center text-white font-bold shrink-0`}>
@@ -350,32 +351,31 @@ export function SidebarUserPanel({
     };
     window.addEventListener("focus", handleTeamFocus);
 
-    const agentChannel = supabase
-      .channel("sidebar_team_agents_realtime")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "sek_agent_config" },
-        (payload: any) => {
-          const updated = payload.new as any;
-          if (!updated || !updated.email) return;
-          setTeamAgents((prev) => {
-            const emailLower = updated.email.toLowerCase();
-            const existingIdx = prev.findIndex(a => a.email.toLowerCase() === emailLower);
-            if (existingIdx >= 0) {
-              const copy = [...prev];
-              copy[existingIdx] = { ...copy[existingIdx], ...updated };
-              return copy;
-            } else {
-              return [...prev, updated];
-            }
-          });
+    const unsubscribeAgents = subscribeAgentsRealtime(supabase, (updated) => {
+      if (updated?.fullReload) {
+        fetchTeam();
+        return;
+      }
+      if (!updated || !updated.email) return;
+      const emailLower = updated.email.toLowerCase();
+      if (updated.eventType === "DELETE") {
+        setTeamAgents((prev) => prev.filter((a) => a.email.toLowerCase() !== emailLower));
+        return;
+      }
+      setTeamAgents((prev) => {
+        const existingIdx = prev.findIndex((a) => a.email.toLowerCase() === emailLower);
+        if (existingIdx >= 0) {
+          const copy = [...prev];
+          copy[existingIdx] = { ...copy[existingIdx], ...updated };
+          return copy;
         }
-      )
-      .subscribe();
+        return [...prev, updated as any];
+      });
+    });
 
     return () => {
       window.removeEventListener("focus", handleTeamFocus);
-      supabase.removeChannel(agentChannel);
+      unsubscribeAgents();
     };
   }, [supabase]);
 
@@ -430,9 +430,14 @@ export function SidebarUserPanel({
     let debounceTimer: any = null;
     let lastActiveChatsCheck = Date.now();
     const debouncedCheck = (payload?: any) => {
-      if (payload?.eventType === "UPDATE" && payload.new && payload.old) {
-        if (payload.new.estado === payload.old.estado && payload.new.assigned_to === payload.old.assigned_to) {
+      if (payload?.eventType === "UPDATE") {
+        if (payload.action === "deltaEntry" && !payload.new?.estado && payload.new?.assigned_to === undefined) {
           return;
+        }
+        if (payload.new && payload.old && payload.old.estado !== undefined) {
+          if (payload.new.estado === payload.old.estado && payload.new.assigned_to === payload.old.assigned_to) {
+            return;
+          }
         }
       }
       if (debounceTimer) clearTimeout(debounceTimer);
@@ -468,11 +473,18 @@ export function SidebarUserPanel({
     if (!safeAgent.email) return;
     setSavingProfile(true);
     try {
+      const nextNombre = profileNombre.trim();
+      const nextApellido = profileApellido.trim();
       const { error } = await supabase
         .from("sek_agent_config")
-        .update({ nombre: profileNombre.trim(), apellido: profileApellido.trim() })
+        .update({ nombre: nextNombre, apellido: nextApellido })
         .ilike("email", safeAgent.email);
       if (error) throw error;
+      emitAgentBroadcastClient({
+        email: safeAgent.email,
+        nombre: nextNombre,
+        apellido: nextApellido,
+      });
       toast.success("Perfil actualizado con éxito");
       router.refresh();
     } catch (e: any) {
@@ -1935,7 +1947,7 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
                     return (
                       <div
                         key={a.email}
-                        onClick={() => openInternalChat(channelId, n, a.avatar_url, effectiveStatus, false)}
+                        onClick={() => openInternalChat(channelId, n, toCachedMediaUrl(a.avatar_url), effectiveStatus, false)}
                         className="flex items-center justify-between gap-2.5 px-2.5 py-2 rounded-xl hover:bg-muted/60 border border-transparent hover:border-border/60 transition-all cursor-pointer group"
                       >
                         <div className="flex items-center gap-2.5 min-w-0 flex-1">
@@ -2836,7 +2848,7 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
                       return (
                         <div
                           key={a.email}
-                          onClick={() => openInternalChat(channelId, n, a.avatar_url, effectiveStatus, false)}
+                          onClick={() => openInternalChat(channelId, n, toCachedMediaUrl(a.avatar_url), effectiveStatus, false)}
                           className={`flex items-center justify-between gap-2.5 px-3 py-2.5 rounded-2xl border transition-all cursor-pointer group ${
                             isSelected
                               ? "bg-violet-600/20 border-violet-500/60 shadow-xs"

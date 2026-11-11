@@ -41,9 +41,10 @@ export function EscalatedCasesBanner() {
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     const debouncedFetch = (payload?: any) => {
       if (payload?.eventType === "UPDATE") {
-        const newEst = String(payload.new?.estado || "").toLowerCase();
-        const oldEst = String(payload.old?.estado || "").toLowerCase();
-        if (newEst !== "escalado" && oldEst !== "escalado") return;
+        if (payload.action === "deltaEntry" && String(payload.new?.estado || "").toLowerCase() !== "escalado") return;
+        const newEst = payload.new?.estado !== undefined ? String(payload.new.estado || "").toLowerCase() : null;
+        const oldEst = payload.old?.estado !== undefined ? String(payload.old.estado || "").toLowerCase() : null;
+        if (newEst !== null && oldEst !== "escalado" && oldEst !== null && newEst !== "escalado") return;
       } else if (payload?.eventType === "INSERT") {
         const newEst = String(payload.new?.estado || "").toLowerCase();
         if (newEst !== "escalado") return;

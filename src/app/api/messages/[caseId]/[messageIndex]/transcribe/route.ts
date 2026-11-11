@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { transcribeAudio } from "@/lib/ai/vision";
+import { broadcastCaseEvent } from "@/lib/realtime-broadcast";
 
 export const dynamic = "force-dynamic";
 
@@ -69,6 +70,13 @@ export async function POST(
       .eq("id", params.caseId);
     if (updateError) {
       console.error("[TRANSCRIBE] Error guardando transcripción:", updateError);
+    } else {
+      await broadcastCaseEvent({
+        eventType: "UPDATE",
+        action: "refresh_history",
+        caseId: String(params.caseId),
+        new: { id: params.caseId, updated_at: new Date().toISOString() },
+      });
     }
   }
 
