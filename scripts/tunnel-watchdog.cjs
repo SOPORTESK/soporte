@@ -357,9 +357,31 @@ const deliveredSigMap = new Map(); // signature -> { messageId, ts }
 const inFlightJobPromises = new Map(); // jobId/sig -> Promise
 
 function getJobSignature(job) {
+  if (job.action === 'delete' && job.deletePayload) {
+    return `delete|${job.deletePayload.id || job.id}`;
+  }
   const dest = String(job.case_id || job.to || '').trim();
   const body = String(job.text || job.mediaUrl || job.fileName || '').trim().slice(0, 160);
   return `${dest}|${body}`;
+}
+
+async function revokeOutboxItemViaLocalEvo(job) {
+  const payload = job.deletePayload;
+  if (!payload || !payload.id || !payload.remoteJid) {
+    return { ok: false, status: 400, errorText: 'deletePayload incompleto' };
+  }
+  const url = `${LOCAL_EVO_URL}/chat/deleteMessageForEveryone/${encodeURIComponent(EVO_INSTANCE)}`;
+  const res = await fetch(url, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', apikey: EVO_API_KEY },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(10000),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    return { ok: false, status: res.status, errorText: `evo_${res.status}: ${JSON.stringify(data).slice(0, 160)}` };
+  }
+  return { ok: true, status: res.status, messageId: payload.id };
 }
 
 function pruneDeduplicationMaps() {
@@ -393,13 +415,18 @@ async function deliverJobWithDeduplication(job, sourceLabel = 'outbox') {
   }
 
   const runPromise = (async () => {
-    const result = await sendOutboxItemViaLocalEvo(job);
+    const isDelete = job.action === 'delete';
+    const result = isDelete
+      ? await revokeOutboxItemViaLocalEvo(job)
+      : await sendOutboxItemViaLocalEvo(job);
     if (result.ok) {
       const entry = { messageId: result.messageId, ts: Date.now() };
       if (jobId) deliveredJobIds.set(jobId, entry);
       if (sig) deliveredSigMap.set(sig, entry);
-      console.log(`[WA Outbox:${sourceLabel}] Entregado con éxito ${jobId || sig} -> WhatsApp id=${result.messageId}`);
-      await markCaseQueuedMessageDelivered(job, result.messageId, false);
+      console.log(`[WA Outbox:${sourceLabel}] ${isDelete ? 'Revocado' : 'Entregado'} con éxito ${jobId || sig} -> WhatsApp id=${result.messageId}`);
+      if (!isDelete) {
+        await markCaseQueuedMessageDelivered(job, result.messageId, false);
+      }
     }
     return result;
   })();

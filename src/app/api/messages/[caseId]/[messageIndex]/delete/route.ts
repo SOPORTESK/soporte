@@ -3,6 +3,7 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { getEvolutionConfig } from "@/lib/evolution-config";
 import { pickPhone } from "@/lib/evolution-phone";
 import { broadcastCaseEvent } from "@/lib/realtime-broadcast";
+import { enqueueWaOutbox, removeFromWaOutbox } from "@/lib/wa-outbox";
 
 // El messageId lo rellena el webhook al recibir el eco del envío. Si el entry
 // consultado aún no lo tiene, se busca la copia del mismo mensaje en el otro
@@ -121,7 +122,34 @@ export async function POST(
       }
     }
 
-    if (isWhatsApp && (!messageId || String(messageId).startsWith("queued-"))) {
+    let whatsappRevoked = false;
+    let whatsappError: string | null = null;
+
+    if (isWhatsApp && messageId && String(messageId).startsWith("queued-")) {
+      const cancelled = await removeFromWaOutbox(supabase, String(messageId));
+      if (cancelled) {
+        whatsappRevoked = true;
+        console.log("[DELETE MSG API] Mensaje encolado cancelado antes de enviarse a WhatsApp:", messageId);
+      } else {
+        // Releer una vez más por si el worker lo entregó justo mientras intentábamos cancelar
+        const { data: freshCase2 } = await supabase
+          .from("sek_cases")
+          .select("histcliente, histtecnico")
+          .eq("id", targetCaseId)
+          .maybeSingle();
+        if (freshCase2) {
+          const freshList2 = (freshCase2 as any)[historyType] || [];
+          const freshMsg2 = freshList2[msgIndex];
+          const freshObj2 = typeof freshMsg2 === "object" && freshMsg2 !== null ? freshMsg2 : messageObj;
+          const resolved2 = resolveMessageId(freshObj2, { ...caseData, ...freshCase2 }, historyType);
+          if (resolved2 && !String(resolved2).startsWith("queued-")) {
+            messageId = resolved2;
+          }
+        }
+      }
+    }
+
+    if (isWhatsApp && (!messageId || String(messageId).startsWith("queued-")) && !whatsappRevoked) {
       console.warn("[DELETE MSG API] Sin messageId real de WhatsApp, abortando 'for_everyone' para no ocultar solo local:", {
         messageId,
         canal: caseData.canal,
@@ -137,15 +165,22 @@ export async function POST(
       );
     }
 
-    let whatsappRevoked = false;
-    let whatsappError: string | null = null;
-
-    if (isWhatsApp && messageId && to) {
+    if (isWhatsApp && !whatsappRevoked && messageId && to) {
       let evoCfg = await getEvolutionConfig(false);
       if (!evoCfg?.url || !evoCfg?.apiKey || !evoCfg?.instance) {
         evoCfg = await getEvolutionConfig(true);
       }
       const fromMe = (messageObj as any).fromMe ?? (historyType === "histtecnico");
+      const targetJid = to; // pickPhone ya retorna el JID completo
+      const isGroup = targetJid.includes("@g.us");
+      const bodyPayload: any = {
+        id: messageId,
+        remoteJid: targetJid,
+        fromMe: fromMe,
+      };
+      if (isGroup && (messageObj as any).participant) {
+        bodyPayload.participant = (messageObj as any).participant;
+      }
 
       const buildCandidates = (cfg: typeof evoCfg) =>
         Array.from(
@@ -165,17 +200,6 @@ export async function POST(
       let refreshedCfg = false;
 
       if (evoCfg?.apiKey && evoCfg?.instance && candidates.length > 0) {
-        const targetJid = to; // pickPhone ya retorna el JID completo
-        const isGroup = targetJid.includes("@g.us");
-        const bodyPayload: any = {
-          id: messageId,
-          remoteJid: targetJid,
-          fromMe: fromMe,
-        };
-        if (isGroup && (messageObj as any).participant) {
-          bodyPayload.participant = (messageObj as any).participant;
-        }
-
         for (let i = 0; i < candidates.length; i++) {
           const baseUrl = candidates[i];
           try {
@@ -219,6 +243,25 @@ export async function POST(
       } else {
         whatsappError = "Evolution API no configurada";
         console.error("[DELETE MSG API] Evolution no configurada. url:", !!evoCfg?.url, "key:", !!evoCfg?.apiKey, "instance:", !!evoCfg?.instance);
+      }
+
+      // Si falló la conexión directa (túnel desde Vercel), delegar revocación al worker local vía wa_outbox_queue
+      if (!whatsappRevoked) {
+        const queued = await enqueueWaOutbox(supabase, {
+          id: `del-${messageId}`,
+          action: "delete",
+          case_id: String(targetCaseId),
+          to: targetJid,
+          deletePayload: bodyPayload,
+          created_at: new Date().toISOString(),
+          status: "pending",
+          attempts: 0,
+          last_error: whatsappError || undefined,
+        });
+        if (queued) {
+          whatsappRevoked = true;
+          console.log("[DELETE MSG API] Revocación delegada a wa_outbox_queue:", `del-${messageId}`);
+        }
       }
     }
 

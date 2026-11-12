@@ -2,12 +2,19 @@ export const WA_OUTBOX_KEY = "wa_outbox_queue";
 
 export interface WaOutboxItem {
   id: string;
+  action?: "send" | "delete";
   case_id: string;
   to: string;
   text?: string;
   mediaUrl?: string;
   mediaType?: string;
   fileName?: string;
+  deletePayload?: {
+    id: string;
+    remoteJid: string;
+    fromMe: boolean;
+    participant?: string;
+  };
   quoted?: {
     key: {
       id: string;
@@ -92,4 +99,41 @@ export async function enqueueWaOutbox(
     }
   }
   return false;
+}
+
+export async function removeFromWaOutbox(
+  supabase: any,
+  id: string
+): Promise<boolean> {
+  if (!id) return false;
+  try {
+    const { data: row } = await supabase
+      .from("sek_app_settings")
+      .select("value")
+      .eq("key", WA_OUTBOX_KEY)
+      .maybeSingle();
+
+    if (!row?.value) return false;
+    const parsed = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
+    if (!Array.isArray(parsed)) return false;
+
+    const filtered = parsed.filter((q: any) => q && q.id !== id);
+    if (filtered.length === parsed.length) return false;
+
+    const { error } = await supabase
+      .from("sek_app_settings")
+      .upsert(
+        {
+          key: WA_OUTBOX_KEY,
+          value: JSON.stringify(filtered),
+          iv: "none",
+          tag: "none",
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "key" }
+      );
+    return !error;
+  } catch {
+    return false;
+  }
 }
