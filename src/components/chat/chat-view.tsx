@@ -5239,6 +5239,9 @@ function Bubble({ m, prev, next, clienteName, onImageClick, onHikvisionInspect, 
     } catch (e) {
       console.error("Error al eliminar mensaje:", e);
       toast.error("Error de red al eliminar");
+      if (deleteType === "for_everyone" && onMessageUpdate) {
+        onMessageUpdate(m.historyType, m.originalIndex, { deleted: false, content: m.content });
+      }
     }
   };
 

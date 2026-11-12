@@ -96,70 +96,125 @@ export async function POST(
     // Eliminar para todos: marcar como deleted
     updatedMessage = { ...messageObj, deleted: true, content: "" };
 
-    // Sincronizar con WhatsApp si es un canal de WhatsApp y tiene messageId
+    // Sincronizar con WhatsApp si es un canal de WhatsApp y tiene messageId real
     const isWhatsApp = String(caseData.canal || "").toLowerCase() === "whatsapp";
-    const messageId = resolveMessageId(messageObj, caseData, historyType);
+    let messageId = resolveMessageId(messageObj, caseData, historyType);
     const to = pickPhone(caseData);
 
-    if (isWhatsApp && !messageId) {
-      console.warn("[DELETE MSG API] Sin messageId: eliminando solo local, no se puede revocar en WhatsApp. Canal:", caseData.canal, "phone:", to);
-      // No bloquear: eliminar del historial local aunque no se pueda revocar en WhatsApp
-      // El mensaje ya fue enviado y no tiene tracking, no podemos hacer nada del lado del receptor
+    // Si el mensaje se acaba de enviar o estaba encolado (queued-), esperar brevemente
+    // y releer una sola vez por si el eco/outbox ya escribió el messageId real de WhatsApp.
+    if (isWhatsApp && (!messageId || String(messageId).startsWith("queued-"))) {
+      await new Promise((r) => setTimeout(r, 1200));
+      const { data: freshCase } = await supabase
+        .from("sek_cases")
+        .select("histcliente, histtecnico")
+        .eq("id", targetCaseId)
+        .maybeSingle();
+      if (freshCase) {
+        const freshList = (freshCase as any)[historyType] || [];
+        const freshMsg = freshList[msgIndex];
+        const freshObj = typeof freshMsg === "object" && freshMsg !== null ? freshMsg : messageObj;
+        const resolved = resolveMessageId(freshObj, { ...caseData, ...freshCase }, historyType);
+        if (resolved && !String(resolved).startsWith("queued-")) {
+          messageId = resolved;
+        }
+      }
+    }
+
+    if (isWhatsApp && (!messageId || String(messageId).startsWith("queued-"))) {
+      console.warn("[DELETE MSG API] Sin messageId real de WhatsApp, abortando 'for_everyone' para no ocultar solo local:", {
+        messageId,
+        canal: caseData.canal,
+        phone: to,
+      });
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "Este mensaje aún no tiene ID confirmado en WhatsApp. Espera unos segundos e intenta de nuevo, o elimínalo directo en WhatsApp.",
+        },
+        { status: 409 }
+      );
     }
 
     let whatsappRevoked = false;
     let whatsappError: string | null = null;
 
     if (isWhatsApp && messageId && to) {
-      const evoCfg = await getEvolutionConfig();
+      let evoCfg = await getEvolutionConfig(false);
+      if (!evoCfg?.url || !evoCfg?.apiKey || !evoCfg?.instance) {
+        evoCfg = await getEvolutionConfig(true);
+      }
       const fromMe = (messageObj as any).fromMe ?? (historyType === "histtecnico");
 
-      console.log("[DELETE MSG API] Intentando revocar en WhatsApp:", {
-        messageId,
-        remoteJid: to,
-        fromMe,
-        historyType,
-        evoUrl: evoCfg?.url,
-        evoInstance: evoCfg?.instance,
-      });
+      const buildCandidates = (cfg: typeof evoCfg) =>
+        Array.from(
+          new Set(
+            [
+              !process.env.VERCEL ? "http://127.0.0.1:28080" : "",
+              !process.env.VERCEL ? "http://localhost:28080" : "",
+              ...(cfg?.candidates || []),
+              cfg?.url || "",
+            ]
+              .map((u) => String(u || "").replace(/\/$/, ""))
+              .filter(Boolean)
+          )
+        );
 
-      if (evoCfg?.url && evoCfg?.apiKey && evoCfg?.instance) {
+      let candidates = buildCandidates(evoCfg);
+      let refreshedCfg = false;
+
+      if (evoCfg?.apiKey && evoCfg?.instance && candidates.length > 0) {
         const targetJid = to; // pickPhone ya retorna el JID completo
-        try {
-          const isGroup = targetJid.includes("@g.us");
-          const bodyPayload: any = {
-            id: messageId,
-            remoteJid: targetJid,
-            fromMe: fromMe,
-          };
-          if (isGroup) {
-            bodyPayload.participant = targetJid;
-          }
+        const isGroup = targetJid.includes("@g.us");
+        const bodyPayload: any = {
+          id: messageId,
+          remoteJid: targetJid,
+          fromMe: fromMe,
+        };
+        if (isGroup && (messageObj as any).participant) {
+          bodyPayload.participant = (messageObj as any).participant;
+        }
 
-          console.log("[DELETE MSG API] Enviando a Evolution:", JSON.stringify(bodyPayload));
+        for (let i = 0; i < candidates.length; i++) {
+          const baseUrl = candidates[i];
+          try {
+            console.log("[DELETE MSG API] Enviando a Evolution:", baseUrl, JSON.stringify(bodyPayload));
+            const res = await fetch(
+              `${baseUrl}/chat/deleteMessageForEveryone/${encodeURIComponent(evoCfg.instance)}`,
+              {
+                method: "DELETE",
+                headers: {
+                  "Content-Type": "application/json",
+                  apikey: evoCfg.apiKey,
+                },
+                body: JSON.stringify(bodyPayload),
+                signal: AbortSignal.timeout(8000),
+              }
+            );
 
-          const res = await fetch(`${evoCfg.url.replace(/\/$/, "")}/chat/deleteMessageForEveryone/${encodeURIComponent(evoCfg.instance)}`, {
-            method: "DELETE",
-            headers: {
-              "Content-Type": "application/json",
-              apikey: evoCfg.apiKey
-            },
-            body: JSON.stringify(bodyPayload)
-          });
+            const resData = await res.json().catch(() => ({}));
+            console.log("[DELETE MSG API] Respuesta de Evolution:", res.status, JSON.stringify(resData));
 
-          const resData = await res.json().catch(() => ({}));
-          console.log("[DELETE MSG API] Respuesta de Evolution:", res.status, JSON.stringify(resData));
-
-          if (!res.ok) {
+            if (res.ok) {
+              whatsappRevoked = true;
+              console.log("[DELETE MSG API] WhatsApp revocado OK vía", baseUrl);
+              break;
+            }
             console.error("[DELETE MSG API] Error en respuesta de Evolution:", res.status, resData);
             whatsappError = `Evolution API: ${resData?.message || resData?.error || res.status}`;
-          } else {
-            whatsappRevoked = true;
-            console.log("[DELETE MSG API] WhatsApp revocado OK");
+          } catch (evoErr: any) {
+            console.warn("[DELETE MSG API] Error conectando con Evolution API en", baseUrl, evoErr?.message);
+            whatsappError = "Error conectando con Evolution API";
+            if (!refreshedCfg) {
+              refreshedCfg = true;
+              const fresh = await getEvolutionConfig(true);
+              for (const u of buildCandidates(fresh)) {
+                if (!candidates.includes(u)) candidates.push(u);
+              }
+              evoCfg = fresh;
+            }
           }
-        } catch (evoErr) {
-          console.error("[DELETE MSG API] Error conectando con Evolution API para revocar:", evoErr);
-          whatsappError = "Error conectando con Evolution API";
         }
       } else {
         whatsappError = "Evolution API no configurada";
@@ -167,11 +222,11 @@ export async function POST(
       }
     }
 
-    // Si es WhatsApp, se intentó revocar (había messageId) y falló, retornar error
-    if (isWhatsApp && messageId && !whatsappRevoked) {
-      return NextResponse.json({ 
-        ok: false, 
-        error: whatsappError || "No se pudo eliminar del chat del cliente" 
+    // Si es WhatsApp, se intentó revocar y falló, retornar error
+    if (isWhatsApp && !whatsappRevoked) {
+      return NextResponse.json({
+        ok: false,
+        error: whatsappError || "No se pudo eliminar del chat del cliente",
       }, { status: 500 });
     }
   } else {
