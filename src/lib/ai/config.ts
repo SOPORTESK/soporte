@@ -177,9 +177,11 @@ const COOLDOWN_ERROR_MS = 60_000;  // 1 minuto si da timeout o error 5xx
 
 function compressSystemPrompt(sys: string | undefined, maxChars = 10_000): string | undefined {
   if (!sys || sys.length <= maxChars) return sys;
-  const head = Math.floor(maxChars * 0.68);
+  // Conservar cabecera de contexto (38%) y el bloque más reciente + reglas/fuentes al final (62%)
+  // para nunca amputar los últimos mensajes del caso abierto.
+  const head = Math.floor(maxChars * 0.38);
   const tail = maxChars - head;
-  return `${sys.substring(0, head)}\n\n[...Contexto histórico secundario resumido para optimizar ventana...]\n\n${sys.substring(sys.length - tail)}`;
+  return `${sys.substring(0, head)}\n\n[...Contexto histórico intermedio resumido para optimizar ventana...]\n\n${sys.substring(sys.length - tail)}`;
 }
 
 /**
@@ -203,7 +205,7 @@ export async function generateText(
   const { system, messages, temperature = 0.3, maxTokens = 2048, timeoutMs = 25_000, tools } = opts;
 
   const deadline = Date.now() + timeoutMs;
-  const safeMaxTokens = Math.min(maxTokens, 2048);
+  const safeMaxTokens = Math.min(maxTokens, 4096);
 
   for (let idx = 0; idx < chain.length; idx++) {
     const m = chain[idx];
@@ -245,7 +247,12 @@ export async function generateText(
           continue;
         }
         const data = await res.json();
-        text = data.candidates?.[0]?.content?.parts?.map((p: any) => p.text).filter(Boolean).join("") ?? "";
+        text =
+          data.candidates?.[0]?.content?.parts
+            ?.filter((p: any) => !p?.thought)
+            .map((p: any) => p.text)
+            .filter(Boolean)
+            .join("") ?? "";
       } else {
         // Proveedores secundarios (Groq, Cloudflare, OpenRouter): mantener margen amplio para no recortar precedentes ni manuales
         const effectiveSystem = compressSystemPrompt(system, m.provider === "groq" ? 15_000 : 18_000);

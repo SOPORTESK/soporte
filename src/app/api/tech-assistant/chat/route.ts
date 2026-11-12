@@ -961,19 +961,50 @@ export async function POST(req: NextRequest) {
 
       // ── 3. Construir la transcripción cronológica completa de la conversación abierta ──
       const allEvents = [
-        ...histCliente.map((m: any, idx: number) => ({
-          ...m,
-          speaker: "Cliente",
-          time: m.time || "",
-          sortKey: typeof m.seq === "number" ? m.seq : m.time ? new Date(m.time).getTime() : idx,
-        })),
-        ...histTecnico.map((m: any, idx: number) => ({
-          ...m,
-          speaker: m.role === "ia" ? "Asistente Virtual" : m.author ? `Técnico (${m.author})` : "Técnico",
-          time: m.time || "",
-          sortKey: typeof m.seq === "number" ? m.seq : m.time ? new Date(m.time).getTime() : 1000 + idx,
-        })),
-      ].sort((a, b) => a.sortKey - b.sortKey);
+        ...histCliente.map((m: any, idx: number) => {
+          const ts = m.time ? new Date(m.time).getTime() : 0;
+          return {
+            ...m,
+            speaker: "Cliente",
+            time: m.time || "",
+            _ts: isNaN(ts) ? 0 : ts,
+            _seq: typeof m.seq === "number" ? m.seq : idx,
+          };
+        }),
+        ...histTecnico.map((m: any, idx: number) => {
+          const ts = m.time ? new Date(m.time).getTime() : 0;
+          return {
+            ...m,
+            speaker: m.role === "ia" ? "Asistente Virtual" : m.author ? `Técnico (${m.author})` : "Técnico",
+            time: m.time || "",
+            _ts: isNaN(ts) ? 0 : ts,
+            _seq: typeof m.seq === "number" ? m.seq : 10000 + idx,
+          };
+        }),
+      ].sort((a, b) => {
+        if (a._ts > 0 && b._ts > 0 && Math.abs(a._ts - b._ts) >= 120_000) {
+          return a._ts - b._ts;
+        }
+        if (typeof a.seq === "number" && typeof b.seq === "number") {
+          return a.seq - b.seq;
+        }
+        if (a._ts !== b._ts) return a._ts - b._ts;
+        return a._seq - b._seq;
+      });
+
+      const compactVisionText = (raw: unknown, maxLen: number): string => {
+        const cleaned = String(raw || "")
+          .replace(/^[-*_]{3,}$/gm, "")
+          .replace(/^#{1,6}\s*/gm, "")
+          .replace(/\*{1,3}/g, "")
+          .replace(/\n{2,}/g, "\n")
+          .trim();
+        if (cleaned.length <= maxLen) return cleaned;
+        return `${cleaned.slice(0, maxLen).trimEnd()}...`;
+      };
+
+      const totalMediaCount = allEvents.filter((m) => m.mediaUrl).length;
+      let seenMediaIdx = 0;
 
       const transcriptLines: string[] = [];
       const mediaTranscriptLines: string[] = [];
@@ -1002,6 +1033,8 @@ export async function POST(req: NextRequest) {
           if (stripped.length >= 6) substantiveParts.push(stripped);
         }
         if (m.mediaUrl) {
+          seenMediaIdx++;
+          const isRecentAttachment = seenMediaIdx > Math.max(0, totalMediaCount - 2);
           const kind = m.mediaType?.startsWith("audio/")
             ? "Nota de voz / Audio"
             : m.mediaType?.startsWith("image/")
@@ -1014,8 +1047,9 @@ export async function POST(req: NextRequest) {
             line += `\n   -> TRANSCRIPCIÓN LITERAL DEL AUDIO:\n"${m.transcription}"`;
             substantiveParts.push(`Audio del cliente: "${m.transcription}"`);
           } else if (m._visionAnalysis && !m._visionAnalysis.includes("[ANÁLISIS DE ADJUNTO NO DISPONIBLE")) {
-            line += `\n   -> ANÁLISIS TÉCNICO Y TRANSCRIPCIÓN DEL ADJUNTO:\n${m._visionAnalysis}`;
-            substantiveParts.push(String(m._visionAnalysis));
+            const condensed = compactVisionText(m._visionAnalysis, isRecentAttachment ? 1000 : 380);
+            line += `\n   -> ANÁLISIS TÉCNICO DEL ADJUNTO:\n${condensed}`;
+            substantiveParts.push(compactVisionText(m._visionAnalysis, 420));
           } else {
             line += `\n   -> [Archivo/foto de evidencia adjunta por el cliente: ${m.fileName || kind}]`;
             substantiveParts.push(`Evidencia adjunta por el cliente: ${m.fileName || kind}`);
@@ -1025,17 +1059,36 @@ export async function POST(req: NextRequest) {
         transcriptLines.push(line);
       }
 
-      const recentLines = transcriptLines.slice(-18);
-      const missingMediaLines = mediaTranscriptLines.filter((ml) => !recentLines.includes(ml)).slice(-4);
+      // Priorizar siempre los mensajes más recientes desde el final hacia atrás (máx ~9,500 chars)
+      // para que NINGÚN análisis extenso de fotos anteriores oculte los mensajes nuevos.
+      const MAX_CONV_CHARS = 9500;
+      const recentReversed: string[] = [];
+      let convChars = 0;
+      for (let i = transcriptLines.length - 1; i >= 0 && recentReversed.length < 30; i--) {
+        const candidate = transcriptLines[i];
+        if (recentReversed.length >= 6 && convChars + candidate.length + 2 > MAX_CONV_CHARS) {
+          break;
+        }
+        recentReversed.push(candidate);
+        convChars += candidate.length + 2;
+      }
+      const recentLines = recentReversed.reverse();
+      const missingMediaLines = mediaTranscriptLines
+        .filter((ml) => !recentLines.includes(ml))
+        .slice(-2)
+        .map((ml) => (ml.length > 500 ? `${ml.slice(0, 500)}...` : ml));
       openCaseConversation = [...missingMediaLines, ...recentLines].join("\n\n");
-      substantiveOpenCaseText = substantiveParts.slice(-20).join("\n");
+      substantiveOpenCaseText = substantiveParts.slice(-16).join("\n");
     }
 
     // ── 4. Si el técnico subió un archivo directamente en el widget del asistente ──
     let techMediaAnalysis = "";
     if (mediaUrl) {
       try {
-        const result = await analyzeMedia(mediaUrl, mediaType, message, fileName);
+        const result = await Promise.race([
+          analyzeMedia(mediaUrl, mediaType, message, fileName),
+          new Promise<null>((r) => setTimeout(() => r(null), 25000)),
+        ]);
         if (result) {
           techMediaAnalysis = result;
         }
@@ -1057,7 +1110,9 @@ export async function POST(req: NextRequest) {
     const now = new Date().toISOString();
     const userMsgContent = techMediaAnalysis
       ? `${displayMsg}\n\n[ANÁLISIS DEL ARCHIVO ADJUNTO DEL TÉCNICO (${fileName || mediaType || "archivo"})]:\n${techMediaAnalysis}`.trim()
-      : displayMsg;
+      : mediaUrl
+        ? `${displayMsg}\n\n[AVISO DEL SISTEMA: El técnico SÍ adjuntó "${fileName || mediaType || "imagen"}", pero el motor de visión falló temporalmente al leerla. NO afirmes que no hay captura ni inventes datos; informa honestamente el fallo de lectura visual y pide reintentar o describir brevemente la captura.]`.trim()
+        : displayMsg;
 
     const userMsg: TechMessage = {
       role: "user",
@@ -1351,7 +1406,8 @@ export async function POST(req: NextRequest) {
     let retrievedWebResults: { title: string; url: string; snippet: string; kind: "oficial" | "foro" | "manual" }[] = [];
     const isCaseInternalQuery =
       isDraftAction ||
-      /\b(imagen|imagenes|imágenes|foto|fotos|captura|video|audio|nota de voz|vio|vió|viste|mand[oó]|envi[oó]|adjunt[oó]|dijo el cliente|que dice|qué dice|resumen del caso)\b/i.test(
+      Boolean(mediaUrl) ||
+      /\b(imagen|imagenes|imágenes|foto|fotos|captura|video|audio|nota de voz|vio|vió|viste|mand[oó]|envi[oó]|adjunt[oó]|dijo el cliente|que dice|qué dice|resumen del caso|ley[oó]|todo el chat|no (?:lo )?ve|no ves)\b/i.test(
         userQueryOnly
       );
 
@@ -1510,7 +1566,7 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
           content: m.content,
         })),
         temperature: 0.2,
-        maxTokens: 2048,
+        maxTokens: 3072,
         timeoutMs: 25_000,
       });
 
