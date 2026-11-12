@@ -55,19 +55,58 @@ let casesChannel: any = null;
 let casesClientRef: SupabaseClient | null = null;
 let casesLastStatus = "";
 let casesTeardownTimer: ReturnType<typeof setTimeout> | null = null;
+let casesReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
 const agentListeners = new Set<AgentEventListener>();
 let agentsChannel: any = null;
 let agentsClientRef: SupabaseClient | null = null;
+let agentsLastStatus = "";
 let agentsTeardownTimer: ReturnType<typeof setTimeout> | null = null;
+let agentsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
-function ensureCasesChannel(supabase: SupabaseClient) {
+let windowRecoveryAttached = false;
+const DEAD_STATUSES = new Set(["CLOSED", "CHANNEL_ERROR", "TIMED_OUT"]);
+
+function attachWindowRecovery() {
+  if (windowRecoveryAttached || typeof window === "undefined") return;
+  windowRecoveryAttached = true;
+
+  const recoverIfNeeded = () => {
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+    if (caseListeners.size > 0 && casesClientRef && casesLastStatus !== "SUBSCRIBED") {
+      ensureCasesChannel(casesClientRef, true);
+    }
+    if (agentListeners.size > 0 && agentsClientRef && agentsLastStatus !== "SUBSCRIBED") {
+      ensureAgentsChannel(agentsClientRef, true);
+    }
+  };
+
+  window.addEventListener("online", recoverIfNeeded);
+  document.addEventListener("visibilitychange", recoverIfNeeded);
+}
+
+function scheduleCasesReconnect() {
+  if (casesReconnectTimer || caseListeners.size === 0 || !casesClientRef) return;
+  casesReconnectTimer = setTimeout(() => {
+    casesReconnectTimer = null;
+    if (caseListeners.size > 0 && casesClientRef && casesLastStatus !== "SUBSCRIBED") {
+      ensureCasesChannel(casesClientRef, true);
+    }
+  }, 2500);
+}
+
+function ensureCasesChannel(supabase: SupabaseClient, forceReconnect = false) {
+  attachWindowRecovery();
   if (casesTeardownTimer) {
     clearTimeout(casesTeardownTimer);
     casesTeardownTimer = null;
   }
+  if (casesReconnectTimer) {
+    clearTimeout(casesReconnectTimer);
+    casesReconnectTimer = null;
+  }
 
-  if (casesChannel && casesClientRef === supabase) {
+  if (!forceReconnect && casesChannel && casesClientRef === supabase && !DEAD_STATUSES.has(casesLastStatus)) {
     return;
   }
 
@@ -80,7 +119,7 @@ function ensureCasesChannel(supabase: SupabaseClient) {
   }
 
   casesClientRef = supabase;
-  casesChannel = supabase
+  const createdChannel = supabase
     .channel(CASES_TOPIC, { config: { broadcast: { self: true } } })
     .on("broadcast", { event: CASES_EVENT }, (msg: any) => {
       const payload = (msg?.payload ?? msg) as CaseRealtimePayload;
@@ -94,6 +133,7 @@ function ensureCasesChannel(supabase: SupabaseClient) {
       });
     })
     .subscribe((status: string) => {
+      if (casesChannel !== createdChannel) return;
       casesLastStatus = status;
       caseStatusListeners.forEach((cb) => {
         try {
@@ -102,7 +142,11 @@ function ensureCasesChannel(supabase: SupabaseClient) {
           console.error("[cases-realtime-bus] status listener error:", err);
         }
       });
+      if (DEAD_STATUSES.has(status) && caseListeners.size > 0) {
+        scheduleCasesReconnect();
+      }
     });
+  casesChannel = createdChannel;
 }
 
 function scheduleCasesTeardown() {
@@ -153,13 +197,28 @@ export function subscribeCasesRealtime(
   };
 }
 
-function ensureAgentsChannel(supabase: SupabaseClient) {
+function scheduleAgentsReconnect() {
+  if (agentsReconnectTimer || agentListeners.size === 0 || !agentsClientRef) return;
+  agentsReconnectTimer = setTimeout(() => {
+    agentsReconnectTimer = null;
+    if (agentListeners.size > 0 && agentsClientRef && agentsLastStatus !== "SUBSCRIBED") {
+      ensureAgentsChannel(agentsClientRef, true);
+    }
+  }, 2500);
+}
+
+function ensureAgentsChannel(supabase: SupabaseClient, forceReconnect = false) {
+  attachWindowRecovery();
   if (agentsTeardownTimer) {
     clearTimeout(agentsTeardownTimer);
     agentsTeardownTimer = null;
   }
+  if (agentsReconnectTimer) {
+    clearTimeout(agentsReconnectTimer);
+    agentsReconnectTimer = null;
+  }
 
-  if (agentsChannel && agentsClientRef === supabase) {
+  if (!forceReconnect && agentsChannel && agentsClientRef === supabase && !DEAD_STATUSES.has(agentsLastStatus)) {
     return;
   }
 
@@ -168,10 +227,11 @@ function ensureAgentsChannel(supabase: SupabaseClient) {
       agentsClientRef.removeChannel(agentsChannel);
     } catch {}
     agentsChannel = null;
+    agentsLastStatus = "";
   }
 
   agentsClientRef = supabase;
-  agentsChannel = supabase
+  const createdChannel = supabase
     .channel(AGENTS_TOPIC, { config: { broadcast: { self: true } } })
     .on("broadcast", { event: AGENTS_EVENT }, (msg: any) => {
       const payload = (msg?.payload ?? msg) as AgentRealtimePayload;
@@ -184,7 +244,14 @@ function ensureAgentsChannel(supabase: SupabaseClient) {
         }
       });
     })
-    .subscribe();
+    .subscribe((status: string) => {
+      if (agentsChannel !== createdChannel) return;
+      agentsLastStatus = status;
+      if (DEAD_STATUSES.has(status) && agentListeners.size > 0) {
+        scheduleAgentsReconnect();
+      }
+    });
+  agentsChannel = createdChannel;
 }
 
 function scheduleAgentsTeardown() {
@@ -198,6 +265,7 @@ function scheduleAgentsTeardown() {
       } catch {}
       agentsChannel = null;
       agentsClientRef = null;
+      agentsLastStatus = "";
     }
   }, 400);
 }
