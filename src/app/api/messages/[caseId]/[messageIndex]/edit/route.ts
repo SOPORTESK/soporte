@@ -3,6 +3,14 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { getEvolutionConfig } from "@/lib/evolution-config";
 import { pickPhone } from "@/lib/evolution-phone";
 import { broadcastCaseEvent } from "@/lib/realtime-broadcast";
+import { updateWaOutboxText } from "@/lib/wa-outbox";
+
+function isPendingMessageId(id: unknown): boolean {
+  if (!id || typeof id !== "string") return true;
+  const s = id.trim();
+  if (!s) return true;
+  return s.startsWith("queued-") || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+}
 
 function resolveMessageId(messageObj: any, caseData: any, historyType: string): string | null {
   if (messageObj?.messageId) return messageObj.messageId;
@@ -66,43 +74,148 @@ export async function POST(
 
   const isWhatsApp = String(caseData.canal || "").toLowerCase() === "whatsapp";
   const to = pickPhone(caseData);
-  const messageId = resolveMessageId(entry, caseData, historyType);
-  const evoCfg = await getEvolutionConfig();
+  let messageId = resolveMessageId(entry, caseData, historyType);
+
+  // Si el mensaje aún no tiene ID confirmado de WhatsApp (recién enviado o encolado),
+  // esperar brevemente y releer por si el eco/outbox ya lo escribió.
+  if (isWhatsApp && isPendingMessageId(messageId)) {
+    await new Promise((r) => setTimeout(r, 1200));
+    const { data: freshCase } = await supabase
+      .from("sek_cases")
+      .select("histcliente, histtecnico")
+      .eq("id", caseId)
+      .maybeSingle();
+    if (freshCase) {
+      const freshList = (freshCase as any)[historyType] || [];
+      const freshMsg = freshList[idx];
+      const freshObj = typeof freshMsg === "object" && freshMsg !== null ? freshMsg : entry;
+      const resolved = resolveMessageId(freshObj, { ...caseData, ...freshCase }, historyType);
+      if (resolved && !isPendingMessageId(resolved)) {
+        messageId = resolved;
+      }
+    }
+  }
+
+  let editSucceeded = !isWhatsApp;
+  let whatsappError: string | null = null;
+
+  // Si sigue pendiente en wa_outbox, actualizar el texto en la cola antes de que salga
+  if (isWhatsApp && messageId && String(messageId).startsWith("queued-")) {
+    const updatedInQueue = await updateWaOutboxText(supabase, String(messageId), content);
+    if (updatedInQueue) {
+      editSucceeded = true;
+      console.log("[EDIT MSG API] Texto actualizado en wa_outbox antes del envío:", messageId);
+    } else {
+      const { data: freshCase2 } = await supabase
+        .from("sek_cases")
+        .select("histcliente, histtecnico")
+        .eq("id", caseId)
+        .maybeSingle();
+      if (freshCase2) {
+        const freshList2 = (freshCase2 as any)[historyType] || [];
+        const freshMsg2 = freshList2[idx];
+        const freshObj2 = typeof freshMsg2 === "object" && freshMsg2 !== null ? freshMsg2 : entry;
+        const resolved2 = resolveMessageId(freshObj2, { ...caseData, ...freshCase2 }, historyType);
+        if (resolved2 && !isPendingMessageId(resolved2)) {
+          messageId = resolved2;
+        }
+      }
+    }
+  }
+
+  if (isWhatsApp && !editSucceeded && isPendingMessageId(messageId)) {
+    console.warn("[EDIT MSG API] Sin messageId real de WhatsApp, abortando para no editar solo local:", {
+      messageId,
+      caseId,
+      phone: to,
+    });
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "Este mensaje aún no tiene ID confirmado en WhatsApp. Espera unos segundos e intenta de nuevo.",
+      },
+      { status: 409 }
+    );
+  }
 
   // Editar el mensaje in-place en WhatsApp usando /chat/updateMessage/
-  // Antes se revocaba el original (deleteMessageForEveryone) y se enviaba uno
-  // nuevo, lo que hacía que el cliente viera dos mensajes: "Este mensaje fue
-  // eliminado" + el texto editado. Con updateMessage, WhatsApp edita el
-  // mensaje original y muestra "editado", igual que en la app nativa.
-  let editSucceeded = false;
-  if (isWhatsApp && messageId && to && evoCfg?.url && evoCfg?.apiKey && evoCfg?.instance) {
+  if (isWhatsApp && !editSucceeded && messageId && to) {
+    let evoCfg = await getEvolutionConfig(false);
+    if (!evoCfg?.url || !evoCfg?.apiKey || !evoCfg?.instance) {
+      evoCfg = await getEvolutionConfig(true);
+    }
     const targetJid = to.includes("@") ? to : `${to.replace(/[^0-9]/g, "")}@s.whatsapp.net`;
+    const cleanPhone = targetJid.split("@")[0].replace(/[^0-9]/g, "");
     const fromMe = (entry as any).fromMe ?? (historyType === "histtecnico");
-    try {
-      console.log("[EDIT MSG API] Editando mensaje in-place en WhatsApp", { messageId, targetJid });
-      const cleanPhone = targetJid.split("@")[0].replace(/[^0-9]/g, "");
-      const editRes = await fetch(`${evoCfg.url.replace(/\/$/, "")}/chat/updateMessage/${encodeURIComponent(evoCfg.instance)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", apikey: evoCfg.apiKey },
-        body: JSON.stringify({
-          number: cleanPhone,
-          text: content,
-          key: {
-            remoteJid: targetJid,
-            fromMe: fromMe,
-            id: messageId,
-          },
-        })
-      });
-      const editData = await editRes.json().catch(() => ({}));
-      if (!editRes.ok) {
-        console.warn("[EDIT MSG API] WhatsApp updateMessage no completó in-place (ej. ventana de 15m expirada o no soportada):", editRes.status, editData);
-      } else {
-        editSucceeded = true;
-        console.log("[EDIT MSG API] Mensaje editado in-place OK en WhatsApp");
+    const buildCandidates = (cfg: typeof evoCfg) =>
+      Array.from(
+        new Set(
+          [
+            !process.env.VERCEL ? "http://127.0.0.1:28080" : "",
+            !process.env.VERCEL ? "http://localhost:28080" : "",
+            ...(cfg?.candidates || []),
+            cfg?.url || "",
+          ]
+            .map((u) => String(u || "").replace(/\/$/, ""))
+            .filter(Boolean)
+        )
+      );
+
+    const candidates = buildCandidates(evoCfg);
+    let refreshedCfg = false;
+
+    if (evoCfg?.apiKey && evoCfg?.instance && candidates.length > 0) {
+      for (let i = 0; i < candidates.length; i++) {
+        const baseUrl = candidates[i];
+        try {
+          console.log("[EDIT MSG API] Editando mensaje in-place en WhatsApp:", baseUrl, { messageId, targetJid });
+          const editRes = await fetch(`${baseUrl}/chat/updateMessage/${encodeURIComponent(evoCfg.instance)}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", apikey: evoCfg.apiKey },
+            body: JSON.stringify({
+              number: cleanPhone,
+              text: content,
+              key: {
+                remoteJid: targetJid,
+                fromMe: fromMe,
+                id: messageId,
+              },
+            }),
+            signal: AbortSignal.timeout(8000),
+          });
+          const editData = await editRes.json().catch(() => ({}));
+          if (editRes.ok) {
+            editSucceeded = true;
+            console.log("[EDIT MSG API] Mensaje editado in-place OK en WhatsApp vía", baseUrl);
+            break;
+          }
+          console.warn("[EDIT MSG API] WhatsApp updateMessage rechazó la edición:", editRes.status, editData);
+          whatsappError = `WhatsApp rechazó la edición (${editRes.status}: ${editData?.response?.message?.[0] || editData?.message || editData?.error || "no compatible o >15 min"})`;
+        } catch (evoErr: any) {
+          console.warn("[EDIT MSG API] Error conectando con Evolution en", baseUrl, evoErr?.message);
+          whatsappError = "Error conectando con Evolution API";
+          if (!refreshedCfg) {
+            refreshedCfg = true;
+            const fresh = await getEvolutionConfig(true);
+            for (const u of buildCandidates(fresh)) {
+              if (!candidates.includes(u)) candidates.push(u);
+            }
+            evoCfg = fresh;
+          }
+        }
       }
-    } catch (evoErr) {
-      console.error("[EDIT MSG API] Error conectando con Evolution para editar:", evoErr);
+    } else {
+      whatsappError = "Evolution API no configurada";
+    }
+
+    if (!editSucceeded) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: whatsappError || "No se pudo editar el mensaje en WhatsApp.",
+        },
+        { status: 502 }
+      );
     }
   }
 

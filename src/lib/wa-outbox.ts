@@ -137,3 +137,48 @@ export async function removeFromWaOutbox(
     return false;
   }
 }
+
+export async function updateWaOutboxText(
+  supabase: any,
+  id: string,
+  newText: string
+): Promise<boolean> {
+  if (!id) return false;
+  try {
+    const { data: row } = await supabase
+      .from("sek_app_settings")
+      .select("value")
+      .eq("key", WA_OUTBOX_KEY)
+      .maybeSingle();
+
+    if (!row?.value) return false;
+    const parsed = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
+    if (!Array.isArray(parsed)) return false;
+
+    let updated = false;
+    const next = parsed.map((q: any) => {
+      if (q && q.id === id && q.status === "pending") {
+        updated = true;
+        return { ...q, text: newText, matchContent: newText };
+      }
+      return q;
+    });
+    if (!updated) return false;
+
+    const { error } = await supabase
+      .from("sek_app_settings")
+      .upsert(
+        {
+          key: WA_OUTBOX_KEY,
+          value: JSON.stringify(next),
+          iv: "none",
+          tag: "none",
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "key" }
+      );
+    return !error;
+  } catch {
+    return false;
+  }
+}
