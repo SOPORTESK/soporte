@@ -5,7 +5,7 @@ import { getEvolutionConfig } from "@/lib/evolution-config";
 import { performAutoExtract } from "@/lib/ai/auto-extract";
 import { analyzeMedia, transcribeAudio } from "@/lib/ai/vision";
 import { enqueueWaOutbox, generateQueuedMessageId } from "@/lib/wa-outbox";
-import { broadcastCaseEvent } from "@/lib/realtime-broadcast";
+import { broadcastCaseEvent, broadcastTypingPresence } from "@/lib/realtime-broadcast";
 import { isInvalidVendorStr } from "@/lib/utils";
 
 async function preAnalyzeCaseAttachment(
@@ -1324,7 +1324,6 @@ const IGNORED_WEBHOOK_EVENTS = new Set([
   "CHATS_UPSERT",
   "CHATS_UPDATE",
   "CHATS_DELETE",
-  "PRESENCE_UPDATE",
   "CONTACTS_SET",
   "CONTACTS_UPSERT",
   "CONTACTS_UPDATE",
@@ -1351,6 +1350,39 @@ export async function POST(req: NextRequest) {
   // Corte rápido ANTES de tocar Supabase o Evolution API para eventos ruidosos
   if (event && IGNORED_WEBHOOK_EVENTS.has(event)) {
     return NextResponse.json({ ok: true, skipped: event });
+  }
+
+  // 0. Presencia efímera de WhatsApp (escribiendo / grabando audio) — 0 lecturas/escrituras a BD
+  if (event === "PRESENCE_UPDATE") {
+    const rawJid = String(
+      payload?.data?.id ||
+      payload?.data?.remoteJid ||
+      payload?.data?.key?.remoteJid ||
+      payload?.sender ||
+      ""
+    ).trim();
+    if (!rawJid || rawJid.endsWith("@g.us")) {
+      return NextResponse.json({ ok: true, skipped: "group_or_empty_presence" });
+    }
+    const cleanPhone = rawJid.split("@")[0].replace(/[^0-9]/g, "");
+    const presencesObj = payload?.data?.presences;
+    let presenceState = String(payload?.data?.lastKnownPresence || "").toLowerCase();
+    if (!presenceState && presencesObj && typeof presencesObj === "object") {
+      const firstEntry = Object.values(presencesObj)[0] as any;
+      presenceState = String(firstEntry?.lastKnownPresence || "").toLowerCase();
+    }
+    if (cleanPhone && ["composing", "recording", "available", "paused", "unavailable"].includes(presenceState)) {
+      const g = globalThis as any;
+      if (!g.__waPresenceThrottle) g.__waPresenceThrottle = new Map<string, { state: string; at: number }>();
+      const throttleMap: Map<string, { state: string; at: number }> = g.__waPresenceThrottle;
+      const prev = throttleMap.get(cleanPhone);
+      const now = Date.now();
+      if (!prev || prev.state !== presenceState || now - prev.at >= 2500) {
+        throttleMap.set(cleanPhone, { state: presenceState, at: now });
+        await broadcastTypingPresence(cleanPhone, presenceState);
+      }
+    }
+    return NextResponse.json({ ok: true, presence: presenceState || "ignored" });
   }
 
   // messageId único asignado por WhatsApp

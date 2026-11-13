@@ -12,7 +12,8 @@ export type CaseBroadcastAction =
   | "refresh_history"
   | "insert"
   | "delete"
-  | "delete_bulk";
+  | "delete_bulk"
+  | "typing";
 
 export interface CaseBroadcastOldHints {
   estado?: string;
@@ -35,6 +36,7 @@ export interface CaseBroadcastPayload {
   new?: Record<string, any>;
   old?: CaseBroadcastOldHints;
   delta?: CaseBroadcastDelta;
+  typing?: { phone: string; state: string };
   ts?: number;
 }
 
@@ -103,6 +105,7 @@ function sanitizeCasePayload(p: CaseBroadcastPayload): CaseBroadcastPayload {
     ...(sanitizedNew ? { new: sanitizedNew } : {}),
     ...(p.old ? { old: p.old } : {}),
     ...(p.delta ? { delta: p.delta } : {}),
+    ...(p.typing ? { typing: p.typing } : {}),
     ts: p.ts || Date.now(),
   };
 }
@@ -188,4 +191,21 @@ export async function broadcastAgentEvents(payloads: AgentBroadcastPayload[]): P
     },
   }));
   return postRealtimeBroadcast(messages);
+}
+
+/** Emite presencia efímera (escribiendo/grabando) sin invalidar cachés ni tocar BD. */
+export async function broadcastTypingPresence(phone: string, state: string): Promise<boolean> {
+  if (!phone) return false;
+  return postRealtimeBroadcast([
+    {
+      topic: CASES_BROADCAST_TOPIC,
+      event: CASES_BROADCAST_EVENT,
+      payload: {
+        eventType: "UPDATE",
+        action: "typing",
+        typing: { phone, state },
+        ts: Date.now(),
+      },
+    },
+  ]);
 }

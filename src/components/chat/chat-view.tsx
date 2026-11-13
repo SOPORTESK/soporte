@@ -586,6 +586,8 @@ export function ChatView({
   const [showActions, setShowActions] = React.useState(false);
   const [showHistory, setShowHistory] = React.useState(false);
   const [clienteTyping, setClienteTyping] = React.useState(false);
+  const [clienteTypingMode, setClienteTypingMode] = React.useState<"composing" | "recording">("composing");
+  const waTypingTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [agentTyping, setAgentTyping] = React.useState(false);
   const [showRatingModal, setShowRatingModal] = React.useState(false);
   const [clientRating, setClientRating] = React.useState(5);
@@ -1207,6 +1209,37 @@ export function ChatView({
       supabase,
       async (payload) => {
         if (payload.eventType !== "UPDATE" && payload.eventType !== "INSERT") return;
+        if ((payload as any).action === "typing" && (payload as any).typing?.phone) {
+          const incomingPhone = String((payload as any).typing.phone).replace(/[^0-9]/g, "");
+          const curCase = sekCaseRef.current as any;
+          const curCli = (curCase?.cliente && typeof curCase.cliente === "object") ? curCase.cliente : {};
+          const ownRaw = String(curCase?.customer_phone || curCli?.telefono || curCli?.phone || "");
+          const ownPhone = ownRaw.split("@")[0].replace(/[^0-9]/g, "");
+          const matchesPhone = Boolean(
+            incomingPhone &&
+            ownPhone &&
+            (incomingPhone === ownPhone ||
+              (incomingPhone.length >= 8 && ownPhone.endsWith(incomingPhone.slice(-8))))
+          );
+          if (matchesPhone) {
+            const st = String((payload as any).typing.state || "").toLowerCase();
+            if (waTypingTimerRef.current) {
+              clearTimeout(waTypingTimerRef.current);
+              waTypingTimerRef.current = null;
+            }
+            if (st === "composing" || st === "recording") {
+              setClienteTypingMode(st === "recording" ? "recording" : "composing");
+              setClienteTyping(true);
+              waTypingTimerRef.current = setTimeout(() => {
+                setClienteTyping(false);
+                waTypingTimerRef.current = null;
+              }, 6000);
+            } else {
+              setClienteTyping(false);
+            }
+          }
+          return;
+        }
         const groupIds = new Set<string>([
           String(targetId),
           ...((initialCaseRef.current._group?.caseIds || []).map(String)),
@@ -1260,6 +1293,14 @@ export function ChatView({
             caseHistoryCache.set(cacheKey, { sekCase: next, timestamp: Date.now() });
             return next;
           });
+
+          if (col === "histcliente") {
+            if (waTypingTimerRef.current) {
+              clearTimeout(waTypingTimerRef.current);
+              waTypingTimerRef.current = null;
+            }
+            setClienteTyping(false);
+          }
 
           if (col === "histcliente" && !entry.read_at && typeof document !== "undefined" && document.visibilityState === "visible") {
             supabase.rpc("mark_histcliente_read", { p_case_id: String(rowId), p_reader_email: agentEmail || undefined }).then(() => {}, () => {});
@@ -3885,7 +3926,9 @@ export function ChatView({
                 <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce" style={{animationDelay:"0ms"}} />
                 <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce" style={{animationDelay:"150ms"}} />
                 <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce" style={{animationDelay:"300ms"}} />
-                <span className="text-[10px] text-muted-foreground ml-1">Cliente escribiendo…</span>
+                <span className="text-[10px] text-muted-foreground ml-1">
+                  {clienteTypingMode === "recording" ? "Cliente grabando audio…" : "Cliente escribiendo…"}
+                </span>
               </div>
             </div>
           </div>

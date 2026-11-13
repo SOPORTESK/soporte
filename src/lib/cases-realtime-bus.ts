@@ -8,7 +8,8 @@ export type CaseBroadcastAction =
   | "refresh_history"
   | "insert"
   | "delete"
-  | "delete_bulk";
+  | "delete_bulk"
+  | "typing";
 
 export interface CaseRealtimePayload {
   eventType: "INSERT" | "UPDATE" | "DELETE" | string;
