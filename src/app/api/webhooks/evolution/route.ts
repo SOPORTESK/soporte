@@ -7,6 +7,7 @@ import { analyzeMedia, transcribeAudio } from "@/lib/ai/vision";
 import { enqueueWaOutbox, generateQueuedMessageId } from "@/lib/wa-outbox";
 import { broadcastCaseEvent, broadcastTypingPresence } from "@/lib/realtime-broadcast";
 import { isInvalidVendorStr } from "@/lib/utils";
+import { isContactBlocked } from "@/lib/blocked-contacts";
 
 async function preAnalyzeCaseAttachment(
   supabase: any,
@@ -1670,6 +1671,14 @@ export async function POST(req: NextRequest) {
   const pushName = (pushNameRaw === "Você" || pushNameRaw === "Tú") ? null : pushNameRaw;
 
   if (!text && !mediaType) return NextResponse.json({ ok: true });
+
+  if (!isOutgoing && (phone || senderPn)) {
+    const blockedEntry = await isContactBlocked(supabase, { phone: phone || senderPn });
+    if (blockedEntry) {
+      console.log(`[evo-webhook] Mensaje ignorado de contacto bloqueado: ${phone || senderPn}`);
+      return NextResponse.json({ ok: true, skipped: "blocked_contact" });
+    }
+  }
 
   let mediaUrl = "";
   let finalMediaType = mediaType;

@@ -9,7 +9,7 @@ import {
   Download, X, ChevronDown, ChevronUp, History, HandMetal, Star, Tag, AlertTriangle,
   Mic, Play, Pause, Square, Smile, Trash2, UserCheck,
   Info, Copy, Forward, Pin, Edit, Clock, RotateCcw, Search, Globe, Loader2,
-  FileArchive, FileCode, FileSpreadsheet, Eye, ShieldCheck, Cpu, Plus, Ticket, Briefcase
+  FileArchive, FileCode, FileSpreadsheet, Eye, ShieldCheck, Cpu, Plus, Ticket, Briefcase, Ban
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { subscribeCasesRealtime, emitCaseBroadcastClient } from "@/lib/cases-realtime-bus";
@@ -595,6 +595,67 @@ export function ChatView({
   const [submittingRating, setSubmittingRating] = React.useState(false);
   const [accepting, setAccepting] = React.useState(false);
   const [showClassify, setShowClassify] = React.useState(false);
+  const [contactBlocked, setContactBlocked] = React.useState(false);
+  const [showBlockModal, setShowBlockModal] = React.useState(false);
+  const [blockReason, setBlockReason] = React.useState("");
+  const [blockingContact, setBlockingContact] = React.useState(false);
+  const blockCi = clienteInfo(sekCase.cliente);
+  const blockTargetPhone = String((sekCase as any).customer_phone || blockCi.telefono || "").split("@")[0].replace(/[^0-9]/g, "");
+  const blockTargetCedula = String(blockCi.cedula || "").trim();
+  const blockTargetName = blockCi.displayName || blockCi.nombre || blockCi.whatsapp_name || blockCi.telefono || asText(sekCase.title) || "Cliente";
+
+  React.useEffect(() => {
+    let active = true;
+    if (!blockTargetPhone && !blockTargetCedula) {
+      setContactBlocked(false);
+      return;
+    }
+    const qs = new URLSearchParams();
+    if (blockTargetPhone) qs.set("phone", blockTargetPhone);
+    if (blockTargetCedula) qs.set("cedula", blockTargetCedula);
+    fetch(`/api/contacts/block?${qs.toString()}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (active && d && typeof d.blocked === "boolean") {
+          setContactBlocked(d.blocked);
+        }
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [blockTargetPhone, blockTargetCedula]);
+
+  async function handleToggleBlockContact(action: "block" | "unblock", reason?: string) {
+    if (!blockTargetPhone && !blockTargetCedula) {
+      toast.error("Este contacto no tiene teléfono ni cédula para bloquear");
+      return;
+    }
+    setBlockingContact(true);
+    try {
+      const res = await fetch("/api/contacts/block", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action,
+          phone: blockTargetPhone || undefined,
+          cedula: blockTargetCedula || undefined,
+          name: blockTargetName,
+          reason: reason?.trim() || undefined,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data?.error || "No se pudo actualizar el bloqueo");
+        return;
+      }
+      setContactBlocked(Boolean(data.blocked));
+      setShowBlockModal(false);
+      toast.success(data.blocked ? "Contacto bloqueado de inmediato" : "Contacto desbloqueado");
+    } catch {
+      toast.error("Error de red al actualizar el bloqueo");
+    } finally {
+      setBlockingContact(false);
+    }
+  }
   const [autoClosePaused, setAutoClosePaused] = React.useState(!!(initialCase as any).auto_close_paused);
   const [editingPhone, setEditingPhone] = React.useState(false);
   const [realPhoneInput, setRealPhoneInput] = React.useState("");
@@ -3215,6 +3276,11 @@ export function ChatView({
               {sekCase.prioridad && sekCase.prioridad !== "normal" && (
                 <Badge variant={sekCase.prioridad === "urgente" ? "danger" : sekCase.prioridad === "alta" ? "warning" : "muted"} className="capitalize text-[10px]">{sekCase.prioridad}</Badge>
               )}
+              {contactBlocked && (
+                <Badge variant="danger" className="text-[10px] gap-1">
+                  <Ban className="h-2.5 w-2.5" /> Bloqueado
+                </Badge>
+              )}
 
               {/* Equipo del caso (Marca / Modelo) */}
               {(sekCase.marca || sekCase.modelo || (sekCase.cliente as any)?.marca || (sekCase.cliente as any)?.modelo) ? (
@@ -3430,6 +3496,65 @@ export function ChatView({
                 >
                   <Tag className="h-4 w-4 text-violet-500" /> Clasificar caso
                 </button>
+                <div className="border-t border-border/50 my-1" />
+                <button
+                  disabled={blockingContact}
+                  onClick={() => {
+                    setShowActions(false);
+                    if (contactBlocked) {
+                      handleToggleBlockContact("unblock");
+                    } else {
+                      setBlockReason("");
+                      setShowBlockModal(true);
+                    }
+                  }}
+                  className={`w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-muted transition-colors font-medium ${contactBlocked ? "text-emerald-500" : "text-rose-500"}`}
+                >
+                  {contactBlocked
+                    ? <><ShieldCheck className="h-4 w-4 text-emerald-500" /> Desbloquear contacto</>
+                    : <><Ban className="h-4 w-4 text-rose-500" /> Bloquear contacto</>}
+                </button>
+              </div>
+            )}
+
+            {/* Modal de confirmación para bloquear contacto */}
+            {showBlockModal && (
+              <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm">
+                <div className="bg-card border border-border rounded-t-3xl sm:rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden pb-safe">
+                  <div className="flex items-center justify-between p-5 border-b border-border">
+                    <div className="flex items-center gap-2">
+                      <Ban className="h-4 w-4 text-rose-500" />
+                      <p className="font-bold text-sm">Bloquear contacto</p>
+                    </div>
+                    <button onClick={() => setShowBlockModal(false)} className="p-1.5 rounded-lg hover:bg-muted">
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <div className="p-5 space-y-3">
+                    <p className="text-xs text-muted-foreground">
+                      Se bloqueará de inmediato a <span className="font-semibold text-foreground">{display}</span> ({(sekCase as any).customer_phone || ci.telefono || ci.cedula || "sin identificador"}). Sus mensajes entrantes serán ignorados por el sistema y la IA.
+                    </p>
+                    <input
+                      type="text"
+                      value={blockReason}
+                      onChange={(e) => setBlockReason(e.target.value)}
+                      placeholder="Motivo del bloqueo (opcional)"
+                      className="w-full px-3 py-2 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-rose-500/40"
+                    />
+                    <div className="flex gap-2 pt-1">
+                      <Button variant="outline" className="flex-1" onClick={() => setShowBlockModal(false)} disabled={blockingContact}>
+                        Cancelar
+                      </Button>
+                      <Button
+                        className="flex-1 bg-rose-600 hover:bg-rose-700 text-white"
+                        disabled={blockingContact}
+                        onClick={() => handleToggleBlockContact("block", blockReason)}
+                      >
+                        {blockingContact ? "Bloqueando..." : "Confirmar bloqueo"}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 
