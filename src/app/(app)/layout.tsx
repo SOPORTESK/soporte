@@ -76,7 +76,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         return { data: count as any, error };
       },
       0,
-      5000 // 5s TTL
+      30000 // 30s TTL (invalidado al instante por broadcastCaseEvents)
     ),
     queryWithFallback(
       "smart_count",
@@ -89,7 +89,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         return { data: count as any, error };
       },
       0,
-      5000 // 5s TTL
+      30000 // 30s TTL (invalidado al instante por broadcastCaseEvents)
     ),
     queryWithFallback(
       "require_electron_desktop_app",

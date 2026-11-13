@@ -1084,8 +1084,11 @@ export function InboxClient({
       }
     };
 
-    /* Polling activo de respaldo cada 60s (solo pestaña visible) */
-    const poll = setInterval(() => doRefetch(false), 60000);
+    /* Polling activo de respaldo cada 120s (solo pestaña visible) — Realtime entrega cambios al instante */
+    const poll = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      doRefetch(false);
+    }, 120000);
 
     /* Refetch al volver a la ventana (pasa por el chequeo liviano de 60 bytes) */
     const handleFocus = () => doRefetch(false);

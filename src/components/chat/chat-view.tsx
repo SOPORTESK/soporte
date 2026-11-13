@@ -1432,11 +1432,11 @@ export function ChatView({
       .subscribe();
     presenceChannelRef.current = presenceCh;
 
-    /* Polling activo de respaldo cada 45s (solo pestaña visible) — Realtime entrega cambios al instante */
+    /* Polling activo de respaldo cada 120s (solo pestaña visible) — Realtime entrega cambios al instante */
     const poll = setInterval(() => {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       doPoll();
-    }, 45000);
+    }, 120000);
 
     /* Refetch al volver a la pestaña solo si pasaron más de 30s desde el último chequeo */
     const handleVisibility = () => {

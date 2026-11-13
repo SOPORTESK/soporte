@@ -1323,6 +1323,7 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
     fetchActivity();
     setLastUpdate(new Date());
     const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       fetchActivity();
       setLastUpdate(new Date());
     }, 45000);
