@@ -6,13 +6,14 @@ import { toast } from "sonner";
 
 interface ClienteBloqueado {
   id: string;
-  cedula: string;
+  cedula: string | null;
   nombre: string;
   correo: string | null;
   telefono: string | null;
   bloqueo_contador: number;
   fecha_bloqueo: string | null;
   motivo_bloqueo: string | null;
+  blocked_by?: string | null;
 }
 
 export default function ClientesBloqueadosPage() {
@@ -34,33 +35,67 @@ export default function ClientesBloqueadosPage() {
         .maybeSingle();
       setRol(agent?.rol ?? null);
 
-      const { data } = await supabase
-        .from("sek_clientes")
-        .select("id, cedula, nombre, correo, telefono, bloqueo_contador, fecha_bloqueo, motivo_bloqueo")
-        .eq("bloqueado", true)
-        .order("fecha_bloqueo", { ascending: false });
+      const [{ data: dbClientes }, manualRes] = await Promise.all([
+        supabase
+          .from("sek_clientes")
+          .select("id, cedula, nombre, correo, telefono, bloqueo_contador, fecha_bloqueo, motivo_bloqueo")
+          .eq("bloqueado", true)
+          .order("fecha_bloqueo", { ascending: false }),
+        fetch("/api/contacts/block?list=1").then(r => (r.ok ? r.json() : { contacts: [] })).catch(() => ({ contacts: [] })),
+      ]);
 
-      setClientes((data as ClienteBloqueado[]) ?? []);
+      const merged: ClienteBloqueado[] = ((dbClientes as any[]) || []).map((c) => ({
+        ...c,
+        cedula: c.cedula || null,
+      }));
+      const seenCedulas = new Set(merged.map((c) => String(c.cedula || "").trim().toLowerCase()).filter(Boolean));
+      const seenPhones = new Set(merged.map((c) => String(c.telefono || "").replace(/[^0-9]/g, "").slice(-8)).filter(Boolean));
+
+      const manualContacts: any[] = Array.isArray(manualRes?.contacts) ? manualRes.contacts : [];
+      for (const m of manualContacts) {
+        const mCed = String(m.cedula || "").trim().toLowerCase();
+        const mPhoneDigits = String(m.phone || "").replace(/[^0-9]/g, "");
+        const mPhoneTail = mPhoneDigits.slice(-8);
+        if ((mCed && seenCedulas.has(mCed)) || (mPhoneTail && seenPhones.has(mPhoneTail))) {
+          continue;
+        }
+        if (mCed) seenCedulas.add(mCed);
+        if (mPhoneTail) seenPhones.add(mPhoneTail);
+        merged.push({
+          id: `manual-${mPhoneDigits || mCed || m.blocked_at}`,
+          cedula: m.cedula || null,
+          nombre: m.name || m.phone || m.cedula || "Contacto bloqueado",
+          correo: null,
+          telefono: m.phone || null,
+          bloqueo_contador: 0,
+          fecha_bloqueo: m.blocked_at || null,
+          motivo_bloqueo: m.reason || "Bloqueo manual",
+          blocked_by: m.blocked_by || null,
+        });
+      }
+
+      merged.sort((a, b) => new Date(b.fecha_bloqueo || 0).getTime() - new Date(a.fecha_bloqueo || 0).getTime());
+      setClientes(merged);
       setLoading(false);
     })();
   }, [supabase]);
 
   const puedeDesbloquear = rol === "admin" || rol === "superadmin";
 
-  async function desbloquear(cedula: string) {
-    setDesbloqueando(cedula);
+  async function desbloquear(c: ClienteBloqueado) {
+    setDesbloqueando(c.id);
     try {
       const res = await fetch("/api/admin/clientes/desbloquear", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cedula }),
+        body: JSON.stringify({ cedula: c.cedula || undefined, phone: c.telefono || undefined }),
       });
       if (!res.ok) {
         const d = await res.json();
         throw new Error(d.error || "Error al desbloquear");
       }
-      setClientes(prev => prev.filter(c => c.cedula !== cedula));
-      toast.success("Cliente desbloqueado correctamente");
+      setClientes(prev => prev.filter(item => item.id !== c.id));
+      toast.success("Contacto desbloqueado correctamente");
     } catch (e: any) {
       toast.error(e.message);
     } finally {
@@ -104,12 +139,12 @@ export default function ClientesBloqueadosPage() {
               </div>
               <div className="flex-1 min-w-0 space-y-1">
                 <p className="font-semibold truncate">{c.nombre}</p>
-                <p className="text-xs text-muted-foreground">Cédula: {c.cedula}</p>
+                {c.cedula && <p className="text-xs text-muted-foreground">Cédula: {c.cedula}</p>}
                 {c.correo && <p className="text-xs text-muted-foreground">Correo: {c.correo}</p>}
                 {c.telefono && <p className="text-xs text-muted-foreground">Teléfono: {c.telefono}</p>}
                 <div className="flex flex-wrap gap-2 pt-1">
                   <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 text-[11px] font-medium text-red-600 dark:text-red-400">
-                    <ShieldBan className="h-3 w-3" /> {c.bloqueo_contador} calif. negativas
+                    <ShieldBan className="h-3 w-3" /> {c.bloqueo_contador > 0 ? `${c.bloqueo_contador} calif. negativas` : "Bloqueo manual"}
                   </span>
                   {c.fecha_bloqueo && (
                     <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
@@ -123,12 +158,12 @@ export default function ClientesBloqueadosPage() {
               </div>
               {puedeDesbloquear && (
                 <button
-                  onClick={() => desbloquear(c.cedula)}
-                  disabled={desbloqueando === c.cedula}
+                  onClick={() => desbloquear(c)}
+                  disabled={desbloqueando === c.id}
                   className="shrink-0 flex items-center gap-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-50"
                 >
                   <ShieldCheck className="h-3.5 w-3.5" />
-                  {desbloqueando === c.cedula ? "Desbloqueando..." : "Desbloquear"}
+                  {desbloqueando === c.id ? "Desbloqueando..." : "Desbloquear"}
                 </button>
               )}
             </div>

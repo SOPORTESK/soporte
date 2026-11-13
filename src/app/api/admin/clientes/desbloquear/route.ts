@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { createClient } from "@/lib/supabase/server";
+import { unblockContact } from "@/lib/blocked-contacts";
 
 export const runtime = "nodejs";
 
@@ -21,20 +22,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
     }
 
-    const { cedula } = await req.json();
-    if (!cedula) return NextResponse.json({ error: "Cédula requerida" }, { status: 400 });
+    const { cedula, phone } = await req.json();
+    if (!cedula && !phone) {
+      return NextResponse.json({ error: "Cédula o teléfono requerido" }, { status: 400 });
+    }
 
-    const { error } = await supabase
-      .from("sek_clientes")
-      .update({
-        bloqueado: false,
-        bloqueo_contador: 0,
-        fecha_bloqueo: null,
-        motivo_bloqueo: null,
-      })
-      .eq("cedula", cedula);
-
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    await unblockContact(supabase, { cedula: cedula || undefined, phone: phone || undefined });
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {
