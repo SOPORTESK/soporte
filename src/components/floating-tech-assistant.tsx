@@ -23,6 +23,10 @@ import {
   PanelLeftOpen,
   PanelRightOpen,
   CheckCircle2,
+  Brain,
+  Plus,
+  Trash2,
+  StickyNote,
 } from "lucide-react";
 import { toast } from "sonner";
 import ReactDraggable, { DraggableEvent, DraggableData } from "react-draggable";
@@ -53,6 +57,12 @@ export function FloatingTechAssistant() {
   const [isOpen, setIsOpen] = React.useState(false);
   const [isMinimized, setIsMinimized] = React.useState(false);
   const [isWide, setIsWide] = React.useState(false);
+  const [showAgentConfig, setShowAgentConfig] = React.useState(false);
+  const [memories, setMemories] = React.useState<Array<{ id: string; text: string; author?: string; createdAt?: string }>>([]);
+  const [newMemoryText, setNewMemoryText] = React.useState("");
+  const [customInstructions, setCustomInstructions] = React.useState("");
+  const [savingConfig, setSavingConfig] = React.useState(false);
+  const [savingNoteIdx, setSavingNoteIdx] = React.useState<number | null>(null);
   const [input, setInput] = React.useState("");
   const [messages, setMessages] = React.useState<TechMessage[]>([]);
   const [loading, setLoading] = React.useState(false);
@@ -223,7 +233,21 @@ export function FloatingTechAssistant() {
         /* ignorar */
       }
     }
-  }, [isOpen]);
+    const effectiveCase = caseId || resolveCurrentCaseId() || "general";
+    fetch(`/api/tech-assistant/chat?case_id=${encodeURIComponent(effectiveCase)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!data?.ok) return;
+        if (Array.isArray(data.memories)) setMemories(data.memories);
+        if (data.personality && typeof data.personality.customInstructions === "string") {
+          setCustomInstructions(data.personality.customInstructions);
+        }
+        if (Array.isArray(data.thread) && data.thread.length > 0 && !saved) {
+          setMessages(data.thread.slice(-10));
+        }
+      })
+      .catch(() => {});
+  }, [isOpen, caseId]);
 
   React.useEffect(() => {
     if (scrollRef.current) {
@@ -268,6 +292,13 @@ export function FloatingTechAssistant() {
       const finalMessages = (data.messages || []).slice(-10);
       setPendingAttachment(null);
       setMessages(finalMessages);
+      if (Array.isArray(data.appliedActions)) {
+        for (const act of data.appliedActions) {
+          if (act?.ok && act?.summary) {
+            toast.success(act.summary);
+          }
+        }
+      }
       localStorage.setItem(
         "sek_tech_assistant_session_v9",
         JSON.stringify({
@@ -381,11 +412,105 @@ export function FloatingTechAssistant() {
   };
 
   const startNewChat = () => {
+    const effectiveCase = caseId || resolveCurrentCaseId() || "general";
     setMessages([]);
     setSessionId(null);
     setPendingAttachment(null);
     localStorage.removeItem("sek_tech_assistant_session_v9");
+    fetch(`/api/tech-assistant/chat?case_id=${encodeURIComponent(effectiveCase)}`, {
+      method: "DELETE",
+    }).catch(() => {});
     inputRef.current?.focus();
+  };
+
+  const handleSaveNoteToCase = async (noteText: string, idx: number) => {
+    const effectiveCase = caseId || resolveCurrentCaseId();
+    if (!effectiveCase) {
+      toast.error("No hay un caso abierto para guardar la nota");
+      return;
+    }
+    setSavingNoteIdx(idx);
+    try {
+      const cleanNote = noteText.replace(/\n*Fuentes consultadas:[\s\S]*$/i, "").trim();
+      const res = await fetch("/api/tech-assistant/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          case_id: effectiveCase,
+          executeAction: { type: "add_note", noteText: cleanNote },
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.ok) {
+        throw new Error(data?.appliedAction?.summary || data?.error || "No se pudo guardar la nota");
+      }
+      toast.success(data.appliedAction?.summary || "Nota guardada en el caso");
+    } catch (e: any) {
+      toast.error(e?.message || "Error al guardar la nota");
+    } finally {
+      setSavingNoteIdx(null);
+    }
+  };
+
+  const handleAddMemory = async () => {
+    const txt = newMemoryText.trim();
+    if (!txt || savingConfig) return;
+    setSavingConfig(true);
+    try {
+      const res = await fetch("/api/tech-assistant/chat", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "memory_add", text: txt }),
+      });
+      const data = await res.json();
+      if (data?.ok && Array.isArray(data.memories)) {
+        setMemories(data.memories);
+        setNewMemoryText("");
+        toast.success("Regla guardada en memoria del agente");
+      }
+    } catch {
+      toast.error("No se pudo guardar en memoria");
+    } finally {
+      setSavingConfig(false);
+    }
+  };
+
+  const handleDeleteMemory = async (id: string) => {
+    try {
+      const res = await fetch("/api/tech-assistant/chat", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "memory_delete", id }),
+      });
+      const data = await res.json();
+      if (data?.ok && Array.isArray(data.memories)) {
+        setMemories(data.memories);
+        toast.success("Regla eliminada");
+      }
+    } catch {
+      toast.error("No se pudo eliminar la regla");
+    }
+  };
+
+  const handleSavePersonality = async () => {
+    if (savingConfig) return;
+    setSavingConfig(true);
+    try {
+      const res = await fetch("/api/tech-assistant/chat", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "personality", customInstructions }),
+      });
+      const data = await res.json();
+      if (data?.ok) {
+        toast.success("Personalidad e instrucciones guardadas");
+        setShowAgentConfig(false);
+      }
+    } catch {
+      toast.error("No se pudo guardar la configuración");
+    } finally {
+      setSavingConfig(false);
+    }
   };
 
   const insertReplyToClient = async () => {
@@ -660,6 +785,24 @@ export function FloatingTechAssistant() {
               {!isMinimized && (
                 <button
                   type="button"
+                  onClick={() => setShowAgentConfig(true)}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onTouchStart={(e) => e.stopPropagation()}
+                  className="relative h-7 w-7 flex items-center justify-center rounded-lg hover:bg-white/20 transition-colors"
+                  title="Memoria y personalidad del agente"
+                  aria-label="Memoria y personalidad del agente"
+                >
+                  <Brain className="h-3.5 w-3.5" />
+                  {memories.length > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 h-3.5 min-w-[14px] px-0.5 rounded-full bg-emerald-400 text-[9px] font-bold text-zinc-950 flex items-center justify-center">
+                      {memories.length}
+                    </span>
+                  )}
+                </button>
+              )}
+              {!isMinimized && (
+                <button
+                  type="button"
                   onClick={toggleWideMode}
                   onMouseDown={(e) => e.stopPropagation()}
                   onTouchStart={(e) => e.stopPropagation()}
@@ -753,7 +896,27 @@ export function FloatingTechAssistant() {
                           </a>
                         )}
                         {m.role === "assistant" ? (
-                          renderAssistantMessage(m.content, handleOpenHistoricalCase, handleOpenManual)
+                          <>
+                            {renderAssistantMessage(m.content, handleOpenHistoricalCase, handleOpenManual)}
+                            {caseId && (
+                              <div className="mt-2 pt-1.5 border-t border-border/50 flex justify-end">
+                                <button
+                                  type="button"
+                                  disabled={savingNoteIdx === i}
+                                  onClick={() => handleSaveNoteToCase(m.content, i)}
+                                  className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-violet-500 transition-colors disabled:opacity-50 cursor-pointer"
+                                  title="Guardar este diagnóstico como nota interna en el caso"
+                                >
+                                  {savingNoteIdx === i ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <StickyNote className="h-3 w-3" />
+                                  )}
+                                  <span>Guardar nota en caso</span>
+                                </button>
+                              </div>
+                            )}
+                          </>
                         ) : (
                           <p className="whitespace-pre-wrap break-words">
                             {m.content &&
@@ -860,6 +1023,116 @@ export function FloatingTechAssistant() {
           )}
         </div>
       </Draggable>
+
+      {/* Modal Flotante para Memoria y Personalidad del Agente */}
+      {showAgentConfig && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/65 backdrop-blur-xs">
+          <div className="w-full max-w-lg rounded-2xl bg-card border border-border shadow-2xl overflow-hidden flex flex-col max-h-[85vh] animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted/40">
+              <div className="flex items-center gap-2">
+                <div className="h-7 w-7 rounded-lg bg-violet-500/15 border border-violet-500/30 flex items-center justify-center shrink-0">
+                  <Brain className="h-4 w-4 text-violet-500" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm">Memoria y Personalidad del Agente</h3>
+                  <p className="text-[11px] text-muted-foreground">
+                    Reglas aprendidas del equipo e instrucciones personalizadas
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAgentConfig(false)}
+                className="h-7 w-7 flex items-center justify-center rounded-lg hover:bg-muted transition-colors"
+                aria-label="Cerrar configuración"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="p-4 overflow-y-auto space-y-4 text-xs">
+              <div>
+                <label className="block font-semibold text-foreground mb-1.5">
+                  Personalidad e instrucciones adicionales (opcional)
+                </label>
+                <textarea
+                  value={customInstructions}
+                  onChange={(e) => setCustomInstructions(e.target.value)}
+                  rows={3}
+                  placeholder="Ej: Priorizar siempre verificar fuente de poder 12V antes de pedir RMA..."
+                  className="w-full rounded-xl border border-border bg-background px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-violet-500"
+                />
+                <div className="mt-1.5 flex justify-end">
+                  <button
+                    type="button"
+                    disabled={savingConfig}
+                    onClick={handleSavePersonality}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-violet-600 text-white font-semibold hover:bg-violet-700 disabled:opacity-50 cursor-pointer"
+                  >
+                    {savingConfig ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
+                    <span>Guardar personalidad</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="border-t border-border pt-3">
+                <label className="block font-semibold text-foreground mb-1.5">
+                  Memoria persistente del equipo ({memories.length}/50)
+                </label>
+                <div className="flex gap-1.5 mb-2.5">
+                  <input
+                    type="text"
+                    value={newMemoryText}
+                    onChange={(e) => setNewMemoryText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleAddMemory();
+                      }
+                    }}
+                    placeholder="Agregar regla técnica (o escribe 'recuerda que...' en el chat)"
+                    className="flex-1 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-violet-500"
+                  />
+                  <button
+                    type="button"
+                    disabled={!newMemoryText.trim() || savingConfig}
+                    onClick={handleAddMemory}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white font-semibold hover:bg-emerald-700 disabled:opacity-40 cursor-pointer"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    <span>Agregar</span>
+                  </button>
+                </div>
+
+                {memories.length === 0 ? (
+                  <p className="text-muted-foreground italic py-2">
+                    Aún no hay reglas guardadas en memoria.
+                  </p>
+                ) : (
+                  <ul className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                    {memories.map((mem) => (
+                      <li
+                        key={mem.id}
+                        className="flex items-start justify-between gap-2 rounded-lg border border-border/70 bg-muted/30 px-2.5 py-2"
+                      >
+                        <span className="text-foreground leading-snug">{mem.text}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteMemory(mem.id)}
+                          className="text-muted-foreground hover:text-red-500 shrink-0 p-0.5 cursor-pointer"
+                          title="Eliminar regla"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal Flotante para Previsualizar Caso Precedente (#C1, #C2, #C3) */}
       {previewPrecedent && (

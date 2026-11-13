@@ -3,6 +3,23 @@ import { createClient } from "@/lib/supabase/server";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { analyzeMedia, transcribeAudio } from "@/lib/ai/vision";
 import { generateText } from "@/lib/ai/config";
+import {
+  getTechMemories,
+  addTechMemory,
+  deleteTechMemory,
+  detectMemorySaveIntent,
+  getTechPersonality,
+  saveTechPersonality,
+  getTechThread,
+  saveTechThread,
+  clearTechThread,
+  shouldQueryInventory,
+  shouldQueryWarranties,
+  queryInventoryForAssistant,
+  queryWarrantiesAndClientHistory,
+  executeTechCaseAction,
+  type TechAppliedAction,
+} from "@/lib/tech-assistant-agent";
 
 export const dynamic = "force-dynamic";
 
@@ -526,7 +543,7 @@ async function getFullKnowledgeAndCasesIndex(serviceClient: any): Promise<{
   const selectCols =
     "id, title, marca, modelo, problema, resolucion, assigned_to, closed_at, cliente, histcliente, histtecnico, es_test, calificacion";
 
-  const [batch1, agentsRes, chunksRes] = await Promise.all([
+  const [batch1, agentsRes, chunksRes1] = await Promise.all([
     serviceClient
       .from("sek_cases")
       .select(selectCols)
@@ -534,8 +551,23 @@ async function getFullKnowledgeAndCasesIndex(serviceClient: any): Promise<{
       .order("closed_at", { ascending: false })
       .limit(600),
     serviceClient.from("sek_agent_config").select("email, nombre, apellido"),
-    serviceClient.from("sek_doc_chunks").select("id, doc_name, content").limit(500),
+    serviceClient.from("sek_doc_chunks").select("id, doc_name, content").range(0, 499),
   ]);
+
+  // Paginar sek_doc_chunks en lotes de 500 (hasta 2500 chunks) dentro de la caché de 5 min para no omitir manuales recientes
+  let allDocChunks: any[] = Array.isArray(chunksRes1.data) ? [...chunksRes1.data] : [];
+  if (allDocChunks.length === 500) {
+    for (let offset = 500; offset < 2500; offset += 500) {
+      const { data: extraChunks } = await serviceClient
+        .from("sek_doc_chunks")
+        .select("id, doc_name, content")
+        .range(offset, offset + 499);
+      if (!Array.isArray(extraChunks) || extraChunks.length === 0) break;
+      allDocChunks.push(...extraChunks);
+      if (extraChunks.length < 500) break;
+    }
+  }
+  const chunksRes = { data: allDocChunks };
 
   const agentNameByEmail = new Map<string, string>();
   if (Array.isArray(agentsRes.data)) {
@@ -780,37 +812,131 @@ async function getFullKnowledgeAndCasesIndex(serviceClient: any): Promise<{
   return { precedents, docChunks };
 }
 
+async function authenticateTechUser() {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user?.email) {
+    return { error: NextResponse.json({ error: "No autenticado" }, { status: 401 }) };
+  }
+  const { data: agent } = await supabase
+    .from("sek_agent_config")
+    .select("email")
+    .ilike("email", user.email)
+    .maybeSingle();
+  if (!agent) {
+    return { error: NextResponse.json({ error: "Acceso denegado" }, { status: 403 }) };
+  }
+  const serviceClient = createServiceClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+  return { user, serviceClient };
+}
+
+export async function GET(req: NextRequest) {
+  try {
+    const auth = await authenticateTechUser();
+    if ("error" in auth) return auth.error;
+    const { user, serviceClient } = auth;
+
+    const caseIdParam = new URL(req.url).searchParams.get("case_id") || "general";
+    const [thread, memories, personality] = await Promise.all([
+      getTechThread(serviceClient, user.email!, caseIdParam),
+      getTechMemories(serviceClient),
+      getTechPersonality(serviceClient),
+    ]);
+
+    return NextResponse.json({
+      ok: true,
+      thread,
+      memories,
+      personality,
+    });
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message || "Error inesperado" }, { status: 500 });
+  }
+}
+
+export async function PATCH(req: NextRequest) {
+  try {
+    const auth = await authenticateTechUser();
+    if ("error" in auth) return auth.error;
+    const { user, serviceClient } = auth;
+
+    const body = await req.json();
+    if (body.kind === "memory_add") {
+      const res = await addTechMemory(serviceClient, {
+        text: body.text,
+        category: body.category,
+        author: user.email!,
+      });
+      return NextResponse.json(res);
+    }
+    if (body.kind === "memory_delete") {
+      const res = await deleteTechMemory(serviceClient, String(body.id || ""));
+      return NextResponse.json(res);
+    }
+    if (body.kind === "personality") {
+      const res = await saveTechPersonality(serviceClient, {
+        customInstructions: body.customInstructions,
+        tone: body.tone,
+        updatedBy: user.email!,
+      });
+      return NextResponse.json(res);
+    }
+    return NextResponse.json({ error: "Operación no soportada" }, { status: 400 });
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message || "Error inesperado" }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const auth = await authenticateTechUser();
+    if ("error" in auth) return auth.error;
+    const { user, serviceClient } = auth;
+
+    const caseIdParam = new URL(req.url).searchParams.get("case_id") || undefined;
+    await clearTechThread(serviceClient, user.email!, caseIdParam);
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message || "Error inesperado" }, { status: 500 });
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const { message, case_id, messages: clientMessages, mediaUrl, mediaType, fileName, action, displayMessage } = await req.json();
+    const { message, case_id, messages: clientMessages, mediaUrl, mediaType, fileName, action, displayMessage, executeAction } = await req.json();
 
-    if ((!message || typeof message !== "string" || !message.trim()) && (!mediaUrl || typeof mediaUrl !== "string") && action !== "draft_client_reply") {
+    if (
+      !executeAction &&
+      (!message || typeof message !== "string" || !message.trim()) &&
+      (!mediaUrl || typeof mediaUrl !== "string") &&
+      action !== "draft_client_reply"
+    ) {
       return NextResponse.json({ error: "Mensaje o adjunto requerido" }, { status: 400 });
     }
 
     const messages: TechMessage[] = Array.isArray(clientMessages) ? (clientMessages as TechMessage[]) : [];
 
-    const supabase = createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user?.email) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 });
-    }
+    const auth = await authenticateTechUser();
+    if ("error" in auth) return auth.error;
+    const { user, serviceClient } = auth;
 
-    const { data: agent } = await supabase
-      .from("sek_agent_config")
-      .select("email")
-      .ilike("email", user.email)
-      .maybeSingle();
-    if (!agent) {
-      return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
+    if (executeAction && typeof executeAction === "object") {
+      const targetId = typeof case_id === "string" ? case_id.replace(/^case:/i, "").trim() : "";
+      const applied = await executeTechCaseAction(serviceClient, {
+        caseId: targetId,
+        agentEmail: user.email!,
+        action: executeAction.type,
+        noteText: executeAction.noteText,
+        marca: executeAction.marca,
+        modelo: executeAction.modelo,
+      });
+      return NextResponse.json({ ok: applied.ok, appliedAction: applied });
     }
-
-    const serviceClient = createServiceClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
 
     // ── 1. Resolución inteligente del caso abierto en pantalla ──
     let targetCase: any = null;
@@ -1462,6 +1588,61 @@ export async function POST(req: NextRequest) {
       console.log("[tech-assistant] ⚡ Consulta directa sobre el caso/adjuntos: omitiendo búsqueda web externa para respuesta inmediata.");
     }
 
+    // ── 5.5 Memoria persistente, personalidad y herramientas en vivo (Inventario / Garantías) ──
+    const appliedActions: TechAppliedAction[] = [];
+    const memoryToSave = !isDraftAction && typeof message === "string" ? detectMemorySaveIntent(message) : null;
+    if (memoryToSave) {
+      const savedMem = await addTechMemory(serviceClient, {
+        text: memoryToSave,
+        category: primaryBrand || activeFaultDomain || "general",
+        author: user.email!,
+      });
+      if (savedMem.ok) {
+        appliedActions.push({
+          type: "save_memory",
+          summary: `Regla guardada en memoria del equipo: "${memoryToSave}"`,
+          ok: true,
+        });
+      }
+    }
+
+    const queryTextForTools = String(message || "");
+    const [memoriesList, personalityCfg, inventoryContext, warrantiesContext] = await Promise.all([
+      getTechMemories(serviceClient),
+      getTechPersonality(serviceClient),
+      !isDraftAction && shouldQueryInventory(queryTextForTools)
+        ? queryInventoryForAssistant(serviceClient, queryTextForTools, primaryBrand, primaryModel)
+        : Promise.resolve(""),
+      !isDraftAction && shouldQueryWarranties(queryTextForTools)
+        ? queryWarrantiesAndClientHistory(serviceClient, {
+            queryText: queryTextForTools,
+            phone: targetCase?.customer_phone,
+            clientName: clienteData?.nombre,
+            currentCaseId: validCaseId,
+            primaryModel,
+          })
+        : Promise.resolve(""),
+    ]);
+
+    const memoriesBlock =
+      memoriesList.length > 0
+        ? `\n\nMEMORIA PERSISTENTE DEL EQUIPO SEKUNET (REGLAS Y APRENDIZAJES GUARDADOS):\n${memoriesList
+            .slice(-25)
+            .map((m, idx) => `${idx + 1}. ${m.text}`)
+            .join("\n")}`
+        : "";
+    const personalityBlock = personalityCfg.customInstructions
+      ? `\n\nINSTRUCCIONES PERSONALIZADAS DEL EQUIPO SEKUNET:\n${personalityCfg.customInstructions}${
+          personalityCfg.tone ? `\nTono adicional solicitado: ${personalityCfg.tone}` : ""
+        }`
+      : "";
+    const liveToolsBlock = [
+      inventoryContext ? `\n\nINVENTARIO EN VIVO SEKUNET (sek_inventario):\n${inventoryContext}` : "",
+      warrantiesContext ? `\n\nGARANTÍAS Y CASOS PREVIOS DEL CLIENTE:\n${warrantiesContext}` : "",
+    ]
+      .filter(Boolean)
+      .join("");
+
     // ── 6. System Prompt Maestro del Asistente Técnico ──
     const equipoRegistrado = clienteData?.equipo || (targetCase?.marca ? `${targetCase.marca || ""} ${targetCase.modelo || ""}`.trim() : "");
     const equipoLinea = equipoRegistrado || "No registrado formalmente (consulte la conversación y las fotos)";
@@ -1497,7 +1678,7 @@ CONVERSACIÓN CRONOLÓGICA COMPLETA DEL CASO ABIERTO (con transcripciones y aná
 ${openCaseConversation || "No hay mensajes registrados en este caso."}
 ${ragContext ? `\n\nMANUALES OFICIALES EN BASE DE CONOCIMIENTO SEKUNET (RAG):\n${ragContext}` : ""}
 ${historicalPrecedents ? `\n\nPRECEDENTES HISTÓRICOS REALES RESUELTOS CON ÉXITO Y CONFIRMACIÓN DEL CLIENTE (SEKUNET):\n${historicalPrecedents}` : ""}
-${webContext ? `\n\nBÚSQUEDA WEB EN VIVO (MANUALES OFICIALES, FICHAS TÉCNICAS Y FOROS ESPECIALIZADOS):\n${webContext}` : ""}
+${webContext ? `\n\nBÚSQUEDA WEB EN VIVO (MANUALES OFICIALES, FICHAS TÉCNICAS Y FOROS ESPECIALIZADOS):\n${webContext}` : ""}${memoriesBlock}${liveToolsBlock}${personalityBlock}
 
 REGLAS DE ATENCIÓN TÉCNICA OBLIGATORIAS:
 0.1 PROHIBICIÓN ESTRICTA DE ASUMIR RADIOENLACES POR LA FRASE "PUNTO A PUNTO":
@@ -1540,6 +1721,13 @@ REGLAS ESTRICTAS DE FORMATO Y ESTILO (OBLIGATORIAS):
 - VIÑETAS DECENTES: Si vas a enlistar puntos, usa viñetas sencillas con punto ("• ") de un solo nivel. Usa pasos numerados (1., 2., 3.) para procedimientos secuenciales.
 - NO escribas corchetes [C1], [M1] ni [W1] dentro de los párrafos del cuerpo de tu respuesta.
 - CITACIÓN SELECTIVA Y VERIFICABLE AL FINAL: Al final de tu respuesta, escribe una última línea que inicie con "Fuentes consultadas:" e incluye las etiquetas ([C1], [C2], [M1], [W1], etc.) de las fuentes suministradas arriba que hayas utilizado para fundamentar tu diagnóstico.`;
+
+    if (!isDraftAction && validCaseId) {
+      systemPrompt += `\n\nACCIONES DIRECTAS SOBRE EL CASO (ÚSALAS SOLO SI EL TÉCNICO LO PIDE EXPLÍCITAMENTE):
+- Si el técnico te pide explícitamente agregar/guardar una nota interna en el caso, incluye al final una línea exacta: [ACCION_CASO: {"type":"add_note","noteText":"texto de la nota"}]
+- Si el técnico te pide explícitamente actualizar/corregir la marca o modelo del caso, incluye al final: [ACCION_CASO: {"type":"update_equipment","marca":"Marca","modelo":"Modelo"}]
+- Nunca emitas [ACCION_CASO: ...] si el técnico no pidió modificar el caso.`;
+    }
 
     if (isDraftAction) {
       systemPrompt += `\n\nOBJETIVO INMEDIATO PARA ESTA INTERVENCIÓN:
@@ -1617,6 +1805,30 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
       responseText = responseText.replace(/^(¡?Buenos\s+d[ií]as|¡?Buenas\s+tardes)\b/i, "Buenas noches");
     }
 
+    // Ejecutar acción estructurada si el técnico la solicitó y el agente la emitió
+    const actionMatch = responseText.match(/\[ACCION_CASO:\s*(\{[\s\S]*?\})\s*\]/i);
+    if (actionMatch) {
+      responseText = responseText.replace(/\[ACCION_CASO:\s*\{[\s\S]*?\}\s*\]/gi, "").trim();
+      if (validCaseId && !isDraftAction) {
+        try {
+          const parsedAct = JSON.parse(actionMatch[1]);
+          if (parsedAct?.type === "add_note" || parsedAct?.type === "update_equipment") {
+            const applied = await executeTechCaseAction(serviceClient, {
+              caseId: validCaseId,
+              agentEmail: user.email!,
+              action: parsedAct.type,
+              noteText: parsedAct.noteText,
+              marca: parsedAct.marca,
+              modelo: parsedAct.modelo,
+            });
+            appliedActions.push(applied);
+          }
+        } catch {
+          /* ignorar JSON malformado */
+        }
+      }
+    }
+
     let clientDraftText = responseText;
     let assistantDisplayContent = responseText;
 
@@ -1669,6 +1881,13 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
       finalSources.push("Conversación del caso actual");
     }
 
+    if (!isDraftAction && validCaseId) {
+      systemPrompt += `\n\nACCIONES DIRECTAS SOBRE EL CASO (ÚSALAS SOLO SI EL TÉCNICO LO PIDE EXPLÍCITAMENTE):
+- Si el técnico te pide explícitamente agregar/guardar una nota interna en el caso, incluye al final una línea exacta: [ACCION_CASO: {"type":"add_note","noteText":"texto de la nota"}]
+- Si el técnico te pide explícitamente actualizar/corregir la marca o modelo del caso, incluye al final: [ACCION_CASO: {"type":"update_equipment","marca":"Marca","modelo":"Modelo"}]
+- Nunca emitas [ACCION_CASO: ...] si el técnico no pidió modificar el caso.`;
+    }
+
     if (isDraftAction) {
       assistantDisplayContent =
         finalSources.length > 0 ? `${responseText}\n\nFuentes consultadas: ${finalSources.join(", ")}.` : responseText;
@@ -1684,12 +1903,15 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
     };
     const finalMessages = [...updatedMessages, assistantMsg];
 
+    await saveTechThread(serviceClient, user.email!, validCaseId || "general", finalMessages).catch(() => {});
+
     return NextResponse.json({
       ok: true,
       response: responseText,
       clientDraft: clientDraftText,
       messages: finalMessages,
       case_id: validCaseId,
+      appliedActions,
     });
   } catch (e: any) {
     console.error("[tech-assistant] error general:", e.message);
