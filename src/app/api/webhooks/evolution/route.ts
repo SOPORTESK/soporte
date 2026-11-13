@@ -6,6 +6,7 @@ import { performAutoExtract } from "@/lib/ai/auto-extract";
 import { analyzeMedia, transcribeAudio } from "@/lib/ai/vision";
 import { enqueueWaOutbox, generateQueuedMessageId } from "@/lib/wa-outbox";
 import { broadcastCaseEvent } from "@/lib/realtime-broadcast";
+import { isInvalidVendorStr } from "@/lib/utils";
 
 async function preAnalyzeCaseAttachment(
   supabase: any,
@@ -2568,9 +2569,10 @@ export async function POST(req: NextRequest) {
               rawCuenta = null;
             }
 
-            const rawVendedor = (pcCliente.vendedor || (pcCliente as any).vendedor_asignado)
+            const rawVendedorCand = (pcCliente.vendedor || (pcCliente as any).vendedor_asignado)
               ? String(pcCliente.vendedor || (pcCliente as any).vendedor_asignado).trim()
               : null;
+            const rawVendedor = (rawVendedorCand && !isInvalidVendorStr(rawVendedorCand)) ? rawVendedorCand : null;
 
             // Si el nombre guardado en casos anteriores es idéntico al vendedor, no arrastrarlo como nombre del cliente
             if (rawNombre && rawVendedor && rawNombre.toLowerCase() === rawVendedor.toLowerCase()) {
@@ -2601,7 +2603,7 @@ export async function POST(req: NextRequest) {
               .maybeSingle();
             if (acCase?.cliente && typeof acCase.cliente === "object") {
               const acVendedor = (acCase.cliente as any).vendedor;
-              if (acVendedor && typeof acVendedor === "string" && acVendedor.trim()) {
+              if (acVendedor && typeof acVendedor === "string" && acVendedor.trim() && !isInvalidVendorStr(acVendedor.trim())) {
                 knownClient.vendedor = acVendedor.trim();
                 console.log(`[evo-webhook] Vendedor recuperado automáticamente para la cuenta (${knownClient.cuenta}): ${knownClient.vendedor}`);
               }

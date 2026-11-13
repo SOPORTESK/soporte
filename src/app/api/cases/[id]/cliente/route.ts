@@ -95,8 +95,9 @@ export async function PATCH(
       : {};
 
     // Si no se pasó vendedor y el cliente no tiene uno, buscar si la cuenta ya tiene vendedor registrado históricamente
+    const vendedorExplicitlyCleared = "vendedor" in cleanFields && cleanFields.vendedor === "";
     const targetCuenta = (cleanFields.cuenta !== undefined ? cleanFields.cuenta : (currentCliente.cuenta as string || "")).trim();
-    if (!cleanFields.vendedor && !currentCliente.vendedor && targetCuenta && !/^(sin\s+cuenta|no\s+tengo|ninguna|cliente\s+final)$/i.test(targetCuenta)) {
+    if (!("vendedor" in cleanFields) && !currentCliente.vendedor && targetCuenta && !/^(sin\s+cuenta|no\s+tengo|ninguna|cliente\s+final)$/i.test(targetCuenta)) {
       try {
         const { data: pastWithVendedor } = await supabase
           .from("sek_cases")
@@ -216,10 +217,12 @@ export async function PATCH(
       }
     }
 
-    // Propagar vendedor a cualquier otro caso de la misma empresa/cuenta
-    const finalCuenta = (cleanFields.cuenta || currentCliente.cuenta as string || "").trim();
-    const finalVendedor = (cleanFields.vendedor || currentCliente.vendedor as string || "").trim();
-    if (finalCuenta && finalVendedor && !isInvalidVendorStr(finalVendedor) && !/^(sin\s+cuenta|no\s+tengo|ninguna|cliente\s+final)$/i.test(finalCuenta)) {
+    // Propagar vendedor (o limpieza explícita de vendedor) a cualquier otro caso de la misma empresa/cuenta
+    const finalCuenta = (cleanFields.cuenta !== undefined ? cleanFields.cuenta : (currentCliente.cuenta as string || "")).trim();
+    const finalVendedor = (cleanFields.vendedor !== undefined ? cleanFields.vendedor : (currentCliente.vendedor as string || "")).trim();
+    const shouldPropagateClear = vendedorExplicitlyCleared;
+    const shouldPropagateValid = Boolean(finalVendedor && !isInvalidVendorStr(finalVendedor));
+    if (finalCuenta && (shouldPropagateClear || shouldPropagateValid) && !/^(sin\s+cuenta|no\s+tengo|ninguna|cliente\s+final)$/i.test(finalCuenta)) {
       try {
         const { data: accountCases } = await supabase
           .from("sek_cases")
@@ -231,23 +234,27 @@ export async function PATCH(
         if (accountCases && accountCases.length > 0) {
           for (const ac of accountCases) {
             const acCliente = (ac.cliente && typeof ac.cliente === "object") ? ac.cliente as Record<string, unknown> : {};
-            if (acCliente.vendedor !== finalVendedor) {
-              const acClienteNext = { ...acCliente, vendedor: finalVendedor };
-              const acNow = new Date().toISOString();
-              await supabase
-                .from("sek_cases")
-                .update({
-                  cliente: acClienteNext,
-                  updated_at: acNow,
-                })
-                .eq("id", ac.id);
-              broadcastBatch.push({
-                eventType: "UPDATE",
-                action: "meta",
-                caseId: String(ac.id),
-                new: { id: ac.id, cliente: acClienteNext, updated_at: acNow },
-              });
+            const currentAcVendor = typeof acCliente.vendedor === "string" ? acCliente.vendedor.trim() : "";
+            if (shouldPropagateClear) {
+              if (!currentAcVendor) continue;
+            } else if (currentAcVendor === finalVendedor) {
+              continue;
             }
+            const acClienteNext = { ...acCliente, vendedor: shouldPropagateClear ? "" : finalVendedor };
+            const acNow = new Date().toISOString();
+            await supabase
+              .from("sek_cases")
+              .update({
+                cliente: acClienteNext,
+                updated_at: acNow,
+              })
+              .eq("id", ac.id);
+            broadcastBatch.push({
+              eventType: "UPDATE",
+              action: "meta",
+              caseId: String(ac.id),
+              new: { id: ac.id, cliente: acClienteNext, updated_at: acNow },
+            });
           }
         }
       } catch (err) {

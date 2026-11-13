@@ -31,12 +31,15 @@ export function isInvalidVendorStr(str: unknown): boolean {
   if (!str || typeof str !== "string") return true;
   const s = str.trim().toLowerCase();
   if (s.length < 3) return true;
+  // Un nombre de vendedor no lleva dígitos, signos de puntuación de pregunta/correo ni más de 4 palabras
+  if (/[\d?!:@/\\()[\]{}"']/.test(s)) return true;
+  if (s.split(/\s+/).length > 4) return true;
   // Descartar frases genéricas, preposiciones, conectores y respuestas de sistema
-  if (/^(de\s+su|uno\s+de(?:\s+nuestros\s+agentes)?|uno|de|su|en\s+que|no\s+especificado|no\s+especificada|sin\s+especificar|no\s+se|no\s+s[eé]|ninguno|ninguna|sin\s+vendedor|no\s+tengo(?:\s+vendedor)?|agente|agentes|nuestro|nuestros|soporte|sekunet|taller|cliente|equipo|null|undefined|\(vac[ií]o\)|\.{2,}|n\/a)$/i.test(s)) {
+  if (/^(de\s+su|uno\s+de(?:\s+nuestros\s+agentes)?|uno|de|su|en\s+que|que\s+habl[oó]|no\s+especificado|no\s+especificada|sin\s+especificar|no\s+se|no\s+s[eé]|ninguno|ninguna|sin\s+vendedor|no\s+tengo(?:\s+vendedor)?|agente|agentes|nuestro|nuestros|soporte|sekunet|taller|cliente|equipo|null|undefined|\(vac[ií]o\)|\.{2,}|n\/a)$/i.test(s)) {
     return true;
   }
-  // Los vendedores tienen nombres propios: no pueden contener preposiciones o fragmentos de preguntas de plantilla
-  if (/\b(de\s+su|en\s+que|su\s+cuenta|encargado\s+de)\b/i.test(s)) {
+  // Los vendedores tienen nombres propios: no pueden contener preposiciones, pronombres relativos, verbos ni fragmentos de preguntas
+  if (/\b(de\s+su|en\s+que|su\s+cuenta|encargado\s+de|que|quien|quienes|cual|cuales|donde|cuando|como|porque|habl[oó]|atendi[oó]|dijo|escribi[oó]|contest[oó]|respondi[oó]|tiene|tengo|hay|fue|era|son|est[aá]|estoy|nosotros|ustedes|ellos|ellas|alguien|nadie|cualquier|cualquiera|vendedor|vendedora|ejecutivo|ejecutiva|asesor|asesora|encargado|encargada|persona|nombre|apellido|empresa|cuenta|correo|ticket)\b/i.test(s)) {
     return true;
   }
   return false;

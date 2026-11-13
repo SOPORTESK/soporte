@@ -267,7 +267,14 @@ Responde ÚNICAMENTE en formato JSON:
     }
 
     // 5. Vendedor por regex y catálogo de ejecutivos comerciales Sekunet
-    if (extracted.vendedor && isInvalidVendorStr(extracted.vendedor)) {
+    const stripAccents = (v: string) => v.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    const normClientText = stripAccents(clientText);
+    const isVendorInClientText = (cand: string) => {
+      const tokens = stripAccents(cand).split(/\s+/).filter(t => t.length >= 3);
+      return tokens.length > 0 && tokens.some(t => new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(normClientText));
+    };
+
+    if (extracted.vendedor && (isInvalidVendorStr(extracted.vendedor) || !isVendorInClientText(extracted.vendedor))) {
       extracted.vendedor = "";
     }
 
