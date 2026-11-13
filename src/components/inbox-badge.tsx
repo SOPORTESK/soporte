@@ -13,8 +13,13 @@ export function InboxBadge({ initialCount }: { initialCount: number }) {
 
   React.useEffect(() => {
     const supabase = supabaseRef.current;
+    let dirtyWhileHidden = false;
     const fetchCount = async () => {
-      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        dirtyWhileHidden = true;
+        return;
+      }
+      dirtyWhileHidden = false;
       const { count: nextCount, error } = await supabase
         .from("sek_cases")
         .select("id", { count: "exact", head: true })
@@ -30,6 +35,7 @@ export function InboxBadge({ initialCount }: { initialCount: number }) {
 
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     const debouncedFetch = (payload?: any) => {
+      if (payload?.action === "typing") return;
       if (payload?.eventType === "UPDATE") {
         if (payload.new && payload.old && payload.old.estado !== undefined && payload.old.unread_count !== undefined) {
           if (payload.new.estado === payload.old.estado && payload.new.unread_count === payload.old.unread_count) {
@@ -38,13 +44,22 @@ export function InboxBadge({ initialCount }: { initialCount: number }) {
         }
       }
       if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(fetchCount, 6000);
+      debounceTimer = setTimeout(fetchCount, 3000);
     };
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible" && dirtyWhileHidden) fetchCount();
+    };
+    const onReconnected = () => fetchCount();
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("cases_realtime_reconnected", onReconnected);
 
     const unsubscribe = subscribeCasesRealtime(supabase, debouncedFetch);
 
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("cases_realtime_reconnected", onReconnected);
       unsubscribe();
     };
   }, []);

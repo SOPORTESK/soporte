@@ -17,8 +17,13 @@ export function EscalatedCasesBanner() {
   const [escalated, setEscalated] = React.useState<any[]>([]);
 
   React.useEffect(() => {
+    let dirtyWhileHidden = false;
     const fetchEscalated = async () => {
-      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        dirtyWhileHidden = true;
+        return;
+      }
+      dirtyWhileHidden = false;
       const { data, error } = await supabase
         .from("sek_cases")
         .select("id")
@@ -40,6 +45,7 @@ export function EscalatedCasesBanner() {
     // Solo reconsultar si el evento Realtime involucra el estado "escalado" o eliminación
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     const debouncedFetch = (payload?: any) => {
+      if (payload?.action === "typing") return;
       if (payload?.eventType === "UPDATE") {
         if (payload.action === "deltaEntry" && String(payload.new?.estado || "").toLowerCase() !== "escalado") return;
         const newEst = payload.new?.estado !== undefined ? String(payload.new.estado || "").toLowerCase() : null;
@@ -50,13 +56,22 @@ export function EscalatedCasesBanner() {
         if (newEst !== "escalado") return;
       }
       if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(fetchEscalated, 3000);
+      debounceTimer = setTimeout(fetchEscalated, 800);
     };
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible" && dirtyWhileHidden) fetchEscalated();
+    };
+    const onReconnected = () => fetchEscalated();
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("cases_realtime_reconnected", onReconnected);
 
     const unsubscribe = subscribeCasesRealtime(supabase, debouncedFetch);
 
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("cases_realtime_reconnected", onReconnected);
       unsubscribe();
     };
   }, [supabase]);

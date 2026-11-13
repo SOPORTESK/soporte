@@ -688,6 +688,7 @@ export function InboxClient({
     const unsubscribeCasesBus = subscribeCasesRealtime(
       supabase,
       (payload) => {
+          if ((payload as any)?.action === "typing") return;
           // Ignorar updates triviales donde no cambiaron metadatos de lista (si old está disponible)
           if (payload.eventType === "UPDATE" && payload.action !== "deltaEntry" && payload.action !== "refresh_history") {
             const upd = payload.new as any;
