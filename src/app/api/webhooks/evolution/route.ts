@@ -2017,17 +2017,39 @@ export async function POST(req: NextRequest) {
     ? { role: "tecnico", time: msgTime, content: text || "", author: "Soporte Sekunet", mediaUrl, mediaType: finalMediaType, fileName, messageId: keyId, fromMe: true, ...(replyTo ? { replyTo } : {}) } as any
     : { role: "user", time: msgTime, content: text || "", mediaUrl, mediaType: finalMediaType, fileName, messageId: keyId, fromMe: false, ...(replyTo ? { replyTo } : {}) } as any;
 
-  console.log("[evo-webhook] Paso 6: buscando casos activos recientes (sin historiales)...");
+  console.log("[evo-webhook] Paso 6: buscando caso activo por teléfono (directo antes de escaneo)...");
   try {
     const ACTIVE_STATES_LIST = ["ia_atendiendo", "pendiente", "escalado", "abierto", "calificacion_pendiente"];
-    const { data: openCases } = await supabase
-      .from("sek_cases")
-      .select("id, estado, customer_phone, cliente, title, created_at, updated_at, last_message_at, accepted_at, escalado_at, tags, assigned_to, marca, modelo, problema")
-      .eq("canal", "whatsapp")
-      .in("estado", ACTIVE_STATES_LIST)
-      .order("updated_at", { ascending: false })
-      .limit(200);
-    console.log("[evo-webhook] Paso 6 OK - casos activos encontrados:", openCases?.length || 0);
+    const CASE_MATCH_COLS = "id, estado, customer_phone, cliente, title, created_at, updated_at, last_message_at, accepted_at, escalado_at, tags, assigned_to, marca, modelo, problema";
+    const phoneCandidates = Array.from(new Set([jid, phone, rawLid, senderPn].filter(Boolean))) as string[];
+
+    let openCases: any[] | null = null;
+    if (phoneCandidates.length > 0) {
+      const { data: directMatches } = await supabase
+        .from("sek_cases")
+        .select(CASE_MATCH_COLS)
+        .eq("canal", "whatsapp")
+        .in("estado", ACTIVE_STATES_LIST)
+        .in("customer_phone", phoneCandidates)
+        .order("updated_at", { ascending: false })
+        .limit(10);
+      if (directMatches && directMatches.length > 0) {
+        openCases = directMatches;
+      }
+    }
+
+    // Fallback solo si no coincidió customer_phone directo (ej. match por cliente.lid o pushName)
+    if (!openCases || openCases.length === 0) {
+      const { data: fallbackCases } = await supabase
+        .from("sek_cases")
+        .select(CASE_MATCH_COLS)
+        .eq("canal", "whatsapp")
+        .in("estado", ACTIVE_STATES_LIST)
+        .order("updated_at", { ascending: false })
+        .limit(200);
+      openCases = fallbackCases || [];
+    }
+    console.log("[evo-webhook] Paso 6 OK - casos candidatos:", openCases?.length || 0);
 
     let existing = null;
     const reopenClosedCase = false;
