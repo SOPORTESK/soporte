@@ -387,7 +387,7 @@ let fullDbIndexCache: {
   docChunks: IndexedDocChunk[];
 } | null = null;
 
-const CACHE_TTL_MS = 60 * 60 * 1000;
+const CACHE_TTL_MS = 4 * 60 * 60 * 1000; // 4 horas en memoria para minimizar PostgREST Egress
 
 function isBoilerplateOrFileMessage(text?: string | null): boolean {
   if (!text || typeof text !== "string") return true;

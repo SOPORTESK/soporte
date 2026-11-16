@@ -747,6 +747,6 @@ console.log('[Tunnel Watchdog] Iniciado con Webhook Relay (28082), Outbox Worker
 startWebhookRelayServer();
 startOutboxRealtime();
 setInterval(checkTunnel, 30000);
-setInterval(() => processOutboxQueue(false), 15000);
+setInterval(() => processOutboxQueue(false), 60000);
 checkTunnel();
 processOutboxQueue(true);

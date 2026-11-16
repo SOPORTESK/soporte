@@ -1050,7 +1050,37 @@ export function InboxClient({
         }
 
         const fetchEmail = containerType === "mi-gestion" ? (agentEmail || undefined) : undefined;
-        const newCases = await fetchCasesMeta(supabase, 150, fetchEmail, isUserAdmin);
+        let newCases: SekCase[];
+        if (!force && lastKnownMaxUpdatedAtRef.current && allCasesRef.current.length > 0) {
+          // Delta sync: descargar solo los casos que cambiaron desde lastKnownMaxUpdatedAtRef (evita descargar 150-500 filas en cada mensaje)
+          const { data: deltaRows, error: deltaErr } = await supabase
+            .from("sek_cases")
+            .select(CASE_LIST_FIELDS)
+            .neq("canal", "simulator")
+            .neq("es_test", true)
+            .gt("updated_at", lastKnownMaxUpdatedAtRef.current)
+            .order("updated_at", { ascending: false })
+            .limit(50);
+
+          if (!deltaErr && Array.isArray(deltaRows) && deltaRows.length < 50) {
+            if (deltaRows.length === 0) {
+              if (globalLatestUpdatedAt) lastKnownMaxUpdatedAtRef.current = globalLatestUpdatedAt;
+              return;
+            }
+            const byId = new Map<string, SekCase>();
+            for (const c of allCasesRef.current) byId.set(String(c.id), c);
+            for (const d of deltaRows as unknown as SekCase[]) byId.set(String(d.id), d);
+            newCases = Array.from(byId.values()).sort((a, b) => {
+              const ta = String(a.last_message_at || a.created_at || "");
+              const tb = String(b.last_message_at || b.created_at || "");
+              return tb.localeCompare(ta);
+            });
+          } else {
+            newCases = await fetchCasesMeta(supabase, 150, fetchEmail, isUserAdmin);
+          }
+        } else {
+          newCases = await fetchCasesMeta(supabase, 150, fetchEmail, isUserAdmin);
+        }
 
         // Actualizar el timestamp más reciente conocido usando el máximo global para no entrar en bucle cuando el cambio fue de otro agente
         const newMax = getMaxUpdatedAt(newCases);
