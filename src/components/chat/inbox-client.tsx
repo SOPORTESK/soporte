@@ -843,7 +843,11 @@ export function InboxClient({
                     return c.customer_phone?.includes(tel) || (c.cliente as any)?.telefono?.includes(tel);
                   }) : null) ||
                   null;
-                if (currentSelected && !filteredNewCases.some(c => String(c.id) === String(currentSelected.id))) {
+                const takenByOtherInSoporte =
+                  containerType === "soporte-avanzado" &&
+                  currentSelected?.assigned_to &&
+                  currentSelected.assigned_to.toLowerCase() !== (agentEmail || "").toLowerCase();
+                if (currentSelected && !takenByOtherInSoporte && !filteredNewCases.some(c => String(c.id) === String(currentSelected.id))) {
                   filteredNewCases = [currentSelected, ...filteredNewCases];
                 }
               }
@@ -1102,7 +1106,11 @@ export function InboxClient({
           casesRef.current.find(c => String(c.id) === curSel) ||
           null
         ) : null;
-        if (currentSelected && !filteredNewCases.some(c => String(c.id) === String(currentSelected.id))) {
+        const takenByOtherInSoporte =
+          containerType === "soporte-avanzado" &&
+          currentSelected?.assigned_to &&
+          currentSelected.assigned_to.toLowerCase() !== (agentEmail || "").toLowerCase();
+        if (currentSelected && !takenByOtherInSoporte && !filteredNewCases.some(c => String(c.id) === String(currentSelected.id))) {
           filteredNewCases.unshift(currentSelected);
         }
         casesRef.current = filteredNewCases;
@@ -1114,6 +1122,65 @@ export function InboxClient({
       }
     };
 
+    /* Verificación ultraliviana de IDs disponibles en Soporte Avanzado (15s, solo IDs ~300 bytes) */
+    const syncSoporteAvanzadoIds = async () => {
+      if (containerType !== "soporte-avanzado" || !isMounted) return;
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      try {
+        const { data: liveIds, error: idErr } = await supabase
+          .from("sek_cases")
+          .select("id")
+          .eq("estado", "escalado")
+          .is("assigned_to", null)
+          .neq("canal", "simulator")
+          .neq("es_test", true)
+          .limit(300);
+        if (idErr || !Array.isArray(liveIds) || !isMounted) return;
+        const liveSet = new Set(liveIds.map((r: any) => String(r.id)));
+        const curIds = casesRef.current
+          .filter(c => String(c.estado || "").toLowerCase() === "escalado" && !c.assigned_to)
+          .map(c => String(c.id));
+        const hasRemoved = curIds.some(id => !liveSet.has(id));
+        const missingIds = Array.from(liveSet).filter(id => !allCasesRef.current.some(c => String(c.id) === id));
+        if (!hasRemoved && missingIds.length === 0) return;
+
+        let nextAll = allCasesRef.current.filter(c => {
+          const isOldEscalated = String(c.estado || "").toLowerCase() === "escalado" && !c.assigned_to;
+          return !isOldEscalated || liveSet.has(String(c.id));
+        });
+
+        if (missingIds.length > 0) {
+          const { data: newRows } = await supabase
+            .from("sek_cases")
+            .select(CASE_LIST_FIELDS)
+            .in("id", missingIds.slice(0, 50));
+          if (Array.isArray(newRows) && newRows.length > 0) {
+            const byId = new Map<string, SekCase>();
+            for (const c of nextAll) byId.set(String(c.id), c);
+            for (const r of newRows as unknown as SekCase[]) byId.set(String(r.id), r);
+            nextAll = Array.from(byId.values()).sort((a, b) => {
+              const ta = String(a.last_message_at || a.created_at || "");
+              const tb = String(b.last_message_at || b.created_at || "");
+              return tb.localeCompare(ta);
+            });
+          }
+        }
+
+        if (!isMounted) return;
+        allCasesRef.current = nextAll;
+        setAllCases(nextAll);
+        const filtered = filterCasesByContainer(nextAll, containerType, agentEmail, agentName, isUserAdmin, adminFilterMode);
+        casesRef.current = filtered;
+        setCases(filtered);
+        prevCasesRef.current = filtered;
+        prevMergedRef.current = mergeGroups(filtered);
+      } catch {}
+    };
+
+    const soporteTimer = containerType === "soporte-avanzado"
+      ? setInterval(syncSoporteAvanzadoIds, 15000)
+      : null;
+
     /* Polling activo de respaldo cada 120s (solo pestaña visible) — Realtime entrega cambios al instante */
     const poll = setInterval(() => {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
@@ -1121,8 +1188,16 @@ export function InboxClient({
     }, 120000);
 
     /* Refetch al volver a la ventana (pasa por el chequeo liviano de 60 bytes) */
-    const handleFocus = () => doRefetch(false);
-    const handleVisibility = () => { if (document.visibilityState === "visible") doRefetch(false); };
+    const handleFocus = () => {
+      if (containerType === "soporte-avanzado") syncSoporteAvanzadoIds();
+      doRefetch(false);
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        if (containerType === "soporte-avanzado") syncSoporteAvanzadoIds();
+        doRefetch(false);
+      }
+    };
     window.addEventListener("focus", handleFocus);
     document.addEventListener("visibilitychange", handleVisibility);
 
@@ -1164,6 +1239,7 @@ export function InboxClient({
     return () => {
       isMounted = false;
       if (debounceTimer) clearTimeout(debounceTimer);
+      if (soporteTimer) clearInterval(soporteTimer);
       clearInterval(poll);
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibility);

@@ -2848,15 +2848,22 @@ export function ChatView({
     if (accepting || !agentEmail) return;
     setAccepting(true);
     try {
+      const nowIso = new Date().toISOString();
+      const groupIdsToClaim =
+        sekCase._group?.caseIds && sekCase._group.caseIds.length > 0
+          ? Array.from(new Set(sekCase._group.caseIds.map(String)))
+          : [String(targetId)];
+
       // Bloqueo atómico: solo actualizar si el caso sigue sin asignar o en estado escalado/pendiente/ia_atendiendo
       const { data: updatedRows, error } = await supabase
         .from("sek_cases")
         .update({
           estado: "abierto",
           assigned_to: agentEmail,
-          accepted_at: new Date().toISOString(),
+          accepted_at: nowIso,
+          updated_at: nowIso,
         })
-        .eq("id", targetId)
+        .in("id", groupIdsToClaim)
         .or("assigned_to.is.null,estado.in.(escalado,pendiente,ia_atendiendo)")
         .select("id, assigned_to");
 
@@ -2872,6 +2879,12 @@ export function ChatView({
         const otherAgent = freshCase?.assigned_to || "otro técnico";
         toast.warning(`Este caso ya fue tomado por ${otherAgent}`);
         setSekCase(prev => ({ ...prev, estado: "abierto", assigned_to: freshCase?.assigned_to || prev.assigned_to }));
+        emitCaseBroadcastClient({
+          eventType: "UPDATE",
+          action: "meta",
+          caseId: String(targetId),
+          new: { id: targetId, estado: "abierto", assigned_to: freshCase?.assigned_to || null, updated_at: nowIso },
+        });
         setAccepting(false);
         return;
       }
@@ -2905,13 +2918,16 @@ export function ChatView({
         setAgentName(effectiveAgentName);
       }
 
-      setSekCase(prev => ({ ...prev, estado: "abierto", assigned_to: agentEmail }));
-      const acceptBroadcastPromise = emitCaseBroadcastClient({
-        eventType: "UPDATE",
-        action: "meta",
-        caseId: String(targetId),
-        new: { id: targetId, estado: "abierto", assigned_to: agentEmail },
-      });
+      setSekCase(prev => ({ ...prev, estado: "abierto", assigned_to: agentEmail, updated_at: nowIso }));
+      const claimedIds = updatedRows.map((r: any) => String(r.id));
+      const acceptBroadcastPromise = emitCaseBroadcastClient(
+        claimedIds.map((cid: string) => ({
+          eventType: "UPDATE",
+          action: "meta",
+          caseId: cid,
+          new: { id: cid, estado: "abierto", assigned_to: agentEmail, accepted_at: nowIso, updated_at: nowIso },
+        }))
+      );
       toast.success("Caso aceptado");
       logActivity({
         agent_email: agentEmail,
