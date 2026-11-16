@@ -75,6 +75,8 @@ const CASE_SCALAR_KEYS = new Set([
   "resolved_at",
   "ia_pausada",
   "es_test",
+  "readMessageId",
+  "readAt",
 ]);
 
 /**

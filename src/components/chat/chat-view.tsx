@@ -1276,11 +1276,13 @@ export function ChatView({
           const curCli = (curCase?.cliente && typeof curCase.cliente === "object") ? curCase.cliente : {};
           const ownRaw = String(curCase?.customer_phone || curCli?.telefono || curCli?.phone || "");
           const ownPhone = ownRaw.split("@")[0].replace(/[^0-9]/g, "");
+          const lidPhone = String(curCli?.lid || "").split("@")[0].replace(/[^0-9]/g, "");
           const matchesPhone = Boolean(
             incomingPhone &&
-            ownPhone &&
-            (incomingPhone === ownPhone ||
-              (incomingPhone.length >= 8 && ownPhone.endsWith(incomingPhone.slice(-8))))
+            ((ownPhone &&
+              (incomingPhone === ownPhone ||
+                (incomingPhone.length >= 8 && ownPhone.endsWith(incomingPhone.slice(-8))))) ||
+              (lidPhone && incomingPhone === lidPhone))
           );
           if (matchesPhone) {
             const st = String((payload as any).typing.state || "").toLowerCase();
@@ -1311,6 +1313,22 @@ export function ChatView({
 
         const newData = (payload.new || {}) as any;
         const prevCase = sekCaseRef.current;
+
+        if (newData.readMessageId && newData.readAt) {
+          setSekCase(prev => {
+            const ht = Array.isArray(prev.histtecnico) ? prev.histtecnico : [];
+            let touched = false;
+            const nextHt = ht.map((m: any) => {
+              if (m && m.messageId === newData.readMessageId && !m.read_at) {
+                touched = true;
+                return { ...m, read_at: newData.readAt };
+              }
+              return m;
+            });
+            return touched ? { ...prev, histtecnico: nextHt } : prev;
+          });
+          return;
+        }
 
         if (payload.action === "refresh_history") {
           doPoll(true);

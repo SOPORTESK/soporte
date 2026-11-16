@@ -559,9 +559,9 @@ async function processReadReceipt(supabase: any, messageId: string): Promise<boo
       }
       await broadcastCaseEvent({
         eventType: "UPDATE",
-        action: "refresh_history",
+        action: "meta",
         caseId: String(c.id),
-        new: { id: c.id, updated_at: now },
+        new: { id: c.id, updated_at: now, readMessageId: messageId, readAt: now },
       });
       console.log(`[evo-webhook] Confirmación de lectura actualizada para mensaje ${messageId} en caso ${c.id}`);
       return true;
@@ -1424,7 +1424,7 @@ export async function POST(req: NextRequest) {
     const actionable = updates.filter((item: any) => {
       const reactions = item?.update?.reactions;
       const status = item?.update?.status || item?.status;
-      const targetMessageId = item?.key?.id || item?.messageId || item?.keyId;
+      const targetMessageId = item?.key?.id || item?.keyId || item?.messageId;
       const isFromMe = Boolean(item?.key?.fromMe || item?.fromMe);
       return Boolean(
         targetMessageId &&
@@ -1439,7 +1439,7 @@ export async function POST(req: NextRequest) {
     for (const item of actionable) {
       const reactions = item.update?.reactions;
       const status = item.update?.status || item.status;
-      const targetMessageId = item.key?.id || item.messageId || item.keyId;
+      const targetMessageId = item.key?.id || item.keyId || item.messageId;
 
       if (Array.isArray(reactions) && targetMessageId) {
         for (const r of reactions) {

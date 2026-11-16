@@ -282,7 +282,7 @@ let _isIdle = false;
 
 async function getEffectiveSchedule(agentEmail) {
   const now = Date.now();
-  if (_cachedSchedule && (now - _lastScheduleFetch < 15000)) {
+  if (_cachedSchedule && (now - _lastScheduleFetch < 300000)) {
     return _cachedSchedule;
   }
   try {
@@ -371,7 +371,7 @@ let _hasActiveManualTask = false;
 
 async function checkActiveManualTask(agentEmail) {
   const now = Date.now();
-  if (now - _lastManualTaskCheck < 15000) return _hasActiveManualTask;
+  if (now - _lastManualTaskCheck < 60000) return _hasActiveManualTask;
   try {
     const today = new Date().toISOString().split('T')[0];
     const { data } = await supabase
@@ -423,7 +423,7 @@ async function poll() {
     }
 
     // 2. Si el agente tiene labor manual activa (almuerzo, taller, etc.), no registrar ventanas de PC
-    const hasManual = await checkActiveManualTask(AGENT_EMAIL);
+    const hasManual = isWithinSchedule(sched) ? await checkActiveManualTask(AGENT_EMAIL) : false;
     if (hasManual) {
       _enterTime = Date.now();
       return;

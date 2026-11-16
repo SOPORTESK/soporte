@@ -1,6 +1,6 @@
 import { createServiceClient } from "@/lib/supabase/service";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { cacheGetFresh, cacheSet, cacheDelete } from "@/lib/supabase/cache";
+import { cacheGetFresh, cacheSet, cacheDelete, cacheDeletePrefix } from "@/lib/supabase/cache";
 import { computeUnifiedActivityMetrics } from "@/lib/activity-engine";
 import { broadcastAgentEvent } from "@/lib/realtime-broadcast";
 
@@ -77,7 +77,7 @@ const SCHEDULE_SETTING_KEY = "activity_work_schedule";
 const OVERTIME_SETTING_KEY = "activity_overtime_requests";
 
 export async function getWorkSchedule(): Promise<WorkScheduleConfig> {
-  const cached = cacheGetFresh("app_work_schedule", 15000);
+  const cached = cacheGetFresh("app_work_schedule", 120000);
   if (cached) return cached;
 
   const supabase = getClient();
@@ -236,7 +236,7 @@ export async function saveAgentSchedule(
 
 export async function getOvertimeRequests(date?: string, agentEmail?: string): Promise<OvertimeRequest[]> {
   const cacheKey = "app_overtime_all";
-  let list = cacheGetFresh(cacheKey, 15000);
+  let list = cacheGetFresh(cacheKey, 120000);
   if (!list) {
     const supabase = getClient();
     try {
@@ -518,6 +518,7 @@ export async function insertActivityLog(entry: ActivityLog): Promise<void> {
   }
   const { error } = await supabase.from("activity_log").insert(insertPayload);
   if (error) console.error("[activity-db] insert error:", error.message);
+  else cacheDeletePrefix("timeline_cache_");
 }
 
 export async function getActivityTimeline(
@@ -525,6 +526,10 @@ export async function getActivityTimeline(
   date?: string,
   endDate?: string
 ): Promise<ActivityLog[]> {
+  const timelineCacheKey = `timeline_cache_${agentEmail || "all"}_${date || "all"}_${endDate || ""}`;
+  const cachedTimeline = cacheGetFresh(timelineCacheKey, 30000) as ActivityLog[] | undefined;
+  if (cachedTimeline) return cachedTimeline;
+
   const supabase = getClient();
   const all: ActivityLog[] = [];
   let from = 0;
@@ -558,6 +563,7 @@ export async function getActivityTimeline(
     from += batchSize;
   }
 
+  cacheSet(timelineCacheKey, all);
   return all;
 }
 
