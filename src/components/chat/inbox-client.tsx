@@ -194,10 +194,10 @@ function getMaxUpdatedAt(list: SekCase[]): string {
   return max;
 }
 
-async function fetchCasesMeta(supabase: any, limit = 1500, agentEmail?: string, isAdmin?: boolean) {
+async function fetchCasesMeta(supabase: any, limit = 100, agentEmail?: string, isAdmin?: boolean) {
   if (agentEmail && isAdmin) {
     // Para administradores en Mi Gestión:
-    // Traer TODOS los casos asignados al admin (abiertos y cerrados, sin perder historial)
+    // Traer TODOS los casos asignados al admin (abiertos y cerrados recientes, sin descargar cientos de cerrados viejos)
     // Y además traer los casos activos de los demás técnicos para supervisión
     const [mineRes, othersRes] = await Promise.all([
       supabase
@@ -208,7 +208,7 @@ async function fetchCasesMeta(supabase: any, limit = 1500, agentEmail?: string, 
         .eq("assigned_to", agentEmail)
         .order("last_message_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false })
-        .limit(300),
+        .limit(80),
       supabase
         .from("sek_cases")
         .select(CASE_LIST_FIELDS)
@@ -220,7 +220,7 @@ async function fetchCasesMeta(supabase: any, limit = 1500, agentEmail?: string, 
         .neq("estado", "resuelto")
         .order("last_message_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false })
-        .limit(200),
+        .limit(100),
     ]);
     const combined = [...(mineRes.data || []), ...(othersRes.data || [])];
     return combined as SekCase[];

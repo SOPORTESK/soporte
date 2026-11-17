@@ -61,7 +61,7 @@ export default async function MiGestionPage({ searchParams }: { searchParams: { 
         .eq("assigned_to", agentEmail)
         .order("last_message_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false })
-        .limit(300);
+        .limit(80);
 
       if (!isAdmin) {
         const { data, error } = await myCasesPromise;
@@ -80,14 +80,14 @@ export default async function MiGestionPage({ searchParams }: { searchParams: { 
         .neq("estado", "resuelto")
         .order("last_message_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false })
-        .limit(200);
+        .limit(100);
 
       const [mineRes, othersRes] = await Promise.all([myCasesPromise, othersActivePromise]);
       const combined = [...(mineRes.data || []), ...(othersRes.data || [])];
       return { data: combined, error: mineRes.error || othersRes.error };
     },
     [],
-    15000 // 15s TTL para respuesta ágil y actualización rápida
+    60000 // 60s TTL (invalidado por broadcastCaseEvents al cambiar un caso)
   );
 
   if (casesError) console.error("[mi-gestion] sek_cases error:", casesError);

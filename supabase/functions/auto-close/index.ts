@@ -167,6 +167,19 @@ async function learnFromCase(caso: any): Promise<void> {
   } catch (_e) { /* no bloquea */ }
 }
 
+const skipHistoryCache = new Map<string, string>(); // caseId -> last_message_at/updated_at/created_at cuando espera agente o sin respuesta
+
+async function ensureCaseHistory(caso: any): Promise<void> {
+  if (caso.histcliente !== undefined && caso.histtecnico !== undefined) return;
+  const { data } = await db
+    .from("sek_cases")
+    .select("histcliente, histtecnico")
+    .eq("id", caso.id)
+    .maybeSingle();
+  caso.histcliente = Array.isArray(data?.histcliente) ? data.histcliente : [];
+  caso.histtecnico = Array.isArray(data?.histtecnico) ? data.histtecnico : [];
+}
+
 Deno.serve(async (req) => {
   const urlObj = new URL(req.url);
   if (urlObj.searchParams.get("debug") === "true") {
@@ -241,7 +254,7 @@ Deno.serve(async (req) => {
 
   const { data: casos, error } = await db
     .from("sek_cases")
-    .select("id, canal, estado, histcliente, histtecnico, created_at, last_message_at, assigned_to, customer_phone, cliente, auto_close_paused, tags")
+    .select("id, canal, estado, created_at, updated_at, last_message_at, accepted_at, assigned_to, customer_phone, cliente, auto_close_paused, tags")
     // Solo cerrar casos atendidos por IA (smart) o por un técnico humano (abierto).
     // NUNCA cerrar casos escalados: el cliente está esperando que un humano lo atienda.
     .in("estado", ["ia_atendiendo", "abierto", "calificacion_pendiente"])
@@ -277,6 +290,7 @@ Deno.serve(async (req) => {
     const isFromPreviousDay = caseCrDateStr < crDateStr;
 
     if (dailyCloseConfig.enabled && (isAfterDailyCutoff || (isFromPreviousDay && !isReopen && !caso.auto_close_paused))) {
+      await ensureCaseHistory(caso);
       console.log(`[auto-close] Caso ${caso.id} seleccionado para cierre por fin de jornada (corte: ${dailyCloseConfig.close_time}, diaPrevio: ${isFromPreviousDay})`);
 
       const existingTech = Array.isArray(caso.histtecnico) ? caso.histtecnico : [];
@@ -351,6 +365,11 @@ Deno.serve(async (req) => {
 
     // ── CALIFICACION_PENDIENTE: timeout de encuesta ──
     if (caso.estado === "calificacion_pendiente") {
+      const approxSurveyElapsed = now - new Date(caso.last_message_at || caso.created_at).getTime();
+      if (approxSurveyElapsed < SURVEY_TIMEOUT_MINUTES * 60 * 1000) {
+        continue;
+      }
+      await ensureCaseHistory(caso);
       const lastAgentMsg = (caso.histtecnico ?? []).filter((m: any) => m?.time && m?.role !== "nota");
       const lastAgentTime = lastAgentMsg.length > 0
         ? Math.max(...lastAgentMsg.map((m: any) => new Date(m.time).getTime()))
@@ -401,6 +420,7 @@ Deno.serve(async (req) => {
         continue;
       }
       console.log(`[auto-close] Caso ${caso.id} zombi (${Math.round(ageMs/3600000)}h sin assigned_to) → cerrando`);
+      await ensureCaseHistory(caso);
       const closeEntry = { role: "tecnico", content: autoCloseConfig.close_message || CLOSE_MSG, time: new Date().toISOString(), author: "Soporte Sekunet" };
       const { data: zombieUpdated } = await db.from("sek_cases").update({ estado: "cerrado", closed_at: closeEntry.time, histtecnico: [...(caso.histtecnico ?? []), closeEntry] })
         .eq("id", caso.id).not("estado", "in", '("cerrado","resuelto")').select("id");
@@ -424,6 +444,14 @@ Deno.serve(async (req) => {
     // pero si transcurre ese tiempo sin actividad, se auto-cierra para no quedar abandonado.
     if (isReopen) {
       const reopenGraceMs = Math.max((autoCloseConfig.inactivity_minutes || 10) * 2 * 60 * 1000, 60 * 60 * 1000);
+      const approxLast = Math.max(
+        new Date(caso.last_message_at || caso.created_at).getTime(),
+        caso.accepted_at ? new Date(caso.accepted_at).getTime() : 0
+      );
+      if (approxLast > 0 && (now - approxLast) < reopenGraceMs) {
+        continue;
+      }
+      await ensureCaseHistory(caso);
       const caseAcceptedTime = caso.accepted_at ? new Date(caso.accepted_at).getTime() : 0;
       const clientMsgs = (caso.histcliente ?? []).filter((m: any) => m?.time && m?.role === "user");
       const lastClientTime = clientMsgs.length > 0 ? Math.max(...clientMsgs.map((m: any) => new Date(m.time).getTime())) : 0;
@@ -470,12 +498,31 @@ Deno.serve(async (req) => {
      * - Si el cliente escribió DESPUÉS del agente → el cliente espera respuesta → NO cerrar.
      */
 
+    // Umbral de inactividad configurable
+    const threshold = (autoCloseConfig.inactivity_minutes || 10) * 60 * 1000;
+    const sig = String(caso.last_message_at || caso.updated_at || caso.created_at || "");
+    const approxLastTime = Math.max(
+      new Date(caso.last_message_at || caso.created_at).getTime(),
+      caso.accepted_at ? new Date(caso.accepted_at).getTime() : 0
+    );
+    if (now - approxLastTime < threshold) continue;
+    if (skipHistoryCache.get(String(caso.id)) === sig) continue;
+
+    await ensureCaseHistory(caso);
+
     // Unir y ordenar todos los mensajes conversacionales con el mismo criterio cronológico del chat (time + seq)
     const clientMsgs = (caso.histcliente ?? []).filter((m: any) => m?.time && m?.role === "user");
     const agentMsgs = (caso.histtecnico ?? []).filter((m: any) => m?.time && m?.role !== "nota");
 
-    // Si nunca hubo respuesta del agente, no cerrar
-    if (agentMsgs.length === 0) continue;
+    // Si nunca hubo respuesta del agente, no cerrar y cachear firma para no repetir descarga de historial cada minuto
+    if (agentMsgs.length === 0) {
+      if (skipHistoryCache.size > 500) {
+        const oldest = skipHistoryCache.keys().next().value;
+        if (oldest) skipHistoryCache.delete(oldest);
+      }
+      skipHistoryCache.set(String(caso.id), sig);
+      continue;
+    }
 
     const allMsgs = [
       ...clientMsgs.map((m: any) => ({ ...m, isClient: true })),
@@ -498,11 +545,15 @@ Deno.serve(async (req) => {
     const lastMsg = allMsgs[allMsgs.length - 1];
     if (!lastMsg) continue;
 
-    // Si el cliente escribió de último, el cliente espera respuesta → NO cerrar
-    if (lastMsg.isClient) continue;
-
-    // Umbral de inactividad configurable
-    const threshold = (autoCloseConfig.inactivity_minutes || 10) * 60 * 1000;
+    // Si el cliente escribió de último, el cliente espera respuesta → NO cerrar ni re-descargar historial hasta que cambie
+    if (lastMsg.isClient) {
+      if (skipHistoryCache.size > 500) {
+        const oldest = skipHistoryCache.keys().next().value;
+        if (oldest) skipHistoryCache.delete(oldest);
+      }
+      skipHistoryCache.set(String(caso.id), sig);
+      continue;
+    }
 
     // Cerrar si pasaron más de los minutos configurados desde la última respuesta del agente
     const lastAgentTime = new Date(lastMsg.time).getTime();
