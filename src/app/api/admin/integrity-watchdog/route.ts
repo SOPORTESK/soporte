@@ -21,10 +21,10 @@ export async function GET(req: NextRequest) {
 
     let report = await getStoredIntegrityReport();
 
-    // Si no hay reporte previo o tiene más de 15 minutos, refrescarlo
+    // Si no hay reporte previo o tiene más de 12 horas (1 vez en la mañana y 1 en la tarde), refrescarlo
     const isStale =
       !report ||
-      Date.now() - new Date(report.ranAt).getTime() > 15 * 60 * 1000;
+      Date.now() - new Date(report.ranAt).getTime() > 12 * 60 * 60 * 1000;
 
     if (isStale) {
       report = await refreshIntegrityReport();
