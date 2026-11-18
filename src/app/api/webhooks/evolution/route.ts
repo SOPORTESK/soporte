@@ -2612,7 +2612,7 @@ export async function POST(req: NextRequest) {
             pc.estado === "cerrado" &&
             !pc.assigned_to &&
             !isNaN(pcCreatedMs) &&
-            Date.now() - pcCreatedMs < 14 * 60 * 60 * 1000
+            Date.now() - pcCreatedMs < 30 * 60 * 1000
           ) {
             recentAfterHoursCaseId = String(pc.id);
           }
