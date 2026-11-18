@@ -1028,7 +1028,7 @@ export function InboxClient({
       // 1. Si la pestaña está oculta en segundo plano y no es forzado, no ejecutar (0 bytes en segundo plano)
       if (typeof document !== "undefined" && document.visibilityState === "hidden" && !force) return;
 
-      if (!force && Date.now() - lastRefetch < 30000) return; // throttle 30s para evitar descargas repetidas al cambiar de ventana
+      if (!force && Date.now() - lastRefetch < 3000) return; // throttle corto de 3s (chequeo liviano de 60 bytes)
       lastRefetch = Date.now();
       try {
         if (containerType === "mi-gestion" && !agentEmail) return;
@@ -1181,11 +1181,11 @@ export function InboxClient({
       ? setInterval(syncSoporteAvanzadoIds, 15000)
       : null;
 
-    /* Polling activo de respaldo cada 120s (solo pestaña visible) — Realtime entrega cambios al instante */
+    /* Polling activo de respaldo cada 30s (solo pestaña visible, chequeo de 60 bytes + delta sync) */
     const poll = setInterval(() => {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       doRefetch(false);
-    }, 120000);
+    }, 30000);
 
     /* Refetch al volver a la ventana (pasa por el chequeo liviano de 60 bytes) */
     const handleFocus = () => {

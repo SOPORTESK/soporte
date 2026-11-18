@@ -1450,15 +1450,15 @@ export function ChatView({
       .subscribe();
     presenceChannelRef.current = presenceCh;
 
-    /* Polling activo de respaldo cada 120s (solo pestaña visible) — Realtime entrega cambios al instante */
+    /* Polling activo de respaldo cada 20s (solo pestaña visible, chequeo liviano de ~80 bytes) */
     const poll = setInterval(() => {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       doPoll();
-    }, 120000);
+    }, 20000);
 
-    /* Refetch al volver a la pestaña solo si pasaron más de 30s desde el último chequeo */
+    /* Refetch al volver a la pestaña (pasa por el chequeo liviano de ~80 bytes) */
     const handleVisibility = () => {
-      if (document.visibilityState === "visible" && Date.now() - lastPollAt > 30000) {
+      if (document.visibilityState === "visible" && Date.now() - lastPollAt > 3000) {
         doPoll(false);
       }
     };
