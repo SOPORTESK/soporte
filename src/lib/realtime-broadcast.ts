@@ -127,7 +127,7 @@ async function postRealtimeBroadcast(
   for (let i = 0; i < messages.length; i += BATCH_SIZE) {
     const batch = messages.slice(i, i + BATCH_SIZE);
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 2500);
+    const timer = setTimeout(() => controller.abort(), 8000);
     try {
       const res = await fetch(`${supabaseUrl}/realtime/v1/api/broadcast`, {
         method: "POST",
