@@ -386,12 +386,44 @@ export async function POST(req: NextRequest) {
           author: entry?.replyTo?.author || (targetQuotedFromMe ? "Soporte Sekunet" : "Cliente"),
         };
       }
-      const { error: appendErr } = await supabase.rpc("sek_append_hist", {
+      let { error: appendErr } = await supabase.rpc("sek_append_hist", {
         p_case_id: String(case_id),
         p_entry: finalEntry as any,
         p_col: "histtecnico",
         p_preview: (text || fileName || "").slice(0, 200),
       });
+      if (appendErr) {
+        console.warn("[evo-send] Reintentando sek_append_hist tras error:", appendErr.message);
+        await new Promise(r => setTimeout(r, 300));
+        const retryRes = await supabase.rpc("sek_append_hist", {
+          p_case_id: String(case_id),
+          p_entry: finalEntry as any,
+          p_col: "histtecnico",
+          p_preview: (text || fileName || "").slice(0, 200),
+        });
+        appendErr = retryRes.error;
+      }
+      if (appendErr) {
+        console.warn("[evo-send] sek_append_hist falló en reintento, usando fallback update directo:", appendErr.message);
+        const { data: curCase } = await supabase
+          .from("sek_cases")
+          .select("histtecnico")
+          .eq("id", String(case_id))
+          .maybeSingle();
+        if (curCase) {
+          const curHt = Array.isArray(curCase.histtecnico) ? curCase.histtecnico : [];
+          const { error: updErr } = await supabase
+            .from("sek_cases")
+            .update({
+              histtecnico: [...curHt, finalEntry],
+              last_message_at: (finalEntry as any)?.time || new Date().toISOString(),
+              last_message_preview: (text || fileName || "").slice(0, 200),
+            })
+            .eq("id", String(case_id));
+          if (!updErr) appendErr = null;
+          else console.error("[evo-send] Error en fallback update directo:", updErr);
+        }
+      }
       if (appendErr) {
         console.error("[evo-send] Error guardando en BD tras envío exitoso:", appendErr);
       } else {

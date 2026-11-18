@@ -3045,12 +3045,25 @@ export function ChatView({
                 fromMe: true,
                 ...(localDelivered.messageId ? { messageId: localDelivered.messageId } : {}),
               };
-              await supabase.rpc("sek_append_hist", {
+              let { error: rpcErr } = await supabase.rpc("sek_append_hist", {
                 p_case_id: String(targetId),
                 p_entry: persistedLocal as any,
                 p_col: "histtecnico",
                 p_preview: welcomeMsg.slice(0, 200),
               });
+              if (rpcErr) {
+                await new Promise(r => setTimeout(r, 300));
+                const retry = await supabase.rpc("sek_append_hist", {
+                  p_case_id: String(targetId),
+                  p_entry: persistedLocal as any,
+                  p_col: "histtecnico",
+                  p_preview: welcomeMsg.slice(0, 200),
+                });
+                rpcErr = retry.error;
+              }
+              if (rpcErr) {
+                console.error("[acceptCase] Error guardando bienvenida local en BD:", rpcErr);
+              }
               emitCaseBroadcastClient({
                 eventType: "UPDATE",
                 action: "deltaEntry",
