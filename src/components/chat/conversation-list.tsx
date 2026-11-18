@@ -69,6 +69,9 @@ export function ConversationList({
   canSupervise,
   canFilterByTech,
   inboxPerms,
+  onLoad30Days,
+  loading30Days = false,
+  hasLoaded30Days = false,
 }: {
   cases: SekCase[];
   selectedId: string | null;
@@ -86,6 +89,9 @@ export function ConversationList({
   canSupervise?: boolean;
   canFilterByTech?: boolean;
   inboxPerms?: Record<string, boolean> | null;
+  onLoad30Days?: () => void;
+  loading30Days?: boolean;
+  hasLoaded30Days?: boolean;
 }) {
   const router = useRouter();
   const [query, setQuery] = React.useState("");
@@ -825,6 +831,19 @@ export function ConversationList({
             </li>
           );
         })}
+        {containerType === "inbox" && onLoad30Days && !hasLoaded30Days && (
+          <li className="p-3">
+            <button
+              type="button"
+              disabled={loading30Days}
+              onClick={onLoad30Days}
+              className="w-full py-2 px-3 rounded-lg border border-border bg-muted/40 hover:bg-muted text-xs font-medium text-muted-foreground hover:text-foreground transition-colors flex items-center justify-center gap-2 disabled:opacity-60 cursor-pointer"
+            >
+              {loading30Days ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+              <span>{loading30Days ? "Cargando últimos 30 días..." : "Cargar últimos 30 días"}</span>
+            </button>
+          </li>
+        )}
       </ul>
 
       {open && (

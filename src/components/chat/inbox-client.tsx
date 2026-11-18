@@ -1273,6 +1273,50 @@ export function InboxClient({
 
   const [listWidth, setListWidth] = React.useState<number>(340);
   const [mounted, setMounted] = React.useState(false);
+  const [loading30Days, setLoading30Days] = React.useState(false);
+  const [hasLoaded30Days, setHasLoaded30Days] = React.useState(false);
+
+  const handleLoad30Days = React.useCallback(async () => {
+    if (loading30Days || hasLoaded30Days) return;
+    setLoading30Days(true);
+    try {
+      const sinceIso = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      const { data, error } = await supabase
+        .from("sek_cases")
+        .select(CASE_LIST_FIELDS)
+        .neq("canal", "simulator")
+        .neq("es_test", true)
+        .in("estado", ["cerrado", "resuelto"])
+        .gte("created_at", sinceIso)
+        .order("last_message_at", { ascending: false, nullsFirst: false })
+        .order("created_at", { ascending: false })
+        .limit(800);
+      if (error) throw error;
+
+      const byId = new Map<string, SekCase>();
+      for (const c of allCasesRef.current) byId.set(String(c.id), c);
+      for (const r of (data || []) as unknown as SekCase[]) byId.set(String(r.id), r);
+      const merged = Array.from(byId.values()).sort((a, b) => {
+        const ta = String(a.last_message_at || a.created_at || "");
+        const tb = String(b.last_message_at || b.created_at || "");
+        return tb.localeCompare(ta);
+      });
+
+      allCasesRef.current = merged;
+      setAllCases(merged);
+      const filtered = filterCasesByContainer(merged, containerType, agentEmail, agentName, isUserAdmin, adminFilterMode);
+      casesRef.current = filtered;
+      setCases(filtered);
+      prevCasesRef.current = filtered;
+      prevMergedRef.current = mergeGroups(filtered);
+      setHasLoaded30Days(true);
+      toast.success(`Historial de los últimos 30 días cargado (${data?.length || 0} casos)`);
+    } catch (e: any) {
+      toast.error("No se pudieron cargar los últimos 30 días");
+    } finally {
+      setLoading30Days(false);
+    }
+  }, [supabase, loading30Days, hasLoaded30Days, containerType, agentEmail, agentName, isUserAdmin, adminFilterMode]);
   React.useEffect(() => {
     const stored = Number(localStorage.getItem("inbox_list_width") || 340);
     setListWidth(stored);
@@ -1348,6 +1392,9 @@ export function InboxClient({
           canSupervise={canSupervise}
           canFilterByTech={canFilterByTech}
           inboxPerms={inboxPerms}
+          onLoad30Days={containerType === "inbox" ? handleLoad30Days : undefined}
+          loading30Days={loading30Days}
+          hasLoaded30Days={hasLoaded30Days}
         />
       </div>
       {/* Divisor arrastrable — solo visible en md+ */}
