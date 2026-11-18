@@ -326,6 +326,50 @@ async function checkCases(checks: IntegrityCheck[]) {
       ? `Comparativa mensual verificada: ${monthCases.length} casos en ${currentYM} frente a ${prevCount} en ${prevYM} (${tendenciaMes !== null ? `${tendenciaMes > 0 ? "+" : ""}${tendenciaMes}%` : "N/A"}).`
       : `El mes anterior (${prevYM}) tiene ${prevCount} casos pero no se calculó la variación porcentual.`,
   });
+
+  // 7. Casos reales que podrían quedar excluidos por es_test IS NULL al usar .neq("es_test", true)
+  const { count: nullEsTestCount, error: nullEsTestErr } = await sb
+    .from("sek_cases")
+    .select("id", { count: "exact", head: true })
+    .neq("canal", "simulator")
+    .is("es_test", null);
+
+  if (!nullEsTestErr) {
+    const omitted = nullEsTestCount ?? 0;
+    checks.push({
+      id: "casos_es_test_null",
+      label: "Casos: Registros con es_test NULL excluidos por filtros",
+      status: omitted > 0 ? "error" : "ok",
+      expected: "0 casos con es_test IS NULL",
+      actual: `${omitted} casos con es_test NULL`,
+      detail: omitted === 0
+        ? "Ningún caso real tiene es_test en NULL."
+        : `Alerta: ${omitted} casos reales tienen es_test = NULL y quedan fuera de las consultas .neq('es_test', true).`,
+    });
+  }
+
+  // 8. Anomalías de estado/timestamps en casos (closed_at inconsistente o timestamps invertidos)
+  const estadoInconsistente = rows.filter(
+    (c) => Boolean(c.closed_at) && ["abierto", "escalado", "pendiente", "ia_atendiendo"].includes(String(c.estado || ""))
+  );
+  const timestampsInvertidos = rows.filter((c) => {
+    const cr = c.created_at ? new Date(c.created_at).getTime() : NaN;
+    const cl = c.closed_at ? new Date(c.closed_at).getTime() : NaN;
+    const ac = c.accepted_at ? new Date(c.accepted_at).getTime() : NaN;
+    return (!isNaN(cr) && !isNaN(cl) && cl < cr - 60000) || (!isNaN(cr) && !isNaN(ac) && ac < cr - 60000);
+  });
+
+  checks.push({
+    id: "casos_anomalias_estado_fechas",
+    label: "Casos: Coherencia de estado vs closed_at y orden de fechas",
+    status: estadoInconsistente.length > 0 ? "warning" : timestampsInvertidos.length > 0 ? "warning" : "ok",
+    expected: "0 casos con estado activo + closed_at o fechas invertidas",
+    actual: `${estadoInconsistente.length} estado/closed_at · ${timestampsInvertidos.length} fechas invertidas`,
+    detail:
+      estadoInconsistente.length === 0 && timestampsInvertidos.length === 0
+        ? "Todos los casos mantienen coherencia entre estado, closed_at, accepted_at y created_at."
+        : `Detectados ${estadoInconsistente.length} caso(s) con estado activo y closed_at lleno, y ${timestampsInvertidos.length} con fechas invertidas.`,
+  });
 }
 
 // ───────────────────────── ACTIVIDAD (PARIDAD BD ↔ ANALÍTICAS DEL TRACKER) ─────────────────────────
