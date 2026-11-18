@@ -1230,7 +1230,7 @@ export default async function EstadisticasAtencionPage({
       {/* ── KPIs FILA 1: Operacionales ── */}
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         {[
-          { label: "Total Casos",      value: totalCasos.toString(),  icon: Users,        color: "text-brand-500",   bg: "bg-brand-500/10",   sub: `${totalActivos} activos · ${casosConAsig.length} humanos${casosSinAsig.length > 0 ? ` · ${casosSinAsig.length} IA/sin asignar` : ""}${hasExplicitFilter ? ` (${filtroLabel})` : ""}`, badge: <DataAuditBadge label="Casos" totalEsperado={totalCasos} totalCalculado={totalResueltos + totalActivos} detalle="Comprobación: Resueltos + Activos = Total casos" size="xs" /> },
+          { label: "Total Casos",      value: totalCasos.toString(),  icon: Users,        color: "text-brand-500",   bg: "bg-brand-500/10",   sub: `${totalActivos} activos · ${casosConAsig.length} asignados${casosSinAsig.length > 0 ? ` · ${casosSinAsig.length} sin asignar` : ""}${hasExplicitFilter ? ` (${filtroLabel})` : ""}`, badge: <DataAuditBadge label="Casos" totalEsperado={totalCasos} totalCalculado={totalResueltos + totalActivos} detalle="Comprobación: Resueltos + Activos = Total casos" size="xs" /> },
           { label: "Tasa Resolución",  value: `${tasaResolucion}%`,   icon: CheckCircle,  color: "text-emerald-500", bg: "bg-emerald-500/10", sub: `${totalResueltos} de ${totalCasos} resueltos`, badge: <DataAuditBadge label="Cierres" totalEsperado={totalCasos} totalCalculado={totalResueltos + totalActivos} detalle="Comprobación: 100% de casos auditados" size="xs" /> },
           { label: "AHT",              value: formatSLA(avgAHTGlobal),    icon: Clock,    color: "text-violet-500",  bg: "bg-violet-500/10",  sub: `Tiempo activo por caso · ${ahtTodos.length} casos`, badge: <DataAuditBadge label="AHT" totalEsperado={tiemposResolucionGlobal.length} totalCalculado={ahtTodos.length} detalle="Comprobación: AHT y Tiempo de Resolución evaluados sobre la misma muestra de casos resueltos." size="xs" /> },
           { label: "SLA Promedio",     value: formatSLA(avgSlaGlobal),icon: Clock,        color: "text-sky-500",     bg: "bg-sky-500/10",     sub: `Espera IA → humano`   },
@@ -1377,7 +1377,7 @@ export default async function EstadisticasAtencionPage({
                 <div className="flex items-center gap-2.5 flex-wrap">
                   <h2 className="font-black text-sm">{csatActivo ? "Desempeño Individual" : "Productividad Individual"}</h2>
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
-                    {casosConAsig.length} asignados{casosSinAsig.length > 0 ? ` + ${casosSinAsig.length} IA/sin asignar = ${totalCasos}` : ""}
+                    {casosConAsig.length} asignados{casosSinAsig.length > 0 ? ` + ${casosSinAsig.length} sin asignar = ${totalCasos}` : ""}
                   </span>
                   <DataAuditBadge
                     label="Técnicos"
