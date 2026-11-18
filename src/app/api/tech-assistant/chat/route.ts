@@ -1234,7 +1234,7 @@ export async function POST(req: NextRequest) {
       (isDraftAction ? "Redactar propuesta de respuesta para el cliente basada en el caso abierto" : (message || "").trim());
 
     const now = new Date().toISOString();
-    const userMsgContent = techMediaAnalysis
+    const aiUserMsgContent = techMediaAnalysis
       ? `${displayMsg}\n\n[ANÁLISIS DEL ARCHIVO ADJUNTO DEL TÉCNICO (${fileName || mediaType || "archivo"})]:\n${techMediaAnalysis}`.trim()
       : mediaUrl
         ? `${displayMsg}\n\n[AVISO DEL SISTEMA: El técnico SÍ adjuntó "${fileName || mediaType || "imagen"}", pero el motor de visión falló temporalmente al leerla. NO afirmes que no hay captura ni inventes datos; informa honestamente el fallo de lectura visual y pide reintentar o describir brevemente la captura.]`.trim()
@@ -1242,13 +1242,17 @@ export async function POST(req: NextRequest) {
 
     const userMsg: TechMessage = {
       role: "user",
-      content: userMsgContent,
+      content: displayMsg || (mediaUrl ? `Adjunto: ${fileName || mediaType || "imagen"}` : ""),
       time: now,
       mediaUrl: mediaUrl || undefined,
       mediaType: mediaType || undefined,
       fileName: fileName || undefined,
     };
     const updatedMessages = [...messages, userMsg];
+    const aiMessages = [
+      ...messages,
+      { ...userMsg, content: aiUserMsgContent },
+    ];
 
     // ── 5. Motor de Relevancia por Dominio Técnico de Avería (sin falsos positivos) ──
     const isGenericDiagnosticPrompt = /diagnostique y resuelva|identifique el equipo|procedimiento técnico/i.test(message || "");
@@ -1749,7 +1753,7 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
     try {
       const aiGen = await generateText("chat", {
         system: systemPrompt,
-        messages: updatedMessages.map((m) => ({
+        messages: aiMessages.map((m) => ({
           role: m.role === "assistant" ? "assistant" : "user",
           content: m.content,
         })),

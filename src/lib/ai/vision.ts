@@ -187,6 +187,7 @@ export async function analyzeMedia(
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
     let googleKey = process.env.GEMINI_API_KEY || "";
     let openrouterKey = process.env.OPENROUTER_API_KEY || "";
+    let groqKey = process.env.GROQ_API_KEY || "";
 
     if (supabaseUrl && serviceKey) {
       try {
@@ -194,11 +195,12 @@ export async function analyzeMedia(
         const { data: provs } = await supabase
           .from("sek_ai_providers")
           .select("id, api_key")
-          .in("id", ["google", "openrouter"]);
+          .in("id", ["google", "openrouter", "groq"]);
         if (provs) {
           for (const p of provs) {
             if (p.id === "google" && p.api_key) googleKey = p.api_key;
             if (p.id === "openrouter" && p.api_key) openrouterKey = p.api_key;
+            if (p.id === "groq" && p.api_key) groqKey = p.api_key;
           }
         }
       } catch {
@@ -206,7 +208,7 @@ export async function analyzeMedia(
       }
     }
 
-    if (!googleKey && !openrouterKey) {
+    if (!googleKey && !openrouterKey && !groqKey) {
       console.warn("[vision] No se encontró ninguna API key disponible para análisis visual");
       return null;
     }
@@ -350,6 +352,50 @@ Analiza el contenido de este archivo técnico (${fileName || mimeType}): extrae 
           }
         } catch (e: any) {
           console.warn(`[vision] Excepción OpenRouter ${orModel}:`, e?.message);
+        }
+      }
+    }
+
+    // 3. Fallback con Groq Vision (Llama 4 Scout) para imágenes cuando Gemini/OpenRouter están sin cuota
+    if (groqKey && mimeType.startsWith("image/")) {
+      const groqModels = ["meta-llama/llama-4-scout-17b-16e-instruct", "meta-llama/llama-4-maverick-17b-128e-instruct"];
+      for (const gModel of groqModels) {
+        try {
+          const gRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${groqKey}`,
+            },
+            body: JSON.stringify({
+              model: gModel,
+              messages: [
+                {
+                  role: "user",
+                  content: [
+                    { type: "text", text: prompt },
+                    { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64Data}` } },
+                  ],
+                },
+              ],
+              temperature: 0.1,
+              max_tokens: 1500,
+            }),
+            signal: AbortSignal.timeout(12000),
+          });
+          if (gRes.ok) {
+            const data = await gRes.json();
+            const text = data.choices?.[0]?.message?.content?.trim();
+            if (text) {
+              console.log(`[vision] Análisis exitoso con Groq ${gModel} (${(buf.byteLength / 1024).toFixed(1)} KB)`);
+              return text;
+            }
+          } else {
+            const errTxt = await gRes.text().catch(() => "");
+            console.warn(`[vision] Groq ${gModel} error:`, gRes.status, errTxt.substring(0, 120));
+          }
+        } catch (e: any) {
+          console.warn(`[vision] Excepción Groq ${gModel}:`, e?.message);
         }
       }
     }
