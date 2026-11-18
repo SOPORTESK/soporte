@@ -900,7 +900,15 @@ export function ChatView({
   React.useEffect(() => {
     let mounted = true;
     const cached = caseHistoryCache.get(cacheKey);
-    if (cached && (Date.now() - cached.timestamp < CASE_CACHE_TTL_MS)) {
+    const isCacheUpToDate =
+      cached &&
+      Date.now() - cached.timestamp < CASE_CACHE_TTL_MS &&
+      (!initialCase.last_message_at ||
+        String(cached.sekCase.last_message_at || "") >= String(initialCase.last_message_at)) &&
+      (!initialCase.updated_at ||
+        String((cached.sekCase as any).updated_at || "") >= String(initialCase.updated_at));
+
+    if (isCacheUpToDate && cached) {
       setSekCase(cached.sekCase);
       historyLoadedRef.current = true;
       return;
